@@ -9,7 +9,8 @@
 //!
 //! * **kinds and work stack** are the copy walker's: the same `recursive_transfer_types`
 //!   indices, the same `{count, capacity, entries}` block, the same
-//!   `_mfb_rt_graph_stack_grow`. An entry's destination word is unused and pushed as `0`.
+//!   `_mfb_rt_graph_stack_grow`, allocated lazily by the first push (bug-773), so a leaf
+//!   drop allocates no stack. An entry's destination word is unused and pushed as `0`.
 //! * **one block** — take an entry; walk the block's pointer edges in the copy's own order,
 //!   pushing an edge whose type takes part in a cycle and dropping any other edge inline;
 //!   then size the block from its own words and `arena_free` it. Every edge is read before
@@ -40,8 +41,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::arena::builder_arena_transfer::PayloadEdgeShape;
 use crate::codegen::memory::arena::graph_copy::{
     finish_helper, GraphCopyWalker, STACK_ENTRY_OFFSET_KIND, STACK_ENTRY_OFFSET_SOURCE,
-    STACK_ENTRY_SIZE, STACK_HEADER_SIZE, STACK_INITIAL_CAPACITY, STACK_OFFSET_CAPACITY,
-    STACK_OFFSET_COUNT,
+    STACK_ENTRY_SIZE, STACK_HEADER_SIZE, STACK_OFFSET_CAPACITY, STACK_OFFSET_COUNT,
 };
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -632,10 +632,10 @@ pub(crate) fn lower_graph_drop_walker(
     let stack_slot = builder.allocate_stack_object("graph_drop_stack", 8);
     // The edges variant: 1 until the root entry has been taken.
     let root_slot = (!free_root).then(|| builder.allocate_stack_object("graph_drop_root", 8));
-    let alloc_ok = builder.label("graph_drop_stack_alloc_ok");
     let take = builder.label("graph_drop_take");
     let pop = builder.label("graph_drop_pop");
     let finish = builder.label("graph_drop_finish");
+    let no_stack = builder.label("graph_drop_no_stack");
     let droppable: Vec<(usize, ParameterType)> = kinds
         .iter()
         .enumerate()
@@ -659,29 +659,11 @@ pub(crate) fn lower_graph_drop_walker(
         builder.emit(abi::store_u64(&one, sp, root_slot));
     }
 
-    // The work stack: header + 64 entries, as the copy walker's.
-    builder.emit(abi::move_immediate(
-        abi::c_arg(0),
-        "Integer",
-        &(STACK_HEADER_SIZE + STACK_INITIAL_CAPACITY * STACK_ENTRY_SIZE).to_string(),
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-    builder.emit_arena_alloc_call();
-    builder.emit(abi::branch_eq(&alloc_ok));
-    builder.raise_error_bare("ErrOutOfMemory")?;
-    builder.emit(abi::label(&alloc_ok));
-    builder.emit(abi::store_u64(abi::mfb_return(1), sp, stack_slot));
-    let block = builder.temporary_vreg();
-    let scratch = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&block, sp, stack_slot));
-    builder.emit(abi::move_immediate(&scratch, "Integer", "0"));
-    builder.emit(abi::store_u64(&scratch, &block, STACK_OFFSET_COUNT));
-    builder.emit(abi::move_immediate(
-        &scratch,
-        "Integer",
-        &STACK_INITIAL_CAPACITY.to_string(),
-    ));
-    builder.emit(abi::store_u64(&scratch, &block, STACK_OFFSET_CAPACITY));
+    // The work stack, as the copy walker's: null until the first push allocates it
+    // (bug-773), so a block with no cyclic edge allocates none.
+    let zero = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&zero, "Integer", "0"));
+    builder.emit(abi::store_u64(&zero, sp, stack_slot));
 
     let names: Vec<String> = kinds.iter().map(|(name, _)| name.clone()).collect();
     builder.graph_copy_walker = Some(GraphCopyWalker::new(&names, stack_slot));
@@ -731,6 +713,8 @@ pub(crate) fn lower_graph_drop_walker(
     let entry = builder.temporary_vreg();
     let scratch = builder.temporary_vreg();
     builder.emit(abi::load_u64(&block, sp, stack_slot));
+    builder.emit(abi::compare_immediate(&block, "0"));
+    builder.emit(abi::branch_eq(&finish));
     builder.emit(abi::load_u64(&count, &block, STACK_OFFSET_COUNT));
     builder.emit(abi::compare_immediate(&count, "0"));
     builder.emit(abi::branch_eq(&finish));
@@ -750,13 +734,15 @@ pub(crate) fn lower_graph_drop_walker(
     builder.emit(abi::store_u64(&scratch, sp, pointer_slot));
     builder.emit(abi::branch(&take));
 
-    // Free the work stack (header + capacity * entry).
+    // Free the work stack (header + capacity * entry), if a push allocated one.
     builder.emit(abi::label(&finish));
     builder.graph_copy_walker = None;
     let block = builder.temporary_vreg();
     let size = builder.temporary_vreg();
     let scratch = builder.temporary_vreg();
     builder.emit(abi::load_u64(&block, sp, stack_slot));
+    builder.emit(abi::compare_immediate(&block, "0"));
+    builder.emit(abi::branch_eq(&no_stack));
     builder.emit(abi::load_u64(&size, &block, STACK_OFFSET_CAPACITY));
     builder.emit(abi::move_immediate(
         &scratch,
@@ -768,6 +754,7 @@ pub(crate) fn lower_graph_drop_walker(
     builder.emit(abi::move_register(abi::c_arg(0), &block));
     builder.emit(abi::move_register(abi::c_arg(1), &size));
     builder.emit_arena_free_call();
+    builder.emit(abi::label(&no_stack));
     builder.emit(abi::return_());
 
     let name = if free_root {

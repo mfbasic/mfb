@@ -15,8 +15,11 @@
 //!   per-type shims and to the walker, so the number a shim passes is the number the
 //!   walker dispatches on.
 //! * **work stack** — one arena block `{count @0, capacity @8, entries @16}`, each entry
-//!   `{kind @0, source @8, destination address @16}` (24 bytes). It starts at 64 entries
-//!   and `_mfb_rt_graph_stack_grow` doubles it.
+//!   `{kind @0, source @8, destination address @16}` (24 bytes). bug-773: it is allocated
+//!   lazily, by the first push — a walk whose value has no cyclic edge (a leaf such as the
+//!   regex parser's `__regex_Lit`) allocates and frees no stack at all. The first push
+//!   passes a null stack to `_mfb_rt_graph_stack_grow`, which allocates
+//!   `STACK_INITIAL_CAPACITY` entries; every later full push doubles it.
 //! * **loop** — take an entry, copy that ONE block with `emit_thread_copy_real` (the same
 //!   per-shape copy as before), write the new pointer to the entry's destination, and
 //!   repeat until the stack is empty. The root's destination is `0`, which stands for the
@@ -56,7 +59,9 @@ use std::collections::HashMap;
 pub(crate) const GRAPH_COPY_SYMBOL: &str = "_mfb_rt_graph_copy";
 /// Grows a full work stack: the stack in argument 0; returns a block of twice the
 /// capacity holding the same entries (the old block freed), or `0` when the arena is
-/// exhausted (the old block kept, so the caller's raise leaves nothing dangling).
+/// exhausted (the old block kept, so the caller's raise leaves nothing dangling). A null
+/// argument (the walk's first push, bug-773) returns a fresh empty stack of
+/// `STACK_INITIAL_CAPACITY` entries.
 pub(crate) const GRAPH_STACK_GROW_SYMBOL: &str = "_mfb_rt_graph_stack_grow";
 
 // The work stack's layout, shared with the drop walker (`graph_drop.rs`).
@@ -67,7 +72,10 @@ pub(super) const STACK_ENTRY_SIZE: usize = 24;
 pub(super) const STACK_ENTRY_OFFSET_KIND: usize = 0;
 pub(super) const STACK_ENTRY_OFFSET_SOURCE: usize = 8;
 const STACK_ENTRY_OFFSET_DESTINATION: usize = 16;
-pub(super) const STACK_INITIAL_CAPACITY: usize = 64;
+/// The capacity the first push allocates. bug-773: it was 64 entries (1 552 bytes),
+/// allocated — and PRNG-filled on free — on every walk's entry; a parse-tree node pushes
+/// one or two edges, and the grow doubles from here.
+pub(super) const STACK_INITIAL_CAPACITY: usize = 8;
 
 /// The label a push site defines, followed by the pushed kind's index. A label emits no
 /// bytes, so the edge-table tests can read a walker's edges out of its instructions.
@@ -138,6 +146,7 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| "graph copy push emitted outside the walker".to_string())?;
         let child_slot = self.allocate_stack_object("graph_copy_push_child", 8);
         let have_room = self.label(&format!("{PUSH_LABEL_PREFIX}{kind}"));
+        let grow = self.label("graph_copy_push_grow");
         let grown = self.label("graph_copy_push_grown");
         let block = self.temporary_vreg();
         let count = self.temporary_vreg();
@@ -145,10 +154,15 @@ impl CodeBuilder<'_> {
         let entry = self.temporary_vreg();
         self.emit(abi::store_u64(child, abi::stack_pointer(), child_slot));
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_slot));
+        // bug-773: no stack yet (the walk's first push) — the grow call allocates one.
+        self.emit(abi::compare_immediate(&block, "0"));
+        self.emit(abi::branch_eq(&grow));
         self.emit(abi::load_u64(&count, &block, STACK_OFFSET_COUNT));
         self.emit(abi::load_u64(&scratch, &block, STACK_OFFSET_CAPACITY));
         self.emit(abi::compare_registers(&count, &scratch));
         self.emit(abi::branch_lt(&have_room));
+        self.emit(abi::label(&grow));
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_slot));
         self.emit(abi::move_register(abi::c_arg(0), &block));
         self.emit_symbol_call(GRAPH_STACK_GROW_SYMBOL);
         self.emit(abi::compare_immediate(abi::return_register(), "0"));
@@ -232,13 +246,13 @@ pub(crate) fn lower_graph_copy_walker(
     let copied_slot = builder.allocate_stack_object("graph_copy_copied", 8);
     let result_slot = builder.allocate_stack_object("graph_copy_result", 8);
     let stack_slot = builder.allocate_stack_object("graph_copy_stack", 8);
-    let alloc_ok = builder.label("graph_copy_stack_alloc_ok");
     let take = builder.label("graph_copy_take");
     let null_edge = builder.label("graph_copy_null_edge");
     let store = builder.label("graph_copy_store");
     let store_edge = builder.label("graph_copy_store_edge");
     let pop = builder.label("graph_copy_pop");
     let finish = builder.label("graph_copy_finish");
+    let no_stack = builder.label("graph_copy_no_stack");
     let kind_labels: Vec<String> = kinds
         .iter()
         .map(|_| builder.label("graph_copy_kind"))
@@ -256,30 +270,9 @@ pub(crate) fn lower_graph_copy_walker(
     builder.emit(abi::move_immediate(&zero, "Integer", "0"));
     builder.emit(abi::store_u64(&zero, sp, destination_slot));
     builder.emit(abi::store_u64(&zero, sp, result_slot));
-
-    // The work stack: header + 64 entries.
-    builder.emit(abi::move_immediate(
-        abi::c_arg(0),
-        "Integer",
-        &(STACK_HEADER_SIZE + STACK_INITIAL_CAPACITY * STACK_ENTRY_SIZE).to_string(),
-    ));
-    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-    builder.emit_arena_alloc_call();
-    builder.emit(abi::branch_eq(&alloc_ok));
-    builder.raise_error_bare("ErrOutOfMemory")?;
-    builder.emit(abi::label(&alloc_ok));
-    builder.emit(abi::store_u64(abi::mfb_return(1), sp, stack_slot));
-    let block = builder.temporary_vreg();
-    let scratch = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&block, sp, stack_slot));
-    builder.emit(abi::move_immediate(&scratch, "Integer", "0"));
-    builder.emit(abi::store_u64(&scratch, &block, STACK_OFFSET_COUNT));
-    builder.emit(abi::move_immediate(
-        &scratch,
-        "Integer",
-        &STACK_INITIAL_CAPACITY.to_string(),
-    ));
-    builder.emit(abi::store_u64(&scratch, &block, STACK_OFFSET_CAPACITY));
+    // bug-773: the work stack is null until the first push allocates it
+    // (`emit_graph_copy_push`), so a value with no cyclic edge allocates none.
+    builder.emit(abi::store_u64(&zero, sp, stack_slot));
 
     let names: Vec<String> = kinds.iter().map(|(name, _)| name.clone()).collect();
     builder.graph_copy_walker = Some(GraphCopyWalker::new(&names, stack_slot));
@@ -333,6 +326,8 @@ pub(crate) fn lower_graph_copy_walker(
     let entry = builder.temporary_vreg();
     let scratch = builder.temporary_vreg();
     builder.emit(abi::load_u64(&block, sp, stack_slot));
+    builder.emit(abi::compare_immediate(&block, "0"));
+    builder.emit(abi::branch_eq(&finish));
     builder.emit(abi::load_u64(&count, &block, STACK_OFFSET_COUNT));
     builder.emit(abi::compare_immediate(&count, "0"));
     builder.emit(abi::branch_eq(&finish));
@@ -358,13 +353,16 @@ pub(crate) fn lower_graph_copy_walker(
     builder.emit(abi::store_u64(&scratch, sp, destination_slot));
     builder.emit(abi::branch(&take));
 
-    // Free the work stack (header + capacity * entry) and return the root's copy.
+    // Free the work stack (header + capacity * entry), if a push allocated one, and return
+    // the root's copy.
     builder.emit(abi::label(&finish));
     builder.graph_copy_walker = None;
     let block = builder.temporary_vreg();
     let size = builder.temporary_vreg();
     let scratch = builder.temporary_vreg();
     builder.emit(abi::load_u64(&block, sp, stack_slot));
+    builder.emit(abi::compare_immediate(&block, "0"));
+    builder.emit(abi::branch_eq(&no_stack));
     builder.emit(abi::load_u64(&size, &block, STACK_OFFSET_CAPACITY));
     builder.emit(abi::move_immediate(
         &scratch,
@@ -376,6 +374,7 @@ pub(crate) fn lower_graph_copy_walker(
     builder.emit(abi::move_register(abi::c_arg(0), &block));
     builder.emit(abi::move_register(abi::c_arg(1), &size));
     builder.emit_arena_free_call();
+    builder.emit(abi::label(&no_stack));
     let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, sp, result_slot));
     builder.emit(abi::move_register(abi::return_register(), &result));
@@ -415,10 +414,40 @@ pub(crate) fn lower_graph_stack_grow(
     let new_slot = builder.allocate_stack_object("graph_stack_grow_new", 8);
     let failed = builder.label("graph_stack_grow_failed");
     let done = builder.label("graph_stack_grow_done");
+    let existing = builder.label("graph_stack_grow_existing");
 
     let old = builder.allocate_register();
     builder.emit(abi::move_register(&old, abi::c_arg(0)));
     builder.emit(abi::store_u64(&old, sp, old_slot));
+    // bug-773: a null stack is the walk's first push — allocate an empty stack of
+    // `STACK_INITIAL_CAPACITY` entries.
+    builder.emit(abi::compare_immediate(&old, "0"));
+    builder.emit(abi::branch_ne(&existing));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        &(STACK_HEADER_SIZE + STACK_INITIAL_CAPACITY * STACK_ENTRY_SIZE).to_string(),
+    ));
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+    builder.emit_arena_alloc_call();
+    builder.emit(abi::branch_ne(&failed));
+    builder.emit(abi::store_u64(abi::mfb_return(1), sp, new_slot));
+    let fresh = builder.temporary_vreg();
+    let scratch = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&fresh, sp, new_slot));
+    builder.emit(abi::move_immediate(&scratch, "Integer", "0"));
+    builder.emit(abi::store_u64(&scratch, &fresh, STACK_OFFSET_COUNT));
+    builder.emit(abi::move_immediate(
+        &scratch,
+        "Integer",
+        &STACK_INITIAL_CAPACITY.to_string(),
+    ));
+    builder.emit(abi::store_u64(&scratch, &fresh, STACK_OFFSET_CAPACITY));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&existing));
+    let old = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&old, sp, old_slot));
     // old size = header + capacity * entry; new size = old size + capacity * entry.
     let capacity = builder.temporary_vreg();
     let bytes = builder.temporary_vreg();

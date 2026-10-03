@@ -17,13 +17,15 @@ r#"FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flag
   IF depth > __REGEX_PARSE_DEPTH_LIMIT THEN
     FAIL error(77050003, "regex: pattern nested too deeply")
   END IF
-  MUT idx AS Integer = i
-  MUT gg AS Integer = g
-  MUT nm AS Map OF String TO Integer = names
-  LET first AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm, depth)
-  idx = first.nxt
-  gg = first.groups
-  nm = first.names
+  LET first AS __regex_Parse = __regex_parseConcat(pat, n, i, flags, g, names, depth)
+  ' bug-773: with no `|` the one branch IS the result -- returned as it is, not
+  ' copied into a one-option list and out again.
+  IF first.nxt >= n OR collections::get(pat, first.nxt) <> "|" THEN
+    RETURN first
+  END IF
+  MUT idx AS Integer = first.nxt
+  MUT gg AS Integer = first.groups
+  MUT nm AS Map OF String TO Integer = first.names
   MUT opts AS List OF __regex_Node = [first.node]
   WHILE idx < n AND collections::get(pat, idx) = "|"
     idx = idx + 1
@@ -33,9 +35,6 @@ r#"FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flag
     nm = nextc.names
     opts = collections::append(opts, nextc.node)
   END WHILE
-  IF len(opts) = 1 THEN
-    RETURN __regex_Parse[collections::get(opts, 0), idx, gg, nm]
-  END IF
   LET node AS __regex_Node = __regex_Alt[opts]
   RETURN __regex_Parse[node, idx, gg, nm]
 END FUNC"#;

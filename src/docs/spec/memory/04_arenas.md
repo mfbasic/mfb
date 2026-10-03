@@ -362,6 +362,9 @@ separately allocated blocks. Its owner frees it through the module's one drop wa
 `_mfb_rt_graph_drop`, which frees one block at a time and keeps the pending edges on an
 arena work stack rather than the native stack, so a graph of any depth is freed without
 overflowing it. [[src/codegen/memory/arena/graph_drop.rs:lower_graph_drop_walker]]
+Both walkers allocate that stack at their first push, and `_mfb_rt_graph_stack_grow`
+doubles it from there, so walking a value with no cyclic edge to push (a leaf) allocates
+and frees no stack. [[src/codegen/memory/arena/graph_copy.rs:emit_graph_copy_push]]
 
 Soundness rests on the heap being an **ownership tree** — every owned local owns an
 independent block, so freeing each exactly once at scope exit cannot double-free.

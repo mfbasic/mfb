@@ -31,6 +31,7 @@ mod helper_class_match_one;
 mod helper_compile;
 mod helper_expand;
 mod helper_fail;
+mod helper_first_set;
 mod helper_flatten;
 mod helper_init_caps;
 mod helper_is_ascii_punct;
@@ -78,14 +79,12 @@ mod helper_scalar_to_cp;
 mod helper_script_canon;
 mod helper_script_test;
 mod helper_search_from;
-mod helper_set_cap;
 mod helper_short_kind;
 mod helper_shorthand_match;
 mod helper_simple_match_at;
 mod helper_step_budget;
 mod helper_steps;
 mod helper_to_scalars;
-mod helper_try_at;
 mod helper_word_boundary;
 
 const INTRO: &str = r#"Match, search, and replace text with regular expressions"#;
@@ -1023,7 +1022,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_word_boundary::register(&mut pkg);
     helper_anchor_match::register(&mut pkg);
     helper_fail::register(&mut pkg);
-    helper_set_cap::register(&mut pkg);
     helper_char_eq::register(&mut pkg);
     helper_run::register(&mut pkg);
     helper_steps::register(&mut pkg);
@@ -1031,7 +1029,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_parse_depth_limit::register(&mut pkg);
     helper_simple_match_at::register(&mut pkg);
     helper_init_caps::register(&mut pkg);
-    helper_try_at::register(&mut pkg);
     helper_search_from::register(&mut pkg);
     helper_is_digit::register(&mut pkg);
     helper_is_name_start::register(&mut pkg);
@@ -1059,6 +1056,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_parse_concat::register(&mut pkg);
     helper_parse_alt::register(&mut pkg);
     helper_flatten::register(&mut pkg);
+    helper_first_set::register(&mut pkg);
     helper_compile::register(&mut pkg);
     helper_all_digits::register(&mut pkg);
     helper_lookup_num::register(&mut pkg);

@@ -199,6 +199,12 @@ which an op is one index. Its kind and up to three operands are `kinds[o]`, `opA
 `opB[o]` and `opC[o]`; Concat parts and Alt options are op indices in `kids`; and the leaf
 records sit in `leaves`. The root is op 0.[[src/codegen/builtins/regex/helper_flatten.rs:__regex_flatten]]
 
+`__regex_compile` keeps the last eight successfully compiled programs, keyed by the
+pattern string and replaced round-robin, so repeated calls with one pattern compile it
+once; a hit returns a copy of the stored program. An invalid pattern is never stored: it
+is parsed, and fails with `ErrInvalidFormat`, on every call. The cache is module-level
+state, so each worker thread has its own.[[src/codegen/builtins/regex/helper_compile.rs:__regex_compile]] [[src/codegen/builtins/regex/helper_compile.rs:__regex_compileUncached]]
+
 | Kind | Op | Operands |
 |------|----|----------|
 | 1 | a one-scalar leaf (`Lit`, `Any`, `Class`) | `opA` = its index in `leaves` |
@@ -207,14 +213,15 @@ records sit in `leaves`. The root is op 0.[[src/codegen/builtins/regex/helper_fl
 | 5 / 6 | greedy / lazy `Repeat` | `opA` = child op, `opB` = `lo`, `opC` = `hi` |
 | 7 | `Group` | `opA` = child op, `opB` = capture slot |
 
-The matcher is `__regex_run(prog, leaves, start, caps, ctx)`: one loop over a *task* —
+The matcher is `__regex_run(prog, leaves, from, ctx)`: one loop over a *task* —
 either "match op `node` at `pos`, then run `cont`" or "run `cont` at `pos`" — with an
 explicit backtrack stack of pending choice points. Before bug-510 it was
 continuation-passing recursion, one native frame per node visit, continuation step and
 repeat iteration; a group repetition cost about ten frames, so a depth guard needed to
 keep the process from overflowing its stack fired at sixty repetitions and `^(ab)*$`
 failed on a 200-character input. The recursion is gone and the guard with it. A
-continuation is an index into an append-only table of five-integer frames — a tag, three
+continuation is an index into a table of five-integer frames, append-only while one start
+position runs — a tag, three
 operands and the frame below (-1 = done) — encoding "what to match after this":[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
 
 | Frame | Role |
@@ -227,8 +234,10 @@ operands and the frame below (-1 = done) — encoding "what to match after this"
 Consuming leaves (`Lit`, `Any`, `Class`) advance `pos` by one scalar and hand the task to
 the continuation; anchors assert and hand it on at the same `pos`. A `Group` records the
 start index (`2*slot`) immediately, then matches its child under a capture frame that
-records the end index when the child succeeds. Frames are never rewritten, so a choice
-point that saved a frame index resumes exactly that continuation.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
+records the end index when the child succeeds. Frames are never rewritten while a start
+position runs, so a choice point that saved a frame index resumes exactly that
+continuation; the next start position, reached only when no choice point is pending,
+starts the table over.[[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
 
 Backtracking is an explicit stack. Every point where the recursive engine "tried the
 preferred branch first and fell through on failure" now pushes the *other* branch as a
@@ -273,12 +282,30 @@ a fresh search budget on every match. Exceeding either, or the pending-choice ca
 raises `ErrInvalidFormat` ("pattern too complex for this
 input").[[src/codegen/builtins/regex/helper_make_ctx.rs:__regex_makeCtx]]
 
+A start position the first-scalar set rejects (below) is skipped, not run, and is
+charged to both budgets the node visits its failed attempt makes — a count that depends
+only on the program, computed at compile. A skip that would cross a budget runs the
+attempt instead, so a budget fires at exactly the input it fired at when every position
+ran.[[src/codegen/builtins/regex/helper_first_set.rs:__regex_firstSetKids]]
+
 ### Search and Captures
 
-`__regex_searchFrom` performs an unanchored search by trying `__regex_tryAt` at each
-start position `from .. n` (so an empty match can occur at `n`). `tryAt` seeds the
-capture list, records group-0 start, and matches the root under a `ContCap[0, ContDone]`
-so group 0 is closed on success.[[src/codegen/builtins/regex/helper_search_from.rs:__regex_searchFrom]]
+`__regex_searchFrom` resets the per-search budget and runs one unanchored search:
+`__regex_run` tries each start position `from .. n` in order (so an empty match can occur
+at `n`) and returns the first match. At each start it seeds the capture list, records
+group-0 start, and matches the root under the capture frame for group 0, so group 0 is
+closed on success. The capture list and the frame, choice and snapshot tables are built
+once per search and reset, not rebuilt, at each start.[[src/codegen/builtins/regex/helper_search_from.rs:__regex_searchFrom]] [[src/codegen/builtins/regex/helper_run.rs:__regex_run]]
+
+Start positions that cannot begin a match are skipped. When the pattern must begin with
+one fixed non-folding literal, `firstCp` holds its code point and the scan skips to the
+next occurrence. Otherwise `__regex_flatten` asks `__regex_firstSetKids` for a
+first-scalar set — the scalars the consuming leaves reachable before any consumption
+accept: 128 ASCII flags and one "any non-ASCII scalar" flag — appends it to `kids` with
+the per-position visit count, and sets `firstCp` to `-2` minus its offset. There is no
+set (every position runs) when the pattern can match empty, when an anchor, `.` or a
+case-folded non-ASCII literal is reachable before any consumption, or when the count
+saturates.[[src/codegen/builtins/regex/helper_first_set.rs:__regex_firstSetKids]] [[src/codegen/builtins/regex/helper_flatten.rs:__regex_flatten]]
 
 Captures are a flat `List OF Integer` of `2*(groups+1)` slots: for group `k`, slot
 `2k` is the start scalar index and `2k+1` the end, both `-1` when unset. The whole-match
