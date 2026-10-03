@@ -329,7 +329,7 @@ Acceptance: `cargo build && cargo test --bin mfb spec` → pass, and
   Result (2026-10-03): `cargo test --bin mfb spec` → 44 passed; `--citations` →
   `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`; `--links linker tooling` →
   `unresolved=0`; `--render linker tooling` → 0 leaks.
-Commit: —
+Commit: 90f4a3100
 
 ## Validation Plan
 
@@ -340,6 +340,8 @@ Commit: —
   binary still runs).
 - Byte-identity of builds without `--debug`: the plan-166-A loop, all five
   targets, after Phase 4 (est. 3 min).
+  Result (2026-10-03, release build of 90f4a3100 copied to `/tmp/mfb-166-B`):
+  `bash /tmp/p166-identity.sh /tmp/mfb-166-B` → `IDENTICAL`, 16 files.
 - Doc sync: Phase 4.
 - Final gate: in plan-166-C.
 

@@ -36,11 +36,11 @@ The prerequisites are stated once in plan-166-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-166-B is complete | `ls planning/plan-166-B-*` → no match (archived) | NOT MET |
-| The baseline compiler still exists | `ls /tmp/mfb-166-base` → exists | NOT MET |
+| plan-166-B is complete | `ls planning/plan-166-B-*` → no match (archived) | MET (2026-10-03, archived in the plan-166-C Phase 1 commit's parent) |
+| The baseline compiler still exists | `ls /tmp/mfb-166-base` → exists | MET (2026-10-03) |
 If plan-166-B is not complete, this plan cannot start.
 
-| Windows box 206 answers (owner-designated, 2026-10-03) | `ssh test@192.168.1.206 ver` → `Microsoft Windows [Version 10.0.26200.…]` | MET (2026-10-03) |
+| Windows box 206 answers (owner-designated, 2026-10-03) | `ssh test@192.168.1.206 ver` → `Microsoft Windows [Version 10.0.26200.…]` | MET (2026-10-03, re-run: `10.0.26200.9457`) |
 
 > **NOTE: the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command before you continue. If you stop, report all of them.
