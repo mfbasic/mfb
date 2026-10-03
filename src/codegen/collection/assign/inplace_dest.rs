@@ -961,6 +961,66 @@ impl CodeBuilder<'_> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// `G25` — an operand that can run user code which assigns a `STATE` field
+// (bug-487).
+// ---------------------------------------------------------------------------
+
+impl CodeBuilder<'_> {
+    /// `G25` — whether any of an in-place `RES … STATE` update's operands can run
+    /// user code that performs a `STATE` assignment.
+    ///
+    /// `mfb spec language resource-management` §15 defines the statement these
+    /// arms recognise as a shorthand: *"It is updated either by assigning a
+    /// single field in place (`s.state.field = value`) or by assigning a
+    /// whole-state `WITH` update (`s.state = WITH s.state { field := value }`);
+    /// the former is shorthand for the latter."* The `WITH` form **reads**
+    /// `s.state` and stores a record built from that read, and `mfb spec language
+    /// memory-semantics` §14.6 says *"Reads produce owned values, not aliases
+    /// into the buffer"* — so a `STATE` write performed while the operands are
+    /// being evaluated is (correctly) overwritten by the store and cannot be
+    /// observed in the result.
+    ///
+    /// An in-place arm mutates the live block instead, which §14 permits — *"The
+    /// compiler may choose stack storage, inline storage, heap allocation, or
+    /// destructive update, but those choices cannot change the ownership behavior
+    /// described here"* — only while nothing else writes that block in between. A
+    /// `RES` is an alias to one live resource (§15), so an operand that reaches a
+    /// `STATE` assignment is exactly the case where something does: the nested
+    /// write would survive into the result, which the shorthand's `WITH` form
+    /// does not produce, and for a *growing* arm that nested write **reallocates
+    /// and frees** the very block the arm snapshotted before lowering the
+    /// operand — so the mutation and the `O4` write-back both run on freed memory
+    /// (bug-487: `7-701-0001`, or SIGSEGV).
+    ///
+    /// Declining is always correct: the caller falls through to the whole-record
+    /// STATE replace, whose operand snapshot (bug-496,
+    /// `engine/value/operand_snapshot.rs`) already makes that path exact.
+    ///
+    /// The question is deliberately "can it reach a `STATE` assignment", not
+    /// "does it call user code at all". `f.state.xs = append(f.state.xs,
+    /// clamp(v))` calls a user function that assigns no `STATE`, so it keeps the
+    /// fast path — that is the 20 000× cliff
+    /// `tests/codegen_inplace_append_call_result.rs` measures, and
+    /// `tests/rt_res_state_inplace_mutation.rs` pins both halves.
+    ///
+    /// The call-graph walk, and what it assumes about calls it cannot see, is
+    /// shared with the global-store guards of bug-665/666
+    /// (`engine/value/store_reach.rs`).
+    ///
+    /// Emits nothing and allocates nothing, so it is a gate in the `O-order-1`
+    /// sense and runs before the first `lower_value`.
+    pub(crate) fn inplace_state_operands_reach_a_state_assign(
+        &self,
+        operands: &[NirValue],
+    ) -> bool {
+        self.values_reach_store(
+            operands,
+            crate::codegen::engine::value::store_reach::StoreLeaf::StateAssign,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! plan-121-A Phase 3 — the gate's decline conditions, exercised directly.
@@ -1164,65 +1224,5 @@ mod tests {
             "the record-field hazard must decline even though the plain-local \
              condition ahead of it is clear"
         );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// `G25` — an operand that can run user code which assigns a `STATE` field
-// (bug-487).
-// ---------------------------------------------------------------------------
-
-impl CodeBuilder<'_> {
-    /// `G25` — whether any of an in-place `RES … STATE` update's operands can run
-    /// user code that performs a `STATE` assignment.
-    ///
-    /// `mfb spec language resource-management` §15 defines the statement these
-    /// arms recognise as a shorthand: *"It is updated either by assigning a
-    /// single field in place (`s.state.field = value`) or by assigning a
-    /// whole-state `WITH` update (`s.state = WITH s.state { field := value }`);
-    /// the former is shorthand for the latter."* The `WITH` form **reads**
-    /// `s.state` and stores a record built from that read, and `mfb spec language
-    /// memory-semantics` §14.6 says *"Reads produce owned values, not aliases
-    /// into the buffer"* — so a `STATE` write performed while the operands are
-    /// being evaluated is (correctly) overwritten by the store and cannot be
-    /// observed in the result.
-    ///
-    /// An in-place arm mutates the live block instead, which §14 permits — *"The
-    /// compiler may choose stack storage, inline storage, heap allocation, or
-    /// destructive update, but those choices cannot change the ownership behavior
-    /// described here"* — only while nothing else writes that block in between. A
-    /// `RES` is an alias to one live resource (§15), so an operand that reaches a
-    /// `STATE` assignment is exactly the case where something does: the nested
-    /// write would survive into the result, which the shorthand's `WITH` form
-    /// does not produce, and for a *growing* arm that nested write **reallocates
-    /// and frees** the very block the arm snapshotted before lowering the
-    /// operand — so the mutation and the `O4` write-back both run on freed memory
-    /// (bug-487: `7-701-0001`, or SIGSEGV).
-    ///
-    /// Declining is always correct: the caller falls through to the whole-record
-    /// STATE replace, whose operand snapshot (bug-496,
-    /// `engine/value/operand_snapshot.rs`) already makes that path exact.
-    ///
-    /// The question is deliberately "can it reach a `STATE` assignment", not
-    /// "does it call user code at all". `f.state.xs = append(f.state.xs,
-    /// clamp(v))` calls a user function that assigns no `STATE`, so it keeps the
-    /// fast path — that is the 20 000× cliff
-    /// `tests/codegen_inplace_append_call_result.rs` measures, and
-    /// `tests/rt_res_state_inplace_mutation.rs` pins both halves.
-    ///
-    /// The call-graph walk, and what it assumes about calls it cannot see, is
-    /// shared with the global-store guards of bug-665/666
-    /// (`engine/value/store_reach.rs`).
-    ///
-    /// Emits nothing and allocates nothing, so it is a gate in the `O-order-1`
-    /// sense and runs before the first `lower_value`.
-    pub(crate) fn inplace_state_operands_reach_a_state_assign(
-        &self,
-        operands: &[NirValue],
-    ) -> bool {
-        self.values_reach_store(
-            operands,
-            crate::codegen::engine::value::store_reach::StoreLeaf::StateAssign,
-        )
     }
 }
