@@ -535,21 +535,27 @@ names a `past` ident and is refused by the publish validation below — the clie
 refetches and rebuilds.[[repository/src/store.rs:rotate_ident]]
 
 The client writes `keys/<owner>.ident.next.{pub,prv}` before posting the
-rotation, and promotes the staged files on success. On a request error it
-fetches the current ident: a match promotes the staged pair, a different key
-discards it, and an unreachable registry leaves the staged pair in place.
-[[repository/src/client.rs:reconcile_pending_ident]]
+rotation, and promotes the staged files on success. The staged private key is
+the staging marker. Whenever it exists, the client settles it against the
+registry's current ident **before** doing anything else: at the start of every
+`rotate_ident`, after a failed rotation request, and after every successful
+`auth`.
 
-**Required recovery behavior:** an uncertain rotation must retain its staged
-private key until the client can determine whether the server committed it;
-retry must recover that key before starting another rotation.
+- If the registry holds the staged key, the rotation committed. The staged pair
+  is promoted, and a `rotate_ident` that found it returns that rotation's
+  fingerprint without starting another.
+- If the registry still holds this machine's live key, the rotation never
+  committed. The staging is discarded, and `rotate_ident` goes on to a fresh
+  rotation.
+- In every other case the staged pair is kept untouched and the command fails
+  with the staged file's path and `mfb key rotate <owner>` as the retry. Those
+  cases are an unreachable registry, and a registry key that is neither the
+  staged nor the live one.
 
-**Current implementation deviation:** a subsequent `rotate_ident` invocation
-does not reconcile existing staging
-before generating and writing another pair. If the earlier rotation committed
-and left only a pending copy locally, retry can overwrite and then discard that
-copy after an old-key signature rejection. `auth` does not recover the pending
-ident either. [[repository/src/client.rs:rotate_ident]][[repository/src/client.rs:auth]]
+A retry therefore never overwrites a staged key that may be the account
+authority, and never signs a second rotation with a key the registry may already
+have retired.
+[[repository/src/client.rs:recover_pending_ident]][[repository/src/client.rs:rotate_ident]][[repository/src/client.rs:auth]]
 
 Other linked machines still hold the old (now `past`) private key and must **re-link**
 (`repo link`) — the new private key is never distributed automatically,

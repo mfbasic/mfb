@@ -82,8 +82,12 @@ already be a validated owner name before any path is built (callers run
 the grammar. [[repository/src/local.rs:auth_public_key_path]]
 
 Rotation stages the new ident pair in `.ident.next.pub` and `.ident.next.prv`
-before the request. Promotion renames the public file and then the private file
-onto the live paths; it is not a single atomic pair replacement.
+before the request. The staged private key is the staging marker: it is written
+last and promoted last. Promotion rewrites the live public key from the staged
+private key, removes `.ident.next.pub`, and then renames `.ident.next.prv` onto
+the live private path. It is not a single atomic pair replacement. A promotion
+interrupted part-way leaves `.ident.next.prv` in place, and the next
+reconciliation re-runs it to completion.
 [[repository/src/local.rs:write_pending_ident_keypair]][[repository/src/local.rs:promote_pending_ident_keypair]]
 
 ## The Pinned Server Key (`server.pub`)

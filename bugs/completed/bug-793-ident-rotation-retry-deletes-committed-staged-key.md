@@ -1,11 +1,11 @@
 # bug-793: Retrying an uncertain ident rotation destroys the committed private key
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
-Status: Open
-Regression Test: proposed `repository/src/server.rs:tests::spec_probe_rotation_retry_preserves_committed_staged_key`
+Status: Fixed
+Regression Test: `repository/src/server.rs:tests::rotation_retry_preserves_committed_staged_key` (+ `rotation_retry_finishes_an_interrupted_promotion`, `rotation_retry_replaces_an_uncommitted_staging`, `rotation_retry_keeps_the_staging_when_the_registry_holds_another_key`)
 
 Retrying a rotation whose server commit succeeded but whose response and
 reconciliation were lost must preserve and recover the staged authoritative
@@ -140,9 +140,9 @@ interruption. Do not delete uncertain staging or overwrite it as a retry policy.
 
 ### Phase 1 — failing tests and audit
 
-- [ ] Land the reproduction as a regression test and add contrast cases from the
+- [x] Land the reproduction as a regression test and add contrast cases from the
       blast-radius audit.
-- [ ] Confirm the tests fail for the documented mechanism and audit all listed
+- [x] Confirm the tests fail for the documented mechanism and audit all listed
       consumers before selecting the implementation.
 
 Acceptance: reproducible RED tests and completed consumer audit.
@@ -150,17 +150,17 @@ Commit: —
 
 ### Phase 2 — implementation
 
-- [ ] Implement the design above and update the owning embedded specs.
-- [ ] Verify the reproduction and contrast cases without weakening assertions.
+- [x] Implement the design above and update the owning embedded specs.
+- [x] Verify the reproduction and contrast cases without weakening assertions.
 
 Acceptance: the target behavior holds and existing valid flows remain valid.
 Commit: —
 
 ### Phase 3 — full verification
 
-- [ ] Run the full repository crate suite and root project suite.
-- [ ] Re-run CLI integration scenarios and the original reproduction.
-- [ ] Review any generated-output differences against the intended contract.
+- [x] Run the full repository crate suite and root project suite.
+- [x] Re-run CLI integration scenarios and the original reproduction.
+- [x] Review any generated-output differences against the intended contract.
 
 Acceptance: complete suites pass and the goal is demonstrated end to end.
 Commit: —
@@ -171,3 +171,38 @@ The failing reproduction is the minimum regression. Extend it to exercise both
 successful and failed operations, persisted state, and subsequent CLI behavior.
 Verify the existing registry command integration tests and signed-package
 verification flows before considering the fix complete.
+
+## Resolution (2026-10-03)
+
+- `client::recover_pending_ident` replaces `reconcile_pending_ident` and gives a
+  three-way verdict against the registry's current ident: promote if it equals the
+  staged key; discard only if it equals this machine's live key; in every other
+  state (unreachable registry, or a third key) keep the staging and report it.
+- `rotate_ident` calls it **before** reading the live key or writing a new
+  staging. A committed-but-unacknowledged rotation is promoted and returned, a
+  stale one is cleared and a fresh rotation proceeds, and an unresolved one fails
+  without touching anything. The same verdict settles a failed rotation request.
+- `auth` settles any staging after a successful login.
+- The staged **private** key is the staging marker (`local::read_pending_ident_private_key`).
+  `promote_pending_ident_keypair` rewrites the live public key from it, removes the
+  pending public file, and moves the private key last, so an interrupted promotion
+  is re-run to completion.
+- The advertised retry command is now `mfb key rotate <owner>` (was the
+  nonexistent `mfb repo rotate`).
+- Specs: `mfb spec package-manager repository-protocol` (the deviation note is
+  replaced by the contract) and `key-store` (promotion order).
+
+Test correction (four questions):
+`local::tests::promoting_without_a_staged_rotation_reports_the_missing_file`
+(3ee3342ad, bug-347 coverage) protects "promoting with nothing staged fails,
+names both ends of the move, and leaves the live keypair intact". Its two
+path assertions pinned the pending *public* file as the rename source. That
+order is disproved: the interrupted-promotion case above shows that a promotion
+cut off after the public rename leaves no pending public file, so it cannot be
+the marker. Only those two lines now name the private-key paths. The error shape
+and the intact-keypair assertions are unchanged.
+
+Proof: on main's client, 3 of the 4 new tests fail
+(`rotation_retry_replaces_an_uncommitted_staging` is the contrast case and passes
+on both). With the fix, `cargo test` in `repository/` passes 407/407, and
+`cli_repo_auth` and `cli_repo_governance` pass.
