@@ -1133,3 +1133,31 @@ fn a_read_that_reports_the_close_makes_every_later_write_raise() {
         );
     }
 }
+
+/// The server path's CoreFoundation names (`CFArrayGetCount`,
+/// `CFArrayGetValueAtIndex`, `CFRelease`) are also verify-block entry points,
+/// which the unconditional path already emits. Emitting them twice defined each
+/// `_mfb_tls_sym_*` symbol at two offsets (found by plan-166's `--debug` symbol
+/// table refusing the duplicate).
+#[test]
+fn data_objects_define_each_symbol_once() {
+    for server in [false, true] {
+        let objects = data_objects(server);
+        let mut seen = std::collections::HashSet::new();
+        for object in &objects {
+            assert!(
+                seen.insert(object.symbol.as_str()),
+                "server={server}: '{}' emitted twice",
+                object.symbol
+            );
+        }
+        for (name, _) in VERIFY_FN_NAMES {
+            assert!(seen.contains(sym_data_symbol(name).as_str()), "{name}");
+        }
+        if server {
+            for name in SERVER_SYMBOLS {
+                assert!(seen.contains(sym_data_symbol(name).as_str()), "{name}");
+            }
+        }
+    }
+}
