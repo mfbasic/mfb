@@ -320,7 +320,7 @@ Acceptance: the saved compiler is provably the pre-plan commit's build.
   → `9270cad02`, `0`, `6a2c1f88…4df91788` (2026-10-03). The original check
   (`--version` names the commit) cannot pass: `--version` prints the build time
   and `Local Development`, no commit (see Corrections).
-Commit: — (no tree change)
+Commit: 32322360f (plan-doc record only; no source change)
 
 ### Phase 1: Flag and shared symbol list
 

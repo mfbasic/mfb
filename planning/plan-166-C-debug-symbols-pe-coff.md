@@ -279,14 +279,26 @@ the real `--debug` executables run on Windows.
   Result (2026-10-03): the diff shows only codegen-driven size/RVA lines and six
   extra imports, with no new section or directory; both 206 runs → normal output,
   `ssh exit=0`.
-Commit: —
+Commit: 2d16da988
 
 ### Phase 4: plan-166 closeout (full suite, once)
 
-- [ ] Byte-identity of builds without `--debug` on all five targets: the
-      plan-166-A Validation loop → no diff (est. 3 min).
-- [ ] `rustup run 1.96.0 cargo fmt --all --check` → clean. `cargo clippy --all-targets`
-      → no new warnings in touched files.
+- [x] Byte-identity of builds without `--debug` on all five targets: the
+      plan-166-A Validation loop → no diff (est. 3 min). → release build of
+      e82f0bb0a (`/tmp/mfb-166-C`): `bash /tmp/p166-identity.sh /tmp/mfb-166-C` →
+      `IDENTICAL`, 16 files, no `BUILD FAILED`. The later 1f0a75aa3 touches only
+      a test file's lint allow and two pure test-module moves, so no production
+      code changed after it.
+- [x] `rustup run 1.96.0 cargo fmt --all --check` → clean. `cargo clippy --all-targets`
+      → no new warnings in touched files. → The first `--check` flagged hunks in 6
+      plan files only, so `cargo fmt --all` ran and was committed (e82f0bb0a); the
+      re-check is clean. The first clippy run **failed** (exit 101) on pre-existing
+      deny-level errors in files plan-166 never touched:
+      `approx_constant` in `tests/runtime/rt_math_fixed_trig_accuracy.rs` and
+      `items_after_test_module` in `inplace_dest.rs` / `builder_emit_helpers.rs`.
+      They are fixed in 1f0a75aa3 (Corrections), and clippy now exits 0. In
+      touched files, the one warning is `windows/link/mod.rs:865`
+      `manual_is_multiple_of`, from acaf39979 (2026-09-04), not new.
 - [ ] Full suite once:
       `cargo test --no-fail-fast > /tmp/plan166-run.log 2>&1; echo "EXIT=$?"`
       then `grep -c '^failures:' /tmp/plan166-run.log` → `EXIT=0` and `0`
@@ -322,6 +334,15 @@ Commit: —
   line names "MinGW-style gdb". No gdb (`gdb`, `x86_64-w64-mingw32-gdb`) and no
   `llvm-symbolizer` is installed on this host (`which` → not found), so the
   spec names only the tools measured: `llvm-nm` and `llvm-objdump -t`.
+- **Found: `cargo clippy --all-targets` failed at HEAD (Phase 4).** It exited 101
+  on deny-level lints in files no plan-166 commit touches (`git diff 9270cad02
+  --stat -- tests/` was empty): `approx_constant` on the deliberate pi/2
+  truncations in `rt_math_fixed_trig_accuracy.rs:corpus` (a targeted `#[allow]`
+  with the reason), and `items_after_test_module` in
+  `src/codegen/collection/assign/inplace_dest.rs` and
+  `src/codegen/engine/builder/builder_emit_helpers.rs` (each test module moved
+  to the end of its file; the sorted line sets match HEAD). Fixed in its own
+  commit, 1f0a75aa3. After the fix: clippy exit 0.
 - **"Mapped image matches a build without `--debug`" (Goal 2).** That cannot be
   shown by comparing a `--debug` build to a plain one, because `--debug` also
   changes codegen (the debug report helpers and imports). It was strengthened to a
