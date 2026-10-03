@@ -1444,6 +1444,15 @@ mod tests {
         assert_eq!(le_u32(&bytes, coff + 12), 0, "NumberOfSymbols");
         assert_eq!(bytes.len() % FILE_ALIGNMENT as usize, 0, "nothing past the last section");
         assert!(!bytes.windows(14).any(|w| w == b"_mfb_fn_helper"));
+
+        // The table changes nothing else: the same image with `--debug` symbols
+        // is these bytes, plus the appended table, with only the two COFF symbol
+        // fields differing in the headers.
+        let with_table = write_executable(&debug_image(), false, None, None).expect("link");
+        assert!(with_table.len() > bytes.len());
+        let fields = coff + 8..coff + 16;
+        assert_eq!(with_table[..fields.start], bytes[..fields.start]);
+        assert_eq!(with_table[fields.end..bytes.len()], bytes[fields.end..]);
     }
 
     #[test]

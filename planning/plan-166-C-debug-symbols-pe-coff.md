@@ -234,32 +234,51 @@ Acceptance: `cargo build && cargo test --bin mfb spec` → pass, and
   `unresolved=0`; `--render linker tooling` → 0 leaks. The plan's "MinGW-style
   gdb" and an `llvm-symbolizer` mention were not written into the spec: neither
   tool is on this host to verify (Corrections).
-Commit: —
+Commit: b028bc7e0
 
 ### Phase 3: PE tool proof and Windows run (local + box 206)
 
-- [ ] `objdump --private-headers build/hello_world.exe` (host llvm-objdump) on a
+- [x] `objdump --private-headers build/hello_world.exe` (host llvm-objdump) on a
       `--debug` console build: parses with no warning, and the section table and
       data directories match a build without `--debug` of the same project. Only
-      the two COFF symbol fields differ.
-- [ ] `objdump -t` on the same file lists the functions with
-      `(sec 1)(fl 0x00)(ty 20)(scl 2)`.
-- [ ] `--debug --app` build: `nm build/<name>.exe` lists the functions. This proves
-      `.rsrc` and the table coexist.
+      the two COFF symbol fields differ. → Both parse with 0 stderr lines
+      (`bash /tmp/p166-c3.sh`). The header diff is only `--debug` codegen:
+      `SizeOfCode`, `SizeOfImage`, the Import/BaseReloc/IAT directory RVAs, and six
+      extra kernel32 imports. No new section and no new data directory. Because
+      `--debug` changes codegen, the "only the two fields" claim is proven on one
+      image instead: `debug_symbols_off_leaves_header_zero` now asserts that the
+      same image with the table is the table-less bytes plus the appended table,
+      differing only in `PointerToSymbolTable`/`NumberOfSymbols` (Corrections).
+- [x] `objdump -t` on the same file lists the functions with
+      `(sec 1)(fl 0x00)(ty 20)(scl 2)`. → `[ 1](sec  1)(fl 0x00)(ty  20)(scl   2)
+      (nx 0) 0x000007ba _mfb_fn_main`.
+- [x] `--debug --app` build: `nm build/<name>.exe` lists the functions. This proves
+      `.rsrc` and the table coexist. → 30 `T` symbols, `14000368f T _mfb_fn_main`,
+      with `.rsrc` at `0x140015000`.
 
-- [ ] Run on Windows box 206: `scp` the `--debug` console `hello_world.exe` and
+- [x] Run on Windows box 206: `scp` the `--debug` console `hello_world.exe` and
       the `--debug` `examples/brogue` `.exe` to `C:/Users/test/`, then run each
       with `ssh test@192.168.1.206 "C:\Users\test\<name>.exe 2>nul"` (one ssh per
       program; cmd expands `%ERRORLEVEL%` too early on a combined line). Each
       prints its normal output, and ssh exits 0. Delete the copies afterwards.
-- [ ] Launch the `--debug --app` build on 206 using the
+      → hello_world printed its greeting list (Abkhaz … Greek), `ssh exit=0`;
+      brogue (`rng 1 5`, it is a CLI) printed `0 range 6340` … `generated 16`,
+      `ssh exit=0`. Copies deleted.
+- [x] Launch the `--debug --app` build on 206 using the
       `.ai/remote_systems.md` "visible window from ssh" procedure. The window
-      opens.
+      opens. → `/it` task with `MFB_WINAPP_DUMP=1`: the UI thread read the
+      transcript back from the window's edit control and wrote it out
+      (`Abkhaz: Салам Адунеи …`, capped by the 512-byte `_mfb_winapp_testbuf`),
+      then `exit=0`. The readback runs only when the edit control's HWND is
+      non-zero (`emit_main`), so the window existed. Task and files deleted.
 
 Acceptance: llvm's PE reader accepts the `--debug` image and finds the names, and
 the real `--debug` executables run on Windows.
   Check: `diff <(objdump --private-headers <nodebug>.exe | grep -v -i 'symbol') <(objdump --private-headers <debug>.exe | grep -v -i 'symbol')` → only differences that come from `--debug` codegen (section sizes), with no new section or data directory (est. 2 min).
   Check: the 206 runs above → normal output, and ssh exits 0 (est. 3 min).
+  Result (2026-10-03): the diff shows only codegen-driven size/RVA lines and six
+  extra imports, with no new section or directory; both 206 runs → normal output,
+  `ssh exit=0`.
 Commit: —
 
 ### Phase 4: plan-166 closeout (full suite, once)
@@ -303,6 +322,11 @@ Commit: —
   line names "MinGW-style gdb". No gdb (`gdb`, `x86_64-w64-mingw32-gdb`) and no
   `llvm-symbolizer` is installed on this host (`which` → not found), so the
   spec names only the tools measured: `llvm-nm` and `llvm-objdump -t`.
+- **"Mapped image matches a build without `--debug`" (Goal 2).** That cannot be
+  shown by comparing a `--debug` build to a plain one, because `--debug` also
+  changes codegen (the debug report helpers and imports). It was strengthened to a
+  same-image check in `debug_symbols_off_leaves_header_zero`: identical bytes up
+  to the old file end except the two COFF symbol fields.
 
 ## Summary
 
