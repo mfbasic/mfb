@@ -168,7 +168,7 @@ mir_ops!(
         // AArch64 load-acquire / store-release (bug-564): emitted only by the
         // macOS Network.framework trampolines and `tls::write`'s gate loads.
         StlrU64, LdarU64, LdarU32,
-        FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCmpD,
+        FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCvtSFromD, FCvtDFromS, FCmpD,
         FCmpZeroD, FMaddD, FMsubD, FNmsubD, FNmaddD,
     }
     // Neutral semantic names for the AArch64-specific scalar shapes (plan-00-C

@@ -150,6 +150,14 @@ pub(crate) trait RegisterModel {
     fn external_int_argument_registers(&self) -> usize {
         crate::target::shared::abi::REGISTER_ARGUMENT_COUNT
     }
+
+    /// Whether an external C call assigns argument registers by POSITION, one
+    /// shared sequence for integer and floating arguments (Win64), rather than
+    /// counting the two register banks separately (SysV, AAPCS64, RISC-V). A
+    /// LINK thunk consults this when it stages a mixed signature (bug-788).
+    fn external_arguments_are_positional(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

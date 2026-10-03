@@ -358,6 +358,17 @@ impl Encoder {
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
+            // FCVT Sd, Dn / FCVT Dd, Sn (FP data-processing, 1 source).
+            "fcvt_s_from_d" => self.emit_rr(
+                0x1e62_4000,
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fcvt_d_from_s" => self.emit_rr(
+                0x1e22_c000,
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
             "fcmp_d" => self.emit_fcmp_d(
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,

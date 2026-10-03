@@ -3898,3 +3898,23 @@ fn umulh_stages_rhs_aliasing_rax() {
         ]
     );
 }
+
+/// bug-788: the binary32 conversions a `LINK` `CFloat` crosses.
+#[test]
+fn float_precision_conversions_encode() {
+    // cvtsd2ss xmm0, xmm1 : F2 0F 5A C1
+    assert_eq!(
+        bytes("fcvt_s_from_d", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [0xF2, 0x0F, 0x5A, 0xC1]
+    );
+    // cvtss2sd xmm0, xmm1 : F3 0F 5A C1
+    assert_eq!(
+        bytes("fcvt_d_from_s", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [0xF3, 0x0F, 0x5A, 0xC1]
+    );
+    // cvtsd2ss xmm9, xmm1 : F2 44 0F 5A C9 (REX.R, prefix before REX)
+    assert_eq!(
+        bytes("fcvt_s_from_d", &[("dst", "xmm9"), ("src", "xmm1")]),
+        [0xF2, 0x44, 0x0F, 0x5A, 0xC9]
+    );
+}

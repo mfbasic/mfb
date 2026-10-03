@@ -191,7 +191,8 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/
 - **Scalar doubles (SSE2).** The AArch64 `dN` bank maps 1:1 to `xmmN` (and the
   128-bit `vN`/`qN` aliases map to the same `xmmN`). Ops: `addsd/subsd/mulsd/divsd`,
   `sqrtsd`, `ucomisd` (`fcmp_d`), `movq` reinterprets, `movaps` copy, `cvtsi2sd`/
-  `cvttsd2si` conversions, SSE4.1 `roundsd` for directed rounding, and ties-away
+  `cvttsd2si` conversions, `cvtsd2ss`/`cvtss2sd` for the binary32 pair
+  (`fcvt_s_from_d`/`fcvt_d_from_s`), SSE4.1 `roundsd` for directed rounding, and ties-away
   emulated as `trunc(x + copysign(0.5, x))`. `fneg`/`fabs` build the sign mask in
   `xmm15` — no memory-mask constant. `fminnm_d`/`fmaxnm_d` (`math::min`/`max(Float)`)
   use `minsd`/`maxsd` — order-preserving `min/max(lhs, rhs)`, correct for the finite

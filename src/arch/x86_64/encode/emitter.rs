@@ -828,6 +828,18 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let src = fp_reg(field(instruction, "src")?)?;
             Ok(Encoded::plain(enc_sse_rr(Some(0xf2), 0x51, dst, src)))
         }
+        // cvtsd2ss dst, src (F2 0F 5A /r) — round to binary32 under MXCSR (RNE).
+        "fcvt_s_from_d" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_sse_rr(Some(0xf2), 0x5a, dst, src)))
+        }
+        // cvtss2sd dst, src (F3 0F 5A /r) — exact widening.
+        "fcvt_d_from_s" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_sse_rr(Some(0xf3), 0x5a, dst, src)))
+        }
         // ucomisd lhs, rhs — ordered compare into EFLAGS (66 0F 2E /r).
         "fcmp_d" => {
             let lhs = fp_reg(field(instruction, "lhs")?)?;

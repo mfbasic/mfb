@@ -182,6 +182,8 @@ impl CodeInstruction {
             | CodeOp::FNegD
             | CodeOp::FAbsD
             | CodeOp::FSqrtD
+            | CodeOp::FCvtSFromD
+            | CodeOp::FCvtDFromS
             | CodeOp::SCvtfDFromX
             | CodeOp::FCvtzsXFromD
             | CodeOp::FCvtmsXFromD

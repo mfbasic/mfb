@@ -172,6 +172,8 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
         | CodeOp::FNegD
         | CodeOp::FAbsD
         | CodeOp::FSqrtD
+        | CodeOp::FCvtSFromD
+        | CodeOp::FCvtDFromS
         | CodeOp::FMaddD
         | CodeOp::FMsubD
         | CodeOp::FNmsubD

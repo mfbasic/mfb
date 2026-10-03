@@ -141,6 +141,11 @@ pub(crate) enum CodeOp {
     /// finiteness check to fold ±Inf together before the `fcmp` (plan-16 Piece B).
     FAbsD,
     FSqrtD,
+    /// `fcvt Sd, Dn` / `fcvt Dd, Sn` — narrow a double to binary32 (round to
+    /// nearest even) / widen a binary32 to a double, in the same FP register
+    /// file. Used by `LINK` `CFloat` marshaling (bug-788).
+    FCvtSFromD,
+    FCvtDFromS,
     FCmpD,
     FCmpZeroD,
     SCvtfDFromX,
@@ -344,6 +349,8 @@ impl CodeOp {
             CodeOp::FNegD => "fneg_d",
             CodeOp::FAbsD => "fabs_d",
             CodeOp::FSqrtD => "fsqrt_d",
+            CodeOp::FCvtSFromD => "fcvt_s_from_d",
+            CodeOp::FCvtDFromS => "fcvt_d_from_s",
             CodeOp::FCmpD => "fcmp_d",
             CodeOp::FCmpZeroD => "fcmp_zero_d",
             CodeOp::SCvtfDFromX => "scvtf_d_from_x",
@@ -506,6 +513,8 @@ impl CodeOp {
             "fneg_d" => Ok(CodeOp::FNegD),
             "fabs_d" => Ok(CodeOp::FAbsD),
             "fsqrt_d" => Ok(CodeOp::FSqrtD),
+            "fcvt_s_from_d" => Ok(CodeOp::FCvtSFromD),
+            "fcvt_d_from_s" => Ok(CodeOp::FCvtDFromS),
             "fcmp_d" => Ok(CodeOp::FCmpD),
             "fcmp_zero_d" => Ok(CodeOp::FCmpZeroD),
             "scvtf_d_from_x" => Ok(CodeOp::SCvtfDFromX),
@@ -681,6 +690,8 @@ mod tests {
             CodeOp::FNegD,
             CodeOp::FAbsD,
             CodeOp::FSqrtD,
+            CodeOp::FCvtSFromD,
+            CodeOp::FCvtDFromS,
             CodeOp::FCmpD,
             CodeOp::FCmpZeroD,
             CodeOp::SCvtfDFromX,

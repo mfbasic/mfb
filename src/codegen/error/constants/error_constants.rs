@@ -1543,6 +1543,9 @@ pub(crate) const COLLECTION_TYPE_BYTE: usize = 7;
 pub(crate) const F64_SIGN_BIT: &str = "9223372036854775808";
 pub(crate) const F64_MANTISSA_MASK: &str = "4503599627370495";
 pub(crate) const F64_POSITIVE_INF_BITS: &str = "9218868437227405312";
+/// binary32 exponent field (`0x7F80_0000`): a C `float` with all of it set is an
+/// infinity or a NaN (bug-788).
+pub(crate) const F32_POSITIVE_INF_BITS: &str = "2139095040";
 /// `Money` collection element (plan-29-C): an 8-byte signed-i64 lane, compared
 /// as a signed integer (same scale ⇒ raw order = value order). Takes the free
 /// tag 8 between `Byte` (7) and `List` (20).
