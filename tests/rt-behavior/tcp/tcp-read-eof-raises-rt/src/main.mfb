@@ -40,13 +40,13 @@ END FUNC
 ' on the raise, not on a zero-length chunk. Proves the TRAP-terminated idiom in
 ' `mfb man tcp read` actually terminates and reports every byte sent.
 FUNC drainUntilClosed AS Integer
+  MUT total = 0
   RES server = tcp::listen("127.0.0.1", 0)
   LET bound = tcp::localAddress(server)
   RES client = tcp::connect("127.0.0.1", bound.port)
   RES conn = tcp::accept(server)
   tcp::write(client, "hello world")
   tcp::close(client)
-  MUT total = 0
   WHILE TRUE
     LET chunk = tcp::read(conn, 4096)
     total = total + len(chunk)

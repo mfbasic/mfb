@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/trap/trap-local-before-initialization-invalid
+   7 |   LET value = 42
+   8 |   RETURN value
+   9 |   TRAP(e)
+     | ^
+tests/syntax/trap/trap-local-before-initialization-invalid/src/main.mfb:9 error[2-203-0143 TYPE_TRAP_LOCAL_UNINITIALIZED]: a TRAP handler reads a local that an error can reach before it is declared
+               TRAP `e` reads `value`, but an error can reach the handler before `value` is declared: an error in its own initializer, or in any statement before it. Declare `value` before the first statement that can fail, or do not read it in the handler.
+[exit 1]

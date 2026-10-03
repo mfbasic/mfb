@@ -708,6 +708,11 @@ struct TypeEnv {
     unions: HashMap<ParameterType, UnionInfo>,
     /// Internal (project + merged-package) function signatures, for arity.
     functions: HashMap<String, FnSig>,
+    /// bug-797: every project function name, and those proven unable to let an
+    /// error reach their caller (`trap_init::total_functions`). Read by the
+    /// function-level `TRAP` initialization check.
+    declared_functions: HashSet<String>,
+    total_functions: HashSet<String>,
     /// Global binding name → declared type.
     globals: HashMap<String, ParameterType>,
     /// Global binding name → whether it was declared `MUT` (assignable).
@@ -1000,6 +1005,8 @@ impl TypeEnv {
             records,
             unions,
             functions,
+            declared_functions: project.functions.iter().map(|f| f.name.clone()).collect(),
+            total_functions: trap_init::total_functions(&project.functions),
             globals,
             global_muts,
             resource_closers,
@@ -1776,6 +1783,7 @@ mod link;
 mod matching;
 mod ops;
 mod resources;
+mod trap_init;
 mod types;
 mod values;
 

@@ -212,7 +212,7 @@ default resource temporaries in inline-`TRAP` lowering. This record makes cleanu
 of the temporary safe; it does not mean the source acquisition succeeded or the
 source binding was initialized. Its closed flag makes cleanup a no-op. Internal
 slot initialization and source-level definite initialization are different facts
-(the current handler-local checking limitation is described in §8.6a).
+(handler-local definite initialization is §8.6a).
 [[src/ir/lower.rs:lower_inline_trap]]
 [[src/codegen/memory/value/builder_value_semantics.rs:emit_closed_resource_record]]
 

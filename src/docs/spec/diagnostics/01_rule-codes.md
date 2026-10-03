@@ -486,6 +486,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0138` | `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` | error | a resource cannot cross the thread data plane |
 | `2-203-0139` | `EXPORT_NAMES_NON_EXPORTED_TYPE` | error | an exported declaration names a type the package does not export |
 | `2-203-0140` | `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` | error | a ThreadWorker cannot cross to another thread |
+| `2-203-0143` | `TYPE_TRAP_LOCAL_UNINITIALIZED` | error | a TRAP handler reads a local that an error can reach before it is declared |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one RES parameter of its resource |

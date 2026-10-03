@@ -1,0 +1,101 @@
+{
+  "project": "trap_local_initialized_before_failure_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "total",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "early",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "value", "type": null, "value": { "kind": "number", "value": "42" }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": null, "value": { "kind": "call", "callee": "total", "arguments": [] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": null, "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 12 },
+      { "kind": "binding", "mutable": true, "name": "m", "type": null, "value": { "kind": "number", "value": "5" }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "mightFail", "arguments": [] }, "line": 14 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "risky", "arguments": [] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "value" }, "line": 16 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 17,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "t" } }, "right": { "kind": "identifier", "value": "n" } }, "right": { "kind": "identifier", "value": "m" } }, "line": 18 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "risky",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "90000002" }, { "kind": "string", "value": "risky" }] }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "mightFail",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "string", "value": "x" }] }, "right": { "kind": "number", "value": "2" } },
+        "line": 25,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "90000001" }, { "kind": "string", "value": "probe" }] }, "line": 26 }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 29,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "early", "arguments": [] }] }] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ]
+    }
+    ]
+  }
+  ]
+}

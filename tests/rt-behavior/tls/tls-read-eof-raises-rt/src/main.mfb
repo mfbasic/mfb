@@ -21,11 +21,11 @@ IMPORT tls
 ' response and shut the session down, which is the clean EOF under test. Output
 ' is reduced to stable booleans so the golden does not depend on response bytes.
 FUNC drainToEof AS String
+  MUT total = 0
   RES conn = tls::connect("8.8.8.8", 443, 5000, "dns.google")
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
   tls::write(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & "Connection: close" & crlf & crlf)
-  MUT total = 0
   WHILE TRUE
     LET chunk AS List OF Byte = tls::read(conn, 4096)
     IF len(chunk) = 0 THEN

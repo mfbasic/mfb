@@ -1,11 +1,11 @@
 # bug-797: Function-level TRAP reads a local whose declaration was skipped
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/syntax/trap-local-before-initialization-invalid` and verifier unit tests
+Status: Fixed
+Regression Test: `tests/syntax/trap/trap-local-before-initialization-invalid`; `tests/rt-behavior/trap/trap-local-initialized-before-failure-rt` (positive, prints 53); `src/ir/verify/tests.rs` (`rejects_a_handler_read_of_a_local_declared_after_a_failure` + three positive guards)
 
 A function-level handler can read a local declared after the failing operation.
 The program compiles and returns unwritten frame data. The correct behavior is
@@ -125,10 +125,10 @@ Resource move/cleanup rules remain independent of initialization facts.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a negative source fixture for the reproduction and an equivalent
+- [x] Add a negative source fixture for the reproduction and an equivalent
       decoded-IR verifier test; prove both currently accept the invalid read.
-- [ ] Add positive guards for declaration-before-failure and failed MUT RHS.
-- [ ] Cover checked-operator errors, branches, loops, and inline propagation;
+- [x] Add positive guards for declaration-before-failure and failed MUT RHS.
+- [x] Cover checked-operator errors, branches, loops, and inline propagation;
       finish the consumer audit above.
 
 Acceptance: negative tests fail for missing diagnostics; positive guards pass.
@@ -136,20 +136,20 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Implement failure-edge initialization analysis in shared verification.
-- [ ] Add a precise diagnostic and update its owning spec/rule registry.
-- [ ] Update §8.6a to the implemented rule and remove its current limitation.
+- [x] Implement failure-edge initialization analysis in shared verification.
+- [x] Add a precise diagnostic and update its owning spec/rule registry.
+- [x] Update §8.6a to the implemented rule and remove its current limitation.
 
 Acceptance: negative tests reject the read; initialized-local reads still work.
 Commit: —
 
 ### Phase 3 — expected outputs + full validation
 
-- [ ] Run the full suite before changing any existing golden; prove each changed
+- [x] Run the full suite before changing any existing golden; prove each changed
       diagnostic line wrong using AGENTS.md's history/contract/dependency checks.
-- [ ] Run `cargo test`, `scripts/artifact-gate.sh target/release/mfb all`, and
+- [x] Run `cargo test`, `scripts/artifact-gate.sh target/release/mfb all`, and
       `scripts/test-accept.sh` with the rebuilt release binary as required by its help.
-- [ ] Re-run the original rejection probe and runtime positive contrasts.
+- [x] Re-run the original rejection probe and runtime positive contrasts.
 
 Acceptance: all required gates pass; only intended diagnostics change.
 Commit: —
@@ -171,3 +171,51 @@ infallibility is not established; default to treating such calls as failure edge
 
 The risk is missing an implicit error edge or rejecting a correctly initialized
 handler local. This is a dataflow repair, not a slot-zeroing repair.
+
+## Resolution (2026-10-03)
+
+**Rule.** `TYPE_TRAP_LOCAL_UNINITIALIZED` (`2-203-0143`; `0141`/`0142` are
+reserved by plan-167-B). A function-level handler may read a top-level local only
+if nothing in the body up to and including that local's declaration can fail. A
+failure in its own initializer counts.
+
+- Parameters are always readable.
+- Assignments do not un-initialize: a failed replacement keeps the old value.
+- The function's own resources are left to bug-676's trap-cleanup rule, which
+  already rejects every handler read of one. This avoids reporting the same read
+  twice.
+
+**Failure census** (`src/ir/verify/trap_init.rs`). It is the IR twin of
+`ir::fallible`:
+
+- `FAIL`;
+- raising arithmetic operators (the negative-literal exemption applies);
+- calls, unless the built-in census proves them total or they are project
+  functions shown total by an IR fixpoint. Imported/unknown callees count as
+  failing, the doc's conservative default.
+
+A `CallResult`/`Checked` is captured by its inline `TRAP` and is not an edge. The
+check runs in `ir::verify`, so source and decoded packages are held alike.
+
+**Tests corrected (four questions).** These are bug-465's tcp/tls EOF
+characterization fixtures (542bd4d1f). They protect "`read` raises at EOF and the
+drain idiom terminates", and nothing else depends on the moved lines.
+`drainUntilClosed` / `drainToEof` declared `MUT total = 0` *after*
+`tcp::listen`/`connect`/`accept` (and `tls::connect`). A setup failure therefore
+entered the handler and read `total` uninitialized: exactly this bug, and the
+"checking defect" spec §8.6a already named. The `mfb man tcp read` example they
+mirror declares it first. Fix: only that line moves to the top of each function.
+Their `.ast`/`.ir` goldens move with it and are regenerated at the batch gate.
+
+**Proof.**
+
+- The reproduction is rejected with the new rule.
+- The positive fixture runs and prints `53`
+  (`value`/total-function/builtin/failed-`MUT`).
+- Every fixture with a function-level `TRAP` (118) was run: the only new
+  diagnostics were the tcp/tls fixtures above and the bug-676 fixture's
+  duplicate, now suppressed. The remaining mismatches are bug-785's stale
+  `ThreadWorker` packages.
+- Verifier unit tests pass, 461.
+- Specs: `mfb spec language error-model` §8.6a (the limitation is replaced by the
+  rule), `diagnostics rule-codes`, and `language resource-management`'s cross-ref.

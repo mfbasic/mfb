@@ -193,26 +193,29 @@ These are the accepted proof forms, not a general termination analysis.
 
 ### 8.6a Handler-local visibility and initialization
 
-Name visibility is not definite initialization. The resolver makes the body's
-top-level locals visible in a function-level handler by resolving the body first
-and copying its local environment. The current IR verifier similarly checks the
-handler using the accumulated local-type environment; it does **not** intersect
-initialization facts across incoming failure edges. Consequently a handler read
-can currently be accepted even when a preceding failure bypasses that local's
-declaration. Such a read has no defined source value; acceptance is a checking
-defect, not a guarantee of default initialization. No particular runtime value
-is specified for it.
-[[src/resolver/resolution.rs:resolve_function]]
-[[src/ir/verify/ops.rs:check_ops]]
+Name visibility is not definite initialization. The body's top-level locals are
+visible in a function-level handler, but the handler may **read** one only if it
+is initialized on every failure edge that reaches the handler. A failure inside a
+declaration's own initializer, or in any statement before it, enters the handler
+before that local exists. So a local declared at or after the first statement
+that can fail may not be read there (`TYPE_TRAP_LOCAL_UNINITIALIZED`). Parameters
+are always readable. A local declared before anything can fail is readable even
+if it is later reassigned, because a failed replacement leaves the earlier value
+in place (§14.2).
+[[src/ir/verify/trap_init.rs:locals_unbound_on_some_failure]]
+
+"Can fail" is the same census the compiler uses for function fallibility: `FAIL`,
+an arithmetic operator that can raise (a negative literal cannot), and a call,
+unless the callee is a built-in proven total or a project function proven unable
+to let an error out. An imported callee is assumed to fail. A call or operator
+under an inline `TRAP` is captured by that handler and is not an edge into this
+one. The census is applied to the IR, so a decoded package is held to the same
+rule as source. [[src/ir/verify/trap_init.rs:total_functions]]
 
 For example, when `mightFail()` precedes `LET value = 42`, a handler's
-`RETURN value` can resolve and pass verification although the call failed before
-the declaration.
-A local already initialized before the failing operation is a different case:
-failed evaluation of a replacement RHS preserves the old mutable value (§14.2).
-Resource reads remain subject to the separate trap-cleanup/move restrictions
-in rule 3. The current checker must not be described as enforcing definite
-initialization on every failure edge.
+`RETURN value` is rejected; declaring `value` first makes it valid. The function's
+own resources are governed by the trap-cleanup rule instead (rule 3): every
+handler read of one is already a use after close.
 
 ## 8.7 Program entry point
 

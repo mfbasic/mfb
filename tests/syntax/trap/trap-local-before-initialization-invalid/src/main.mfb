@@ -1,0 +1,19 @@
+' bug-797: a function-level handler read `value`, which an error from
+' `mightFail()` reaches before `LET value = 42` runs. It compiled and returned
+' unwritten frame data; it must be rejected (TYPE_TRAP_LOCAL_UNINITIALIZED).
+IMPORT io
+FUNC example() AS Integer
+  mightFail()
+  LET value = 42
+  RETURN value
+  TRAP(e)
+    RETURN value
+  END TRAP
+END FUNC
+FUNC mightFail() AS Nothing
+  FAIL error(90000001, "probe")
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(example()))
+  RETURN 0
+END FUNC

@@ -798,6 +798,31 @@ impl TypeEnv {
                             format!("{trap_label} must return, fail, or propagate."),
                         );
                     }
+                    // bug-797: the handler may read only locals bound on every
+                    // failure edge into it. A local declared at or after the
+                    // first op that can fail is not.
+                    // The function's own resources are left to the resource rule
+                    // (bug-676), which already rejects every handler read of one
+                    // as a use after close; reporting the same read twice is noise.
+                    let mut unbound = super::trap_init::locals_unbound_on_some_failure(
+                        &ops[..op_index],
+                        locals,
+                        &self.declared_functions,
+                        &self.total_functions,
+                    );
+                    unbound.retain(|name| {
+                        locals.get(name).is_none_or(|type_| {
+                            self.close_op_for(&resource_base_type(type_)).is_none()
+                        })
+                    });
+                    for read in super::trap_init::handler_reads(body, &unbound) {
+                        self.emit(
+                            "TYPE_TRAP_LOCAL_UNINITIALIZED",
+                            format!(
+                                "{trap_label} reads `{read}`, but an error can reach the handler before `{read}` is declared: an error in its own initializer, or in any statement before it. Declare `{read}` before the first statement that can fail, or do not read it in the handler."
+                            ),
+                        );
+                    }
                     // …and so must the normal flow before it: lowering places the
                     // TRAP op last, so the ops preceding it ARE the body, and a
                     // body that can fall through would run into the handler.
