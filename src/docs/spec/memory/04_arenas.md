@@ -422,10 +422,14 @@ can name. Everything the node POINTS at — the element's `STATE` block, its per
 I/O buffers, its record for the record-freeing kinds above, a union element's
 `{tag, record-ptr}` box, and the collection block itself — is freed only for a
 collection proved to be their one owner: every store into it is a collection
-literal or a self-receiving `collections::` mutator, it is never named outside a call's
-argument position, no `collections::get`/`getOr` (nor a `*::poll`) reads an element back
-out of it, and every element that floats into it is a fresh producer record that does
-not escape. A collection that fails any of those keeps a close-only drain, which leaks
+literal, a self-receiving `collections::` mutator, or a call to a builtin body audited to
+return a block nothing else holds (`collections::take`/`drop` over the native slice); it
+is never named outside a call's argument position; no call keeps its block — it is never
+a `collections::` member's non-receiver argument (`collections::append(out, piece)`
+stores `piece`'s block inside `out`), nor an argument a callee's body keeps by the same
+rules, a recursive callee counting as keeping; no `collections::get`/`getOr` (nor a
+`*::poll`) reads an element back out of it; and every element that floats into it is a
+fresh producer record that does not escape. A collection that fails any of those keeps a close-only drain, which leaks
 those blocks rather than risking a double free.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]

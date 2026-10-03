@@ -1179,6 +1179,10 @@ name = "rt_res_list_from_call_leak"
 path = "tests/runtime/rt_res_list_from_call_leak.rs"
 
 [[test]]
+name = "rt_res_list_kept_by_call"
+path = "tests/runtime/rt_res_list_kept_by_call.rs"
+
+[[test]]
 name = "rt_scope_drop_leaks"
 path = "tests/runtime/rt_scope_drop_leaks.rs"
 
