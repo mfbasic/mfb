@@ -104,71 +104,15 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   * `.ai/testing-gates.md` — artifact-gate, byte-identity, acceptance golden harness,
     perf-golden and concurrency hazards, citation sweeps.
   * `.ai/build-tooling.md` — rustfmt/clippy policy, cross-compile + vendor rebuild mechanics.
-* **Two documentation surfaces, two audiences — pick by reader, not by topic.**
-  `mfb man` is for **the MFBASIC developer** using and learning the language;
-  compiler internals are banned there. `mfb spec` is for **the compiler
-  contributor** (and the developer who wants the internal detail); internals are
-  required there, and cited. The standards are mirror images:
-  `.ai/man-content.md` and `.ai/spec-content.md`. A sentence cut from a man page
-  for being too internal is a candidate **spec** obligation, not deleted
-  knowledge — see `.ai/spec-content.md` §8.
-* Creating or updating `mfb man` content. Two separate sources — pick by page kind:
-  * **Built-in package / function / type pages are rendered from the clean-room
-    registry descriptors**, not from any Markdown file (`src/cli/man.rs:1-15`,
-    `crate::codegen::registry`). Edit the prose fields on the descriptor in
-    `src/codegen/builtins/<pkg>/`: package `MODULE_INTRO`/`MODULE_DESC`
-    (`mod.rs`), per-member `intro`/`desc`/`example` on `RegistryFunction`
-    (`func_*.rs`), `Parameter.desc`, and the `description` on
-    `RegistryRecord`/`RegistryResource`/`EnumVariant`/`UnionVariant`. Verify by
-    rendering: `mfb man <pkg>`, `mfb man <pkg> <func>`, `mfb man <pkg> types`,
-    `mfb man <pkg> --all`.
-  * **Narrative guide topics still live as Markdown** under `src/docs/man/**`
-    (`errors`, `flow`, `lambda`, `link`, `optimizations`, `tooling`, `tour`,
-    `types`, `unicode`, `variable`) — a directory with a `package.md` is a topic,
-    embedded at build time (`src/docs/man/mod.rs`). Only reached when the first
-    positional is not a known package.
-  * **`.ai/man-content.md` is the content standard — read it before writing a
-    page.** It defines who the page is for (the MFBASIC developer), what it must
-    and must not contain, the four-step authoring workflow, and the verification
-    instruments (`scripts/man-census.sh`, `scripts/man-run-examples.sh`,
-    `scripts/man-manual.sh`). **§9 governs the narrative guide topics**, which
-    are held to the same bans as a function page — they were outside plan-108
-    entirely, so the surface's "0 banned words" certification covered 596 of 628
-    pages. Note `mfb man --all` omits `testing` and `general` by design;
-    `scripts/man-manual.sh` is the complete 628-page artifact. The retired
-    `.ai/man_*template*.md` files are deleted; nothing in them survived the
-    registry migration (the renderer derives Synopsis/Parameters/Return/Errors/
-    See-also itself, so a page author writes only intro, description and
-    examples).
-  * **No C/Rust memory vocabulary on a man page.** The only permitted words are
-    **copy**, **mutate**, **value**, and **alias** (the last for a `RES` handle
-    only). Not: borrow, ownership, move, consume, free, heap, refcount,
-    lifetime, dangling, allocate, deep/shallow copy, by reference, drop. Say
-    what a developer observes — "the handle stays open — you still close it",
-    "you get a copy" — and link `mfb man variable` for the model itself; the
-    precise contract lives in `mfb spec` §14. Check with
-    `scripts/man-census.sh --memory-scope` (and `--banned-list` for the full
-    list); it must report 0 unclassified hits.
-  * Prose fields are `&'static str` the compiler never reads, so no compiler gate
-    catches a doc error — `mfb man` output is the only verification. Render it:
-    `scripts/man-census.sh --fill <pkg>` for coverage,
-    `scripts/man-run-examples.sh <pkg> --run` to compile and run every example
-    on the page.
-* The embedded spec (`mfb spec`, `src/docs/spec/**`) → two files, and read both:
-  * `.ai/specifications.md` — the **mechanical** rules: single source of truth,
-    `[[path:Symbol]]` provenance, `PACKAGE_ORDER`, and the one file that is build
-    input (`diagnostics/02_error-codes.md` generates the `errorCode::` constants).
-    Keep the spec current with every compiler change — that is part of the Hard
-    Completion Gate, not optional cleanup.
-  * `.ai/spec-content.md` — the **review** standard, for the compiler-contributor
-    audience: what a topic must contain, what it must not (tutorial prose,
-    marketing, duplicated bodies, unverifiable or aspirational claims), the
-    as-is-at-HEAD accuracy rule, how to triage a spec/code disagreement, and the
-    two citation-rot classes. A **stale-by-deletion** citation (the symbol exists
-    nowhere in `src/`) makes the CLAIM suspect, not just the link — re-pointing
-    paths alone silently ratifies a sentence about a compiler that no longer
-    exists. Measure with `scripts/spec-census.sh --citations` / `--links`; gate
-    with `cargo build`, `cargo test --bin mfb spec`, plus `cargo test errorcode`
-    only when the error-code table changed.
-* Remote test machines → `.ai/remote_systems.md`.
-* Starting an agent or sub-agent  → `.ai/sub-agents.md`.
+
+* Agent resources
+  * `.ai/remote_systems.md` — remote test machines.
+  * `.ai/sub-agents.md` — starting an agent or sub-agent.
+
+* Documentation — two surfaces, two audiences; pick by reader, not by topic.
+  * `.ai/man-content.md` — `mfb man`, for **the MFBASIC developer**: registry-descriptor
+    prose fields and the guide topics under `src/docs/man/**`; memory-vocabulary ban.
+    The compiler never reads this prose, so rendering the page is the only verification.
+  * `.ai/spec-content.md` — `mfb spec`, for **the compiler contributor**: the review standard.
+  * `.ai/specifications.md` — `mfb spec` mechanical rules. Every compiler change that alters
+    an observable contract updates its spec topic in the same change (Hard Completion Gate).
