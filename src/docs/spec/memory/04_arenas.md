@@ -422,8 +422,10 @@ can name. Everything the node POINTS at — the element's `STATE` block, its per
 I/O buffers, its record for the record-freeing kinds above, a union element's
 `{tag, record-ptr}` box, and the collection block itself — is freed only for a
 collection proved to be their one owner: every store into it is a collection
-literal, a self-receiving `collections::` mutator, a call to a builtin body audited to
-return a block nothing else holds (`collections::take`/`drop` over the native slice), or a
+literal, a self-receiving `collections::` mutator, a call audited to return a block
+nothing else holds — `collections::take`/`drop`/`chunks`/`window` (source bodies over
+the native slice) and the natively lowered `filter`, `append`, `prepend`, `insert`,
+`set`, `removeAt` and `mid` — or a
 call to a function whose every `RETURN` hands back such a block — a literal, one of those
 calls, or a local whose every store is fresh, that no call keeps and that is named
 nowhere but in its `RETURN`s (a parameter never qualifies: it is the caller's block); it
@@ -434,7 +436,9 @@ rules, a recursive callee counting as keeping; no `collections::get`/`getOr` (no
 `*::poll`) reads an element back out of it; and every element that floats into it is a
 fresh producer record that does not escape. Such a collection also frees the block a copying
 reassignment replaces (`out = collections::append(out, x)` when the in-place append
-declines); the elements are references and are not touched. A collection that fails any of those keeps a close-only drain, which leaks
+declines); the elements are references and are not touched. The intermediates a `collections` member builds for a `RES` collection (an
+element's singleton, `set`'s removed copy) are freed the same shallow way.
+[[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]] A collection that fails any of those keeps a close-only drain, which leaks
 those blocks rather than risking a double free.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
