@@ -52,6 +52,10 @@ pub(crate) struct EncodedImage {
     /// the encoder — which is what keeps the vendor directory's *location* out of
     /// the codegen and the `dlopen` call a bare-filename one.
     pub(crate) rpaths: Vec<String>,
+    /// `--debug` builds write `symbols` into the output's native symbol table
+    /// (`mfb spec linker symbols-and-relocations`). False for every other build,
+    /// which keeps those binaries free of internal names (audit-1).
+    pub(crate) debug_symbols: bool,
 }
 
 /// What a signed build hands the linker (`./mfb spec package-manager signing`).
@@ -97,7 +101,7 @@ pub(crate) struct EncodedSymbol {
     pub(crate) offset: usize,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EncodedSection {
     Text,
     Data,

@@ -28,6 +28,7 @@ fn none() -> EncodedImage {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     }
 }
 
@@ -161,6 +162,7 @@ fn rejects_initializer_without_text_symbol() {
         initializers: vec!["_missing".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = tempfile::tempdir().unwrap();
     let error = write_executable(dir.path(), "init", &image)
@@ -210,6 +212,7 @@ fn runs_initializer_before_entry_without_imports() {
         initializers: vec!["_init0".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = std::env::temp_dir().join(format!("mfb_modinit_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -279,6 +282,7 @@ fn runs_initializer_before_entry_with_imports() {
         initializers: vec!["_init0".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = std::env::temp_dir().join(format!("mfb_modinit_imp_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -316,6 +320,7 @@ fn writes_mfb_sign_section_to_mach_o() {
             br#"{"owner":"alice"}"#,
         )),
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(dir.path(), "signed", &image).expect("link signed mach-o");
@@ -417,6 +422,7 @@ fn provenance_note_coexists_with_the_mfb_sign_segment() {
             br#"{"owner":"alice"}"#,
         )),
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(dir.path(), "noted-signed", &image).expect("link signed mach-o");
@@ -481,6 +487,7 @@ fn noted_mach_o_verifies_and_runs() {
             initializers: Vec::new(),
             signing_metadata: metadata,
             rpaths: Vec::new(),
+            debug_symbols: false,
         };
         let dir = tempfile::tempdir().unwrap();
         let path = write_executable(dir.path(), name, &image).expect("link mach-o");
@@ -898,6 +905,7 @@ fn library_ordinal_rejects_absent_library() {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     })
     .unwrap();
     assert_eq!(library_ordinal(&libraries, "libSystem").unwrap(), 1);
@@ -1398,6 +1406,7 @@ fn exit_zero_image(rpaths: Vec<String>) -> EncodedImage {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths,
+        debug_symbols: false,
     }
 }
 

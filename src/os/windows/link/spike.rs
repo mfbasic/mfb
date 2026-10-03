@@ -370,6 +370,7 @@ fn spike_image() -> EncodedImage {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     }
 }
 

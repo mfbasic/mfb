@@ -171,6 +171,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         };
         let dir = tempfile::tempdir().unwrap();
         let path =
@@ -202,6 +203,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         };
         let dir = tempfile::tempdir().unwrap();
         let appdir = write_linked_appdir(
@@ -274,6 +276,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         }
     }
 

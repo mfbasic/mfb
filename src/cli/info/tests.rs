@@ -46,6 +46,7 @@ fn image(text: Vec<u8>, entry: &str, signing_metadata: Option<ExecutableSigning>
         initializers: Vec::new(),
         signing_metadata,
         rpaths: Vec::new(),
+        debug_symbols: false,
     }
 }
 

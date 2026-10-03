@@ -320,14 +320,16 @@ Commit: — (no tree change)
 Adds the field and the format-neutral list. No writer reads them yet, so output is
 unchanged.
 
-- [ ] `src/arch/image.rs`: add `debug_symbols: bool` (§4.1).
+- [x] `src/arch/image.rs`: add `debug_symbols: bool` (§4.1).
       `src/arch/encode_plan.rs`: set `false`. Add `debug_symbols: false` to the
       53 test literals (`grep -rn "EncodedImage {" src --include='*.rs' | grep -v "fn \|struct "`
-      lists all 54).
-- [ ] The five target backends (`src/target/{macos_aarch64,linux_aarch64,linux_x86_64,linux_riscv64,win_x86_64}/mod.rs`):
+      lists all 54). Only 24 test literals needed the field; the other 29 spread
+      `..base` (see Corrections). `cargo build --tests` → compiles.
+- [x] The five target backends (`src/target/{macos_aarch64,linux_aarch64,linux_x86_64,linux_riscv64,win_x86_64}/mod.rs`):
       `image.debug_symbols = debug.enabled;` beside `image.signing_metadata = …`.
-- [ ] New `src/os/debug_symbols.rs` (§4.2), registered in `src/os/mod.rs`.
-- [ ] Tests in `src/os/debug_symbols.rs`:
+- [x] New `src/os/debug_symbols.rs` (§4.2), registered in `src/os/mod.rs`.
+      `EncodedSection` gained `Debug` for the test asserts.
+- [x] Tests in `src/os/debug_symbols.rs`:
       `sizes_run_to_next_symbol_and_last_to_section_end`,
       `aliases_share_the_next_distinct_offset`,
       `text_is_function_data_is_object`, `duplicate_name_is_rejected`,
@@ -335,6 +337,7 @@ unchanged.
 
 Acceptance: the new unit tests pass, and no linked output changes yet.
   Check: `cargo test --bin mfb debug_symbols` → 5 passed (est. 3 min including build).
+  Result (2026-10-03): `test result: ok. 5 passed; 0 failed`.
 Commit: —
 
 ### Phase 2: Mach-O symbol table, dysymtab, function starts
@@ -453,7 +456,11 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Test-literal count (Phase 1).** The plan said 53 test literals need
+  `debug_symbols: false`. Only 24 did: counting added `debug_symbols: false,`
+  lines in the Phase 1 diff → 25 (24 test literals + `encode_plan`). The other
+  29 matches of the population grep spread `..base` from a helper, so they
+  inherit the field. No other letter's scope derived from the 53.
 
 ## Summary
 

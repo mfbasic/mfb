@@ -15,6 +15,7 @@ fn none() -> EncodedImage {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     }
 }
 
@@ -119,6 +120,7 @@ fn init_array_image() -> EncodedImage {
         initializers: vec!["_init0".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     }
 }
 
@@ -585,6 +587,7 @@ fn dynamic_build_rejects_missing_initializer_symbol() {
         initializers: vec!["_ghost".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let err = encode_dynamic_elf(
         "aarch64",
@@ -907,6 +910,7 @@ fn writes_mfb_sign_section_to_static_elf() {
             br#"{"owner":"alice"}"#,
         )),
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(dir.path(), "signed", "aarch64", LinuxFlavor::Glibc, &image)
