@@ -140,11 +140,15 @@ END FUNC
     let (text_a, a) = alloc_calls("b773_rep_20", &program(20));
     let (text_b, b) = alloc_calls("b773_rep_40", &program(40));
     assert_eq!((text_a.as_str(), text_b.as_str()), ("0\n", "0\n"));
+    // A call that does not compile still allocates its own state: the cached
+    // program's copy, the result list, the match context and the matcher tables —
+    // 14 measured. A compile adds ~100 more (`[0-9]+`: 110 per call with no cache,
+    // 914 before bug-773's compile fixes), so 25 separates the two.
     let per_call = (b - a) as f64 / 20.0;
     assert!(
-        per_call <= 10.0,
+        per_call <= 25.0,
         "bug-773: repeating `regex::findAll(\"\", \"[0-9]+\")` cost {per_call:.1} arena \
-         allocations per call (bound 10): every call recompiles the pattern"
+         allocations per call (bound 25): every call recompiles the pattern"
     );
 }
 
