@@ -64,6 +64,7 @@ pub(crate) fn lower_strings_graphemes(
     builder.emit_unicode_property_lookup(&scratch10, &scratch12);
     builder.emit_unicode_property_boundclass(&scratch12, &scratch24);
     builder.emit_unicode_property_indic_conjunct_break(&scratch12, &scratch25);
+    builder.emit_seed_indic_conjunct_state(&scratch25);
     builder.emit(abi::move_register(&scratch23, &scratch11));
     builder.emit(abi::label(&count_loop));
     builder.emit(abi::compare_registers(&scratch23, &scratch9));
@@ -169,6 +170,7 @@ pub(crate) fn lower_strings_graphemes(
     builder.emit_unicode_property_lookup(&scratch10, &scratch12);
     builder.emit_unicode_property_boundclass(&scratch12, &scratch25);
     builder.emit_unicode_property_indic_conjunct_break(&scratch12, &scratch26);
+    builder.emit_seed_indic_conjunct_state(&scratch26);
     builder.emit(abi::store_u64(
         &scratch25,
         abi::stack_pointer(),
@@ -345,6 +347,7 @@ pub(crate) fn grapheme_at_window(
     builder.emit_unicode_property_lookup(&scalar, &props);
     builder.emit_unicode_property_boundclass(&props, &prev_bc);
     builder.emit_unicode_property_indic_conjunct_break(&props, &prev_icb);
+    builder.emit_seed_indic_conjunct_state(&prev_icb);
     builder.emit(abi::store_u64(
         &prev_bc,
         abi::stack_pointer(),

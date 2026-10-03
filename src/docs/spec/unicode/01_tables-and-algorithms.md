@@ -315,12 +315,16 @@ updates the Indic property state and promotes the boundclass for emoji ZWJ seque
 stays pictographic; + ZWJ becomes E_ZWG) and resets regional-indicator pairing.
 [[src/codegen/string/unicode_props.rs:emit_grapheme_state_update]]
 
-The Indic state does not retain a separate preceding-consonant flag. In
-particular, the first scalar seeds it directly from its property; an initial
-LINKER followed by CONSONANT suppresses the boundary. Thus `U+094D U+0915`
-yields one runtime cluster but two clusters on the folded Rust path. This is a
-current limitation of the emitted context tracking. The standalone helpers used
-by terminal placement encode the same LINKER/CONSONANT condition.
+The Indic state is the GB9c context, not the last scalar's raw property: "none"
+(0), "consonant prefix" (CONSONANT, kept through Extend as EXTEND), or "linker
+seen after a consonant" (LINKER, kept through Extend and further linkers). Only a
+consonant opens the context. A walk seeds it from the first scalar through
+`emit_seed_indic_conjunct_state`, which maps anything but a consonant to
+"none". A leading linker (`U+094D U+0915`) therefore breaks before the consonant,
+two clusters, as on the folded Rust path. Every walk seeds the same way: the
+grapheme list, count and index, `displayWidth`, and terminal placement's
+standalone helpers.
+[[src/codegen/string/unicode_props.rs:emit_seed_indic_conjunct_state]]
 [[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
 [[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch_free]]
 [[src/codegen/string/unicode_props.rs:emit_grapheme_state_update_free]]
