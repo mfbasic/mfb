@@ -2,17 +2,21 @@
 
 The monomorphizer takes the augmented generic HIR after initial resolution[[src/monomorph/]]
 and produces a fully **concrete** HIR: every template type and template function
-is expanded into a concrete declaration per instantiation, every overloaded call
-is rewritten to a single mangled callee symbol, and registry-designated source-generic `collections::` calls are
+is expanded into a concrete declaration per instantiation, each resolved call to
+an overloaded `FUNC` is rewritten to a single mangled callee symbol, and
+registry-designated source-generic `collections::` calls are
 internalized. The rest of the pipeline consumes this concrete HIR, never the
 original. Because the pass *introduces* new declarations and rewrites names, the
 build runs the resolver again immediately afterward (see
 `./mfb spec architecture frontend`).
 [[src/monomorph/mod.rs:monomorphize_project]]
 
-This pass is the **single source of truth for overload resolution and symbol
-mangling**. Overload resolution does not happen in the resolver or the type
-checker; the callees are already mangled before either runs the second time.
+This pass owns **user `FUNC` overload resolution and symbol mangling**. Those
+callees are already mangled before the second resolver pass and type checking.
+Registry-defined built-in calls also have signature and named-argument layout
+selection outside this pass, including trailing-default handling; see
+`./mfb spec language functions`.
+[[src/codegen/builtins/mod.rs:select_param_name_overload]]
 
 ## Pipeline position
 

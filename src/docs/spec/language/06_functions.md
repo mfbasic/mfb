@@ -60,7 +60,36 @@ END FUNC
   END FUNC
   ```
 
-- **Overload resolution** is by the call's **argument count and positional argument types**: a call binds to the one overload whose parameter count equals the number of supplied arguments and whose declared parameter types match the argument types position by position. Resolution is **exact** — it does not rank or prefer among candidates and does not coerce argument types to find a match; if no overload matches exactly, the call is a resolution error. **Default arguments do not combine with overloading**: within an overload set every parameter — including one declared with a default — must be supplied explicitly; trailing defaults are filled only for a name with a **single** declaration. (A name therefore either uses default/omitted arguments *or* is overloaded, not both.) The resolution algorithm and overload-symbol mangling run in the monomorphizer (see `./mfb spec architecture monomorphization`); return-type-overload disambiguation by expected (contextual) type is described in `./mfb spec architecture type-inference`.
+- **User-defined overload resolution** is by the call's **argument count and positional argument types**: a call binds to the one overload whose parameter count equals the number of supplied arguments and whose declared parameter types match the argument types position by position. Resolution is **exact** — it does not rank or prefer among candidates and does not coerce argument types to find a match; if no overload matches exactly, the call is a resolution error. **Default arguments do not combine with overloading**: within an overload set every parameter — including one declared with a default — must be supplied explicitly; trailing defaults are filled only for a name with a **single** declaration. (A user-defined overload set therefore requires explicit arguments for every parameter. Registry-defined built-ins use the separate rule below.) The resolution algorithm and overload-symbol mangling run in the monomorphizer (see `./mfb spec architecture monomorphization`); return-type-overload disambiguation by expected (contextual) type is described in `./mfb spec architecture type-inference`.
+- **Registry-defined built-in overloads are an exception to the user rule.**
+  Their named-argument layout selection, described above, can select a longer
+  signature and fill trailing defaults. Layout selection uses names and positions;
+  type compatibility is checked against the built-in registry afterward. It is
+  not user overload selection with implicit coercion added. Contextual argument
+  types and generic built-in resolution are specified in `./mfb spec architecture
+  type-inference`. [[src/codegen/builtins/mod.rs:select_param_name_overload]]
+  [[src/ir/shape.rs:check_builtin_call]]
+- **Literal types during user overload selection.** Scalar literals already have
+  types: strings are `String`, booleans `Boolean`, scalar literals `Scalar`, and
+  numbers are classified as `Integer`, `Float`, `Fixed`, or `Money` from their
+  spelling, including suffixes. Exact matching compares those types; it does not
+  try the later literal-to-parameter coercions to make a candidate fit. For
+  example, an integer literal does not become `Byte` merely because an overload
+  takes `Byte`. Empty collections and imported overload matching have their
+  own unknown-element/ambiguity rules in `./mfb spec architecture monomorphization`.
+  [[src/monomorph/lower.rs:expression_type]]
+  [[src/monomorph/helpers.rs:params_match]]
+- **Native `LINK` calls.** A qualified `alias::member` resolves to the declared
+  native member signature; LINK blocks are preserved rather than processed as
+  user `FUNC` overload sets. Their defaults are lowered for that declared
+  signature. Ordinary MFBASIC wrappers around native calls still follow the user
+  overload rules. [[src/resolver/mod.rs:link_target_signature]]
+  [[src/monomorph/lower.rs:into_project]]
+  [[src/ir/lower.rs:lower_link_defaults]]
+- **Calls through function values.** The value has an already selected callable
+  type; calling it does not resolve a declaration overload set or recover the
+  original declaration's defaults. All parameters of the callable type must be
+  supplied. [[src/ir/shape.rs:check_call_shape]]
 - **Parameter passing**: arguments are passed as owned values under the memory model (§14). Copyable values are copied when they remain needed by the caller; movable values are moved when ownership can be transferred. Containers own their contents, so passing a container never passes an aliasable reference.
 - **Resource parameters**: a parameter whose type is a `RESOURCE` is handled by compiler-known resource rules (§15). Ordinary resource operations receive a pointer to the one handle and do not move ownership; close operations consume it. MFBASIC source does not add ownership-annotation parameter keywords such as `MOVE`.
 - **Collection boundaries freeze mutable buffers.** When a `MUT` collection is passed to a function or returned from a function, it crosses the boundary as an immutable, owned collection value (§14). The compiler may move or freeze the existing buffer when ownership permits; the semantic guarantee is that no caller and callee can secretly share a mutable collection.

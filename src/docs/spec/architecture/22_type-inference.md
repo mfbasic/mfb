@@ -88,7 +88,7 @@ lowering has no element type to check the item against.
 
 ### Overload resolution
 
-When a name resolves to more than one visible signature, the monomorphizer
+For an ordinary user `FUNC` name with more than one visible signature, the monomorphizer
 selects the overload — **before** the shape pass and lowering see the program,
 so every call they check names one concrete, mangled symbol. Resolution requires
 **exact** arity and positional type equality with no coercion, and the expected
@@ -96,6 +96,10 @@ so every call they check names one concrete, mangled symbol. Resolution requires
 `TYPE_OVERLOAD_AMBIGUOUS` is raised when the inferred argument/expected types
 still leave the call unresolved. See `./mfb spec architecture monomorphization`
 (`resolve_overload`/`params_match`). [[src/monomorph/lower.rs:resolve_overload]]
+
+Registry-defined built-ins use their own signature/layout selection and may fill
+trailing defaults; they are not subject to the user-overload default prohibition.
+See `./mfb spec language functions` for the call-category contracts.
 
 ## Literal Coercion — `expression_compatible`
 

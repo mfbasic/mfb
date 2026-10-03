@@ -1,13 +1,13 @@
 # 14. Memory Semantics
 
-MFBASIC values have lexical ownership. Each live value is owned by exactly one binding, container slot, temporary, closure environment, thread message, or return slot. Values are reclaimed by deterministic drop at the end of the owning scope. There is no tracing GC, no reference counting, and no user-visible `free`.
+Ordinary MFBASIC data values have lexical ownership. Each live ordinary value is owned by one binding, container slot, temporary, closure environment, thread message, or return slot. Resource views are the explicit exception: several views can share one identity, with cleanup assigned to a scope (§15). Values are reclaimed by deterministic drop at the end of the owning scope. There is no tracing GC, no reference counting, and no user-visible `free`.
 
 The compiler may choose stack storage, inline storage, or heap allocation. A `MUT` self-update (`x = collections::append(x, v)`) is always a destructive update in place, with a cost bound (§12), not an optional optimization. None of these choices can change the ownership behavior described here. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
 
 ## 14.1 Copy, move, and freeze
 
 - **Copy** creates independent ordinary data. Resource slots copy the pointer to the same handle and `STATE`; function slots copy the pointer to the same closure object. These explicit pointer cases are described in §15 and `./mfb spec memory closures`.
-- **Move** transfers ownership from one place to another. After a move, the source binding is uninitialized and any later read, write, capture, comparison, print, return, or drop of that binding is a compile-time use-after-move error, enforced during typed-IR verification. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
+- **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
 Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource pointers (§15.6). Copying ordinary collection contents copies values, while resource and function slots copy their pointers. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
@@ -105,10 +105,12 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 Use-after-move (§14.1, §14.8) is detected on the **typed IR** by the IR semantic
 verifier's resource-move pass — the same checker that runs on decoded `.mfp`
 packages, so a crafted package cannot smuggle a double-free past it. The check is
-resource-linearity: a *move* is the transfer of a resource's close obligation —
-a call to the resource type's registered close op with the binding as its first
-argument, a `RETURN` of a resource binding, or `RES new = old` (which transfers
-ownership of `old`). Copying a copyable value is never a move. [[src/ir/verify/resources.rs:check_resource_moves]]
+a static binding-validity check: close, return, and direct-name resource rebinds
+can mark a source name moved. A move in this check is not necessarily a transfer
+of cleanup responsibility: close ends the resource's open state, while a direct
+`RES new = old` can copy its pointer and invalidate `old` without relocating its
+cleanup. The initializer table and cleanup model are specified in §15. Copying
+ordinary copyable data is never a resource move. [[src/ir/verify/resources.rs:check_resource_moves]]
 
 State is a single per-block set of moved binding names threaded through the op
 list (moved-or-not, not a three-value lattice). Reading a name already in the
@@ -128,8 +130,9 @@ bindings the outer scope knows propagate; branch-local resources die with the
 branch. Because "moved on *some* fall-through path" unions into the set, a
 subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/resources.rs:check_resource_moves]]
 
-A resource is owned by the **outermost scope that touches it**, and a `RES` is a
-pointer to that one resource. Any holder — a resource parameter, a `FOR EACH`
+A resource's cleanup scope follows the production, container-routing and
+escape rules in §15; merely reading or passing a pointer does not change it.
+Any holder — a resource parameter, a `FOR EACH`
 element binding, a `RES` binding whose ownership floated to a collection's scope —
 may close, `RETURN`, or transfer it, and doing so is **tracked as a move** like any
 other consume. The owning scope closes it once if nobody already did.

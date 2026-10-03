@@ -3,8 +3,8 @@
 This topic specifies the **decision procedure** that assigns every `RES` binding
 in a function an owner: either it is closed at its own producing scope, or its
 close obligation **floats** up to a named collection binding. The source-level
-*contract* this implements — when ownership floats, what a floated binding may no
-longer do, and how a returned resource collection transfers ownership — is owned
+*contract* this implements — when ownership floats, what operations remain available through a floated
+binding, and how a returned resource collection transfers ownership — is owned
 by `./mfb spec language resource-management` (§15.6). This page specifies the
 **algorithm** a faithful reimplementer must reproduce, byte-for-byte.
 
@@ -35,8 +35,12 @@ It is consumed by **IR lowering**, which records the result per function as
 `resource_owners` — carried into the IR (and serialized into `.mfp` packages)
 so the resource-ownership rules run on the typed IR, on both the source and
 package paths. The escape decisions are what let the IR semantic verifier
-distinguish an owner from a non-owning pointer (`RES b = a` moves; a resource
-parameter or `FOR EACH` element is only a pointer) without re-deriving ownership.
+recognize `RES` destination bindings without re-deriving the escape decision.
+The direct-name move check invalidates the source of `RES b = a` even when `a`
+is a resource parameter or `FOR EACH` element. This static invalidation is
+separate from native cleanup placement; see the initializer table in
+`./mfb spec language resource-management`.
+[[src/ir/verify/resources.rs:check_resource_moves]]
 
 ```text
 resource_owners = <escape analysis of the function> -> owners
@@ -68,11 +72,11 @@ There is a single implementation of the analyzer; it is invoked,
 not copy-pasted. Lowering stores the decisions in IR; verification and native cleanup
 lowering consume that metadata. [[src/ir/lower.rs:lower_function]] [[src/ir/resource_escape.rs:analyze_function]]
 
-A resource is owned by the
-outermost scope that touches it, and any holder of the pointer may close, return,
-or transfer it (§15.6), so the syntactic scan is not a complete account of where a
-resource can go. It does not need to be. The guarantee — a resource is closed
-exactly once — is carried by three layers:
+This analysis routes cleanup through the container edges listed below; merely
+reading a handle or passing an ordinary argument does not float it. Any holder
+may close, return, or transfer it (§15), so the syntactic scan is not a complete
+account of where a resource can go. The single-close guarantee is carried by
+three layers:
 
 1. **Static hand-off where it is syntactically visible.** Returning a `RES`
    binding, a resource union, or a `List OF RES` deactivates that scope's cleanup,

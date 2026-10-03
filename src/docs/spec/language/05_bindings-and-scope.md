@@ -5,8 +5,8 @@ chooses **ownership**:
 
 - **`LET`** — immutable binding (copyable data).
 - **`MUT`** — reassignable binding (copyable data).
-- **`RES`** — a uniquely-owned resource (a `File`, `Socket`, `Listener`, a
-  `Thread`, …).
+- **`RES`** — a resource view with scope-managed cleanup (§15), such as a
+  `File`, `Socket`, `Listener`, or `Thread`.
   A `RES` binding cannot be reassigned. Parameters, record fields, and
   collection slots may alias the same resource pointer; its owning scope
   retains the close obligation. See §15.
