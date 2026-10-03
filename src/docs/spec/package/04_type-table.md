@@ -52,7 +52,7 @@ payloadOffset   u32      (relative to the start of TYPE_TABLE)
 payloadLength   u32
 ```
 
-`flags` is currently **always `0`** — exportedness of a type is not carried here. (The in-memory `abi_export_kind` that marks a type as exported is consumed only to build `ABI_INDEX`; it is not serialized into the type entry.) `ownerPackage` is the interned package/namespace string (empty for compiler-owned templates, `"thread"` for `Thread`/`ThreadWorker`, the package name for user types).
+`flags` is currently **always `0`** — exportedness of a type is not carried here. (The in-memory `abi_export_kind` that marks a type as exported is consumed only to build `ABI_INDEX`; it is not serialized into the type entry. It is set for a source type declared `EXPORT` in the package itself, never for a builtin package's type that rides in the package's IR because its source imports that builtin — the type table may hold `io.Key`, but the package does not export it. [[src/binary_repr/sections.rs:reserve_source_type]]) `ownerPackage` is the interned package/namespace string (empty for compiler-owned templates, `"thread"` for `Thread`/`ThreadWorker`, the package name for user types).
 
 Type kinds:
 

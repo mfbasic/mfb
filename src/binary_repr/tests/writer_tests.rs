@@ -383,3 +383,45 @@ fn lower_project_encodes_the_doc_table_from_ir() {
     assert!(docs.package.is_some());
     let _ = std::fs::remove_file(&path);
 }
+
+/// bug-750: a builtin package's types ride in a package's IR because its source
+/// imports that package, carrying the builtin source's own `EXPORT`. The package
+/// does not own them, so none may become one of its exports — only its own
+/// `EXPORT`ed declarations do.
+#[test]
+fn an_imported_builtin_type_is_not_exported() {
+    let mut project = empty_project("importsio");
+    let builtin_enum = |name: &str| IrType {
+        kind: "enum".to_string(),
+        visibility: "export".to_string(),
+        name: name.to_string(),
+        fields: vec![],
+        includes: vec![],
+        variants: vec![],
+        members: vec![crate::ir::IrEnumMember {
+            name: "Press".to_string(),
+        }],
+        loc: loc(),
+        file: String::new(),
+    };
+    let own = IrType {
+        name: "Mode".to_string(),
+        file: "src/lib.mfb".to_string(),
+        ..builtin_enum("Mode")
+    };
+    project.types = vec![
+        builtin_enum("io.KeyEvent"),
+        builtin_enum("datetime.Weekday"),
+        own,
+    ];
+    let metadata = BinaryReprMetadata::new("importsio".to_string(), "1".to_string());
+    let lowered = lower_project(&project, &metadata).expect("lower");
+    let exported: Vec<&str> = lowered
+        .types
+        .entries
+        .iter()
+        .filter(|entry| entry.abi_export_kind.is_some())
+        .map(|entry| lowered.strings.values[entry.name as usize].as_str())
+        .collect();
+    assert_eq!(exported, vec!["Mode"]);
+}
