@@ -524,6 +524,28 @@ mod tests {
         );
     }
 
+    /// bug-790: a numeric code names exactly one rule. Tooling that keys
+    /// diagnostics by code cannot tell two rules sharing one apart, and a rule
+    /// with no live emitter still holds its code. There is no allowlist.
+    #[test]
+    fn rule_codes_are_unique() {
+        let mut by_code: std::collections::HashMap<&str, Vec<&str>> =
+            std::collections::HashMap::new();
+        for rule in RULES {
+            by_code.entry(rule.code).or_default().push(rule.name);
+        }
+        let mut shared: Vec<String> = by_code
+            .into_iter()
+            .filter(|(_, names)| names.len() > 1)
+            .map(|(code, names)| format!("{code}: {}", names.join(", ")))
+            .collect();
+        shared.sort();
+        assert!(
+            shared.is_empty(),
+            "codes shared by several rules: {shared:?}"
+        );
+    }
+
     /// Every rule in `RULES` must appear in the embedded `mfb spec diagnostics
     /// rule-codes` table.
     ///
