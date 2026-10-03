@@ -214,7 +214,9 @@ pub(crate) struct BuildOptions {
     /// `--debug` (plan-130): build a program that writes a measurement report to
     /// stderr as the last act of `_mfb_shutdown`. Reaches codegen as
     /// `NirModule::debug`; a build without it is byte-identical to one that
-    /// predates the flag.
+    /// predates the flag. It also writes the program's function and data names
+    /// into the executable's native symbol table, for debuggers and profilers
+    /// (plan-166; the linker reads `EncodedImage::debug_symbols`).
     pub(crate) debug: bool,
     /// Optimization scale level selected by `-O<N>` / `--optimize <N>`
     /// (plan-100). Defaults to `-O1`, at which the shipping Level-1 passes run

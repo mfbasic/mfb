@@ -427,21 +427,21 @@ programs have different UUIDs.
   Check: `dwarfdump --uuid build/hello.out; dwarfdump --uuid <brogue>/build/brogue.out` → two different UUIDs (est. 1 min).
   Result (2026-10-03): hello `ED6105C4-45C5-4268-9541-DAD0F7BFDC13`, brogue
   `A35E698B-85A4-4BC8-B2C4-B3FBF64143A4`, life `1C1FCF69-73C6-4655-9207-96168A30AA62`.
-Commit: —
+Commit: 41e11a226
 
 ### Phase 4: Docs and help
 
 `--debug` now means two things. The help text and the spec say so.
 
-- [ ] `src/cli/help.rs:167` and `:201`: `--debug` says it also writes the
+- [x] `src/cli/help.rs:167` and `:201`: `--debug` says it also writes the
       program's function and data names into the executable's symbol table, for
       debuggers and profilers. The `BuildOptions::debug` doc comment in
       `src/cli/build/mod.rs` says the same.
-- [ ] `src/docs/spec/tooling/09_debug-report.md`: a "Symbol tables" section (what
+- [x] `src/docs/spec/tooling/09_debug-report.md`: a "Symbol tables" section (what
       is written, that a build without `--debug` writes none, which formats are
       done), citing `[[src/os/debug_symbols.rs:debug_symbols]]`.
       `src/docs/spec/tooling/07_cli-reference.md:144`: the `--debug` row.
-- [ ] `src/docs/spec/linker/04_symbols-and-relocations.md`: a "Debug symbol
+- [x] `src/docs/spec/linker/04_symbols-and-relocations.md`: a "Debug symbol
       tables" section covering the shared model (§4.2: names verbatim, sizes,
       ordering, no names in builds without `--debug`).
       `src/docs/spec/linker/06_macos-aarch64.md`: locals before imports, the
@@ -449,6 +449,10 @@ Commit: —
 
 Acceptance: the spec renders and its citations resolve.
   Check: `cargo build && cargo test --bin mfb spec` → pass; `scripts/spec-census.sh --citations` → no new dangling citation (est. 5 min).
+  Result (2026-10-03): `cargo test --bin mfb spec` → 44 passed; `cargo test --bin mfb help`
+  → 116 passed; `--citations` → `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0` (baseline
+  worktree: same); `--links linker tooling` → `unresolved=0`; `--render linker
+  tooling` → 0 leaks.
 Commit: —
 
 ## Validation Plan

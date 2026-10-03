@@ -69,6 +69,42 @@ first-seen library order), the symbol name, and the slot offset. The
 `__mod_init_func` pointers are rebased (not bound) by dyld so the load slide is
 applied before `_main` runs.
 
+## Debug symbol table
+
+A `--debug` build lists every symbol of the shared debug model (see
+`./mfb spec linker symbols-and-relocations`) in `LC_SYMTAB`; a build without it
+lists only the imports, and on the import-less `LC_DYLD_CHAINED_FIXUPS` path
+writes no symbol table bytes at all. [[src/os/macos/link/commands.rs:debug_symtab]]
+
+- **Entries.** The locals come first, at indices `0..L`, then the imports,
+  unchanged, at `L..L+imports`. A local is `n_type = N_SECT` (`0x0e`, no `N_EXT`),
+  `n_desc = 0`, and `n_value` its runtime address. `n_sect` is the 1-based section
+  ordinal: `__TEXT,__text` is 1 (`__TEXT` always holds two sections), then
+  `__DATA_CONST` holds `__got`, `__mod_init_func` and `__const` in that order when
+  present, then `__DATA,__data`. A data symbol below the read-only prefix is in
+  `__const`; one at or above it is in `__data`.
+  [[src/os/macos/link/mod.rs:data_section_ordinals]]
+- **String table.** The leading NUL and the import names stay first, so import
+  string offsets do not move; the local names follow.
+- **LC_DYSYMTAB.** `ilocalsym = 0`, `nlocalsym = L`, `iextdefsym = L`,
+  `nextdefsym = 0`, `iundefsym = L`, `nundefsym = imports`.
+- **Indirect symbol table.** One entry per import, holding `L + index`:
+  it indexes the symbol table, where the imports now start at `L`.
+  [[src/os/macos/link/macho.rs:encode_unsigned_mach_o]]
+- **LC_FUNCTION_STARTS.** ULEB128 deltas of each distinct function start's file
+  offset (measured from the `__TEXT` start at file offset 0), a terminating 0, then
+  zero padding to a multiple of 8. A build without `--debug` carries the 1-byte
+  empty list.
+- **LC_UUID.** The first 16 bytes of SHA-256 over the code (with stubs), the
+  data, and the symbol string table, with the RFC 4122 version-4 and variant bits
+  set. A build without `--debug` carries the constant
+  `4D464200-0000-0000-0000-000000000001`. Symbolicators (`sample`, `atos`) cache
+  names per UUID: a `--debug` binary carrying the constant UUID was measured to
+  sample as `???`. [[src/os/macos/link/commands.rs:debug_uuid]]
+
+Everything sits in `__LINKEDIT` below `LC_CODE_SIGNATURE`, so the content
+signature and the ad-hoc code signature both cover it, with no change to either.
+
 ## Supported dylibs
 
 The linker resolves a fixed set of library names to install paths:
