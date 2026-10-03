@@ -1,12 +1,12 @@
 # bug-723: `io::setBuffered(FALSE)` silently loses pending output when its drain fails
 
-Last updated: 2026-09-16
+Last updated: 2026-10-03
 Effort: small
 Severity: MEDIUM
 Class: Correctness (write failure swallowed; output silently lost)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: `tests/runtime/rt_io_set_buffered_drain_failure.rs`
 
 With standard-output buffering on, `io::setBuffered(FALSE)` drains the pending bytes
 and then clears the buffering flag. If that drain fails, the flag is **cleared
@@ -100,3 +100,32 @@ Phase 1 — RED test from the reproduction (expect `ErrWriteFailed` from
 Phase 2 — check the drain result before clearing the flag; keep the flag and bytes
 on failure, or raise (GREEN). Full suite and `io` runtime goldens; update the
 `setBuffered` man page. Commit:
+
+## Resolution (2026-10-03)
+
+`lower_set_buffered` now checks the drain's result before clearing the flag. On a
+failure it raises `ErrWriteFailed` and leaves buffering on with the unwritten bytes
+pending, so the next `io::flush` retries them and reports a repeat failure. This is
+the contract `fs::setBuffered` already has (bug-694 C7,
+`tests/runtime/rt_fs_set_buffered_drain_failure.rs`). The descriptor now declares
+`ErrWriteFailed`, and the man prose describes the new behavior.
+
+Proof: against main's binary the regression test prints `buffered FALSE`, `done`
+(the error is lost). Against the fix it prints `setBuffered 77020002`,
+`buffered TRUE`, `flush 77020002`, `done`. The `io` byte-identity `.ncode` diff
+(`linux-x86_64`, base vs fix) is confined to the `_mfb_rt_io_io_setBuffered` body
+(14 lines). Goldens are regenerated at the bug-staging batch gate.
+
+Blast-radius audit results:
+
+- `setBuffered(TRUE)` while already on does not drain, so there is nothing to lose.
+- Pre-read drain (`io::readLine` family): a failed drain keeps its bytes and leaves
+  the flag on, so a later `io::flush` still reports it. Probe: buffered prompt with
+  an unwritable stdout, then `readLine` succeeds and the bytes stay pending.
+- Exit drain (main thread and worker finish): best-effort by specification
+  (`mfb spec threading queue-semantics`: "a write failure cannot be reported after
+  the worker returns"). Probe: exit 0. Not changed.
+- App-mode fd fallback writes (`macos_aarch64/app/app_io.rs:emit_app_io_write`
+  `fd_path`, the GTK and Windows equivalents) ignore `write`'s result. Confirmed a
+  real sibling. It is a different code path (app-mode `io::print`/`write`, not
+  buffering), so it is filed separately as bug-799.
