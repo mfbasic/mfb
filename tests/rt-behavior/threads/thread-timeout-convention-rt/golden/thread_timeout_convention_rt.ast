@@ -124,21 +124,24 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancelForever" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 59 },
-      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "expectReceiveZeroTimeout", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 60 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "expectReceiveNegativeInvalid", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 61 },
-      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "expectSendNegativeInvalid", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 62 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 63 },
-      { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 64 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 65 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "line": 66 }
+      { "kind": "binding", "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 59 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 60 },
+      { "kind": "binding", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 61 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancelForever" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 62 },
+      { "kind": "assignment", "name": "a", "value": { "kind": "call", "callee": "expectReceiveZeroTimeout", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 63 },
+      { "kind": "assignment", "name": "b", "value": { "kind": "call", "callee": "expectReceiveNegativeInvalid", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 64 },
+      { "kind": "assignment", "name": "c", "value": { "kind": "call", "callee": "expectSendNegativeInvalid", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 68 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "line": 69 }
       ],
       "trap": {
       "name": "werr",
-      "line": 67,
+      "line": 70,
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 68 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "line": 69 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 71 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "line": 72 }
       ]
     }
     }
