@@ -1,11 +1,11 @@
 # bug-787: spec output panics when its pipe reader closes
 
-Last updated: 2026-10-01
+Last updated: 2026-10-03
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
-Status: Open
-Regression Test: proposed subprocess coverage for closed stdout in the CLI integration tests; not added in this documentation-only task.
+Status: Fixed
+Regression Test: `tests/cli/cli_spec_closed_stdout.rs` (closed reader, all four modes); `src/cli/spec.rs:tests::every_rendering_mode_propagates_write_failures` (non-broken-pipe errors)
 
 `mfb spec architecture --all` panics and exits 101 when its stdout pipe has
 no reader. The correct behavior is to terminate quietly with exit 0 when the
@@ -93,10 +93,10 @@ Keep output bytes unchanged when a reader consumes the complete stream.
 
 ### Phase 1 — failing tests and audit
 
-- [ ] Add deterministic subprocess tests with a closed stdout reader for
+- [x] Add deterministic subprocess tests with a closed stdout reader for
       overview, subtopic, index, and `--all` output.
-- [ ] Assert exit 0 and empty stderr; verify the current implementation fails.
-- [ ] Cover a non-BrokenPipe write error through a failing writer seam.
+- [x] Assert exit 0 and empty stderr; verify the current implementation fails.
+- [x] Cover a non-BrokenPipe write error through a failing writer seam.
 
 Acceptance: closed-reader cases fail on the current implementation and the
 other-error test preserves an actual error.
@@ -104,19 +104,32 @@ Commit: —
 
 ### Phase 2 — fix
 
-- [ ] Replace infallible stdout writes throughout the spec rendering path.
-- [ ] Stop on BrokenPipe and propagate other errors.
+- [x] Replace infallible stdout writes throughout the spec rendering path.
+- [x] Stop on BrokenPipe and propagate other errors.
 
 Acceptance: closed-reader tests pass and ordinary output is unchanged.
 Commit: —
 
 ### Phase 3 — validation
 
-- [ ] Run `cargo test` and `cargo test --bin mfb spec`.
-- [ ] Run `scripts/spec-census.sh --render architecture` after rebuilding release.
-- [ ] Rerun the original subprocess reproduction against debug and release.
-- [ ] Compare fully captured output before and after; no golden changes expected.
+- [x] Run `cargo test` and `cargo test --bin mfb spec`.
+- [x] Run `scripts/spec-census.sh --render architecture` after rebuilding release.
+- [x] Rerun the original subprocess reproduction against debug and release.
+- [x] Compare fully captured output before and after; no golden changes expected.
 
 Acceptance: full suite passes, complete output is unchanged, and both binaries
 terminate quietly on a closed reader.
 Commit: —
+
+## Resolution (2026-10-03)
+
+`show_spec` now resolves the request (`parse_spec_request`) before writing, and
+`write_spec` renders every mode through fallible `writeln!` on a locked stdout. A
+`BrokenPipe` ends output with exit 0; any other write error prints
+`error: failed writing spec output: …` and exits 1, mirroring `man.rs:print_markdown`.
+`mfb spec tooling cli-reference` documents the exit codes.
+
+Proof: `MFB_TEST_EXE=<main release mfb> cargo test --test cli_spec_closed_stdout`
+fails with `left: Some(101)`; against the fix it passes. The bug's original Python
+reproduction prints exit 0 and empty stderr for all four spec modes. Full-suite
+validation runs at the bug-staging batch gate.

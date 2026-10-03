@@ -73,7 +73,7 @@ convention: **2** for argument/usage errors, **1** for runtime failures, **0** f
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
 | `info` | `mfb info <binary>` | 0 every inspection outcome (incl. not an MFBasic binary, an unverified chain, an unreadable file); 2 missing/extra arg |
 | `man` | `mfb man [package] [function] [--all]` | 0 ok (also a closed output pipe); 1 other output failure; 2 invalid arguments |
-| `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
+| `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok (also a closed output pipe); 1 other output failure; 2 unknown topic, bad flag, or >2 positionals |
 
 The usage block printed by `help` is the `USAGE` constant.[[src/cli/help.rs:USAGE]]
 `init` writes `project.json` (kind `executable`) + a `main.mfb` under the `src`
@@ -804,7 +804,9 @@ An unknown `--flag` or a third positional exits `2`; `--all` requires a topic an
 cannot be combined with a subtopic. With no positional it prints the topic index;
 with one it prints the package overview plus a subtopic listing (or, with `--all`,
 the overview followed by every subtopic page separated by a full-width `─`
-rule);[[src/cli/spec.rs:print_spec_all]] with two it renders that exact topic page.
+rule);[[src/cli/spec.rs:print_spec_all]] with two it renders that exact topic page. Output goes through fallible writes:
+a broken pipe ends it quietly with exit `0`, and any other write failure prints
+`error: failed writing spec output` and exits `1`.[[src/cli/spec.rs:write_spec]]
 
 Width resolution (`detect_terminal_width`): explicit `--width` (clamped 20..=1000)
 → env `COLUMNS` (clamped) → `TIOCGWINSZ` ioctl on stdout fd 1

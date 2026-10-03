@@ -1,5 +1,5 @@
 use std::env;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
 use crate::cli::help::USAGE;
 use crate::docs::{render, spec};
@@ -7,7 +7,31 @@ use crate::docs::{render, spec};
 /// `mfb spec [topic] [subtopic] [--width N] [--color|--no-color]`. Renders the
 /// embedded Markdown specification to the terminal, reflowing to the terminal
 /// width so tables stay readable.
+///
+/// A closed stdout (`mfb spec architecture --all | head`) is a normal way to stop
+/// reading, so a broken pipe ends the output quietly; any other write failure is
+/// reported and exits 1, matching `mfb man`.
 pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
+    let (request, style) = parse_spec_request(args)?;
+    let stdout = std::io::stdout();
+    if let Err(err) = write_spec(&mut stdout.lock(), &request, &style) {
+        if err.kind() != std::io::ErrorKind::BrokenPipe {
+            eprintln!("error: failed writing spec output: {err}");
+            std::process::exit(1);
+        }
+    }
+    Ok(())
+}
+
+/// What one `mfb spec` invocation prints, resolved before any output is written.
+enum SpecRequest {
+    Index,
+    Package(&'static spec::SpecPackage),
+    All(&'static spec::SpecPackage),
+    Topic(&'static str),
+}
+
+fn parse_spec_request(args: &[String]) -> Result<(SpecRequest, render::Style), String> {
     let mut width: Option<usize> = None;
     let mut color: Option<bool> = None;
     let mut all = false;
@@ -40,23 +64,21 @@ pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
         color: color.unwrap_or_else(|| std::io::stdout().is_terminal()),
     };
 
-    match positional.as_slice() {
+    let request = match positional.as_slice() {
         [] => {
             if all {
                 return Err(format!("mfb spec --all requires a topic\n\n{USAGE}"));
             }
-            print_spec_index(&style);
-            Ok(())
+            SpecRequest::Index
         }
         [package_name] => {
             let package = spec::package(package_name)
                 .ok_or_else(|| unknown_spec_package_error(package_name))?;
             if all {
-                print_spec_all(package, &style);
+                SpecRequest::All(package)
             } else {
-                print_spec_package(package, &style);
+                SpecRequest::Package(package)
             }
-            Ok(())
         }
         [package_name, topic_name] => {
             if all {
@@ -69,10 +91,24 @@ pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
                     "unknown topic `{topic_name}` in spec `{package_name}`\n\nRun `mfb spec {package_name}` to list available topics."
                 )
             })?;
-            println!("{}", render::render(topic.page, &style));
-            Ok(())
+            SpecRequest::Topic(topic.page)
         }
-        _ => Err(format!("mfb spec accepts at most two arguments\n\n{USAGE}")),
+        _ => return Err(format!("mfb spec accepts at most two arguments\n\n{USAGE}")),
+    };
+    Ok((request, style))
+}
+
+/// Write one resolved request, stopping at the first failed write.
+fn write_spec(
+    out: &mut impl Write,
+    request: &SpecRequest,
+    style: &render::Style,
+) -> std::io::Result<()> {
+    match request {
+        SpecRequest::Index => print_spec_index(out, style),
+        SpecRequest::Package(package) => print_spec_package(out, package, style),
+        SpecRequest::All(package) => print_spec_all(out, package, style),
+        SpecRequest::Topic(page) => writeln!(out, "{}", render::render(page, style)),
     }
 }
 
@@ -141,58 +177,77 @@ fn terminal_width_from_ioctl() -> Option<usize> {
     None
 }
 
-fn print_spec_index(style: &render::Style) {
-    println!("Usage: mfb spec [topic] [subtopic] [--all]");
-    println!();
-    println!("Show the MFBASIC language specification.");
-    println!();
-    println!("Examples:");
-    println!("  mfb spec");
-    println!("  mfb spec architecture");
-    println!("  mfb spec architecture native");
-    println!("  mfb spec architecture --all");
-    println!();
-    println!("Topics:");
-    println!();
+fn print_spec_index(out: &mut impl Write, style: &render::Style) -> std::io::Result<()> {
+    writeln!(out, "Usage: mfb spec [topic] [subtopic] [--all]")?;
+    writeln!(out)?;
+    writeln!(out, "Show the MFBASIC language specification.")?;
+    writeln!(out)?;
+    writeln!(out, "Examples:")?;
+    writeln!(out, "  mfb spec")?;
+    writeln!(out, "  mfb spec architecture")?;
+    writeln!(out, "  mfb spec architecture native")?;
+    writeln!(out, "  mfb spec architecture --all")?;
+    writeln!(out)?;
+    writeln!(out, "Topics:")?;
+    writeln!(out)?;
     let entries: Vec<(&str, &str)> = spec::packages()
         .iter()
         .map(|package| (package.name, package.summary.as_str()))
         .collect();
-    print_spec_listing("Topic", &entries, style);
+    print_spec_listing(out, "Topic", &entries, style)
 }
 
-fn print_spec_package(package: &spec::SpecPackage, style: &render::Style) {
-    println!("{}", render::render(package.overview, style));
+fn print_spec_package(
+    out: &mut impl Write,
+    package: &spec::SpecPackage,
+    style: &render::Style,
+) -> std::io::Result<()> {
+    writeln!(out, "{}", render::render(package.overview, style))?;
     if !package.topics.is_empty() {
-        println!();
+        writeln!(out)?;
         let entries: Vec<(&str, &str)> = package
             .topics
             .iter()
             .map(|topic| (topic.name, topic.summary.as_str()))
             .collect();
-        print_spec_listing("Subtopic", &entries, style);
-        println!();
-        println!("Run `mfb spec {} <subtopic>` for details.", package.name);
+        print_spec_listing(out, "Subtopic", &entries, style)?;
+        writeln!(out)?;
+        writeln!(
+            out,
+            "Run `mfb spec {} <subtopic>` for details.",
+            package.name
+        )?;
     }
+    Ok(())
 }
 
 /// `mfb spec <topic> --all`: print the overview followed by every subtopic page,
 /// each separated by a full-width rule, as one continuous document.
-fn print_spec_all(package: &spec::SpecPackage, style: &render::Style) {
-    println!("{}", render::render(package.overview, style));
+fn print_spec_all(
+    out: &mut impl Write,
+    package: &spec::SpecPackage,
+    style: &render::Style,
+) -> std::io::Result<()> {
+    writeln!(out, "{}", render::render(package.overview, style))?;
     for topic in &package.topics {
-        println!();
-        println!("{}", "─".repeat(style.width));
-        println!();
-        println!("{}", render::render(topic.page, style));
+        writeln!(out)?;
+        writeln!(out, "{}", "─".repeat(style.width))?;
+        writeln!(out)?;
+        writeln!(out, "{}", render::render(topic.page, style))?;
     }
+    Ok(())
 }
 
 /// Render a `(name, summary)` listing as a width-aware table through the spec
 /// renderer, so the summary column wraps instead of running off the terminal.
-fn print_spec_listing(heading: &str, entries: &[(&str, &str)], style: &render::Style) {
+fn print_spec_listing(
+    out: &mut impl Write,
+    heading: &str,
+    entries: &[(&str, &str)],
+    style: &render::Style,
+) -> std::io::Result<()> {
     if entries.is_empty() {
-        return;
+        return Ok(());
     }
     let mut markdown = format!("| {heading} | Summary |\n| --- | --- |\n");
     for (name, summary) in entries {
@@ -202,7 +257,7 @@ fn print_spec_listing(heading: &str, entries: &[(&str, &str)], style: &render::S
             escape_spec_cell(summary),
         ));
     }
-    println!("{}", render::render(&markdown, style));
+    writeln!(out, "{}", render::render(&markdown, style))
 }
 
 /// Escape a literal `|` so it stays inside its table cell rather than starting a
@@ -306,7 +361,39 @@ mod tests {
             width: 80,
             color: false,
         };
-        print_spec_listing("Topic", &[], &style);
+        let mut out = Vec::new();
+        print_spec_listing(&mut out, "Topic", &[], &style).unwrap();
+        assert!(out.is_empty());
+    }
+
+    /// A writer whose every write fails with `kind`.
+    struct FailingWriter(std::io::ErrorKind);
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::from(self.0))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// bug-787: every rendering mode reports a failed write instead of panicking,
+    /// and a non-broken-pipe failure keeps its kind so `show_spec` reports it.
+    #[test]
+    fn every_rendering_mode_propagates_write_failures() {
+        let (package, topic) = a_package_with_topic();
+        for args in [
+            s(&[]),
+            s(&[package]),
+            s(&[package, "--all"]),
+            s(&[package, topic]),
+        ] {
+            let (request, style) = parse_spec_request(&args).unwrap();
+            let mut out = FailingWriter(std::io::ErrorKind::PermissionDenied);
+            let err = write_spec(&mut out, &request, &style).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied, "{args:?}");
+        }
     }
 
     #[test]
