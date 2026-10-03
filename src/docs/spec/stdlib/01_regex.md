@@ -199,6 +199,12 @@ which an op is one index. Its kind and up to three operands are `kinds[o]`, `opA
 `opB[o]` and `opC[o]`; Concat parts and Alt options are op indices in `kids`; and the leaf
 records sit in `leaves`. The root is op 0.[[src/codegen/builtins/regex/helper_flatten.rs:__regex_flatten]]
 
+`__regex_compile` keeps the last eight successfully compiled programs, keyed by the
+pattern string and replaced round-robin, so repeated calls with one pattern compile it
+once; a hit returns a copy of the stored program. An invalid pattern is never stored: it
+is parsed, and fails with `ErrInvalidFormat`, on every call. The cache is module-level
+state, so each worker thread has its own.[[src/codegen/builtins/regex/helper_compile.rs:__regex_compile]] [[src/codegen/builtins/regex/helper_compile.rs:__regex_compileUncached]]
+
 | Kind | Op | Operands |
 |------|----|----------|
 | 1 | a one-scalar leaf (`Lit`, `Any`, `Class`) | `opA` = its index in `leaves` |
@@ -293,13 +299,13 @@ once per search and reset, not rebuilt, at each start.[[src/codegen/builtins/reg
 
 Start positions that cannot begin a match are skipped. When the pattern must begin with
 one fixed non-folding literal, `firstCp` holds its code point and the scan skips to the
-next occurrence. Otherwise `__regex_compile` asks `__regex_firstSetKids` for a
+next occurrence. Otherwise `__regex_flatten` asks `__regex_firstSetKids` for a
 first-scalar set — the scalars the consuming leaves reachable before any consumption
 accept: 128 ASCII flags and one "any non-ASCII scalar" flag — appends it to `kids` with
 the per-position visit count, and sets `firstCp` to `-2` minus its offset. There is no
 set (every position runs) when the pattern can match empty, when an anchor, `.` or a
 case-folded non-ASCII literal is reachable before any consumption, or when the count
-saturates.[[src/codegen/builtins/regex/helper_first_set.rs:__regex_firstSetKids]] [[src/codegen/builtins/regex/helper_compile.rs:__regex_compile]]
+saturates.[[src/codegen/builtins/regex/helper_first_set.rs:__regex_firstSetKids]] [[src/codegen/builtins/regex/helper_flatten.rs:__regex_flatten]]
 
 Captures are a flat `List OF Integer` of `2*(groups+1)` slots: for group `k`, slot
 `2k` is the start scalar index and `2k+1` the end, both `-1` when unset. The whole-match
