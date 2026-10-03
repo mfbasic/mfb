@@ -51,12 +51,14 @@ If plan-166-A is not complete, this plan cannot start.
 
 ### Non-goals (explicit constraints)
 
-- No change to builds without `--debug` (the plan-166-A constraint), including
-  the signed-build section table that `append_elf_signing_section` writes today
-  (`NULL`, `.mfbsign`, `.shstrtab`).
-- No section headers for the dynamic payload (`.dynsym`, `.dynstr`, `.rela.*`,
-  `.dynamic`, `.got`, `.plt`). The loader reads it through program headers. This
-  plan only adds what symbol tools need.
+- No change to unsigned builds without `--debug` (the plan-166-A constraint).
+  ~~Including the signed-build section table~~ (corrected: a signed **dynamic**
+  table gains `.dynstr` + `.dynamic` to fix a found readelf error; see
+  Corrections. The signed static table is unchanged.)
+- No section headers for the rest of the dynamic payload (`.dynsym`, `.rela.*`,
+  `.got`, `.plt`). The loader reads it through program headers.
+  (Corrected: `.dynstr` and `.dynamic` *are* described, because readers require
+  a section covering `PT_DYNAMIC` once any section table exists.)
 - No `.dynsym` entries for internal symbols. That would export names at runtime.
 - No names for the PLT stubs appended after `image.text`.
 - No change to program headers, load addresses, `ET_EXEC` / `ET_DYN` choice, or
@@ -103,7 +105,7 @@ linux-aarch64 and linux-x86_64 build (measured 2026-10-03, host llvm-nm).
 | Callers of `append_elf_signing_section` | 3 (all three writers) | `grep -c "append_elf_signing_section(" src/os/linux/link/elf.rs` → 4, including the definition |
 | Symbols for brogue | 400 (244 functions, 156 data objects) | plan-166-A measured populations |
 | Linux targets × flavors | 3 × 2 | `ls build/` after a `--target linux-<arch>` build → `<name>-glibc.out`, `<name>-musl.out` |
-| Remote tool availability (owner: 2226 and 2229 are the boxes for this plan) | 2229 (riscv64 musl): `readelf`, `objdump`, `nm`, `addr2line`; no `gdb`, no `perf`. 2226 (aarch64 glibc, Debian 12): none installed, but a rootless install works (§Phase 3) and gives gdb 13.1 plus binutils 2.40, and `gdb -batch -ex starti` traces an mfb binary there | `ssh -p 2229 test@127.0.0.1 'command -v gdb perf readelf objdump nm addr2line'`; on 2226 the Phase 3 recipe, then `root/usr/bin/gdb --version` → `GNU gdb (Debian 13.1-3) 13.1` (2026-10-03) |
+| Remote tool availability (owner: 2226 and 2229 are the boxes for this plan; re-probed 2026-10-03 one tool per `command -v`: 2229 has readelf, objdump, nm, addr2line, no gdb) | 2229 (riscv64 musl): `readelf`, `objdump`, `nm`, `addr2line`; no `gdb`, no `perf`. 2226 (aarch64 glibc, Debian 12): none installed, but a rootless install works (§Phase 3) and gives gdb 13.1 plus binutils 2.40, and `gdb -batch -ex starti` traces an mfb binary there | `ssh -p 2229 test@127.0.0.1 'command -v gdb perf readelf objdump nm addr2line'`; on 2226 the Phase 3 recipe, then `root/usr/bin/gdb --version` → `GNU gdb (Debian 13.1-3) 13.1` (2026-10-03) |
 
 ### Verified properties
 
@@ -256,15 +258,21 @@ Acceptance: every `--debug` Linux target and flavor lists the program's function
   Result (2026-10-03, dev compiler, `bash /tmp/p166-b2check.sh`): `1` for each of
   aarch64/x86_64/riscv64 × glibc/musl (six). `objdump -h` on the aarch64 glibc build
   lists `.text`, `.rodata`, `.data`, `.symtab`, `.strtab`, `.shstrtab`, no warning.
-Commit: —
+Commit: 9b5cb44a4
 
 ### Phase 3: Tool proof on Linux
 
-- [ ] Strict parse: `ssh -p 2229 test@127.0.0.1` with a copied `--debug`
+- [x] Strict parse: `ssh -p 2229 test@127.0.0.1` with a copied `--debug`
       riscv64 musl build: `readelf -S -s <file>` prints no warnings and lists the
       functions. Then run the binary → its normal output and exit status. Box
       2229 is used because it is up, has binutils, and riscv64 is native there.
-- [ ] Native aarch64 on 2226 (aarch64 glibc). gdb is not installed there; set it
+      → First run: `readelf: Error: no .dynamic section in the dynamic segment`
+      (a pre-existing bug in signed dynamic builds too; fixed, see Corrections).
+      After the fix: `readelf -S -s -d --wide hello-musl.out` → exit 0, 0 stderr
+      lines, sections `.text .rodata .data .dynstr .dynamic .symtab .strtab
+      .shstrtab`, `2: 0000000000001308 140 FUNC LOCAL DEFAULT 1 _mfb_fn_main`;
+      `./hello-musl.out` → `Hello World`, exit 0.
+- [x] Native aarch64 on 2226 (aarch64 glibc). gdb is not installed there; set it
       up without root (measured working 2026-10-03; `/tmp` may have been
       cleared since):
       ```sh
@@ -276,16 +284,28 @@ Commit: —
       Then copy a `--debug` `examples/brogue` `-glibc.out` there and run
       `LD_LIBRARY_PATH=$PWD/root/usr/lib/aarch64-linux-gnu root/usr/bin/gdb -nx -batch -ex 'b mfb_fn_main' -ex run -ex bt <file>`.
       It should stop in `mfb_fn_main` with a named backtrace.
-- [ ] `addr2line -f -e <file> <address of _mfb_fn_main>` on 2229 (riscv64 build)
+      → The tools were still in `/tmp/p166tools`. gdb needs `b _mfb_fn_main` (ELF
+      keeps the leading `_`; see Corrections). `gdb -nx -batch -ex 'b _mfb_fn_main'
+      -ex 'b _mfb_fn_dumpRng' -ex 'run rng 1 3' -ex bt -ex continue -ex bt` →
+      `Breakpoint 1, 0x0000aaaaaaad5614 in _mfb_fn_main ()`, `#1 … in _main ()`;
+      `Breakpoint 2, … in _mfb_fn_dumpRng ()`, `#1 … in _mfb_fn_main ()`,
+      `#2 … in _main ()`.
+- [x] `addr2line -f -e <file> <address of _mfb_fn_main>` on 2229 (riscv64 build)
       → `_mfb_fn_main`. Run
       `root/usr/bin/aarch64-linux-gnu-readelf -S -s` on the 2226 aarch64 build →
-      no warnings.
-- [ ] Linux AppDir: `mfb build --debug --app --target linux-aarch64` and `nm` on
+      no warnings. → `addr2line -f -e hello-musl.out 0x1308 0x1310` →
+      `_mfb_fn_main` twice (`??:?` for the line: names only). The 2226 readelf on
+      the brogue `-glibc.out` → exit 0, 0 stderr lines, 250 FUNC / 200 OBJECT.
+- [x] Linux AppDir: `mfb build --debug --app --target linux-aarch64` and `nm` on
       the ELF inside `build/<name>-glibc.AppDir/` lists the functions. This
-      proves the AppDir path shares `encode_executable_bytes`.
+      proves the AppDir path shares `encode_executable_bytes`. → `--app` alone
+      leaves only the AppImage, so `--app-debug` (which keeps the AppDir) was used:
+      `nm …/hello_world-glibc.AppDir/usr/bin/hello_world` → 43 `t` symbols,
+      `000000000000293c t _mfb_fn_main`; musl AppDir → 1 match.
 
 Acceptance: a debugger on Linux stops at a function by name.
   Check: the 2226 gdb transcript above shows `Breakpoint 1, … mfb_fn_main` (est. 10 min including the tool setup; a full gdb session is the only check that proves a debugger accepts the table).
+  Result (2026-10-03): `Breakpoint 1, 0x0000aaaaaaad5614 in _mfb_fn_main ()`.
 Commit: —
 
 ### Phase 4: Spec
@@ -335,6 +355,28 @@ Commit: —
   `debug: Option<&[DebugSymbol]>`. The 11 existing test call sites in
   `src/os/linux/link/tests.rs` pass `None` there. That is a mechanical argument,
   not a weakened assertion: every existing assertion is unchanged.
+- **Found bug: a dynamic ELF with section headers had no `.dynamic` section.**
+  GNU readelf 2.4x on box 2229 printed `readelf: Error: no .dynamic section in
+  the dynamic segment` for the first `--debug` riscv64 musl build. This predates
+  the plan. A base-compiler (9270cad02) riscv64 musl build given the exact
+  pre-plan signed table (`/tmp/p166-signedtable.py`, a byte-for-byte replay of
+  the old `append_elf_signing_section`) prints the same error. So every **signed**
+  dynamic build already had it. Fix: whenever the dynamic writer emits a table
+  (signed or `--debug`), it now includes `.dynstr` and `.dynamic` (`SHT_DYNAMIC`,
+  `sh_link` → `.dynstr`, `sh_entsize` 16), covering exactly `PT_DYNAMIC`
+  (`append_elf_sections`; tests `signed_dynamic_table_names_the_dynamic_segment`,
+  `assert_dynamic_section_covers_pt_dynamic`). The §1 non-goal "no change to the
+  signed-build section table" and the §Non-goals "no section headers for the
+  dynamic payload" are corrected accordingly. A signed dynamic build's table is
+  now `[NULL, .dynstr, .dynamic, .mfbsign, .shstrtab]`. The signed **static** table
+  is unchanged (`[NULL, .mfbsign, .shstrtab]`; static images have no
+  `PT_DYNAMIC`), and unsigned builds without `--debug` still carry no table, so
+  the `cmp` gate is unaffected. AGENTS.md "never leave a bug you found" outranks
+  the plan's constraint.
+- **gdb breakpoint name on ELF.** The plan's `b mfb_fn_main` comes from the
+  Mach-O habit: lldb and atos drop the leading `_` from Mach-O symbols. gdb on ELF
+  uses the symbol verbatim: `b mfb_fn_main` → `Function "mfb_fn_main" not
+  defined.`, `b _mfb_fn_main` → breaks. The spec says so.
 
 ## Summary
 

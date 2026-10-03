@@ -1992,8 +1992,12 @@ fn debug_symbols_dynamic_with_rodata() {
     let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
     assert_eq!(
         names,
-        ["", ".text", ".rodata", ".data", ".symtab", ".strtab", ".shstrtab"]
+        [
+            "", ".text", ".rodata", ".data", ".dynstr", ".dynamic", ".symtab", ".strtab",
+            ".shstrtab"
+        ]
     );
+    assert_dynamic_section_covers_pt_dynamic(&bytes, &sections);
     let (rodata, data) = (&sections[2], &sections[3]);
     assert_eq!((rodata.size, rodata.flags), (0x1000, 2));
     assert_eq!((data.size, data.flags), (8, 3));
@@ -2061,4 +2065,40 @@ fn debug_symbols_off_writes_no_table() {
     };
     let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
     assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 0, "dynamic: e_shnum");
+}
+
+/// `.dynamic` covers exactly `PT_DYNAMIC` and links `.dynstr`, which holds the
+/// `DT_NEEDED` names. Without it GNU readelf reports `no .dynamic section in the
+/// dynamic segment` for any dynamic image that has section headers.
+fn assert_dynamic_section_covers_pt_dynamic(bytes: &[u8], sections: &[ParsedSection]) {
+    let dynamic = &sections[section_index(sections, ".dynamic")];
+    assert_eq!((dynamic.type_, dynamic.entsize, dynamic.flags), (6, 16, 3));
+    assert_eq!(
+        Some((dynamic.addr, dynamic.size)),
+        phdr_range(bytes, 2),
+        ".dynamic matches PT_DYNAMIC"
+    );
+    let dynstr = &sections[dynamic.link as usize];
+    assert_eq!((dynstr.name.as_str(), dynstr.type_), (".dynstr", 3));
+    let names = &bytes[dynstr.offset as usize..(dynstr.offset + dynstr.size) as usize];
+    assert_eq!(names[0], 0, ".dynstr starts with NUL");
+    assert!(names.windows(10).any(|window| window == b"libc.so.6\0"));
+}
+
+#[test]
+fn signed_dynamic_table_names_the_dynamic_segment() {
+    let mut image = versioned_exit_image();
+    image.signing_metadata = Some(crate::arch::image::ExecutableSigning::unsealed(
+        br#"{"k":"v"}"#,
+    ));
+    let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
+    let sections = parse_sections(&bytes);
+    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
+    assert_eq!(names, ["", ".dynstr", ".dynamic", ".mfbsign", ".shstrtab"]);
+    assert_dynamic_section_covers_pt_dynamic(&bytes, &sections);
+    let binary = crate::os::inspect::inspect(&bytes).expect("inspect reads it back");
+    assert_eq!(
+        binary.signing.expect(".mfbsign found by name").start as u64,
+        sections[3].offset
+    );
 }

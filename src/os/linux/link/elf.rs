@@ -132,6 +132,7 @@ pub(super) fn encode_static_elf(
             data_vmaddr,
             data_len: data.len(),
             rodata_size: 0,
+            dynamic: None,
         },
         debug,
         signing_metadata,
@@ -223,6 +224,7 @@ pub(super) fn encode_static_elf_x86(
             data_vmaddr,
             data_len: data.len(),
             rodata_size: 0,
+            dynamic: None,
         },
         debug,
         signing_metadata,
@@ -413,6 +415,8 @@ pub(super) fn encode_dynamic_elf(
     } else {
         None
     };
+    let payload_offset = data_offset + data.len();
+    let payload_vmaddr = data_vmaddr + data.len() as u64;
     append_elf_sections(
         &mut bytes,
         &LoadedSections {
@@ -422,6 +426,14 @@ pub(super) fn encode_dynamic_elf(
             data_vmaddr,
             data_len: data.len(),
             rodata_size,
+            dynamic: Some(DynamicSections {
+                dynstr_offset: payload_offset + dynamic.dynstr_offset,
+                dynstr_vmaddr: payload_vmaddr + dynamic.dynstr_offset as u64,
+                dynstr_size: dynamic.dynstr_size,
+                dynamic_offset,
+                dynamic_vmaddr,
+                dynamic_size,
+            }),
         },
         debug.as_deref(),
         image
@@ -566,7 +578,21 @@ pub(super) struct LoadedSections {
     /// (and so its own `.rodata` section); 0 for the static writers, which map
     /// all data writable.
     pub(super) rodata_size: usize,
+    /// The dynamic writer's `.dynstr` and `.dynamic`; `None` for a static image.
+    pub(super) dynamic: Option<DynamicSections>,
 }
+
+/// File offsets, addresses and sizes of the loader's `.dynstr` and `.dynamic`.
+pub(super) struct DynamicSections {
+    pub(super) dynstr_offset: usize,
+    pub(super) dynstr_vmaddr: u64,
+    pub(super) dynstr_size: usize,
+    pub(super) dynamic_offset: usize,
+    pub(super) dynamic_vmaddr: u64,
+    pub(super) dynamic_size: usize,
+}
+
+const SHT_DYNAMIC: u32 = 6;
 
 const SHT_SYMTAB: u32 = 2;
 const SHF_WRITE: u64 = 1;
@@ -580,27 +606,73 @@ const SYMTAB_ENTRY_SIZE: usize = 24;
 /// The section header table a writer ends with, if any:
 ///
 /// - no `--debug`, unsigned: none (no table at all);
-/// - no `--debug`, signed: `[NULL, .mfbsign, .shstrtab]`;
-/// - `--debug`: `[NULL, .text, (.rodata), .data, .symtab, .strtab, (.mfbsign),
-///   .shstrtab]`, every symbol `STB_LOCAL`.
+/// - no `--debug`, signed: `[NULL, (.dynstr, .dynamic), .mfbsign, .shstrtab]`;
+/// - `--debug`: `[NULL, .text, (.rodata), .data, (.dynstr, .dynamic), .symtab,
+///   .strtab, (.mfbsign), .shstrtab]`, every symbol `STB_LOCAL`.
+///
+/// A dynamic image's table always carries `.dynamic` (linked to `.dynstr`):
+/// once an ELF has section headers, readers look for the section that covers
+/// `PT_DYNAMIC`, and GNU readelf reports `no .dynamic section in the dynamic
+/// segment` without it.
 pub(super) fn append_elf_sections(
     bytes: &mut Vec<u8>,
     loaded: &LoadedSections,
     debug: Option<&[DebugSymbol<'_>]>,
     signing_metadata: Option<&[u8]>,
 ) {
-    let Some(debug) = debug else {
-        if let Some(metadata) = signing_metadata {
-            append_section_table(bytes, &[mfbsign_section(metadata)]);
-        }
+    if debug.is_none() && signing_metadata.is_none() {
         return;
-    };
+    }
     let rodata_size = loaded.rodata_size.min(loaded.data_len);
     // Section indices (1-based; 0 is the NULL entry).
+    let loaded_count = if debug.is_some() {
+        2 + (rodata_size > 0) as u16
+    } else {
+        0
+    };
     let text_index = 1u16;
     let rodata_index = (rodata_size > 0).then_some(2u16);
     let data_index = text_index + 1 + rodata_index.is_some() as u16;
-    let symtab_index = data_index + 1;
+    let dynstr_index = loaded_count + 1;
+    let dynamic_sections = loaded.dynamic.as_ref().map(|dynamic| {
+        [
+            ElfSection {
+                name: ".dynstr",
+                type_: SHT_STRTAB,
+                flags: SHF_ALLOC,
+                addr: dynamic.dynstr_vmaddr,
+                contents: ElfSectionContents::InFile {
+                    offset: dynamic.dynstr_offset,
+                    size: dynamic.dynstr_size,
+                },
+                link: 0,
+                info: 0,
+                addralign: 1,
+                entsize: 0,
+            },
+            ElfSection {
+                name: ".dynamic",
+                type_: SHT_DYNAMIC,
+                flags: SHF_ALLOC | SHF_WRITE,
+                addr: dynamic.dynamic_vmaddr,
+                contents: ElfSectionContents::InFile {
+                    offset: dynamic.dynamic_offset,
+                    size: dynamic.dynamic_size,
+                },
+                link: dynstr_index as u32,
+                info: 0,
+                addralign: 8,
+                entsize: 16,
+            },
+        ]
+    });
+    let Some(debug) = debug else {
+        let mut sections: Vec<_> = dynamic_sections.into_iter().flatten().collect();
+        sections.extend(signing_metadata.map(mfbsign_section));
+        append_section_table(bytes, &sections);
+        return;
+    };
+    let symtab_index = loaded_count + 1 + 2 * dynamic_sections.is_some() as u16;
     let strtab_index = symtab_index + 1;
     let (symtab, strtab) = symtab_bytes(
         debug,
@@ -643,6 +715,7 @@ pub(super) fn append_elf_sections(
         loaded.data_offset + rodata_size,
         loaded.data_len - rodata_size,
     ));
+    sections.extend(dynamic_sections.into_iter().flatten());
     sections.push(ElfSection {
         name: ".symtab",
         type_: SHT_SYMTAB,
@@ -801,8 +874,11 @@ fn e_flags(arch: &str) -> u32 {
 
 struct DynamicPayload {
     bytes: Vec<u8>,
+    /// Offsets are relative to the payload start (`image.data.len()`).
     dynamic_offset: usize,
     dynamic_size: usize,
+    dynstr_offset: usize,
+    dynstr_size: usize,
 }
 
 impl DynamicPayload {
@@ -1150,6 +1226,8 @@ impl DynamicPayload {
             bytes,
             dynamic_offset: dynamic_offset - payload_start,
             dynamic_size,
+            dynstr_offset: dynstr_offset - payload_start,
+            dynstr_size: dynstr.len(),
         })
     }
 }
