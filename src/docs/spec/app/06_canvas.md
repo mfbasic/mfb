@@ -724,6 +724,20 @@ re-uploading rather than by asking the program to redraw.
 An RGBA8 image is exactly `width * height * 4` bytes; any other length is
 `ErrBadPixelCount`. An image cannot be resized, only re-filled.
 
+## Composite glyphs draw their components
+
+A TrueType glyph with a negative contour count is a **composite**: a list of other
+glyphs, each placed by an offset and optionally a uniform, x/y or 2×2 F2Dot14
+scale. Accented letters in most fonts are built this way. The outline reader walks
+the component records and composes each component's transform with the glyph's own
+surface affine (scale, Y flip, pen). Simple components are drawn at their placed
+coordinates, and nested composites recurse to a depth of 8, so a cycle in a broken
+font draws nothing for that component rather than looping. The offset is applied
+unscaled unless `SCALED_COMPONENT_OFFSET` is set, as in FreeType. A point-matched
+component (its arguments are point numbers, not an offset) is drawn unoffset; no
+system font on the reference host uses one. A simple glyph's edges are computed
+exactly as before. [[src/codegen/builtins/canvas/helper_glyph.rs:COMPOSITE_EDGES]]
+
 ## A loaded font is always one standalone face
 
 `canvas::loadFont` accepts a TrueType Collection (`ttcf`, a `.ttc` file) as well as

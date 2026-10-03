@@ -251,6 +251,12 @@ fn minimal_truetype() -> Vec<u8> {
 /// `numGroups` the cmap subtable *claims* (it always holds exactly two), and the square
 /// glyph's `[xMin, yMin, xMax, yMax]` in font units.
 fn truetype_fixture(upem: u16, groups: u32, square: [i16; 4]) -> Vec<u8> {
+    truetype_fixture_with(upem, groups, square, &[])
+}
+
+/// As [`truetype_fixture`], with `glyph2` as glyph 2's `glyf` record instead of the
+/// empty range (bug-757's composite). An empty `glyph2` builds the same bytes.
+fn truetype_fixture_with(upem: u16, groups: u32, square: [i16; 4], glyph2: &[u8]) -> Vec<u8> {
     fn be16(v: u16) -> [u8; 2] {
         v.to_be_bytes()
     }
@@ -319,9 +325,11 @@ fn truetype_fixture(upem: u16, groups: u32, square: [i16; 4]) -> Vec<u8> {
     // `loca`, 16-bit format (`head.indexToLocFormat` is 0, which the zeroed `head`
     // already says): offsets are stored halved. Glyphs 0 and 2 are empty ranges,
     // which is how the format spells "no outline" — a space, and `.notdef` here.
+    let glyph1_len = glyf.len() as u16;
+    glyf.extend(glyph2);
     let glyf_len = glyf.len() as u16;
     let mut loca = Vec::new();
-    for halved in [0u16, 0, glyf_len / 2, glyf_len / 2] {
+    for halved in [0u16, 0, glyph1_len / 2, glyf_len / 2] {
         loca.extend(be16(halved));
     }
 
@@ -705,6 +713,73 @@ END FUNC
         (0, 0, 0, 255),
         "below the baseline"
     );
+}
+
+/// bug-757: glyph 2 ("B") is a composite of glyph 1 (the square
+/// `(100,0)..(400,300)`) placed twice:
+/// - once unoffset;
+/// - once offset `(0, 400)` at a uniform F2Dot14 scale of 0.5.
+///
+/// The offset is unscaled, the default. Before the fix a composite drew nothing; the
+/// ink must now be the union of both placed squares, and nothing else.
+#[test]
+fn a_composite_glyph_draws_every_placed_component() {
+    fn be16(v: i16) -> [u8; 2] {
+        (v as u16).to_be_bytes()
+    }
+    let mut composite = Vec::new();
+    composite.extend(be16(-1)); // numberOfContours: composite
+    for bound in [50, 0, 400, 550] {
+        composite.extend(be16(bound)); // xMin, yMin, xMax, yMax
+    }
+    // ARG_1_AND_2_ARE_WORDS | ARGS_ARE_XY_VALUES | MORE_COMPONENTS
+    composite.extend(be16(0x0001 | 0x0002 | 0x0020));
+    composite.extend(be16(1)); // glyphIndex
+    composite.extend(be16(0)); // dx
+    composite.extend(be16(0)); // dy
+    // ARG_1_AND_2_ARE_WORDS | ARGS_ARE_XY_VALUES | WE_HAVE_A_SCALE, last component
+    composite.extend(be16(0x0001 | 0x0002 | 0x0008));
+    composite.extend(be16(1));
+    composite.extend(be16(0)); // dx
+    composite.extend(be16(400)); // dy
+    composite.extend(be16(0x2000)); // scale 0.5 in F2Dot14
+    let font = truetype_fixture_with(1000, 2, [100, 0, 400, 300], &composite);
+    let (frame, _) = render_env_files(
+        "canvas_glyph_composite",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("composite.ttf") TRAP(e)
+    RETURN
+  END TRAP
+  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "B", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  canvas::present([label])
+END FUNC
+"#,
+        &[],
+        &[("composite.ttf", font)],
+    );
+    // Scale 0.1, pen x=100, baseline y=200. The first component is the plain square:
+    // x 110..140, y 170..200. The second is the square halved, `(50,0)..(200,150)`,
+    // raised by 400 units: x 105..120, y 145..160. Pixel centres inside each
+    // rectangle are lit.
+    let inside = |x: usize, y: usize| {
+        ((110..140).contains(&x) && (170..200).contains(&y))
+            || ((105..120).contains(&x) && (145..160).contains(&y))
+    };
+    let lit: Vec<(usize, usize)> = (0..frame.len() / 4)
+        .filter(|i| frame[i * 4] != 0 || frame[i * 4 + 1] != 0 || frame[i * 4 + 2] != 0)
+        .map(|i| (i % WIDTH, i / WIDTH))
+        .collect();
+    assert!(!lit.is_empty(), "the composite glyph drew nothing at all");
+    let stray: Vec<_> = lit.iter().filter(|(x, y)| !inside(*x, *y)).take(5).collect();
+    assert!(stray.is_empty(), "ink outside the two components: {stray:?}");
+    assert_eq!(lit.len(), 30 * 30 + 15 * 15, "both components solid");
+    assert_eq!(pixel(&frame, 125, 185), (255, 255, 255, 255), "first component");
+    assert_eq!(pixel(&frame, 112, 152), (255, 255, 255, 255), "second component");
 }
 
 #[test]

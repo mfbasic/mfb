@@ -152,7 +152,13 @@ FUNC __canvas_glyphEdges(b AS List OF Byte, gid AS Integer, scale AS Float, penX
     RETURN out
   END IF
   LET contours AS Integer = __canvas_beS16(b, start)
-  IF contours <= 0 THEN
+  IF contours < 0 THEN
+    ' bug-757: a composite glyph (numberOfContours < 0) is a list of placed
+    ' components. The simple path below stays byte-for-byte as it was; a composite
+    ' walks its components through the affine reader instead.
+    RETURN __canvas_compositeEdges(b, start, scale, 0.0, penX, 0.0, 0.0 - scale, penY, out, 0)
+  END IF
+  IF contours = 0 THEN
     RETURN out
   END IF
   LET endsAt AS Integer = start + 10
@@ -175,7 +181,221 @@ FUNC __canvas_glyphEdges(b AS List OF Byte, gid AS Integer, scale AS Float, penX
   RETURN out
 END FUNC"#;
 
-/// One closed contour, walked point by point.
+/// Composite glyphs (bug-757): a component list instead of contours.
+///
+/// Each record is `flags`, `glyphIndex`, two arguments, and an optional transform. The
+/// arguments are words or bytes (`ARG_1_AND_2_ARE_WORDS`, 0x1) and, with
+/// `ARGS_ARE_XY_VALUES` (0x2), the component's offset in the parent's units. The
+/// transform is one F2Dot14 scale (0x8), an x and a y scale (0x40), or a 2×2 (0x80).
+/// `MORE_COMPONENTS` (0x20) chains the records. The offset is applied unscaled unless
+/// `SCALED_COMPONENT_OFFSET` (0x800, without `UNSCALED_COMPONENT_OFFSET` 0x1000) asks
+/// for it to pass through the component's matrix, which is FreeType's rule.
+///
+/// The whole composite is drawn through a surface affine `(a, b, c, d, e, f)`: a font
+/// unit `(x, y)` lands at `(a·x + c·y + e, b·x + d·y + f)`. The caller's uniform scale,
+/// Y flip and pen are the first such affine, and each component composes its own matrix
+/// and offset into it. A component that is itself composite recurses, at most
+/// `__CANVAS_COMPOSITE_DEPTH` deep, so a cycle in a broken font draws nothing rather than
+/// looping. A point-matched component (0x2 clear) has no offset to read: it is drawn
+/// unoffset.
+#[rustfmt::skip]
+const COMPOSITE_EDGES: &str =
+r#"LET __CANVAS_COMPOSITE_DEPTH AS Integer = 8
+
+FUNC __canvas_beS8(b AS List OF Byte, off AS Integer) AS Integer
+  LET v AS Integer = __canvas_beU8(b, off)
+  IF v >= 128 THEN
+    RETURN v - 256
+  END IF
+  RETURN v
+END FUNC
+
+FUNC __canvas_f2dot14(b AS List OF Byte, off AS Integer) AS Float
+  RETURN toFloat(__canvas_beS16(b, off)) / 16384.0
+END FUNC
+
+FUNC __canvas_bit(value AS Integer, mask AS Integer) AS Boolean
+  RETURN (value / mask) MOD 2 = 1
+END FUNC
+
+FUNC __canvas_compositeEdges(b AS List OF Byte, start AS Integer, a AS Float, bb AS Float, e AS Float, c AS Float, d AS Float, f AS Float, edges AS List OF Float, depth AS Integer) AS List OF Float
+  MUT out AS List OF Float = edges
+  IF depth >= __CANVAS_COMPOSITE_DEPTH THEN
+    RETURN out
+  END IF
+  MUT cursor AS Integer = start + 10
+  MUT more AS Boolean = TRUE
+  WHILE more
+    LET flags AS Integer = __canvas_beU16(b, cursor)
+    LET gid AS Integer = __canvas_beU16(b, cursor + 2)
+    cursor = cursor + 4
+    MUT dx AS Float = 0.0
+    MUT dy AS Float = 0.0
+    IF __canvas_bit(flags, 1) THEN
+      IF __canvas_bit(flags, 2) THEN
+        dx = toFloat(__canvas_beS16(b, cursor))
+        dy = toFloat(__canvas_beS16(b, cursor + 2))
+      END IF
+      cursor = cursor + 4
+    ELSE
+      IF __canvas_bit(flags, 2) THEN
+        dx = toFloat(__canvas_beS8(b, cursor))
+        dy = toFloat(__canvas_beS8(b, cursor + 1))
+      END IF
+      cursor = cursor + 2
+    END IF
+    MUT xx AS Float = 1.0
+    MUT yx AS Float = 0.0
+    MUT xy AS Float = 0.0
+    MUT yy AS Float = 1.0
+    IF __canvas_bit(flags, 8) THEN
+      xx = __canvas_f2dot14(b, cursor)
+      yy = xx
+      cursor = cursor + 2
+    ELSE
+      IF __canvas_bit(flags, 64) THEN
+        xx = __canvas_f2dot14(b, cursor)
+        yy = __canvas_f2dot14(b, cursor + 2)
+        cursor = cursor + 4
+      ELSE
+        IF __canvas_bit(flags, 128) THEN
+          xx = __canvas_f2dot14(b, cursor)
+          yx = __canvas_f2dot14(b, cursor + 2)
+          xy = __canvas_f2dot14(b, cursor + 4)
+          yy = __canvas_f2dot14(b, cursor + 6)
+          cursor = cursor + 8
+        END IF
+      END IF
+    END IF
+    IF __canvas_bit(flags, 2048) AND NOT __canvas_bit(flags, 4096) THEN
+      LET sx AS Float = xx * dx + xy * dy
+      LET sy AS Float = yx * dx + yy * dy
+      dx = sx
+      dy = sy
+    END IF
+    ' Compose the parent affine with this component's matrix and offset.
+    LET na AS Float = a * xx + c * yx
+    LET nb AS Float = bb * xx + d * yx
+    LET nc AS Float = a * xy + c * yy
+    LET nd AS Float = bb * xy + d * yy
+    LET ne AS Float = a * dx + c * dy + e
+    LET nf AS Float = bb * dx + d * dy + f
+    out = __canvas_affineGlyphEdges(b, gid, na, nb, nc, nd, ne, nf, out, depth + 1)
+    more = __canvas_bit(flags, 32)
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC __canvas_affineGlyphEdges(b AS List OF Byte, gid AS Integer, a AS Float, bb AS Float, c AS Float, d AS Float, e AS Float, f AS Float, edges AS List OF Float, depth AS Integer) AS List OF Float
+  MUT out AS List OF Float = edges
+  LET start AS Integer = __canvas_glyphStart(b, gid)
+  IF start < 0 THEN
+    RETURN out
+  END IF
+  LET contours AS Integer = __canvas_beS16(b, start)
+  IF contours < 0 THEN
+    RETURN __canvas_compositeEdges(b, start, a, bb, e, c, d, f, out, depth)
+  END IF
+  IF contours = 0 THEN
+    RETURN out
+  END IF
+  LET endsAt AS Integer = start + 10
+  LET points AS Integer = __canvas_beU16(b, endsAt + (contours - 1) * 2) + 1
+  LET instructions AS Integer = __canvas_beU16(b, endsAt + contours * 2)
+  LET flagsAt AS Integer = endsAt + contours * 2 + 2 + instructions
+  LET flags AS List OF Integer = __canvas_glyphFlags(b, flagsAt, points)
+  LET xsAt AS Integer = collections::getOr(flags, points, 0)
+  LET xs AS List OF Integer = __canvas_glyphCoords(b, xsAt, flags, points, 2, 16)
+  LET ysAt AS Integer = collections::getOr(xs, points, 0)
+  LET ys AS List OF Integer = __canvas_glyphCoords(b, ysAt, flags, points, 4, 32)
+  ' Map every point once, so the contour walk reads surface coordinates.
+  MUT px AS List OF Float = []
+  MUT py AS List OF Float = []
+  MUT i AS Integer = 0
+  WHILE i < points
+    LET x AS Float = toFloat(collections::getOr(xs, i, 0))
+    LET y AS Float = toFloat(collections::getOr(ys, i, 0))
+    px = collections::append(px, a * x + c * y + e)
+    py = collections::append(py, bb * x + d * y + f)
+    i = i + 1
+  END WHILE
+  MUT contour AS Integer = 0
+  MUT from AS Integer = 0
+  WHILE contour < contours
+    LET last AS Integer = __canvas_beU16(b, endsAt + contour * 2)
+    out = __canvas_contourEdgesMapped(flags, px, py, from, last, out)
+    from = last + 1
+    contour = contour + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC __canvas_contourEdgesMapped(flags AS List OF Integer, px AS List OF Float, py AS List OF Float, from AS Integer, last AS Integer, edges AS List OF Float) AS List OF Float
+  MUT out AS List OF Float = edges
+  LET count AS Integer = last - from + 1
+  IF count < 2 THEN
+    RETURN out
+  END IF
+  MUT startIndex AS Integer = 0 - 1
+  MUT i AS Integer = 0
+  WHILE i < count
+    IF startIndex < 0 AND __canvas_onCurve(flags, from + i) THEN
+      startIndex = i
+    END IF
+    i = i + 1
+  END WHILE
+  MUT curX AS Float = 0.0
+  MUT curY AS Float = 0.0
+  IF startIndex < 0 THEN
+    startIndex = 0
+    curX = (collections::getOr(px, from, 0.0) + collections::getOr(px, last, 0.0)) / 2.0
+    curY = (collections::getOr(py, from, 0.0) + collections::getOr(py, last, 0.0)) / 2.0
+  ELSE
+    curX = collections::getOr(px, from + startIndex, 0.0)
+    curY = collections::getOr(py, from + startIndex, 0.0)
+  END IF
+  LET originX AS Float = curX
+  LET originY AS Float = curY
+  MUT pendingX AS Float = 0.0
+  MUT pendingY AS Float = 0.0
+  MUT havePending AS Boolean = FALSE
+  MUT walk AS Integer = 1
+  WHILE walk <= count
+    LET at AS Integer = from + (startIndex + walk) MOD count
+    LET x AS Float = collections::getOr(px, at, 0.0)
+    LET y AS Float = collections::getOr(py, at, 0.0)
+    IF __canvas_onCurve(flags, at) THEN
+      IF havePending THEN
+        out = __canvas_quadEdges(out, curX, curY, pendingX, pendingY, x, y)
+        havePending = FALSE
+      ELSE
+        out = __canvas_lineEdge(out, curX, curY, x, y)
+      END IF
+      curX = x
+      curY = y
+    ELSE
+      IF havePending THEN
+        LET midX AS Float = (pendingX + x) / 2.0
+        LET midY AS Float = (pendingY + y) / 2.0
+        out = __canvas_quadEdges(out, curX, curY, pendingX, pendingY, midX, midY)
+        curX = midX
+        curY = midY
+      END IF
+      pendingX = x
+      pendingY = y
+      havePending = TRUE
+    END IF
+    walk = walk + 1
+  END WHILE
+  IF havePending THEN
+    out = __canvas_quadEdges(out, curX, curY, pendingX, pendingY, originX, originY)
+  ELSE
+    out = __canvas_lineEdge(out, curX, curY, originX, originY)
+  END IF
+  RETURN out
+END FUNC"#;
+
+/// One closed contour, walked point by point./// One closed contour, walked point by point.
 ///
 /// The walk starts at an on-curve point so the "previous on-curve" is always known. A
 /// contour of nothing but off-curve points is legal — a circle drawn as four quadratics
@@ -301,4 +521,5 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_glyphCoords", GLYPH_COORDS));
     pkg.add_helper(RegistryHelper::always("canvas_glyphEdges", GLYPH_EDGES));
     pkg.add_helper(RegistryHelper::always("canvas_contourEdges", CONTOUR_EDGES));
+    pkg.add_helper(RegistryHelper::always("canvas_compositeEdges", COMPOSITE_EDGES));
 }

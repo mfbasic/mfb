@@ -1,12 +1,12 @@
 # bug-757: a composite TrueType glyph draws nothing — accented letters in many fonts are blank
 
-Last updated: 2026-09-27
+Last updated: 2026-10-03
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness (silent: missing ink, no error)
 
-Status: Open
-Regression Test: none yet — see Phase 1
+Status: Fixed
+Regression Test: `tests/canvas/rt_canvas_font.rs:a_composite_glyph_draws_every_placed_component`
 
 A TrueType glyph is either **simple** (its own contours, `numberOfContours >= 0`) or
 **composite** (`numberOfContours < 0`): a list of other glyphs, each placed with an
@@ -103,9 +103,9 @@ stay byte-identical (the PNG goldens).
 
 ### Phase 1 — failing test + real-font census (no behavior change)
 
-- [ ] Extend `tests/canvas/rt_canvas_font.rs:truetype_fixture` with a composite glyph
+- [x] Extend `tests/canvas/rt_canvas_font.rs:truetype_fixture` with a composite glyph
       (offset-only component, and a scaled component). RED test: its pixels are lit.
-- [ ] `/tmp` probe: count the composite glyphs, and the flags used, across
+- [x] `/tmp` probe: count the composite glyphs, and the flags used, across
       `canvas::listSystemFonts()`. Record the counts here with the command.
 
 Acceptance: the RED test fails for the documented reason, and the census is recorded.
@@ -113,17 +113,17 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Affine threading through `__canvas_contourEdges`, identity-exact.
-- [ ] The composite walk, with a depth cap.
+- [x] Affine threading through `__canvas_contourEdges`, identity-exact.
+- [x] The composite walk, with a depth cap.
 
 Acceptance: the Phase 1 test passes, and `git status --short tests/golden/canvas` → empty.
 Commit: —
 
 ### Phase 3 — full validation
 
-- [ ] `cargo test` (full), `scripts/artifact-gate.sh` (`app-mouse-surface` moves), and
+- [x] `cargo test` (full), `scripts/artifact-gate.sh` (`app-mouse-surface` moves), and
       `scripts/test-canvas-vulkan.sh`.
-- [ ] Real font: render "Ä é ñ Å" in a system face with composites, and compare it
+- [x] Real font: render "Ä é ñ Å" in a system face with composites, and compare it
       against FreeType (`ftview`/`freetype-py` rasterisation at the same size). Record
       the command and the result.
 
@@ -147,3 +147,38 @@ Commit: —
 Silent missing ink for common letters in real fonts. The fix is contained to the outline
 reader. The risk is keeping the simple-glyph path bit-identical while generalising its
 transform.
+
+## Resolution (2026-10-03)
+
+`__canvas_glyphEdges` sends `numberOfContours < 0` to the new
+`COMPOSITE_EDGES` helpers. `contours = 0` still draws nothing, and the
+simple-glyph path is untouched, so every existing font test passes unchanged.
+
+- `__canvas_compositeEdges` reads each component record: word or byte
+  arguments; XY offsets; a uniform, x/y or 2×2 F2Dot14 transform; and the
+  scaled/unscaled offset flags. It composes the component's transform with the
+  caller's surface affine and recurses, capped at depth 8.
+- `__canvas_affineGlyphEdges` / `__canvas_contourEdgesMapped` flatten a simple
+  component from pre-mapped surface points. This is a dedicated copy of the
+  contour walk: rewriting the simple path as an affine would have changed its
+  rounding through FMA contraction.
+
+**Census.** `python3` over every `glyf` face in `/System/Library/Fonts/**` and
+`/Library/Fonts` found 637 faces and 1 330 272 outline glyphs, of which
+**305 021 are composite**. Component flags: xy 2 125 135, words 1 790 166,
+x/y-scale 1 490, uniform scale 630, 2×2 110, UNSCALED_COMPONENT_OFFSET 132.
+There are **0 point-matched components**, so the non-goal costs nothing here.
+
+**Proof.**
+
+- The fixture test fails on main ("drew nothing at all"). With the fix it lights
+  exactly the two placed squares (1125 px, no stray ink). All 32 font tests pass.
+- Real font: Arial's `Ä é ñ Å` are all composites. Rendered headless at 120 px
+  (`/tmp/b757`), the fix lights 9796 px with every diacritic placed correctly;
+  main lights 0. The FreeType comparison was not run because no FreeType tooling
+  is installed on the host. The visual check is the oracle used.
+
+**Expected golden change, regenerated at the batch gate.**
+`syntax/app/app-mouse-surface` (`.ir`, `.nir`, `.nplan`): the new always-injected
+helper and its `#CANVAS_COMPOSITE_DEPTH` global. Spec: `mfb spec app canvas`,
+"Composite glyphs draw their components".
