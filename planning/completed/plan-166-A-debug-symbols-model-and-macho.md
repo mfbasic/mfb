@@ -453,7 +453,7 @@ Acceptance: the spec renders and its citations resolve.
   → 116 passed; `--citations` → `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0` (baseline
   worktree: same); `--links linker tooling` → `unresolved=0`; `--render linker
   tooling` → 0 leaks.
-Commit: —
+Commit: 098d9d53b
 
 ## Validation Plan
 
@@ -474,6 +474,10 @@ Commit: —
        <(cd /tmp/p166-id/mfb && find . -path '*/build/*' -type f | sort | xargs shasum -a 256)
   ```
   → no output, and no `BUILD FAILED` line.
+  Result (2026-10-03, release build of 098d9d53b plus the no-op plan-166-B
+  Phase 1 refactor): `bash /tmp/p166-identity.sh target/release/mfb` (this loop,
+  with each copy's stale `build/` removed first) → `IDENTICAL`, 16 files, no
+  `BUILD FAILED`.
 - Doc sync: Phase 4.
 - Final gate: deferred to plan-166-C, which runs the full suite once after the
   last format lands.

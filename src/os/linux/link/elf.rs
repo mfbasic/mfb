@@ -394,38 +394,89 @@ pub(super) fn encode_dynamic_elf(
     Ok(bytes)
 }
 
-fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
+/// One section header beyond the leading `SHT_NULL` entry and the trailing
+/// `.shstrtab`, which [`append_section_table`] adds itself.
+pub(super) struct ElfSection<'a> {
+    pub(super) name: &'static str,
+    pub(super) type_: u32,
+    pub(super) flags: u64,
+    pub(super) addr: u64,
+    pub(super) contents: ElfSectionContents<'a>,
+    pub(super) link: u32,
+    pub(super) info: u32,
+    pub(super) addralign: u64,
+    pub(super) entsize: u64,
+}
+
+/// Where a section's bytes are.
+pub(super) enum ElfSectionContents<'a> {
+    /// Bytes a loaded segment already placed in the file.
+    InFile { offset: usize, size: usize },
+    /// Bytes appended past the current file end, at a `file_align` boundary.
+    Appended { bytes: &'a [u8], file_align: usize },
+}
+
+/// Append `sections` and a section header table describing them, and point the
+/// ELF header at it: `[NULL, sections…, .shstrtab]`, with `e_shstrndx` naming
+/// `.shstrtab`. Appended bodies go first (in order), then `.shstrtab`, then the
+/// 8-aligned header table. Nothing the loader reads moves: section headers are
+/// file-only metadata past the last `PT_LOAD`.
+///
+/// One builder owns the whole table because an ELF has exactly one: a signed
+/// `--debug` build's `.mfbsign` and `.symtab` must share it, or the second table
+/// written would orphan the first.
+pub(super) fn append_section_table(bytes: &mut Vec<u8>, sections: &[ElfSection<'_>]) {
     const SHDR_SIZE: usize = 64;
-    let metadata_offset = align(bytes.len(), 8);
-    bytes.resize(metadata_offset, 0);
-    bytes.extend_from_slice(metadata);
-    let shstrtab_offset = align(bytes.len(), 1);
-    let shstrtab = b"\0.mfbsign\0.shstrtab\0";
-    bytes.extend_from_slice(shstrtab);
+    let mut shstrtab = vec![0u8];
+    let mut name_offsets = Vec::with_capacity(sections.len());
+    for section in sections {
+        name_offsets.push(shstrtab.len() as u32);
+        shstrtab.extend_from_slice(section.name.as_bytes());
+        shstrtab.push(0);
+    }
+    let shstrtab_name = shstrtab.len() as u32;
+    shstrtab.extend_from_slice(b".shstrtab\0");
+
+    let mut placed = Vec::with_capacity(sections.len());
+    for section in sections {
+        placed.push(match section.contents {
+            ElfSectionContents::InFile { offset, size } => (offset, size),
+            ElfSectionContents::Appended {
+                bytes: body,
+                file_align,
+            } => {
+                let offset = align(bytes.len(), file_align);
+                bytes.resize(offset, 0);
+                bytes.extend_from_slice(body);
+                (offset, body.len())
+            }
+        });
+    }
+    let shstrtab_offset = bytes.len();
+    bytes.extend_from_slice(&shstrtab);
     let shoff = align(bytes.len(), 8);
     bytes.resize(shoff, 0);
 
     bytes.resize(bytes.len() + SHDR_SIZE, 0);
+    for ((section, (offset, size)), name) in sections.iter().zip(placed).zip(name_offsets) {
+        section_header(
+            bytes,
+            name,
+            section.type_,
+            section.flags,
+            section.addr,
+            offset as u64,
+            size as u64,
+            section.link,
+            section.info,
+            section.addralign,
+            section.entsize,
+        );
+    }
     section_header(
         bytes,
-        1,
-        1,
-        0,
-        0,
-        metadata_offset as u64,
-        metadata.len() as u64,
-        0,
-        0,
-        1,
-        0,
-    );
-    section_header(
-        // `.shstrtab`'s name index within the shstrtab literal: after the leading
-        // NUL and `.mfbsign\0` (8 chars + NUL), it begins at byte 10 (bug-432
-        // renamed `.mfb_sign` → `.mfbsign`, shortening this from 11).
-        bytes,
-        10,
-        3,
+        shstrtab_name,
+        SHT_STRTAB,
         0,
         0,
         shstrtab_offset as u64,
@@ -436,10 +487,37 @@ fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
         0,
     );
 
+    let shnum = sections.len() as u16 + 2;
     bytes[40..48].copy_from_slice(&(shoff as u64).to_le_bytes());
     bytes[58..60].copy_from_slice(&(SHDR_SIZE as u16).to_le_bytes());
-    bytes[60..62].copy_from_slice(&3_u16.to_le_bytes());
-    bytes[62..64].copy_from_slice(&2_u16.to_le_bytes());
+    bytes[60..62].copy_from_slice(&shnum.to_le_bytes());
+    bytes[62..64].copy_from_slice(&(shnum - 1).to_le_bytes());
+}
+
+const SHT_PROGBITS: u32 = 1;
+const SHT_STRTAB: u32 = 3;
+
+/// The `.mfbsign` section a signed build carries (bug-432 named it the same on
+/// every format): the blob, appended 8-aligned, `sh_addralign` 1.
+fn mfbsign_section(metadata: &[u8]) -> ElfSection<'_> {
+    ElfSection {
+        name: ".mfbsign",
+        type_: SHT_PROGBITS,
+        flags: 0,
+        addr: 0,
+        contents: ElfSectionContents::Appended {
+            bytes: metadata,
+            file_align: 8,
+        },
+        link: 0,
+        info: 0,
+        addralign: 1,
+        entsize: 0,
+    }
+}
+
+fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
+    append_section_table(bytes, &[mfbsign_section(metadata)]);
 }
 
 #[allow(clippy::too_many_arguments)]

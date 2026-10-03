@@ -30,9 +30,9 @@ The prerequisites are stated once in plan-166-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-166-A is complete | `ls planning/plan-166-A-*` → no match (archived to `planning/completed/`) | NOT MET |
-| `EncodedImage.debug_symbols` and `os::debug_symbols` exist | `grep -n "debug_symbols" src/arch/image.rs src/os/debug_symbols.rs` → hits in both | NOT MET |
-| The baseline compiler from plan-166-A Phase 0 still exists | `ls /tmp/mfb-166-base` → exists | NOT MET |
+| plan-166-A is complete | `ls planning/plan-166-A-*` → no match (archived to `planning/completed/`) | MET (2026-10-03, archived in this commit) |
+| `EncodedImage.debug_symbols` and `os::debug_symbols` exist | `grep -n "debug_symbols" src/arch/image.rs src/os/debug_symbols.rs` → hits in both | MET (2026-10-03) |
+| The baseline compiler from plan-166-A Phase 0 still exists | `ls /tmp/mfb-166-base` → exists | MET (2026-10-03) |
 
 If plan-166-A is not complete, this plan cannot start.
 
@@ -208,16 +208,23 @@ Entry 0 is all zero. Then one entry per `debug_symbols` item:
 Replaces `append_elf_signing_section` with the general builder, used only for the
 signed case. Output is unchanged.
 
-- [ ] `src/os/linux/link/elf.rs`: add `struct ElfSection` and
+- [x] `src/os/linux/link/elf.rs`: add `struct ElfSection` and
       `append_section_table`. Re-express `append_elf_signing_section` as a call to
-      it with `[NULL, .mfbsign, .shstrtab]`.
-- [ ] Tests: the existing signed-ELF tests in `src/os/linux/link/tests.rs` and
+      it with `[NULL, .mfbsign, .shstrtab]`. (`append_section_table` adds the
+      NULL and `.shstrtab` entries itself; `mfbsign_section` builds the row.)
+- [x] Tests: the existing signed-ELF tests in `src/os/linux/link/tests.rs` and
       `src/cli/info/tests.rs` pass **unedited**.
 
 Acceptance: signed and unsigned builds without `--debug` are byte-identical to
 the baseline.
   Check: `cargo test --bin mfb linux::link` then `cargo test --bin mfb cli::info` → all pass, and `git diff --stat -- src/os/linux/link/tests.rs src/cli/info/tests.rs` is empty (est. 4 min).
   Check: the plan-166-A byte-identity loop, restricted to the three Linux targets → no diff (est. 2 min).
+  Result (2026-10-03): `cargo test --bin mfb linux::link` → 45 passed;
+  `cargo test --bin mfb cli::info` → 21 passed; the `git diff --stat` of both
+  test files → empty; the identity loop over all five targets (a superset) →
+  `IDENTICAL`, 16 files. Signed builds cannot be compared by `cmp`: each
+  `--sign` build mints a one-off key, so two signed builds differ by design.
+  The unedited signing tests are what cover the signed table (Corrections).
 Commit: —
 
 ### Phase 2: `.symtab` for `--debug`
@@ -306,7 +313,14 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Signed byte-identity is covered by the unedited tests, not by `cmp`.** The
+  plan names `cmp` against the baseline for signed builds without `--debug`.
+  That cannot work: `--sign` mints a fresh one-off signing key per build
+  (`ExecutableSigning.signing_private`), so two signed builds of one project
+  differ even on one compiler. The signed section table is instead pinned by the
+  existing signing tests, which run unedited
+  (`encode_static_elf_x86_appends_signing_section` and the `cli::info` signed
+  cases), and the unsigned outputs by the `cmp` loop.
 
 ## Summary
 
