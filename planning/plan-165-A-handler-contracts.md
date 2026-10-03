@@ -6,6 +6,21 @@ Effort: medium (estimate: 1h–2h)
 Depends on: nothing
 Status: Planning only; not authorized for implementation
 
+## Review coverage and execution order
+
+All review points have a written work item; this ledger describes documents, not
+completed compiler work. Implementation order is A → B → C → D, with bug-798 fixed
+before C and D, and the 3.1 design accepted before D.
+
+| Review | Owning document | Scope |
+|---|---|---|
+| 3.1 | [plan-165-D](plan-165-D-expression-observation-traps.md) | Complete expression/assignment observation boundary and operator-only eligibility proposal |
+| 3.1 discovered defect | [bug-798](../bugs/bug-798-inline-trap-float-observation.md) | Reproduced premature Float observation |
+| 3.2 | [plan-165-C](plan-165-C-conditional-inline-trap.md) | Conditional AND/OR evaluation with recovery |
+| 3.3 | This plan | Handler routing and lexical PROPAGATE matrix |
+| 3.4 | This plan | Declared RETURN type, Error as successful data, FAIL semantics |
+| 3.5 | [plan-165-B](plan-165-B-conservative-handler-retention.md) | Proof required before handler removal |
+
 ## Goal
 
 Specify and directly test handler failure routing, nested PROPAGATE binding, and
@@ -101,7 +116,9 @@ existing numeric failure timing. The parser already supplies the full expression
 this would not mean trapping only the last division, nor deferring every error
 until a final store. Integer failures remain immediate, while Float observation
 occurs at its existing source boundaries. Bug-798 shows why this distinction matters.
-Operator-only eligibility needs a separate explicit owner decision before editing.
+The complete proposal and implementation work order are in
+[plan-165-D](plan-165-D-expression-observation-traps.md); acceptance of its design
+and permission to implement remain separate decisions.
 
 ## Validation discipline
 
