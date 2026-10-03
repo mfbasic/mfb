@@ -12,6 +12,14 @@ The per-function `strings::` API is documented by `./mfb man strings`; this
 package specifies the underlying *model and algorithms* a faithful reimplementation
 must reproduce — the part `man` does not capture.
 
+Compile-time folding and emitted runtime algorithms are separate paths with
+independently versioned data sources. Their current normalization and Indic
+grapheme-context differences are specified in `tables-and-algorithms`.
+[[src/unicode/backend.rs:normalize_nfc]]
+[[src/unicode/backend.rs:graphemes]]
+[[src/codegen/builtins/strings/func_normalize_nfc.rs:lower_out]]
+[[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch]]
+
 ## Reading order
 
 - `tables-and-algorithms` — the embedded (utf8proc-derived) property tables, their
