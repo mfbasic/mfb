@@ -306,22 +306,29 @@ Commit: 9b5cb44a4
 Acceptance: a debugger on Linux stops at a function by name.
   Check: the 2226 gdb transcript above shows `Breakpoint 1, … mfb_fn_main` (est. 10 min including the tool setup; a full gdb session is the only check that proves a debugger accepts the table).
   Result (2026-10-03): `Breakpoint 1, 0x0000aaaaaaad5614 in _mfb_fn_main ()`.
-Commit: —
+Commit: 60040fda9
 
 ### Phase 4: Spec
 
-- [ ] `src/docs/spec/linker/05_static-and-dynamic-output.md`: a `--debug` builds
+- [x] `src/docs/spec/linker/05_static-and-dynamic-output.md`: a `--debug` builds
       section covering the section header table, the `.symtab` contents, and
       that a build without `--debug` has none (a signed build has the
-      three-entry `.mfbsign` table).
-- [ ] `src/docs/spec/linker/07_linux-aarch64.md`, `08_linux-x86_64.md`,
+      three-entry `.mfbsign` table). → "Section header table" + "Debug symbols"
+      (including the dynamic `.dynstr`/`.dynamic` rows and the gdb name note).
+- [x] `src/docs/spec/linker/07_linux-aarch64.md`, `08_linux-x86_64.md`,
       `09_linux-riscv64.md`: one line each pointing to it, if they describe the
-      section table.
-- [ ] `src/docs/spec/tooling/09_debug-report.md` "Symbol tables": mark ELF as
+      section table. → 07's "Dynamic metadata" claim ("no table unless signing;
+      names only `.mfbsign` and `.shstrtab`") corrected; each signing section
+      points to 05. The two citations of the deleted `append_elf_signing_section`
+      (07, 09) now cite `append_elf_sections`.
+- [x] `src/docs/spec/tooling/09_debug-report.md` "Symbol tables": mark ELF as
       done.
 
 Acceptance: `cargo build && cargo test --bin mfb spec` → pass, and
 `scripts/spec-census.sh --citations` → no new dangling citation (est. 5 min).
+  Result (2026-10-03): `cargo test --bin mfb spec` → 44 passed; `--citations` →
+  `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`; `--links linker tooling` →
+  `unresolved=0`; `--render linker tooling` → 0 leaks.
 Commit: —
 
 ## Validation Plan

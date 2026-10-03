@@ -179,7 +179,7 @@ feature.
 | Format | Table | Status |
 | --- | --- | --- |
 | Mach-O (`macos-aarch64`) | local `LC_SYMTAB` entries, `LC_FUNCTION_STARTS`, and a content-derived `LC_UUID` (see `./mfb spec linker macos-aarch64`) | written |
-| ELF (`linux-*`) | — | not written |
+| ELF (`linux-*`) | `.symtab` / `.strtab` of local `STT_FUNC` / `STT_OBJECT` entries, in a section header table the build gains for it (see `./mfb spec linker static-and-dynamic-output`) | written |
 | PE (`windows-x86_64`) | — | not written |
 
 `mfb test --debug` builds its test programs through the same backend, so they carry
