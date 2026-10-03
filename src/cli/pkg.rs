@@ -1360,7 +1360,7 @@ pub(crate) fn install_vendor_blobs(
     package_name: &str,
 ) -> Result<(), String> {
     use crate::manifest::libraries::LibType;
-    use std::collections::HashSet;
+    use std::collections::HashMap;
 
     let installed = project_dir
         .join("packages")
@@ -1368,8 +1368,13 @@ pub(crate) fn install_vendor_blobs(
     let (_name, table) = binary_repr::read_package_native_libraries(&installed)?;
     let vendor_dir = crate::manifest::libraries::imported_vendor_dir(project_dir, package_name);
 
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut placed = 0usize;
+    // A content hash names bytes, not a file: two locators may ship identical
+    // bytes under different source names, and every name is a requirement the
+    // build looks up (bug-794). Each distinct hash is fetched once; each distinct
+    // source name is placed, copied from the first file that hash produced.
+    let mut fetched: HashMap<String, PathBuf> = HashMap::new();
+    let mut placed_sources: HashMap<&str, String> = HashMap::new();
+    let mut downloaded = 0usize;
     for entry in &table.entries {
         for locator in &entry.locators {
             if locator.lib_type != LibType::Vendor {
@@ -1377,9 +1382,6 @@ pub(crate) fn install_vendor_blobs(
             }
             let Some(hash) = locator.hash else { continue };
             let hash_hex = hex_bytes(&hash);
-            if !seen.insert(hash_hex.clone()) {
-                continue;
-            }
             // `source` came from the `.mfp` — untrusted input. plan-46-B §4.1's
             // decoder already re-checked the bare-filename rule, but do not assume
             // it: re-validate before `source` becomes a path.
@@ -1388,6 +1390,24 @@ pub(crate) fn install_vendor_blobs(
                     "package `{package_name}` names an unsafe vendored file \"{}\": {reason}",
                     locator.source
                 ));
+            }
+            match placed_sources.get(locator.source.as_str()) {
+                Some(placed_hash) if *placed_hash == hash_hex => continue,
+                Some(placed_hash) => {
+                    return Err(format!(
+                        "package `{package_name}` names vendored file \"{}\" with two \
+                         different contents (sha256 `{placed_hash}` and `{hash_hex}`)",
+                        locator.source
+                    ));
+                }
+                None => {}
+            }
+            if let Some(first) = fetched.get(&hash_hex) {
+                let bytes = std::fs::read(first)
+                    .map_err(|err| format!("failed to read '{}': {err}", first.display()))?;
+                super::install_vendor_file(&vendor_dir, &locator.source, &bytes)?;
+                placed_sources.insert(&locator.source, hash_hex);
+                continue;
             }
             let bytes = match mfb_repository::client::fetch_blob(repo_url, &hash_hex) {
                 Ok(bytes) => bytes,
@@ -1421,14 +1441,20 @@ pub(crate) fn install_vendor_blobs(
                     ));
                 }
             };
-            super::install_vendor_file(&vendor_dir, &locator.source, &bytes)?;
-            placed += 1;
+            let destination = super::install_vendor_file(&vendor_dir, &locator.source, &bytes)?;
+            fetched.insert(hash_hex.clone(), destination);
+            placed_sources.insert(&locator.source, hash_hex);
+            downloaded += 1;
         }
     }
-    if placed > 0 {
+    if downloaded > 0 {
         println!(
-            "Downloaded {placed} vendor {} for {package_name}",
-            if placed == 1 { "library" } else { "libraries" }
+            "Downloaded {downloaded} vendor {} for {package_name}",
+            if downloaded == 1 {
+                "library"
+            } else {
+                "libraries"
+            }
         );
     }
     Ok(())

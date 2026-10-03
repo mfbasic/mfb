@@ -476,6 +476,10 @@ pub fn auth(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<LoginResp
         },
     )?;
     local::write_session(paths, owner, &login.session_token)?;
+    // A rotation staged by a run whose response was lost is settled here too
+    // (bug-793). An unresolved one is kept for the next rotate or auth; logging in
+    // does not depend on it.
+    recover_pending_ident(repo_url, paths, owner)?;
     Ok(login)
 }
 
@@ -622,6 +626,26 @@ pub fn rotate_ident(
 ) -> Result<RotateResponse, String> {
     validate_owner_name(owner)?;
     ensure_server_key(repo_url, paths)?;
+    // A rotation staged by an earlier run may already be the account authority:
+    // its request can have committed with the response lost (bug-793). Settle it
+    // before anything here signs with the live key or writes a new staging, since
+    // overwriting it would destroy the only copy of the key the registry trusts.
+    match recover_pending_ident(repo_url, paths, owner)? {
+        PendingIdent::None | PendingIdent::Discarded => {}
+        PendingIdent::Promoted(fingerprint) => {
+            return Ok(RotateResponse {
+                owner: owner.to_string(),
+                ident_fingerprint: fingerprint,
+            })
+        }
+        PendingIdent::Unresolved(reason) => {
+            return Err(format!(
+                "{reason}; a staged ident key was left at '{}' — re-run `mfb key \
+                 rotate {owner}` once the registry can confirm whether it committed",
+                paths.ident_pending_private_key_path(owner).display()
+            ))
+        }
+    }
     let old_private = local::read_ident_private_key(paths, owner)?;
     let old_public = local::read_ident_public_key(paths, owner)?;
     let session_token = local::read_session(paths, owner)?;
@@ -660,24 +684,20 @@ pub fn rotate_ident(
         Err(err) => {
             // The request failed, but "failed" includes a response lost after the
             // server already committed — the case that actually strands the
-            // account. Ask the registry which ident it now holds: if it is the
-            // staged key, the rotation did happen and promoting is the recovery.
-            // Only discard the staging when the server demonstrably still has the
-            // old key.
-            match reconcile_pending_ident(repo_url, paths, owner, &new_public) {
-                Ok(true) => Ok(RotateResponse {
+            // account. Ask the registry which ident it now holds.
+            match recover_pending_ident(repo_url, paths, owner)? {
+                PendingIdent::Promoted(fingerprint) => Ok(RotateResponse {
                     owner: owner.to_string(),
-                    ident_fingerprint: crypto::fingerprint(&new_public),
+                    ident_fingerprint: fingerprint,
                 }),
                 // Server still on the old ident: the rotation did not happen.
-                Ok(false) => Err(err),
-                // Could not reach the server to decide. Leave the staged key in
-                // place — it is the only copy of a possibly-authoritative key,
-                // and a later rotate/auth reconciles it.
-                Err(_) => Err(format!(
-                    "{err}; a staged ident key was left at '{}' because the \
-                     registry could not be reached to confirm whether the rotation \
-                     committed — re-run `mfb repo rotate` once it is reachable",
+                PendingIdent::None | PendingIdent::Discarded => Err(err),
+                // Leave the staged key in place — it is the only copy of a
+                // possibly-authoritative key; a later rotate or auth settles it.
+                PendingIdent::Unresolved(reason) => Err(format!(
+                    "{err}; {reason}; a staged ident key was left at '{}' — re-run \
+                     `mfb key rotate {owner}` once the registry can confirm whether it \
+                     committed",
                     paths.ident_pending_private_key_path(owner).display()
                 )),
             }
@@ -685,29 +705,62 @@ pub fn rotate_ident(
     }
 }
 
-/// Decide the fate of a staged ident rotation by asking the registry which ident
-/// key it currently holds (bug-276 R1).
+/// What [`recover_pending_ident`] decided about a staged ident rotation.
+#[derive(Debug, PartialEq, Eq)]
+enum PendingIdent {
+    /// Nothing was staged.
+    None,
+    /// The staged key is the registry's current ident: the rotation committed,
+    /// and the staging is now the live keypair. Carries its fingerprint.
+    Promoted(String),
+    /// The registry still holds this machine's live ident: the rotation never
+    /// committed, so the staging was discarded.
+    Discarded,
+    /// The registry could not be consulted, or holds a key that is neither the
+    /// staged nor the live one. The staging is kept untouched.
+    Unresolved(String),
+}
+
+/// Settle a staged ident rotation by asking the registry which ident key it
+/// currently holds (bug-276 R1, bug-793).
 ///
-/// Returns `Ok(true)` when the staged key *is* the registry's current ident (the
-/// rotation committed and has now been promoted locally), `Ok(false)` when the
-/// registry still holds a different key (the staging was discarded), and `Err`
-/// when the registry could not be consulted, in which case the staging is left
-/// untouched — deleting a key that might be the account authority is the one
-/// outcome worth avoiding.
-fn reconcile_pending_ident(
+/// Only a registry that demonstrably holds the staged key promotes it, and only
+/// one that demonstrably still holds the live key discards it. Every other state
+/// keeps the staging: deleting a key that might be the account authority is the
+/// one outcome worth avoiding. `Err` is reserved for a local file failure.
+fn recover_pending_ident(
     repo_url: &str,
     paths: &LocalPaths,
     owner: &str,
-    staged_public: &[u8],
-) -> Result<bool, String> {
-    let chain = fetch_ident_chain(repo_url, owner)?;
-    let current = crypto::decode_bytes(&chain.ident_key, "identKey")?;
+) -> Result<PendingIdent, String> {
+    let Some(staged_private) = local::read_pending_ident_private_key(paths, owner)? else {
+        return Ok(PendingIdent::None);
+    };
+    let staged_public = crypto::public_from_private(&staged_private)?;
+    let current = match fetch_ident_chain(repo_url, owner)
+        .and_then(|chain| crypto::decode_bytes(&chain.ident_key, "identKey"))
+    {
+        Ok(current) => current,
+        Err(err) => {
+            return Ok(PendingIdent::Unresolved(format!(
+                "the registry could not be asked whether a staged ident rotation \
+                 committed: {err}"
+            )))
+        }
+    };
     if current == staged_public {
         local::promote_pending_ident_keypair(paths, owner)?;
-        return Ok(true);
+        return Ok(PendingIdent::Promoted(crypto::fingerprint(&staged_public)));
     }
-    local::remove_pending_ident_keypair(paths, owner);
-    Ok(false)
+    if local::read_ident_public_key(paths, owner).ok().as_deref() == Some(current.as_slice()) {
+        local::remove_pending_ident_keypair(paths, owner);
+        return Ok(PendingIdent::Discarded);
+    }
+    Ok(PendingIdent::Unresolved(format!(
+        "the registry's ident for '{owner}' ({}) is neither the staged key nor this \
+         machine's live key",
+        crypto::fingerprint(&current)
+    )))
 }
 
 /// Fetch the owner's current ident binding and the signed rotation chain.

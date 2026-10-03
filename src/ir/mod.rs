@@ -95,6 +95,7 @@ pub use lower::{
     ImportedTypeKind, ImportedTypeVariant,
 };
 pub(crate) use op::IrOp;
+pub(crate) use package::is_builtin_type_name;
 pub use package::{
     apply_package_identity, merge_package, order_bindings_dependencies_first,
     order_builtin_bindings_first, package_qualified_reference_names, package_referenced_names,

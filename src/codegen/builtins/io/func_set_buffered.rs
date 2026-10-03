@@ -9,6 +9,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -17,8 +18,10 @@ use crate::types::ParameterType;
 
 /// `abi_function` body for `io::setBuffered(enabled)`: the `enabled` flag arrives
 /// in argument register 0; toggle the thread stdout buffering flag (draining on
-/// disable), or no-op in app mode. Emits its vreg stream into `builder`; the
-/// wrapper finalizes.
+/// disable), or no-op in app mode. A failed disable-drain raises `ErrWriteFailed`
+/// and leaves buffering on with the bytes still pending, as a failed `io::flush`
+/// does (bug-723; `fs::setBuffered`'s contract). Emits its vreg stream into
+/// `builder`; the wrapper finalizes.
 pub(crate) fn lower_set_buffered(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
@@ -27,8 +30,15 @@ pub(crate) fn lower_set_buffered(
     const FRAME_SIZE: usize = 16;
     let symbol = builder.current_symbol.clone();
     let enable = format!("{symbol}_enable");
+    let output_error = format!("{symbol}_output_error");
     let done = format!("{symbol}_done");
-    if !ctx.build_mode.is_app() {
+    if ctx.build_mode.is_app() {
+        builder.instructions.push(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+    } else {
         let mut vregs = Vregs::new();
         let v0 = vregs.next();
         builder.instructions.extend([
@@ -40,18 +50,29 @@ pub(crate) fn lower_set_buffered(
             .relocations
             .push(internal_branch(&symbol, STDOUT_DRAIN_SYMBOL));
         builder.instructions.extend([
+            // The drain kept any bytes it could not write; clearing the flag now
+            // would strand them where no later drain looks (bug-723).
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&output_error),
             abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&done),
             abi::label(&enable),
             abi::move_immediate(&v0, "Integer", "1"),
             abi::store_u64(&v0, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
-            abi::label(&done),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&done),
+            abi::label(&output_error),
         ]);
+        raise_error_into(
+            &symbol,
+            "ErrWriteFailed",
+            &mut builder.instructions,
+            &mut builder.relocations,
+        );
+        builder.instructions.push(abi::label(&done));
     }
-    builder.instructions.extend([
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::return_(),
-    ]);
+    builder.instructions.push(abi::return_());
     builder.stack_size = FRAME_SIZE;
     Ok(ValueResult {
         origin: None,
@@ -74,12 +95,11 @@ after the buffer is drained, so ordering is never disturbed, and if the buffer
 cannot be set up the write falls back to going out directly — buffering is an
 optimization, never a correctness dependency.
 
-Passing `FALSE` **drains any pending bytes first** and then clears the flag. That
-drain is best-effort: this call returns `Nothing` and does not report a write
-failure. If the drain fails, buffering is still turned off, so the pending output
-is not written and a later `io::flush` does not report the failure either. To
-detect a write failure, call `io::flush` while buffering is still on, before
-turning it off.
+Passing `FALSE` **drains any pending bytes first** and then clears the flag. If
+that write fails the call raises `ErrWriteFailed` and buffering stays on with the
+unwritten bytes still pending, exactly as a failed `io::flush` leaves them, so a
+later `io::flush` or `io::setBuffered(FALSE)` tries again from where this one
+stopped.
 
 While buffering is on, held output is also drained when the buffer fills, on
 `io::flush`, before any standard-input read — so a buffered prompt always appears
@@ -122,7 +142,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrWriteFailed"],
             body: Body::abi_function(lower_set_buffered),
         }],
     });

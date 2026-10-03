@@ -1040,6 +1040,170 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
 /// never lands (network failure, failed validation, `^C`) — rather than by
 /// writing a row directly, because the whole point of the plan is that this
 /// path can now produce bytes nothing will ever name.
+/// bug-794: the installer deduplicated vendor blobs by content hash and, on a
+/// repeat hash, skipped placing the file too. A package whose locators ship
+/// identical bytes under different source names installed only the first name,
+/// so a build needing another locator could not find its library. Every name
+/// must be placed with the verified bytes. The setup is the GC test's, with
+/// every vendored file given the same bytes.
+#[test]
+fn identical_vendor_blobs_keep_every_source_filename() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Two live packages, one of which vendors a native library — so the sweep
+    // has to spare both halves of the reachable set: `package_versions.hash`
+    // (the `.mfp`) and `package_version_blobs.hash` (the vendor blobs).
+    //
+    // Each vendored file gets DISTINCT bytes: `install_vendor_blobs` dedups by
+    // content hash and places one file per unique hash under that locator's
+    // `source` name, so identical bytes would install only the first name and a
+    // build that looks up each locator's file by name could not find the rest.
+    let vendor_bytes_for = |_source: &str| b"identical vendor bytes".to_vec();
+    let plain_dir = work.path().join("gcplain");
+    let plain_arg = plain_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", plain_arg]).status.success());
+    let plain_manifest = std::fs::read_to_string(plain_dir.join("project.json"))
+        .unwrap()
+        .replace(
+            "  \"version\": \"0.1.0\",\n",
+            "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#gcplain\",\n",
+        );
+    std::fs::write(plain_dir.join("project.json"), plain_manifest).unwrap();
+
+    let vendor_pkg = work.path().join("gcvendor");
+    let vendor_arg = vendor_pkg.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", vendor_arg]).status.success());
+    // A vendor locator names one concrete build (there is no fat ELF), so on Linux
+    // each entry must name an explicit (arch, libc) — a wildcard is rejected with
+    // PROJECT_JSON_LIBRARY_INVALID. Enumerate every arch/libc the suite runs on (CI
+    // is linux/x86_64/glibc; the test boxes add musl and other arches) plus macOS
+    // and Windows.
+    // A Linux executable build emits both libc flavors of its arch in one pass, so
+    // the consumer build resolves — and must find installed — both the glibc and
+    // musl `.so` for the host arch.
+    let linux_flavors = [
+        ("x86_64", "glibc"),
+        ("x86_64", "musl"),
+        ("aarch64", "glibc"),
+        ("aarch64", "musl"),
+        ("riscv64", "glibc"),
+        ("riscv64", "musl"),
+    ];
+    let mut locators = String::from(
+        "      { \"os\": \"macos\", \"type\": \"vendor\", \"source\": \"libgc.dylib\" }",
+    );
+    locators.push_str(
+        ",\n      { \"os\": \"windows\", \"arch\": \"x86_64\", \"type\": \"vendor\", \"source\": \"libgc.dll\" }",
+    );
+    for (arch, libc) in linux_flavors {
+        locators.push_str(&format!(
+            ",\n      {{ \"os\": \"linux\", \"arch\": \"{arch}\", \"libc\": \"{libc}\", \"type\": \"vendor\", \"source\": \"libgc-{arch}-{libc}.so\" }}"
+        ));
+    }
+    std::fs::write(
+        vendor_pkg.join("project.json"),
+        format!(
+            r#"{{
+  "name": "gcvendor",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Test fixture package for repo gc with a vendored library.",
+  "ident": "alice#gcvendor",
+  "libraries": {{
+    "demo": [
+{locators}
+    ]
+  }},
+  "sources": [ {{ "root": "src", "role": "package", "include": ["**/*.mfb"] }} ]
+}}
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        vendor_pkg.join("src/lib.mfb"),
+        r#"LINK "demo" AS demoLink
+  FUNC ping() AS Integer
+    SYMBOL "demo_ping"
+    ABI (value OUT CInt32) AS status CInt32
+    RETURN value
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC demoPing() AS Integer
+  RETURN demoLink::ping()
+END FUNC
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(vendor_pkg.join("vendor")).unwrap();
+    std::fs::write(
+        vendor_pkg.join("vendor/libgc.dylib"),
+        vendor_bytes_for("libgc.dylib"),
+    )
+    .unwrap();
+    std::fs::write(
+        vendor_pkg.join("vendor/libgc.dll"),
+        vendor_bytes_for("libgc.dll"),
+    )
+    .unwrap();
+    for (arch, libc) in linux_flavors {
+        let source = format!("libgc-{arch}-{libc}.so");
+        std::fs::write(
+            vendor_pkg.join(format!("vendor/{source}")),
+            vendor_bytes_for(&source),
+        )
+        .unwrap();
+    }
+
+    for pkg in [plain_arg, vendor_arg] {
+        let published = run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg]);
+        assert!(
+            published.status.success(),
+            "publish {pkg} failed: {}\n{}",
+            String::from_utf8_lossy(&published.stdout),
+            String::from_utf8_lossy(&published.stderr)
+        );
+    }
+
+    let app_dir = work.path().join("consumer");
+    assert!(run_mfb_plain(&["init", app_dir.to_str().unwrap()])
+        .status
+        .success());
+    let add = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#gcvendor"])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .unwrap();
+    assert!(
+        add.status.success(),
+        "{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    for source in ["libgc.dylib", "libgc.dll", "libgc-x86_64-glibc.so"] {
+        let placed = app_dir.join("packages/gcvendor.vendor").join(source);
+        assert_eq!(
+            std::fs::read(&placed).unwrap_or_default(),
+            b"identical vendor bytes",
+            "a successful install must place vendor source {source}"
+        );
+    }
+}
+
 #[test]
 fn repo_gc_reclaims_an_orphaned_blob_and_leaves_live_packages_installable() {
     let repo_dir = tempfile::tempdir().unwrap();

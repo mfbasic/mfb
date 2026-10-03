@@ -812,7 +812,7 @@ fn package_type_surface(pir: &mut IrProject) -> HashSet<Symbol> {
 /// it. A user declaration can carry neither. `.` is field access, and monomorph
 /// sanitizes it to `$` in an instance name. `#` cannot be lexed, so it appears
 /// only in a file-PRIVATE mangle `#<hash>$<name>`.
-pub(super) fn is_builtin_type_name(name: &str) -> bool {
+pub(crate) fn is_builtin_type_name(name: &str) -> bool {
     name.contains('.')
         || (internal_name::strip_sigil(name).is_some()
             && internal_name::private_name_parts(name).is_none())

@@ -47,7 +47,11 @@ impl TypeTable {
             _ => (1, BinaryReprExportKind::Type),
         };
         let id = self.add_entry(strings, package, &ir_type.name, kind, Vec::new());
-        if ir_type.visibility == "export" {
+        // A builtin package's type rides in this IR because the source imports that
+        // package; its declaration is `EXPORT` in the builtin's own source, but this
+        // package does not own it and must not export it (bug-750). Every importer
+        // gets the type from its own builtin import under the same spelling.
+        if ir_type.visibility == "export" && !crate::ir::is_builtin_type_name(&ir_type.name) {
             self.entries[(id - FIRST_TABLE_TYPE_ID) as usize].abi_export_kind =
                 Some(abi_export_kind);
         }

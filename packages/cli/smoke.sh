@@ -24,7 +24,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 "$MFB" build -q "$ROOT/packages/cli"
 mkdir -p "$WORK/src" "$WORK/packages"
 cp "$ROOT/packages/cli/cli.mfp" "$WORK/packages/cli.mfp"
-printf '%s\n' '{"name":"cli_smoke","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","packages":[{"name":"cli","version":"=0.1.0","source":"file:packages/cli.mfp"}]}' > "$WORK/project.json"
+printf '%s\n' '{"name":"cli_smoke","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","packages":[{"name":"cli","version":"=0.1.0","source":"file:packages/cli.mfp","direct":true,"requiredBy":[]}]}' > "$WORK/project.json"
 cat > "$WORK/src/main.mfb" <<'MFB'
 IMPORT cli
 IMPORT io

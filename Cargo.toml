@@ -216,6 +216,10 @@ name = "cli_man_summary_plain"
 path = "tests/cli/cli_man_summary_plain.rs"
 
 [[test]]
+name = "cli_spec_closed_stdout"
+path = "tests/cli/cli_spec_closed_stdout.rs"
+
+[[test]]
 name = "cli_parse_expression_tree_depth"
 path = "tests/cli/cli_parse_expression_tree_depth.rs"
 
@@ -845,6 +849,10 @@ path = "tests/runtime/rt_fs_create_directories_existing_entry.rs"
 [[test]]
 name = "rt_fs_set_buffered_drain_failure"
 path = "tests/runtime/rt_fs_set_buffered_drain_failure.rs"
+
+[[test]]
+name = "rt_io_set_buffered_drain_failure"
+path = "tests/runtime/rt_io_set_buffered_drain_failure.rs"
 
 [[test]]
 name = "rt_global_argument_reassigned_by_callee"

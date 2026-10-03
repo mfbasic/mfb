@@ -5,9 +5,11 @@
 # printed.
 #
 # The package's own tests run inside the package. This is the only check that a
-# consumer who never writes `IMPORT datetime` can read a zoned string, hold the
-# datetime::DateTime the package hands back, pass its fields back in, and write
-# it again.
+# consumer can read a zoned string, hold the datetime::DateTime the package hands
+# back, pass its fields back in, and write it again. Reading those fields needs
+# the consumer's own `IMPORT datetime`: imports are not transitive, and a package
+# does not export the builtin types it uses (`mfb spec language
+# modules-and-packages`; bug-466, bug-750).
 #
 #     ./runtime-smoke.sh [path/to/mfb]
 
@@ -25,8 +27,9 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 "$MFB" build -q "$ROOT/packages/timezones"
 mkdir -p "$WORK/src" "$WORK/packages"
 cp "$ROOT/packages/timezones/timezones.mfp" "$WORK/packages/timezones.mfp"
-printf '%s\n' '{"name":"timezones_runtime_smoke","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","packages":[{"name":"timezones","version":"=0.1.0","source":"file:packages/timezones.mfp"}]}' > "$WORK/project.json"
+printf '%s\n' '{"name":"timezones_runtime_smoke","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","packages":[{"name":"timezones","version":"=0.1.0","source":"file:packages/timezones.mfp","direct":true,"requiredBy":[]}]}' > "$WORK/project.json"
 cat > "$WORK/src/main.mfb" <<'MFB'
+IMPORT datetime
 IMPORT io
 IMPORT timezones
 

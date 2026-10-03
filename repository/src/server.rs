@@ -11313,4 +11313,181 @@ mod tests {
         // building the pool behind the caller's back.
         assert_eq!(report.abi_index, serde_json::json!({}));
     }
+
+    // --- bug-793: a retried ident rotation keeps the committed staged key ---
+
+    /// The local state a client is left in when `/keys/rotate` committed on the
+    /// server but its response, and the reconciliation after it, were lost: the
+    /// live pair is still the old ident, and the new pair is staged.
+    struct LostRotation {
+        _dir: tempfile::TempDir,
+        paths: crate::local::LocalPaths,
+        old_public: Vec<u8>,
+        staged_public: Vec<u8>,
+        staged_private: Vec<u8>,
+    }
+
+    fn stage_rotation(h: &Harness, commit: bool) -> LostRotation {
+        use crate::local::{self, LocalPaths};
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &alice.auth_private);
+        let dir = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(dir.path().to_owned());
+        local::write_ident_keypair(&paths, "alice", &alice.ident_public, &alice.ident_private)
+            .unwrap();
+        local::write_session(&paths, "alice", &token).unwrap();
+        let (staged_public, staged_private) = crypto::generate_keypair();
+        local::write_pending_ident_keypair(&paths, "alice", &staged_public, &staged_private)
+            .unwrap();
+        if commit {
+            let chain = crypto::sign(
+                &alice.ident_private,
+                &crypto::ident_rotation_message(
+                    "alice",
+                    &crypto::fingerprint(&alice.ident_public),
+                    &staged_public,
+                ),
+            )
+            .unwrap();
+            let possession = crypto::sign(
+                &staged_private,
+                &crypto::registration_message(crypto::ROLE_IDENT, "alice", &staged_public),
+            )
+            .unwrap();
+            h.store
+                .rotate_ident("alice", &staged_public, &chain, &possession)
+                .unwrap();
+        }
+        LostRotation {
+            _dir: dir,
+            paths,
+            old_public: alice.ident_public,
+            staged_public,
+            staged_private,
+        }
+    }
+
+    /// Run the real client's `rotate_ident` against a real local registry.
+    async fn retry_rotation(
+        h: &Harness,
+        paths: &crate::local::LocalPaths,
+    ) -> Result<RotateResponse, String> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = build_router(h.state.clone());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        let paths = paths.clone();
+        let result =
+            tokio::task::spawn_blocking(move || crate::client::rotate_ident(&url, &paths, "alice"))
+                .await
+                .unwrap();
+        server.abort();
+        result
+    }
+
+    /// bug-793: the retry used to overwrite the staged pair, sign a second
+    /// rotation with the old key (rejected), and then discard the replacement,
+    /// leaving no copy of the key the registry trusts. It must instead recover
+    /// the committed staging as the live keypair.
+    #[tokio::test]
+    async fn rotation_retry_preserves_committed_staged_key() {
+        let _env = crate::local::tests::env_guard();
+        let h = harness();
+        let lost = stage_rotation(&h, true);
+
+        let response = retry_rotation(&h, &lost.paths)
+            .await
+            .expect("retry recovers");
+        assert_eq!(
+            response.ident_fingerprint,
+            crypto::fingerprint(&lost.staged_public)
+        );
+        assert_eq!(
+            crate::local::read_ident_private_key(&lost.paths, "alice").unwrap(),
+            lost.staged_private,
+            "the committed ident private key must become the live key"
+        );
+        assert_eq!(
+            crate::local::read_ident_public_key(&lost.paths, "alice").unwrap(),
+            lost.staged_public
+        );
+        assert!(!lost.paths.ident_pending_private_key_path("alice").exists());
+    }
+
+    /// A promotion interrupted after the live public key was rewritten (the
+    /// staged private key still pending) is finished by the retry.
+    #[tokio::test]
+    async fn rotation_retry_finishes_an_interrupted_promotion() {
+        let _env = crate::local::tests::env_guard();
+        let h = harness();
+        let lost = stage_rotation(&h, true);
+        crate::local::write_ident_keypair(
+            &lost.paths,
+            "alice",
+            &lost.staged_public,
+            &crate::local::read_ident_private_key(&lost.paths, "alice").unwrap(),
+        )
+        .unwrap();
+        std::fs::remove_file(lost.paths.ident_pending_public_key_path("alice")).unwrap();
+
+        retry_rotation(&h, &lost.paths)
+            .await
+            .expect("retry recovers");
+        assert_eq!(
+            crate::local::read_ident_private_key(&lost.paths, "alice").unwrap(),
+            lost.staged_private
+        );
+    }
+
+    /// A staging the registry never committed (it still holds the live key) is
+    /// stale: it is discarded and a fresh rotation goes through.
+    #[tokio::test]
+    async fn rotation_retry_replaces_an_uncommitted_staging() {
+        let _env = crate::local::tests::env_guard();
+        let h = harness();
+        let lost = stage_rotation(&h, false);
+
+        let response = retry_rotation(&h, &lost.paths)
+            .await
+            .expect("fresh rotation");
+        let live = crate::local::read_ident_public_key(&lost.paths, "alice").unwrap();
+        assert_ne!(live, lost.old_public);
+        assert_ne!(live, lost.staged_public);
+        assert_eq!(response.ident_fingerprint, crypto::fingerprint(&live));
+        assert!(!lost.paths.ident_pending_private_key_path("alice").exists());
+    }
+
+    /// The registry holds a key that is neither the staged nor the live one
+    /// (another machine rotated): nothing is proven, so the staging is kept,
+    /// nothing is signed with the stale live key, and the error says so.
+    #[tokio::test]
+    async fn rotation_retry_keeps_the_staging_when_the_registry_holds_another_key() {
+        let _env = crate::local::tests::env_guard();
+        let h = harness();
+        let lost = stage_rotation(&h, true);
+        let (other_public, other_private) = crypto::generate_keypair();
+        crate::local::write_pending_ident_keypair(
+            &lost.paths,
+            "alice",
+            &other_public,
+            &other_private,
+        )
+        .unwrap();
+
+        let err = retry_rotation(&h, &lost.paths).await.unwrap_err();
+        assert!(err.contains("staged ident key was left at"), "{err}");
+        assert!(err.contains("mfb key rotate"), "{err}");
+        assert!(lost.paths.ident_pending_private_key_path("alice").exists());
+        assert_eq!(
+            crate::local::read_ident_public_key(&lost.paths, "alice").unwrap(),
+            lost.old_public
+        );
+    }
 }

@@ -24,7 +24,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 "$MFB" build -q "$ROOT/packages/logger"
 mkdir -p "$WORK/src" "$WORK/packages"
 cp "$ROOT/packages/logger/logger.mfp" "$WORK/packages/logger.mfp"
-printf '%s\n' '{"name":"logger_runtime_smoke","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","packages":[{"name":"logger","version":"=0.1.0","source":"file:packages/logger.mfp"}]}' > "$WORK/project.json"
+printf '%s\n' '{"name":"logger_runtime_smoke","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","packages":[{"name":"logger","version":"=0.1.0","source":"file:packages/logger.mfp","direct":true,"requiredBy":[]}]}' > "$WORK/project.json"
 cat > "$WORK/src/main.mfb" <<'MFB'
 IMPORT encoding
 IMPORT fs

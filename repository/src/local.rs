@@ -278,27 +278,49 @@ pub fn read_pending_ident_public_key(
     read_key_file(&path, "pending ident public key").map(Some)
 }
 
-/// Promote a staged rotation to the live ident keypair.
-pub fn promote_pending_ident_keypair(paths: &LocalPaths, owner: &str) -> Result<(), String> {
-    for (from, to) in [
-        (
-            paths.ident_pending_public_key_path(owner),
-            paths.ident_public_key_path(owner),
-        ),
-        (
-            paths.ident_pending_private_key_path(owner),
-            paths.ident_private_key_path(owner),
-        ),
-    ] {
-        fs::rename(&from, &to).map_err(|err| {
-            format!(
-                "failed to promote '{}' to '{}': {err}",
-                from.display(),
-                to.display()
-            )
-        })?;
+/// Read a staged rotation's private key, if one is present. The pending
+/// private key is the staging marker (bug-793): it is written last and promoted
+/// last, so whenever it exists the staged key may be the account authority and
+/// must not be overwritten or discarded without asking the registry.
+pub fn read_pending_ident_private_key(
+    paths: &LocalPaths,
+    owner: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    let path = paths.ident_pending_private_key_path(owner);
+    if !path.is_file() {
+        return Ok(None);
     }
-    Ok(())
+    read_key_file(&path, "pending ident private key").map(Some)
+}
+
+/// Promote a staged rotation to the live ident keypair.
+///
+/// The live public key is rewritten from the staged private key, and the staged
+/// private key moves last. A promotion interrupted part-way therefore leaves the
+/// staging marker in place, and re-running it finishes the job (bug-793).
+pub fn promote_pending_ident_keypair(paths: &LocalPaths, owner: &str) -> Result<(), String> {
+    let from = paths.ident_pending_private_key_path(owner);
+    let to = paths.ident_private_key_path(owner);
+    let staged_private = read_pending_ident_private_key(paths, owner)?.ok_or_else(|| {
+        format!(
+            "failed to promote '{}' to '{}': no staged ident key",
+            from.display(),
+            to.display()
+        )
+    })?;
+    let staged_public = crypto::public_from_private(&staged_private)?;
+    write_private_file(
+        &paths.ident_public_key_path(owner),
+        &crypto::encode_bytes(&staged_public),
+    )?;
+    let _ = fs::remove_file(paths.ident_pending_public_key_path(owner));
+    fs::rename(&from, &to).map_err(|err| {
+        format!(
+            "failed to promote '{}' to '{}': {err}",
+            from.display(),
+            to.display()
+        )
+    })
 }
 
 /// Discard a staged rotation the server did not accept.
@@ -914,14 +936,14 @@ pub(crate) mod tests {
         assert!(
             err.contains(
                 &paths
-                    .ident_pending_public_key_path("alice")
+                    .ident_pending_private_key_path("alice")
                     .display()
                     .to_string()
             ),
             "{err}"
         );
         assert!(
-            err.contains(&paths.ident_public_key_path("alice").display().to_string()),
+            err.contains(&paths.ident_private_key_path("alice").display().to_string()),
             "the error should name both ends of the rename: {err}"
         );
         // A failed promotion must leave the live keypair intact.
