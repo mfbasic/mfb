@@ -189,4 +189,5 @@ the table too.
 
 * ./mfb spec tooling cli-reference — the `build` and `test` flags
 * ./mfb spec linker symbols-and-relocations — the shared debug symbol model
+* ./mfb man debug — the developer guide: breakpoints, backtraces, profiling, address lookup and this report on each platform
 * ./mfb spec memory program-startup — `_mfb_shutdown` and the exit sequence
