@@ -979,3 +979,39 @@ fn format_utc_renders_civil_dates() {
     format_utc(i64::MIN);
     format_utc(i64::MAX);
 }
+
+/// plan-166: a `--debug` image's symbol table is inside the range the content
+/// signature covers, so a signed `--debug` build still reports intact contents.
+#[test]
+fn a_signed_debug_image_reports_intact_contents() {
+    let chain = Chain::new();
+    let dir = tempfile::tempdir().unwrap();
+    let debug_image = |text: Vec<u8>, entry: &str| EncodedImage {
+        debug_symbols: true,
+        ..image(text, entry, Some(chain.executable_signing()))
+    };
+    let arm_ret = vec![0xc0, 0x03, 0x5f, 0xd6];
+    let images = vec![(
+        "Mach-O",
+        crate::os::macos::write_linked_executable(
+            &dir.path().join("macho"),
+            "probe",
+            &debug_image(arm_ret, "_main"),
+        )
+        .expect("link Mach-O"),
+    )];
+    for (format, path) in images {
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            bytes.windows(6).any(|window| window == b"_main\0"),
+            "{format}: the symbol table names the entry"
+        );
+        let out = report(&path, &chain.registry());
+        assert!(out.contains("Signed: yes"), "{format}:\n{out}");
+        assert_eq!(
+            report_line(&out, "  contents: "),
+            "  contents: intact",
+            "{format}"
+        );
+    }
+}

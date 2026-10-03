@@ -344,40 +344,51 @@ unchanged.
 Acceptance: the new unit tests pass, and no linked output changes yet.
   Check: `cargo test --bin mfb debug_symbols` → 5 passed (est. 3 min including build).
   Result (2026-10-03): `test result: ok. 5 passed; 0 failed`.
-Commit: —
+Commit: 0c2c86eec
 
 ### Phase 2: Mach-O symbol table, dysymtab, function starts
 
 Writes the locals when `debug_symbols` is true. This phase carries the
 indirect-table risk.
 
-- [ ] `src/os/macos/link/commands.rs`: `linkedit_layout` takes the local count and
+- [x] `src/os/macos/link/commands.rs`: `linkedit_layout` takes the local count and
       the function-starts byte length, and sizes `symbol_count`, `string_size`,
       `function_starts` and `data_in_code_offset` from them, on both the
-      data-const and chained-fixups paths.
-- [ ] `commands.rs:symbol_table` / `string_table`: emit locals first (§4.3), with
+      data-const and chained-fixups paths. (It takes `Option<&DebugSymtab>`,
+      which carries both.)
+- [x] `commands.rs:symbol_table` / `string_table`: emit locals first (§4.3), with
       import strings first in the string table. `dysymtab`: write
       `ilocalsym/nlocalsym/iextdefsym/iundefsym` from the counts.
-- [ ] `src/os/macos/link/macho.rs:encode_unsigned_mach_o`: write the shifted
+- [x] `src/os/macos/link/macho.rs:encode_unsigned_mach_o`: write the shifted
       indirect table (`L + index`). Write the symtab/strtab on the chained-fixups
-      path when `L > 0`. Write the ULEB function-starts list.
-- [ ] Section-ordinal helper beside `data_const_section_count`, derived from the
-      same booleans (§2).
-- [ ] Tests in `src/os/macos/link/tests.rs`, parsing the emitted bytes:
+      path when `L > 0`. Write the ULEB function-starts list. The table is
+      built once in `encode_executable_bytes` (`commands.rs:debug_symtab`) with
+      the relocation windows, and addresses use the new shared
+      `link_encode.rs:section_vmaddr` that `symbol_vmaddr` now calls.
+- [x] Section-ordinal helper beside `data_const_section_count`, derived from the
+      same booleans (§2): `mod.rs:data_section_ordinals`.
+- [x] Tests in `src/os/macos/link/tests.rs`, parsing the emitted bytes:
       `debug_symbols_lists_locals_before_imports` (n_type, n_sect, n_value against
       `symbol_vmaddr`), `debug_symbols_shift_indirect_table_and_iundefsym`,
       `debug_symbols_on_import_less_image`, and
       `function_starts_lists_every_function`. The flag-off path is covered by the
       existing Mach-O tests passing with no edit beyond the `debug_symbols: false`
-      field, plus the byte-identity loop.
-- [ ] Signed + debug: in `src/cli/info/tests.rs`, add a macOS case that writes a
+      field, plus the byte-identity loop. Added
+      `debug_symbols_image_with_imports_runs` (macOS-only): a `--debug` image
+      calling two imports passes `codesign -v` and exits 0.
+- [x] Signed + debug: in `src/cli/info/tests.rs`, add a macOS case that writes a
       signed image with `debug_symbols: true` and checks that `mfb info` reports
-      the signature valid.
+      the signature valid. `a_signed_debug_image_reports_intact_contents`
+      (B and C add their formats to its list) → `cargo test --bin mfb cli::info`
+      → 21 passed.
 
 Acceptance: a `--debug` macOS program that calls libc **runs correctly** and `nm`
 lists its functions.
   Check: `rm -rf /tmp/p166 && mkdir -p /tmp/p166 && mfb init /tmp/p166/hello && mfb build --debug /tmp/p166/hello && /tmp/p166/hello/build/hello.out; echo "exit=$?"; nm /tmp/p166/hello/build/hello.out | grep ' t _mfb_fn_main$'` → the program's greeting, `exit=0`, and one `t _mfb_fn_main` line (est. 1 min). An `exit` other than 0, or a crash, points at the indirect-table shift (§3).
   Check: `cargo test --bin mfb macos::link` → all pass (est. 3 min).
+  Result (2026-10-03, dev compiler): `Hello World`, `exit=0`,
+  `000000010000070c t _mfb_fn_main`; `test result: ok. 44 passed; 0 failed`.
+  Spot check: hello_world macOS without `--debug`, baseline vs new → `cmp` identical.
 Commit: —
 
 ### Phase 3: Tool proof and UUID

@@ -296,16 +296,22 @@ pub(super) fn symtab(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
 }
 
 pub(super) fn dysymtab(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
+    // Symbol table order is locals (a `--debug` build's `N_SECT` entries,
+    // plan-166), then the undefined imports. No external defined symbols.
+    let locals = u32_field("dysymtab nlocalsym", linkedit.local_symbol_count);
     put_u32(bytes, 0xb);
     put_u32(bytes, 80);
     put_u32(bytes, 0);
+    put_u32(bytes, locals);
+    put_u32(bytes, locals);
     put_u32(bytes, 0);
-    put_u32(bytes, 0);
-    put_u32(bytes, 0);
-    put_u32(bytes, 0);
+    put_u32(bytes, locals);
     put_u32(
         bytes,
-        u32_field("dysymtab nundefsym", linkedit.symbol_count),
+        u32_field(
+            "dysymtab nundefsym",
+            linkedit.symbol_count - linkedit.local_symbol_count,
+        ),
     );
     put_u32(bytes, 0);
     put_u32(bytes, 0);
@@ -456,7 +462,10 @@ pub(super) struct LinkeditLayout {
     pub(super) indirect_symbol_offset: usize,
     pub(super) string_offset: usize,
     pub(super) string_size: usize,
+    /// Every symtab entry: the `--debug` locals followed by the imports.
     pub(super) symbol_count: usize,
+    /// The leading `--debug` locals (plan-166); 0 for every other build.
+    pub(super) local_symbol_count: usize,
     pub(super) indirect_symbol_count: usize,
 }
 
@@ -464,7 +473,9 @@ pub(super) fn linkedit_layout(
     image: &EncodedImage,
     libraries: &[(String, String)],
     linkedit_file_offset: usize,
+    debug: Option<&DebugSymtab>,
 ) -> LinkeditLayout {
+    let local_symbol_count = debug.map_or(0, |debug| debug.entries.len());
     let has_imports = !libraries.is_empty();
     let needs_data_const = has_imports || !image.initializers.is_empty() || rodata_len(image) > 0;
     // Rebase opcodes (for `__mod_init_func` pointers) lead the dyld_info payload,
@@ -484,11 +495,12 @@ pub(super) fn linkedit_layout(
     };
     let exports_offset = fixups_offset + fixups_size;
     let symtab_offset = exports_offset;
-    let symbol_count = if needs_data_const {
-        image.imports.len()
-    } else {
-        0
-    };
+    let symbol_count = local_symbol_count
+        + if needs_data_const {
+            image.imports.len()
+        } else {
+            0
+        };
     let indirect_symbol_offset = symtab_offset + symbol_count * 16;
     let indirect_symbol_count = if needs_data_const {
         image.imports.len()
@@ -496,13 +508,15 @@ pub(super) fn linkedit_layout(
         0
     };
     let string_offset = indirect_symbol_offset + indirect_symbol_count * 4;
-    let string_size = if needs_data_const {
-        string_table(image).len()
+    // The import-less chained-fixups path writes no symtab at all unless a
+    // `--debug` build has locals to list.
+    let string_size = if needs_data_const || local_symbol_count > 0 {
+        string_table(image, debug).len()
     } else {
         0
     };
     let function_starts_offset = string_offset + string_size;
-    let data_in_code_offset = function_starts_offset + 1;
+    let data_in_code_offset = function_starts_offset + function_starts(debug).len();
     LinkeditLayout {
         rebase_offset,
         rebase_size,
@@ -516,6 +530,7 @@ pub(super) fn linkedit_layout(
         string_offset,
         string_size,
         symbol_count,
+        local_symbol_count,
         indirect_symbol_count,
     }
 }
@@ -544,9 +559,24 @@ pub(super) fn bind_info(image: &EncodedImage, libraries: &[(String, String)]) ->
     bytes
 }
 
-pub(super) fn symbol_table(image: &EncodedImage) -> Vec<u8> {
+pub(super) fn symbol_table(image: &EncodedImage, debug: Option<&DebugSymtab>) -> Vec<u8> {
     let strings = string_offsets(image);
     let mut bytes = Vec::new();
+    if let Some(debug) = debug {
+        // The local names follow the import names in the string table, so the
+        // imports' string offsets are the same with and without `--debug`.
+        let import_strings = string_table(image, None).len();
+        for entry in &debug.entries {
+            put_u32(
+                &mut bytes,
+                u32_field("symtab local string offset", import_strings + entry.name_offset),
+            );
+            bytes.push(N_SECT);
+            bytes.push(entry.section_ordinal);
+            put_u16(&mut bytes, 0);
+            put_u64(&mut bytes, entry.address);
+        }
+    }
     for import in &image.imports {
         put_u32(
             &mut bytes,
@@ -560,13 +590,117 @@ pub(super) fn symbol_table(image: &EncodedImage) -> Vec<u8> {
     bytes
 }
 
-pub(super) fn string_table(image: &EncodedImage) -> Vec<u8> {
+pub(super) fn string_table(image: &EncodedImage, debug: Option<&DebugSymtab>) -> Vec<u8> {
     let mut bytes = vec![0];
     for import in &image.imports {
         bytes.extend_from_slice(import.symbol.as_bytes());
         bytes.push(0);
     }
+    if let Some(debug) = debug {
+        bytes.extend_from_slice(&debug.names);
+    }
     bytes
+}
+
+/// `nlist_64.n_type` of a defined, non-external symbol in a numbered section.
+const N_SECT: u8 = 0x0e;
+
+/// The local symbols a `--debug` build lists ahead of the imports (plan-166),
+/// plus the `LC_FUNCTION_STARTS` payload. Built once from
+/// [`crate::os::debug_symbols::debug_symbols`] with the final addresses, and
+/// read by both encode passes.
+pub(super) struct DebugSymtab {
+    entries: Vec<DebugSymtabEntry>,
+    /// Each local name, NUL-terminated, in `entries` order.
+    names: Vec<u8>,
+    /// ULEB128 deltas of the function start file offsets, a terminating 0, and
+    /// zero padding to a multiple of 8 (the ld64 shape).
+    function_starts: Vec<u8>,
+}
+
+struct DebugSymtabEntry {
+    /// Offset into `DebugSymtab::names`.
+    name_offset: usize,
+    section_ordinal: u8,
+    address: u64,
+}
+
+/// The address windows `encode_executable_bytes` resolves relocations with.
+pub(super) struct SymbolWindows {
+    pub(super) code_offset: usize,
+    pub(super) rodata_vmaddr: u64,
+    pub(super) data_vmaddr: u64,
+}
+
+pub(super) fn debug_symtab(
+    image: &EncodedImage,
+    windows: &SymbolWindows,
+) -> Result<DebugSymtab, String> {
+    let rodata_size = rodata_len(image);
+    let has_writable = image.data.len() > rodata_size;
+    let (const_ordinal, data_ordinal) = data_section_ordinals(
+        image.imports.len(),
+        image.initializers.len(),
+        rodata_size > 0,
+    );
+    let text_vmaddr = VM_BASE + windows.code_offset as u64;
+    let mut entries = Vec::new();
+    let mut names = Vec::new();
+    let mut starts = Vec::new();
+    for symbol in crate::os::debug_symbols::debug_symbols(image)? {
+        let section_ordinal = match symbol.section {
+            EncodedSection::Text => {
+                // Aliases share a start, and a zero-sized label at the text end
+                // starts no function (the stubs follow it).
+                if symbol.size > 0 && starts.last() != Some(&symbol.offset) {
+                    starts.push(symbol.offset);
+                }
+                TEXT_SECTION_ORDINAL
+            }
+            EncodedSection::Data if symbol.offset < rodata_size => const_ordinal,
+            EncodedSection::Data if has_writable => data_ordinal,
+            EncodedSection::Data => {
+                return Err(format!(
+                    "debug symbols: data symbol '{}' at offset {} lands in no section",
+                    symbol.name, symbol.offset
+                ))
+            }
+        };
+        entries.push(DebugSymtabEntry {
+            name_offset: names.len(),
+            section_ordinal,
+            address: section_vmaddr(
+                symbol.section,
+                symbol.offset,
+                text_vmaddr,
+                windows.data_vmaddr,
+                Some((windows.rodata_vmaddr, rodata_size)),
+            ),
+        });
+        names.extend_from_slice(symbol.name.as_bytes());
+        names.push(0);
+    }
+    // File offsets from the start of `__TEXT` (file offset 0).
+    let mut function_starts = Vec::new();
+    let mut previous = 0;
+    for offset in starts {
+        let file_offset = windows.code_offset + offset;
+        put_uleb128(&mut function_starts, (file_offset - previous) as u64);
+        previous = file_offset;
+    }
+    function_starts.push(0);
+    function_starts.resize(align(function_starts.len(), 8), 0);
+    Ok(DebugSymtab {
+        entries,
+        names,
+        function_starts,
+    })
+}
+
+/// The `LC_FUNCTION_STARTS` payload: a `--debug` build's list, or the single
+/// zero byte (an empty ULEB list) every other build carries.
+pub(super) fn function_starts(debug: Option<&DebugSymtab>) -> &[u8] {
+    debug.map_or(&[0], |debug| debug.function_starts.as_slice())
 }
 
 fn string_offsets(image: &EncodedImage) -> HashMap<String, usize> {

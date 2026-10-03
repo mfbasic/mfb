@@ -1,6 +1,7 @@
 use super::commands::*;
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn encode_mach_o(
     name: &str,
     code_offset: usize,
@@ -9,9 +10,18 @@ pub(super) fn encode_mach_o(
     data: &[u8],
     libraries: &[(String, String)],
     image: &EncodedImage,
+    debug: Option<&DebugSymtab>,
 ) -> Result<Vec<u8>, String> {
-    let unsigned =
-        encode_unsigned_mach_o(code_offset, entry_offset, code, data, 0, libraries, image);
+    let unsigned = encode_unsigned_mach_o(
+        code_offset,
+        entry_offset,
+        code,
+        data,
+        0,
+        libraries,
+        image,
+        debug,
+    );
     let signature = code_signature(&unsigned, name);
     let mut unsigned = encode_unsigned_mach_o(
         code_offset,
@@ -21,6 +31,7 @@ pub(super) fn encode_mach_o(
         signature.len(),
         libraries,
         image,
+        debug,
     );
     // Seal the content signature into the blob before the ad-hoc signature
     // hashes the pages that hold it. The unsigned image ends at the
@@ -34,6 +45,7 @@ pub(super) fn encode_mach_o(
     Ok(bytes)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_unsigned_mach_o(
     code_offset: usize,
     entry_offset: usize,
@@ -42,6 +54,7 @@ fn encode_unsigned_mach_o(
     signature_size: usize,
     libraries: &[(String, String)],
     image: &EncodedImage,
+    debug: Option<&DebugSymtab>,
 ) -> Vec<u8> {
     let has_imports = !libraries.is_empty();
     let has_init = !image.initializers.is_empty();
@@ -68,7 +81,7 @@ fn encode_unsigned_mach_o(
         dc_size,
         signing_metadata_len,
     );
-    let linkedit = linkedit_layout(image, libraries, layout.linkedit_file_offset);
+    let linkedit = linkedit_layout(image, libraries, layout.linkedit_file_offset, debug);
     let signature_offset = align(linkedit.data_in_code_offset, 16);
     let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
     let load_commands_size = load_commands_size(
@@ -167,7 +180,12 @@ fn encode_unsigned_mach_o(
     build_version(&mut bytes);
     source_version(&mut bytes);
     entry_point(&mut bytes, code_offset + entry_offset);
-    linkedit_data(&mut bytes, 0x26, linkedit.function_starts_offset, 1);
+    linkedit_data(
+        &mut bytes,
+        0x26,
+        linkedit.function_starts_offset,
+        function_starts(debug).len(),
+    );
     linkedit_data(&mut bytes, 0x29, linkedit.data_in_code_offset, 0);
     // The `MFBasic\0` provenance marker (plan-43), before `LC_CODE_SIGNATURE` so
     // its payload is inside the signed prefix.
@@ -221,17 +239,30 @@ fn encode_unsigned_mach_o(
         bytes.resize(linkedit.fixups_offset, 0);
         bytes.extend_from_slice(&bind_info(image, libraries));
         bytes.resize(linkedit.symtab_offset, 0);
-        bytes.extend_from_slice(&symbol_table(image));
+        bytes.extend_from_slice(&symbol_table(image, debug));
         bytes.resize(linkedit.indirect_symbol_offset, 0);
+        // The indirect table indexes the symtab, where the imports follow a
+        // `--debug` build's locals (plan-166). A stale index binds every stub to
+        // the wrong symbol, which crashes at the first libc call.
         for index in 0..image.imports.len() {
-            put_u32(&mut bytes, index as u32);
+            put_u32(
+                &mut bytes,
+                (linkedit.local_symbol_count + index) as u32,
+            );
         }
         bytes.resize(linkedit.string_offset, 0);
-        bytes.extend_from_slice(&string_table(image));
+        bytes.extend_from_slice(&string_table(image, debug));
     } else {
         bytes.extend_from_slice(&empty_chained_fixups());
-        bytes.push(0);
+        if linkedit.local_symbol_count > 0 {
+            bytes.resize(linkedit.symtab_offset, 0);
+            bytes.extend_from_slice(&symbol_table(image, debug));
+            bytes.resize(linkedit.string_offset, 0);
+            bytes.extend_from_slice(&string_table(image, debug));
+        }
     }
+    bytes.resize(linkedit.function_starts_offset, 0);
+    bytes.extend_from_slice(function_starts(debug));
     bytes.resize(signature_offset, 0);
     bytes
 }
