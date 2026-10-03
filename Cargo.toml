@@ -983,6 +983,10 @@ name = "rt_fs_path_string_exact_size"
 path = "tests/runtime/rt_fs_path_string_exact_size.rs"
 
 [[test]]
+name = "rt_fs_realpath_posix_symbol"
+path = "tests/runtime/rt_fs_realpath_posix_symbol.rs"
+
+[[test]]
 name = "rt_map_list_value_grow_cost"
 path = "tests/runtime/rt_map_list_value_grow_cost.rs"
 

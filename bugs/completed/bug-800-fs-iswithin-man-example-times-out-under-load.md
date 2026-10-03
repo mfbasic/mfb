@@ -1,12 +1,12 @@
 # bug-800: `fs::isWithin` man examples time out (60 s) in the man-examples gate under load
 
 Last updated: 2026-10-03
-Effort: unknown (needs a reproduction)
+Effort: small
 Severity: MEDIUM
 Class: Correctness (possible hang) / test reliability
 
-Status: Open — intermittent, not reproduced on demand
-Regression Test: `scripts/man-examples-gate.sh` (`fs::isWithin#1`, `#3`)
+Status: Fixed (2026-10-03, bug-staging-2)
+Regression Test: `tests/runtime/rt_fs_realpath_posix_symbol.rs`; `scripts/man-examples-gate.sh` (`fs::canonicalPath`, `fs::isWithin`)
 
 ## Observation
 
@@ -56,3 +56,40 @@ can spin.
 Capture a stack (`sample <pid>`) from a timed-out run before changing anything.
 If it is (1), the gate's timeout policy is the thing to fix. If it is a real
 hang, it needs a RED test.
+
+## Root cause (2026-10-03)
+
+The batch-2 gate timed out five examples, all `realpath` users:
+`fs::canonicalPath#1`, `#2` and `fs::isWithin#1`–`#3`.
+
+- Run with `SCRATCH` under `/tmp`: all five in 1.5 s. Run under `$TMPDIR`
+  (`/var/folders/…/T/…`, where the gate's `mktemp -d` puts it): 11 s, 3.5 s of
+  it system time.
+- One `fs::canonicalPath(".")` program with its cwd under `$TMPDIR` cost
+  0.43 s (0.17 s system, 3 313 voluntary context switches, 1.4 G instructions);
+  the same binary with its cwd in `/tmp` cost 0.00 s (11 M instructions). 50 calls in
+  a loop: 8.36 s.
+- `ls $TMPDIR | wc -l` → 353 832 entries (`/tmp`: 4 514).
+- A C program calling `realpath(".")` 20 times under `$TMPDIR` took 0.00 s. The C
+  compiler binds `realpath` to `_realpath$DARWIN_EXTSN`. The macOS backend imported
+  the bare legacy `_realpath`. Called through the legacy symbol from C
+  (`__asm("_realpath")`), 10 calls took 1.72 s (1.39 s system).
+
+The legacy entry point resolves a relative path through a `getcwd` that reads
+every parent directory, and `$TMPDIR` grows with every test run. That is why the
+timeout was intermittent, got worse over time, and hit only the `realpath` users.
+
+## Fix
+
+`emit_realpath` and the `fs.canonicalPath`/`fs.isWithin`/`fs.openWithin` imports
+use `DARWIN_REALPATH_SYMBOL = "_realpath$DARWIN_EXTSN"`
+(`src/target/macos_aarch64/code.rs`). With a caller-supplied buffer the two entry
+points agree. Compared from C for `nonexist`, `/tmp/nonexist`, `/tmp/nope/deeper`,
+`""` and `/etc/hosts/x`, both return the same NULL and `errno` (2/2/2/2/20) and leave
+the same partial path. A probe that references all 46 libSystem imports
+(`nm -u`) shows `realpath` is the only one with a suffixed variant on arm64.
+
+Verified: 50 calls under `$TMPDIR` 8.36 s → 0.00 s. Every `rt_fs_*` suite passes,
+the `canonicalPath`/`isWithin`/`openWithin` man examples run 8/8, and
+`rt_fs_realpath_posix_symbol` fails on the old binary (`["_realpath"]`) and passes
+with the fix. Spec: `architecture/06_native.md`.
