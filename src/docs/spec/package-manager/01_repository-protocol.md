@@ -893,13 +893,12 @@ filename (no separators, no `..`, no NUL) before it becomes a path. A blob the
 registry does not have is `PACKAGE_VENDOR_BLOB_MISSING` (`6-605-0010`); one whose
 bytes do not match the signed table is `PACKAGE_VENDOR_BLOB_HASH_MISMATCH`
 (`6-605-0011`). Either is fatal. The helper installs each file separately; this is not an atomic
-installation of the entire vendor directory. **Required installation behavior:** every vendor source filename in the signed
-table must be materialized with hash-verified bytes, including non-host targets.
-Downloading identical bytes once must not suppress a required destination.
-
-**Current implementation deviation:** the installer walks all target locators
-but deduplicates by hash before placing files: only the first source filename for a repeated hash
-is written, even if later locators name a different source.
+installation of the entire vendor directory. Every vendor source filename in the
+signed table, for every target, is placed with hash-verified bytes. Each distinct
+hash is fetched once. A later source name with an already-fetched hash is copied
+from the first file that hash produced, so identical bytes never suppress a
+required destination. A source name the table maps to two different hashes is
+refused.
 
 A `pkg add file://…` is a local copy with no registry to fetch from, so a package
 that vendors native libraries is refused outright rather than installed in a

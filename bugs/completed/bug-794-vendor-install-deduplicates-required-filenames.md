@@ -1,11 +1,11 @@
 # bug-794: vendor installation skips required filenames when locators share a hash
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/cli/cli_repo_install.rs:spec_probe_identical_vendor_blobs_keep_all_filenames`
+Status: Fixed
+Regression Test: `tests/cli/cli_repo_install.rs:identical_vendor_blobs_keep_every_source_filename`
 
 Every vendor locator's source filename must exist after a successful package
 installation, even when distinct filenames contain identical bytes. Downloads
@@ -120,8 +120,8 @@ staging/rename and bounded memory use for large library blobs.
 
 ### Phase 1 — failing tests and audit
 
-- [ ] Add independent same-hash/different-source coverage for add and install.
-- [ ] Audit destination collisions, same-source duplicates, and cross-target
+- [x] Add independent same-hash/different-source coverage for add and install.
+- [x] Audit destination collisions, same-source duplicates, and cross-target
       lookup expectations.
 
 Acceptance: new tests fail for omitted filenames; existing fixtures unchanged.
@@ -129,8 +129,8 @@ Commit: —
 
 ### Phase 2 — implementation
 
-- [ ] Separate download deduplication from file placement.
-- [ ] Update the package-manager spec to describe the corrected guarantee.
+- [x] Separate download deduplication from file placement.
+- [x] Update the package-manager spec to describe the corrected guarantee.
 
 Acceptance: every filename is placed, each hash fetched at most once, and
 hash/filename security checks still hold.
@@ -138,9 +138,25 @@ Commit: —
 
 ### Phase 3 — full validation
 
-- [ ] Run the full repository and root suites, including registry install,
+- [x] Run the full repository and root suites, including registry install,
       publish, and GC integration tests.
-- [ ] Re-run the reproduction and cross-target native-library lookup cases.
+- [x] Re-run the reproduction and cross-target native-library lookup cases.
 
 Acceptance: the install guarantee holds end to end without weakened tests.
 Commit: —
+
+## Resolution (2026-10-03)
+
+`install_vendor_blobs` now keeps the fetch cache separate from file placement.
+A hash fetched once maps to the first file it produced, and every distinct source
+name is placed: freshly fetched, or copied from that file through the same
+`install_vendor_file` staging and rename. A source name the table maps to two
+different hashes is refused instead of being overwritten. The download count in
+"Downloaded N vendor libraries" now counts distinct fetches. Spec:
+`mfb spec package-manager repository-protocol` (the deviation note is replaced by
+the contract).
+
+Proof: the new test, which copies the GC test's setup with identical bytes for
+every vendored file, fails on main ("must place vendor source libgc.dll") and
+passes with the fix. `cli_repo_install` passes 10/10 and `cli_repo_publish` 6/6.
+The existing GC test is unchanged.
