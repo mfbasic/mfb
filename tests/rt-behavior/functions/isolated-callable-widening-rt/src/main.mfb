@@ -1,0 +1,23 @@
+' bug-786: an ISOLATED FUNC is usable wherever the ordinary FUNC of the same
+' parameters and return is expected — binding, return, argument, list element.
+' Isolation is an extra guarantee; dropping it is safe. Prints 7 8 9 1.
+IMPORT io
+ISOLATED FUNC identity(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC apply(f AS FUNC(Integer) AS Integer, v AS Integer) AS Integer
+  RETURN f(v)
+END FUNC
+
+FUNC pick() AS FUNC(Integer) AS Integer
+  RETURN identity
+END FUNC
+
+FUNC main() AS Integer
+  LET f AS FUNC(Integer) AS Integer = identity
+  LET fs AS List OF FUNC(Integer) AS Integer = [identity]
+  LET p = pick()
+  io::print(toString(f(7)) & " " & toString(apply(identity, 8)) & " " & toString(p(9)) & " " & toString(len(fs)))
+  RETURN 0
+END FUNC

@@ -1,0 +1,10 @@
+' bug-786 negative guard: the conversion is one-way. An ordinary FUNC is not an
+' ISOLATED one, and a callable with different parameters is not assignable at all.
+FUNC plain(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+FUNC main() AS Integer
+  LET f AS ISOLATED FUNC(Integer) AS Integer = plain
+  LET g AS FUNC(String) AS Integer = plain
+  RETURN 0
+END FUNC

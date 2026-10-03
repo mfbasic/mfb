@@ -434,9 +434,11 @@ impl TypeEnv {
             } else {
                 builtins::argument_types_typed(target).unwrap_or_default()
             };
-            let mismatch = params.iter().zip(arg_types.iter()).zip(args.iter()).any(
-                |((expected, actual), arg)| !self.expression_compatible(expected, actual, arg),
-            );
+            let mismatch = params
+                .iter()
+                .zip(arg_types.iter())
+                .zip(args.iter())
+                .any(|((expected, actual), arg)| !self.assignable(expected, actual, arg));
             if mismatch {
                 let expected = builtins::expected_arguments(target)
                     .unwrap_or_else(|| "no arguments".to_string());
@@ -630,6 +632,41 @@ impl TypeEnv {
         false
     }
 
+    /// Whether a value of type `actual` may be STORED where `expected` is required —
+    /// a binding, assignment, return, argument, field or element. That is
+    /// [`Self::expression_compatible`] plus one directional conversion: an
+    /// `ISOLATED FUNC` may be used as the ordinary `FUNC` of the same parameters
+    /// and return (bug-786). Isolation is an extra guarantee, and dropping it is
+    /// safe; the reverse still mismatches.
+    ///
+    /// Deliberately NOT used by the annotation-integrity checks
+    /// (`check_member_access_type`, `check_operator_result_type`,
+    /// `check_call_result_type`). There an attacker-controlled package annotation is
+    /// reconciled against an independently derived type, and the two must agree
+    /// rather than merely convert.
+    pub(super) fn assignable(
+        &self,
+        expected: &ParameterType,
+        actual: &ParameterType,
+        value: &IrValue,
+    ) -> bool {
+        if self.expression_compatible(expected, actual, value) {
+            return true;
+        }
+        matches!(
+            (strip_res(expected), strip_res(actual)),
+            (
+                ParameterType::Func(expected_params, expected_ret, false),
+                ParameterType::Func(actual_params, actual_ret, true),
+            ) if expected_params.len() == actual_params.len()
+                && expected_ret == actual_ret
+                && expected_params
+                    .iter()
+                    .zip(actual_params.iter())
+                    .all(|(e, a)| strip_res(e) == strip_res(a))
+        )
+    }
+
     /// the former source checker's `expression_compatible`: `compatible`, plus the literal
     /// coercions that the AST checker allows for constant arguments — a `Byte`
     /// parameter accepts an in-range `Integer` literal, `Fixed` accepts an
@@ -695,7 +732,7 @@ impl TypeEnv {
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };
-        if !self.expression_compatible(&expected, &actual, value) {
+        if !self.assignable(&expected, &actual, value) {
             self.emit(
                 "TYPE_RETURN_MISMATCH",
                 format!("RETURN value has type {actual}, expected {expected}."),
@@ -731,7 +768,7 @@ impl TypeEnv {
         // one, so the asymmetry was invisible. Whether the two STATEs *agree* is a
         // separate question, answered by `check_binding_state_agreement`.
         let actual = resource_base_type(&actual);
-        if !self.expression_compatible(&expected, &actual, value) {
+        if !self.assignable(&expected, &actual, value) {
             let (actual, expected) = (actual.name(), expected.name());
             self.emit(
                 "TYPE_BINDING_MISMATCH",
@@ -783,7 +820,7 @@ impl TypeEnv {
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };
-        if !self.expression_compatible(&expected, &actual, value) {
+        if !self.assignable(&expected, &actual, value) {
             let (actual, expected) = (actual.name(), expected.name());
             self.emit(
                 "TYPE_ASSIGNMENT_MISMATCH",
@@ -909,7 +946,7 @@ impl TypeEnv {
             let Some(actual) = self.infer_type(arg, locals) else {
                 continue;
             };
-            if !self.expression_compatible(field_type, &actual, arg) {
+            if !self.assignable(field_type, &actual, arg) {
                 self.emit(
                     "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
                     format!(
@@ -957,7 +994,7 @@ impl TypeEnv {
             }
         }
         if let Some(actual) = self.infer_type(value, locals) {
-            if !self.expression_compatible(member_type, &actual, value) {
+            if !self.assignable(member_type, &actual, value) {
                 let actual = actual.name();
                 self.emit(
                     VERIFY_TYPE,

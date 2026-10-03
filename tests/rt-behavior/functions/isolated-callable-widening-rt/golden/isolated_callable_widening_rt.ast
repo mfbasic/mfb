@@ -1,0 +1,72 @@
+{
+  "project": "isolated_callable_widening_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "identity",
+      "line": 5,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 5 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "x" }, "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "apply",
+      "line": 9,
+      "params": [
+      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null, "line": 9 },
+      { "name": "v", "type": "Integer", "default": null, "line": 9 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "v" }] }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pick",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "FUNC(Integer) AS Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "identity" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "f", "type": "FUNC(Integer) AS Integer", "value": { "kind": "identifier", "value": "identity" }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "fs", "type": "List OF FUNC(Integer) AS Integer", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "identity" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "p", "type": null, "value": { "kind": "call", "callee": "pick", "arguments": [] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "f", "arguments": [{ "kind": "number", "value": "7" }] }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "apply", "arguments": [{ "kind": "identifier", "value": "identity" }, { "kind": "number", "value": "8" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "p", "arguments": [{ "kind": "number", "value": "9" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "fs" }] }] } }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}
