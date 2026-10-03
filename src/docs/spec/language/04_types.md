@@ -136,8 +136,8 @@ TYPE Holder
 END TYPE
 ```
 
-The field is one 8-byte handle slot. Copying the record copies the pointer and
-aliases the same resource — it never duplicates it — so the record stays
+The field is one 8-byte handle slot holding a reference. Copying the record copies the
+reference and aliases the same resource — it never duplicates it — so the record stays
 ordinary copyable data, and the close obligation floats to the record binding's
 scope (§15.6). A bare `handle AS fs::File` is rejected for the missing marker
 (`TYPE_RESOURCE_REQUIRES_RES`), and `RES` on a non-resource field is rejected as

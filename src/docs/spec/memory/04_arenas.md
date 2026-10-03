@@ -400,7 +400,7 @@ A **resource** is scope-dropped, but on its own terms: drop and close do differe
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — the drop path `arena_free`s the resource's output buffer,
 read buffer, and `STATE` payload, nulling each pointer word as it goes.
-The **owning binding's** drop also frees the 96-byte record for `fs.File`,
+The **owning binding's** drop also frees the resource record for `fs.File`,
 `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
 the record last, after close and block reclamation, and zeroes the slot. Other

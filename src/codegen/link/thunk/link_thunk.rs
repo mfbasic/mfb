@@ -303,7 +303,7 @@ pub(crate) fn emit_link_support(
         }
     }
 
-    // plan-59-A: the resource TYPES that are represented as 96-byte records —
+    // plan-59-A: the resource TYPES that are represented as resource records —
     // which is now EVERY type a native func returns as `AS RES R`, with or
     // without a `STATE S`. (plan-53-A wrapped only the stateful ones, so a
     // stateless `Db` was the raw handle and had nowhere to put a `closed` flag.)
@@ -633,7 +633,7 @@ fn lower_link_thunk(
     let cursor_off = cstr_area + n_cstr * 16;
     let total_off = cursor_off + 8;
     // plan-53-A: two scratch slots for building a stateful native resource's
-    // 96-byte record after the call — one parks the native handle, one the record
+    // resource record after the call — one parks the native handle, one the record
     // pointer, across the `arena_alloc` that clobbers all caller-saved registers.
     let rec_handle_off = total_off + 8;
     let rec_ptr_off = rec_handle_off + 8;
@@ -1633,6 +1633,8 @@ fn lower_link_thunk(
             // never uses (they must be zero, not the arena-alloc's poison —
             // plan-52-B). STATE@24 is handled below.
             abi::store_u64(abi::ZERO, t1, FILE_OFFSET_CLOSED),
+            // bug-755: a fresh record is unowned until a binding claims it.
+            abi::store_u64(abi::ZERO, t1, RESOURCE_OFFSET_OWNER),
             abi::store_u64(abi::ZERO, t1, FILE_OFFSET_BUF_PTR),
             abi::store_u64(abi::ZERO, t1, FILE_OFFSET_BUF_FILLED),
             abi::store_u64(abi::ZERO, t1, FILE_OFFSET_BUF_ENABLED),
@@ -3137,7 +3139,7 @@ mod tests {
     /// plan-59-A Phase 3: a native `LINK` resource must never reach the
     /// buffer-free path in `emit_resource_block_reclaim`.
     ///
-    /// Since plan-59-A every native resource is a 96-byte record, so it now flows
+    /// Since plan-59-A every native resource is a resource record, so it now flows
     /// through the same drop-reclamation as a built-in `File`. Words 32..80 of a
     /// native record are zeroed by the thunk and are NOT buffer pointers; handing
     /// them to `arena_free` would free addresses the resource never owned.

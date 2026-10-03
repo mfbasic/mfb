@@ -1203,9 +1203,9 @@ pub(crate) const FILE_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
 /// the poisoned arena alloc, so a handle that never calls `fs::setBuffered(f, TRUE)`
 /// takes the unbuffered direct-write path (byte-identical to pre-plan-14). The
 /// thread-transfer copy also zeroes them so a moved handle starts unbuffered.
-pub(crate) const FILE_OFFSET_BUF_PTR: usize = 32;
-pub(crate) const FILE_OFFSET_BUF_FILLED: usize = 40;
-pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 48;
+pub(crate) const FILE_OFFSET_BUF_PTR: usize = RESOURCE_TAIL_START;
+pub(crate) const FILE_OFFSET_BUF_FILLED: usize = RESOURCE_TAIL_START + 8;
+pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = RESOURCE_TAIL_START + 16;
 /// Transparent per-`File` **read** buffer fields (plan-14-C), appended after the
 /// write-buffer fields. Always-on (a read buffer can never lose or reorder data):
 /// `fs::readLine` serves lines from `READ_PTR` and refills with one block `read()`,
@@ -1218,23 +1218,23 @@ pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 48;
 /// (seek back + invalidate) before touching the fd. Zeroed at every File alloc
 /// and in the thread-transfer copy, so a fresh/moved handle starts with an empty
 /// cache at the fd's current position.
-pub(crate) const FILE_OFFSET_READ_PTR: usize = 56;
-pub(crate) const FILE_OFFSET_READ_POS: usize = 64;
-pub(crate) const FILE_OFFSET_READ_FILL: usize = 72;
-pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = 80;
+pub(crate) const FILE_OFFSET_READ_PTR: usize = RESOURCE_TAIL_START + 24;
+pub(crate) const FILE_OFFSET_READ_POS: usize = RESOURCE_TAIL_START + 32;
+pub(crate) const FILE_OFFSET_READ_FILL: usize = RESOURCE_TAIL_START + 40;
+pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = RESOURCE_TAIL_START + 48;
 /// Size of a resource record: the canonical header (tag/handle/closed/STATE) plus
 /// the widest type-specific tail (the File output-buffer fields ptr/filled/enabled
 /// and read-buffer fields ptr/pos/fill/at_eof end at offset 88). All resource
 /// kinds share the size so the generic thread-transfer copy and closed-default
 /// stay uniform. Grown 80 → 96 by plan-80 (header +8 for the `tag`, rounded up to
 /// a 16-byte multiple with one slot of headroom).
-pub(crate) const RESOURCE_RECORD_SIZE: &str = "96";
+pub(crate) const RESOURCE_RECORD_SIZE: &str = "112";
 /// `RESOURCE_RECORD_SIZE` as a `usize`, for compile-time layout checks (the
 /// string form above is what the arena-alloc immediate needs). Every per-backend
 /// resource record MUST fit inside this many zeroed bytes so the closed-default
 /// (`lower_default_value`) covers each real layout — see the asserts in the
 /// backend modules (`audio/mod.rs`, `tls/mod.rs`, `tls/macos.rs`).
-pub(crate) const RESOURCE_RECORD_SIZE_BYTES: usize = 96;
+pub(crate) const RESOURCE_RECORD_SIZE_BYTES: usize = 112;
 
 /// Canonical byte offset of the `closed` flag in every built-in resource record
 /// (moved 8 → 16 by plan-80 to make room for the `tag`/`handle` header words).
@@ -1252,12 +1252,25 @@ pub(crate) const RESOURCE_OFFSET_CLOSED: usize = 16;
 /// whose record used offset 16 for `SSL*` — writes STATE here without clobbering
 /// a live field. Each backend asserts its own STATE slot equals this.
 pub(crate) const RESOURCE_OFFSET_STATE: usize = 24;
+/// bug-755: the scope token of the resource's one owning scope, or `0` when it is
+/// unowned (freshly produced and not yet bound, or released by a `RETURN` and not
+/// yet taken). The resource holds its cleanup scope; every `RES` that names it is
+/// a reference. A scope exit closes a registered resource only when this word
+/// equals that scope's token.
+pub(crate) const RESOURCE_OFFSET_OWNER: usize = 32;
+/// Where every resource kind's type-specific tail begins: just past the
+/// canonical header (`tag`, `handle`, `closed`, `state`, `owner`). Each kind
+/// defines its tail as `RESOURCE_TAIL_START + n`.
+pub(crate) const RESOURCE_TAIL_START: usize = RESOURCE_OFFSET_OWNER + 8;
 
 // The canonical header shape (plan-80): the File template must match it exactly.
 const _: () = assert!(RESOURCE_OFFSET_TAG == 0);
 const _: () = assert!(RESOURCE_OFFSET_HANDLE == 8);
 const _: () = assert!(RESOURCE_OFFSET_CLOSED == 16);
 const _: () = assert!(RESOURCE_OFFSET_STATE == 24);
+const _: () = assert!(RESOURCE_OFFSET_OWNER == 32);
+const _: () = assert!(RESOURCE_TAIL_START == 40);
+const _: () = assert!(RESOURCE_RECORD_SIZE_BYTES % 16 == 0);
 const _: () = assert!(FILE_OFFSET_FD == RESOURCE_OFFSET_HANDLE);
 const _: () = assert!(FILE_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
 const _: () = assert!(FILE_OFFSET_STATE == RESOURCE_OFFSET_STATE);

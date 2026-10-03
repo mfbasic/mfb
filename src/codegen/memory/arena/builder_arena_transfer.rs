@@ -257,7 +257,7 @@ impl CodeBuilder<'_> {
         // non-sendable resource and `ThreadHandle` arms of
         // `copy_value_to_current_arena` already do, and for the same reason.
         //
-        // Sending it through the copy instead allocated a second 96-byte record,
+        // Sending it through the copy instead allocated a second resource record,
         // copied the canonical header into it, and tombstoned the source
         // `moved|closed` (`copy_resource_to_current_arena`, the thread hand-over
         // path). In the same arena that source has no other owner and the moved bit
@@ -1027,6 +1027,13 @@ impl CodeBuilder<'_> {
                 ));
             }
         }
+        // bug-755: the receiver's copy is unowned. The sender's owner word is a scope
+        // token of the sender's stack; the accepting binding claims the copy.
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::mfb_return(1),
+            RESOURCE_OFFSET_OWNER,
+        ));
         // Opt-in per-File output buffer (plan-14-B) is not copied across a thread
         // transfer: the buffer block lives in the sender's arena. Zero the fields so
         // the moved handle starts unbuffered in the receiver (a buffered handle

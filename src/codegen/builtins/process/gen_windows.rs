@@ -2,7 +2,7 @@
 //!
 //! Reimplements the `process` surface over Win32 — `CreateProcessA` +
 //! `WaitForSingleObject`/`GetExitCodeProcess` + `TerminateProcess` — sharing the
-//! tag-10 record and 96-byte envelope. The handle word (`RESOURCE_OFFSET_HANDLE`)
+//! tag-10 record and resource record envelope. The handle word (`RESOURCE_OFFSET_HANDLE`)
 //! holds the process `HANDLE`; the child pid is cached in `PROC_STATUS`,
 //! the exit code in `PROC_EXITCODE`. Landed in phases, gated by the `win_x86_64`
 //! capability list. plan-119 finished the surface: `shell` (over `cmd.exe /S /C`)
@@ -1220,6 +1220,8 @@ pub(crate) fn emit_win_spawn_tail(
         abi::load_u64(abi::mfb_arg(1), sp, WIN_SPAWN_PI), // hProcess
         abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
         abi::store_u64(abi::ZERO, abi::mfb_arg(0), RESOURCE_OFFSET_CLOSED),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, abi::mfb_arg(0), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_arg(0), RESOURCE_OFFSET_STATE),
         abi::load_u64(abi::mfb_arg(1), sp, WIN_SPAWN_IN_W),
         abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), PROC_STDIN_W),

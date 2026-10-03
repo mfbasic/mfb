@@ -149,6 +149,8 @@ pub(crate) fn lower_create_image(
     // it is only ever compared (plan-116-J's live-set check, `setBytes`'s redraw test).
     builder.emit(abi::store_u64(&record, &record, RESOURCE_OFFSET_HANDLE));
     builder.emit(abi::store_u64(abi::ZERO, &record, RESOURCE_OFFSET_CLOSED));
+    // bug-755: a fresh record is unowned until a binding claims it.
+    builder.emit(abi::store_u64(abi::ZERO, &record, RESOURCE_OFFSET_OWNER));
     builder.emit(abi::store_u64(abi::ZERO, &record, RESOURCE_OFFSET_STATE));
     let value = builder.temporary_vreg();
     builder.emit(abi::load_u64(&value, abi::stack_pointer(), width_slot));

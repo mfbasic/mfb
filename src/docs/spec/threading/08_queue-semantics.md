@@ -151,7 +151,7 @@ A parent `Thread` view is a resource, so the compiler drops it through the
 ordinary resource cleanup: scope exit, `RETURN`, `FAIL`, `PROPAGATE`,
 auto-propagated errors, and trap routing run its close op, the drop helper
 (`thread.drop`, `_mfb_rt_thread_thread_drop`), in reverse declaration order, and
-then free the 96-byte view record. The drop helper closes the view first, then
+then free the 112-byte view record. The drop helper closes the view first, then
 marks the control block `CLOSED` (state 2), sets the cancellation flag,
 closes all four queues and broadcasts their waiters. It also resets the outbound
 data queue's count, head, and tail, discarding its unread data; those blocks

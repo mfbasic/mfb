@@ -890,6 +890,17 @@ impl CodeBuilder<'_> {
             Some(result) => Some(self.materialize_value(result)?),
             None => None,
         };
+        // bug-755: a record this function's scopes own leaves unowned, so the caller's
+        // binding takes it; one owned further out keeps its owner. The release runs
+        // before the cleanups below, which then skip it on the owner test. Spilled
+        // because the walk reads it from a slot; it makes no call, so the value's
+        // register is still live afterwards.
+        if let Some(result) = &result {
+            if self.value_may_carry_owned_resources(&result.type_) {
+                let slot = self.spill_to_slot("returned_resources", &result.location);
+                self.emit_release_returned_value(slot, &result.type_)?;
+            }
+        }
         if self.active_cleanups.is_empty() {
             let mut escaping = None;
             if let Some(result) = &result {

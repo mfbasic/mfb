@@ -807,6 +807,8 @@ pub(crate) fn lower_tls_connect_openssl(
     instructions.extend([
         abi::move_immediate(&v9, "Integer", RESOURCE_TAG_TLS_OPENSSL),
         abi::store_u64(&v9, abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         abi::store_u64(&v9, abi::mfb_return(1), TLS_OFFSET_FD),
@@ -1538,6 +1540,8 @@ pub(crate) fn lower_tls_listen_openssl(
     instructions.extend([
         abi::move_immediate(&v9, "Integer", RESOURCE_TAG_TLS_LISTENER),
         abi::store_u64(&v9, abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         abi::store_u64(&v9, abi::mfb_return(1), TLS_LISTENER_OFFSET_FD),
@@ -2141,6 +2145,8 @@ pub(crate) fn lower_tls_accept_openssl(
     instructions.extend([
         abi::move_immediate(&v9, "Integer", RESOURCE_TAG_TLS_OPENSSL),
         abi::store_u64(&v9, abi::mfb_return(1), RESOURCE_OFFSET_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), TLS_OFFSET_STATE),
         abi::load_u64(&v9, abi::stack_pointer(), CONNFD_OFFSET),
         abi::store_u64(&v9, abi::mfb_return(1), TLS_OFFSET_FD),

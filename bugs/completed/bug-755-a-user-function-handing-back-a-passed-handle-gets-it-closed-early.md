@@ -5,8 +5,8 @@ Effort: large — a runtime owner word on every resource record plus a spec rewr
 Severity: HIGH
 Class: Correctness (resource closed without the program asking)
 
-Status: Open — fix decided (the resource holds its scope, below); ready to implement
-Regression Test: none yet — see Validation
+Status: Fixed (2026-10-03, bug-staging-5)
+Regression Test: `tests/runtime/rt_resource_owner_scope.rs` (8 cases); `tests/rt-behavior/resources/resource-owner-scope-rt` (the same 8, run on every target)
 
 Found by the bug-643 lane. bug-643 fixed the `collections` helpers; this is the same
 adoption defect for a **user** function, which bug-643's static rule cannot see
@@ -315,3 +315,58 @@ or the owner-word code before it is re-baselined (AGENTS.md, "Never edit a
 test/golden to pass"). The header shift touches every resource kind's tail, so run
 the per-kind runtime suites (File buffering, process, audio, TLS on each backend,
 canvas `Image`/`Font`) on each target, not only macos-aarch64.
+
+## Implementation (2026-10-03)
+
+As designed above, with one deviation in how a scope token is minted.
+
+**Scope tokens are frame addresses, not a per-thread counter.** A token is
+`((sp + token_slot) << 12) - depth` (`src/codegen/resource/owner.rs`): `token_slot` is
+one 8-byte stack object per function, `depth` the scope's nesting depth (body = 1,
+cap 4095; statements nest at most 256). The invariants the counter was for still
+hold: unique among live scopes, never `0`, and ordered — every target's stack grows
+down and a callee's frame lies wholly below its caller's `sp`, so every callee token
+is below every caller token, and a deeper scope of one frame subtracts more. It
+needs no counter, no per-thread state and no store at scope entry. "Smaller is outer"
+becomes **larger is outer**. Frame membership for `RETURN`'s release is
+`(owner >> 12) + 1 == sp + token_slot`. The subtraction (not an OR of `4095 - depth`)
+keeps every immediate inside riscv's 12-bit signed range.
+
+**Where each rule lives:**
+
+| Rule | Code |
+| --- | --- |
+| producer writes `0` | every record allocation: fs open/temp/atomic, process (both), socket `emit_make_handle`, the four TLS backends, the three audio backends, canvas `Image`/`Font`, the LINK thunk; the closed default and thread views zero the whole record; `copy_resource_to_current_arena` zeroes the receiver's copy |
+| claim at bind / reassign | `builder_control.rs` `Bind` (resource and resource-union arms), `Assign` (binding with a registered close) |
+| float | `emit_owned_list_push` (also the caller-side seed of a `List OF RES` call result) |
+| owner-checked drop | `emit_resource_cleanup_call`, `emit_moved_resource_record_free`, `emit_resource_union_cleanup_call`, `emit_owned_list_drain` (both arms) |
+| `RETURN` release | `emit_return_exit_inner` → `emit_release_returned_value` (resource, union, `List OF RES`) |
+| discarded result | `NirOp::Eval` → `emit_close_discarded_value` |
+
+The static mechanisms the doc proposed folding — the returned-local deactivation,
+the plan-59-D identity skip, the bug-643 `collections` exemption, the bug-648 owner
+flag — are kept as optimizations/backstops: each skips a close the owner test would
+also skip, and none was shown to decide anything the owner word does not. Folding
+them changes code size only.
+
+The header shift exposed one raw offset: the process spawn zeroed its spill-buffer
+words with literals `80`/`88`, now `PROC_STDOUT_BUF`/`PROC_STDERR_BUF`.
+
+**Verified:**
+
+- `rt_resource_owner_scope` 8/8 (cases 1–5 fail on main; 6–8 are guards). The
+  fixture prints `CLOSED` for cases 1–4 and an unflushed file for case 5 on main's
+  binary.
+- The fixture on linux-aarch64 glibc (2226), linux-riscv64 musl (2229) and
+  windows-x86_64 real hardware (192.168.1.206): 1/1 each. x86_64 Linux boxes were
+  down.
+- Per-kind fixtures: `rt-behavior/resources` 52, `process` 15, `fs` 61 on both
+  Linux boxes, all pass. On Windows: resources 48/51 (the 3 misses use `/tmp` and
+  `/dev/null` paths), fs 53/61 and process 3/15 — the same failing sets as main's
+  binary (Unix-only commands and paths).
+- Local suites: `rt_scope_drop_leaks` 154, `rt_debug_soak` 49, `rt_res_*`,
+  `rt_thread_*`, `rt_fs_*`, `rt_process_waitfor_drains_child`, `rt_link_cfloat`,
+  `rt_canvas_font` 32; the 287 resource/fs/io/process/tcp/udp/tls/thread acceptance
+  fixtures show no new mismatch.
+- Spec: `spec-census --citations` 0 missing; `--links` unchanged (83, all
+  pre-existing `mfb man` links).

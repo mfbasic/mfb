@@ -172,36 +172,40 @@ all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION`) is
 
 ## Resource Record
 
-Every resource value is a pointer to a **96-byte arena record**. The size is
+Every resource value is a pointer to a **112-byte arena record**. The size is
 uniform across resource kinds — `File`, `Socket`, `Listener`, `tls::Socket`,
 `AudioInput`, a native `LINK` resource — so the generic thread-transfer copy and
 the closed-default record stay one implementation. A kind that needs fewer words
 carries the rest inertly.
 
-Offsets `0..32` are the canonical header shared by built-in and package
-resources; the type-specific tail starts at `+32`. The `STATE` payload pointer
-occupies `+24` independently of the resource kind.
-[[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]]
+Offsets `0..40` are the canonical header shared by built-in and package
+resources; the type-specific tail starts at `+40` (`RESOURCE_TAIL_START`), and
+every per-kind tail offset is defined as `RESOURCE_TAIL_START + n`. The `STATE`
+payload pointer occupies `+24` and the owner word `+32`, independently of the
+resource kind.
+[[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_OWNER]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_TAIL_START]]
 
 ```text
-ResourceRecord (96 bytes, alignment 8)
-  ; --- canonical header (every resource, offsets 0..32) ---
+ResourceRecord (112 bytes, alignment 8)
+  ; --- canonical header (every resource, offsets 0..40) ---
   +0   U64  tag       ; resource type id, self-describing; 0 = invalid
   +8   U64  handle    ; polymorphic: fd / connection ptr / audio kind / native ptr
   +16  U64  closed    ; flag SET, not a boolean — see below
   +24  U64  state     ; pointer to the STATE payload, 0 until initialized
-  ; --- type-specific tail (offsets 32+; File shown) ---
-  +32  U64  bufPtr    ; per-File output buffer, 0 = unbuffered
-  +40  U64  bufFilled ; bytes currently held in bufPtr
-  +48  U64  bufEnabled; 0 on every freshly opened handle
-  +56  U64  readPtr   ; per-File read buffer, 0 until first read
-  +64  U64  readPos   ; next unconsumed byte offset within readPtr
-  +72  U64  readFill  ; valid bytes in readPtr
-  +80  U64  readAtEof ; set once the underlying read() returned 0
+  +32  U64  owner     ; scope token of the one scope that closes it; 0 = unowned
+  ; --- type-specific tail (offsets 40+; File shown) ---
+  +40  U64  bufPtr    ; per-File output buffer, 0 = unbuffered
+  +48  U64  bufFilled ; bytes currently held in bufPtr
+  +56  U64  bufEnabled; 0 on every freshly opened handle
+  +64  U64  readPtr   ; per-File read buffer, 0 until first read
+  +72  U64  readPos   ; next unconsumed byte offset within readPtr
+  +80  U64  readFill  ; valid bytes in readPtr
+  +88  U64  readAtEof ; set once the underlying read() returned 0
 ```
 
-The File tail ends at offset 88; the canonical record size is 96 bytes
-(a 16-byte multiple). `tag` at `+0` makes a record
+The File tail ends at offset 96; the longest tail (`Process`) ends at 104; the
+canonical record size is 112 bytes (a 16-byte multiple). Compile-time asserts
+tie every tail's last word to `RESOURCE_RECORD_SIZE_BYTES`. `tag` at `+0` makes a record
 self-describing, though close dispatch itself stays compile-time-resolved by the
 static resource type. `0x00` is never a live record (uninitialized/invalid); a
 value `< 0xFE` keys a built-in resource; an imported/native `LINK` resource
@@ -228,8 +232,8 @@ carries `RESOURCE_TAG_NATIVE`:
 
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_TAG_FILE]]
 
-The type-specific tail (offsets 32+) differs per backend; every kind shares the
-`0..32` header and the closed-default covers the widest layout. `—` is an inert
+The type-specific tail (offsets 40+) differs per backend; every kind shares the
+`0..40` header and the closed-default covers the widest layout. `—` is an inert
 (zeroed) slot the kind never reads. `Socket`, `UdpSocket`, and `Listener` are
 header-only. A `Native` record (imported and native `LINK` resources alike) is a
 zeroed `File`-shaped record — its handle is a native `CPtr` and its tail carries
@@ -242,19 +246,20 @@ The four TLS backends share the header but split into their own table below.
 | 8  | fd | fd | fd | fd | kind | CPtr |
 | 16 | closed | closed | closed | closed | closed | closed |
 | 24 | STATE | STATE | STATE | STATE | STATE | STATE |
-| 32 | out-buf ptr | — | — | — | sampleRate | — |
-| 40 | out-buf filled | — | — | — | channels | — |
-| 48 | out-buf enabled | — | — | — | bytesPerFrame | — |
-| 56 | read-buf ptr | — | — | — | bufferFrames | — |
-| 64 | read-buf pos | — | — | — | AudioState ptr | — |
-| 72 | read-buf fill | — | — | — | — | — |
-| 80 | read-buf at-eof | — | — | — | — | — |
+| 32 | owner | owner | owner | owner | owner | owner |
+| 40 | out-buf ptr | — | — | — | sampleRate | — |
+| 48 | out-buf filled | — | — | — | channels | — |
+| 56 | out-buf enabled | — | — | — | bytesPerFrame | — |
+| 64 | read-buf ptr | — | — | — | bufferFrames | — |
+| 72 | read-buf pos | — | — | — | AudioState ptr | — |
+| 80 | read-buf fill | — | — | — | — | — |
+| 88 | read-buf at-eof | — | — | — | — | — |
 
 [[src/codegen/builtins/audio/gen_shared.rs:H_SAMPLE_RATE]]
 
 The `tls::Socket` backend is platform-selected (OpenSSL on Linux, Network.framework
 on macOS, SSPI/SChannel on Windows); `TLSListener` is the OpenSSL server listener.
-Each still shares the `0..32` header:
+Each still shares the `0..40` header:
 
 | Offset | TLS ossl | TLS macOS | TLS schan | TLSListener |
 |--------|----------|-----------|-----------|-------------|
@@ -262,8 +267,9 @@ Each still shares the `0..32` header:
 | 8  | fd | conn ptr | fd | fd |
 | 16 | closed | closed | closed | closed |
 | 24 | STATE | STATE | STATE | STATE |
-| 32 | SSL_CTX | conn CTX | — | SSL_CTX |
-| 40 | SSL | dispatch queue | SSPI block ptr | — |
+| 32 | owner | owner | owner | owner |
+| 40 | SSL_CTX | conn CTX | — | SSL_CTX |
+| 48 | SSL | dispatch queue | SSPI block ptr | — |
 
 [[src/codegen/builtins/tls/gen_shared.rs:TLS_OFFSET_CTX]] [[src/codegen/builtins/tls/gen_shared.rs:TLS_SCHANNEL_OFFSET_BLOCK]]
 
@@ -278,15 +284,43 @@ can cross a thread (`File`, the `tcp`/`udp`/`tls` sockets and listeners, a
 `ErrResourceMoved`. The handles that cannot cross (`Process`, the audio streams,
 `Image`, `Font`) never carry the moved bit and keep the single non-zero test.
 [[src/codegen/resource/mod.rs:closed_or_moved_guard]] A closed-default
-record is 96 zeroed bytes with this word set to 1. Compile-time asserts tie every
+record is 112 zeroed bytes with this word set to 1 (so its owner word is `0`). Compile-time asserts tie every
 per-backend resource layout to the header offsets, so a future resource whose
 `closed`/`STATE` slot drifts fails to build.
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_TAG]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
 
-Every pointer to a resource shares the one record, and therefore shares the `state`
-pointer. Scope-drop reclaims File buffers and the `STATE` payload when it owns them.
-Whether it also frees the 96-byte record depends on resource kind and binding
-ownership; the exact rule is in `./mfb spec memory arenas`.
+Every reference to a resource shares the one record, and therefore shares the
+`state` pointer and the owner word. Scope-drop reclaims File buffers and the `STATE`
+payload when it owns them. Whether it also frees the resource record depends on
+resource kind and binding ownership; the exact rule is in `./mfb spec memory arenas`.
+
+### The owner word
+
+`owner` at `+32` names the one scope that closes the resource
+(`./mfb spec language resource-management` §15.1). `0` means **unowned**: freshly
+produced and not yet bound, or released by a `RETURN` and not yet taken. Every
+producer — the built-in open/connect/spawn/start helpers, a native `LINK`
+constructor, the closed default, and the receiving copy `thread::accept` makes —
+writes `0`. [[src/codegen/resource/owner.rs:emit_resource_claim]]
+
+A scope's **token** is `((sp + token_slot) << 12) - depth`: `token_slot` is one
+8-byte stack object per function, `depth` is the scope's nesting depth inside it
+(the function body is 1). It is never `0`, and:
+
+* two live scopes of one thread never share a token — different frames have
+  different `token_slot` addresses, and one frame's live scopes have different
+  depths; sibling scopes share one but are never live together;
+* of two live tokens the **larger is the outer** scope. Every target's stack grows
+  down and a callee's frame lies below its caller's `sp`, so every token of a
+  callee is below every token of its caller, and a deeper scope of one frame
+  subtracts more. Depth is bounded by `SCOPE_TOKEN_MAX_DEPTH` (4095); statement
+  nesting stops at 256;
+* `(owner >> 12) + 1 == sp + token_slot` holds exactly for the records a scope of
+  the current frame owns.
+
+Tokens need no per-thread state: each thread runs on its own stack, and a record
+changes thread only through `thread::transfer`/`thread::accept`, whose copy starts
+unowned. [[src/codegen/resource/owner.rs:SCOPE_TOKEN_DEPTH_BITS]]
 
 ## See Also
 

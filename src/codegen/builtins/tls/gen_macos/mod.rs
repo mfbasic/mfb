@@ -89,8 +89,8 @@ const NW_LISTENER_READY: &str = "2";
 const NW_LISTENER_FAILED: &str = "3";
 
 // The handle record shares the canonical plan-80 header: tag@0, handle
-// (nw_connection)@8, closed@16, STATE@24 — then the macOS tail { ctx@32,
-// dispatch-queue@40 }. The `closed` flag sits at the canonical resource
+// (nw_connection)@8, closed@16, STATE@24, owner@32 — then the macOS tail { ctx@40,
+// dispatch-queue@48 }. The `closed` flag sits at the canonical resource
 // closed-flag offset (plan-38 F7) so the backend-independent closed-default
 // (which zeroes the record and sets the closed byte) marks this record closed
 // too. STATE@24 is the generic union payload slot (plan-74/80), null until the
@@ -100,8 +100,8 @@ const REC_TAG: usize = RESOURCE_OFFSET_TAG;
 const REC_CONN: usize = RESOURCE_OFFSET_HANDLE;
 const REC_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
 const REC_STATE: usize = RESOURCE_OFFSET_STATE;
-pub(crate) const REC_CTX: usize = 32;
-pub(crate) const REC_QUEUE: usize = 40;
+pub(crate) const REC_CTX: usize = RESOURCE_TAIL_START;
+pub(crate) const REC_QUEUE: usize = RESOURCE_TAIL_START + 8;
 /// Listener-only tail slot (bug-465): the NUL-terminated host the listener was
 /// bound to. `tls::localAddress(listener)` needs a host and a port, and macOS can
 /// supply only the port — a `Listener`'s handle slot holds an `nw_listener`, not a
@@ -117,7 +117,7 @@ pub(crate) const REC_QUEUE: usize = 40;
 /// `tls::localAddress` reading a string the sender's teardown released. The
 /// registry therefore declares this slot `SlotTransfer::ArenaCString` so the
 /// transfer copy duplicates the string into the receiver's arena.
-pub(crate) const REC_LHOST: usize = 48;
+pub(crate) const REC_LHOST: usize = RESOURCE_TAIL_START + 16;
 const REC_SIZE: &str = RESOURCE_RECORD_SIZE;
 
 const _: () = assert!(REC_CLOSED == RESOURCE_OFFSET_CLOSED);

@@ -15,6 +15,7 @@
 //! plan-103. Pure code motion.)
 
 pub(crate) mod cleanup;
+pub(crate) mod owner;
 
 use crate::codegen::registry::{registry, ResolvedType};
 use crate::types::ParameterType;

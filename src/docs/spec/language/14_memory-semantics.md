@@ -6,11 +6,11 @@ The compiler may choose stack storage, inline storage, or heap allocation. A `MU
 
 ## 14.1 Copy, move, and freeze
 
-- **Copy** creates independent ordinary data. Resource slots copy the pointer to the same handle and `STATE`; function slots copy the pointer to the same closure object. These explicit pointer cases are described in §15 and `./mfb spec memory closures`.
+- **Copy** creates independent ordinary data. Resource slots copy a reference to the same resource (handle, `STATE`, and owner); function slots copy the pointer to the same closure object. These explicit sharing cases are described in §15 and `./mfb spec memory closures`.
 - **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
-Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource pointers (§15.6). Copying ordinary collection contents copies values, while resource and function slots copy their pointers. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
+Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource references (§15.6). Copying ordinary collection contents copies values, while resource slots copy their references and function slots their pointers. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
 
 The compiler may replace a semantic copy with a move when it proves the source is not used afterward. This is an optimization only; it must not change diagnostics or observable behavior except performance.
 
@@ -28,7 +28,7 @@ Reassigning a `MUT` first drops the old value in the binding, then initializes t
 
 ## 14.3 Function calls and returns
 
-Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a resource pointer as described in §15.
+Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a resource reference as described in §15.
 
 This includes a module-level `MUT` passed to a function that reassigns it, directly or through anything it calls (including a callback a built-in invokes): the parameter keeps the value the global had at the call. Native lowering passes a global argument without copying; it copies one into a statement-scope temporary only when the call can reach a reassignment of that global, and assumes it can when a callee's body is not visible. [[src/codegen/engine/value/operand_snapshot.rs:want_arguments_the_call_can_free]] [[src/codegen/engine/value/store_reach.rs:call_reaches_store]]
 
@@ -66,7 +66,7 @@ Because cycles are impossible and each edge has one owner, dropping a recursive 
 
 `List` and `Map` own every stored element, key, and value. Inserting into a container copies or moves the inserted value into the container; it never stores a non-owning alias to an external binding. Removing from a container moves the removed value out when the API returns it, or drops it when the API discards it.
 
-Ordinary containers cannot store a `ThreadWorker`, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **pointer** to a resource — a parent `Thread` included — a copy of the one handle pointer (§15.6). Such a pointer is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards pointers. Containers can store functions only when the function value is copyable or movable under the closure rules above.
+Ordinary containers cannot store a `ThreadWorker`, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **reference** to a resource — a parent `Thread` included (§15.6). Such a reference is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards references. Containers can store functions only when the function value is copyable or movable under the closure rules above.
 
 No two live mutable bindings may refer to the same collection buffer. A collection buffer may be destructively updated only while exactly one binding owns it and that binding's current value is not read again after the update — a single live `MUT` binding, or any owned binding (including a parameter the caller handed over) at its last use. No program can observe the difference from a copy. Reads produce owned values, not aliases into the buffer.
 
@@ -108,7 +108,7 @@ packages, so a crafted package cannot smuggle a double-free past it. The check i
 a static binding-validity check: close, return, and direct-name resource rebinds
 can mark a source name moved. A move in this check is not necessarily a transfer
 of cleanup responsibility: close ends the resource's open state, while a direct
-`RES new = old` can copy its pointer and invalidate `old` without relocating its
+`RES new = old` can copy its reference and invalidate `old` without relocating its
 cleanup. The initializer table and cleanup model are specified in §15. Copying
 ordinary copyable data is never a resource move. [[src/ir/verify/resources.rs:check_resource_moves]]
 

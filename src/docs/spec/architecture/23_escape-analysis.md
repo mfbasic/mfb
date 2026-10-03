@@ -57,7 +57,7 @@ element argument of a `collections::` insertion builtin, whose type is a resourc
 `RES $res_tmpN AS T = <call>` placed immediately before its statement, and the
 element becomes `$res_tmpN`. From there it floats exactly like a source binding
 in that position. [[src/ir/resource_hoist.rs:hoist_resource_temporaries]] A call
-that hands back a pointer to a resource another binding already owns —
+that hands back a reference to a resource another scope already owns —
 `collections::get`/`getOr` of a `RES` element, or a `tcp`/`udp`/`tls::poll`
 borrow — is no producer and is never named: a named temporary would float the
 borrowed handle into the container, whose scope would then close the owner's
@@ -75,23 +75,32 @@ lowering consume that metadata. [[src/ir/lower.rs:lower_function]] [[src/ir/reso
 This analysis routes cleanup through the container edges listed below; merely
 reading a handle or passing an ordinary argument does not float it. Any holder
 may close, return, or transfer it (§15), so the syntactic scan is not a complete
-account of where a resource can go. The single-close guarantee is carried by
-three layers:
+account of where a resource can go — it is per-function, and cannot see that a
+callee returns its parameter. The single-close guarantee is carried by three
+layers:
 
-1. **Static hand-off where it is syntactically visible.** Returning a `RES`
-   binding, a resource union, or a `List OF RES` deactivates that scope's cleanup,
-   so the escaping scope emits no close at all.
-2. **Runtime pointer identity for what the scan cannot see.** At scope exit a
-   cleanup whose record pointer equals the value escaping the scope skips both the
-   close and the reclaim.
+1. **Static hand-off, an optimization.** Returning a `RES` binding, a resource
+   union, or a `List OF RES` deactivates that scope's cleanup, so the escaping
+   scope emits no close at all; a `RETURN` of a value whose record pointer equals a
+   registered cleanup's also skips it; a binding of a `collections` member that only
+   re-packages its arguments' handles registers no owned-list
+   ([[src/codegen/cleanup/owned/builder_owned_cleanup.rs:call_result_holds_only_argument_resources]]).
+   Each removes code whose outcome the owner word would decide the same way.
+2. **The owner word, the correctness layer.** Every resource record carries the
+   token of the one scope that closes it (`./mfb spec memory heap-values`, "The
+   owner word"). A binding claims an unowned record, a float raises it to the outer
+   collection's scope, a `RETURN` releases what the returning function's scopes
+   own, and every scope-exit close runs only when the owner is that scope.
+   [[src/codegen/resource/owner.rs:emit_skip_unless_owned]]
 3. **A closed/moved flag making a second close a defined no-op.** Every resource
    record carries it at offset 16, and both the built-in helpers and every native
    `LINK` thunk test it before acting, reporting `ErrResourceClosed` rather than
    acting on a dead handle.
 
-So this pass computes where ownership *floats*; layers 2 and 3 ensure a resource
-that escapes by a route the scan does not model is still closed exactly once
-rather than twice or never.
+So this pass computes where cleanups are *placed*: the `Local`/`Float` decisions
+say where codegen registers a close, and the owner word decides at run time which
+registered close actually runs. A resource that escapes by a route the scan does
+not model is still closed exactly once, by its owner.
 
 ## Walk: building the routing facts
 
@@ -109,7 +118,7 @@ walks the body collecting *routing facts*. [[src/ir/resource_escape.rs:Analyzer]
 order is the deterministic tiebreak used by the float target selection.
 [[src/ir/resource_escape.rs:declare]]
 
-A **routing** is "a collection value carrying resource pointers flows into a
+A **routing** is "a collection value carrying resource references flows into a
 target", where target is a variable (`LET`/`MUT` bind, assignment) or `Returned`
 (`RETURN <expr>`). [[src/ir/resource_escape.rs:Routing]] Each routing records:
 
@@ -189,7 +198,7 @@ literals plus insertion builtins) and over **record** edges:
 a record `Constructor` argument and a `WITH` update are element positions, and a
 `WITH`'s target flows into the result exactly as insertion argument 0 does. A
 record is a container in the same sense a collection is — a value that holds
-handle pointers and whose binding has a scope — so a resource placed into one
+resource references and whose binding has a scope — so a resource placed into one
 floats to that record's binding and is drained there.
 
 Two asymmetries with collections are worth stating, because both are load-bearing:
@@ -235,7 +244,7 @@ resource-owning container is `FloatBlocked(C)`; otherwise it is `Local`.
 `ir::verify` rejects `FloatBlocked` with `TYPE_RESOURCE_RETURN_ORDER`.
 [[src/ir/verify/mod.rs:collect_diagnostics_with]]
 
-A `RES` binding whose initializer is a borrowed pointer — the calls above, or a
+A `RES` binding whose initializer is a borrowed reference — the calls above, or a
 record's `RES` field read — skips both phases and is always `Local`: it holds no
 close obligation, so it has none to float, and codegen binds it as a non-owning
 alias. It stays in the owner table, so every ownership rule still treats it as a
