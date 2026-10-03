@@ -642,12 +642,40 @@ fn collection_store_is_fresh(dest: &str, value: Option<&NirValue>) -> bool {
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => {
-            COLLECTION_SELF_MUTATORS.contains(&target.as_str())
-                && matches!(args.first(), Some(NirValue::Local(name)) if name == dest)
+            (COLLECTION_SELF_MUTATORS.contains(&target.as_str())
+                && matches!(args.first(), Some(NirValue::Local(name)) if name == dest))
+                || FRESH_BUILTIN_BODIES
+                    .iter()
+                    .any(|prefix| target.starts_with(prefix))
         }
         _ => false,
     }
 }
+
+/// Built-in source bodies audited to return a block nothing else holds (bug-753),
+/// matched by their instantiated-name prefix.
+///
+/// * `#collections_slice$` — `gen_slice.rs:try_inline_slice_op` has one path, which
+///   allocates the result block and range-copies into it; its declining fallback
+///   is the source FUNC, which builds a fresh list from `[]` by appends.
+/// * `#collections_take$` / `#collections_drop$` — `RETURN __collections_slice(…)`,
+///   no fast path of their own.
+///
+/// A body with a native fast path (`sort`, `flatten`, `chunks`, `window`, …) is
+/// NOT listed: the fast path replaces the body at the call, so the body's returns
+/// prove nothing about what the call hands back. List one only after auditing its
+/// fast path.
+///
+/// A user function's result is not counted either, even when every `RETURN` is
+/// fresh: a binding of a user call ADOPTS the returned resources (§15.6), and that
+/// adoption already mis-closes handles the callee was passed (bug-755). Freeing the
+/// block on top of it turned that cleanup failure into a crash. Revisit with
+/// bug-755's fix.
+const FRESH_BUILTIN_BODIES: &[&str] = &[
+    "#collections_slice$",
+    "#collections_take$",
+    "#collections_drop$",
+];
 
 #[cfg(test)]
 mod owned_list_ownership_tests {

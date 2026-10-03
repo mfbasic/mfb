@@ -1,12 +1,12 @@
 # bug-753: a `List OF RES` bound from a call leaks its collection block on every bind
 
-Last updated: 2026-09-27
+Last updated: 2026-10-03
 Effort: medium
 Severity: MEDIUM
 Class: Memory (unbounded leak in a loop)
 
-Status: Open
-Regression Test: none yet — see Fix
+Status: Partially fixed (2026-10-03): `take`/`drop` (and `chunks`/`window` internal slices) fixed. Remaining: native re-packaging members (audit), and user-function results, which are blocked on bug-755.
+Regression Test: `tests/runtime/rt_res_list_from_call_leak.rs` (`--debug` peak live bytes flat across N/2N, allocs = frees, list and handle intact)
 
 Found by the bug-643 lane. A `List OF RES T` bound from a call is never freed, so
 a loop that binds one leaks a whole list block per iteration. The handles are not
@@ -62,3 +62,40 @@ one — `take`/`drop`/`mid`/`slice`, `filter`, `sort*`, `append`/`prepend`/`inse
 argument's block), excluding `get`/`getOr`; and a user function only when every
 `RETURN` of it yields a fresh block (not a parameter). Pin with a `--debug`
 `alloc_bytes`/`peak_live_bytes` bound (`.ai/testing-gates.md`).
+
+## Progress (2026-10-03)
+
+**Fixed:** call results from audited built-in bodies.
+`record_ownership::collection_store_is_fresh` now counts a call whose target
+starts with one of `FRESH_BUILTIN_BODIES` as a fresh block:
+
+- `#collections_slice$`: the native `try_inline_slice_op` has one path, which
+  allocates and range-copies. Its declining fallback is the source FUNC, which
+  builds from `[]` by appends.
+- `#collections_take$` / `#collections_drop$`: `RETURN __collections_slice(…)`, no
+  fast path of their own.
+
+A `List OF RES` bound from them now has its block freed at drop, and so does
+the `piece` the `chunks`/`window` bodies bind from `__collections_slice`. Proof:
+on main the repro's peak live bytes are 304 864 → 592 864 (N=1000 → 2000).
+With the fix they are flat and allocs = frees. The list and the handle still
+read afterwards.
+
+**Not fixed, with the reason for each:**
+
+1. **User-function results.** I implemented the doc's rule ("every `RETURN`
+   yields a fresh block") and then withdrew it. Main already fails at cleanup
+   for those shapes ("Resource handle is already closed": a binding of a user
+   call adopts and closes handles the callee was passed, which is bug-755). The
+   block free stacked on that adoption turned the cleanup failure into SIGSEGV
+   (`/tmp/b753v`, variants `p`/`r`). This waits for bug-755's design.
+2. **Native members** (`filter`, `append`/`prepend`/`insert`/`set`/`removeAt`
+   bound to a different name, `values`) and the fast-path bodies (`sort*`,
+   `flatten`, `chunks`/`window` results). Each needs its native lowering audited
+   for an identity shortcut before it can join the allowlist. A fast path
+   replaces the body at the call, so the body's `RETURN`s prove nothing.
+
+Related checks: `rt_debug_soak`, `rt_scope_drop_leaks` and
+`rt_native_write_overload_call_argument` pass. The resource/collection
+acceptance mismatch set is identical to main's (the environment's relative-path
+fixtures), except for bug-785's stale `ThreadWorker` packages.
