@@ -1,12 +1,12 @@
 # bug-751: `Float` addition does not overflow to infinity or raise `ErrFloatOverflow` — it silently produces a wrong finite value
 
-Last updated: 2026-09-27
+Last updated: 2026-10-03
 Effort: unknown (needs codegen investigation)
 Severity: MEDIUM
 Class: Correctness (silent wrong result)
 
-Status: Open
-Regression Test: none yet — see Reproduction
+Status: Fixed (by bug-754 and bug-645; no change here)
+Regression Test: `tests/rt-error/arithmetic/arithmetic-float-overflow-rt` (runtime `left + right` of two `1e308`s → `77050015`); `tests/rt-error/collections/sum_float_overflow_rt`; `tests/rt-behavior/arithmetic/bug754-float-overflow-raises-inside-expression-rt`; `tests/rt-behavior/trap/bug644-inline-trap-float-sum-overflow-rt`
 
 Summing two `Float` values whose mathematical total exceeds `DBL_MAX`
 (`1.7976931348623157e308`) should, under IEEE-754 double arithmetic, produce
@@ -106,3 +106,19 @@ minimal repro per hypothesis; RED test.
 Phase 2 — fix the confirmed defect; if the correct design is "raise
 `ErrFloatOverflow`", update every `Float`-arithmetic member's descriptor and
 prose to match (this may reopen bug-645's `sum` finding); full suite.
+
+## Resolution (2026-10-03): does not reproduce on main; fixed by earlier work
+
+Re-run on main `285f146e9` (`/tmp/bs-baseline/target/release/mfb`):
+
+- The reproduction above exits 255 with `Error: 7-705-0015 Floating-point
+  arithmetic overflowed to infinity.` It no longer prints a finite number.
+- `collections::sum([1.0e308, 1.0e308])` under an inline `TRAP` prints
+  `trapped 77050015`.
+
+What fixed it: 771d7e64f (bug-754, "a Float overflow raises at the builtin,
+wherever the call sits") made the observation raise. f6f1cb561 (bug-645) made
+`sum`'s `Float` overload declare `ErrFloatOverflow` and `ErrFloatNaN`, which also
+closes bug-698's `sum` row. Both hypotheses in "Root cause" are moot: the value
+reaches the observation as `+Inf` and the observation raises. The regression
+tests listed above already pin both shapes, so no new test or code is added here.
