@@ -471,8 +471,13 @@ pub(crate) fn data_objects(server: bool) -> Vec<CodeDataObject> {
         objects.push(raw_cstr(MACSEC_SYMBOL, MACSEC));
         objects.push(raw_cstr(MACCF_SYMBOL, MACCF));
         objects.push(raw_cstr(ANYHOST_SYMBOL, ANYHOST));
+        // The verify block's names went onto the unconditional path above; a
+        // server name it already emitted (`CFArrayGetCount`, …) must not be
+        // emitted twice, or the image defines one symbol at two offsets.
         for name in SERVER_SYMBOLS {
-            objects.push(raw_cstr(&sym_data_symbol(name), name));
+            if !VERIFY_FN_NAMES.iter().any(|(verify, _)| verify == name) {
+                objects.push(raw_cstr(&sym_data_symbol(name), name));
+            }
         }
     }
     objects

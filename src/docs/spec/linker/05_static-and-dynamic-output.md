@@ -80,6 +80,56 @@ missing import, an unbacked external relocation, or an unsupported relocation is
 linker or codegen error, never a zero address or a placeholder (see
 `failure-rules`).
 
+## Section header table
+
+The ELF writers emit a section header table only when something needs one;
+the loader never reads it. All three writers end with one shared tail, and a
+file has exactly one table, so signing and `--debug` share it.
+[[src/os/linux/link/elf.rs:append_elf_sections]]
+[[src/os/linux/link/elf.rs:append_section_table]]
+
+| Build | Table |
+| --- | --- |
+| unsigned, no `--debug` | none: `e_shoff = 0`, `e_shnum = 0` |
+| signed, no `--debug`, static | `NULL`, `.mfbsign`, `.shstrtab` |
+| signed, no `--debug`, dynamic | `NULL`, `.dynstr`, `.dynamic`, `.mfbsign`, `.shstrtab` |
+| `--debug` | `NULL`, `.text`, (`.rodata`), `.data`, (`.dynstr`, `.dynamic`), `.symtab`, `.strtab`, (`.mfbsign`), `.shstrtab` |
+
+`e_shentsize` is 64 and `e_shstrndx` names `.shstrtab`, always the last entry.
+Sections that describe loaded bytes point at them in place: `.text` at file
+offset `0x1000` (its size includes the PLT stubs appended after the encoder's
+text), and `.data` at the page-aligned data offset. The dynamic writer, which maps
+the read-only data prefix as its own `PT_LOAD`, splits that prefix off as
+`.rodata` (`SHF_ALLOC`); the static writers map all data writable and emit only
+`.data` (`SHF_ALLOC | SHF_WRITE`). Every other body (`.symtab` 8-aligned,
+`.strtab`, `.mfbsign` 8-aligned, `.shstrtab`) is appended past the last
+`PT_LOAD`, then the 8-aligned header table follows. A signed build's seal runs
+after the table is written, so the content signature covers it.
+
+A dynamic image's table always describes `.dynstr` and `.dynamic` (`SHT_DYNAMIC`,
+`sh_link` → `.dynstr`, `sh_entsize` 16), covering exactly `PT_DYNAMIC`: once an
+ELF has section headers, readers look for the section that covers the dynamic
+segment, and GNU readelf reports `no .dynamic section in the dynamic segment`
+without it. No other part of the dynamic payload (`.dynsym`, `.rela`, `.got`,
+the PLT) gets a header.
+
+### Debug symbols
+
+`.symtab` (`SHT_SYMTAB`, `sh_entsize` 24, `sh_link` → `.strtab`) holds a zero
+entry, then one entry per symbol of the shared debug model (see
+`./mfb spec linker symbols-and-relocations`), in its order. Every entry is
+`STB_LOCAL`, so `sh_info` (one past the last local) is the entry count. Each entry
+has symbol type `STT_FUNC` (text) or `STT_OBJECT` (data) in `st_info`, `st_other = 0`, `st_size`
+from the model, and `st_value` from the relocation rule with no read-only window:
+text is `text_vmaddr + offset`, data is `data_vmaddr + offset`. `st_shndx` is
+`.text` for a function; for an object, `.rodata` when the offset is below the
+read-only prefix and `.rodata` exists, otherwise `.data`.
+[[src/os/linux/link/elf.rs:symtab_bytes]]
+
+Addresses are link-time ones. A dynamic image is `ET_DYN` at base 0, so tools add
+the load slide; a static image is `ET_EXEC` at `0x400000`. gdb uses ELF names
+verbatim, leading underscore included (`break _mfb_fn_main`).
+
 ## See Also
 
 * ./mfb spec app macos-runtime — the window-driven finish path and AppKit

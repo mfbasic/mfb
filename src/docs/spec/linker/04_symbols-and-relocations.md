@@ -120,6 +120,35 @@ are supported linker inputs, not classifications produced by this encoder.
 [[src/arch/encode_plan.rs:encode_plan]]
 [[src/os/link_encode.rs:patch_aarch64_reloc]]
 
+## Debug symbol tables
+
+A `--debug` build writes the encoder's symbols into the executable's native
+symbol table (`EncodedImage::debug_symbols` set by the target backend; see
+`./mfb spec tooling debug-report`). Every format writer takes its entries from one
+format-neutral list, so the formats list the same symbols in the same order:
+[[src/os/debug_symbols.rs:debug_symbols]]
+
+- **Source.** Exactly `EncodedImage::symbols`: every function and runtime helper
+  (text) and every data object (data). Linker-appended import stubs and thunks
+  have no entry. Text symbols are functions; data symbols are objects.
+- **Names.** The native names verbatim, as `symbol_fragment` escaped them
+  (`_mfb_fn_a_5Fb`), never unescaped to source spelling. They are unique by
+  construction, match `--ncode`, and are what a developer types into a debugger.
+- **Order.** By section (text, then data), then offset, then name.
+- **Size.** Each symbol runs to the next *distinct* offset in its section, so
+  aliases at one offset all get the full size; the last symbol in a section runs
+  to the section end (`text.len()` / `data.len()`, excluding appended stubs). A
+  data object's size includes any alignment padding before the next object.
+- **Address.** The writer maps `(section, offset)` with the same rule relocations
+  use, so an entry and a relocation to the same name always agree.
+  [[src/os/link_encode.rs:section_vmaddr]]
+- **Refusals.** A duplicate name, or an offset past its section end, fails the
+  link rather than writing an ambiguous or dangling entry.
+
+The entries are local symbols, never exports: no export trie, dynamic symbol
+table or import table changes. A build without `--debug` writes none of these
+names.
+
 ## See Also
 
 * ./mfb spec architecture internal-naming — the internal symbol-naming conventions behind these prefixes

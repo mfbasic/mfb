@@ -287,6 +287,11 @@ fn near_pole_raws(pio2: &BigInt) -> Vec<i64> {
     raws
 }
 
+// The filed table's angles are deliberate truncations of pi/2 (1.5707, 1.57079,
+// …): each probes the near-pole reduction at a different distance from the pole,
+// so `FRAC_PI_2` would test nothing. `approx_constant` is deny-by-default and
+// failed `cargo clippy --all-targets`.
+#[allow(clippy::approx_constant)]
 fn corpus(pio2: &BigInt) -> Vec<i64> {
     let one = 1i64 << 32;
     let mut raws = vec![

@@ -141,7 +141,7 @@ Console outputs are `build/<name>.out` on macOS,
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `--app` | — | GUI app-mode runtime; at most one |
 | `--app-debug` | — | app mode, keeping the intermediate `build/<name>.AppDir` (Linux); implies `--app`; at most one |
-| `--debug` | — | build a program that writes the debug report to stderr as the last act of `_mfb_shutdown` (see `./mfb spec tooling debug-report`); at most one |
+| `--debug` | — | build a program that writes the debug report to stderr as the last act of `_mfb_shutdown`, and write the program's symbol names into the executable's native symbol table (see `./mfb spec tooling debug-report`); at most one |
 | `--unsigned` | — | permit unsigned dependencies whose source is **not** local (see below) |
 | `-q` / `--quiet` | — | print only the `Wrote … to` artifact line and diagnostics |
 | `-v` / `--verbose` | — | additionally print a `phase <name> <N>ms` line per front-end stage |

@@ -175,5 +175,7 @@ pub(crate) fn encode_plan<E: InstructionEncoder>(
         // from `--sign`, and the vendor RPATH(s) from the resolved
         // native-library locators (plan-46-D §4.2/§4.3).
         rpaths: Vec::new(),
+        // Stamped by the target backend from `--debug` (plan-166).
+        debug_symbols: false,
     })
 }

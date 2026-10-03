@@ -1,6 +1,9 @@
 /// The `contentSignature` a signed executable carries: the digest it covers and
 /// the seal every linker applies to its finished image.
 pub(crate) mod content_signature;
+/// The format-neutral symbol list a `--debug` build writes into the Mach-O,
+/// ELF and PE symbol tables (plan-166).
+mod debug_symbols;
 /// Platform-neutral app-icon decode/validate/render, shared by the macOS `.icns`
 /// pipeline and the Linux AppDir PNG set (plan-51-A §4.2).
 pub(crate) mod icon;

@@ -73,6 +73,18 @@ impl NativeCodePlan {
                 ));
             }
         }
+        // Every function and data object defines one symbol at one offset. A
+        // second definition of a name would place it twice in the image while
+        // every relocation resolved to the first, and would make the `--debug`
+        // symbol table ambiguous.
+        let mut defined = std::collections::HashSet::new();
+        for symbol in defined_symbols.iter().chain(&data_symbols) {
+            if !defined.insert(symbol.as_str()) {
+                return Err(format!(
+                    "native code plan defines symbol '{symbol}' more than once"
+                ));
+            }
+        }
         for function in &self.functions {
             function.validate(&defined_symbols, &imported_symbols, &data_symbols)?;
         }
