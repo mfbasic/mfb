@@ -49,8 +49,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| The host `nm` reads Mach-O, ELF and COFF (it is llvm-nm) | `nm --version \| head -1` → `llvm-nm, compatible with GNU nm` | MET (2026-10-03) |
-| A release compiler built from the pre-plan commit is saved for the byte-identity check | `ls /tmp/mfb-166-base` → exists | NOT MET (Phase 0 task) |
+| The host `nm` reads Mach-O, ELF and COFF (it is llvm-nm) | `nm --version \| head -1` → `llvm-nm, compatible with GNU nm` | MET (2026-10-03, re-run at plan start) |
+| A release compiler built from the pre-plan commit is saved for the byte-identity check | `ls /tmp/mfb-166-base` → exists | MET (2026-10-03, Phase 0; built from 9270cad02) |
 
 Everything below assumes these hold.
 
@@ -307,12 +307,18 @@ bytes. That is the byte-identity gate.
 Saves the pre-plan compiler, so every later phase can prove that builds without
 `--debug` did not move.
 
-- [ ] `cargo build --release` at the pre-plan commit, then
-      `cp target/release/mfb /tmp/mfb-166-base`.
-- [ ] Record its `git rev-parse --short HEAD` in Corrections as the baseline commit.
+- [x] `cargo build --release` at the pre-plan commit, then
+      `cp target/release/mfb /tmp/mfb-166-base`. Built in a clean detached
+      worktree `/tmp/p166-base-wt` (`CARGO_TARGET_DIR=/tmp/p166-base-target`),
+      so no plan edit can leak into it → `Finished release profile in 3m 29s`.
+- [x] Record its `git rev-parse --short HEAD` in Corrections as the baseline commit.
+      → `9270cad02` (Corrections).
 
-Acceptance: `/tmp/mfb-166-base --version` prints the baseline commit.
-  Check: `/tmp/mfb-166-base --version` → names the recorded commit (est. 5 min, the release build).
+Acceptance: the saved compiler is provably the pre-plan commit's build.
+  Check: `git -C /tmp/p166-base-wt rev-parse --short HEAD; git -C /tmp/p166-base-wt status --short | wc -l; shasum -a 256 /tmp/mfb-166-base`
+  → `9270cad02`, `0`, `6a2c1f88…4df91788` (2026-10-03). The original check
+  (`--version` names the commit) cannot pass: `--version` prints the build time
+  and `Local Development`, no commit (see Corrections).
 Commit: — (no tree change)
 
 ### Phase 1: Flag and shared symbol list
@@ -461,6 +467,13 @@ Commit: —
   lines in the Phase 1 diff → 25 (24 test literals + `encode_plan`). The other
   29 matches of the population grep spread `..base` from a helper, so they
   inherit the field. No other letter's scope derived from the 53.
+- **Baseline commit (Phase 0): `9270cad02`.** `/tmp/mfb-166-base` sha256
+  `6a2c1f8892e5fa5dace1fadcc8505b17480af79a2cf134150deed2fc4df91788`.
+- **Phase 0 acceptance was uncheckable as written.** `/tmp/mfb-166-base --version`
+  prints `MFBasic Compiler 0.1.0 / <build time> / Local Development`, never a
+  commit. Strengthened to: the build came from a clean detached worktree at the
+  baseline commit (`git -C /tmp/p166-base-wt rev-parse` + empty `status`), plus
+  the binary's sha256.
 
 ## Summary
 
