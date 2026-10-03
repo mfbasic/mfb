@@ -43,6 +43,8 @@ follow, then the section table, then each section body at its
 The COFF header is `Machine = 0x8664` (AMD64), `TimeDateStamp = 0` (determinism),
 `SizeOfOptionalHeader = 240` (`0xF0`, asserted at emit), and
 `Characteristics = 0x0022` (`EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE`).
+`PointerToSymbolTable` and `NumberOfSymbols` are 0 except in a `--debug` build
+(see "COFF symbol table" below).
 
 The PE32+ optional header (`Magic = 0x020B`) carries:
 
@@ -176,6 +178,48 @@ own dependencies resolve from the exe-relative `build/vendor/` directory. A
 search). The scratch buffer and the `\vendor\` string are emitted only for a build
 that vendors at least one library. See `./mfb spec language native-libraries` for the
 cross-platform vendor-search table. [[src/target/win_x86_64/code.rs:emit_lib_open]]
+
+## COFF symbol table
+
+A `--debug` build appends a COFF symbol table listing every symbol of the shared
+debug model (see `./mfb spec linker symbols-and-relocations`), in its order. It
+sits at `PointerToSymbolTable`, which is the end of the last section's
+`FileAlignment`-padded raw data, and `NumberOfSymbols` is the record count. It is
+file data only: no section, RVA, `SizeOfImage`, data directory, `CheckSum` or
+`TimeDateStamp` changes, so the mapped image is the same as without it. A signed
+build seals after the table is appended, so the content signature covers it.
+[[src/os/windows/link/pe.rs:CoffSymbolTable]]
+[[src/os/windows/link/mod.rs:coff_symbol_table]]
+
+Each record is 18 bytes, with no auxiliary records:
+
+```text
+Name[8]            a name of 8 bytes or fewer inline, NUL-padded; a longer name
+                   as u32 0, then u32 offset into the string table
+Value              offset within the record's section: text offset in .text;
+                   for data, offset in .rdata below rodata_size, otherwise
+                   offset - rodata_size in .data
+SectionNumber      1-based index in emitted order: .text is 1, then .rdata and
+                   .data when present
+Type               0x20 (function) for text, 0 for data
+StorageClass       2 (IMAGE_SYM_CLASS_EXTERNAL)
+NumberOfAuxSymbols 0
+```
+
+The string table follows the records: a `u32` total size that counts itself, then
+each long name NUL-terminated, in record order. String offsets count the size
+field, so the first long name is at offset 4.
+
+`Value` is section-relative. That convention was measured: `llvm-nm` prints
+`ImageBase + section RVA + Value` (`140001000 T _main` for `.text` at RVA
+`0x1000`, Value 0), and the Windows loader runs an image carrying the table.
+With StorageClass 2, `llvm-nm` shows `T` (text), `R` (`.rdata`) and `D`
+(`.data`). The import thunks appended after
+the encoder's text get no record.
+
+WinDbg, Visual Studio, WPA/ETW and other Microsoft tools read symbols only from a
+PDB and ignore this table; the compiler writes no PDB and no CodeView debug
+directory. `llvm-nm` and `llvm-objdump -t` read it.
 
 ## Determinism
 

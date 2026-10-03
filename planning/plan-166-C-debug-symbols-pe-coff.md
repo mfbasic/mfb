@@ -217,18 +217,23 @@ Acceptance: `llvm-nm` resolves each function to its real address.
   Check: `cargo test --bin mfb windows::link` → all pass (est. 3 min).
   Result (2026-10-03): `nm build/hello_world.exe | grep -c ' T _mfb_fn_main'` → 1, at
   `1400017ba` (= the call target above); `windows::link` → 43 passed.
-Commit: —
+Commit: dc2c9d681
 
 ### Phase 2: Spec
 
-- [ ] `src/docs/spec/linker/10_windows-x86_64.md`: the COFF symbol table in
+- [x] `src/docs/spec/linker/10_windows-x86_64.md`: the COFF symbol table in
       `--debug` builds (placement, record layout, the `Value` convention as
       measured, and that Microsoft's debuggers need a PDB and do not read it).
-- [ ] `src/docs/spec/tooling/09_debug-report.md` "Symbol tables": mark PE as done
+- [x] `src/docs/spec/tooling/09_debug-report.md` "Symbol tables": mark PE as done
       and state the WinDbg/VS limitation.
 
 Acceptance: `cargo build && cargo test --bin mfb spec` → pass, and
 `scripts/spec-census.sh --citations` → no new dangling citation (est. 5 min).
+  Result (2026-10-03): `cargo test --bin mfb spec` → 44 passed; `--citations` →
+  `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0`; `--links linker tooling` →
+  `unresolved=0`; `--render linker tooling` → 0 leaks. The plan's "MinGW-style
+  gdb" and an `llvm-symbolizer` mention were not written into the spec: neither
+  tool is on this host to verify (Corrections).
 Commit: —
 
 ### Phase 3: PE tool proof and Windows run (local + box 206)
@@ -294,7 +299,10 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Unverified tool claims kept out of the spec (Phase 2).** The plan's outcome
+  line names "MinGW-style gdb". No gdb (`gdb`, `x86_64-w64-mingw32-gdb`) and no
+  `llvm-symbolizer` is installed on this host (`which` → not found), so the
+  spec names only the tools measured: `llvm-nm` and `llvm-objdump -t`.
 
 ## Summary
 

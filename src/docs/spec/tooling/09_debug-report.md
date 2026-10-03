@@ -180,7 +180,7 @@ feature.
 | --- | --- | --- |
 | Mach-O (`macos-aarch64`) | local `LC_SYMTAB` entries, `LC_FUNCTION_STARTS`, and a content-derived `LC_UUID` (see `./mfb spec linker macos-aarch64`) | written |
 | ELF (`linux-*`) | `.symtab` / `.strtab` of local `STT_FUNC` / `STT_OBJECT` entries, in a section header table the build gains for it (see `./mfb spec linker static-and-dynamic-output`) | written |
-| PE (`windows-x86_64`) | — | not written |
+| PE (`windows-x86_64`) | a COFF symbol table and string table past the last section (see `./mfb spec linker windows-x86_64`) | written; Microsoft's debuggers and profilers read only a PDB, which is not written, so they still show no names |
 
 `mfb test --debug` builds its test programs through the same backend, so they carry
 the table too.
