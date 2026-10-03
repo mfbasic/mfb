@@ -8,7 +8,10 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __regex_parseAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
+r#"' bug-773: the atoms that need more than their one scalar -- `.`, `^`, `$`, a class and
+' an escape. A plain literal is built by __regex_parseConcat itself, which calls this only
+' when `c` is one of those five, so the last case is the escape.
+FUNC __regex_parseAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   LET c AS String = collections::get(pat, i)
   IF c = "." THEN
     LET node AS __regex_Node = __regex_Any[flags.dotall]
@@ -25,11 +28,7 @@ r#"FUNC __regex_parseAtom(pat AS List OF String, n AS Integer, i AS Integer, fla
   IF c = "[" THEN
     RETURN __regex_parseClass(pat, n, i, flags, g, names)
   END IF
-  IF c = "\\" THEN
-    RETURN __regex_parseEscapeAtom(pat, n, i, flags, g, names)
-  END IF
-  LET node AS __regex_Node = __regex_Lit[c, flags.ci, __regex_scalarToCp(c)]
-  RETURN __regex_Parse[node, i + 1, g, names]
+  RETURN __regex_parseEscapeAtom(pat, n, i, flags, g, names)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

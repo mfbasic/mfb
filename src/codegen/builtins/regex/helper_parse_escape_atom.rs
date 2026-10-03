@@ -44,7 +44,9 @@ r#"FUNC __regex_parseEscapeAtom(pat AS List OF String, n AS Integer, i AS Intege
     RETURN __regex_Parse[node, pp.nxt, g, names]
   END IF
   LET lit AS __regex_LitScalar = __regex_parseLiteralEscape(pat, n, i, flags.verbose)
-  LET node AS __regex_Node = __regex_Lit[lit.ch, flags.ci, __regex_scalarToCp(lit.ch)]
+  ' bug-773: `lit.ch` is one scalar, so toScalar gives its code point without the
+  ' utf32Encode list __regex_scalarToCp builds.
+  LET node AS __regex_Node = __regex_Lit[lit.ch, flags.ci, toInt(toScalar(lit.ch))]
   RETURN __regex_Parse[node, lit.nxt, g, names]
 END FUNC"#;
 
