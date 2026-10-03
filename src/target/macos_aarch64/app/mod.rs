@@ -339,7 +339,9 @@ const SEL_CONVERT_POINT_FROM_VIEW: (&str, &str) = (
     "_mfb_macapp_sel_convertPointFromView",
     "convertPoint:fromView:",
 );
-const SEL_MODIFIER_FLAGS: (&str, &str) = ("_mfb_macapp_sel_modifierFlags", "modifierFlags");
+// `modifierFlags` is shared with the key translator, which owns the selector
+// string (`keys::KEY_SELECTORS`, emitted for every app program).
+use keys::SEL_MODIFIER_FLAGS;
 const SEL_DELTA_Y: (&str, &str) = ("_mfb_macapp_sel_deltaY", "deltaY");
 const SEL_MOUSE_DOWN: (&str, &str) = ("_mfb_macapp_sel_mouseDown", "mouseDown:");
 const SEL_MOUSE_UP: (&str, &str) = ("_mfb_macapp_sel_mouseUp", "mouseUp:");
@@ -1258,7 +1260,9 @@ pub(crate) fn app_mode_data_objects(uses_mouse: bool) -> Vec<CodeDataObject> {
         for (symbol, text) in [
             SEL_LOCATION_IN_WINDOW,
             SEL_CONVERT_POINT_FROM_VIEW,
-            SEL_MODIFIER_FLAGS,
+            // `SEL_MODIFIER_FLAGS` is not listed: `keys::KEY_SELECTORS` already
+            // emits it for every app program, and a second copy would define
+            // the symbol twice.
             SEL_DELTA_Y,
             SEL_MOUSE_DOWN,
             SEL_MOUSE_UP,
