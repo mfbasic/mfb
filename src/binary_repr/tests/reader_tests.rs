@@ -713,6 +713,83 @@ fn abi_serializer_hashes_state_composites_structurally() {
 }
 
 #[test]
+fn abi_serializer_hashes_set_mapentry_and_threadworker_structurally() {
+    // bug-785: kinds 9 (MapEntry), 10 (ThreadWorker) and 13 (Set) fell through
+    // to the opaque arm, which hashes the interned name (`Set#<elemId>`, ...).
+    // Those ids are table positions, so an unrelated renumber moved the hash and
+    // a change to a component's shape did not. Both halves, for every kind.
+    use crate::types::ParameterType;
+    let worker = |msg: &str, res: Option<&str>| ParameterType::ThreadHandle {
+        worker: true,
+        msg: Box::new(ParameterType::declared(msg)),
+        res: Box::new(res.map_or(ParameterType::Nothing, ParameterType::declared)),
+        out: Box::new(ParameterType::declared("Integer")),
+    };
+    let hash = |lead: bool, type_: &ParameterType| {
+        let mut strings = StringPool::new();
+        let mut types = TypeTable::new();
+        // An unrelated type interned first shifts every later table id.
+        if lead {
+            types.type_id(
+                &mut strings,
+                &ParameterType::declared("Map OF String TO Integer"),
+            );
+        }
+        let id = types.type_id(&mut strings, type_);
+        type_sig_hash(
+            id,
+            BinaryReprExportKind::Type,
+            &strings.values,
+            &types,
+            &ConstPool::new(),
+        )
+        .unwrap()
+    };
+    let cases: Vec<(&str, ParameterType, ParameterType)> = vec![
+        (
+            "Set",
+            ParameterType::declared("Set OF List OF Integer"),
+            ParameterType::declared("Set OF List OF String"),
+        ),
+        (
+            "MapEntry",
+            ParameterType::declared("MapEntry OF String TO List OF Integer"),
+            ParameterType::declared("MapEntry OF String TO List OF String"),
+        ),
+        (
+            "ThreadWorker",
+            worker("List OF Integer", None),
+            worker("List OF String", None),
+        ),
+        (
+            "ThreadWorker resource plane",
+            worker("Integer", Some("List OF Integer")),
+            worker("Integer", Some("List OF String")),
+        ),
+    ];
+    for (kind, base, reshaped) in &cases {
+        assert_eq!(
+            hash(false, base),
+            hash(true, base),
+            "{kind} sig hash must not track type-table position"
+        );
+        assert_ne!(
+            hash(false, base),
+            hash(false, reshaped),
+            "{kind} sig hash must track its components' structure"
+        );
+    }
+    // Same components, different composite: the kind is part of the hash.
+    assert_ne!(
+        hash(
+            false,
+            &ParameterType::declared("MapEntry OF String TO Integer")
+        ),
+        hash(false, &ParameterType::declared("Map OF String TO Integer")),
+    );
+}
+
+#[test]
 fn abi_serializer_rejects_deep_acyclic_type_chain() {
     // bug-153: serialize_type must reject a deep-but-acyclic type graph via
     // the depth cap. `type_refs` only guards *cycles* (repeated ids), so a
