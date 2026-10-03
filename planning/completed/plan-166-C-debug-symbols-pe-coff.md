@@ -385,6 +385,14 @@ Commit: f76a2b76a
   everything else identical (`/tmp/p166-golddiff.py`). The 7 unit/integration
   tests then passed, and `artifact-gate.sh … http` / `tls` → `0 diff(s)`. A
   third, final full run follows on the finished tree.
+- **Post-merge verification (§5).** Main moved twice during closeout. Merge 1
+  (13 bug-773 regex commits, no file overlap with plan-166): full suite rerun →
+  `EXIT=0`, 0 `failures:`, 6556 passed, artifact gate `0 diff(s)`. Merge 2 (10
+  commits; the only overlap was `src/docs/spec/tooling/07_cli-reference.md`, which
+  merged cleanly with the `--debug` row intact): per the owner's instruction
+  ("if there is no code changes or overlaps, do not re-run tests"), no suite
+  rerun. `cargo build`, `cargo fmt --check` and `cargo test --bin mfb spec` (45
+  passed) had already completed before the scoped gate run was stopped.
 - **"Mapped image matches a build without `--debug`" (Goal 2).** That cannot be
   shown by comparing a `--debug` build to a plain one, because `--debug` also
   changes codegen (the debug report helpers and imports). It was strengthened to a
