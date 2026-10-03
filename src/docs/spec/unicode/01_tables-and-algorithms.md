@@ -357,9 +357,12 @@ decomposition, canonical ordering and recomposition in the stages below. NFD is 
    then falls back to the combinations tables — gated by the starter's
    `comb_index`/`comb_length` and the current scalar's `COMB_IS_SECOND` flag —
    and on success overwrites the starter in place and drops the combined scalar.
-   For a nonzero current combining class, composition is attempted only when
-   it exceeds the remembered blocking class. A current class of zero bypasses
-   that comparison. [[src/codegen/string/unicode_props.rs:emit_hangul_composition_attempt]]
+   Composition follows UAX #15 blocking. The remembered blocking class is the
+   highest class kept since the starter, and everything kept there is a
+   non-starter. A marked candidate is tried only when its class exceeds that
+   class. A class-zero candidate is tried only when the remembered class is zero,
+   that is when it directly follows the starter: any intervening mark blocks it.
+   [[src/codegen/string/unicode_props.rs:emit_hangul_composition_attempt]]
 5. **Encode.** Compute the composed byte length, arena-allocate the length-
    prefixed result string, and UTF-8-encode the composed scalars.
 
@@ -367,11 +370,8 @@ NFC composition therefore reads `combining_class`, `comb_index`, `comb_length`,
 and the `COMB_IS_SECOND` flag from property records, plus the two combinations
 tables and the NFD mapping tables. [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower]]
 
-The class-zero branch is a current implementation limitation: runtime
-normalization of `U+1100 U+0301 U+1161` produces `U+AC00 U+0301`, composing
-Hangul across an intervening mark. The folded `unicode_normalization` path
-preserves `U+1100 U+0301 U+1161`. Runtime and folded normalization therefore do
-not agree for this input.
+Runtime and folded normalization agree: `U+1100 U+0301 U+1161` stays
+`U+1100 U+0301 U+1161` both ways, because the accent blocks the L+V pair.
 [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower_out]]
 [[src/unicode/backend.rs:normalize_nfc]]
 

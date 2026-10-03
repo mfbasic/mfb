@@ -1,11 +1,11 @@
 # bug-795: Runtime NFC composes Hangul across an intervening combining mark
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/rt-behavior/strings/nfc-blocked-composition-rt`
+Status: Fixed
+Regression Test: `tests/rt-behavior/strings/nfc-blocked-composition-rt`
 
 The emitted normalization routine can compose a starter with a later class-zero
 scalar across a combining mark. Constant folding preserves the blocked sequence.
@@ -100,26 +100,26 @@ versus the selection of a new starter, not allocation or table layout.
 
 ### Phase 1 — failing test and audit
 
-- [ ] Add dynamic, literal-folded and self-update regression cases; prove the
+- [x] Add dynamic, literal-folded and self-update regression cases; prove the
       dynamic cases fail before the fix.
-- [ ] Audit every `lower_out` caller and class-zero composition pair.
+- [x] Audit every `lower_out` caller and class-zero composition pair.
 
 Acceptance: regression fails with the observed scalar mismatch.
 Commit: —
 
 ### Phase 2 — correction
 
-- [ ] Correct composition eligibility in `lower_out`.
-- [ ] Verify blocked and unblocked Hangul and non-Hangul contrast cases.
+- [x] Correct composition eligibility in `lower_out`.
+- [x] Verify blocked and unblocked Hangul and non-Hangul contrast cases.
 
 Acceptance: runtime, self-update and folded outputs agree with the normalization oracle.
 Commit: —
 
 ### Phase 3 — validation and documentation
 
-- [ ] Run the full suite before changing any golden; inspect each expected delta.
-- [ ] Run the repository's compiler/artifact/runtime gates on affected targets.
-- [ ] Remove the current-behavior limitation from the Unicode spec once corrected.
+- [x] Run the full suite before changing any golden; inspect each expected delta.
+- [x] Run the repository's compiler/artifact/runtime gates on affected targets.
+- [x] Remove the current-behavior limitation from the Unicode spec once corrected.
 
 Acceptance: full validation passes and the reproduction returns identical correct lines.
 Commit: —
@@ -132,3 +132,25 @@ Run the full cargo test suite and the compiler gates from `.ai/compiler.md` and
 `.ai/testing-gates.md`. Update `src/docs/spec/unicode/01_tables-and-algorithms.md`
 with the corrected blocking behavior. No implementation or test change is part
 of this filing.
+
+## Resolution (2026-10-03)
+
+In `lower_out`'s composition loop, a class-zero candidate now composes only when
+the remembered blocking class `scratch28` is zero. That is when it directly
+follows the starter: every scalar kept after a starter is a non-starter, so
+`scratch28 > 0` exactly when a mark intervenes. A marked candidate keeps the
+strict `class > scratch28` test.
+
+The fixture runs on dynamic, folded and self-update inputs. Every row matches
+Python's `unicodedata.normalize('NFC')`:
+
+- blocked and adjacent Hangul L+V and LV+T;
+- `e`+acute;
+- canonical reordering (`a U+0323 U+0302`);
+- same-class blocking;
+- the non-Hangul class-zero pair Oriya `U+0B47 U+0B3E`, adjacent and blocked.
+
+On main the blocked L+V, blocked LV+T and self-update rows are wrong. The 23
+`strings*`/`*nfc*`/`*unicode*` fixtures and the `strings` byte-identity gate are
+unchanged. Spec: `mfb spec unicode tables-and-algorithms` (the limitation is
+replaced by the blocking rule).
