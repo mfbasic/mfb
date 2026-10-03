@@ -42,7 +42,7 @@
 //! and the direction they fail in, are this module's.
 
 use crate::codegen::engine::builder::CodeBuilder;
-use crate::target::shared::nir::visit::{NirVisitor, walk_op, walk_value};
+use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirFunction, NirOp, NirValue};
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};

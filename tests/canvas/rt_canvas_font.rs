@@ -737,7 +737,7 @@ fn a_composite_glyph_draws_every_placed_component() {
     composite.extend(be16(1)); // glyphIndex
     composite.extend(be16(0)); // dx
     composite.extend(be16(0)); // dy
-    // ARG_1_AND_2_ARE_WORDS | ARGS_ARE_XY_VALUES | WE_HAVE_A_SCALE, last component
+                               // ARG_1_AND_2_ARE_WORDS | ARGS_ARE_XY_VALUES | WE_HAVE_A_SCALE, last component
     composite.extend(be16(0x0001 | 0x0002 | 0x0008));
     composite.extend(be16(1));
     composite.extend(be16(0)); // dx
@@ -775,11 +775,26 @@ END FUNC
         .map(|i| (i % WIDTH, i / WIDTH))
         .collect();
     assert!(!lit.is_empty(), "the composite glyph drew nothing at all");
-    let stray: Vec<_> = lit.iter().filter(|(x, y)| !inside(*x, *y)).take(5).collect();
-    assert!(stray.is_empty(), "ink outside the two components: {stray:?}");
+    let stray: Vec<_> = lit
+        .iter()
+        .filter(|(x, y)| !inside(*x, *y))
+        .take(5)
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "ink outside the two components: {stray:?}"
+    );
     assert_eq!(lit.len(), 30 * 30 + 15 * 15, "both components solid");
-    assert_eq!(pixel(&frame, 125, 185), (255, 255, 255, 255), "first component");
-    assert_eq!(pixel(&frame, 112, 152), (255, 255, 255, 255), "second component");
+    assert_eq!(
+        pixel(&frame, 125, 185),
+        (255, 255, 255, 255),
+        "first component"
+    );
+    assert_eq!(
+        pixel(&frame, 112, 152),
+        (255, 255, 255, 255),
+        "second component"
+    );
 }
 
 #[test]

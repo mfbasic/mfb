@@ -521,5 +521,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_glyphCoords", GLYPH_COORDS));
     pkg.add_helper(RegistryHelper::always("canvas_glyphEdges", GLYPH_EDGES));
     pkg.add_helper(RegistryHelper::always("canvas_contourEdges", CONTOUR_EDGES));
-    pkg.add_helper(RegistryHelper::always("canvas_compositeEdges", COMPOSITE_EDGES));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_compositeEdges",
+        COMPOSITE_EDGES,
+    ));
 }
