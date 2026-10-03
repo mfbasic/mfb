@@ -248,10 +248,7 @@ fn encode_unsigned_mach_o(
         // `--debug` build's locals (plan-166). A stale index binds every stub to
         // the wrong symbol, which crashes at the first libc call.
         for index in 0..image.imports.len() {
-            put_u32(
-                &mut bytes,
-                (linkedit.local_symbol_count + index) as u32,
-            );
+            put_u32(&mut bytes, (linkedit.local_symbol_count + index) as u32);
         }
         bytes.resize(linkedit.string_offset, 0);
         bytes.extend_from_slice(&string_table(image, debug));

@@ -1857,7 +1857,10 @@ fn parse_symtab(bytes: &[u8], sections: &[ParsedSection]) -> Vec<(String, u8, u1
     let count = symtab.size as usize / 24;
     assert_eq!(symtab.info as usize, count, "sh_info: every entry is local");
     let entry = |index: usize| symtab.offset as usize + index * 24;
-    assert!(bytes[entry(0)..entry(1)].iter().all(|b| *b == 0), "NULL entry");
+    assert!(
+        bytes[entry(0)..entry(1)].iter().all(|b| *b == 0),
+        "NULL entry"
+    );
     (1..count)
         .map(|index| {
             let at = entry(index);
@@ -1938,8 +1941,14 @@ fn debug_symbols_static_aarch64() {
     let image = static_debug_image(vec![0xc0, 0x03, 0x5f, 0xd6, 0xc0, 0x03, 0x5f, 0xd6]);
     let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
     let sections = parse_sections(&bytes);
-    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
-    assert_eq!(names, ["", ".text", ".data", ".symtab", ".strtab", ".shstrtab"]);
+    let names: Vec<_> = sections
+        .iter()
+        .map(|section| section.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["", ".text", ".data", ".symtab", ".strtab", ".shstrtab"]
+    );
     let text = &sections[1];
     assert_eq!((text.offset, text.size, text.flags), (0x1000, 8, 6));
     assert_eq!(text.addr, IMAGE_BASE + 0x1000);
@@ -1983,17 +1992,31 @@ fn debug_symbols_dynamic_with_rodata() {
     let mut image = versioned_exit_image();
     image.data = vec![0; 0x1000 + 8];
     image.rodata_size = 0x1000;
-    image.symbols.push(debug_symbol("_const", EncodedSection::Data, 0));
-    image.symbols.push(debug_symbol("_global", EncodedSection::Data, 0x1000));
+    image
+        .symbols
+        .push(debug_symbol("_const", EncodedSection::Data, 0));
+    image
+        .symbols
+        .push(debug_symbol("_global", EncodedSection::Data, 0x1000));
     image.debug_symbols = true;
     let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
     assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 3, "ET_DYN");
     let sections = parse_sections(&bytes);
-    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
+    let names: Vec<_> = sections
+        .iter()
+        .map(|section| section.name.as_str())
+        .collect();
     assert_eq!(
         names,
         [
-            "", ".text", ".rodata", ".data", ".dynstr", ".dynamic", ".symtab", ".strtab",
+            "",
+            ".text",
+            ".rodata",
+            ".data",
+            ".dynstr",
+            ".dynamic",
+            ".symtab",
+            ".strtab",
             ".shstrtab"
         ]
     );
@@ -2031,10 +2054,21 @@ fn debug_symbols_signed_keeps_mfbsign_findable() {
     // succeeds, so it found the placeholder through the one section table.
     let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
     let sections = parse_sections(&bytes);
-    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
+    let names: Vec<_> = sections
+        .iter()
+        .map(|section| section.name.as_str())
+        .collect();
     assert_eq!(
         names,
-        ["", ".text", ".data", ".symtab", ".strtab", ".mfbsign", ".shstrtab"]
+        [
+            "",
+            ".text",
+            ".data",
+            ".symtab",
+            ".strtab",
+            ".mfbsign",
+            ".shstrtab"
+        ]
     );
     let binary = crate::os::inspect::inspect(&bytes).expect("inspect reads it back");
     let blob = binary.signing.expect(".mfbsign found by name");
@@ -2055,16 +2089,31 @@ fn debug_symbols_off_writes_no_table() {
             ..static_debug_image(vec![0x13, 0, 0, 0, 0x13, 0, 0, 0])
         };
         let bytes = encode_executable_bytes(arch, LinuxFlavor::Glibc, &image).unwrap();
-        assert_eq!(u64::from_le_bytes(bytes[40..48].try_into().unwrap()), 0, "{arch}: e_shoff");
-        assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 0, "{arch}: e_shnum");
-        assert!(!bytes.windows(8).any(|window| window == b"_helper\0"), "{arch}");
+        assert_eq!(
+            u64::from_le_bytes(bytes[40..48].try_into().unwrap()),
+            0,
+            "{arch}: e_shoff"
+        );
+        assert_eq!(
+            u16::from_le_bytes([bytes[60], bytes[61]]),
+            0,
+            "{arch}: e_shnum"
+        );
+        assert!(
+            !bytes.windows(8).any(|window| window == b"_helper\0"),
+            "{arch}"
+        );
     }
     let image = EncodedImage {
         debug_symbols: false,
         ..versioned_exit_image()
     };
     let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
-    assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 0, "dynamic: e_shnum");
+    assert_eq!(
+        u16::from_le_bytes([bytes[60], bytes[61]]),
+        0,
+        "dynamic: e_shnum"
+    );
 }
 
 /// `.dynamic` covers exactly `PT_DYNAMIC` and links `.dynstr`, which holds the
@@ -2093,7 +2142,10 @@ fn signed_dynamic_table_names_the_dynamic_segment() {
     ));
     let bytes = encode_executable_bytes("aarch64", LinuxFlavor::Glibc, &image).unwrap();
     let sections = parse_sections(&bytes);
-    let names: Vec<_> = sections.iter().map(|section| section.name.as_str()).collect();
+    let names: Vec<_> = sections
+        .iter()
+        .map(|section| section.name.as_str())
+        .collect();
     assert_eq!(names, ["", ".dynstr", ".dynamic", ".mfbsign", ".shstrtab"]);
     assert_dynamic_section_covers_pt_dynamic(&bytes, &sections);
     let binary = crate::os::inspect::inspect(&bytes).expect("inspect reads it back");

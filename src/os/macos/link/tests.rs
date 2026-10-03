@@ -1872,7 +1872,10 @@ fn debug_symbols_image_with_imports_runs() {
         .arg(&path)
         .status()
         .expect("run codesign");
-    assert!(verified.success(), "codesign -v accepts the larger __LINKEDIT");
+    assert!(
+        verified.success(),
+        "codesign -v accepts the larger __LINKEDIT"
+    );
     let status = std::process::Command::new(&path).status().expect("run");
     assert_eq!(status.code(), Some(0));
 }

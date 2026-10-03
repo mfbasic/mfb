@@ -590,7 +590,10 @@ pub(super) fn symbol_table(image: &EncodedImage, debug: Option<&DebugSymtab>) ->
         for entry in &debug.entries {
             put_u32(
                 &mut bytes,
-                u32_field("symtab local string offset", import_strings + entry.name_offset),
+                u32_field(
+                    "symtab local string offset",
+                    import_strings + entry.name_offset,
+                ),
             );
             bytes.push(N_SECT);
             bytes.push(entry.section_ordinal);

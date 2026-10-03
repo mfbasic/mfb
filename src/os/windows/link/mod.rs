@@ -594,9 +594,7 @@ fn coff_symbol_table(
             DebugSymbolKind::Object if symbol.offset < rodata_size => {
                 (rdata_number, symbol.offset, 0)
             }
-            DebugSymbolKind::Object if has_data => {
-                (data_number, symbol.offset - rodata_size, 0)
-            }
+            DebugSymbolKind::Object if has_data => (data_number, symbol.offset - rodata_size, 0),
             DebugSymbolKind::Object => {
                 return Err(format!(
                     "debug symbols: data symbol '{}' at offset {} lands in no section",
@@ -1386,7 +1384,11 @@ mod tests {
         let bytes = write_executable(&img, false, None, None).expect("link");
         let coff = le_u32(&bytes, 0x3C) as usize + 4;
         let pointer = le_u32(&bytes, coff + 8);
-        assert_eq!(pointer % FILE_ALIGNMENT, 0, "the table starts FileAlignment-aligned");
+        assert_eq!(
+            pointer % FILE_ALIGNMENT,
+            0,
+            "the table starts FileAlignment-aligned"
+        );
         assert_eq!(le_u32(&bytes, coff + 12), 4, "NumberOfSymbols");
         // The table is past every section's raw data.
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
@@ -1397,7 +1399,10 @@ mod tests {
 
         let symbols = coff_symbols(&bytes);
         let names: Vec<_> = symbols.iter().map(|symbol| symbol.0.as_str()).collect();
-        assert_eq!(names, ["_start", "_mfb_fn_helper", "_c", "_mfb_rt_main_arena"]);
+        assert_eq!(
+            names,
+            ["_start", "_mfb_fn_helper", "_c", "_mfb_rt_main_arena"]
+        );
         let (text_rva, data_base_rva) = (section_by_number(&bytes, 1).1, {
             let (name, rva) = section_by_number(&bytes, 2);
             assert_eq!(name, ".rdata");
@@ -1442,7 +1447,11 @@ mod tests {
         let coff = le_u32(&bytes, 0x3C) as usize + 4;
         assert_eq!(le_u32(&bytes, coff + 8), 0, "PointerToSymbolTable");
         assert_eq!(le_u32(&bytes, coff + 12), 0, "NumberOfSymbols");
-        assert_eq!(bytes.len() % FILE_ALIGNMENT as usize, 0, "nothing past the last section");
+        assert_eq!(
+            bytes.len() % FILE_ALIGNMENT as usize,
+            0,
+            "nothing past the last section"
+        );
         assert!(!bytes.windows(14).any(|w| w == b"_mfb_fn_helper"));
 
         // The table changes nothing else: the same image with `--debug` symbols

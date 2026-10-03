@@ -261,8 +261,8 @@ pub(super) fn write_image(
     w.u16(0x8664); // Machine = AMD64
     w.u16(n as u16); // NumberOfSections
     w.u32(0); // TimeDateStamp (determinism)
-    // PointerToSymbolTable / NumberOfSymbols: zero unless a `--debug` build appends
-    // its table at `total_file_size`, which is already FileAlignment-aligned.
+              // PointerToSymbolTable / NumberOfSymbols: zero unless a `--debug` build appends
+              // its table at `total_file_size`, which is already FileAlignment-aligned.
     w.u32(coff_symbols.map_or(0, |_| {
         u32::try_from(total_file_size).expect("PE image larger than 4 GiB")
     }));
@@ -421,7 +421,13 @@ mod tests {
             file_offset: text_file,
             bytes: &text,
         }];
-        write_image(&sections, text_rva, ImportDirectories::default(), false, None)
+        write_image(
+            &sections,
+            text_rva,
+            ImportDirectories::default(),
+            false,
+            None,
+        )
     }
 
     /// The GUI-subsystem (app-mode) sibling of `single_text_image`, used to assert
@@ -439,7 +445,13 @@ mod tests {
             file_offset: text_file,
             bytes: &text,
         }];
-        write_image(&sections, text_rva, ImportDirectories::default(), true, None)
+        write_image(
+            &sections,
+            text_rva,
+            ImportDirectories::default(),
+            true,
+            None,
+        )
     }
 
     #[test]
