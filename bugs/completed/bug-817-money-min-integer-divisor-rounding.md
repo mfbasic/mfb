@@ -4,8 +4,8 @@ Last updated: 2026-10-04
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding` plus runtime-error boundary fixtures
+Status: Fixed (738172136)
+Regression Test: `tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding`
 
 ## Goal
 
@@ -108,3 +108,26 @@ check citations. Compile success alone is insufficient.
 ## Open Decisions
 
 None: both supported nearest modes round the reproduced non-tie away from zero.
+
+## Resolution
+
+Fixed in 738172136 (RED fixture 0ae4efa15). The `k == i64::MIN` branch of
+`gen_money_math.rs:emit_money_divide_scalar` now divides the unsigned magnitude
+`|raw|` by `2^63`, rounds through `emit_apply_rounding_magnitude` (unsigned
+compares, added for bug-812) and applies the sign; the rounded magnitude is at
+most 1, so the branch cannot overflow. Other Integer/Byte divisors keep their
+signed `emit_apply_rounding` path unchanged.
+
+Evidence: the reproduction prints `-0.00001` at -O0 and -O1 (was `0.00000`). The
+fixture covers both dividend signs, the `2^62` tie (`-0.00001` Commercial, `0`
+Banker), its neighbours, zero, the signed endpoints, and Integer/Byte/zero
+divisor contrasts; it printed 11 FALSE lines before and none after, and matches
+at -O0/-O1 on macos-aarch64, linux-aarch64 (2226), linux-riscv64 musl (2229) and
+windows-x86_64 (206). No error is reachable for this divisor (nonzero, result
+magnitude <= 1), so the zero-divisor contrast lives in the same fixture rather
+than a separate rt-error fixture.
+
+Phase 3 (full `cargo test`, full acceptance, artifact gate) was not run here;
+`-ncode` of every byte-identity fixture is unchanged, so no golden move is
+expected.
+
