@@ -1,9 +1,10 @@
 IMPORT collections
+IMPORT fs
 IMPORT io
 IMPORT os
 IMPORT thread
 
-' The program the `mfb man debug` walkthroughs debug.
+' The program the `mfb man debug` and `mfb man debug-external` walkthroughs debug.
 '
 ' It counts the primes in a run of pseudo-random ranges, one range per round,
 ' and prints one line per round plus a total. The work is deterministic, so
@@ -12,6 +13,12 @@ IMPORT thread
 '   main -> runRounds -> runRound -> countPrimes -> isPrime
 '                                 -> next_seed
 '                     -> formatLine
+'                     -> summarize
+'
+' Along the way runRounds keeps what each round found in one value of each
+' kind a debugger can show — a List, a Map, a Set, and lists of Float, Fixed
+' and Money — and writes every line to a log file, an open File. summarize
+' receives all of them, so a breakpoint there sees them side by side.
 '
 ' Usage:  debug [rounds [size [threads]]]
 '   rounds   how many ranges to scan (default 5)
@@ -75,10 +82,32 @@ FUNC formatLine(round AS Integer, found AS Integer) AS String
   RETURN "round " & toString(round) & ": " & toString(found) & " primes"
 END FUNC
 
+' Where the log goes: a file in the temporary directory, named after this
+' process so two runs at once do not share one.
+FUNC logPath() AS String
+  RETURN fs::pathJoin([fs::tempDirectory(), "mfb-debug-" & toString(os::pid()) & ".log"])
+END FUNC
+
+' The end of the log: the total, from the counts it was handed. Every argument
+' is a value a debugger can show with `show type`.
+FUNC summarize(counts AS List OF Integer, byRound AS Map OF String TO Integer, distinct AS Set OF Integer, averages AS List OF Float, shares AS List OF Fixed, costs AS List OF Money, RES log AS fs::File) AS Nothing
+  fs::writeAll(log, "total: " & toString(collections::sum(counts)) & " primes\n")
+END FUNC
+
 ' Every round, printing one line each, and the total across them.
 FUNC runRounds(rounds AS Integer, size AS Integer, threads AS Boolean) AS Integer
   MUT seed AS Integer = 1
   MUT total AS Integer = 0
+  ' What each round found: in order, by name, and the distinct counts.
+  MUT counts AS List OF Integer = []
+  MUT byRound AS Map OF String TO Integer = Map OF String TO Integer {}
+  MUT distinct AS Set OF Integer = Set OF Integer {}
+  ' The average so far, the percentage of the range that is prime, and what
+  ' the round cost at a pretend 0.00001 per number checked.
+  MUT averages AS List OF Float = []
+  MUT shares AS List OF Fixed = []
+  MUT costs AS List OF Money = []
+  RES log AS fs::File = fs::open(logPath(), "write")
   FOR round = 1 TO rounds
     seed = next_seed(seed)
     MUT found AS Integer = 0
@@ -88,9 +117,18 @@ FUNC runRounds(rounds AS Integer, size AS Integer, threads AS Boolean) AS Intege
     ELSE
       found = runRound(seed, size)
     END IF
-    io::print(formatLine(round, found))
+    LET line = formatLine(round, found)
+    io::print(line)
+    fs::writeAll(log, line & "\n")
     total = total + found
+    counts = collections::append(counts, found)
+    byRound = collections::set(byRound, "round " & toString(round), found)
+    distinct = collections::add(distinct, found)
+    averages = collections::append(averages, toFloat(total) / toFloat(round))
+    shares = collections::append(shares, toFixed(found * 100) / toFixed(size))
+    costs = collections::append(costs, toMoney(size) / 100000)
   NEXT
+  summarize(counts, byRound, distinct, averages, shares, costs, log)
   RETURN total
 END FUNC
 
@@ -110,5 +148,6 @@ FUNC main() AS Integer
   END IF
   LET total = runRounds(rounds, size, threads)
   io::print("total: " & toString(total) & " primes")
+  fs::deleteFile(logPath())
   RETURN 0
 END FUNC

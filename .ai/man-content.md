@@ -426,8 +426,8 @@ Three harness traps:
 
 ## 9. The narrative guide topics
 
-The 11 topics under `src/docs/man/**` — `debug`, `errors`, `flow`, `lambda`, `link`,
-`optimizations`, `tooling`, `tour`, `types`, `unicode`, `variable` — are
+The 12 topics under `src/docs/man/**` — `debug`, `debug-external`, `errors`, `flow`,
+`lambda`, `link`, `optimizations`, `tooling`, `tour`, `types`, `unicode`, `variable` — are
 plain markdown embedded at build time (`src/docs/man/mod.rs`) and reached by
 `mfb man <topic>` when no package claims the name (`src/cli/man.rs`, the
 `[name]` arm). A topic is one `package.md` overview plus zero or more
@@ -515,17 +515,21 @@ captured variable", "one pool of objects"), which kept the contrast and dropped
 the banned word; a carve-out keyed on "this line is about another language"
 could not be made precise enough to stop it hiding a sentence about MFBASIC.
 
-### 9.2a2 The third carve-out: report keys and runtime symbols in `mfb man debug`
+### 9.2a2 The third carve-out: program output and commands in `mfb man debug`
 
-`mfb man debug` teaches a developer to read what a `--debug` build prints and what
-a debugger shows, and two of those spellings contain `arena`, which §3's internals
-sweep bans: the debug report's keys (`arena.count`, `arena.0.live_bytes`, and the
-`arena\.` regex a script uses to pull them out) and the runtime's symbol names in a
-backtrace or profile (`_mfb_arena_alloc`). Both are program output a page author
-cannot rename — the same shape as carve-out 2's derived error messages.
+`mfb man debug` (the `mfb dbg` debugger) and `mfb man debug-external` (lldb, gdb
+and the platform tools) teach a developer to read what a `--debug` build prints
+and what a debugger shows, and some of those spellings trip §3's internals sweep:
+the debug report's keys (`arena.count`, `arena.0.live_bytes`, and the `arena\.`
+regex a script uses to pull them out), the runtime's symbol names in a backtrace or
+profile (`_mfb_arena_alloc`), `mfb dbg`'s own commands and output (`list arena`,
+`show arena`, `Arena Block (0):`), and a system library's function names in a
+backtrace (`libsystem_kernel.dylib`__psynch_cvwait`). All are program output or
+commands a developer types, which a page author cannot rename — the same shape as
+carve-out 2's derived error messages.
 
-This is carve-out 5 in `scripts/man-census.sh --scope`, and it is narrow: in the
-`debug` guide only, a rendered line is carved when **every** internals hit on it
+This is carve-out 5 in `scripts/man-census.sh --scope`, and it is narrow: in those
+two guides only, a rendered line is carved when **every** internals hit on it
 sits inside one of those literal spellings (`carve5_strip` removes them and the
 line no longer matches). The topic's own sentences say "pool", never "arena"; a
 sentence that used the bare word would stay a HIT. The page also names runtime
@@ -533,9 +537,9 @@ symbols (`_mfb_rt_…`) and the `_mfb_fn_` spelling of a developer's functions, 
 §3 would otherwise call mangled: they are exactly what a developer types into a
 debugger, so they are the developer-visible fact this topic exists to teach.
 
-Every shell example in the topic is tested on its platform by
+Every shell example in both topics is tested on its platform by
 `scripts/man-debug-examples.sh` (macOS here, Linux and Windows over ssh); run it
-after editing the topic or `examples/debug`.
+after editing either topic or `examples/debug`.
 
 ### 9.2b Citation markers in topic sources
 

@@ -73,6 +73,7 @@ mod tests {
         // overview with a one-line summary.
         for name in [
             "debug",
+            "debug-external",
             "errors",
             "flow",
             "lambda",

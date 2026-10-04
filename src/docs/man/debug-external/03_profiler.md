@@ -28,14 +28,16 @@ a few seconds. `debug 3000 20000` runs for about ten seconds.
 
 The example spends almost all of its time testing numbers, and every profile
 below says so: nearly every sample is in `isPrime`. A few land in
-`countPrimes`, the loop that calls it. A sample that reads `??` landed in code
-that has no name, such as a system library built without names. Count it as
-time spent outside your program.
+`countPrimes`, the loop that calls it, and a few in the system's file writing
+(`write` on macOS, `ntdll!ZwWriteFile` on Windows): the example writes each
+round's line to its log file. A sample that reads `??` landed in code that has
+no name, such as a system library built without names. Count it as time spent
+outside your program.
 
 When the top function is your own, speed up that function or call it less.
 When it is a runtime function (`_mfb_rt_…`, `_mfb_arena_…`), look at what
 your code asks of it: building strings in a loop, for example. Whichever
-function the samples point at, a backtrace (`mfb man debug backtraces`) taken
+function the samples point at, a backtrace (`mfb man debug-external backtraces`) taken
 while the program is in it shows which of your functions are calling it.
 
 ## Examples
@@ -61,8 +63,9 @@ sed -n '/Sort by top of stack/,/^$/p' debug.sample
 
 ```
 Sort by top of stack, same collapsed (when >= 5):
-        mfb_fn_isPrime  (in debug.out)        2422
-        mfb_fn_countPrimes  (in debug.out)        35
+        mfb_fn_isPrime  (in debug.out)        2572
+        mfb_fn_countPrimes  (in debug.out)        24
+        write  (in libsystem_kernel.dylib)        8
 ```
 
 The full report in `debug.sample` also has a *Call graph* section, which
@@ -83,7 +86,8 @@ kill "$pid"
 ```
 
 ```
-     20 _mfb_fn_isPrime
+     19 _mfb_fn_isPrime
+      1 ??
 ```
 
 A run can also show a line or two of `??` (see *Reading the result*).
@@ -107,7 +111,8 @@ Stop-Process -Id $p.Id
 ```
 Count Name
 ----- ----
-   20 _mfb_fn_isPrime
+   18 _mfb_fn_isPrime
+    2 ntdll!ZwWriteFile
 ```
 
 `thread apply 1` samples the thread running your program. On Windows, gdb
@@ -115,6 +120,6 @@ otherwise reports the extra thread that attaching starts.
 
 ## See also
 
-- `mfb man debug backtraces`
+- `mfb man debug-external backtraces`
 - `mfb man debug report` — the program's own timings and memory figures at exit
 - `mfb man optimizations`

@@ -1,4 +1,4 @@
-# debug
+# debug-external
 
 Debugging and profiling an MFBASIC program with lldb, gdb and the platform tools
 
@@ -6,55 +6,53 @@ Debugging and profiling an MFBASIC program with lldb, gdb and the platform tools
 
 ```
 mfb build --debug [-O0] [path]
-mfb dbg <binary> [-- <args>...]
-mfb dbg <pid>
-mfb man debug [topic]
+mfb man debug-external [topic]
 ```
 
 ## Imports
 
-`debug` is a documentation topic, not an importable package. No `IMPORT` is
-needed: everything here happens at build time and in the debugging tools.
+`debug-external` is a documentation topic, not an importable package. No
+`IMPORT` is needed: everything here happens at build time and in the debugging
+tools.
 
 ## Description
 
-`mfb build --debug` does two things:
+MFBASIC comes with its own debugger, `mfb dbg`, and that is the place to start:
+`mfb man debug` explains it. This topic is for the times you want a tool from
+outside: lldb or gdb, a profiler, or a tool that turns a crash address into a
+function name, on macOS, Linux or Windows.
 
-- At exit, the program prints a **debug report** to stderr: its memory use,
-  and on macOS its timings. `mfb man debug report` explains every line.
-- The executable carries the **name of every function** in your program, so
-  debuggers, profilers and address-lookup tools show `isPrime` and `runRound`
-  instead of bare addresses.
+`mfb build --debug` makes those tools useful: the executable carries the **name
+of every function** in your program, so debuggers, profilers and address-lookup
+tools show `isPrime` and `runRound` instead of bare addresses. The same build
+prints a debug report when the program exits (`mfb man debug report`).
 
 That gets you breakpoints by function name, backtraces, profiles and crash
-address lookup on macOS, Linux and Windows. It does **not** give you source
-lines or variables: a debugger cannot step one source line at a time, show
-`main.mfb:42`, or print the value of a variable. The tools work at the level of
+address lookup on every platform. It does **not** give you source lines or
+variables: these tools cannot step one source line at a time, show
+`main.mfb:42`, or print the value of a variable. They work at the level of
 functions.
 
 `mfb test --debug` builds its test programs the same way.
 
-On macOS, `mfb dbg` pauses a program you start, or one that is already
-running, at a `DBG>` prompt. `mfb man debug debugger` explains it.
-
 ### The example program
 
-Every page in this topic debugs the same program, `examples/debug` in the
-MFBASIC repository. It counts the primes in a run of ranges and prints one line
-per round:
+Every page in this topic debugs the same program as `mfb man debug`,
+`examples/debug` in the MFBASIC repository. It counts the primes in a run of
+ranges and prints one line per round:
 
 ```
 main -> runRounds -> runRound -> countPrimes -> isPrime
                               -> next_seed
                   -> formatLine
+                  -> summarize
                   -> roundWorker -> runRound        (threads mode)
 ```
 
 It takes up to three optional arguments: `rounds` (default 5), `size` (default
 20000), and `threads`. With `threads` set to `1`, each round runs on its own
-worker thread (`roundWorker`); `mfb man debug report` uses that. Large values
-keep it running long enough to attach a tool to it: `debug 3000 20000` runs
-for about ten seconds.
+worker thread (`roundWorker`). Large values keep it running long enough to
+attach a tool to it: `debug 3000 20000` runs for about ten seconds.
 
 Every script in this topic runs from the root of the repository and builds the
 example itself. Each one was run, as written, on macOS, on Linux (Debian 12,
@@ -85,17 +83,19 @@ mfb build --debug -O0 examples\debug
 nm -n examples\debug\build\debug.exe | Select-String ' _mfb_fn_'
 ```
 
-Each lists the eight functions of the example:
+Each lists the ten functions of the example:
 
 ```
-0000000100000888 t _mfb_fn_next_5Fseed
-0000000100000a5c t _mfb_fn_isPrime
-0000000100000d38 t _mfb_fn_countPrimes
-0000000100001078 t _mfb_fn_runRound
-00000001000011ec t _mfb_fn_roundWorker
-0000000100001254 t _mfb_fn_formatLine
-00000001000016bc t _mfb_fn_runRounds
-0000000100002040 t _mfb_fn_main
+00000001000008d0 t _mfb_fn_next_5Fseed
+0000000100000aa4 t _mfb_fn_isPrime
+0000000100000d80 t _mfb_fn_countPrimes
+0000000100001108 t _mfb_fn_runRound
+00000001000012c4 t _mfb_fn_roundWorker
+0000000100001374 t _mfb_fn_formatLine
+0000000100001824 t _mfb_fn_logPath
+0000000100001ee0 t _mfb_fn_summarize
+0000000100002278 t _mfb_fn_runRounds
+00000001000084e0 t _mfb_fn_main
 ```
 
 The addresses differ by platform. On Windows the letter is `T`, not `t`.
@@ -104,7 +104,7 @@ The default optimization level merges small functions into their callers.
 `next_seed` is one of them: in a default build no call to it remains, so a
 breakpoint on it never stops and it never appears in a backtrace. `-O0` keeps
 every function a separate call. Profile the default build instead (see
-`mfb man debug profiler`), because that is the code your program runs.
+`mfb man debug-external profiler`), because that is the code your program runs.
 
 ### How your functions are named
 
@@ -125,7 +125,7 @@ A debugger shows a function under the name it has in the executable:
 - A function can appear a second time with a `$own` suffix, for example
   `_mfb_fn_directionFor$own4`. That is a second version of the same function
   that the compiler made for some of its callers. To stop in every version,
-  use a pattern breakpoint (`mfb man debug breakpoints`).
+  use a pattern breakpoint (`mfb man debug-external breakpoints`).
 
 ### The tools
 
@@ -162,8 +162,6 @@ administrator to change the setting.
 - `backtraces` — see the chain of calls that led to where the program is.
 - `profiler` — find the functions the program spends its time in.
 - `lookup` — turn an address from a crash or a log into a function name, and back.
-- `report` — every line of the debug report a `--debug` build prints at exit.
-- `debugger` — pause a program with `mfb dbg`, the MFBASIC debugger (macOS).
 
 ## Errors
 
@@ -171,11 +169,10 @@ No errors. This topic describes tools, not MFBASIC functions.
 
 ## See also
 
-- `mfb man debug breakpoints`
-- `mfb man debug backtraces`
-- `mfb man debug profiler`
-- `mfb man debug lookup`
+- `mfb man debug` — the MFBASIC debugger, `mfb dbg`
+- `mfb man debug-external breakpoints`
+- `mfb man debug-external backtraces`
+- `mfb man debug-external profiler`
+- `mfb man debug-external lookup`
 - `mfb man debug report`
-- `mfb man debug debugger`
 - `mfb man optimizations`
-- `mfb spec tooling debug-report`

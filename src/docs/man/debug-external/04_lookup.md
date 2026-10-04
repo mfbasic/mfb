@@ -72,10 +72,10 @@ kill "$pid"
 ```
 
 ```
-looking up 0x100000a6c
+looking up 0x100000ab4
 mfb_fn_isPrime (in debug.out) + 16
-live address 0x0000000102ddcaf0
-mfb_fn_isPrime (in debug.out) + 148
+live address 0x0000000100408ba4
+mfb_fn_isPrime (in debug.out) + 256
 ```
 
 Linux:
@@ -103,12 +103,12 @@ gdb -batch -ex "info symbol $file" "$exe"
 ```
 
 ```
-looking up 0x15a4
+looking up 0x161c
 _mfb_fn_isPrime
 ??:?
 _mfb_fn_isPrime + 16 in section .text
-load base 0xaaaad9b36000, live address 0xaaaad9b3768c, file address 0x168c
-_mfb_fn_isPrime + 248 in section .text
+load base 0xaaaae1bcc000, live address 0xaaaae1bcd83c, file address 0x183c
+_mfb_fn_isPrime + 560 in section .text
 ```
 
 Windows (PowerShell):
@@ -137,13 +137,13 @@ gdb -batch -ex "info symbol $file" $exe
 ```
 
 ```
-looking up 0x140002397
+looking up 0x1400023f8
 _mfb_fn_isPrime + 16 in section .text
-load base 0x7ff7e49f0000, live address 0x7ff7e49f27cb, file address 0x1400027cb
-_mfb_fn_isPrime + 1092 in section .text
+load base 0x7ff637ce0000, live address 0x7ff637ce2742, file address 0x140002742
+_mfb_fn_isPrime + 858 in section .text
 ```
 
 ## See also
 
-- `mfb man debug backtraces` — a debugger names live addresses for you
-- `mfb man debug`
+- `mfb man debug-external backtraces` — a debugger names live addresses for you
+- `mfb man debug-external`
