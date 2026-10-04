@@ -1107,6 +1107,10 @@ name = "rt_hand_built_record_validation"
 path = "tests/runtime/rt_hand_built_record_validation.rs"
 
 [[test]]
+name = "rt_general_conversion_errors"
+path = "tests/runtime/rt_general_conversion_errors.rs"
+
+[[test]]
 name = "rt_datetime_clock_overflow"
 path = "tests/runtime/rt_datetime_clock_overflow.rs"
 

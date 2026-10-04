@@ -15,6 +15,11 @@ use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_to_int(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
+        // A `Float` argument is an observation boundary (spec `04_types.md`:
+        // "passed as an argument" includes every built-in's argument), so a
+        // non-finite arithmetic result raises ErrFloatOverflow/ErrFloatNaN here,
+        // as it does for `toString`, rather than reaching the conversion (bug-807).
+        self.observe_float(&args[0], &value)?;
         // A `d`-native float's bits are read by the conversion, so materialize it
         // into a GPR first (plan-01 float-dnative). Identity for other types.
         let value = self.materialize_float(value)?;
@@ -920,6 +925,11 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_to_fixed(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        // A `Float` argument is an observation boundary (spec `04_types.md`:
+        // "passed as an argument" includes every built-in's argument), so a
+        // non-finite arithmetic result raises ErrFloatOverflow/ErrFloatNaN here,
+        // as it does for `toString`, rather than reaching the conversion (bug-807).
+        self.observe_float(arg, &value)?;
         // A `d`-native float's bits are read by the conversion, so materialize it
         // into a GPR first (plan-01 float-dnative).
         let value = self.materialize_float(value)?;
@@ -985,6 +995,11 @@ impl CodeBuilder<'_> {
     /// mode-aware round, guarding finiteness and range.
     pub(crate) fn lower_to_money(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        // A `Float` argument is an observation boundary (spec `04_types.md`:
+        // "passed as an argument" includes every built-in's argument), so a
+        // non-finite arithmetic result raises ErrFloatOverflow/ErrFloatNaN here,
+        // as it does for `toString`, rather than reaching the conversion (bug-807).
+        self.observe_float(arg, &value)?;
         // Read a `d`-native float's bits from a GPR for the Float conversion.
         let value = self.materialize_float(value)?;
         let value_slot = self.allocate_stack_object("to_money_value", 8);
@@ -1012,7 +1027,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::multiply_registers(&result, &source, &scale));
             }
             // `fixed_raw * 100000 / 2^32` is exactly `emit_fixed_multiply(fixed_raw,
-            // 100000)`; its overflow check traps a Fixed too large for Money.
+            // 100000)`. Its overflow check never fires here: a Fixed is below 2^31
+            // in magnitude, so the Money raw is below 2^48 (bug-807).
             ParameterType::Fixed => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
@@ -1156,6 +1172,11 @@ impl CodeBuilder<'_> {
         arg: &NirValue,
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        // A `Float` argument is an observation boundary (spec `04_types.md`:
+        // "passed as an argument" includes every built-in's argument), so a
+        // non-finite arithmetic result raises ErrFloatOverflow/ErrFloatNaN here,
+        // as it does for `toString`, rather than reaching the conversion (bug-807).
+        self.observe_float(arg, &value)?;
         // The predicate reads the operand's bits, so materialize a `d`-native
         // float into a GPR first (plan-01 float-dnative).
         let value = self.materialize_float(value)?;
