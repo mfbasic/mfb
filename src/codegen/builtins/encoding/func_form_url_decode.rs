@@ -30,7 +30,8 @@ After the whole input has been decoded, the resulting byte sequence is
 validated as UTF-8 and returned as a `String`. Malformed input raises
 `ErrInvalidFormat`: a `%` not followed by two hexadecimal digits (`x%4`, `x%G0`),
 or decoded bytes that are not valid UTF-8 (`%FF`). The empty string decodes to the
-empty string. Hexadecimal digits in escapes may be upper- or lowercase."#;
+empty string. Hexadecimal digits in escapes may be upper- or lowercase.
+`ErrOutOfMemory` means the program ran out of memory."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_formUrlDecode(text AS String) AS String
@@ -77,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_formUrlDecode"),
         }],
     });

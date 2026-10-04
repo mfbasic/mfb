@@ -24,9 +24,11 @@ hexadecimal.
 
 Because non-ASCII characters are encoded from their UTF-8 bytes, a single such
 character expands to one `%XX` escape per byte (two escapes for most Latin and
-symbol characters, three or four for higher code points). The function is
-**total**: every `String`, including the empty string (which yields the empty
-string), encodes successfully and it never raises a runtime error.
+symbol characters, three or four for higher code points). Building the
+`%XX` escape's uppercase hex digits can raise `ErrOutOfMemory`;
+`ErrOutOfMemory` means the program ran out of memory. Otherwise every
+`String`, including the empty string (which yields the empty string), encodes
+successfully.
 
 The inverse operation is `encoding::percentDecode`, which parses `%XX` escapes
 back into text. For `application/x-www-form-urlencoded` data, where space is
@@ -88,7 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_percentEncode"),
         }],
     });

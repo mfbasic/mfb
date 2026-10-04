@@ -33,7 +33,9 @@ only length constraint is that the number of non-padding symbols cannot be
 exactly one more than a multiple of four (a symbol count whose remainder modulo
 four is `1`), because no well-formed Base64 group ends on a single 6-bit symbol.
 Every rejection — an invalid character, a symbol after `=`, or that symbol count —
-raises `ErrInvalidFormat`. The empty string decodes to the empty list. For the standard variant that uses
+raises `ErrInvalidFormat`. The empty string decodes to the empty list. Building
+the result list can raise `ErrOutOfMemory`; `ErrOutOfMemory` means the program
+ran out of memory. For the standard variant that uses
 `+` and `/`, use `encoding::base64Decode`."#;
 #[rustfmt::skip]
 const BODY: &str =
@@ -88,7 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_base64UrlDecode"),
         }],
     });

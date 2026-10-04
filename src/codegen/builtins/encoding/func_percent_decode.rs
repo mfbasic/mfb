@@ -26,7 +26,9 @@ encoding.
 The empty string decodes to the empty string. The function is a strict decoder:
 a `%` with fewer than two following bytes, a `%` followed by a non-hex digit, or
 a decoded byte sequence that is not valid UTF-8 all raise `ErrInvalidFormat`
-rather than being passed through or replaced."#;
+rather than being passed through or replaced. Building the decoded byte list
+can raise `ErrOutOfMemory`; `ErrOutOfMemory` means the program ran out of
+memory."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_percentDecode(text AS String) AS String
@@ -73,7 +75,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_percentDecode"),
         }],
     });

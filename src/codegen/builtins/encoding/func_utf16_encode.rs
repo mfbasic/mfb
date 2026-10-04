@@ -24,9 +24,10 @@ bits (offset by `55296`) as the high unit and the low ten bits (offset by
 
 These are UTF-16 *code units*, not a byte serialization: the result is a
 sequence of numbers, so no byte order (endianness) or byte-order mark applies.
-The function is **total** — every string, including the empty string (which
-yields an empty list), encodes successfully, and it never raises a runtime
-error. The inverse operation is `encoding::utf16Decode`, which turns a
+Building the result list can raise `ErrOutOfMemory`; `ErrOutOfMemory` means
+the program ran out of memory. Otherwise the function is **total** — every
+string, including the empty string (which yields an empty list), encodes
+successfully. The inverse operation is `encoding::utf16Decode`, which turns a
 `List OF Integer` of code units back into a `String` and rejects unpaired
 surrogates and out-of-range units."#;
 #[rustfmt::skip]
@@ -91,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Integer),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_utf16Encode"),
         }],
     });

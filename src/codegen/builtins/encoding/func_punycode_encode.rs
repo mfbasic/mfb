@@ -31,8 +31,9 @@ initial bias 72, base 36) and the standard bias-adaptation function. It works on
 Unicode scalar values, not grapheme clusters: `e` followed by `U+0301` is encoded
 as its two scalars (`xn--e-xbb`).
 
-The function is **total**: every `String`, including the empty string and
-all-ASCII hostnames, encodes successfully, and it never raises a runtime error.
+Every `String`, including the empty string and all-ASCII hostnames, encodes
+successfully; the one way encoding can still fail is `ErrOutOfMemory`, which
+means the program ran out of memory.
 The inverse operation is `encoding::punycodeDecode`, which converts an ASCII
 Punycode hostname back to its Unicode form."#;
 #[rustfmt::skip]
@@ -97,7 +98,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_punycodeEncode"),
         }],
     });

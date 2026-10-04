@@ -39,7 +39,8 @@ that has no `;` terminator, a numeric reference whose digits are empty or
 non-numeric, an unknown entity name, and a numeric reference whose value exceeds
 `1114111`; a surrogate reference raises `ErrEncoding`, as above.
 The empty string yields the empty string. `encoding::htmlUnescape` is the
-inverse of `encoding::htmlEscape`.
+inverse of `encoding::htmlEscape`. `ErrOutOfMemory` means the program ran out
+of memory.
 
 **Named references.** These 44 names are recognised, and no others:
 
@@ -154,7 +155,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrEncoding", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_htmlUnescape"),
         }],
     });

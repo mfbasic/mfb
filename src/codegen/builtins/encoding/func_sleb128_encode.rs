@@ -30,7 +30,9 @@ At least one byte is always emitted: `0` encodes as the single byte `[0]` and
 zero, negative values and the minimum `Integer` (ten bytes). Because the last
 group also carries a sign bit, a non-negative value can need one more byte than
 unsigned LEB128 (`sleb128Encode(64)` is `c0 00`, `uleb128Encode(64)` is `40`),
-so use `encoding::uleb128Encode` when the value is known to be non-negative. The inverse operation is
+so use `encoding::uleb128Encode` when the value is known to be non-negative.
+Encoding can raise `ErrOutOfMemory`, which means the program ran out of memory.
+The inverse operation is
 `encoding::sleb128Decode`, which reads one signed LEB128 sequence back into an
 `Integer`."#;
 #[rustfmt::skip]
@@ -102,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_sleb128Encode"),
         }],
     });

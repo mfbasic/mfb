@@ -27,7 +27,8 @@ always emitted: `0` encodes as the single byte `[0]`.
 
 
 Unlike `encoding::uleb128Encode`, `value` may be negative — ZigZag gives every
-signed value a compact unsigned form, so no value is rejected. The inverse
+signed value a compact unsigned form, so no value is rejected. Encoding can
+still raise `ErrOutOfMemory`, which means the program ran out of memory. The inverse
 operation is `encoding::varintDecode`, which reads one ZigZag varint sequence
 back into a signed `Integer`."#;
 #[rustfmt::skip]
@@ -78,7 +79,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_varintEncode"),
         }],
     });

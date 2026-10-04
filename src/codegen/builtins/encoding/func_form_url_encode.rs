@@ -30,9 +30,8 @@ marks `-`, `.`, `_`, and `~` untouched and escapes space as `%20` rather than
 such character expands to one `%XX` escape per byte (two escapes for most Latin
 and symbol characters, three or four for higher code points).
 
-The function is **total**: every `String`, including the empty string (which
-yields the empty string), encodes successfully and it never raises a runtime
-error. The inverse operation is `encoding::formUrlDecode`, which parses `%XX`
+Encoding can still raise `ErrOutOfMemory`, which means the program ran out of
+memory. The inverse operation is `encoding::formUrlDecode`, which parses `%XX`
 escapes and `+` back into text."#;
 #[rustfmt::skip]
 const BODY: &str =
@@ -95,7 +94,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_formUrlEncode"),
         }],
     });

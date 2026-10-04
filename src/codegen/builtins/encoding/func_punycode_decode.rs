@@ -16,6 +16,7 @@ Bootstring algorithm of RFC 3492. It reverses `encoding::punycodeEncode` for
 Unicode hostnames, but not for text whose ASCII labels already begin with `xn--`:
 `punycodeEncode` leaves such a label unchanged, and this function then decodes it
 (`punycodeDecode(punycodeEncode("xn--mnchen-3ya.de"))` is `münchen.de`).
+`ErrOutOfMemory` means the program ran out of memory.
 
 The hostname is split on `.` into labels, and each label is processed
 independently; the results are rejoined with `.` so the dot structure of the
@@ -105,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrEncoding", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_punycodeDecode"),
         }],
     });

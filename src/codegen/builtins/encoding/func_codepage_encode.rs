@@ -29,7 +29,7 @@ that is what your format wants. The same holds for a combining sequence such as
 `U+FFFD` itself.
 
 Use `encoding::utf8Encode` when the target really is UTF-8 and no codepage
-dispatch is needed."#;
+dispatch is needed. `ErrOutOfMemory` means the program ran out of memory."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_codepageEncode(codepage AS Codepage, text AS String) AS List OF Byte
@@ -120,7 +120,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_codepageEncode"),
         }],
     });

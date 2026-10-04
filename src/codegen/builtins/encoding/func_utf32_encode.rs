@@ -24,9 +24,10 @@ accent is two elements.
 
 These are UTF-32 *code points*, not a byte serialization: the result is a
 sequence of numbers, so no byte order (endianness) or byte-order mark applies.
-The function is **total** — every string, including the empty string (which
-yields an empty list), encodes successfully, and it never raises a runtime
-error. The inverse operation is `encoding::utf32Decode`, which turns a
+Building the result list can raise `ErrOutOfMemory`; `ErrOutOfMemory` means
+the program ran out of memory. Otherwise the function is **total** — every
+string, including the empty string (which yields an empty list), encodes
+successfully. The inverse operation is `encoding::utf32Decode`, which turns a
 `List OF Integer` of code points back into a `String` and rejects out-of-range
 or surrogate code points."#;
 #[rustfmt::skip]
@@ -75,7 +76,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Integer),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_utf32Encode"),
         }],
     });

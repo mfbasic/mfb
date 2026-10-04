@@ -29,7 +29,8 @@ valid Base32 group boundary: a symbol count whose remainder modulo eight is `1`,
 `3`, or `6` cannot occur in any well-formed Base32 encoding and is rejected. Every
 rejection — an invalid character, a bad length, padding followed by a symbol, or an
 impossible symbol count — raises `ErrInvalidFormat`. The empty string decodes to
-the empty list."#;
+the empty list. Building the result list can raise `ErrOutOfMemory`;
+`ErrOutOfMemory` means the program ran out of memory."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_base32Decode(text AS String) AS List OF Byte
@@ -109,7 +110,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_base32Decode"),
         }],
     });

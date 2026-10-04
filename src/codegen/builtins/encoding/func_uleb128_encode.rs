@@ -24,7 +24,8 @@ example values in `0`–`127` produce one byte, `128`–`16383` produce two byte
 and so on.
 
 `value` must be non-negative; unsigned LEB128 has no representation for negative
-numbers, so a negative `value` raises `ErrInvalidFormat`. Use `encoding::sleb128Encode` for signed values. The inverse operation
+numbers, so a negative `value` raises `ErrInvalidFormat`. Use `encoding::sleb128Encode` for signed values. Encoding can also raise
+`ErrOutOfMemory`, which means the program ran out of memory. The inverse operation
 is `encoding::uleb128Decode`, which reads one unsigned LEB128 sequence back into
 an `Integer`."#;
 #[rustfmt::skip]
@@ -77,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_uleb128Encode"),
         }],
     });
