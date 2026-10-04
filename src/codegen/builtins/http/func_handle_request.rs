@@ -86,7 +86,16 @@ back to `OK` below 300, `Redirect` below 400, `Client Error` below 500, and
 `Server Error` otherwise. Handler-set `Content-Length` and `Connection` headers
 are dropped so framing stays correct, and the server always emits its own
 `Content-Length` (the byte length of `http::Response.body`) plus `Connection: close`.
-The body is written only when it is non-empty."#;
+The body is written only when it is non-empty.
+
+A read/parse/route/write failure for one connection is answered with a `500`
+response or drops that one connection — it never raises out of `handleRequest`.
+What `handleRequest` itself can raise comes from accepting the next connection
+and the post-response linger read: a bad argument raises `ErrInvalidArgument`; a
+socket-level failure raises `ErrNetworkFailed`; a moved or already-closed
+resource raises `ErrResourceClosed`/`ErrResourceMoved`; a deadline expiring
+raises `ErrTimeout`; and an HTTPS handshake/record failure raises `ErrTlsFailed`.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"A plaintext accept loop with one route:
 
@@ -226,7 +235,7 @@ fn overload(listener_ty: &'static str, body: Body) -> Implementation {
             ),
         ],
         return_type: ParameterType::Nothing,
-        errors: vec![],
+        errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
         body,
     }
 }

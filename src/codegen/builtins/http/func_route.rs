@@ -51,7 +51,8 @@ tries them in list order, first match wins. `route` imposes no specificity
 ranking, so to let a literal beat an overlapping pattern, append it first.
 
 `route` performs no I/O and registers nothing globally; it is a pure constructor
-whose result the caller stores."#;
+whose result the caller stores. `ErrOutOfMemory` means the program ran out of
+memory."#;
 
 const EX: &str = r#"A route table, literal before pattern so `/foo/new` is not swallowed by `:bar`:
 
@@ -131,7 +132,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("handler", "The function invoked when this route matches. The type is exact — a function of any other signature is a compile-time mismatch, not a runtime error.", &[], super::handler_type()),
             ],
             return_type: ParameterType::named(super::ROUTE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_route"),
         }],
     });

@@ -18,7 +18,17 @@ closed exactly once when its binding goes out of scope. The returned `http::Resp
 copyable value record — `status`, `reason`, `httpVersion`, `headers`, `body`, and
 `ok` (`TRUE` only for a 2xx status) — identical to what a blocking `http::read`
 over the same URL would return. Redirects are not followed; a 3xx reply is
-returned as-is with `ok` `FALSE`."#;
+returned as-is with `ok` `FALSE`.
+
+If a transport failure was recorded into `stream`'s STATE by an earlier
+`http::pump`/the connect wait, `finish` raises that same error: `ErrInvalidArgument`
+for a bad argument, `ErrNetworkFailed` for a socket-level failure, `ErrOverflow`
+for exceeding the 64 MiB response cap, `ErrResourceClosed`/`ErrResourceMoved` for
+a moved or already-closed resource, `ErrTimeout` for an expired deadline, or
+`ErrTlsFailed` for an HTTPS record failure. Parsing a malformed response raises
+`ErrInvalidFormat`, and reading its status line or headers can also raise
+`ErrIndexOutOfRange`/`ErrNotFound`. `ErrOutOfMemory` means the program ran out
+of memory."#;
 
 const EX: &str = r#"```
 IMPORT net
@@ -59,7 +69,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("stream", "The completed stream from `http::startRead` (after `http::done` is `TRUE`). The stream stays open — `finish` reads it and leaves it to you to close.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNetworkFailed", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_finish"),
         }],
     });

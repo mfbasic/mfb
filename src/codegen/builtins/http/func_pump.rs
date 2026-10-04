@@ -18,7 +18,15 @@ Each call reads at most one 64 KiB chunk, so a large reply is accumulated across
 several `pump` calls — the point of the cooperative API. If the accumulated
 `state.raw` exceeds the internal 64 MiB response cap, `state.err` is set to the
 overflow code and the exchange ends. `pump` advances the stream's STATE in place
-and returns `Nothing`."#;
+and returns `Nothing`.
+
+A transport failure during the read is recorded into `stream`'s STATE for
+`http::finish` to raise later; `pump` itself raises only what its internal
+readiness probe (the same one `http::ready` makes) raises: `ErrInvalidArgument`
+for a bad argument, `ErrNetworkFailed` for a socket-level failure,
+`ErrResourceClosed`/`ErrResourceMoved` for a moved or already-closed resource,
+`ErrTimeout` for an expired deadline, and `ErrTlsFailed` for an HTTPS record
+failure, plus `ErrOutOfMemory` while growing the accumulated bytes."#;
 
 const EX: &str = r#"```
 IMPORT net
@@ -78,7 +86,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("stream", "The bound stream from `http::startRead`. `pump` updates the stream in place and leaves it open — you still close it.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::Nothing,
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_pump"),
         }],
     });

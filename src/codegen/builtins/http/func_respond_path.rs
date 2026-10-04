@@ -59,7 +59,16 @@ as `application/octet-stream`.
 
 The whole file is buffered into the response body, exactly as in
 `http::respondFile`; there is no streaming and no range support. Serving a large
-file occupies the single-threaded server for the duration of the read."#;
+file occupies the single-threaded server for the duration of the read.
+
+A missing or inaccessible file is reported as a `404`/`403` response, not a
+raised error (see above). `respondPath` raises `ErrInvalidArgument` from
+joining or checking the path, `ErrAccessDenied`/`ErrInvalidPath`/
+`ErrPathNotFound`/`ErrReadFailed`/`ErrWriteFailed` from opening the file once
+`fs::fileExists` has already reported it exists (a race between the check and
+the open), and `ErrResourceClosed`/`ErrResourceMoved` from the same race
+against the open handle inside `http::respondFile`. `ErrOutOfMemory` means
+the program ran out of memory."#;
 
 const EX: &str = r#"A catch-all static route — the `*` capture supplies the relative path:
 
@@ -177,7 +186,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("root", "The directory that files are served from and confined to. Interpreted by `fs::pathJoin` and `fs::isWithin`; may be absolute or relative to the working directory, and must exist for the containment check to succeed.", &[], ParameterType::String),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrAccessDenied", "ErrInvalidArgument", "ErrInvalidPath", "ErrOutOfMemory", "ErrPathNotFound", "ErrReadFailed", "ErrResourceClosed", "ErrResourceMoved", "ErrWriteFailed"],
             body: Body::mfb(BODY, "__http_respondPath"),
         }],
     });

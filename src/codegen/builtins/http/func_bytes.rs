@@ -25,7 +25,8 @@ it: `http::ok`, `http::status`, and `http::json` all take a `String` body and
 encode it for you.
 
 `http::bytes` is a pure function. It reads no state, performs no I/O, and
-mutates nothing; the same input always produces the same output."#;
+mutates nothing; the same input always produces the same output. `ErrOutOfMemory`
+means the program ran out of memory."#;
 
 const EX: &str = r#"Replace the body of an existing response:
 
@@ -81,7 +82,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ParameterType::String,
             )],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_bytes"),
         }],
     });

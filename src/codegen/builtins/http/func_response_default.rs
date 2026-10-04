@@ -32,7 +32,8 @@ Two consequences of the returned field values matter when you edit them:
 
 When the response is served, `Content-Length` and `Connection` are always supplied
 by the server and any handler-set value for those two names is dropped; the empty
-headers map here means no other header is emitted."#;
+headers map here means no other header is emitted. `ErrOutOfMemory` means the
+program ran out of memory."#;
 
 const EX: &str = r#"Building a custom status and body with `WITH`, keeping `reason` and `ok`
 consistent:
@@ -87,7 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_responseDefault"),
         }],
     });

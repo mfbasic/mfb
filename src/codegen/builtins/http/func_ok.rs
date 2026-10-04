@@ -34,7 +34,8 @@ produces a valid `200` with a zero-length body. When the response is served,
 handler-set value for those two names is dropped.
 
 To send a different status use `http::status`, for JSON use `http::json`, and to
-add further headers wrap the result with `http::withHeader`."#;
+add further headers wrap the result with `http::withHeader`. `ErrOutOfMemory`
+means the program ran out of memory."#;
 
 const EX: &str = r#"A plain-text handler:
 
@@ -83,7 +84,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("body", "The response body. Encoded to bytes as UTF-8. Any string is accepted, including the empty string.", &[], ParameterType::String)],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_ok"),
         }],
     });

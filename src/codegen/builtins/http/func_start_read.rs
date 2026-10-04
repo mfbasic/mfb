@@ -31,7 +31,16 @@ blocking wrappers over this same core.
 
 `startRead` applies the 30-second connect deadline; the per-read deadline is a
 matter for the drive loop (`http::pump` never blocks; the blocking wrappers'
-internal readiness wait bounds a stalled peer)."#;
+internal readiness wait bounds a stalled peer).
+
+`startRead` raises whatever connecting and sending the request raises: an
+unresolvable host raises `ErrAddressNotFound`; a peer that resets or closes the
+connection raises `ErrConnectionClosed`; a bad argument (such as a header or URL
+with a control byte) raises `ErrInvalidArgument`; a socket-level failure raises
+`ErrNetworkFailed`; a moved or already-closed resource raises
+`ErrResourceClosed`/`ErrResourceMoved`; the connect deadline expiring raises
+`ErrTimeout`; and an HTTPS handshake failure raises `ErrTlsFailed`.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Drive a GET cooperatively, interleaving other work:
 
@@ -74,7 +83,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space. Defaults to `GET`.", ParameterType::String, "GET"),
             ],
             return_type: super::stream_state(),
-            errors: vec![],
+            errors: vec!["ErrAddressNotFound", "ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_startRead"),
         }],
     });

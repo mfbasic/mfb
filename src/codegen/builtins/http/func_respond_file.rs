@@ -33,7 +33,12 @@ whole.
 any path, or guess a content type from a filename — it only knows about the open
 handle it is given. Most handlers should call `http::respondPath`, which resolves
 a request path under a root directory, enforces containment, infers the content
-type from the extension, and then calls this function."#;
+type from the extension, and then calls this function.
+
+`respondFile` raises whatever `fs::readAllBytes` raises on the handle it is
+given: `ErrReadFailed` on a failed read, `ErrResourceClosed` if `file` is
+already closed, `ErrResourceMoved` if `file` was moved out from under this
+call, and `ErrOutOfMemory` if the program ran out of memory."#;
 
 const EX: &str = r#"Serve one known file with an explicit content type:
 
@@ -129,7 +134,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("contentType", "The media type to advertise, stored under the header key `content-type`. Optional; omitted or `\"\"` means `application/octet-stream`. Stored verbatim, not validated.", ParameterType::String, ""),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec![
+                "ErrOutOfMemory",
+                "ErrReadFailed",
+                "ErrResourceClosed",
+                "ErrResourceMoved",
+            ],
             body: Body::mfb(BODY, "__http_respondFile"),
         }],
     });

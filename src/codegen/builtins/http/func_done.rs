@@ -15,7 +15,12 @@ a well-framed reply completes before the peer's EOF is observed.
 
 `done` is a pure predicate over `stream.state`: it neither reads the socket nor
 mutates STATE. Call it at the top of the drive loop; once it is `TRUE`, call
-`http::finish` to obtain the `http::Response`."#;
+`http::finish` to obtain the `http::Response`.
+
+Checking whether the accumulated bytes already frame a complete response reads
+the `Content-Length`/`Transfer-Encoding` header values: a malformed header map
+can raise `ErrIndexOutOfRange`, `ErrInvalidArgument`, or `ErrNotFound`.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT net
@@ -56,7 +61,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("stream", "The bound stream from `http::startRead`. The stream stays open — `done` only reads its state and leaves it to you to close.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_done"),
         }],
     });

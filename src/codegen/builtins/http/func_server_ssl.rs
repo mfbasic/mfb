@@ -58,7 +58,12 @@ listener type — the loop body and route list are unchanged between `http://` a
 handshake, parses the request, matches its path against an ordered
 `List OF http::Route`, invokes the matched handler, writes the response, and
 closes the connection. The server is single-threaded and blocking: one request is
-served at a time, in the caller's loop."#;
+served at a time, in the caller's loop.
+
+An unusable `host`/`port` combination raises `ErrAddressInvalid`; a socket-level
+failure raises `ErrNetworkFailed`; a TLS setup failure (such as an unreadable or
+invalid certificate/key file) raises `ErrTlsFailed`. `ErrOutOfMemory` means the
+program ran out of memory."#;
 
 const EX: &str = r#"An HTTPS server sharing the same route list and loop shape as a plaintext one:
 
@@ -117,7 +122,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("backlog", "Optional pending-connection queue hint passed to `listen()`. Defaults to `128`. Ignored on macOS, where Network.framework manages its own queue.", ParameterType::Integer, "128"),
             ],
             return_type: ParameterType::named(super::TLS_LISTENER_TYPE),
-            errors: vec![],
+            errors: vec!["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_serverSSL"),
         }],
     });

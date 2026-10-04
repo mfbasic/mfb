@@ -47,7 +47,19 @@ before it is placed in `body`.
 The client applies a 30-second connect deadline and, for plaintext, a 30-second
 per-read deadline so a stalled or black-holed peer fails cleanly rather than
 wedging the calling thread; the 64 MiB response cap bounds memory for a peer that
-streams without end."#;
+streams without end.
+
+`read` raises whatever the underlying connect/write/read calls raise: an
+unresolvable host raises `ErrAddressNotFound`; a peer that resets or closes the
+connection raises `ErrConnectionClosed`; a bad argument (such as a header or URL
+with a control byte) raises `ErrInvalidArgument`; a malformed response raises
+`ErrInvalidFormat`; a socket-level failure raises `ErrNetworkFailed`; exceeding
+the 64 MiB response cap raises `ErrOverflow`; a moved or already-closed resource
+raises `ErrResourceClosed`/`ErrResourceMoved`; a deadline expiring raises
+`ErrTimeout`; and an HTTPS handshake/record failure raises `ErrTlsFailed`.
+Parsing the response's status line or headers can also raise
+`ErrIndexOutOfRange`/`ErrNotFound`. `ErrOutOfMemory` means the program ran
+out of memory."#;
 
 const EX: &str = r#"A plain GET, reading the status line:
 
@@ -110,7 +122,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space or control byte. Defaults to `GET`.", ParameterType::String, "GET"),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrAddressNotFound", "ErrConnectionClosed", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNetworkFailed", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_read"),
         }],
     });

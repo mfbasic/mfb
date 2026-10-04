@@ -36,7 +36,11 @@ per call, parses the request, matches its path against an ordered
 `List OF http::Route`, invokes the matched handler, writes the response, and
 closes the connection. The server is single-threaded and blocking: one request is
 served at a time, in the caller's loop. For HTTPS use `http::serverSSL`, which
-returns a `tls::Listener` that `handleRequest` also accepts."#;
+returns a `tls::Listener` that `handleRequest` also accepts.
+
+An unusable `host`/`port` combination raises `ErrAddressInvalid`; a socket-level
+failure raises `ErrNetworkFailed`. `ErrOutOfMemory` means the program ran out of
+memory."#;
 
 const EX: &str = r#"A minimal server on port 8080:
 
@@ -95,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("backlog", "Optional pending-connection queue hint for `listen()`. Values above `2147483647` are clamped to that maximum; the host may clamp further. Defaults to `128`.", ParameterType::Integer, "128"),
             ],
             return_type: ParameterType::named(super::LISTENER_TYPE),
-            errors: vec![],
+            errors: vec!["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_server"),
         }],
     });

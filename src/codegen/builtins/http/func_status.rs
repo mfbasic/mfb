@@ -50,7 +50,8 @@ The `http` package uses `status` internally for its own generated responses —
 when a handler traps.
 
 For a `200` text response use `http::ok`, for JSON use `http::json`, and to add
-further headers wrap the result with `http::withHeader`."#;
+further headers wrap the result with `http::withHeader`. `ErrOutOfMemory`
+means the program ran out of memory."#;
 
 const EX: &str = r#"A validation-failure response from a handler:
 
@@ -116,7 +117,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("body", "The response body. Encoded to bytes as UTF-8. Any string is accepted, including the empty string.", &[], ParameterType::String),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_status"),
         }],
     });

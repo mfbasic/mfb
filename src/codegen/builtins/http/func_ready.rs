@@ -14,7 +14,13 @@ progress is possible and otherwise does the caller's own work.
 
 `ready` does not itself advance the exchange or change `stream`'s STATE; it only
 reports readiness. A closed peer reads as ready (the terminating zero-byte read is
-available), so a loop gated on `ready` still reaches `http::done`."#;
+available), so a loop gated on `ready` still reaches `http::done`.
+
+`ready` raises whatever the underlying readiness poll raises: a bad argument
+raises `ErrInvalidArgument`; a socket-level failure raises `ErrNetworkFailed`; a
+moved or already-closed resource raises `ErrResourceClosed`/`ErrResourceMoved`; a
+deadline expiring raises `ErrTimeout`; and an HTTPS record failure raises
+`ErrTlsFailed`. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT net
@@ -54,7 +60,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("stream", "The bound stream from `http::startRead`. The stream stays open — `ready` only reads its state and leaves it to you to close.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_ready"),
         }],
     });

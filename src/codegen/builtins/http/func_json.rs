@@ -45,7 +45,8 @@ supplied by the server, and any handler-set value for those two names is
 dropped.
 
 To return JSON under a status other than `200`, use `http::status` and override
-the content type with `http::withHeader`."#;
+the content type with `http::withHeader`. `ErrOutOfMemory` means the program
+ran out of memory."#;
 
 const EX: &str = r#"A JSON handler:
 
@@ -113,7 +114,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("body", "The JSON document, sent verbatim. Encoded to bytes as UTF-8. Any string is accepted, including the empty string and text that is not valid JSON.", &[], ParameterType::String)],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_json"),
         }],
     });

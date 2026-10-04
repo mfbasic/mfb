@@ -36,7 +36,8 @@ ineffective rather than an error.
 control characters. Do not build a header value out of unvalidated request data
 without checking it yourself.
 
-The first parameter is also accepted under the name `response`."#;
+The first parameter is also accepted under the name `response`. `ErrOutOfMemory`
+means the program ran out of memory."#;
 
 const EX: &str = r#"Add a caching directive to a text response:
 
@@ -121,7 +122,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("value", "The header value, stored verbatim. Any string is accepted, including the empty string.", &[], ParameterType::String),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__http_withHeader"),
         }],
     });
