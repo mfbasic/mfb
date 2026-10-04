@@ -578,7 +578,11 @@ impl CodeBuilder<'_> {
             let holder_slot = self.allocate_stack_object("su_ref_strcap_owner", 8);
             let holder = self.allocate_register();
             let spare = self.allocate_register();
-            self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+            self.emit(abi::load_u64(
+                &holder,
+                CLOSURE_ENV_REGISTER,
+                closure_env_word_offset(index),
+            ));
             self.emit(abi::store_u64(&holder, abi::stack_pointer(), holder_slot));
             self.emit(abi::load_u64(&spare, &holder, 0));
             self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
@@ -1561,7 +1565,11 @@ impl CodeBuilder<'_> {
             Some(index) => {
                 let slot = self.allocate_stack_object("str_resource_base_owner", 8);
                 let holder = self.allocate_register();
-                self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+                self.emit(abi::load_u64(
+                    &holder,
+                    CLOSURE_ENV_REGISTER,
+                    closure_env_word_offset(index),
+                ));
                 self.emit(abi::store_u64(&holder, abi::stack_pointer(), slot));
                 Some(slot)
             }

@@ -2975,6 +2975,9 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterT
         // (plan-114-B). `is_pointer_collection_payload_type` applies the same
         // rule to a collection slot.
         ParameterType::Res(_) | ParameterType::ThreadHandle { .. } => false,
+        // bug-781: a function value's slot points to the closure object the record
+        // owns — its own allocation, copied with the record and dropped with it.
+        ParameterType::Func(..) => true,
         // Scalars occupy their slot by value.
         ParameterType::Boolean
         | ParameterType::Byte
@@ -2992,7 +2995,6 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterT
         | ParameterType::MapEntryOf(..)
         | ParameterType::AttributeString
         | ParameterType::C(_)
-        | ParameterType::Func(..)
         | ParameterType::Var(_)
         | ParameterType::Arg(_)
         | ParameterType::Unknown => named_field_is_pointer(model, field_type),
@@ -3179,6 +3181,12 @@ fn flatness_walk(
         // `ir::verify`'s `is_copyable` has said `ThreadHandle { .. } => false`
         // all along; this arm is codegen finally agreeing with it.
         ParameterType::ThreadHandle { .. } => false,
+        // bug-781: a function value is flat in NEITHER mode. Its word points to a
+        // closure object the holder owns — copying the holder copies the closure
+        // and its environment (`_mfb_rt_closure_copy`), dropping it frees them —
+        // so a `memcpy` that shared the pointer would leave two owners of one
+        // closure. (It never crosses a thread: `FUNC` is unsendable.)
+        ParameterType::Func(..) => false,
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
         ParameterType::ResultOf(payload) => flatness_walk(model, payload, mode, visited),
@@ -3205,7 +3213,6 @@ fn flatness_walk(
         | ParameterType::MapEntryOf(..)
         | ParameterType::C(_)
         | ParameterType::AttributeString
-        | ParameterType::Func(..)
         | ParameterType::Var(_)
         | ParameterType::Arg(_)
         | ParameterType::Unknown
@@ -3455,6 +3462,27 @@ pub(crate) fn type_contains_resource(model: &TypeModel, type_: &ParameterType) -
     false
 }
 
+/// bug-781: true when a function value is reachable from `type_` — the type itself, a
+/// field, a variant or a collection / `Result` payload. Such a value owns the closures it
+/// holds: an owning store copies them (`_mfb_rt_closure_copy`) and its owner's drop frees
+/// them (`_mfb_rt_closure_drop`), so it joins the graph-owned class beside the values
+/// whose type reaches a cycle. A function's own parameter and return types are not
+/// components: a function value holds code and an environment, never a value of them.
+pub(crate) fn type_contains_func(model: &TypeModel, type_: &ParameterType) -> bool {
+    let mut stack = vec![type_.clone()];
+    let mut visited: std::collections::HashSet<ParameterType> = std::collections::HashSet::new();
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        if matches!(current, ParameterType::Func(..)) {
+            return true;
+        }
+        stack.extend(type_components(model, &current));
+    }
+    false
+}
+
 /// plan-134-H: the recursive-value drop walker's kinds (`TypeModel::graph_drop_kinds`), as
 /// rendered names. First every [`recursive_transfer_types`] member in that set's order, so a
 /// kind index names the same type in the copy walker and the drop walker. Then every
@@ -3517,12 +3545,15 @@ pub(crate) fn graph_drop_kind_names(
         if !visited.insert(current.clone()) {
             continue;
         }
+        // bug-781: a composite holding a function value is owned and dropped like a
+        // value that reaches a cycle. A bare function value needs no kind: its owner
+        // calls `_mfb_rt_closure_drop` directly.
         let is_block_type = model.record_fields.contains_key(&current)
             || model.union_names.contains(&current)
             || crate::codegen::engine::types::typed_is_collection_type(&current);
         if is_block_type
             && !type_participates_in_cycle(model, &current)
-            && type_reaches_cycle(model, &current)
+            && (type_reaches_cycle(model, &current) || type_contains_func(model, &current))
             && !type_contains_resource(model, &current)
         {
             let rendered = current.name().into_owned();

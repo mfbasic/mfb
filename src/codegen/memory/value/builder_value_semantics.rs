@@ -183,6 +183,24 @@ impl CodeBuilder<'_> {
                     text: "default String".to_string(),
                 })
             }
+            // bug-781: a function value's default is the null word. A `FUNC` has no
+            // value to make up — no function to point at — and the sites that need a
+            // default (the temp an inline `TRAP` binds, a defaulted record field) never
+            // let a program call it: the `RECOVER` value or the handler's divergence
+            // supersedes it on the error path, as for every default here. The null word
+            // is the one function value no holder copies or frees (`_mfb_rt_closure_copy`
+            // returns it, `_mfb_rt_closure_drop` skips it). Without this arm every inline
+            // `TRAP` on a call returning a function value failed to build.
+            ParameterType::Func(..) => {
+                let register = self.allocate_register();
+                self.emit(abi::move_immediate(&register, "Integer", "0"));
+                Ok(ValueResult {
+                    origin: None,
+                    type_: type_.clone(),
+                    location: Operand::from(register),
+                    text: format!("default {type_}"),
+                })
+            }
             _ if self.is_enum_type(type_) => {
                 // An enum value IS its ordinal at run time, so its default is
                 // ordinal 0 — the first declared variant — exactly as `Integer`'s
@@ -451,6 +469,8 @@ impl CodeBuilder<'_> {
                 true
             }
             _ if typed_is_collection_type(type_) => true,
+            // bug-781: the null function value (`lower_default_value_inner`).
+            ParameterType::Func(..) => true,
             _ if self.is_resource_union_type(type_) => true,
             _ if builtins::is_resource_type(&type_)
                 || self

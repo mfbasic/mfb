@@ -485,7 +485,6 @@ impl CodeBuilder<'_> {
             self.emit_owned_value_drop(&OwnedValueCleanup {
                 type_: field_type.clone(),
                 stack_offset: old_slot,
-                closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
                 result_wrapper: None,
@@ -535,7 +534,6 @@ impl CodeBuilder<'_> {
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: field_type,
                     stack_offset: slot,
-                    closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: None,
                     result_wrapper: None,
@@ -811,7 +809,6 @@ impl CodeBuilder<'_> {
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: field_type,
                     stack_offset: slot,
-                    closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: None,
                     result_wrapper: None,
@@ -1310,7 +1307,6 @@ impl CodeBuilder<'_> {
         self.emit_owned_value_drop(&OwnedValueCleanup {
             type_: record_type.clone(),
             stack_offset: old_slot,
-            closure_captures: None,
             capacity_slot: None,
             loop_alias_slot: None,
             result_wrapper: None,
@@ -2244,9 +2240,11 @@ impl CodeBuilder<'_> {
                         // immutable. Copying it here cost one block per call
                         // (`rt_lambda_capture_not_copied_per_call`). Like a by-ref
                         // capture, the binding owns nothing.
+                        // bug-781: a captured function value (or a value holding one)
+                        // is owned by the environment the same way.
                         let borrowed_capture = !*mutable
                             && matches!(value, Some(NirValue::Capture { by_ref: false, .. }))
-                            && self.is_freeable_flat_value(type_);
+                            && (self.is_freeable_flat_value(type_) || self.owns_graph(type_));
                         let aliases_capture = by_ref_capture_slot || borrowed_capture;
                         // A reference local must never carry a folded constant: its
                         // value lives in the parent slot and can change underneath
@@ -2411,28 +2409,11 @@ impl CodeBuilder<'_> {
                             && !aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some());
-                        // plan-77 M6: a closure binding is non-escaping when its
-                        // name is never used as a value (only a direct invoke
-                        // target) — see `collect_value_used_locals`. Such a closure
-                        // is dead at scope end; its object/env/flat-captures are
-                        // freed by the closure branch below. The env/object frees
-                        // share the same not-yet-initialized-slot hazard as an owned
-                        // flat value, so the slot must be zeroed and registered too.
-                        let is_non_escaping_closure = !aliases_union_variant
-                            && !by_ref_capture_slot
-                            && !self.value_used_locals.contains(name)
-                            && value
-                                .as_ref()
-                                .is_some_and(|v| matches!(v, NirValue::Closure { .. }));
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
                         // stays null and the scope-drop free/close skips it instead of
                         // touching an uninitialized pointer.
-                        if owns_freeable_value
-                            || result_wrapper.is_some()
-                            || owns_resource_slot
-                            || is_non_escaping_closure
-                        {
+                        if owns_freeable_value || result_wrapper.is_some() || owns_resource_slot {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
                             self.emit(abi::store_u64(
                                 &zero_slot,
@@ -2493,7 +2474,6 @@ impl CodeBuilder<'_> {
                                         OwnedValueCleanup {
                                             type_: type_.clone(),
                                             stack_offset,
-                                            closure_captures: None,
                                             // A promoted-vector fallback block is never a
                                             // `String`, so it never carries self-append
                                             // headroom.
@@ -2759,7 +2739,6 @@ impl CodeBuilder<'_> {
                                 OwnedValueCleanup {
                                     type_: type_.clone(),
                                     stack_offset,
-                                    closure_captures: None,
                                     // bug-560: if an in-place self-append targets this
                                     // name, its block carries capacity headroom the
                                     // `byteLength` header does not record, and the tight
@@ -2778,35 +2757,12 @@ impl CodeBuilder<'_> {
                                 OwnedValueCleanup {
                                     type_: type_.clone(),
                                     stack_offset,
-                                    closure_captures: None,
                                     capacity_slot: None,
                                     loop_alias_slot: None,
                                     result_wrapper: Some(wrapper),
                                 },
                             ));
                             self.owned_value_slots.push(stack_offset);
-                        } else if is_non_escaping_closure {
-                            // plan-77 M6: free the closure object, its env, and each
-                            // freeable-flat capture (all deep-copied, so unaliased)
-                            // at scope-drop. The captures' free types are resolved
-                            // now (Local captures from `self.locals`); a capture that
-                            // is a by-value scalar/float or of unknown type is left
-                            // (a safe leak, never a wild free).
-                            if let Some(NirValue::Closure { name, captures, .. }) = value {
-                                let capture_types = self.closure_env_free_types(name, captures);
-                                self.active_cleanups.push(ActiveCleanup::OwnedValue(
-                                    OwnedValueCleanup {
-                                        type_: type_.clone(),
-                                        stack_offset,
-                                        closure_captures: Some(capture_types),
-                                        // A closure object, not a `String`.
-                                        capacity_slot: None,
-                                        loop_alias_slot: None,
-                                        result_wrapper: None,
-                                    },
-                                ));
-                                self.owned_value_slots.push(stack_offset);
-                            }
                         }
                         // Default-initialize a `RES` binding's `STATE` payload.
                         // The owning binding allocates the state record on first
@@ -2972,7 +2928,6 @@ impl CodeBuilder<'_> {
                             self.emit_owned_value_drop(&OwnedValueCleanup {
                                 type_: value_type.clone(),
                                 stack_offset: old_slot,
-                                closure_captures: None,
                                 capacity_slot,
                                 loop_alias_slot: None,
                                 result_wrapper: None,
@@ -3201,7 +3156,6 @@ impl CodeBuilder<'_> {
                                 self.emit_owned_value_drop(&OwnedValueCleanup {
                                     type_: result.type_.clone(),
                                     stack_offset: old_slot,
-                                    closure_captures: None,
                                     capacity_slot: shared_slot,
                                     loop_alias_slot: None,
                                     result_wrapper: None,
@@ -3261,7 +3215,6 @@ impl CodeBuilder<'_> {
                                 self.emit_owned_value_drop(&OwnedValueCleanup {
                                     type_: result.type_.clone(),
                                     stack_offset,
-                                    closure_captures: None,
                                     // bug-560: this drop runs BEFORE the new value is
                                     // stored and before `reset_string_capacity_shadow`,
                                     // so the shadow still describes the block being
@@ -3873,7 +3826,6 @@ impl CodeBuilder<'_> {
                             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                                 type_: ParameterType::named("Error"),
                                 stack_offset: trap_offset,
-                                closure_captures: None,
                                 capacity_slot: None,
                                 loop_alias_slot: None,
                                 result_wrapper: None,
@@ -4295,7 +4247,11 @@ impl CodeBuilder<'_> {
         let holder_slot = self.allocate_stack_object("ref_strcap_owner", 8);
         let holder = self.allocate_register();
         let spare = self.allocate_register();
-        self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+        self.emit(abi::load_u64(
+            &holder,
+            CLOSURE_ENV_REGISTER,
+            closure_env_word_offset(index),
+        ));
         self.emit(abi::store_u64(&holder, abi::stack_pointer(), holder_slot));
         self.emit(abi::load_u64(&spare, &holder, 0));
         self.emit(abi::store_u64(&spare, abi::stack_pointer(), slot));
@@ -4940,7 +4896,6 @@ impl CodeBuilder<'_> {
                 .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                     type_: ParameterType::String,
                     stack_offset: *item_slot,
-                    closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: Some(*alias_slot),
                     result_wrapper: None,

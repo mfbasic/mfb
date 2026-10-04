@@ -341,22 +341,15 @@ collection (one whose own payloads include a resource or a recursive type) — s
 `is_pointer_collection_payload_type`. [[src/codegen/collection/layout/builder_collection_layout.rs:is_pointer_collection_payload_type]]
 
 A **function value** (`FUNC(...) AS T`, list element or map value) is packed as a
-single **8-byte pointer** to its arena-lifetime closure object (`./mfb spec memory
-closures`), 8-aligned, `valueLength` = 8. It is a **reference** payload with the
-same discipline as a scalar `Integer` word: the pointer is written verbatim on
-insert, read back verbatim on `get`, and `memcpy`-copied when the collection is
-copied — the closure object it points at is **never deep-copied on insert and
-never freed when the collection is dropped**. A function value therefore
-permits a memcpy-copyable container, although its list still uses kind 0
-with lookup entries, not the Integer list's kind 2. `type_is_memcpy_copyable` is true for
-a function type: the flatness walk sends `Func` to its model lookup, and a function
-type is not a record, a union or `Error`, so it takes the scalar answer. A
-`List`/`Map` of function values is therefore itself a flat block, which
-`is_freeable_flat_value` hands to scope-drop. Its `arena_free` reclaims only the
-packed pointer array, leaving every referenced closure object owned by the arena;
-a bare function value is never freed by that path. A record **field** of function
-type is likewise a bare 8-byte slot and is unaffected.
-[[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]] [[src/codegen/collection/layout/builder_collection_layout.rs:named_field_is_pointer]] [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
+single **8-byte pointer** to the closure object the collection owns (`./mfb spec
+memory closures`), 8-aligned, `valueLength` = 8, in a kind-0 list with lookup
+entries. Since bug-781 that payload is an owned pointer edge, like a non-flat nested
+collection's: a function type is not `type_is_memcpy_copyable`, so a `List`/`Map` of
+function values is not a flat block. An owning insert stores a closure the collection
+owns (a fresh one, or a copy of an aliased one), `get` hands back a copy, copying the
+collection copies every closure in it, and dropping it frees them
+(`_mfb_rt_closure_drop`). A record **field** of function type is likewise a pointer edge
+of its record. [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]] [[src/codegen/memory/arena/builder_arena_transfer.rs:payload_edge_shape]] [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
 
 ### Capacity Headroom and Growth
 

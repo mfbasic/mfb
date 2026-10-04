@@ -1005,7 +1005,6 @@ impl CodeBuilder<'_> {
             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                 type_: ParameterType::list_of(ParameterType::Integer),
                 stack_offset: slot,
-                closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
                 result_wrapper: None,
@@ -1038,7 +1037,6 @@ impl CodeBuilder<'_> {
             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                 type_: ParameterType::String,
                 stack_offset: slot,
-                closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
                 result_wrapper: None,
@@ -1171,7 +1169,11 @@ impl CodeBuilder<'_> {
         // A borrowed scratch: take the creator's current block as the working copy.
         if let Some(index) = env {
             let holder = self.temporary_vreg();
-            self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+            self.emit(abi::load_u64(
+                &holder,
+                CLOSURE_ENV_REGISTER,
+                closure_env_word_offset(index),
+            ));
             self.emit(abi::load_u64(&block, &holder, 0));
             self.emit(abi::store_u64(&block, abi::stack_pointer(), scratch_slot));
         }
@@ -1259,7 +1261,11 @@ impl CodeBuilder<'_> {
         let block = self.temporary_vreg();
         let holder = self.temporary_vreg();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), scratch_slot));
-        self.emit(abi::load_u64(&holder, CLOSURE_ENV_REGISTER, index * 8));
+        self.emit(abi::load_u64(
+            &holder,
+            CLOSURE_ENV_REGISTER,
+            closure_env_word_offset(index),
+        ));
         self.emit(abi::store_u64(&block, &holder, 0));
     }
 }
@@ -1381,7 +1387,6 @@ impl CodeBuilder<'_> {
             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                 type_: ParameterType::list_of(ParameterType::Integer),
                 stack_offset: slot,
-                closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
                 result_wrapper: None,
@@ -2763,7 +2768,9 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("http.PendingState", SIZE_VARIES),
     ("http.Request", SIZE_VARIES),
     ("http.RequestPart", SIZE_VARIES),
-    ("http.Route", SIZE_VARIES),
+    // bug-781: its `handler` is a function value the record owns, so the record is a
+    // pointer field (not inlined) and is replaced by arm C's pointer store.
+    ("http.Route", FieldKindRow::Arm('C')),
     ("net.Url", SIZE_VARIES),
     ("net.Address", SIZE_VARIES),
     ("net.PingResult", SIZE_VARIES),

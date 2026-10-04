@@ -147,6 +147,43 @@ pub(crate) const CLOSURE_OBJECT_SIZE: usize = 16;
 pub(crate) const CLOSURE_OFFSET_CODE: usize = 0;
 pub(crate) const CLOSURE_OFFSET_ENV: usize = 8;
 
+/// bug-781: a capture environment describes itself. Its word 0 is the address of
+/// the creating `LAMBDA`'s environment routine (`closure_env_ops_symbol`), which
+/// copies or drops an environment of exactly that `LAMBDA`'s layout; the capture
+/// words (and any compiler-managed auxiliary words) follow it.
+pub(crate) const CLOSURE_ENV_OFFSET_OPS: usize = 0;
+/// The number of header words before the first capture word of an environment.
+pub(crate) const CLOSURE_ENV_HEADER_WORDS: usize = 1;
+
+/// The byte offset of capture (or auxiliary) word `index` in a capture
+/// environment — past the header word.
+pub(crate) const fn closure_env_word_offset(index: usize) -> usize {
+    (CLOSURE_ENV_HEADER_WORDS + index) * 8
+}
+
+/// The environment routine's operation in argument 0: drop the environment in
+/// argument 1 (free its owned captures, then the block itself).
+pub(crate) const CLOSURE_ENV_OP_DROP: usize = 0;
+/// The environment routine's operation in argument 0: return a deep copy of the
+/// environment in argument 1.
+pub(crate) const CLOSURE_ENV_OP_COPY: usize = 1;
+
+/// `_mfb_rt_closure_drop(object)`: free a function value — nothing for a null
+/// pointer or a static descriptor (`env = 0`), otherwise the environment (through
+/// its routine) and the 16-byte object.
+pub(crate) const CLOSURE_DROP_SYMBOL: &str = "_mfb_rt_closure_drop";
+/// `_mfb_rt_closure_copy(object) -> object`: the copy a new holder owns — the same
+/// pointer for a null pointer or a static descriptor, otherwise a fresh object over
+/// a deep copy of the environment.
+pub(crate) const CLOSURE_COPY_SYMBOL: &str = "_mfb_rt_closure_copy";
+
+/// The environment routine of the `LAMBDA` lifted to `lambda_symbol`:
+/// `(op, env) -> env` with `op` one of `CLOSURE_ENV_OP_DROP` / `CLOSURE_ENV_OP_COPY`.
+/// `lambda_symbol` is already a valid symbol, so concatenation is unique.
+pub(crate) fn closure_env_ops_symbol(lambda_symbol: &str) -> String {
+    format!("_mfb_rt_closure_env_{lambda_symbol}")
+}
+
 /// The static closure-descriptor data symbol for a function referenced as a
 /// no-capture function value. One `{code, env=0}` descriptor per function, in
 /// BSS, its `code` word populated once at startup — so a `FunctionRef` loads this

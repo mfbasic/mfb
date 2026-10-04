@@ -256,35 +256,6 @@ pub(crate) fn function_returns_fresh_string(
     r.any
 }
 
-/// plan-77 M6: names of every local used as a VALUE — read (`Local`) or
-/// address-taken (`LocalRef`) — anywhere in `ops`. A closure binding whose name
-/// is NOT in this set never flows anywhere except as a direct call target (an
-/// invoke lowers `Call { target: name }`, whose `target` is a String, not a
-/// `NirValue`, so it is not visited): it is not returned, passed as an argument,
-/// stored, captured, or aliased, so it is provably dead at scope end and safe to
-/// free. Reuses the exhaustive `NirVisitor` seam (a new value variant is a
-/// compile error in `walk_value`), so no escape route can be silently missed —
-/// which for a would-be-freed closure is the difference between a reclaim and a
-/// use-after-free. Conservative in the safe direction: any doubt keeps the name.
-pub(crate) fn collect_value_used_locals(ops: &[NirOp], out: &mut HashSet<String>) {
-    use nir::visit::{walk_value, NirVisitor};
-    struct Collector<'a> {
-        out: &'a mut HashSet<String>,
-    }
-    impl NirVisitor for Collector<'_> {
-        fn visit_value(&mut self, value: &NirValue) {
-            match value {
-                NirValue::Local(name) | NirValue::LocalRef { name, .. } => {
-                    self.out.insert(name.clone());
-                }
-                _ => {}
-            }
-            walk_value(self, value);
-        }
-    }
-    Collector { out }.visit_ops(ops);
-}
-
 /// Collect every local *read* (`Local`) in `value`, via the shared NIR value
 /// seam (bug-328).
 fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
@@ -861,6 +832,9 @@ pub(crate) fn lower_function(
     module_name: &str,
     // plan-147-D: `None` is the base lowering (every parameter lent).
     variant: Option<&OwnedVariant>,
+    // bug-781: receives the environment layout of every capturing `LAMBDA` the
+    // function creates, for the module to emit each one's environment routine.
+    closure_env_layouts: &mut Vec<ClosureEnvLayout>,
 ) -> Result<CodeFunction, String> {
     let params = function
         .params
@@ -914,7 +888,6 @@ pub(crate) fn lower_function(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
-        value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         element_updates: ElementUpdates::default(),
         record_temps: Default::default(),
@@ -971,9 +944,7 @@ pub(crate) fn lower_function(
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
-        pending_closure_temps: Vec::new(),
-        closure_temp_wanted: false,
-        closure_temp_arguments: Vec::new(),
+        closure_env_layouts: Vec::new(),
         fresh_string_block: None,
         operand_snapshot_wanted: Vec::new(),
         for_each_iterable_locals: Vec::new(),
@@ -1063,7 +1034,6 @@ pub(crate) fn lower_function(
                 .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                     type_: function.params[index].type_.clone(),
                     stack_offset,
-                    closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: None,
                     result_wrapper: None,
@@ -1105,7 +1075,6 @@ pub(crate) fn lower_function(
     // plan-142-B: the scratch block the in-place shrink arms keep marks in.
     builder.prescan_self_update_scratch(&function.name, &function.body);
     builder.prescan_string_app_resource_base(&function.body);
-    collect_value_used_locals(&function.body, &mut builder.value_used_locals);
     // plan-134-D: the owning stores that read their source for the last time
     // (plan-134-C), so a recursive value's store can move instead of copying.
     builder.move_sites = Some(
@@ -1240,6 +1209,7 @@ pub(crate) fn lower_function(
             }
         }
     }
+    closure_env_layouts.append(&mut builder.closure_env_layouts);
     // Fuse single-use `a*b ± c` float chains into one single-rounded fused op
     // (plan-02 Phase 3) before allocation, so the fused op's operands are colored
     // as a unit. A no-op unless the `d`-native FP virtual registers are present.
@@ -1534,7 +1504,6 @@ pub(crate) fn lower_abi_function_helper(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
-        value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         element_updates: ElementUpdates::default(),
         record_temps: Default::default(),
@@ -1584,9 +1553,7 @@ pub(crate) fn lower_abi_function_helper(
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
-        pending_closure_temps: Vec::new(),
-        closure_temp_wanted: false,
-        closure_temp_arguments: Vec::new(),
+        closure_env_layouts: Vec::new(),
         fresh_string_block: None,
         operand_snapshot_wanted: Vec::new(),
         for_each_iterable_locals: Vec::new(),
@@ -1729,7 +1696,6 @@ pub(crate) fn lower_thread_copy_function(
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
-        value_used_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
         element_updates: ElementUpdates::default(),
         record_temps: Default::default(),
@@ -1779,9 +1745,7 @@ pub(crate) fn lower_thread_copy_function(
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
-        pending_closure_temps: Vec::new(),
-        closure_temp_wanted: false,
-        closure_temp_arguments: Vec::new(),
+        closure_env_layouts: Vec::new(),
         fresh_string_block: None,
         operand_snapshot_wanted: Vec::new(),
         for_each_iterable_locals: Vec::new(),
@@ -1856,102 +1820,4 @@ pub(crate) fn lower_thread_copy_function(
         relocations: builder.relocations,
         stack_slots,
     })
-}
-
-#[cfg(test)]
-mod m6_escape_tests {
-    use super::collect_value_used_locals;
-    use crate::target::shared::nir::{NirOp, NirSourceLoc, NirValue};
-    use crate::types::ParameterType;
-    use std::collections::HashSet;
-
-    fn closure() -> NirValue {
-        NirValue::Closure {
-            name: "lambda_impl".to_string(),
-            type_: ParameterType::parse("FUNC(Integer) AS Integer"),
-            captures: vec![],
-        }
-    }
-    fn used(ops: &[NirOp]) -> HashSet<String> {
-        let mut out = HashSet::new();
-        collect_value_used_locals(ops, &mut out);
-        out
-    }
-
-    // plan-77 M6: the escape analysis. A closure binding invoked ONLY as a call
-    // target is not "value-used" (non-escaping, safe to free); any other reference
-    // — argument, return, store, assign, LocalRef — marks it value-used (escaping,
-    // NOT freed). A missed escape here would be a use-after-free, so pin it.
-    #[test]
-    fn invoke_only_closure_is_not_value_used() {
-        let ops = vec![
-            NirOp::Bind {
-                mutable: false,
-                name: "f".to_string(),
-                type_: ParameterType::parse("FUNC(Integer) AS Integer"),
-                value: Some(closure()),
-            },
-            // `f(x)` lowers to Call { target: "f" } — the target is a String, not a
-            // NirValue, so "f" is not visited as a value.
-            NirOp::Eval {
-                value: NirValue::Call {
-                    target: "f".to_string(),
-                    args: vec![NirValue::Const {
-                        type_: ParameterType::Integer,
-                        value: "5".to_string(),
-                    }],
-                    loc: NirSourceLoc::default(),
-                },
-            },
-        ];
-        assert!(!used(&ops).contains("f"));
-    }
-
-    #[test]
-    fn returned_closure_is_value_used() {
-        let ops = vec![NirOp::Return {
-            value: Some(NirValue::Local("g".to_string())),
-        }];
-        assert!(used(&ops).contains("g"));
-    }
-
-    #[test]
-    fn passed_as_argument_closure_is_value_used() {
-        let ops = vec![NirOp::Eval {
-            value: NirValue::Call {
-                target: "collections.forEach".to_string(),
-                args: vec![
-                    NirValue::Local("list".to_string()),
-                    NirValue::Local("h".to_string()),
-                ],
-                loc: NirSourceLoc::default(),
-            },
-        }];
-        let u = used(&ops);
-        assert!(u.contains("h"));
-        assert!(u.contains("list"));
-    }
-
-    #[test]
-    fn address_taken_and_aliased_closures_are_value_used() {
-        let ops = vec![
-            // `LET k = f` aliases f — f escapes to k.
-            NirOp::Bind {
-                mutable: false,
-                name: "k".to_string(),
-                type_: ParameterType::parse("FUNC(Integer) AS Integer"),
-                value: Some(NirValue::Local("f".to_string())),
-            },
-            // A LocalRef of `m` (address taken) is also an escape.
-            NirOp::Eval {
-                value: NirValue::LocalRef {
-                    name: "m".to_string(),
-                    type_: ParameterType::parse("FUNC(Integer) AS Integer"),
-                },
-            },
-        ];
-        let u = used(&ops);
-        assert!(u.contains("f"));
-        assert!(u.contains("m"));
-    }
 }

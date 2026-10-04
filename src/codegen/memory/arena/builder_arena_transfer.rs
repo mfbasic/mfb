@@ -739,6 +739,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
             }
+            // bug-781: a function value's copy is a new closure over a deep copy of
+            // its environment, made by the environment's own routine — the type does
+            // not say what was captured. A static descriptor (and a null word) is
+            // returned as it is.
+            ParameterType::Func(..) => {
+                self.emit(abi::move_register(abi::c_arg(0), source));
+                self.emit_symbol_call(CLOSURE_COPY_SYMBOL);
+                let result = self.allocate_register();
+                self.emit(abi::move_register(&result, abi::return_register()));
+                Ok(result)
+            }
             // Any fully-flat value — `String`, a flat record/data-union, or a flat
             // collection — is a single pointer-free block, so the generic flat
             // copy (`arena_alloc` + `memcpy`) is a sound deep copy (plan-02 §4.1,
@@ -1653,7 +1664,10 @@ impl CodeBuilder<'_> {
         payload_type: &ParameterType,
     ) -> Option<PayloadEdgeShape> {
         if typed_is_collection_type(payload_type)
-            || matches!(payload_type, ParameterType::ResultOf(_))
+            || matches!(
+                payload_type,
+                ParameterType::ResultOf(_) | ParameterType::Func(..)
+            )
             || *payload_type == ParameterType::named("Error")
         {
             Some(PayloadEdgeShape::Pointer)
@@ -1698,6 +1712,11 @@ impl CodeBuilder<'_> {
     }
 
     fn collection_payload_needs_transfer_fix(&self, type_: &ParameterType) -> bool {
+        // bug-781: a function-value payload is the pointer to a closure the collection
+        // owns, so every copy of the collection copies it.
+        if matches!(type_, ParameterType::Func(..)) {
+            return true;
+        }
         if self.type_model.record_fields.contains_key(type_) {
             // A record payload was byte-copied whole (inlined fields came along);
             // it only needs the per-payload fix if it still has pointer fields to

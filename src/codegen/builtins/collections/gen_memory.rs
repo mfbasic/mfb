@@ -528,7 +528,6 @@ impl CodeBuilder<'_> {
                     self.emit_owned_value_drop(&OwnedValueCleanup {
                         type_: initial.type_.clone(),
                         stack_offset: accumulator_slot,
-                        closure_captures: None,
                         capacity_slot: None,
                         loop_alias_slot: None,
                         result_wrapper: None,
@@ -635,7 +634,6 @@ impl CodeBuilder<'_> {
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: initial.type_.clone(),
                     stack_offset: accumulator_slot,
-                    closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: None,
                     result_wrapper: None,

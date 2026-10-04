@@ -157,11 +157,6 @@ pub(crate) struct CodeBuilder<'a> {
     /// Such a local may be observed or mutated through the slot reference, so it is never
     /// loop-promoted (its slot must stay authoritative).
     pub(crate) address_taken_locals: HashSet<String>,
-    /// plan-77 M6: locals used as a *value* (read `Local` or address-taken
-    /// `LocalRef`) anywhere in the function. A closure binding whose name is NOT
-    /// here is only ever a direct invoke target and never escapes, so it is freed
-    /// at scope end.
-    pub(crate) value_used_locals: HashSet<String>,
     /// plan-86 E, bug-689: bindings `e = collections::get(L, i)` (or `getOr`) that
     /// hold an ALIAS into `L`'s element instead of an owned copy
     /// (`analysis::borrow_get`). Such a `get` returns a borrow instead of a fresh
@@ -418,22 +413,10 @@ pub(crate) struct CodeBuilder<'a> {
     /// consumer (`lower_value_owned`, `RETURN`, `StateAssign`, thread-spawn move)
     /// claims its temp so the block is freed exactly once by whoever owns it.
     pub(crate) pending_temp_frees: Vec<PendingTemp>,
-    /// bug-572: capturing `LAMBDA` objects built while lowering the arguments of
-    /// a call that will free them. Pushed by the `NirValue::Closure` arm ONLY
-    /// while `closure_temp_wanted` is set, and drained by the same `lower_value`
-    /// frame that set it — so a call with no freeable closure argument registers
-    /// nothing and emits nothing.
-    pub(crate) pending_closure_temps: Vec<PendingClosure>,
-    /// bug-572: set around the lowering of one call node whose argument list
-    /// holds at least one capturing `LAMBDA` in a provably non-retaining callback
-    /// position. Save/restore (nestable), like `raw_result_capture`.
-    pub(crate) closure_temp_wanted: bool,
-    /// The capturing `LAMBDA`s written directly in the argument list of the call
-    /// `closure_temp_wanted` was set for — each node's address, and whether the
-    /// call may free it (`freeable_closure_arguments`). Save/restore with it.
-    /// The `NirValue::Closure` arm reads its own entry into
-    /// [`PendingClosure::freed_on_error`].
-    pub(crate) closure_temp_arguments: Vec<(usize, bool)>,
+    /// bug-781: the environment layout of every capturing `LAMBDA` this function
+    /// creates (`record_closure_env_layout`), handed to the module so it emits each
+    /// `LAMBDA`'s environment routine once (`lower_closure_env_ops`).
+    pub(crate) closure_env_layouts: Vec<ClosureEnvLayout>,
     /// bug-536 shape B: the location of a `String` block this builder has just
     /// **provably freshly allocated** — set by the shared String producers
     /// (`emit_materialize_string_from_bytes`, `_mfb_rt_string_concat`, the
@@ -716,7 +699,6 @@ impl<'a> CodeBuilder<'a> {
             float_residents: HashMap::new(),
             promoted_float_locals: HashMap::new(),
             address_taken_locals: HashSet::new(),
-            value_used_locals: HashSet::new(),
             borrow_get_locals: HashSet::new(),
             element_updates: ElementUpdates::default(),
             record_temps: RecordTemps::default(),
@@ -765,9 +747,7 @@ impl<'a> CodeBuilder<'a> {
             owned_list_heads: HashMap::new(),
             owned_value_slots: Vec::new(),
             pending_temp_frees: Vec::new(),
-            pending_closure_temps: Vec::new(),
-            closure_temp_wanted: false,
-            closure_temp_arguments: Vec::new(),
+            closure_env_layouts: Vec::new(),
             fresh_string_block: None,
             operand_snapshot_wanted: Vec::new(),
             for_each_iterable_locals: Vec::new(),
@@ -1058,12 +1038,6 @@ pub(crate) struct OwnedValueCleanup {
     pub(crate) type_: ParameterType,
     /// Stack offset of the binding's slot (holds the block pointer).
     pub(crate) stack_offset: usize,
-    /// plan-77 M6: when `Some`, this is a non-escaping closure binding rather than
-    /// a flat value; the slot holds the closure object pointer and the vec is the
-    /// static types of its captures. The drop frees the object, its env block, and
-    /// each freeable-flat capture (skipping by-value scalars/floats) instead of a
-    /// single flat `arena_free`.
-    pub(crate) closure_captures: Option<Vec<ParameterType>>,
     /// bug-560: for a `String` binding that an in-place self-append targets, the
     /// frame offset of its capacity shadow (`string_capacity_slots`). The block in
     /// `stack_offset` was then allocated at `byteLength + spare + 9`, not
@@ -1140,24 +1114,29 @@ pub(crate) struct PendingTemp {
     pub(crate) shallow: bool,
 }
 
-/// bug-572: a capturing `LAMBDA` built as a call ARGUMENT, awaiting the free
-/// that runs once the call it was built for has returned.
-///
-/// `slot` holds the 16-byte closure object pointer; `captures` are the static
-/// types `emit_closure_drop` walks to free the env's own blocks (empty-named for
-/// a by-ref or by-value capture, which the drop skips). Unlike a [`PendingTemp`]
-/// this is never a statement-scope obligation: the drain is per CALL, because
-/// the call is the whole reason the closure exists and the only window in which
-/// it is live.
-#[derive(Clone)]
-pub(crate) struct PendingClosure {
-    pub(crate) slot: usize,
-    pub(crate) captures: Vec<ParameterType>,
-    /// This closure is a direct argument its call may free, so an error exit
-    /// taken while it is pending — the call's own failure, or a later argument's
-    /// — frees it too ([`CodeBuilder::emit_pending_closure_frees_on_error`]):
-    /// the success-path drain never runs on that path.
-    pub(crate) freed_on_error: bool,
+/// bug-781: one capturing `LAMBDA`'s environment, as its routine copies and drops
+/// it: `[routine address][capture words…][auxiliary words…]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClosureEnvLayout {
+    /// The routine's symbol, `closure_env_ops_symbol` of the lifted `LAMBDA`.
+    pub(crate) symbol: String,
+    /// One entry per capture word, in capture order.
+    pub(crate) words: Vec<ClosureEnvWord>,
+    /// The compiler-managed words after the captures — the address of a slot in
+    /// the creating frame (a borrowed self-update scratch, a shared capacity
+    /// shadow, the `os::appResourcePath` base cache). Never owned.
+    pub(crate) auxiliary_words: usize,
+}
+
+/// bug-781: what one capture word of an environment holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ClosureEnvWord {
+    /// A value of this type the environment owns: copied deep with the
+    /// environment, dropped with it.
+    Owned(ParameterType),
+    /// A word copied verbatim and never freed: a scalar, a by-ref capture's slot
+    /// address, a resource or thread handle.
+    Plain,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -2166,6 +2145,9 @@ pub(crate) fn lower_module_for_platform(
         "synthesized construct.T",
         synthesized_constructors.len() as u64,
     );
+    // bug-781: every capturing `LAMBDA`'s environment layout, as the functions that
+    // create one record it.
+    let mut closure_env_layouts: Vec<ClosureEnvLayout> = Vec::new();
     for function in &module.functions {
         // `-vv` (`crate::trace`): the per-function codegen cost, recorded twice —
         // aggregated into the span tree (so its sub-stages nest underneath) and
@@ -2192,6 +2174,7 @@ pub(crate) fn lower_module_for_platform(
                     type_model.clone(),
                     &module.project,
                     None,
+                    &mut closure_env_layouts,
                 )
             },
         )?);
@@ -2261,6 +2244,7 @@ pub(crate) fn lower_module_for_platform(
                 type_model.clone(),
                 &module.project,
                 Some(&variant),
+                &mut closure_env_layouts,
             )?);
         }
         crate::trace::count("owned variants", emitted.len() as u64);
@@ -2337,6 +2321,65 @@ pub(crate) fn lower_module_for_platform(
         }
         typed_kinds.push((name.clone(), type_));
     }
+    // bug-781: each capturing `LAMBDA`'s environment routine, once. A `LAMBDA` created
+    // in several functions (a cloned body) must have recorded one layout everywhere.
+    let closure_tables = crate::codegen::memory::arena::closure_ops::ClosureHelperTables {
+        function_symbols: &function_symbols,
+        functions: &functions,
+        package_return_types: &package_return_types,
+        platform_imports: &platform_imports,
+        platform,
+        build_mode: module.build_mode,
+        globals: &globals,
+        string_symbols: &string_symbols,
+    };
+    {
+        let mut emitted: std::collections::BTreeMap<String, ClosureEnvLayout> =
+            std::collections::BTreeMap::new();
+        for layout in closure_env_layouts {
+            match emitted.get(&layout.symbol) {
+                Some(known) if *known == layout => {}
+                Some(known) => {
+                    return Err(format!(
+                        "closure environment `{}` is created with two layouts: {known:?} and \
+                         {layout:?}",
+                        layout.symbol
+                    ))
+                }
+                None => {
+                    emitted.insert(layout.symbol.clone(), layout);
+                }
+            }
+        }
+        for layout in emitted.values() {
+            code_functions.push(
+                crate::codegen::memory::arena::closure_ops::lower_closure_env_ops(
+                    &closure_tables,
+                    type_model.clone(),
+                    layout,
+                )?,
+            );
+        }
+    }
+    // plan-134-F: the drop walkers exist for a module with recursive types; bug-781: and
+    // for one whose function-value-holding composites are dropped through them.
+    let references = |functions: &[CodeFunction], symbols: &[&str]| {
+        functions.iter().any(|function| {
+            function
+                .relocations
+                .iter()
+                .any(|relocation| symbols.contains(&relocation.to.as_str()))
+        })
+    };
+    let drop_walkers_referenced = {
+        use crate::codegen::memory::arena::graph_drop::{
+            GRAPH_DROP_EDGES_SYMBOL, GRAPH_DROP_SYMBOL,
+        };
+        references(
+            &code_functions,
+            &[GRAPH_DROP_SYMBOL, GRAPH_DROP_EDGES_SYMBOL],
+        )
+    };
     if !recursive_copy_types.is_empty() {
         code_functions.push(
             crate::codegen::memory::arena::graph_copy::lower_graph_copy_walker(
@@ -2365,6 +2408,8 @@ pub(crate) fn lower_module_for_platform(
                 type_model.clone(),
             )?,
         );
+    }
+    if !recursive_copy_types.is_empty() || drop_walkers_referenced {
         // plan-134-F: the walker's inverse, over the same work stack. plan-134-H: its kinds
         // extend the copy walker's with the types that only reach a cycle, and a second
         // variant drops the graph of an element inlined in a collection's data region.
@@ -2387,6 +2432,21 @@ pub(crate) fn lower_module_for_platform(
                 type_model.clone(),
             )?);
         }
+    }
+    // bug-781: a function value's copy and drop, for a module that copies or drops one.
+    if references(&code_functions, &[CLOSURE_COPY_SYMBOL, CLOSURE_DROP_SYMBOL]) {
+        code_functions.push(
+            crate::codegen::memory::arena::closure_ops::lower_closure_copy(
+                &closure_tables,
+                type_model.clone(),
+            )?,
+        );
+        code_functions.push(
+            crate::codegen::memory::arena::closure_ops::lower_closure_drop(
+                &closure_tables,
+                type_model.clone(),
+            )?,
+        );
     }
     // plan-130-B: the arena hot path times itself exactly when the `--debug` perf
     // section is active for this module.

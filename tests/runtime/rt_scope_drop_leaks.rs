@@ -2369,9 +2369,9 @@ END FUNC\n";
 
 /// `collections::forEach`, the one position that admits a BY-REF capture of a
 /// `MUT` binding (`is_nonescaping_callback_arg`). A by-ref env slot holds a
-/// pointer to the parent's stack slot, not an owned block, and
-/// `capture_free_type` answers the empty type for it so the drop SKIPS it — only
-/// the env array and the object are reclaimed. 7 -> 13 MB before; a wild free of
+/// pointer to the parent's stack slot, not an owned block, and the environment's
+/// routine (bug-781) copies such a word verbatim and never frees it — only the
+/// env array and the object are reclaimed. 7 -> 13 MB before; a wild free of
 /// the by-ref slot would corrupt the caller's frame instead.
 const SHAPE_572_FOREACH_BY_REF: &str = "IMPORT io\n\
 IMPORT collections\n\
@@ -2387,9 +2387,8 @@ FUNC main() AS Nothing\n\
 END FUNC\n";
 
 /// `collections::mapValues`, whose callback is invoked from its own `.mfb` body
-/// rather than a native loop — so it takes the OTHER arm of the gate, the one
-/// that reads the callee's NIR and asks `collect_value_used_locals` whether the
-/// parameter is invoke-only. 15 -> 29 MB before.
+/// rather than a native loop — the callee only borrows it, and the caller's
+/// statement drops it. 15 -> 29 MB before.
 const SHAPE_572_MAP_VALUES: &str = "IMPORT io\n\
 IMPORT collections\n\
 FUNC main() AS Nothing\n\
@@ -2410,16 +2409,10 @@ FUNC main() AS Nothing\n\
   io::print(\"acc=\" & toString(acc))\n\
 END FUNC\n";
 
-/// The POSITIVE pin, as an RSS EQUALITY rather than flatness: `http::route`'s
-/// handler is also a non-isolated `FUNC` parameter, but the returned
-/// `http::Route` KEEPS it and the server invokes it per request. It must keep
-/// leaking exactly as much as it did before — 6 -> 11 MB at 20k/40k on both
-/// compilers, byte-identical — because the alternative is a use-after-free the
-/// next time the route is served.
-///
-/// Asserted as "still grows", which is the only assertion that distinguishes
-/// "declined" from "freed" here; the VALUE half is
-/// `every_closure_argument_shape_still_produces_the_right_value` below.
+/// `http::route`'s handler is a non-isolated `FUNC` parameter that the returned
+/// `http::Route` KEEPS: the server invokes it per request. Since bug-781 the
+/// record keeps its own copy, so every route this loop builds and drops — and
+/// the caller's handler temp — is freed (`a_retained_callback_position_is_freed_by_its_owners`).
 const SHAPE_572_RETAINED_ROUTE: &str = "IMPORT io\n\
 IMPORT http\n\
 FUNC main() AS Nothing\n\
@@ -2476,41 +2469,23 @@ fn every_admitted_callback_position_frees_its_closure() {
     assert_flat("b572_map_values", SHAPE_572_MAP_VALUES, 50_000, 100_000);
 }
 
-/// `http::route` KEEPS its handler, so it must NOT have been freed — and the
-/// evidence that it was not is that its (pre-existing, unrelated) growth is
-/// unchanged.
-///
-/// The counts are 200k/400k, not the 20k/40k this was written at, because the
-/// per-iteration retention is FOUR TIMES smaller off macOS and 20k/40k left it
-/// under the arena's chunk floor everywhere else. Peak RSS, HEAD compiler, one
-/// program per cell:
-///
-/// | N    | macOS aarch64 | linux aarch64 glibc | linux x86-64 glibc | linux riscv64 musl |
-/// |------|---------------|---------------------|--------------------|--------------------|
-/// | 20k  |  6 MB         |  6 MB               | —                  | —                  |
-/// | 40k  | 11 MB         |  6 MB               | —                  | —                  |
-/// | 200k | 51 MB         | 13 MB               | 13 MB              | 13 MB              |
-/// | 400k | 101 MB        | 26 MB               | 26 MB              | 25 MB              |
-///
-/// At 20k/40k the growth is +5 MB on macOS and +0 MB on Linux — which is what
-/// reddened both Linux rows with "`http::route`'s handler stopped leaking", a
-/// verdict the 200k/400k and 2M (127 MB on linux-aarch64) rows refute: the
-/// handler is retained on every platform, and the counts were the thing that was
-/// macOS-only. The 2 MB threshold now has a 6x margin on the leanest platform.
+/// `http::route` KEEPS its handler — and since bug-781 the `http::Route` keeps
+/// its OWN copy (single-owner closures, `mfb spec memory closures`), so the
+/// caller's temp, the reassigned-away `last`, and each dropped `r` are all freed.
+/// Before bug-781 the record shared the caller's pointer, so nothing could free
+/// it and the loop grew (51 -> 101 MB at 200k/400k on macOS aarch64, 13 -> 26 MB
+/// on Linux); that growth was the retired arena-lifetime closure rule, not a
+/// safety margin. The values a retained closure computes stay pinned by
+/// `every_closure_argument_shape_still_produces_the_right_value`, and the copy
+/// the route makes by `codegen_closure_temp_drop`.
 #[cfg(unix)]
 #[test]
-fn a_retained_callback_position_is_left_alone() {
-    let small = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 200_000);
-    let large = peak_rss("b572_retained_route", SHAPE_572_RETAINED_ROUTE, 400_000);
-    assert!(
-        large > small + 2 * 1024 * 1024,
-        "`http::route`'s handler stopped leaking ({} MB -> {} MB). That is not an \
-         improvement here: the returned `http::Route` still holds the pointer, so \
-         a free means the next request serves freed memory. If this position is \
-         ever made safe to free, it moves from RETAINED_CALLBACK_PARAMETERS to \
-         SYNCHRONOUS_CALLBACK_PARAMETERS and this case is replaced by assert_flat",
-        small / (1024 * 1024),
-        large / (1024 * 1024),
+fn a_retained_callback_position_is_freed_by_its_owners() {
+    assert_flat(
+        "b572_retained_route",
+        SHAPE_572_RETAINED_ROUTE,
+        200_000,
+        400_000,
     );
 }
 

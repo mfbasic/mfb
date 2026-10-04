@@ -155,9 +155,6 @@ impl CodeBuilder<'_> {
         if !self.owns_graph(value_type) {
             return Ok(());
         }
-        let kind = self
-            .graph_drop_kind(value_type)
-            .ok_or_else(|| format!("the graph drop has no kind for '{value_type}'"))?;
         let shape = self.payload_edge_shape(value_type);
         let symbol = match shape {
             Some(PayloadEdgeShape::Pointer) => GRAPH_DROP_SYMBOL,
@@ -185,6 +182,19 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&data, &data, 0));
         }
         self.emit(abi::store_u64(&data, abi::stack_pointer(), payload_slot));
+        // bug-781: a function-value payload is one closure, freed directly.
+        if matches!(value_type, ParameterType::Func(..)) {
+            self.emit(abi::load_u64(
+                abi::c_arg(0),
+                abi::stack_pointer(),
+                payload_slot,
+            ));
+            self.emit_symbol_call(CLOSURE_DROP_SYMBOL);
+            return Ok(());
+        }
+        let kind = self
+            .graph_drop_kind(value_type)
+            .ok_or_else(|| format!("the graph drop has no kind for '{value_type}'"))?;
         self.emit(abi::load_u64(
             abi::c_arg(1),
             abi::stack_pointer(),
@@ -206,6 +216,14 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
         slot: usize,
     ) -> Result<(), String> {
+        // bug-781: a function value is one closure — `_mfb_rt_closure_drop` frees it (and
+        // skips a null word or a static descriptor) without the walker.
+        if matches!(type_, ParameterType::Func(..)) {
+            self.emit(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), slot));
+            self.emit_symbol_call(CLOSURE_DROP_SYMBOL);
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+            return Ok(());
+        }
         let kind = self
             .graph_drop_kind(type_)
             .ok_or_else(|| format!("the graph drop has no kind for '{type_}'"))?;
@@ -235,6 +253,21 @@ impl CodeBuilder<'_> {
         let ParameterType::ResultOf(payload) = result_type else {
             return Err(format!("'{result_type}' is not a Result wrapper"));
         };
+        // bug-781: a function-value payload is not inlined — the word at +16 is the
+        // closure the wrapper owns.
+        if matches!(payload.as_ref(), ParameterType::Func(..)) {
+            let skip = self.label("result_payload_drop_skip");
+            let tag = self.temporary_vreg();
+            let wrapper = self.temporary_vreg();
+            self.emit(abi::load_u64(&wrapper, abi::stack_pointer(), slot));
+            self.emit(abi::load_u64(&tag, &wrapper, 0));
+            self.emit(abi::compare_immediate(&tag, RESULT_OK_TAG));
+            self.emit(abi::branch_ne(&skip));
+            self.emit(abi::load_u64(abi::c_arg(0), &wrapper, 16));
+            self.emit_symbol_call(CLOSURE_DROP_SYMBOL);
+            self.emit(abi::label(&skip));
+            return Ok(());
+        }
         let kind = self
             .graph_drop_kind(payload)
             .ok_or_else(|| format!("the graph drop has no kind for '{payload}'"))?;
@@ -362,6 +395,18 @@ impl CodeBuilder<'_> {
             return Err(format!(
                 "the graph drop cannot drop '{type_}': it holds a resource"
             ));
+        }
+        // bug-781: a function value frees its environment through the environment's
+        // own routine, then its object — all inside `_mfb_rt_closure_drop`, which also
+        // leaves a static descriptor alone. Nothing is left for the caller to free.
+        if matches!(type_, ParameterType::Func(..)) {
+            self.emit(abi::load_u64(
+                abi::c_arg(0),
+                abi::stack_pointer(),
+                pointer_slot,
+            ));
+            self.emit_symbol_call(CLOSURE_DROP_SYMBOL);
+            return Ok(false);
         }
         // A pointer-free block (copied by `copy_flat_block`).
         if self.type_is_memcpy_copyable(type_) {

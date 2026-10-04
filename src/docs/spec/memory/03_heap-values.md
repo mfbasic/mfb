@@ -71,6 +71,9 @@ stores, by field type:
   offset into the data region, exactly like a `String`. The field read recovers
   `recordBase + offset`. Each nested block preserves its own internal relative
   addressing, so a whole-block `memcpy` relocates the inlined tree. A field is inlined into the data region iff it is a `String` or a flat composite. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
+- **function value** — an 8-byte pointer to the closure object the record owns
+  (`./mfb spec memory closures`): copying the record copies the closure, dropping
+  it frees the closure, so a record with a `FUNC` field is not flat. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]]
 - **non-flat composite** — a **resource** `Union`, a non-flat `List`/`Map`/`Set`,
   a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
@@ -85,8 +88,8 @@ block, or recursively any inlined flat-composite block).
 Construction, `WITH`-update, copy/transfer, equality, and collection embedding
 all use that runtime size; copying a record whose fields are all scalar,
 `String`, or flat-composite (i.e. a flat record) uses a block copy without per-field graph traversal. A recursive owned
-pointer field needs its own graph copy; resource and function pointers retain
-their separate ownership rules. Records a runtime helper constructs — `net::Address`,
+pointer field and a function-value field need their own graph copy (the copy
+copies the closure); resource pointers retain their separate ownership rules. Records a runtime helper constructs — `net::Address`,
 `udp::Datagram`, `net::PingResult`, `audio::AudioDevice` — follow the same layout
 exactly: the helper builds the flat image, and every read of their fields rebases. [[src/codegen/memory/marshal/record.rs:emit_build_inlined_record_sized]]
 
@@ -135,10 +138,11 @@ A scalar success payload occupies the 8-byte word at `+16`; a block payload
 (`String`, record, data union, collection, the `Err` `Error`, or a nested `Result`) is
 inlined whole at `+16` and `size` covers it. Reading the value yields an interior
 pointer into the block (`base + 16`) for a block payload, or the 8-byte value for
-a scalar. A resource or function payload occupies the word at `+16` as a pointer;
+a scalar. A resource or function payload occupies the word at `+16` as a pointer — a
+function payload is the closure the `Result` owns, dropped with it;
 a resource union likewise occupies that word as a pointer to its union box.
-The result is memcpy-copyable only when its success type is: recursive
-payloads require graph copying, and resource/thread payloads follow their
+The result is memcpy-copyable only when its success type is: recursive and
+function payloads require graph copying, and resource/thread payloads follow their
 ownership and transfer rules.
 [[src/codegen/memory/value/builder_value_semantics.rs:result_payload_is_block]]
 [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]]

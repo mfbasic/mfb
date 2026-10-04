@@ -32,9 +32,10 @@ non-empty captures allocates an environment:
   environment, and not the 16-byte object either.
 - **`Closure`** — a lifted body with an explicit capture list. It allocates the
   capture environment first, populates its slots, then builds the 16-byte object
-  with `code = <symbol>` and `env = <env pointer>`. With an empty capture list a
-  `Closure` still allocates its 16-byte descriptor but sets its env word to `0`;
-  only `FunctionRef` uses the static descriptor. [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:lower_value]]
+  with `code = <symbol>` and `env = <env pointer>`. A `Closure` with an empty
+  capture list (the front end never builds one; it lowers a capture-less lambda to
+  a `FunctionRef`) is lowered exactly as a `FunctionRef`, to the static descriptor,
+  so `env = 0` marks exactly the function values that own no memory. [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:lower_value]] [[src/codegen/engine/analysis/module_analysis.rs:collect_function_value_refs]]
 
 Both forms share the identical 16-byte object layout, so a call site dispatches the
 same way regardless of which producer made the value.
@@ -42,18 +43,20 @@ same way regardless of which producer made the value.
 ## The Capture Environment
 
 The environment is a **separate arena allocation**, distinct from the 16-byte
-closure object, 8-aligned, with
-one word per capture at byte offset `index * 8`. Compiler-managed words
+closure object, 8-aligned. Its first word is a **header**: the address of the
+environment routine of the `LAMBDA` that created it (below). One word per capture
+follows, capture `index` at byte offset `(index + 1) * 8`. Compiler-managed words
 follow the capture slots when needed, in this order: the address of the
 creator's self-update scratch slot, one capacity-shadow slot address per
 shared mutable String capture, and the address of the creator's
 `os::appResourcePath` base-cache slot. The allocation size is eight times
-the total number of capture and auxiliary words. [[src/codegen/engine/value/builder_values.rs:lower_value]]
+one more than the total number of capture and auxiliary words. [[src/codegen/engine/value/builder_values.rs:lower_value]] [[src/codegen/error/constants/error_constants.rs:closure_env_word_offset]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_OFFSET_OPS]]
 
 ```text
-Environment (arena-allocated, totalWords * 8 bytes)
-  +0      U64  slot[0]
-  +8      U64  slot[1]
+Environment (arena-allocated, (1 + totalWords) * 8 bytes)
+  +0      U64  routine   ; address of _mfb_rt_closure_env_<lambda symbol>
+  +8      U64  slot[0]
+  +16     U64  slot[1]
   ...
   ...         optional auxiliary slot addresses
 ```
@@ -74,7 +77,7 @@ A slot's word holds one of two things, set by the capture's `by_ref` flag:
   callback observes and mutates the live parent binding (a by-reference `MUT` slot capture). [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:lower_value]]
 
 A `Capture` read inside the body loads the raw slot word from the active
-environment at `index * 8`. For a by-value capture that word is the value/block
+environment at `(index + 1) * 8`. For a by-value capture that word is the value/block
 pointer directly; for a by-ref capture it is the parent-slot pointer that the
 reference local derefs. [[src/codegen/engine/value/builder_values.rs:lower_value]]
 
@@ -82,7 +85,7 @@ reference local derefs. [[src/codegen/engine/value/builder_values.rs:lower_value
 
 On AArch64, the reserved register **x28**, the realization of
 `CLOSURE_ENV_REGISTER`, holds the active closure's environment pointer. Every
-`Capture` load reads from `[x28 + index*8]`. [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_REGISTER]]
+`Capture` load reads from `[x28 + (index+1)*8]`. [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
 `CLOSURE_ENV_REGISTER` is the neutral `%closure_env` role token,
 realized per ISA at selection — AArch64 `x28`, x86-64 `r13`, riscv64 `s10`. Each
@@ -114,53 +117,73 @@ function-value call (caller side)
 The reserved-register model that pins x28 (alongside x19 for arena state) is owned
 by `./mfb spec memory native-calling-convention`.
 
-## Ownership and Reference Semantics
+## Ownership
 
-A function value has **reference (pointer) semantics**, not value semantics: there
-is one closure object, and every binding, argument, return, collection element, or
-map value that holds the function value holds a **copy of the 8-byte pointer** to
-that one object. A function value is never deep-copied — assigning it, passing it,
-returning it, or storing it into a collection copies the pointer only. This is the
-same discipline a resource handle follows (a non-owning pointer, `./mfb spec memory
-arenas`), and it is why `lower_value_owned`'s copy-insertion and the
-`is_freeable_flat_value` owned-value drop **exclude** function types: there is no
-per-value copy on a store and no per-value `arena_free` on scope drop. [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/engine/value/builder_values.rs:lower_value_owned]]
+A function value has **single-owner value semantics**, like every ordinary value
+(`./mfb spec language memory-semantics` §14.1, §14.4): every binding, argument,
+return, record or union field, `Result` payload, collection element or map value
+that holds a function value owns its own closure object and environment. No two
+holders share one, so no reference counting is needed and none is done.
 
-The consequence for lifetime is the **arena-lifetime closure rule**: a closure
-object (and its capture environment, if any) is owned by the constructing scope's
-arena and normally remains until that arena is torn down. The temporary-callback
-exception below permits earlier reclamation.
-Nothing frees a closure object on a binding's scope exit, so a function value that
-has escaped into a longer-lived collection, binding, or returned value stays valid;
-correspondingly, a collection of function values frees only its own packed-pointer
-block on scope drop and never the closure objects it references. This makes storage
-sound (no dangling pointer, no double free) at the cost of not reclaiming an
-individual closure before arena teardown.
+- **Copy.** An owning store of a function value that is still read afterwards
+  copies it: `_mfb_rt_closure_copy` allocates a new 16-byte object with the same
+  `code` over a deep copy of the environment. A store that is its source's last
+  read moves it instead (`./mfb spec memory arenas`), and a fresh closure (a
+  `LAMBDA` just evaluated, a call's result) is taken over by its first owner. A
+  value that holds function values — a record or union with a `FUNC` field, a
+  collection of them, a `Result` of one — is copied by the same deep-copy walker as
+  a value whose type reaches a cycle, which copies each function value it meets. [[src/codegen/memory/arena/closure_ops.rs:lower_closure_copy]] [[src/codegen/engine/value/builder_values.rs:needs_graph_copy]] [[src/codegen/memory/arena/builder_arena_transfer.rs:emit_thread_copy_real]]
+- **Drop.** Dropping a holder frees its closure: `_mfb_rt_closure_drop` runs the
+  environment's routine to drop it, then frees the 16-byte object. A binding drops
+  at its scope's exits, a reassignment drops the old value, and a record, union,
+  `Result` or collection drops the function values it holds with itself. [[src/codegen/memory/arena/closure_ops.rs:lower_closure_drop]] [[src/codegen/memory/arena/graph_drop.rs:emit_graph_value_drop]]
+- **Arguments are lent.** A callee frees an argument only when its caller hands
+  it over (an owned-parameter variant, `./mfb spec memory native-calling-convention`);
+  a callee that keeps a lent function argument (stores it in a record, returns it,
+  appends it) stores its own copy. So a closure written as an argument is its
+  statement's temporary, freed when the statement ends — on every error exit too —
+  at every call position, and no caller has to know whether a callee retains it. [[src/codegen/engine/value/builder_values.rs:pending_temp_is_freeable]]
+- **Static descriptors are shared.** A `FunctionRef` (`env = 0`) owns no memory:
+  copying it returns the same pointer, dropping it does nothing, and it is never a
+  statement temporary. A null function value (the default an inline `TRAP` binds
+  before its `RECOVER` value, never called) is treated the same way. [[src/codegen/memory/value/builder_value_semantics.rs:lower_default_value]]
 
-One exception reclaims a closure individually: a capturing `LAMBDA` written
-directly as an argument in a callback position the callee provably never retains
-(a non-retaining `FUNC` parameter of a user function, or the
-callback of a native `collections` member) is freed — object, environment and the
-environment's owned capture copies — by the call it was built for, once that call
-has returned. Forwarding is accepted when every destination is itself
-non-retaining, with a bounded forwarding-analysis depth of four; an unproven or deeper
-forward is not reclaimed by this rule. [[src/codegen/engine/value/builder_values.rs:argument_position_is_nonretaining_callback]] [[src/codegen/engine/value/builder_values.rs:free_call_closure_temps]]
-The same closure is freed on every error exit taken after it was built and before
-that drain — the callee's failure or a later argument's — since such an exit never
-reaches the drain. [[src/codegen/engine/value/builder_values.rs:emit_pending_closure_frees_on_error]]
-An inline `TRAP` on the call joins the success path first, so the drain covers it.
+Because a function value owns its closure, a `FUNC` field makes its record (and
+anything that holds that record) non-flat: its slot is a pointer edge, and the
+record is copied by the walker rather than by one `memcpy`
+(`./mfb spec memory heap-values`). [[src/codegen/collection/layout/builder_collection_layout.rs:type_contains_func]] [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]]
 
-Because each *evaluation* of a capturing `Closure` allocates a fresh 16-byte object
-plus its environment, repeatedly **creating** capturing closures inside a loop
-retains arena memory until teardown unless the temporary-callback rule applies.
-A non-capturing `FunctionRef`
-does **not**: it resolves to the address of a static descriptor, so evaluating one
-in a loop allocates nothing at all.
-Building and discarding a *collection* of already-constructed function values in a
-loop does **not** grow memory: the collection's own block is reclaimed each
-iteration and no new closure objects are produced. Storing existing function
-values in a collection does not allocate new
-closure objects; newly evaluated capturing lambdas follow the lifetime rules above.
+**Why copying is sound.** A created closure cannot change: by-value captures are
+`LET` values copied into the environment at creation, and the only by-reference
+capture (a `MUT` captured by a direct `collections::forEach` action) belongs to a
+closure that is never stored, returned or copied. Functions are not comparable, so
+no program can tell a copy from the original.
+
+## The Environment Routine
+
+A `FUNC(Float) AS Float` type does not say what a closure captured, so neither the
+copy nor the drop can be generated from the holder's type. Each capturing `LAMBDA`
+instead gets one routine, `_mfb_rt_closure_env_<lambda symbol>(op, env) -> env`,
+emitted once per module from the capture types its creating function recorded,
+and the environment's header word points at it: [[src/codegen/memory/arena/closure_ops.rs:lower_closure_env_ops]] [[src/codegen/error/constants/error_constants.rs:closure_env_ops_symbol]]
+
+- `op = 0` (**drop**) drops every owned capture exactly as that capture type's
+  owner would (`String`, flat composite, or graph-owning value — a captured
+  function value included), then frees the environment block.
+- `op = 1` (**copy**) allocates a block of the same size, copies the header and
+  every plain word verbatim, and deep-copies every owned capture, returning the new
+  block.
+
+A capture word is **owned** when its value is a block the environment holds (a
+by-value `String`, flat composite, or graph-owning value) and **plain** otherwise:
+a scalar, a resource or thread handle, the parent-slot address of a by-reference
+capture, and every auxiliary word (the addresses of slots in the creating frame).
+A `LAMBDA` created at several sites must have one layout at all of them; the
+compiler reports an internal error otherwise. [[src/codegen/engine/value/builder_values.rs:closure_env_word]] [[src/codegen/engine/value/builder_values.rs:record_closure_env_layout]]
+
+Each *evaluation* of a capturing `Closure` allocates a fresh object and
+environment, and its owner frees both, so creating capturing closures in a loop
+does not grow memory. A `FunctionRef` allocates nothing at all.
 
 ## Closures Across Threads
 

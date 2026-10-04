@@ -365,6 +365,10 @@ separately allocated blocks. Its owner frees it through the module's one drop wa
 `_mfb_rt_graph_drop`, which frees one block at a time and keeps the pending edges on an
 arena work stack rather than the native stack, so a graph of any depth is freed without
 overflowing it. [[src/codegen/memory/arena/graph_drop.rs:lower_graph_drop_walker]]
+A function value owns its closure the same way (bug-781): a bare function value is freed
+by `_mfb_rt_closure_drop`, and a value that holds function values (a record or union with
+a `FUNC` field, a collection or `Result` of them) is a graph-owning value whose walker
+frees each closure it meets (`./mfb spec memory closures`). [[src/codegen/collection/layout/builder_collection_layout.rs:type_contains_func]]
 Both walkers allocate that stack at their first push, and `_mfb_rt_graph_stack_grow`
 doubles it from there, so walking a value with no cyclic edge to push (a leaf) allocates
 and frees no stack. [[src/codegen/memory/arena/graph_copy.rs:emit_graph_copy_push]]
@@ -380,10 +384,13 @@ field/`MemberAccess` read, `UnionExtract`, or `Result` payload — all of which 
 pointer into an existing block) or a *static* `String` constant (which lives in rodata,
 not the arena). Record/union/collection construction, collection inserts, and `WITH`
 already byte-copy their flat payloads inline, so a flat payload introduces no new alias. A
-payload of a recursive type (one whose declaration reaches itself) is a graph of separate
-blocks that a byte copy would share, so those stores give an aliasing source its own graph
-first — unless the store is the source's last read, which moves it — and a collection a
-builtin builds out of another collection's elements copies those elements' graphs.
+payload of a recursive type (one whose declaration reaches itself), or one holding a
+function value, is a graph of separate blocks that a byte copy would share, so those stores
+give an aliasing source its own graph first — unless the store is the source's last read,
+which moves it — and a collection a builtin builds out of another collection's elements
+copies those elements' graphs. An element READ (`collections::get`/`getOr`) is the one
+builtin result that already owns its graph — `materialize_owned_element` made it — so its
+edges are not copied a second time. [[src/codegen/builtins/collections/mod.rs:element_read_member]]
 
 A free is emitted at **every** scope exit — the normal end-of-block drain,
 `EXIT`/`CONTINUE` (only back to the loop's entry depth), `RETURN`, and `TRAP`

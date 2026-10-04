@@ -1,19 +1,21 @@
-//! bug-572: who owns a capturing `LAMBDA` written as a call argument.
+//! bug-572 / bug-781: who owns a capturing `LAMBDA` written as a call argument.
 //!
-//! A capturing lambda allocates three arena blocks per evaluation — the env, one
-//! deep copy per freeable-flat capture, and the 16-byte closure object — and as
-//! an argument it had no owner at all. `register_pending_temp` declines it
-//! (`is_freeable_flat_value` is false for `Func`, and must stay false: a `Func`
-//! element in a collection is a shared POINTER, bug-73), and the only closure
-//! free in the tree, `emit_closure_drop`, was reachable only through the `Bind`
-//! gate for a NAMED, invoke-only binding. 13 MB at 50 000 `collections::filter`
-//! calls, 25 MB at 100 000, with a `Boolean` predicate that allocates no result.
+//! A capturing lambda allocates its environment (plus one deep copy per owned
+//! capture) and a 16-byte closure object per evaluation, and as an argument it
+//! had no owner at all — 13 MB at 50 000 `collections::filter` calls, 25 MB at
+//! 100 000, with a `Boolean` predicate that allocates no result (bug-572).
 //!
-//! The RSS cases in `rt_scope_drop_leaks` measure the leak. These count the
-//! OWNERS, because the two failure directions are invisible to each other:
-//! too few is the leak, too many is a use-after-free on a closure the callee
-//! kept — and the second one surfaces later, somewhere else, as a wrong value or
-//! an "Allocation failed" in an unrelated allocation.
+//! bug-781 made function values single-owner (`mfb spec memory closures`,
+//! *Ownership*): every holder owns its own closure, copying one into a second
+//! holder copies it (`_mfb_rt_closure_copy`), and dropping a holder frees it
+//! (`_mfb_rt_closure_drop`). A closure argument is therefore the caller's
+//! statement temporary, freed once the statement is done, at EVERY call position:
+//! a callee that keeps it (`http::route`, a user function that returns it, an
+//! `append`) keeps its own copy or takes the fresh value over, so no caller has to
+//! know whether a callee retains its argument. The runtime counters
+//! (`rt_closure_single_owner`) pin "exactly once"; these pin, from the emitted
+//! code, where the owner's drop and the copies are — the two failure directions
+//! being a leak (no drop) and a use-after-free (a retaining callee with no copy).
 //!
 //! Every assertion is COMPARATIVE against a sibling that differs in one way.
 //!
@@ -43,18 +45,25 @@ fn function<'a>(plan: &'a Value, symbol: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("code plan has no function '{symbol}'"))
 }
 
-/// How many closure temporaries `symbol` takes ownership of. `lower_value`
-/// allocates exactly one `closure_temp` slot per closure a call has already
-/// decided it may free, so this counts the owners directly — and it is zero for
-/// every program that passes no capturing lambda to a callback position, which
-/// is what keeps this fix off everyone else's codegen.
-fn closure_temps(plan: &Value, symbol: &str) -> usize {
-    function(plan, symbol)["stackSlots"]
+/// How many call sites in `symbol` reach `helper` — `_mfb_rt_closure_drop` (an
+/// owner frees a function value; a statement temp's drop is emitted at the
+/// statement's end and on each of its error exits, so a site count is not an
+/// owner count) or `_mfb_rt_closure_copy` (a second holder takes its own copy).
+fn calls(plan: &Value, symbol: &str, helper: &str) -> usize {
+    function(plan, symbol)["relocations"]
         .as_array()
-        .expect("stack slots array")
+        .expect("relocations array")
         .iter()
-        .filter(|slot| slot["type"].as_str() == Some("closure_temp"))
+        .filter(|relocation| relocation["to"].as_str() == Some(helper))
         .count()
+}
+
+fn drops(plan: &Value, symbol: &str) -> usize {
+    calls(plan, symbol, "_mfb_rt_closure_drop")
+}
+
+fn copies(plan: &Value, symbol: &str) -> usize {
+    calls(plan, symbol, "_mfb_rt_closure_copy")
 }
 
 /// How many closure ENV blocks `symbol` allocates — one per capturing lambda it
@@ -89,9 +98,11 @@ fn filter_program(name: &str, predicate: &str) -> Value {
 /// 1.0 MB at both counts).
 ///
 /// A capture-less lambda lowers to a `FunctionRef` over a STATIC BSS descriptor —
-/// zero arena allocations — so it has nothing to own and must gain no owner.
+/// zero arena allocations — so it has nothing to own: no environment, no drop.
+/// The capturing one is the statement's temp: dropped, and never copied, since
+/// `filter` only borrows its callback.
 #[test]
-fn a_capturing_lambda_argument_gains_exactly_one_owner_and_a_captureless_one_none() {
+fn a_capturing_lambda_argument_is_dropped_by_its_statement_and_a_captureless_one_has_no_owner() {
     let capturing = filter_program("b572_capturing", "LAMBDA(s AS String) -> len(s) < len(cap)");
     let captureless = filter_program("b572_captureless", "LAMBDA(s AS String) -> len(s) < 3");
     assert_eq!(
@@ -101,37 +112,39 @@ fn a_capturing_lambda_argument_gains_exactly_one_owner_and_a_captureless_one_non
          descriptor, and the bug report's flat contrast"
     );
     assert_eq!(
-        closure_temps(&captureless, "_mfb_fn_main"),
+        drops(&captureless, "_mfb_fn_main") + copies(&captureless, "_mfb_fn_main"),
         0,
-        "nothing to own, so no owner: the capture-less program's codegen is \
-         untouched by this fix"
+        "nothing to own, so nothing dropped or copied: a static descriptor is shared \
+         by every reference to its function"
     );
     assert_eq!(
         closure_envs(&capturing, "_mfb_fn_main"),
         1,
         "one capturing lambda, one environment block"
     );
+    assert!(
+        drops(&capturing, "_mfb_fn_main") > 0,
+        "the capturing argument must be dropped by its statement — no drop is \
+         bug-572's leak"
+    );
     assert_eq!(
-        closure_temps(&capturing, "_mfb_fn_main"),
-        1,
-        "the one environment must have exactly ONE owner; zero is bug-572's leak, \
-         two is a double free"
+        copies(&capturing, "_mfb_fn_main"),
+        0,
+        "`filter` borrows its callback: passing it copies nothing"
     );
 }
 
-/// The POSITIVE pin the whole design turns on, and the one the enumeration got
-/// wrong on the first try: `http::route`'s handler is ALSO a non-isolated `FUNC`
-/// parameter, and the returned `http::Route` KEEPS it — the server invokes it per
-/// request, long after the call returned. Freeing it there is a use-after-free in
-/// the request loop.
+/// The position the bug-572 enumeration once got wrong: `http::route`'s handler
+/// is a non-isolated `FUNC` parameter too, and the returned `http::Route` KEEPS
+/// it — the server invokes it per request, long after the call returned.
 ///
-/// So the gate is an explicit allow-list
-/// (`registry::SYNCHRONOUS_CALLBACK_PARAMETERS`) rather than "any `FUNC`
-/// parameter", and this is that decision read off the emitted code: the same
-/// capturing lambda gains an owner at `collections::filter` and none at
-/// `http::route`.
+/// Under single ownership that is no longer a reason to leak the caller's
+/// closure: `route` stores its OWN copy in the record (`__http_route`'s
+/// construction copies the borrowed parameter), and the caller drops its temp
+/// exactly as at `collections::filter`. Without the callee's copy the caller's
+/// drop would be a use-after-free in the request loop, so both halves are pinned.
 #[test]
-fn a_retained_callback_argument_is_never_given_an_owner() {
+fn a_retained_callback_argument_is_copied_by_the_callee_and_dropped_by_the_caller() {
     let retained = ncode(
         "b572_http_route",
         "IMPORT io\n\
@@ -147,20 +160,24 @@ fn a_retained_callback_argument_is_never_given_an_owner() {
         1,
         "the capturing handler still allocates its environment"
     );
-    assert_eq!(
-        closure_temps(&retained, "_mfb_fn_main"),
-        0,
-        "`http::route` STORES its handler on the returned `http::Route`, so the \
-         caller must not free it — an owner here is a use-after-free the next \
-         time the route is served"
+    assert!(
+        drops(&retained, "_mfb_fn_main") > 0,
+        "the caller's handler is its statement temp and is dropped"
+    );
+    assert!(
+        copies(&retained, "_mfb_ifn_http_5Froute") > 0,
+        "`http::route` keeps the handler, so it must store a copy of its own — \
+         the record field owns that copy, not the caller's closure"
     );
 }
 
 /// The other escapes, in one program: a closure appended to a collection, one
-/// handed to a user function that RETURNS it, and one stored into a global. None
-/// is a callback position, so none may gain an owner.
+/// handed to a user function that RETURNS it, and one stored into a global. A
+/// fresh closure stored by `append` or into the global is taken over by its new
+/// holder; the one `hold` returns is the caller's own argument, so the binding
+/// copies it before the statement's temp is dropped.
 #[test]
-fn an_escaping_closure_is_never_given_an_owner() {
+fn an_escaping_closure_is_owned_by_where_it_escapes_to() {
     let escaping = ncode(
         "b572_escapes",
         "IMPORT io\n\
@@ -184,25 +201,20 @@ fn an_escaping_closure_is_never_given_an_owner() {
         "three capturing lambdas, three environment blocks"
     );
     assert_eq!(
-        closure_temps(&escaping, "_mfb_fn_main"),
-        0,
-        "an `append` argument is stored in the collection as a shared POINTER \
-         (bug-73), `hold` RETURNS its parameter, and a global outlives the \
-         statement — none is a callback position, and freeing any of them is a \
-         use-after-free"
+        copies(&escaping, "_mfb_fn_main"),
+        1,
+        "exactly the closure `hold` hands back is copied: it is the caller's own \
+         argument, which the statement then drops; the appended and the global \
+         closures are fresh and taken over where they land"
     );
 }
 
-/// A user-written HOF gets the same licence as a builtin one, from its own body
-/// rather than the registry: the callable parameter must be a non-isolated `FUNC`
-/// AND never read as a VALUE anywhere (`collect_value_used_locals`), which is
-/// exactly the proof `is_non_escaping_closure` makes for a closure BINDING, made
-/// one frame down.
-///
-/// `applyTwice` only invokes `f`, so it earns the free; `hold` returns it, so it
-/// does not. The pair is the whole gate.
+/// A user-written HOF that only INVOKES its callable parameter borrows it, like
+/// a builtin one; one that RETURNS it hands back the caller's own argument, which
+/// the caller's binding copies before its statement temp is dropped. Neither
+/// callee frees anything it was lent.
 #[test]
-fn a_user_hof_earns_the_free_only_when_its_parameter_is_invoke_only() {
+fn a_user_hof_borrows_its_callable_parameter() {
     fn program(name: &str, callee: &str, body: &str) -> Value {
         ncode(
             name,
@@ -233,29 +245,35 @@ fn a_user_hof_earns_the_free_only_when_its_parameter_is_invoke_only() {
     );
     assert_eq!(closure_envs(&invoke_only, "_mfb_fn_main"), 1);
     assert_eq!(closure_envs(&returns_it, "_mfb_fn_main"), 1);
+    assert!(drops(&invoke_only, "_mfb_fn_main") > 0);
+    assert!(drops(&returns_it, "_mfb_fn_main") > 0);
     assert_eq!(
-        closure_temps(&invoke_only, "_mfb_fn_main"),
-        1,
-        "`applyTwice` only ever INVOKES `f` — a `Call`'s target is a name, not a \
-         value, so `f` is not in `collect_value_used_locals` and the closure is \
-         dead when the call returns"
-    );
-    assert_eq!(
-        closure_temps(&returns_it, "_mfb_fn_main"),
+        copies(&invoke_only, "_mfb_fn_main"),
         0,
-        "`hold` reads `f` as a VALUE (it returns it), so the caller may not free \
-         it — this is the fail-closed half, and it is what keeps a user HOF from \
-         being trusted by its signature alone"
+        "`applyTwice` only ever INVOKES `f`: the argument is lent and nothing is copied"
     );
+    assert_eq!(
+        copies(&returns_it, "_mfb_fn_main"),
+        1,
+        "`hold` returns the caller's own argument, so `g` takes a copy — without it \
+         the statement's drop would leave `g` dangling"
+    );
+    for (plan, callee) in [
+        (&invoke_only, "_mfb_fn_applyTwice"),
+        (&returns_it, "_mfb_fn_hold"),
+    ] {
+        assert_eq!(
+            drops(plan, callee) + copies(plan, callee),
+            0,
+            "{callee} neither frees nor copies the closure it was lent"
+        );
+    }
 }
 
-/// A nested call whose own argument is a capturing lambda: each `lower_value`
-/// frame drains only the closures registered inside it, so the inner call frees
-/// its own and the outer frees its own. The pairing is positional, and a
-/// mismatch would free the wrong one — which is why it is counted rather than
-/// reasoned about.
+/// A nested call whose own argument is a capturing lambda: each call's capturing
+/// argument is its statement's temp, borrowed by the call and never copied.
 #[test]
-fn nested_hof_calls_each_own_their_own_closure() {
+fn nested_hof_calls_borrow_their_closures() {
     let nested = ncode(
         "b572_nested",
         "IMPORT io\n\
@@ -268,12 +286,12 @@ fn nested_hof_calls_each_own_their_own_closure() {
          END FUNC\n",
     );
     // The inner lambda captures `cap`; the outer one does not, so only the inner
-    // allocates an environment — and it is the inner call that owns it.
+    // allocates an environment.
     assert_eq!(closure_envs(&nested, "_mfb_fn_main"), 1);
+    assert!(drops(&nested, "_mfb_fn_main") > 0);
     assert_eq!(
-        closure_temps(&nested, "_mfb_fn_main"),
-        1,
-        "the inner call's own capturing lambda gets exactly one owner, and the \
-         outer call's drain must not claim it a second time"
+        copies(&nested, "_mfb_fn_main"),
+        0,
+        "both calls borrow their callbacks"
     );
 }

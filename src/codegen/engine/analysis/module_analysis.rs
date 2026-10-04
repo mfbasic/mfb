@@ -698,8 +698,19 @@ pub(crate) fn collect_function_value_refs(module: &NirModule) -> Vec<(String, Pa
     }
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
-            if let NirValue::FunctionRef { name, type_ } = value {
-                self.refs.push((name.clone(), type_.clone()));
+            match value {
+                NirValue::FunctionRef { name, type_ } => {
+                    self.refs.push((name.clone(), type_.clone()));
+                }
+                // bug-781: a capture-less closure lowers to the same static descriptor.
+                NirValue::Closure {
+                    name,
+                    type_,
+                    captures,
+                } if captures.is_empty() => {
+                    self.refs.push((name.clone(), type_.clone()));
+                }
+                _ => {}
             }
             walk_value(self, value);
         }

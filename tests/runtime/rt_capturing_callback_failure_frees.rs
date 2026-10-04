@@ -1,12 +1,12 @@
-//! A capturing `LAMBDA` passed to a non-retaining callback position is freed when
-//! the call fails, not only when it returns.
+//! A capturing `LAMBDA` passed to a callback position is freed when the call
+//! fails, not only when it returns.
 //!
-//! bug-572 frees the closure object and its environment once the call it was
-//! built for has returned (`free_call_closure_temps`). That drain sits on the
-//! success path only, so a callback that failed left the closure behind: 32 B per
-//! failing call for a one-`Integer` capture, found while probing bug-766 E. The
-//! error exits (`emit_call_error_exit`, `emit_inline_error_exit`) now free every
-//! pending closure its call may free.
+//! bug-572 freed the closure object and its environment once the call it was
+//! built for had returned. That drain sat on the success path only, so a callback
+//! that failed left the closure behind: 32 B per failing call for a one-`Integer`
+//! capture, found while probing bug-766 E. Since bug-781 the closure is its
+//! statement's temp like any owned value, and the error exits
+//! (`emit_call_error_exit`, `emit_inline_error_exit`) free a statement's temps.
 //!
 //! Each case runs the failing statement `REPS` times, trapped by a function-level
 //! `TRAP` one frame up and, separately, by an inline `TRAP` in the failing frame.

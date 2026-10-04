@@ -88,51 +88,6 @@ pub(crate) enum EscapingValue {
     InSlot(usize),
 }
 
-/// How a function body reads one of its parameters as a VALUE (bug-767 C).
-#[derive(Default)]
-struct ParameterValueUses {
-    /// `(callee, position)` for each read that is a whole call argument.
-    forwards: Vec<(String, usize)>,
-    /// A read that is anything else — stored, returned, captured, an operand.
-    escapes: bool,
-}
-
-/// Classify every `Local(name)` read in `body`: a direct argument of a
-/// `Call`/`CallResult` is a forward to that callee's position; any other read
-/// escapes. An invoke through the parameter (`f(x)`) is a call TARGET, a
-/// `String`, not a read, so it is neither.
-fn parameter_value_uses(body: &[NirOp], name: &str) -> ParameterValueUses {
-    use crate::target::shared::nir::visit::{walk_value, NirVisitor};
-    struct Uses<'a> {
-        name: &'a str,
-        out: ParameterValueUses,
-    }
-    impl NirVisitor for Uses<'_> {
-        fn visit_value(&mut self, value: &NirValue) {
-            match value {
-                NirValue::Local(local) if local == self.name => self.out.escapes = true,
-                NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
-                    for (position, arg) in args.iter().enumerate() {
-                        match arg {
-                            NirValue::Local(local) if local == self.name => {
-                                self.out.forwards.push((target.clone(), position));
-                            }
-                            other => self.visit_value(other),
-                        }
-                    }
-                }
-                other => walk_value(self, other),
-            }
-        }
-    }
-    let mut uses = Uses {
-        name,
-        out: ParameterValueUses::default(),
-    };
-    uses.visit_ops(body);
-    uses.out
-}
-
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // bug-592: plan-86 E's borrow flag belongs to exactly one frame — the
@@ -179,38 +134,6 @@ impl CodeBuilder<'_> {
         // outside a `lower_value` frame, so this node can only ever be credited
         // with provenance its own lowering established.
         self.fresh_string_block = None;
-        // bug-572: decide, BEFORE the arguments are lowered, which of this call's
-        // capturing-`LAMBDA` arguments it may free. The decision gates the
-        // `NirValue::Closure` arm's registration, so a program that never passes a
-        // capturing lambda to a callback position emits exactly what it emitted
-        // before — the containment argument for the golden delta.
-        // Only a CALL node owns the flag AND the drain. Every other node inherits
-        // the enclosing call's answer and leaves its registrations alone: the
-        // `Closure` argument itself comes through here, so a non-call that
-        // cleared the flag would switch off the registration on the very node
-        // that performs it, and one that drained would take the entry away from
-        // the call that is going to free it.
-        let owns_closure_drain =
-            matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. });
-        let freeable_closure_args = if owns_closure_drain {
-            self.freeable_closure_arguments(value)
-        } else {
-            Vec::new()
-        };
-        let closure_mark = self.pending_closure_temps.len();
-        let previous_wanted = owns_closure_drain.then(|| {
-            std::mem::replace(
-                &mut self.closure_temp_wanted,
-                freeable_closure_args.iter().any(|eligible| *eligible),
-            )
-        });
-        let previous_arguments = owns_closure_drain.then(|| {
-            let arguments = Self::closure_argument_addresses(value)
-                .into_iter()
-                .zip(freeable_closure_args.iter().copied())
-                .collect();
-            std::mem::replace(&mut self.closure_temp_arguments, arguments)
-        });
         let result = self.lower_value_inner(value);
         // bug-766 B: a `WITH` item built in the record-temp scratch is no block of
         // its own — nothing may free it.
@@ -257,24 +180,12 @@ impl CodeBuilder<'_> {
             }
             other => other,
         };
-        if let Some(previous) = previous_wanted {
-            self.closure_temp_wanted = previous;
-        }
-        if let Some(previous) = previous_arguments {
-            self.closure_temp_arguments = previous;
-        }
-        let result = if owns_closure_drain {
-            self.free_call_closure_temps(result, closure_mark, &freeable_closure_args)?
-        } else {
-            result
-        };
         // bug-744: a `Nothing`-typed call lowers to a `void` location — the callee
         // leaves no value in `RESULT_VALUE_REGISTER`, and a statement call needs
         // none. `Nothing` is still a value (§4.6), so a `FUNC … AS Nothing` call in
         // value position (a binding, an argument, an operand, a literal element, a
         // field) yields the unit value `NOTHING`, which is 0 exactly as
-        // `lower_default_value` and a `NOTHING` constant make it. Done after the
-        // closure drops above, which would clobber a register made before them.
+        // `lower_default_value` and a `NOTHING` constant make it.
         let result = match result {
             Ok(result)
                 if !value_discarded
@@ -318,227 +229,6 @@ impl CodeBuilder<'_> {
         self.borrow_get_result = borrow_saved;
         self.headroom_copy_result = headroom_saved;
         result
-    }
-
-    /// bug-572: for each capturing `LAMBDA` written **literally** in `value`'s
-    /// argument list, whether this call may free it once it returns — in argument
-    /// order, which is the order the `NirValue::Closure` arm registers them.
-    ///
-    /// Empty for everything that is not a `Call`/`CallResult`, and `false` for any
-    /// closure argument whose position is not provably a non-retaining callback.
-    /// `false` is the pre-fix behaviour (the closure leaks), so every unrecognised
-    /// shape keeps leaking rather than freeing a block someone still holds.
-    /// The address of each capturing `LAMBDA` written directly in `value`'s
-    /// argument list, in the order [`Self::freeable_closure_arguments`] answers
-    /// for them. The `NirValue::Closure` arm finds its own entry by address, so a
-    /// closure nested anywhere else (a list-literal element) matches none.
-    fn closure_argument_addresses(value: &NirValue) -> Vec<usize> {
-        let (NirValue::Call { args, .. } | NirValue::CallResult { args, .. }) = value else {
-            return Vec::new();
-        };
-        args.iter()
-            .filter(|arg| matches!(arg, NirValue::Closure { captures, .. } if !captures.is_empty()))
-            .map(|arg| arg as *const NirValue as usize)
-            .collect()
-    }
-
-    /// Free, on an error exit, every pending capturing `LAMBDA` whose call may
-    /// free it (`PendingClosure::freed_on_error`). Every such closure was built
-    /// before the exit runs — it registers only once built, and leaves the list
-    /// when its call's drain runs — and the exit never reaches that drain.
-    /// Before this, a failing callback leaked its capturing `LAMBDA`'s
-    /// environment: 32 B per failing `transform(xs, LAMBDA(it) -> … k …)`.
-    ///
-    /// The caller has parked the result registers: each drop is three
-    /// `arena_free` calls.
-    pub(crate) fn emit_pending_closure_frees_on_error(&mut self) -> Result<(), String> {
-        let doomed: Vec<PendingClosure> = self
-            .pending_closure_temps
-            .iter()
-            .filter(|closure| closure.freed_on_error)
-            .cloned()
-            .collect();
-        for closure in doomed.iter().rev() {
-            self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_: ParameterType::Nothing,
-                stack_offset: closure.slot,
-                closure_captures: Some(closure.captures.clone()),
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            })?;
-        }
-        Ok(())
-    }
-
-    /// Whether [`Self::emit_pending_closure_frees_on_error`] frees anything.
-    pub(crate) fn has_pending_closure_frees_on_error(&self) -> bool {
-        self.pending_closure_temps
-            .iter()
-            .any(|closure| closure.freed_on_error)
-    }
-
-    fn freeable_closure_arguments(&self, value: &NirValue) -> Vec<bool> {
-        let (target, args) = match value {
-            NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
-                (target.as_str(), args)
-            }
-            _ => return Vec::new(),
-        };
-        args.iter()
-            .enumerate()
-            .filter(|(_, arg)| {
-                matches!(arg, NirValue::Closure { captures, .. } if !captures.is_empty())
-            })
-            .map(|(index, _)| self.argument_position_is_nonretaining_callback(target, index))
-            .collect()
-    }
-
-    /// bug-572: whether `target`'s parameter at `index` is a callback the callee
-    /// invokes synchronously and never stores, forwards, or returns — so a closure
-    /// passed there is dead the moment the call returns.
-    ///
-    /// Two arms, because a callee is either an ordinary NIR body or a native
-    /// lowering with no body to read:
-    ///
-    /// * **NIR body** (a user `FUNC`, or a monomorphised `.mfb` builtin such as
-    ///   `collections::mapValues`): the parameter must be a non-isolated `FUNC`
-    ///   AND its name must never be read as a VALUE anywhere in the body.
-    ///   `collect_value_used_locals` answers exactly that — a `Call`'s target is a
-    ///   `String`, not a `NirValue`, so an invoke does not count as a use. It is
-    ///   the same proof `is_non_escaping_closure` makes for a closure BINDING,
-    ///   made one frame down for a parameter. A name shadowed by an inner local
-    ///   reads as "used", which declines — the fail-closed direction.
-    /// * **native builtin**: the registry's declared parameter type. Every
-    ///   non-isolated `FUNC` parameter in the registry is a synchronously-invoked
-    ///   callback (`collections`' fourteen HOF positions and `json::parse`'s
-    ///   reviver); the one retaining position, `thread::start`'s entry, is
-    ///   `ISOLATED FUNC` and excluded by the `false` in the match. That was a fact
-    ///   about a list, so it is a test —
-    ///   `every_registry_function_parameter_callback_is_synchronous`.
-    ///   `http::Route.handler` is a RECORD FIELD, not a parameter, and a record
-    ///   constructor is not a `Call`: storing a closure there is declined here
-    ///   because no arm ever sees it.
-    ///
-    /// A call through a callable VALUE (`f(x)` where `f` is a `FUNC` local) is
-    /// declined by both arms — the target names a binding, not a function — which
-    /// is right: nothing here can see what the invoked function does with it.
-    fn argument_position_is_nonretaining_callback(&self, target: &str, index: usize) -> bool {
-        self.nonretaining_callback_at(target, index, 0)
-    }
-
-    /// [`Self::argument_position_is_nonretaining_callback`], `depth` frames down a
-    /// chain of forwards.
-    ///
-    /// bug-767 C: a parameter that is only **forwarded** — passed on, whole, as a
-    /// call argument — is as dead after the call as one never read, provided every
-    /// position it is forwarded to is itself non-retaining. The monomorphised
-    /// `__collections_sortBy` body hands `keyFn` straight to
-    /// `collections::transform(value, keyFn)`; reading that forward as an escape
-    /// kept every capturing `LAMBDA` passed to a copying `sortBy` alive — 2 blocks
-    /// (32 B) leaked per call — while `transform` itself freed it. Any other value
-    /// use (stored, returned, captured, compared) still declines, and so does a
-    /// forward whose target cannot be proven, or a chain deeper than
-    /// `FORWARD_DEPTH` (a recursive forward): the fail-closed direction.
-    fn nonretaining_callback_at(&self, target: &str, index: usize, depth: usize) -> bool {
-        const FORWARD_DEPTH: usize = 4;
-        let Some(function) = self.functions.get(target) else {
-            return crate::codegen::registry::synchronous_callback_parameter(target, index);
-        };
-        let Some(param) = function.params.get(index) else {
-            return false;
-        };
-        if !matches!(param.type_, ParameterType::Func(_, _, false)) {
-            return false;
-        }
-        let mut used = std::collections::HashSet::new();
-        crate::codegen::engine::function::collect_value_used_locals(&function.body, &mut used);
-        if !used.contains(&param.name) {
-            return true;
-        }
-        if depth >= FORWARD_DEPTH {
-            return false;
-        }
-        let uses = parameter_value_uses(&function.body, &param.name);
-        !uses.escapes
-            && !uses.forwards.is_empty()
-            && uses
-                .forwards
-                .iter()
-                .all(|(next, position)| self.nonretaining_callback_at(next, *position, depth + 1))
-    }
-
-    /// bug-572: free the capturing `LAMBDA`s this call was allowed to free, once
-    /// it has returned.
-    ///
-    /// The drained entries pair with `eligible` **by order**: both loops that
-    /// lower a call's arguments (`emit_prepared_call_args`,
-    /// `lower_abi_inline_args`) go left to right, a nested call drains its own
-    /// closures inside its own `lower_value` frame before this one runs, and
-    /// `freeable_closure_arguments` walks the same argument list in the same
-    /// direction. A count mismatch means a shape neither of those assumptions
-    /// covers, so nothing is freed — the fail-closed direction, and a leak rather
-    /// than a double free.
-    ///
-    /// The result must survive `emit_closure_drop`, which is three `arena_free`
-    /// calls and destroys every caller-saved register: it is materialised, parked
-    /// in a slot across the drops, and reloaded. A `Nothing` result
-    /// (`collections::forEach`) carries no value to park, and a register-native
-    /// vector is declined outright rather than forced into a block.
-    fn free_call_closure_temps(
-        &mut self,
-        result: Result<ValueResult, String>,
-        mark: usize,
-        eligible: &[bool],
-    ) -> Result<Result<ValueResult, String>, String> {
-        if self.pending_closure_temps.len() <= mark {
-            return Ok(result);
-        }
-        let drained: Vec<PendingClosure> = self.pending_closure_temps.split_off(mark);
-        let Ok(result) = result else {
-            return Ok(result);
-        };
-        if drained.len() != eligible.len() || Self::is_vector_native(&result) {
-            return Ok(Ok(result));
-        }
-        let doomed: Vec<&PendingClosure> = drained
-            .iter()
-            .zip(eligible)
-            .filter(|(_, keep)| **keep)
-            .map(|(closure, _)| closure)
-            .collect();
-        if doomed.is_empty() {
-            return Ok(Ok(result));
-        }
-        let captures: Vec<Vec<ParameterType>> = doomed.iter().map(|c| c.captures.clone()).collect();
-        let slots: Vec<usize> = doomed.iter().map(|c| c.slot).collect();
-        let parked = if result.type_ == ParameterType::Nothing {
-            None
-        } else {
-            let result = self.materialize_value(result.clone())?;
-            let slot = self.allocate_stack_object("closure_temp_result", 8);
-            self.store_value_at(&result, abi::stack_pointer(), slot);
-            Some((slot, result))
-        };
-        for (slot, capture_types) in slots.into_iter().zip(captures) {
-            self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_: ParameterType::Nothing,
-                stack_offset: slot,
-                closure_captures: Some(capture_types),
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            })?;
-        }
-        let Some((slot, parked_result)) = parked else {
-            return Ok(Ok(result));
-        };
-        let reloaded = self.allocate_register();
-        self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
-        Ok(Ok(ValueResult {
-            location: Operand::from(reloaded),
-            ..parked_result
-        }))
     }
 
     /// Register a freshly produced, freeable-flat heap value as a statement-scope
@@ -620,6 +310,13 @@ impl CodeBuilder<'_> {
         if !(self.is_freeable_flat_value(type_) || self.owns_graph(type_))
             || self.value_needs_owning_copy(value)
             || Self::value_is_runtime_managed(value)
+        {
+            return false;
+        }
+        // bug-781: a function reference (or a capture-less closure) is the static
+        // descriptor every reference shares — no block, so nothing for a temp to free.
+        if matches!(value, NirValue::FunctionRef { .. })
+            || matches!(value, NirValue::Closure { captures, .. } if captures.is_empty())
         {
             return false;
         }
@@ -741,6 +438,11 @@ impl CodeBuilder<'_> {
             return;
         }
         if !self.pending_temp_is_freeable(value, type_, false) {
+            return;
+        }
+        // bug-781: a function-value payload is not copied into the `Result` — its word
+        // IS the callee's closure pointer, which the wrapper now owns. Nothing is dead.
+        if !self.result_payload_is_block(type_) {
             return;
         }
         let slot = self.allocate_stack_object("call_result_payload_temp", 8);
@@ -884,7 +586,6 @@ impl CodeBuilder<'_> {
         self.emit_owned_value_drop(&OwnedValueCleanup {
             type_: temp.type_.clone(),
             stack_offset: temp.slot,
-            closure_captures: None,
             capacity_slot: None,
             loop_alias_slot: None,
             result_wrapper: None,
@@ -1004,7 +705,6 @@ impl CodeBuilder<'_> {
                 self.emit_owned_value_drop(&OwnedValueCleanup {
                     type_: temp.type_,
                     stack_offset: temp.slot,
-                    closure_captures: None,
                     capacity_slot: None,
                     loop_alias_slot: None,
                     result_wrapper: None,
@@ -1663,9 +1363,13 @@ impl CodeBuilder<'_> {
     /// copy — and may take it: a value with a resource anywhere inside it is move-only and
     /// keeps today's alias. The one definition every store uses (`lower_value_owned`,
     /// `lower_returned_value`, `materialize_owned_element`).
+    ///
+    /// bug-781: a value holding a function value is in the class too — the closure it holds
+    /// is its own, so an owning store copies the closure and its environment.
     pub(crate) fn needs_graph_copy(&self, type_: &ParameterType) -> bool {
         !self.is_freeable_flat_value(type_)
-            && crate::codegen::collection::layout::type_reaches_cycle(&self.type_model, type_)
+            && (crate::codegen::collection::layout::type_reaches_cycle(&self.type_model, type_)
+                || crate::codegen::collection::layout::type_contains_func(&self.type_model, type_))
             && !crate::codegen::collection::layout::type_contains_resource(&self.type_model, type_)
     }
 
@@ -1674,7 +1378,10 @@ impl CodeBuilder<'_> {
     /// walker kind; a type that only reaches a cycle has none yet (plan-134-H) and keeps today's
     /// leak. Every ownership gate of plan-134-G §2.1 asks this beside `is_freeable_flat_value`.
     pub(crate) fn owns_graph(&self, type_: &ParameterType) -> bool {
-        self.needs_graph_copy(type_) && self.graph_drop_kind(type_).is_some()
+        // bug-781: a bare function value needs no walker kind — its owner frees it with
+        // `_mfb_rt_closure_drop` directly (`emit_graph_value_drop`).
+        self.needs_graph_copy(type_)
+            && (matches!(type_, ParameterType::Func(..)) || self.graph_drop_kind(type_).is_some())
     }
 
     /// plan-134-D: whether `value`, stored by the op being lowered, is that place's last
@@ -1894,56 +1601,54 @@ impl CodeBuilder<'_> {
             .is_none_or(|member| self.pointer_field_offset(&local.type_, member).is_some())
     }
 
-    /// plan-77 M6: the static type of a closure capture, used by the closure
-    /// scope-drop to decide whether the env slot holds a freeable owned block.
-    /// ONLY a `Local` capture qualifies: it is deep-copied (`lower_value_owned`)
-    /// into its own arena block, so freeing it is sound. Everything else returns
-    /// `""` so the drop LEAVES the slot — a by-ref capture (`LocalRef` / a
-    /// `by_ref` `Capture`) holds a pointer to another binding's slot, NOT an owned
-    /// block, and a by-value scalar/float is stored inline; freeing either would
-    /// be a wild free. Leaving them is a safe (bounded, arena-reclaimed) leak.
-    /// The free type of every word of the env of a closure over `lambda` with
-    /// `captures`: one per capture, plus the borrowed-scratch address a lambda
-    /// that borrows its creator's scratch carries past them (never freed).
-    pub(crate) fn closure_env_free_types(
+    /// bug-781: what the environment owns in the word a capture of `capture`,
+    /// lowered to a value of `type_`, is stored in. The rule is the one
+    /// `lower_value_owned` applied to produce that value, so the environment owns
+    /// exactly the blocks that call handed it: a by-value `String`, flat
+    /// composite or graph-owning value (a recursive value, a function value, a
+    /// composite holding one). A by-ref capture holds the address of another
+    /// binding's slot, and a scalar, resource or thread handle owns no block, so
+    /// their words are copied verbatim and never freed.
+    pub(crate) fn closure_env_word(
         &self,
-        lambda: &str,
-        captures: &[NirValue],
-    ) -> Vec<ParameterType> {
-        let mut types: Vec<ParameterType> =
-            captures.iter().map(|c| self.capture_free_type(c)).collect();
-        if self.scratch_closure_captures(lambda).is_some() {
-            types.push(ParameterType::Integer);
-        }
-        // plan-146-G: one further word per by-ref `String` capture that shares its
-        // owner's capacity shadow. The env free is sized from this list, so a word
-        // missing here under-frees the block — the allocator then hands part of it
-        // out again while the closure still holds the rest.
-        for _ in crate::codegen::collection::assign::string_self_update::string_shadow_captures(
-            self.functions,
-            lambda,
+        capture: &NirValue,
+        type_: &ParameterType,
+    ) -> ClosureEnvWord {
+        if matches!(
+            capture,
+            NirValue::LocalRef { .. } | NirValue::Capture { by_ref: true, .. }
         ) {
-            types.push(ParameterType::Integer);
+            return ClosureEnvWord::Plain;
         }
-        if crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
-            self.functions,
-            lambda,
-        ) {
-            types.push(ParameterType::Integer);
+        if self.is_freeable_flat_value(type_) || self.owns_graph(type_) {
+            ClosureEnvWord::Owned(type_.clone())
+        } else {
+            ClosureEnvWord::Plain
         }
-        types
     }
 
-    pub(crate) fn capture_free_type(&self, capture: &NirValue) -> ParameterType {
-        match capture {
-            NirValue::Local(name) => self
-                .locals
-                .get(name)
-                .map(|local| local.type_.clone())
-                // The EMPTY nominal is this tree's "no declared type" marker
-                // (`type_utils::is_unset_type`); it was `String::new()` here.
-                .unwrap_or_else(|| ParameterType::named("")),
-            _ => ParameterType::named(""),
+    /// bug-781: note the environment layout of a `LAMBDA` this function creates,
+    /// for the module to emit its environment routine once. A `LAMBDA` created at
+    /// several sites (a cloned loop body) must describe the same layout at each:
+    /// one routine serves every environment the `LAMBDA` makes.
+    pub(crate) fn record_closure_env_layout(
+        &mut self,
+        layout: ClosureEnvLayout,
+    ) -> Result<(), String> {
+        match self
+            .closure_env_layouts
+            .iter()
+            .find(|known| known.symbol == layout.symbol)
+        {
+            Some(known) if *known == layout => Ok(()),
+            Some(known) => Err(format!(
+                "closure environment `{}` is created with two layouts: {known:?} and {layout:?}",
+                layout.symbol
+            )),
+            None => {
+                self.closure_env_layouts.push(layout);
+                Ok(())
+            }
         }
     }
 
@@ -2152,12 +1857,26 @@ impl CodeBuilder<'_> {
                 name,
                 type_,
                 captures,
+            } if captures.is_empty() => {
+                // bug-781: a capture-less closure owns nothing, so it is the static
+                // descriptor a `FunctionRef` loads — `env = 0` then marks exactly
+                // the function values no holder frees or copies.
+                self.lower_value_inner(&NirValue::FunctionRef {
+                    name: name.clone(),
+                    type_: type_.clone(),
+                })
+            }
+            NirValue::Closure {
+                name,
+                type_,
+                captures,
             } => {
                 let symbol = self
                     .function_symbols
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| name.clone());
+                let ops_symbol = closure_env_ops_symbol(&symbol);
                 let function_register = self.allocate_register();
                 self.emit(abi::load_page_address(&function_register, &symbol));
                 self.relocations.push(CodeRelocation {
@@ -2209,110 +1928,156 @@ impl CodeBuilder<'_> {
                         self.functions,
                         name,
                     );
-                let env_slot = if captures.is_empty() {
-                    None
-                } else {
+                let env_register = self.allocate_register();
+                let env_slot = self.allocate_stack_object("closure_env", 8);
+                let alloc_ok = self.label("closure_env_alloc_ok");
+                let shares_resource_base =
+                    crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
+                        self.functions,
+                        name,
+                    );
+                let auxiliary_words = usize::from(borrowed_scratch.is_some())
+                    + shared_shadows.len()
+                    + usize::from(shares_resource_base);
+                let env_size =
+                    (closure_env_word_offset(captures.len() + auxiliary_words)).to_string();
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &env_size,
+                ));
+                self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+                self.emit_arena_alloc_call();
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.raise_error_bare("ErrOutOfMemory")?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::move_register(&env_register, abi::mfb_return(1)));
+                self.emit(abi::store_u64(
+                    &env_register,
+                    abi::stack_pointer(),
+                    env_slot,
+                ));
+                // bug-781: word 0 names this `LAMBDA`'s environment routine, so a
+                // holder that knows only the `FUNC` type can copy or drop it.
+                let ops_register = self.allocate_register();
+                self.emit(abi::load_page_address(&ops_register, &ops_symbol));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ops_symbol.clone(),
+                    kind: RelocIntent::DataAddrHi,
+                    binding: "data".to_string(),
+                    library: None,
+                });
+                self.emit(abi::add_page_offset(
+                    &ops_register,
+                    &ops_register,
+                    &ops_symbol,
+                ));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ops_symbol.clone(),
+                    kind: RelocIntent::DataAddrLo,
+                    binding: "data".to_string(),
+                    library: None,
+                });
+                let env_register = self.allocate_register();
+                self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                self.emit(abi::store_u64(
+                    &ops_register,
+                    &env_register,
+                    CLOSURE_ENV_OFFSET_OPS,
+                ));
+                let mut words = Vec::with_capacity(captures.len());
+                for (index, capture) in captures.iter().enumerate() {
+                    // The closure env outlives the capturing scope, so it must
+                    // own each captured value independently (plan-02 Phase 8).
+                    // `lower_value_owned` deep-copies an aliasing source; its
+                    // `arena_alloc` clobbers caller-saved scratch (incl.
+                    // `env_register`), so reload the env from its slot.
+                    let value = self.lower_value_owned(capture)?;
+                    words.push(self.closure_env_word(capture, &value.type_));
+                    // Observation boundary: a `Float` captured into the
+                    // closure env is read back when the closure runs, so it
+                    // must be finite (plan-17).
+                    self.observe_float(capture, &value)?;
+                    // Materialize a `d`-native float before storing it into
+                    // the closure env (plan-01 float-dnative).
+                    let value = self.materialize_float(value)?;
                     let env_register = self.allocate_register();
-                    let env_slot = self.allocate_stack_object("closure_env", 8);
-                    let alloc_ok = self.label("closure_env_alloc_ok");
-                    let shares_resource_base =
-                        crate::codegen::collection::assign::string_self_update::lambda_shares_resource_base(
-                            self.functions,
-                            name,
-                        );
-                    let env_words = captures.len()
-                        + usize::from(borrowed_scratch.is_some())
-                        + shared_shadows.len()
-                        + usize::from(shares_resource_base);
-                    let env_size = (env_words * 8).to_string();
-                    self.emit(abi::move_immediate(
-                        abi::return_register(),
-                        "Integer",
-                        &env_size,
-                    ));
-                    self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-                    self.emit_arena_alloc_call();
-                    self.emit(abi::branch_eq(&alloc_ok));
-                    self.raise_error_bare("ErrOutOfMemory")?;
-                    self.emit(abi::label(&alloc_ok));
-                    self.emit(abi::move_register(&env_register, abi::mfb_return(1)));
+                    self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                     self.emit(abi::store_u64(
+                        &value.location,
                         &env_register,
-                        abi::stack_pointer(),
-                        env_slot,
+                        closure_env_word_offset(index),
                     ));
-                    for (index, capture) in captures.iter().enumerate() {
-                        // The closure env outlives the capturing scope, so it must
-                        // own each captured flat value independently (plan-02
-                        // Phase 8). `lower_value_owned` deep-copies an aliasing
-                        // source; its `arena_alloc` clobbers caller-saved scratch
-                        // (incl. `env_register`), so reload the env from its slot.
-                        let value = self.lower_value_owned(capture)?;
-                        // Observation boundary: a `Float` captured into the
-                        // closure env is read back when the closure runs, so it
-                        // must be finite (plan-17).
-                        self.observe_float(capture, &value)?;
-                        // Materialize a `d`-native float before storing it into
-                        // the closure env (plan-01 float-dnative).
-                        let value = self.materialize_float(value)?;
-                        let env_register = self.allocate_register();
-                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
-                        self.emit(abi::store_u64(&value.location, &env_register, index * 8));
-                    }
-                    if let Some(scratch_slot) = borrowed_scratch {
-                        let holder = self.allocate_register();
-                        self.emit(abi::add_immediate(
-                            &holder,
-                            abi::stack_pointer(),
-                            scratch_slot,
+                }
+                if let Some(scratch_slot) = borrowed_scratch {
+                    let holder = self.allocate_register();
+                    self.emit(abi::add_immediate(
+                        &holder,
+                        abi::stack_pointer(),
+                        scratch_slot,
+                    ));
+                    let env_register = self.allocate_register();
+                    self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                    self.emit(abi::store_u64(
+                        &holder,
+                        &env_register,
+                        closure_env_word_offset(captures.len()),
+                    ));
+                }
+                for (position, (local, _)) in shared_shadows.iter().enumerate() {
+                    // The owner's shadow slot, which its own prescan allocated
+                    // for exactly this capture (`prescan_string_self_appends`).
+                    let Some(shadow_slot) = self.string_capacity_slots.get(local).copied() else {
+                        return Err(format!(
+                            "native closure `{name}` shares the capacity shadow of `{local}`, \
+                             which its creator does not have"
                         ));
-                        let env_register = self.allocate_register();
-                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
-                        self.emit(abi::store_u64(&holder, &env_register, captures.len() * 8));
-                    }
-                    for (position, (local, _)) in shared_shadows.iter().enumerate() {
-                        // The owner's shadow slot, which its own prescan allocated
-                        // for exactly this capture (`prescan_string_self_appends`).
-                        let Some(shadow_slot) = self.string_capacity_slots.get(local).copied()
-                        else {
-                            return Err(format!(
-                                "native closure `{name}` shares the capacity shadow of `{local}`, \
-                                 which its creator does not have"
-                            ));
-                        };
-                        let holder = self.allocate_register();
-                        self.emit(abi::add_immediate(
-                            &holder,
-                            abi::stack_pointer(),
-                            shadow_slot,
+                    };
+                    let holder = self.allocate_register();
+                    self.emit(abi::add_immediate(
+                        &holder,
+                        abi::stack_pointer(),
+                        shadow_slot,
+                    ));
+                    let env_register = self.allocate_register();
+                    self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                    let index = captures.len() + usize::from(borrowed_scratch.is_some()) + position;
+                    self.emit(abi::store_u64(
+                        &holder,
+                        &env_register,
+                        closure_env_word_offset(index),
+                    ));
+                }
+                if shares_resource_base {
+                    // plan-146-G: the address of this frame's `os::appResourcePath`
+                    // base cache, which the lambda fills on its first call and
+                    // this frame owns and frees.
+                    let Some(base_slot) = self.string_app_resource_base else {
+                        return Err(format!(
+                            "native closure `{name}` shares an os.appResourcePath base cache \
+                             its creator does not have"
                         ));
-                        let env_register = self.allocate_register();
-                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
-                        let index =
-                            captures.len() + usize::from(borrowed_scratch.is_some()) + position;
-                        self.emit(abi::store_u64(&holder, &env_register, index * 8));
-                    }
-                    if shares_resource_base {
-                        // plan-146-G: the address of this frame's `os::appResourcePath`
-                        // base cache, which the lambda fills on its first call and
-                        // this frame owns and frees.
-                        let Some(base_slot) = self.string_app_resource_base else {
-                            return Err(format!(
-                                "native closure `{name}` shares an os.appResourcePath base cache \
-                                 its creator does not have"
-                            ));
-                        };
-                        let holder = self.allocate_register();
-                        self.emit(abi::add_immediate(&holder, abi::stack_pointer(), base_slot));
-                        let env_register = self.allocate_register();
-                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
-                        let index = captures.len()
-                            + usize::from(borrowed_scratch.is_some())
-                            + shared_shadows.len();
-                        self.emit(abi::store_u64(&holder, &env_register, index * 8));
-                    }
-                    Some(env_slot)
-                };
+                    };
+                    let holder = self.allocate_register();
+                    self.emit(abi::add_immediate(&holder, abi::stack_pointer(), base_slot));
+                    let env_register = self.allocate_register();
+                    self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                    let index = captures.len()
+                        + usize::from(borrowed_scratch.is_some())
+                        + shared_shadows.len();
+                    self.emit(abi::store_u64(
+                        &holder,
+                        &env_register,
+                        closure_env_word_offset(index),
+                    ));
+                }
+                self.record_closure_env_layout(ClosureEnvLayout {
+                    symbol: ops_symbol,
+                    words,
+                    auxiliary_words,
+                })?;
                 let closure_register = self.allocate_register();
                 let alloc_ok = self.label("closure_alloc_ok");
                 // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
@@ -2336,52 +2101,18 @@ impl CodeBuilder<'_> {
                     abi::mfb_return(1),
                     CLOSURE_OFFSET_CODE,
                 ));
-                if let Some(env_slot) = env_slot {
-                    let env_register = self.allocate_register();
-                    self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
-                    self.emit(abi::store_u64(
-                        &env_register,
-                        abi::mfb_return(1),
-                        CLOSURE_OFFSET_ENV,
-                    ));
-                } else {
-                    self.emit(abi::store_u64(
-                        abi::ZERO,
-                        abi::mfb_return(1),
-                        CLOSURE_OFFSET_ENV,
-                    ));
-                }
+                let env_register = self.allocate_register();
+                self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
+                self.emit(abi::store_u64(
+                    &env_register,
+                    abi::mfb_return(1),
+                    CLOSURE_OFFSET_ENV,
+                ));
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
-                // bug-572: a capturing `LAMBDA` allocates three arena blocks — the
-                // env, one deep copy per freeable-flat capture, and the 16-byte
-                // object — and as a call ARGUMENT it had no owner at all. It is not
-                // a `PendingTemp`: `pending_temp_is_freeable` requires
-                // `is_freeable_flat_value`, which `Func` is not, and must keep
-                // requiring it (a `Func` element in a collection is a shared
-                // POINTER, bug-73, so a flat free of the surrounding value must
-                // never chase it). Record the object for the enclosing call's own
-                // drain instead, and ONLY when that call has already decided it may
-                // free it — so a program without such a call emits not one extra
-                // instruction here.
-                if self.closure_temp_wanted && !captures.is_empty() {
-                    let capture_types = self.closure_env_free_types(name, captures);
-                    let slot = self.allocate_stack_object("closure_temp", 8);
-                    self.emit(abi::store_u64(
-                        &closure_register,
-                        abi::stack_pointer(),
-                        slot,
-                    ));
-                    let address = value as *const NirValue as usize;
-                    let freed_on_error = self
-                        .closure_temp_arguments
-                        .iter()
-                        .any(|(argument, freeable)| *argument == address && *freeable);
-                    self.pending_closure_temps.push(PendingClosure {
-                        slot,
-                        captures: capture_types,
-                        freed_on_error,
-                    });
-                }
+                // bug-781: the object is a fresh value its consumer owns — a binding,
+                // a field, an element, a return claims it; an argument leaves it to
+                // the statement-scope free (`register_pending_temp`, as for any
+                // owned value).
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
@@ -2395,7 +2126,11 @@ impl CodeBuilder<'_> {
                 // pointer to the parent binding's slot, which `Bind` installs into
                 // a reference local that derefs on read/write.
                 let register = self.allocate_register();
-                self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
+                self.emit(abi::load_u64(
+                    &register,
+                    CLOSURE_ENV_REGISTER,
+                    closure_env_word_offset(*index),
+                ));
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),

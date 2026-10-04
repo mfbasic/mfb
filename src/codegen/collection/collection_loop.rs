@@ -171,7 +171,6 @@ impl CodeBuilder<'_> {
         self.emit_owned_value_drop(&OwnedValueCleanup {
             type_: result_type.clone(),
             stack_offset: slot,
-            closure_captures: None,
             capacity_slot: None,
             loop_alias_slot: None,
             result_wrapper: None,
