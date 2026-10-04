@@ -349,7 +349,8 @@
     { "op": "eval", "line": 79, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "parallelism-over-max=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "16777216" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "16" }] } }] } },
     { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "length-3=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "16" }] } }] } },
     { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "salt-7=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "7" }] } }] } },
-    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "salt-8=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "8" }] } }] } }
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "salt-8=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "8" }] } }] } },
+    { "op": "eval", "line": 86, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "length-over-max=" }, "right": { "kind": "call", "type": "String", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "4294967296" }, { "kind": "const", "type": "Integer", "value": "16" }] } }] } }
     ]
   },
   {
@@ -8630,7 +8631,7 @@
     {
       "op": "if",
       "line": 18,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "length" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "length" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "length" }, "right": { "kind": "const", "type": "Integer", "value": "4294967295" } } },
       "then": [
       { "op": "fail", "line": 19, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "argon2id length out of range" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto_argon2id.mfb" }, { "kind": "const", "type": "Integer", "value": "19" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
@@ -8640,9 +8641,9 @@
     {
       "op": "if",
       "line": 21,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "salt" }] }, "right": { "kind": "const", "type": "Integer", "value": "8" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "password" }] }, "right": { "kind": "const", "type": "Integer", "value": "4294967295" } },
       "then": [
-      { "op": "fail", "line": 22, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "argon2id salt out of range" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto_argon2id.mfb" }, { "kind": "const", "type": "Integer", "value": "22" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 22, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "argon2id password out of range" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto_argon2id.mfb" }, { "kind": "const", "type": "Integer", "value": "22" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -8650,292 +8651,302 @@
     {
       "op": "if",
       "line": 24,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "memoryKiB" }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "8" }, "right": { "kind": "local", "name": "parallelism" } } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "memoryKiB" }, "right": { "kind": "const", "type": "Integer", "value": "2097152" } } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "salt" }] }, "right": { "kind": "const", "type": "Integer", "value": "8" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "salt" }] }, "right": { "kind": "const", "type": "Integer", "value": "4294967295" } } },
       "then": [
-      { "op": "fail", "line": 25, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "argon2id memoryKiB out of range" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto_argon2id.mfb" }, { "kind": "const", "type": "Integer", "value": "25" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 25, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "argon2id salt out of range" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto_argon2id.mfb" }, { "kind": "const", "type": "Integer", "value": "25" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 27, "mutable": false, "name": "blocks", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "4" }, "right": { "kind": "local", "name": "parallelism" } }, "right": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "memoryKiB" }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "4" }, "right": { "kind": "local", "name": "parallelism" } } } } },
-    { "op": "bind", "line": 28, "mutable": false, "name": "laneLen", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "blocks" }, "right": { "kind": "local", "name": "parallelism" } } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "segLen", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "laneLen" }, "right": { "kind": "const", "type": "Integer", "value": "4" } } },
-    { "op": "bind", "line": 30, "mutable": false, "name": "zeroOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "blocks" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "inputOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "zeroOff" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
-    { "op": "bind", "line": 32, "mutable": false, "name": "scratchOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
-    { "op": "bind", "line": 33, "mutable": false, "name": "addrOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "scratchOff" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
-    { "op": "bind", "line": 34, "mutable": false, "name": "h0", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2H0", "args": [{ "kind": "local", "name": "password" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "memoryKiB" }, { "kind": "local", "name": "iterations" }, { "kind": "local", "name": "parallelism" }, { "kind": "local", "name": "length" }] } },
-    { "op": "bind", "line": 35, "mutable": true, "name": "block", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 36, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "if",
+      "line": 27,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "memoryKiB" }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "8" }, "right": { "kind": "local", "name": "parallelism" } } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "memoryKiB" }, "right": { "kind": "const", "type": "Integer", "value": "2097152" } } },
+      "then": [
+      { "op": "fail", "line": 28, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "argon2id memoryKiB out of range" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto_argon2id.mfb" }, { "kind": "const", "type": "Integer", "value": "28" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 30, "mutable": false, "name": "blocks", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "4" }, "right": { "kind": "local", "name": "parallelism" } }, "right": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "memoryKiB" }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "4" }, "right": { "kind": "local", "name": "parallelism" } } } } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "laneLen", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "blocks" }, "right": { "kind": "local", "name": "parallelism" } } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "segLen", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "laneLen" }, "right": { "kind": "const", "type": "Integer", "value": "4" } } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "zeroOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "blocks" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "inputOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "zeroOff" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
+    { "op": "bind", "line": 35, "mutable": false, "name": "scratchOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "addrOff", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "scratchOff" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "h0", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2H0", "args": [{ "kind": "local", "name": "password" }, { "kind": "local", "name": "salt" }, { "kind": "local", "name": "memoryKiB" }, { "kind": "local", "name": "iterations" }, { "kind": "local", "name": "parallelism" }, { "kind": "local", "name": "length" }] } },
+    { "op": "bind", "line": 38, "mutable": true, "name": "block", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 39, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 37,
+      "line": 40,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
       "body": [
-      { "op": "assign", "line": 38, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "block" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-      { "op": "assign", "line": 39, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 41, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "block" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      { "op": "assign", "line": 42, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 41, "mutable": true, "name": "mem", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "assign", "line": 42, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 44, "mutable": true, "name": "mem", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "assign", "line": 45, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 43,
+      "line": 46,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "blocks" }, "right": { "kind": "const", "type": "Integer", "value": "4" } } },
       "body": [
-      { "op": "assign", "line": 44, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "block" }] } },
-      { "op": "assign", "line": 45, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 47, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "block" }] } },
+      { "op": "assign", "line": 48, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 47, "mutable": true, "name": "lane", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 48, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 49, "mutable": true, "name": "seed", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
-    { "op": "bind", "line": 50, "mutable": true, "name": "raw", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
-    { "op": "bind", "line": 51, "mutable": true, "name": "base", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 52, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 50, "mutable": true, "name": "lane", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 51, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 52, "mutable": true, "name": "seed", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "bind", "line": 53, "mutable": true, "name": "raw", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "bind", "line": 54, "mutable": true, "name": "base", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 55, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 53,
+      "line": 56,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "parallelism" } },
       "body": [
-      { "op": "assign", "line": 54, "name": "j", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "assign", "line": 57, "name": "j", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "while",
-        "line": 55,
+        "line": 58,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
         "body": [
-        { "op": "assign", "line": 56, "name": "seed", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_copyBytes", "args": [{ "kind": "local", "name": "h0" }] } },
-        { "op": "assign", "line": 57, "name": "seed", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2Le32", "args": [{ "kind": "local", "name": "seed" }, { "kind": "local", "name": "j" }] } },
-        { "op": "assign", "line": 58, "name": "seed", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2Le32", "args": [{ "kind": "local", "name": "seed" }, { "kind": "local", "name": "lane" }] } },
-        { "op": "assign", "line": 59, "name": "raw", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2HPrime", "args": [{ "kind": "local", "name": "seed" }, { "kind": "const", "type": "Integer", "value": "1024" }] } },
-        { "op": "assign", "line": 60, "name": "base", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "local", "name": "j" } }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
-        { "op": "assign", "line": 61, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+        { "op": "assign", "line": 59, "name": "seed", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_copyBytes", "args": [{ "kind": "local", "name": "h0" }] } },
+        { "op": "assign", "line": 60, "name": "seed", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2Le32", "args": [{ "kind": "local", "name": "seed" }, { "kind": "local", "name": "j" }] } },
+        { "op": "assign", "line": 61, "name": "seed", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2Le32", "args": [{ "kind": "local", "name": "seed" }, { "kind": "local", "name": "lane" }] } },
+        { "op": "assign", "line": 62, "name": "raw", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2HPrime", "args": [{ "kind": "local", "name": "seed" }, { "kind": "const", "type": "Integer", "value": "1024" }] } },
+        { "op": "assign", "line": 63, "name": "base", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "local", "name": "j" } }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
+        { "op": "assign", "line": 64, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
         {
           "op": "while",
-          "line": 62,
+          "line": 65,
           "loop": "while",
           "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
           "body": [
-          { "op": "assign", "line": 63, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "#crypto_leLane", "args": [{ "kind": "local", "name": "raw" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "8" } }] }] } },
-          { "op": "assign", "line": 64, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          { "op": "assign", "line": 66, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "#crypto_leLane", "args": [{ "kind": "local", "name": "raw" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "8" } }] }] } },
+          { "op": "assign", "line": 67, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
           ]
         },
-        { "op": "assign", "line": 66, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 69, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       },
-      { "op": "assign", "line": 68, "name": "lane", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 71, "name": "lane", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 70, "mutable": true, "name": "pass", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 71, "mutable": true, "name": "slice", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 72, "mutable": true, "name": "dataIndep", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 73, "mutable": true, "name": "startIdx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 74, "mutable": true, "name": "curr", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 75, "mutable": true, "name": "prev", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 76, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 77, "mutable": true, "name": "rnd", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 78, "mutable": true, "name": "refLane", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 79, "mutable": true, "name": "refIdx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 73, "mutable": true, "name": "pass", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 74, "mutable": true, "name": "slice", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 75, "mutable": true, "name": "dataIndep", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 76, "mutable": true, "name": "startIdx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 77, "mutable": true, "name": "curr", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 78, "mutable": true, "name": "prev", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 79, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 80, "mutable": true, "name": "rnd", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 81, "mutable": true, "name": "refLane", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 82, "mutable": true, "name": "refIdx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 80,
+      "line": 83,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "local", "name": "iterations" } },
       "body": [
-      { "op": "assign", "line": 81, "name": "slice", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "assign", "line": 84, "name": "slice", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "while",
-        "line": 82,
+        "line": 85,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
         "body": [
-        { "op": "assign", "line": 83, "name": "lane", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+        { "op": "assign", "line": 86, "name": "lane", "value": { "kind": "const", "type": "Integer", "value": "0" } },
         {
           "op": "while",
-          "line": 84,
+          "line": 87,
           "loop": "while",
           "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "parallelism" } },
           "body": [
-          { "op": "assign", "line": 85, "name": "dataIndep", "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
-          { "op": "assign", "line": 86, "name": "startIdx", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-          {
-            "op": "if",
-            "line": 87,
-            "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } },
-            "then": [
-            { "op": "assign", "line": 88, "name": "startIdx", "value": { "kind": "const", "type": "Integer", "value": "2" } }
-            ],
-            "else": [
-            ]
-          },
+          { "op": "assign", "line": 88, "name": "dataIndep", "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
+          { "op": "assign", "line": 89, "name": "startIdx", "value": { "kind": "const", "type": "Integer", "value": "0" } },
           {
             "op": "if",
             "line": 90,
+            "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } },
+            "then": [
+            { "op": "assign", "line": 91, "name": "startIdx", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+            ],
+            "else": [
+            ]
+          },
+          {
+            "op": "if",
+            "line": 93,
             "condition": { "kind": "local", "name": "dataIndep" },
             "then": [
-            { "op": "assign", "line": 91, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+            { "op": "assign", "line": 94, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
             {
               "op": "while",
-              "line": 92,
+              "line": 95,
               "loop": "while",
               "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
               "body": [
-              { "op": "assign", "line": 93, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "local", "name": "k" } }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-              { "op": "assign", "line": 94, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+              { "op": "assign", "line": 96, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "local", "name": "k" } }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+              { "op": "assign", "line": 97, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
               ]
             },
-            { "op": "assign", "line": 96, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "inputOff" }, { "kind": "local", "name": "pass" }] } },
-            { "op": "assign", "line": 97, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "local", "name": "lane" }] } },
-            { "op": "assign", "line": 98, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, { "kind": "local", "name": "slice" }] } },
-            { "op": "assign", "line": 99, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, { "kind": "local", "name": "blocks" }] } },
-            { "op": "assign", "line": 100, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }, { "kind": "local", "name": "iterations" }] } },
-            { "op": "assign", "line": 101, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "5" } }, { "kind": "const", "type": "Integer", "value": "2" }] } }
+            { "op": "assign", "line": 99, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "inputOff" }, { "kind": "local", "name": "pass" }] } },
+            { "op": "assign", "line": 100, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "local", "name": "lane" }] } },
+            { "op": "assign", "line": 101, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, { "kind": "local", "name": "slice" }] } },
+            { "op": "assign", "line": 102, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, { "kind": "local", "name": "blocks" }] } },
+            { "op": "assign", "line": 103, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }, { "kind": "local", "name": "iterations" }] } },
+            { "op": "assign", "line": 104, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "5" } }, { "kind": "const", "type": "Integer", "value": "2" }] } }
             ],
             "else": [
             ]
           },
-          { "op": "assign", "line": 103, "name": "curr", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "local", "name": "segLen" } } }, "right": { "kind": "local", "name": "startIdx" } } },
-          { "op": "assign", "line": 104, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          { "op": "assign", "line": 106, "name": "curr", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "local", "name": "segLen" } } }, "right": { "kind": "local", "name": "startIdx" } } },
+          { "op": "assign", "line": 107, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
           {
             "op": "if",
-            "line": 105,
+            "line": 108,
             "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
             "then": [
-            { "op": "assign", "line": 106, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            { "op": "assign", "line": 109, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
             ],
             "else": [
             ]
           },
-          { "op": "assign", "line": 108, "name": "idx", "value": { "kind": "local", "name": "startIdx" } },
+          { "op": "assign", "line": 111, "name": "idx", "value": { "kind": "local", "name": "startIdx" } },
           {
             "op": "while",
-            "line": 109,
+            "line": 112,
             "loop": "while",
             "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "local", "name": "segLen" } },
             "body": [
             {
               "op": "if",
-              "line": 110,
+              "line": 113,
               "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
               "then": [
-              { "op": "assign", "line": 111, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+              { "op": "assign", "line": 114, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
               ],
               "else": [
               ]
             },
             {
               "op": "if",
-              "line": 113,
+              "line": 116,
               "condition": { "kind": "local", "name": "dataIndep" },
               "then": [
               {
                 "op": "if",
-                "line": 114,
+                "line": 117,
                 "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "local", "name": "startIdx" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "128" } }, "right": { "kind": "const", "type": "Integer", "value": "0" } } },
                 "then": [
-                { "op": "assign", "line": 115, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "6" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "6" } }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
-                { "op": "assign", "line": 116, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_argon2Fill", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "zeroOff" }, { "kind": "local", "name": "inputOff" }, { "kind": "local", "name": "zeroOff" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
-                { "op": "assign", "line": 117, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+                { "op": "assign", "line": 118, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "6" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "inputOff" }, "right": { "kind": "const", "type": "Integer", "value": "6" } }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+                { "op": "assign", "line": 119, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_argon2Fill", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "zeroOff" }, { "kind": "local", "name": "inputOff" }, { "kind": "local", "name": "zeroOff" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
+                { "op": "assign", "line": 120, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
                 {
                   "op": "while",
-                  "line": 118,
+                  "line": 121,
                   "loop": "while",
                   "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
                   "body": [
-                  { "op": "assign", "line": 119, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "scratchOff" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "block" }, { "kind": "local", "name": "k" }] }] } },
-                  { "op": "assign", "line": 120, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+                  { "op": "assign", "line": 122, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "scratchOff" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "block" }, { "kind": "local", "name": "k" }] }] } },
+                  { "op": "assign", "line": 123, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
                   ]
                 },
-                { "op": "assign", "line": 122, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_argon2Fill", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "zeroOff" }, { "kind": "local", "name": "scratchOff" }, { "kind": "local", "name": "zeroOff" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
-                { "op": "assign", "line": 123, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+                { "op": "assign", "line": 125, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_argon2Fill", "args": [{ "kind": "local", "name": "mem" }, { "kind": "local", "name": "zeroOff" }, { "kind": "local", "name": "scratchOff" }, { "kind": "local", "name": "zeroOff" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
+                { "op": "assign", "line": 126, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
                 {
                   "op": "while",
-                  "line": 124,
+                  "line": 127,
                   "loop": "while",
                   "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
                   "body": [
-                  { "op": "assign", "line": 125, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "addrOff" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "block" }, { "kind": "local", "name": "k" }] }] } },
-                  { "op": "assign", "line": 126, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+                  { "op": "assign", "line": 128, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "addrOff" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "block" }, { "kind": "local", "name": "k" }] }] } },
+                  { "op": "assign", "line": 129, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
                   ]
                 }
                 ],
                 "else": [
                 ]
               },
-              { "op": "assign", "line": 129, "name": "rnd", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "addrOff" }, "right": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } }] } }
+              { "op": "assign", "line": 132, "name": "rnd", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "addrOff" }, "right": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } }] } }
               ],
               "else": [
-              { "op": "assign", "line": 131, "name": "rnd", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "prev" }, "right": { "kind": "const", "type": "Integer", "value": "128" } }] } }
+              { "op": "assign", "line": 134, "name": "rnd", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "prev" }, "right": { "kind": "const", "type": "Integer", "value": "128" } }] } }
               ]
             },
-            { "op": "assign", "line": 133, "name": "refLane", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "rnd" }, { "kind": "const", "type": "Integer", "value": "32" }] }, "right": { "kind": "local", "name": "parallelism" } } },
+            { "op": "assign", "line": 136, "name": "refLane", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "rnd" }, { "kind": "const", "type": "Integer", "value": "32" }] }, "right": { "kind": "local", "name": "parallelism" } } },
             {
               "op": "if",
-              "line": 134,
+              "line": 137,
               "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } },
               "then": [
-              { "op": "assign", "line": 135, "name": "refLane", "value": { "kind": "local", "name": "lane" } }
+              { "op": "assign", "line": 138, "name": "refLane", "value": { "kind": "local", "name": "lane" } }
               ],
               "else": [
               ]
             },
-            { "op": "assign", "line": 137, "name": "refIdx", "value": { "kind": "call", "type": "Integer", "target": "#crypto_argon2IndexAlpha", "args": [{ "kind": "local", "name": "pass" }, { "kind": "local", "name": "laneLen" }, { "kind": "local", "name": "segLen" }, { "kind": "local", "name": "slice" }, { "kind": "local", "name": "idx" }, { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "local", "name": "rnd" }, { "kind": "const", "type": "Integer", "value": "4294967295" }] }, { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "refLane" }, "right": { "kind": "local", "name": "lane" } }] } },
-            { "op": "assign", "line": 138, "name": "base", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
-            { "op": "assign", "line": 139, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_argon2Fill", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "prev" }, "right": { "kind": "const", "type": "Integer", "value": "128" } }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "refLane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "local", "name": "refIdx" } }, "right": { "kind": "const", "type": "Integer", "value": "128" } }, { "kind": "local", "name": "base" }, { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } },
-            { "op": "assign", "line": 140, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+            { "op": "assign", "line": 140, "name": "refIdx", "value": { "kind": "call", "type": "Integer", "target": "#crypto_argon2IndexAlpha", "args": [{ "kind": "local", "name": "pass" }, { "kind": "local", "name": "laneLen" }, { "kind": "local", "name": "segLen" }, { "kind": "local", "name": "slice" }, { "kind": "local", "name": "idx" }, { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "local", "name": "rnd" }, { "kind": "const", "type": "Integer", "value": "4294967295" }] }, { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "refLane" }, "right": { "kind": "local", "name": "lane" } }] } },
+            { "op": "assign", "line": 141, "name": "base", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } },
+            { "op": "assign", "line": 142, "name": "block", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_argon2Fill", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "prev" }, "right": { "kind": "const", "type": "Integer", "value": "128" } }, { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "refLane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "local", "name": "refIdx" } }, "right": { "kind": "const", "type": "Integer", "value": "128" } }, { "kind": "local", "name": "base" }, { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+            { "op": "assign", "line": 143, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
             {
               "op": "while",
-              "line": 141,
+              "line": 144,
               "loop": "while",
               "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
               "body": [
-              { "op": "assign", "line": 142, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "block" }, { "kind": "local", "name": "k" }] }] } },
-              { "op": "assign", "line": 143, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+              { "op": "assign", "line": 145, "name": "mem", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "k" } }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "block" }, { "kind": "local", "name": "k" }] }] } },
+              { "op": "assign", "line": 146, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
               ]
             },
-            { "op": "assign", "line": 145, "name": "curr", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-            { "op": "assign", "line": 146, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "prev" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-            { "op": "assign", "line": 147, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            { "op": "assign", "line": 148, "name": "curr", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "curr" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+            { "op": "assign", "line": 149, "name": "prev", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "prev" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+            { "op": "assign", "line": 150, "name": "idx", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
             ]
           },
-          { "op": "assign", "line": 149, "name": "lane", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+          { "op": "assign", "line": 152, "name": "lane", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
           ]
         },
-        { "op": "assign", "line": 151, "name": "slice", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 154, "name": "slice", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "slice" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       },
-      { "op": "assign", "line": 153, "name": "pass", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 156, "name": "pass", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "pass" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 155, "mutable": true, "name": "cb", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
-    { "op": "assign", "line": 156, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 158, "mutable": true, "name": "cb", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "assign", "line": 159, "name": "k", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 157,
+      "line": 160,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
       "body": [
-      { "op": "assign", "line": 158, "name": "rnd", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-      { "op": "assign", "line": 159, "name": "lane", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "assign", "line": 161, "name": "rnd", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "assign", "line": 162, "name": "lane", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "while",
-        "line": 160,
+        "line": 163,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "parallelism" } },
         "body": [
-        { "op": "assign", "line": 161, "name": "rnd", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "rnd" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "const", "type": "Integer", "value": "128" } }, "right": { "kind": "local", "name": "k" } }] }] } },
-        { "op": "assign", "line": 162, "name": "lane", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "assign", "line": 164, "name": "rnd", "value": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "rnd" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "mem" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "local", "name": "laneLen" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "const", "type": "Integer", "value": "128" } }, "right": { "kind": "local", "name": "k" } }] }] } },
+        { "op": "assign", "line": 165, "name": "lane", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "lane" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       },
-      { "op": "assign", "line": 164, "name": "cb", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_appendLeLane", "args": [{ "kind": "local", "name": "cb" }, { "kind": "local", "name": "rnd" }] } },
-      { "op": "assign", "line": 165, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 167, "name": "cb", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_appendLeLane", "args": [{ "kind": "local", "name": "cb" }, { "kind": "local", "name": "rnd" }] } },
+      { "op": "assign", "line": 168, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 167, "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2HPrime", "args": [{ "kind": "local", "name": "cb" }, { "kind": "local", "name": "length" }] } }
+    { "op": "return", "line": 170, "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_argon2HPrime", "args": [{ "kind": "local", "name": "cb" }, { "kind": "local", "name": "length" }] } }
     ]
   },
   {
