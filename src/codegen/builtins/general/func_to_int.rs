@@ -26,6 +26,10 @@ From a **`Float`**, a `Fixed` or a `Money` it **truncates toward zero**:
 the nearest integer, round first with `math::round`. A `Byte` gives its value and
 a `Scalar` its code point.
 
+For Money, the result counts whole units: `toInt(-1.9m)` is `-1`. Every Money
+value fits Integer after this conversion. The Money rounding mode does not
+affect it.
+
 From an **enum** value you get the member's position in its `ENUM`
 declaration, counting from 0: the first member is `0`, the next `1`, and so on.
 This never fails. The numbers follow the order the members are written in, so

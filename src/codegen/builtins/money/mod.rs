@@ -32,22 +32,30 @@ const MODULE_INTRO: &str = r#"Rounding-mode control for Money arithmetic"#;
 const MODULE_DESC: &str = r#"The `money` package controls how `Money` **arithmetic** settles the half case and
 provides an explicit settling function. `Money` itself is a built-in scalar type
 (see `mfb man types numeric`): an exact base-10 fixed-point value scaled to five
-decimal places. Its arithmetic (`M / k`, `M * Float`, `M * Fixed`, and the
-`toMoney`/`toFixed` conversions) rounds under a per-thread mode that
-this package reads and writes. `money` is a built-in package: `IMPORT money` needs
-no manifest dependency.
+decimal places. This package reads and writes a per-thread rounding mode used
+by `money::round`, Integer/Byte division, Float scaling, and conversion from
+Float or String. Current exceptions are listed below. `money` is a built-in
+package: `IMPORT money` needs no manifest dependency.
 
 The mode is one of the `money::Rounding` enum members: `Commercial` rounds half away from
 zero (the default) and `Banker` rounds half to even (banker's rounding), which
 removes the small upward bias of always rounding ties away. The mode is
 per-thread: a worker thread inherits the spawning thread's mode
-and then diverges independently, consistent with the per-thread RNG and other
-per thread. It affects only `Money` arithmetic — it does not change `Fixed` or
+and then changes independently. The mode is shared by calls on that thread,
+not a separate setting for each imported package. It affects only Money
+arithmetic — it does not change ordinary Fixed or
 `Float` rounding, and it does not change how `toString(Money)` renders a value.
 `toString` presentation rounding is a fixed half-away-from-zero rule independent of
 the mode, so a logged or displayed amount is a pure function of its value and
 precision. This decoupling enables accumulating under one mode and presenting under
 another.
+
+Current limitation: scaling Money by Fixed and converting between Money and
+Fixed do not follow this mode. Multiplication and `toMoney(Fixed)` round down;
+division and `toFixed(Money)` truncate toward zero. For example,
+`0.00003m * 0.5F` currently gives `0.00001m` under either mode, rather than the
+nearest `0.00002m`. Division by the minimum Integer also truncates without
+applying the mode. Do not rely on these paths for mode-sensitive settlement.
 
 `money::round(value, decimals)` explicitly settles an amount to `decimals` places
 under the current mode ("compute at five places, book at two"). It stays a

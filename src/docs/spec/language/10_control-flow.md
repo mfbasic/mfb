@@ -21,6 +21,23 @@ END IF
 
 A counted `FOR` loop variable takes the numeric type promoted across the start, end, and `STEP` operands; the result may be `Byte`, `Integer`, `Fixed`, or `Float`. Non-numeric operands are a compile error (`TYPE_FOR_REQUIRES_NUMERIC`). `STEP` is optional and defaults to `1`; a constant `STEP` of zero is a compile error (`TYPE_FOR_STEP_ZERO`).
 
+The current counted-loop sequence tests the inclusive bound, executes the body,
+adds `STEP` with the loop variable's checked arithmetic, then tests again.
+`CONTINUE FOR` takes the increment path; `EXIT FOR` bypasses it. An increment
+failure is attributed to the `FOR` location. In particular, a loop from the
+maximum Integer to that same value executes its body and then raises
+`ErrOverflow` on the increment, unless the body exits explicitly.
+[[src/codegen/engine/control/builder_control.rs:lower_numeric_for]]
+
+There is no runtime zero-step or progress check. Zero takes the non-negative
+step bound test (`counter <= end`); if entered, an otherwise unchanged counter
+repeats. A finite Float increment that rounds back to the same counter also
+repeats while the bound holds. Non-finite Float increments are checked at the
+counter assignment boundary. These are current execution rules, not a guarantee
+that counted loops terminate; changing them to reject non-progress requires a
+language behavior change.
+[[src/codegen/engine/control/builder_control.rs:lower_numeric_for]]
+
 `FOR EACH` accepts `List OF T`, `Set OF T`, and `Map OF K TO V` sources (any other source type is `TYPE_FOR_EACH_REQUIRES_COLLECTION`). A list or set loop binds the loop variable as `T`; a set visits each element once in insertion order. [[src/ir/lower.rs:collection_iteration_type]] A map loop binds the loop variable as `MapEntry OF K TO V`; `entry.key` has type `K` and `entry.value` has type `V` (any other field access is `TYPE_UNKNOWN_FIELD`). Map loop order is implementation-defined but stable for a given unchanged map value, matching the order used by `keys` and `values`.
 
 A `FOR EACH` visits exactly the elements its source held at loop entry. Reassigning the source in the body, directly or in a function the body calls, does not change what the loop visits; the source binding holds the new value after the loop. This applies when the source is a local, a module-level `MUT`, or a field of one. For a module-level source, native lowering iterates a copy taken at loop entry, and only when the body can reach a reassignment of that global. [[src/codegen/engine/control/builder_control.rs:lower_for_each]] [[src/codegen/engine/value/store_reach.rs:ops_reach_store]]

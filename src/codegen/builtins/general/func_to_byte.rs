@@ -11,7 +11,12 @@ const DESC: &str = r#"`toByte` converts a value to a `Byte`, an unsigned 8-bit i
 through 255. It is written as a bare name, with no `IMPORT` and no package
 prefix.
 
-**It does not wrap.** A value outside 0 through 255 raises `ErrOverflow` —
+It accepts Integer, Money, and Scalar. Money is first truncated toward zero to
+whole units, then checked: `toByte(-0.9m)` is zero, but `toByte(-1m)` raises
+`ErrOverflow`. This truncation does not use the Money rounding mode. Float and
+Fixed have no direct overload; use `toByte(toInt(value))` to request truncation.
+
+**It does not wrap.** A whole-unit value outside 0 through 255 raises `ErrOverflow` —
 `toByte(256)` and `toByte(-1)` both fail rather than silently becoming `0` and
 `255`. If you want wrapping, mask first with `bits::band(value, 255)`.
 
