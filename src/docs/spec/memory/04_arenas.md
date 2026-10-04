@@ -403,19 +403,29 @@ A **resource** is scope-dropped, but on its own terms: drop and close do differe
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — the drop path `arena_free`s the resource's output buffer,
 read buffer, and `STATE` payload, nulling each pointer word as it goes.
-The **owning binding's** drop also frees the resource record for `fs.File`,
+The assigned scope's eligible cleanup also frees the resource record for `fs.File`,
 `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
 the record last, after close and block reclamation, and zeroes the slot. Other
 kinds retain the record as a closed tombstone until arena teardown. The
 owner, not `close`, frees it, because a `close` through a `RES` parameter leaves the
-owner still reading the closed flag, and every non-owning holder lives in the owner's
-scope. An explicit `close` on the owner therefore keeps the drop registered, and the
-drop's re-close is the defined no-op. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
-Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
-copied the `STATE` pointer into the receiver's record, so freeing it here would hand
-another thread a dangling payload. (`./mfb spec language resource-management` specifies the
-close/drop split.) [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
+owner still reading the closed flag. Reclamation relies on every valid view being
+bounded by the cleanup scope; the module-store gap is documented in
+`./mfb spec language resource-management`. An explicit `close` for these
+record-freeing kinds keeps the drop registered, and the drop's re-close is the
+defined no-op. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
+Ordinary resource reclamation skips a record whose `RESOURCE_MOVED_BIT` is set;
+it must not close the transferred handle. For an eligible owning cleanup retired
+by a successful transfer, a separate moved-record cleanup frees the sender's
+`STATE` and tombstone record without closing the handle. The receiver's `STATE`
+is an independent deep copy, not a pointer into the sender's payload. Other
+retired cleanups are removed and their remaining arena allocations survive until
+teardown. See `./mfb spec language resource-management` for the source-visible
+close/reclamation distinction.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_moved_resource_record_free]]
+[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
 
 A resource that **floats** into an owner collection (`./mfb spec language
 resource-management` §15.6) has no binding of its own left to drop, so its memory is

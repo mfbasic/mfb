@@ -1,6 +1,25 @@
 # 14. Memory Semantics
 
-Ordinary MFBASIC data values have lexical ownership. Each live ordinary value is owned by one binding, container slot, temporary, closure environment, thread message, or return slot. Resource views are the explicit exception: several views can share one identity, with cleanup assigned to a scope (§15). Values are reclaimed by deterministic drop at the end of the owning scope. There is no tracing GC, no reference counting, and no user-visible `free`.
+MFBASIC separates value ownership, resource cleanup, and callable storage:
+
+- **Ordinary data** has value ownership. Each live ordinary value is owned by one
+  binding, container slot, temporary, closure environment, thread message, or
+  return slot, and is reclaimed when that owner is dropped. A closure environment
+  can outlive the lexical scope that created it.
+- **Resources** have shared views and one assigned cleanup scope (§15). Dropping
+  a view is not itself a close or a transfer of cleanup responsibility.
+- **Function values** share callable storage. A capturing closure's object and
+  environment normally live until arena teardown; dropping one function-value
+  binding does not reclaim them. Proven non-retaining temporary callbacks may
+  be reclaimed at the call boundary (§14.4). A non-capturing function reference
+  uses a static descriptor instead of an allocated closure.
+  [[src/codegen/engine/value/builder_values.rs:lower_value]]
+  [[src/codegen/engine/value/builder_values.rs:free_call_closure_temps]]
+
+Lexical scope exit deterministically drops that scope's ordinary owned data and
+runs its resource cleanup obligations; it does not reclaim every allocation
+created in that scope. There is no tracing GC, no reference counting, and no
+user-visible `free`.
 
 The compiler may choose stack storage, inline storage, or heap allocation. A `MUT` self-update (`x = collections::append(x, v)`) is always a destructive update in place, with a cost bound (§12), not an optional optimization. None of these choices can change the ownership behavior described here. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
 
@@ -82,7 +101,16 @@ member values drop according to the active member's record layout. List elements
 drop from highest index to lowest. Map entries drop in implementation-defined
 storage order; programs must not depend on map drop order.
 
-Moved-from bindings are not dropped. Frozen buffers are dropped as immutable collection values by their final owner.
+An ordinary value whose ownership moved out is not dropped by its former owner.
+For resources, static invalidation of a name does **not** by itself cancel the
+resource's scheduled memory reclamation. An explicit close can invalidate a name
+while leaving owner-scope reclamation registered; a successful thread transfer
+can leave reclamation of the sender's moved record registered without a close.
+See §15 for the close/reclamation split and `./mfb spec memory arenas` for the
+native reclamation policy.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:deactivate_moved_resource_arguments]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
+Frozen buffers are dropped as immutable collection values by their final owner.
 
 ## 14.8 Diagnostics
 
@@ -116,8 +144,8 @@ State is a single per-block set of moved binding names threaded through the op
 list (moved-or-not, not a three-value lattice). Reading a name already in the
 set is a use-after-move; the consuming op reads the name too, but it is inserted
 into the set only *after* that op, so the consume itself is fine and a *second*
-consume (a double close) is what trips. Reporting is under `TYPE_USE_AFTER_MOVE`
-with a single message — `"Binding \`name\` was moved and cannot be used again."`
+consume (a double close) is what trips. Ordinary moved-name reporting is under `TYPE_USE_AFTER_MOVE`
+with the message — `"Binding \`name\` was moved and cannot be used again."`
 — regardless of whether the earlier move was definite or path-dependent.
 
 At a branch — each arm of `IF`/`ELSE`, every `MATCH` case, and loop/`TRAP`
@@ -134,8 +162,21 @@ A resource's cleanup scope follows the production, container-routing and
 escape rules in §15; merely reading or passing a pointer does not change it.
 Any holder — a resource parameter, a `FOR EACH`
 element binding, a `RES` binding whose ownership floated to a collection's scope —
-may close, `RETURN`, or transfer it, and doing so is **tracked as a move** like any
-other consume. The owning scope closes it once if nobody already did.
+may close, `RETURN`, or transfer it. Close and return of a tracked name participate
+in the static move check; the owning scope closes an unescaped resource if nobody
+already did.
+
+**Transfer is currently enforced dynamically, not by this moved-name set.**
+`consumed_resource` deliberately excludes `thread::transfer` (both lowered
+resource-plane directions). It does not distinguish a transfer's success and
+failure edges, and marking its `CallResult` unconditionally moved would reject
+legal reuse in an inline failure handler. Consequently even a direct read after
+an untrapped successful transfer can pass verification; a subsequent guarded
+resource operation raises `ErrResourceMoved`. This is a static-checking gap, not
+permission to use a successfully transferred resource. §15 specifies the runtime
+effects and the distinction between inline recovery and function-level cleanup.
+[[src/ir/verify/link.rs:consumed_resource]]
+[[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
 Because two names can now denote one resource, a consume through either marks
 both: a binding produced by a call returning that same resource type is recorded

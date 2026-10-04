@@ -69,6 +69,15 @@ Because two names can denote one resource, closing through either marks both, an
 
 ### Resource identity, views, cleanup, and binding validity
 
+Resource validity is enforced by a combination of conservative static checks and
+runtime closed/moved checks, not by full static linearity. A statically invalid
+name reports `TYPE_USE_AFTER_MOVE`; a guarded operation through an untracked
+closed view reports `ErrResourceClosed`, and through a transferred view reports
+`ErrResourceMoved`. These checks are distinct from the lifetime of the resource
+record itself. The current static transfer gap is specified in §14.9.
+[[src/ir/verify/resources.rs:check_resource_moves]]
+[[src/codegen/resource/mod.rs:closed_or_moved_guard]]
+
 - **Identity** is the single resource record and its underlying handle. Its
   closed/moved state and attached `STATE` are shared by every view.
 - **View** is a reference in a binding, parameter, match binding, field, or
@@ -233,11 +242,61 @@ A resource union owns exactly one resource at a time (the active variant), so it
 
 **A resource union may carry `STATE`.** Like a concrete stateful resource, a resource union takes a `STATE T` at its *use site* — a binding, parameter, or return (`RES s AS Stream STATE PendingState`) — never on the `UNION` declaration itself. The STATE type is **uniform**: it is the type named at the use site and is the same whichever variant is active, so nothing is read from the union tag to type `.state`. Agreement is checked exactly as for a concrete resource — a later binding, parameter, or return that names a disagreeing STATE type, or a `thread::transfer` plane that does, is rejected (`TYPE_STATE_MISMATCH`). The payload rides the **active variant's** resource record: it is default-initialized when the union is produced, adopted when the initializer already carries it, read and written in place through the union value or through a `RES … STATE …` parameter (a callee's write is visible to the owner, per this section), reached through a `MATCH`-extracted variant's `.state`, carried intact across a `thread::transfer`, and freed exactly once on drop **after** the tag-dispatched close. Per-variant STATE (a different type per variant) is **not** provided — a single uniform type is what keeps `.state` typable with no runtime tag, and it is the whole reason union STATE is sound.
 
-To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
+To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the name is statically moved. This does not imply removal of its cleanup entry: a later drop can invoke the close helper, whose already-closed result is a benign no-op, before reclaiming memory.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_cleanup_call]]
 
-**Close releases the OS handle; drop reclaims memory.** They are separate events. A close returns the file descriptor (or the library handle) and reports failure, but frees nothing; the drop that ends the binding's scope reclaims what the resource's record points at — its `STATE` payload and its I/O buffers — so a loop that opens and closes handles retains a flat amount per resource rather than growing with the I/O each one did. The record itself is retained until the thread's arena is torn down: it holds the closed flag that makes a re-close idempotent and that every alias reads. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
+**Binding invalidation, close, and memory reclamation are separate events.**
+Static invalidation removes permission to read a name; close ends the underlying
+resource's open state; owner-scope reclamation releases compiler-managed payloads
+and, where ownership and resource kind permit, the record itself. An explicit
+close does not reclaim the attached `STATE` or invalidate the storage needed by
+other live views to observe the closed flag. Resource-specific close operations
+can release their own native backing allocations.
 
-**A transferred handle is moved, not closed.** `thread::transfer` hands the resource to the receiving thread and marks the sender's handle **moved**. The static move rules normally make using it a compile error; where a handle nonetheless reaches an operation moved (an alias those rules do not track), the operation is refused with `ErrResourceMoved` rather than `ErrResourceClosed`, because the handle is not closed — it belongs to another thread now. A `RES` parameter is such an alias: a callee that transfers its parameter leaves the caller's binding moved. [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]] [[src/codegen/resource/mod.rs:closed_or_moved_guard]]
+The record need not survive until arena teardown: native cleanup can reclaim it
+after its final valid view lifetime, while other records remain as tombstones.
+An explicit close preserves registered drop-time reclamation for record-freeing
+resource kinds even though the source name is statically invalid. A direct-name
+rebind similarly does not erase the resource's existing cleanup obligation.
+See `./mfb spec memory arenas` for the resource-kind and ownership predicates,
+reclamation order, and retention cases.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:deactivate_moved_resource_arguments]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
+
+**A transferred handle is moved, not closed.** A successful `thread::transfer`
+hands the resource to the receiving side and marks the sender's record **moved**.
+Every sender view shares that moved state, including the caller's view when a
+callee transfers a `RES` parameter. A later guarded operation reports
+`ErrResourceMoved`, not `ErrResourceClosed`: the handle belongs to another thread.
+The static checker currently omits transfer effects (§14.9), so this runtime
+check also protects direct post-transfer uses, not only indirect aliases.
+[[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
+[[src/codegen/resource/mod.rs:closed_or_moved_guard]]
+
+### Transfer outcome and cleanup routing
+
+A failed transfer does not consume the resource. Failure recovery and scope
+unwinding are separate decisions:
+
+| Edge | Resource state and cleanup consequence |
+| --- | --- |
+| Successful continuation | Sender views are moved; the receiver owns the transferred handle. Sender cleanup must not close it. Reclamation of eligible sender-side tombstone records can remain scheduled. |
+| Inline `TRAP` failure arm | The resource remains in its pre-transfer state and cleanup scope. The handler may use it, close it, or retry. |
+| Continuation after inline recovery | The resource is moved if transfer succeeded; it retains the failure handler's resulting state if recovery ran. The current verifier does not encode this transfer-dependent distinction. |
+| Propagation or function-level `TRAP` | Transfer itself leaves the resource unchanged, but exiting scopes run their cleanup. A local resource whose cleanup scope was exited is not reusable in the handler; a parameter owned further out is not closed merely by leaving the callee. |
+| Timeout before enqueue, including a full queue with `timeoutMs = 0` | `ErrTimeout`; no transfer, followed by the chosen error-routing rules above. |
+| Cancellation or queue/thread closure before enqueue | No transfer; the queue operation fails and the same error-routing rules apply. Error selection follows `./mfb spec threading queue-semantics`. |
+
+The write helper checks queue state and capacity before copying/enqueueing under
+its lock. The resource copy marks the sender moved when the transfer commits.
+Function-level trap routing separately invalidates locally owned resources whose
+scopes it cleans up. This is why permission to reuse a resource in an **inline**
+failure handler is not permission to reuse a local resource after unwinding.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
+[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
+[[src/ir/verify/resources.rs:check_resource_moves]]
 
 A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead. Re-closing an already-closed handle during a drop is not such a failure — it is a benign no-op and is never reported as a drop-close failure.
 
@@ -296,7 +355,58 @@ A resource element placed into a collection may be any reference to the resource
 
 **Returning a resource collection transfers scope-ownership to the caller**, exactly as `AS RES fs::File` does for a single resource. A function returning `AS List OF RES fs::File` releases each referenced resource that one of its scopes owns — it does not close them — and the caller's binding scope takes each released resource, and no other, closing each once at its own exit. A returned element still owned further out (a handle the caller passed in) keeps its owner. (A bare `List OF File` return is rejected for the missing `RES` marker.) On an error exit *before* the return, the resources are still closed by the function's scope, because they ride its owned-list until the `RETURN` transfers it. A resource collection may also be passed to a function, where the callee receives references to its elements (and may close them, subject to the same shared closed flag). The resources must be added to the collection at or after the collection's own binding so the obligation rides the collection; violating this is rejected (`TYPE_RESOURCE_RETURN_ORDER`) rather than compiled. [[src/rules/table.rs:TYPE_RESOURCE_RETURN_ORDER]] A resource collection cannot cross a thread data plane: a `RES`-marked collection on a thread's **data** plane — its message, output, input, or a resource plane's `STATE` payload — is rejected with `TYPE_THREAD_RESOURCE_PLANE_REQUIRED`, which names the resource and points at the resource plane. [[src/rules/table.rs:TYPE_THREAD_RESOURCE_PLANE_REQUIRED]] A resource crosses a thread only on that plane, moved with `thread::transfer`/`thread::accept` (§16).
 
-The float rules above are the source-level contract. The compiler implements them with a purely syntactic per-function **decision procedure** — which collection a binding floats to (outermost referencing scope, the special case that a returned collection declared before the resource forces a float at the same depth, fixpoint propagation along collection copy/append/nesting edges, the insertion-builtin set, and the declaration-order tiebreak) — that is specified in full by `./mfb spec architecture escape-analysis`. Programs depend only on the contract here, not on the procedure's mechanics.
+Removing the final stored reference does not close the resource or move its
+cleanup scope inward. The cleanup obligation is retained independently of the
+container's current contents, including after `removeAt`, replacement, or an
+assignment of an empty collection. The scope's registered owned-list drains on
+exit even if the collection no longer contains that resource.
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
+
+### Aggregate routing examples and current boundaries
+
+These fragments assume `TYPE Holder { handle AS RES fs::File }`, ordinary file
+producers `openFile`, and no explicit close or transfer unless shown.
+
+| Shape | Cleanup/validity result |
+| --- | --- |
+| Outer `MUT h = Holder[seed]`; inner `{ RES f = openFile(path); LET inner = Holder[f]; h = inner }` | The copied record holds the same resource view. `f` floats to `h`'s scope and remains usable through `h.handle` after the inner block exits. |
+| Outer `MUT h = Holder[seed]`; inner `{ RES f = openFile(path); h = WITH h { handle := f } }` | The replacement resource floats to the outer scope. Replacing the old field does not close `seed` or move its cleanup inward. |
+| Outer `MUT xs AS List OF RES fs::File = []`; inner `{ RES f = openFile(path); xs = append(xs, f); xs = removeAt(xs, 0) }` | The now-empty list does not undo the float. The resource closes at the outer cleanup scope, not when removed or when the inner block exits. |
+| `LET a = Holder[f]; LET b = a`; ordinary callee closes `a.handle`; caller uses `b.handle` | Both records refer to one identity. A guarded operation through `b` observes `ErrResourceClosed` when the invalidation was not diagnosed statically. |
+| `forEach([Holder[f]], LAMBDA(h AS Holder) -> use(h.handle))` | The callback receives an aggregate carrying a resource view as an argument; it does not capture `f`. Argument passing alone does not move cleanup. The callback may still explicitly close or transfer the handle. |
+
+Record constructors and `WITH` updates participate in the same per-function
+routing analysis as collection insertion/copy edges; `WITH` conservatively
+carries both the target's existing resource membership and its updates.
+[[src/ir/resource_escape.rs:scan_collection_expr]]
+[[src/codegen/resource/owner.rs:emit_resource_float]]
+
+**Nested owning returns have a native-lowering gap.** For example, a function
+that declares `MUT out AS List OF List OF Holder = []` before producing `RES f`,
+then assigns `out = append(out, [Holder[f]])` and returns `out`, currently fails
+native lowering: `owned-list element type 'List OF Holder' has no registered
+close op`. The routing analysis reaches the outer container, but the cleanup
+descriptor requires its immediate payload to be a concrete resource or resource
+union. This is an implementation gap, not a source-level ban on nested data or
+proof that a borrowed nested aggregate has the same failure.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:collection_resource_drop]]
+
+**Module-level resource-bearing stores do not currently extend cleanup safely.**
+For example, `put()` producing `RES f` and appending `Holder[f]` to module-level
+`MUT saved AS List OF Holder = []` compiles, but the resource is cleaned up at
+`put`'s exit; the global view can outlive its record. The per-function routing
+facts and `StoreGlobal` path do not establish a module-lifetime resource owner.
+A later access is not guaranteed to produce a defined closed/moved error: it can
+read reclaimed storage. Storing a view whose existing owner is still live does
+not demonstrate safety after that owner exits. This is a lifetime implementation
+gap, not an additional valid way to invalidate a resource.
+[[src/ir/resource_escape.rs:walk_statement]]
+[[src/codegen/engine/control/builder_control.rs:lower_ops_inner]]
+[[src/codegen/resource/owner.rs:emit_scope_token]]
+
+Subject to those current implementation boundaries, the float rules above are
+the source-level contract. The compiler implements them with a purely syntactic per-function **decision procedure** — which collection a binding floats to (outermost referencing scope, the special case that a returned collection declared before the resource forces a float at the same depth, fixpoint propagation along collection copy/append/nesting edges, the insertion-builtin set, and the declaration-order tiebreak) — that is specified in full by `./mfb spec architecture escape-analysis`. Programs depend only on the contract here, not on the procedure's mechanics.
 
 ## See Also
 
