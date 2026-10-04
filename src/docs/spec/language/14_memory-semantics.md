@@ -1,16 +1,35 @@
 # 14. Memory Semantics
 
-Ordinary MFBASIC data values have lexical ownership. Each live ordinary value is owned by one binding, container slot, temporary, closure environment, thread message, or return slot. Resource views are the explicit exception: several views can share one identity, with cleanup assigned to a scope (§15). Values are reclaimed by deterministic drop at the end of the owning scope. There is no tracing GC, no reference counting, and no user-visible `free`.
+MFBASIC separates value ownership, resource cleanup, and callable storage:
+
+- **Ordinary data** has value ownership. Each live ordinary value is owned by one
+  binding, container slot, temporary, closure environment, thread message, or
+  return slot, and is reclaimed when that owner is dropped. A closure environment
+  can outlive the lexical scope that created it.
+- **Resources** have shared views and one assigned cleanup scope (§15). Dropping
+  a view is not itself a close or a transfer of cleanup responsibility.
+- **Function values** share callable storage. A capturing closure's object and
+  environment normally live until arena teardown; dropping one function-value
+  binding does not reclaim them. Proven non-retaining temporary callbacks may
+  be reclaimed at the call boundary (§14.4). A non-capturing function reference
+  uses a static descriptor instead of an allocated closure.
+  [[src/codegen/engine/value/builder_values.rs:lower_value]]
+  [[src/codegen/engine/value/builder_values.rs:free_call_closure_temps]]
+
+Lexical scope exit deterministically drops that scope's ordinary owned data and
+runs its resource cleanup obligations; it does not reclaim every allocation
+created in that scope. There is no tracing GC, no reference counting, and no
+user-visible `free`.
 
 The compiler may choose stack storage, inline storage, or heap allocation. A `MUT` self-update (`x = collections::append(x, v)`) is always a destructive update in place, with a cost bound (§12), not an optional optimization. None of these choices can change the ownership behavior described here. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
 
 ## 14.1 Copy, move, and freeze
 
-- **Copy** creates independent ordinary data. Resource slots copy the pointer to the same handle and `STATE`; function slots copy the pointer to the same closure object. These explicit pointer cases are described in §15 and `./mfb spec memory closures`.
+- **Copy** creates independent ordinary data. Resource slots copy a reference to the same resource (handle, `STATE`, and owner); function slots copy the pointer to the same closure object. These explicit sharing cases are described in §15 and `./mfb spec memory closures`.
 - **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
-Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource pointers (§15.6). Copying ordinary collection contents copies values, while resource and function slots copy their pointers. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
+Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource references (§15.6). Copying ordinary collection contents copies values, while resource slots copy their references and function slots their pointers. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
 
 The compiler may replace a semantic copy with a move when it proves the source is not used afterward. This is an optimization only; it must not change diagnostics or observable behavior except performance.
 
@@ -28,7 +47,7 @@ Reassigning a `MUT` first drops the old value in the binding, then initializes t
 
 ## 14.3 Function calls and returns
 
-Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a resource pointer as described in §15.
+Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a resource reference as described in §15.
 
 This includes a module-level `MUT` passed to a function that reassigns it, directly or through anything it calls (including a callback a built-in invokes): the parameter keeps the value the global had at the call. Native lowering passes a global argument without copying; it copies one into a statement-scope temporary only when the call can reach a reassignment of that global, and assumes it can when a callee's body is not visible. [[src/codegen/engine/value/operand_snapshot.rs:want_arguments_the_call_can_free]] [[src/codegen/engine/value/store_reach.rs:call_reaches_store]]
 
@@ -66,7 +85,7 @@ Because cycles are impossible and each edge has one owner, dropping a recursive 
 
 `List` and `Map` own every stored element, key, and value. Inserting into a container copies or moves the inserted value into the container; it never stores a non-owning alias to an external binding. Removing from a container moves the removed value out when the API returns it, or drops it when the API discards it.
 
-Ordinary containers cannot store a `ThreadWorker`, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **pointer** to a resource — a parent `Thread` included — a copy of the one handle pointer (§15.6). Such a pointer is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards pointers. Containers can store functions only when the function value is copyable or movable under the closure rules above.
+Ordinary containers cannot store a `ThreadWorker`, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **reference** to a resource — a parent `Thread` included (§15.6). Such a reference is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards references. Containers can store functions only when the function value is copyable or movable under the closure rules above.
 
 No two live mutable bindings may refer to the same collection buffer. A collection buffer may be destructively updated only while exactly one binding owns it and that binding's current value is not read again after the update — a single live `MUT` binding, or any owned binding (including a parameter the caller handed over) at its last use. No program can observe the difference from a copy. Reads produce owned values, not aliases into the buffer.
 
@@ -82,7 +101,16 @@ member values drop according to the active member's record layout. List elements
 drop from highest index to lowest. Map entries drop in implementation-defined
 storage order; programs must not depend on map drop order.
 
-Moved-from bindings are not dropped. Frozen buffers are dropped as immutable collection values by their final owner.
+An ordinary value whose ownership moved out is not dropped by its former owner.
+For resources, static invalidation of a name does **not** by itself cancel the
+resource's scheduled memory reclamation. An explicit close can invalidate a name
+while leaving owner-scope reclamation registered; a successful thread transfer
+can leave reclamation of the sender's moved record registered without a close.
+See §15 for the close/reclamation split and `./mfb spec memory arenas` for the
+native reclamation policy.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:deactivate_moved_resource_arguments]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
+Frozen buffers are dropped as immutable collection values by their final owner.
 
 ## 14.8 Diagnostics
 
@@ -108,7 +136,7 @@ packages, so a crafted package cannot smuggle a double-free past it. The check i
 a static binding-validity check: close, return, and direct-name resource rebinds
 can mark a source name moved. A move in this check is not necessarily a transfer
 of cleanup responsibility: close ends the resource's open state, while a direct
-`RES new = old` can copy its pointer and invalidate `old` without relocating its
+`RES new = old` can copy its reference and invalidate `old` without relocating its
 cleanup. The initializer table and cleanup model are specified in §15. Copying
 ordinary copyable data is never a resource move. [[src/ir/verify/resources.rs:check_resource_moves]]
 
@@ -116,8 +144,8 @@ State is a single per-block set of moved binding names threaded through the op
 list (moved-or-not, not a three-value lattice). Reading a name already in the
 set is a use-after-move; the consuming op reads the name too, but it is inserted
 into the set only *after* that op, so the consume itself is fine and a *second*
-consume (a double close) is what trips. Reporting is under `TYPE_USE_AFTER_MOVE`
-with a single message — `"Binding \`name\` was moved and cannot be used again."`
+consume (a double close) is what trips. Ordinary moved-name reporting is under `TYPE_USE_AFTER_MOVE`
+with the message — `"Binding \`name\` was moved and cannot be used again."`
 — regardless of whether the earlier move was definite or path-dependent.
 
 At a branch — each arm of `IF`/`ELSE`, every `MATCH` case, and loop/`TRAP`
@@ -134,8 +162,21 @@ A resource's cleanup scope follows the production, container-routing and
 escape rules in §15; merely reading or passing a pointer does not change it.
 Any holder — a resource parameter, a `FOR EACH`
 element binding, a `RES` binding whose ownership floated to a collection's scope —
-may close, `RETURN`, or transfer it, and doing so is **tracked as a move** like any
-other consume. The owning scope closes it once if nobody already did.
+may close, `RETURN`, or transfer it. Close and return of a tracked name participate
+in the static move check; the owning scope closes an unescaped resource if nobody
+already did.
+
+**Transfer is currently enforced dynamically, not by this moved-name set.**
+`consumed_resource` deliberately excludes `thread::transfer` (both lowered
+resource-plane directions). It does not distinguish a transfer's success and
+failure edges, and marking its `CallResult` unconditionally moved would reject
+legal reuse in an inline failure handler. Consequently even a direct read after
+an untrapped successful transfer can pass verification; a subsequent guarded
+resource operation raises `ErrResourceMoved`. This is a static-checking gap, not
+permission to use a successfully transferred resource. §15 specifies the runtime
+effects and the distinction between inline recovery and function-level cleanup.
+[[src/ir/verify/link.rs:consumed_resource]]
+[[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
 Because two names can now denote one resource, a consume through either marks
 both: a binding produced by a call returning that same resource type is recorded

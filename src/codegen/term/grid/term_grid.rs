@@ -799,6 +799,11 @@ pub(crate) fn emit_grid_write(
     crate::codegen::string::unicode_props::emit_read_boundclass_icb_charwidth_free(
         prop, state_bc, state_icb, width, sa, instrs,
     );
+    crate::codegen::string::unicode_props::emit_seed_indic_conjunct_state_free(
+        &format!("{symbol}_gws"),
+        state_icb,
+        instrs,
+    );
     instrs.push(abi::move_register(clen, len));
     // Peek: fold following scalars into the cluster while there is no UAX #29
     // grapheme boundary, capping the cluster at POOL_BYTES_PER_CELL bytes.

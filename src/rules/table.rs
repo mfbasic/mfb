@@ -177,7 +177,7 @@ pub(super) const RULES: &[Rule] = &[
         message: "a native LINK function must declare its ABI signature",
     },
     Rule {
-        code: "1-102-0010",
+        code: "1-102-0014",
         name: "MFB_PARSE_BLOCK_TOO_DEEP",
         severity: Severity::Error,
         message: "statement block nesting is too deep",
@@ -1254,13 +1254,13 @@ pub(super) const RULES: &[Rule] = &[
         message: "one or more source files are not formatted (mfb fmt --check)",
     },
     Rule {
-        code: "2-205-0001",
+        code: "2-205-0022",
         name: "PACKAGE_VERSION_UNSUPPORTED",
         severity: Severity::Error,
         message: "package binary representation or metadata version is unsupported",
     },
     Rule {
-        code: "2-205-0002",
+        code: "2-205-0023",
         name: "NATIVE_MANIFEST_INVALID",
         severity: Severity::Error,
         message: "native-link metadata in a package is malformed or inconsistent",

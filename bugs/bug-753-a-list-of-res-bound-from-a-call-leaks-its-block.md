@@ -1,12 +1,12 @@
 # bug-753: a `List OF RES` bound from a call leaks its collection block on every bind
 
-Last updated: 2026-09-27
+Last updated: 2026-10-03
 Effort: medium
 Severity: MEDIUM
 Class: Memory (unbounded leak in a loop)
 
-Status: Open
-Regression Test: none yet — see Fix
+Status: Partially fixed — every flat `List OF RES` result is fixed; the nested `List OF List OF RES` results of `chunks`/`window` remain (below).
+Regression Test: `tests/runtime/rt_res_list_from_call_leak.rs` (`--debug` peak live bytes flat across N/2N, allocs = frees, list and handle intact)
 
 Found by the bug-643 lane. A `List OF RES T` bound from a call is never freed, so
 a loop that binds one leaks a whole list block per iteration. The handles are not
@@ -62,3 +62,86 @@ one — `take`/`drop`/`mid`/`slice`, `filter`, `sort*`, `append`/`prepend`/`inse
 argument's block), excluding `get`/`getOr`; and a user function only when every
 `RETURN` of it yields a fresh block (not a parameter). Pin with a `--debug`
 `alloc_bytes`/`peak_live_bytes` bound (`.ai/testing-gates.md`).
+
+## Progress (2026-10-03)
+
+**Fixed:** call results from audited built-in bodies.
+`record_ownership::collection_store_is_fresh` now counts a call whose target
+starts with one of `FRESH_BUILTIN_BODIES` as a fresh block:
+
+- `#collections_slice$`: the native `try_inline_slice_op` has one path, which
+  allocates and range-copies. Its declining fallback is the source FUNC, which
+  builds from `[]` by appends.
+- `#collections_take$` / `#collections_drop$`: `RETURN __collections_slice(…)`, no
+  fast path of their own.
+
+A `List OF RES` bound from them now has its block freed at drop. The `piece`
+the `chunks`/`window` bodies bind from `__collections_slice` is appended into the
+result, so freeing it was a use after free (bug-801); with bug-801's fix it is
+counted as kept and the result list owns it. Proof:
+on main the repro's peak live bytes are 304 864 → 592 864 (N=1000 → 2000).
+With the fix they are flat and allocs = frees. The list and the handle still
+read afterwards.
+
+**Not fixed, with the reason for each:**
+
+1. **User-function results.** I implemented the doc's rule ("every `RETURN`
+   yields a fresh block") and then withdrew it. Main already fails at cleanup
+   for those shapes ("Resource handle is already closed": a binding of a user
+   call adopts and closes handles the callee was passed, which is bug-755). The
+   block free stacked on that adoption turned the cleanup failure into SIGSEGV
+   (`/tmp/b753v`, variants `p`/`r`). This waits for bug-755's design.
+2. **Native members** (`filter`, `append`/`prepend`/`insert`/`set`/`removeAt`
+   bound to a different name, `values`) and the fast-path bodies (`sort*`,
+   `flatten`, `chunks`/`window` results). Each needs its native lowering audited
+   for an identity shortcut before it can join the allowlist. A fast path
+   replaces the body at the call, so the body's `RETURN`s prove nothing.
+
+Related checks: `rt_debug_soak`, `rt_scope_drop_leaks` and
+`rt_native_write_overload_call_argument` pass. The resource/collection
+acceptance mismatch set is identical to main's (the environment's relative-path
+fixtures), except for bug-785's stale `ThreadWorker` packages.
+
+## Progress (2026-10-03, after bug-755)
+
+Fixed, measured with `--debug` peak live bytes at N=500/1000 (`/tmp/b753u`):
+
+| shape | before | after |
+| --- | --- | --- |
+| user function returning `take(xs, 2)` / `[h, h]` / an accumulated local | 768 B/iter together | flat |
+| `out = collections::append(out, collections::get(xs, i))` (also on main) | 336 B/iter | flat, allocs = frees |
+| `filter` / `removeAt` / `mid` bound to a new name | 192 / 144 / 96 | 0 |
+| `append` / `prepend` / `insert` / `set` bound to a new name | 336 / 336 / 336 / 432 | 0 |
+
+- **User functions.** `record_ownership::CollectionUses::user_call_returns_fresh_block`:
+  a call is a fresh block when every `RETURN` of the callee is a literal, a call
+  already trusted fresh, a fresh user call, or a local whose every store is fresh,
+  that no call keeps, and that is named only in `RETURN`s. A parameter never
+  qualifies.
+- **The in-place append declined on the `RES` marker.** G11 in
+  `try_inplace_append_assign` compared the bare `fs.File` of `collections::get` with
+  the `RES fs.File` element and sent the append down the copying path. It now
+  compares without the marker. The copying path also frees the block it replaces
+  when the collection is proved its block's sole holder.
+- **Native members** (`FRESH_NATIVE_MEMBERS`): `filter`, `append`, `prepend`,
+  `insert`, `set` (list and map), `removeAt`, `mid` — each audited to return a block
+  it allocated on every successful path (no identity shortcut; citations on the
+  constant). `free_intermediate_collection` now also frees a `RES` collection's
+  intermediates (the singleton an element append builds, `set`'s removed copy).
+- **`chunks` / `window`** bodies are listed in `FRESH_BUILTIN_BODIES` (their native
+  fast paths serve only numeric and `String` elements).
+
+Known residue, by design: a list a user function keeps (`same(xs) … RETURN xs`) is
+not proved its block's sole holder (bug-801), so neither it nor the alias the call
+returns frees that one block — bounded per scope, never per iteration.
+
+**Remaining:** `chunks`/`window` still leak 480/528 B/iter: their result is a
+`List OF List OF RES T`, which `is_res_marked_resource_collection` does not
+recognize (its element is a list, not `RES`), so no path frees the outer block or
+the inner pieces. Freeing them needs a nested-`RES`-collection block free
+(outer block plus each inner block, no element drops).
+
+Regression tests: `rt_res_list_from_call_leak`
+(`a_res_list_bound_from_a_user_function_frees_its_block`,
+`a_res_list_bound_from_a_native_member_frees_its_block`; the member test fails on
+main: peak 952 864 vs 1 888 864).

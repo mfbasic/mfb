@@ -12,6 +12,9 @@
   { "library": "libSystem", "symbol": "_getentropy", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_clock_gettime", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_signal", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_self", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_get_stackaddr_np", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_get_stacksize_np", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_clock_gettime", "requiredBy": "_mfb_rt_canvas_canvas_enableMouse" },
   { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_mfb_rt_canvas_canvas_enableMouse" },
@@ -527,6 +530,7 @@
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_attr_init", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_attr_setstacksize", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_attr_destroy", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pause", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_tcgetattr", "requiredBy": "_main" },
@@ -553,7 +557,7 @@
     ],
     "labels": [
     ],
-    "operations": ["storeGlobal #CANVAS_SYSFONT_READ AS Boolean = Boolean(false)", "storeGlobal #CANVAS_SYSFONT_FIELDS AS List OF String = list []", "storeGlobal #CANVAS_KIND_RECT AS Integer = Integer(0)", "storeGlobal #CANVAS_KIND_CIRCLE AS Integer = Integer(1)", "storeGlobal #CANVAS_KIND_SEGMENT AS Integer = Integer(2)", "storeGlobal #CANVAS_GLYPH_STEPS AS Integer = Integer(6)", "storeGlobal #CANVAS_LAST_HASHES AS List OF Integer = list []", "storeGlobal #CANVAS_LAST_BOUNDS AS List OF Float = list []", "storeGlobal #CANVAS_KEPT AS List OF Byte = list []", "storeGlobal #CANVAS_KEPT_W AS Integer = Integer(0)", "storeGlobal #CANVAS_KEPT_H AS Integer = Integer(0)", "storeGlobal #CANVAS_FRAMES AS Integer = Integer(0)", "storeGlobal #CANVAS_SKIPPED AS Integer = Integer(0)", "storeGlobal #CANVAS_LAST_DREW AS Boolean = Boolean(false)", "storeGlobal #CANVAS_LAST_RENDERER AS Integer = Integer(0)", "storeGlobal #CANVAS_PARTIAL AS Integer = Integer(0)", "storeGlobal #CANVAS_GPU_FRAMES AS Integer = Integer(0)", "storeGlobal #CANVAS_DAMAGE AS List OF Integer = list []", "storeGlobal #CANVAS_DAMAGE_MODE AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_KEYS AS List OF Integer = list []", "storeGlobal #CANVAS_GLYPH_META AS List OF Integer = list []", "storeGlobal #CANVAS_GLYPH_COV AS List OF Byte = list []", "storeGlobal #CANVAS_GLYPH_LASTUSED AS List OF Integer = list []", "storeGlobal #CANVAS_GLYPH_REV AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_EVICTIONS AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_BUDGET AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_NEXTEVICT AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_PINS AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_HEADER AS Integer = Integer(47)", "storeGlobal #CANVAS_GEO_GRADIENT_COUNT AS Integer = Integer(41)", "storeGlobal #CANVAS_GEO_GRADIENT_KIND AS Integer = Integer(42)", "storeGlobal #CANVAS_GEO_GRADIENT_FROMX AS Integer = Integer(43)", "storeGlobal #CANVAS_GEO_GRADIENT_FROMY AS Integer = Integer(44)", "storeGlobal #CANVAS_GEO_GRADIENT_TOX AS Integer = Integer(45)", "storeGlobal #CANVAS_GEO_GRADIENT_TOY AS Integer = Integer(46)", "storeGlobal #CANVAS_GEO_ELLIPSE AS Integer = Integer(7)", "storeGlobal #CANVAS_GEO_ELLIPSE_COS AS Integer = Integer(39)", "storeGlobal #CANVAS_GEO_ELLIPSE_SIN AS Integer = Integer(40)", "storeGlobal #CANVAS_GEO_CAP AS Integer = Integer(34)", "storeGlobal #CANVAS_GEO_CAPSTARTX AS Integer = Integer(35)", "storeGlobal #CANVAS_GEO_CAPSTARTY AS Integer = Integer(36)", "storeGlobal #CANVAS_GEO_CAPENDX AS Integer = Integer(37)", "storeGlobal #CANVAS_GEO_CAPENDY AS Integer = Integer(38)", "storeGlobal #CANVAS_GEO_TEXT AS Integer = Integer(6)", "storeGlobal #CANVAS_GEO_NONE AS Integer = Integer(5)", "storeGlobal #CANVAS_GEO_POLYGON AS Integer = Integer(4)", "storeGlobal #CANVAS_GEO_ARC AS Integer = Integer(3)", "storeGlobal #CANVAS_GEO_GROUP AS Integer = Integer(8)", "storeGlobal #CANVAS_GEO_PICTURE AS Integer = Integer(9)", "storeGlobal #CANVAS_GEO_PICTURE_SHADOW_HI AS Integer = Integer(35)", "storeGlobal #CANVAS_GEO_PICTURE_SHADOW_LO AS Integer = Integer(36)", "storeGlobal #CANVAS_GEO_PICTURE_SPLIT AS Integer = Integer(16777216)", "storeGlobal #CANVAS_GEO_POLYLINE AS Integer = Integer(10)", "storeGlobal #CANVAS_GEO_POLYLINE_FIRST AS Integer = Integer(43)", "storeGlobal #CANVAS_GEO_POLYLINE_LAST AS Integer = Integer(44)", "storeGlobal #CANVAS_GEO_SLOTS AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_TABLE AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_DATA AS List OF Float = list []", "storeGlobal #CANVAS_GEO_NATIVE_BUILDS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_BUILT AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_GENERATIONS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_COMPACTIONS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_FRAME AS Integer = Integer(1)", "storeGlobal #CANVAS_GEO_USED_FLOATS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_LAST_FLOATS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_BLANK AS List OF Float = list []", "storeGlobal #CANVAS_GFX_READY AS Boolean = Boolean(false)", "storeGlobal #CANVAS_DISPLAY_OVERRIDE_READ AS Boolean = Boolean(false)", "storeGlobal #CANVAS_DRAW_DX AS List OF Float = list []", "storeGlobal #CANVAS_DRAW_DY AS List OF Float = list []", "storeGlobal #CANVAS_DRAW_HASHES AS List OF Integer = list []", "storeGlobal #CANVAS_GROUP_MAX_DEPTH AS Integer = Integer(64)", "storeGlobal #CANVAS_DRAWS AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_BLOCKS AS List OF Integer = list []", "storeGlobal #CANVAS_TOP_OFFSETS AS List OF Integer = list []", "storeGlobal #CANVAS_FRAME_ITEMS AS List OF canvas.DrawItem = list []", "storeGlobal #CANVAS_FRAME_ITEMS_READY AS Boolean = Boolean(false)", "storeGlobal #CANVAS_SNAP_ITEMS AS Integer = Integer(0)", "storeGlobal #CANVAS_SNAP_LAYERS AS Integer = Integer(0)", "storeGlobal #CANVAS_SNAP_HASHES AS Integer = Integer(0)", "storeGlobal #CANVAS_FRAME_HASHES AS List OF Integer = list []", "storeGlobal #CANVAS_SNAP_REHASHED AS Integer = Integer(0)", "storeGlobal #CANVAS_DRAW_MEMO_SLOT AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_MEMO_BASE AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_MEMO_COUNT AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_INST AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_NEXT_INST AS Integer = Integer(0)", "storeGlobal #CANVAS_VULKAN_MAX_FRAME_ITEMS AS Integer = Integer(65536)", "storeGlobal #CANVAS_METAL_MAX_FRAME_ITEMS AS Integer = Integer(65536)", "storeGlobal #CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES AS Integer = Integer(8388608)", "storeGlobal #CANVAS_METAL_MAX_FRAME_EDGES AS Integer = Integer(262144)", "storeGlobal #CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS AS Integer = Integer(131072)", "storeGlobal #CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS AS Integer = Integer(131072)", "storeGlobal #CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = Integer(262144)", "storeGlobal #CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = Integer(8388608)", "storeGlobal #CANVAS_LAST_GROUP_SIG AS List OF Integer = list []", "storeGlobal #COLOR_SRGB AS List OF Integer = call #color_srgbTable()", "storeGlobal #COLOR_NAMES AS Map OF String TO Integer = call #color_nameTable()", "storeGlobal #COMPRESS_LEN_BASE AS List OF Integer = call #compress_lengthTable(Boolean(true))", "storeGlobal #COMPRESS_LEN_EXTRA AS List OF Integer = call #compress_lengthTable(Boolean(false))", "storeGlobal #COMPRESS_DIST_BASE AS List OF Integer = call #compress_distanceTable(Boolean(true))", "storeGlobal #COMPRESS_DIST_EXTRA AS List OF Integer = call #compress_distanceTable(Boolean(false))", "storeGlobal #COMPRESS_CL_ORDER AS List OF Integer = list [Integer(16), Integer(17), Integer(18), Integer(0), Integer(8), Integer(7), Integer(9), Integer(6), Integer(10), Integer(5), Integer(11), Integer(4), Integer(12), Integer(3), Integer(13), Integer(2), Integer(14), Integer(1), Integer(15)]"],
+    "operations": ["storeGlobal #CANVAS_SYSFONT_READ AS Boolean = Boolean(false)", "storeGlobal #CANVAS_SYSFONT_FIELDS AS List OF String = list []", "storeGlobal #CANVAS_KIND_RECT AS Integer = Integer(0)", "storeGlobal #CANVAS_KIND_CIRCLE AS Integer = Integer(1)", "storeGlobal #CANVAS_KIND_SEGMENT AS Integer = Integer(2)", "storeGlobal #CANVAS_GLYPH_STEPS AS Integer = Integer(6)", "storeGlobal #CANVAS_COMPOSITE_DEPTH AS Integer = Integer(8)", "storeGlobal #CANVAS_LAST_HASHES AS List OF Integer = list []", "storeGlobal #CANVAS_LAST_BOUNDS AS List OF Float = list []", "storeGlobal #CANVAS_KEPT AS List OF Byte = list []", "storeGlobal #CANVAS_KEPT_W AS Integer = Integer(0)", "storeGlobal #CANVAS_KEPT_H AS Integer = Integer(0)", "storeGlobal #CANVAS_FRAMES AS Integer = Integer(0)", "storeGlobal #CANVAS_SKIPPED AS Integer = Integer(0)", "storeGlobal #CANVAS_LAST_DREW AS Boolean = Boolean(false)", "storeGlobal #CANVAS_LAST_RENDERER AS Integer = Integer(0)", "storeGlobal #CANVAS_PARTIAL AS Integer = Integer(0)", "storeGlobal #CANVAS_GPU_FRAMES AS Integer = Integer(0)", "storeGlobal #CANVAS_DAMAGE AS List OF Integer = list []", "storeGlobal #CANVAS_DAMAGE_MODE AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_KEYS AS List OF Integer = list []", "storeGlobal #CANVAS_GLYPH_META AS List OF Integer = list []", "storeGlobal #CANVAS_GLYPH_COV AS List OF Byte = list []", "storeGlobal #CANVAS_GLYPH_LASTUSED AS List OF Integer = list []", "storeGlobal #CANVAS_GLYPH_REV AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_EVICTIONS AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_BUDGET AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_NEXTEVICT AS Integer = Integer(0)", "storeGlobal #CANVAS_GLYPH_PINS AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_HEADER AS Integer = Integer(47)", "storeGlobal #CANVAS_GEO_GRADIENT_COUNT AS Integer = Integer(41)", "storeGlobal #CANVAS_GEO_GRADIENT_KIND AS Integer = Integer(42)", "storeGlobal #CANVAS_GEO_GRADIENT_FROMX AS Integer = Integer(43)", "storeGlobal #CANVAS_GEO_GRADIENT_FROMY AS Integer = Integer(44)", "storeGlobal #CANVAS_GEO_GRADIENT_TOX AS Integer = Integer(45)", "storeGlobal #CANVAS_GEO_GRADIENT_TOY AS Integer = Integer(46)", "storeGlobal #CANVAS_GEO_ELLIPSE AS Integer = Integer(7)", "storeGlobal #CANVAS_GEO_ELLIPSE_COS AS Integer = Integer(39)", "storeGlobal #CANVAS_GEO_ELLIPSE_SIN AS Integer = Integer(40)", "storeGlobal #CANVAS_GEO_CAP AS Integer = Integer(34)", "storeGlobal #CANVAS_GEO_CAPSTARTX AS Integer = Integer(35)", "storeGlobal #CANVAS_GEO_CAPSTARTY AS Integer = Integer(36)", "storeGlobal #CANVAS_GEO_CAPENDX AS Integer = Integer(37)", "storeGlobal #CANVAS_GEO_CAPENDY AS Integer = Integer(38)", "storeGlobal #CANVAS_GEO_TEXT AS Integer = Integer(6)", "storeGlobal #CANVAS_GEO_NONE AS Integer = Integer(5)", "storeGlobal #CANVAS_GEO_POLYGON AS Integer = Integer(4)", "storeGlobal #CANVAS_GEO_ARC AS Integer = Integer(3)", "storeGlobal #CANVAS_GEO_GROUP AS Integer = Integer(8)", "storeGlobal #CANVAS_GEO_PICTURE AS Integer = Integer(9)", "storeGlobal #CANVAS_GEO_PICTURE_SHADOW_HI AS Integer = Integer(35)", "storeGlobal #CANVAS_GEO_PICTURE_SHADOW_LO AS Integer = Integer(36)", "storeGlobal #CANVAS_GEO_PICTURE_SPLIT AS Integer = Integer(16777216)", "storeGlobal #CANVAS_GEO_POLYLINE AS Integer = Integer(10)", "storeGlobal #CANVAS_GEO_POLYLINE_FIRST AS Integer = Integer(43)", "storeGlobal #CANVAS_GEO_POLYLINE_LAST AS Integer = Integer(44)", "storeGlobal #CANVAS_GEO_SLOTS AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_TABLE AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_DATA AS List OF Float = list []", "storeGlobal #CANVAS_GEO_NATIVE_BUILDS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_BUILT AS List OF Integer = list []", "storeGlobal #CANVAS_GEO_GENERATIONS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_COMPACTIONS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_FRAME AS Integer = Integer(1)", "storeGlobal #CANVAS_GEO_USED_FLOATS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_LAST_FLOATS AS Integer = Integer(0)", "storeGlobal #CANVAS_GEO_BLANK AS List OF Float = list []", "storeGlobal #CANVAS_GFX_READY AS Boolean = Boolean(false)", "storeGlobal #CANVAS_DISPLAY_OVERRIDE_READ AS Boolean = Boolean(false)", "storeGlobal #CANVAS_DRAW_DX AS List OF Float = list []", "storeGlobal #CANVAS_DRAW_DY AS List OF Float = list []", "storeGlobal #CANVAS_DRAW_HASHES AS List OF Integer = list []", "storeGlobal #CANVAS_GROUP_MAX_DEPTH AS Integer = Integer(64)", "storeGlobal #CANVAS_DRAWS AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_BLOCKS AS List OF Integer = list []", "storeGlobal #CANVAS_TOP_OFFSETS AS List OF Integer = list []", "storeGlobal #CANVAS_FRAME_ITEMS AS List OF canvas.DrawItem = list []", "storeGlobal #CANVAS_FRAME_ITEMS_READY AS Boolean = Boolean(false)", "storeGlobal #CANVAS_SNAP_ITEMS AS Integer = Integer(0)", "storeGlobal #CANVAS_SNAP_LAYERS AS Integer = Integer(0)", "storeGlobal #CANVAS_SNAP_HASHES AS Integer = Integer(0)", "storeGlobal #CANVAS_FRAME_HASHES AS List OF Integer = list []", "storeGlobal #CANVAS_SNAP_REHASHED AS Integer = Integer(0)", "storeGlobal #CANVAS_DRAW_MEMO_SLOT AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_MEMO_BASE AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_MEMO_COUNT AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_INST AS List OF Integer = list []", "storeGlobal #CANVAS_DRAW_NEXT_INST AS Integer = Integer(0)", "storeGlobal #CANVAS_VULKAN_MAX_FRAME_ITEMS AS Integer = Integer(65536)", "storeGlobal #CANVAS_METAL_MAX_FRAME_ITEMS AS Integer = Integer(65536)", "storeGlobal #CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES AS Integer = Integer(8388608)", "storeGlobal #CANVAS_METAL_MAX_FRAME_EDGES AS Integer = Integer(262144)", "storeGlobal #CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS AS Integer = Integer(131072)", "storeGlobal #CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS AS Integer = Integer(131072)", "storeGlobal #CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = Integer(262144)", "storeGlobal #CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = Integer(8388608)", "storeGlobal #CANVAS_LAST_GROUP_SIG AS List OF Integer = list []", "storeGlobal #COLOR_SRGB AS List OF Integer = call #color_srgbTable()", "storeGlobal #COLOR_NAMES AS Map OF String TO Integer = call #color_nameTable()", "storeGlobal #COMPRESS_LEN_BASE AS List OF Integer = call #compress_lengthTable(Boolean(true))", "storeGlobal #COMPRESS_LEN_EXTRA AS List OF Integer = call #compress_lengthTable(Boolean(false))", "storeGlobal #COMPRESS_DIST_BASE AS List OF Integer = call #compress_distanceTable(Boolean(true))", "storeGlobal #COMPRESS_DIST_EXTRA AS List OF Integer = call #compress_distanceTable(Boolean(false))", "storeGlobal #COMPRESS_CL_ORDER AS List OF Integer = list [Integer(16), Integer(17), Integer(18), Integer(0), Integer(8), Integer(7), Integer(9), Integer(6), Integer(10), Integer(5), Integer(11), Integer(4), Integer(12), Integer(3), Integer(13), Integer(2), Integer(14), Integer(1), Integer(15)]"],
     "calls": [
     { "target": "#color_srgbTable", "symbol": "_mfb_ifn_color_5FsrgbTable", "kind": "local", "stringLiterals": [] },
     { "target": "#color_nameTable", "symbol": "_mfb_ifn_color_5FnameTable", "kind": "local", "stringLiterals": [] },
@@ -2382,13 +2386,16 @@
     { "name": "if_end_1", "kind": "ifEnd" },
     { "name": "if_else_2", "kind": "ifElse" },
     { "name": "if_end_3", "kind": "ifEnd" },
-    { "name": "while_loop_4", "kind": "whileLoop" },
-    { "name": "while_end_5", "kind": "whileEnd" }
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "while_loop_6", "kind": "whileLoop" },
+    { "name": "while_end_7", "kind": "whileEnd" }
     ],
-    "operations": ["bind mutable out AS List OF Float = local edges", "bind immutable start AS Integer = call #canvas_glyphStart(local b, local gid)", "branchIfFalse (local start < Integer(0)) -> if_else_0", "return local out", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable contours AS Integer = call #canvas_beS16(local b, local start)", "branchIfFalse (local contours <= Integer(0)) -> if_else_2", "return local out", "branch -> if_end_3", "label if_else_2", "label if_end_3", "bind immutable endsAt AS Integer = (local start + Integer(10))", "bind immutable points AS Integer = (call #canvas_beU16(local b, (local endsAt + ((local contours - Integer(1)) * Integer(2)))) + Integer(1))", "bind immutable instructions AS Integer = call #canvas_beU16(local b, (local endsAt + (local contours + local contours)))", "bind immutable flagsAt AS Integer = (((local endsAt + (local contours + local contours)) + Integer(2)) + local instructions)", "bind immutable flags AS List OF Integer = call #canvas_glyphFlags(local b, local flagsAt, local points)", "bind immutable xsAt AS Integer = call collections.getOr(local flags, local points, Integer(0))", "bind immutable xs AS List OF Integer = call #canvas_glyphCoords(local b, local xsAt, local flags, local points, Integer(2), Integer(16))", "bind immutable ysAt AS Integer = call collections.getOr(local xs, local points, Integer(0))", "bind immutable ys AS List OF Integer = call #canvas_glyphCoords(local b, local ysAt, local flags, local points, Integer(4), Integer(32))", "bind mutable contour AS Integer = Integer(0)", "bind mutable from AS Integer = Integer(0)", "label while_loop_4", "branchIfFalse (local contour < local contours) -> while_end_5", "bind immutable last AS Integer = call #canvas_beU16(local b, (local endsAt + (local contour + local contour)))", "assign out = call #canvas_contourEdges(local flags, local xs, local ys, local from, local last, local scale, local penX, local penY, local out)", "assign from = (local last + Integer(1))", "assign contour = (local contour + Integer(1))", "branch -> while_loop_4", "label while_end_5", "return local out"],
+    "operations": ["bind mutable out AS List OF Float = local edges", "bind immutable start AS Integer = call #canvas_glyphStart(local b, local gid)", "branchIfFalse (local start < Integer(0)) -> if_else_0", "return local out", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable contours AS Integer = call #canvas_beS16(local b, local start)", "branchIfFalse (local contours < Integer(0)) -> if_else_2", "return call #canvas_compositeEdges(local b, local start, local scale, Float(0.0), local penX, Float(0.0), (Float(0.0) - local scale), local penY, local out, Integer(0))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "branchIfFalse (local contours = Integer(0)) -> if_else_4", "return local out", "branch -> if_end_5", "label if_else_4", "label if_end_5", "bind immutable endsAt AS Integer = (local start + Integer(10))", "bind immutable points AS Integer = (call #canvas_beU16(local b, (local endsAt + ((local contours - Integer(1)) * Integer(2)))) + Integer(1))", "bind immutable instructions AS Integer = call #canvas_beU16(local b, (local endsAt + (local contours + local contours)))", "bind immutable flagsAt AS Integer = (((local endsAt + (local contours + local contours)) + Integer(2)) + local instructions)", "bind immutable flags AS List OF Integer = call #canvas_glyphFlags(local b, local flagsAt, local points)", "bind immutable xsAt AS Integer = call collections.getOr(local flags, local points, Integer(0))", "bind immutable xs AS List OF Integer = call #canvas_glyphCoords(local b, local xsAt, local flags, local points, Integer(2), Integer(16))", "bind immutable ysAt AS Integer = call collections.getOr(local xs, local points, Integer(0))", "bind immutable ys AS List OF Integer = call #canvas_glyphCoords(local b, local ysAt, local flags, local points, Integer(4), Integer(32))", "bind mutable contour AS Integer = Integer(0)", "bind mutable from AS Integer = Integer(0)", "label while_loop_6", "branchIfFalse (local contour < local contours) -> while_end_7", "bind immutable last AS Integer = call #canvas_beU16(local b, (local endsAt + (local contour + local contour)))", "assign out = call #canvas_contourEdges(local flags, local xs, local ys, local from, local last, local scale, local penX, local penY, local out)", "assign from = (local last + Integer(1))", "assign contour = (local contour + Integer(1))", "branch -> while_loop_6", "label while_end_7", "return local out"],
     "calls": [
     { "target": "#canvas_glyphStart", "symbol": "_mfb_ifn_canvas_5FglyphStart", "kind": "local", "stringLiterals": [] },
     { "target": "#canvas_beS16", "symbol": "_mfb_ifn_canvas_5FbeS16", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_compositeEdges", "symbol": "_mfb_ifn_canvas_5FcompositeEdges", "kind": "local", "stringLiterals": [] },
     { "target": "#canvas_beU16", "symbol": "_mfb_ifn_canvas_5FbeU16", "kind": "local", "stringLiterals": [] },
     { "target": "#canvas_glyphFlags", "symbol": "_mfb_ifn_canvas_5FglyphFlags", "kind": "local", "stringLiterals": [] },
     { "target": "#canvas_glyphCoords", "symbol": "_mfb_ifn_canvas_5FglyphCoords", "kind": "local", "stringLiterals": [] },
@@ -2565,6 +2572,244 @@
     ],
     "operations": ["bind immutable dx AS Float = (local x1 - local x0)", "bind immutable dy AS Float = (local y1 - local y0)", "bind immutable lenSq AS Float = ((local dx * local dx) + (local dy * local dy))", "branchIfFalse (local lenSq <= Float(0.0)) -> if_else_0", "return local edges", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind mutable out AS List OF Float = call collections.append(local edges, local x0)", "assign out = call collections.append(local out, local y0)", "assign out = call collections.append(local out, local dx)", "assign out = call collections.append(local out, local dy)", "return call collections.append(local out, (Float(1.0) / local lenSq))"],
     "calls": [
+    ]
+  },
+  {
+    "name": "#canvas_beS8",
+    "symbol": "_mfb_ifn_canvas_5FbeS8",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "b", "storage": { "name": "List OF Byte", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "off", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "v", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" }
+    ],
+    "operations": ["bind immutable v AS Integer = call #canvas_beU8(local b, local off)", "branchIfFalse (local v >= Integer(128)) -> if_else_0", "return (local v - Integer(256))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "return local v"],
+    "calls": [
+    { "target": "#canvas_beU8", "symbol": "_mfb_ifn_canvas_5FbeU8", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#canvas_f2dot14",
+    "symbol": "_mfb_ifn_canvas_5Ff2dot14",
+    "returns": { "name": "Float", "class": "float", "size": 8, "align": 8 },
+    "params": [
+    { "name": "b", "storage": { "name": "List OF Byte", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "off", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return (call toFloat(call #canvas_beS16(local b, local off)) / Float(16384.0))"],
+    "calls": [
+    { "target": "#canvas_beS16", "symbol": "_mfb_ifn_canvas_5FbeS16", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#canvas_bit",
+    "symbol": "_mfb_ifn_canvas_5Fbit",
+    "returns": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 },
+    "params": [
+    { "name": "value", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "mask", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return (((local value / local mask) MOD Integer(2)) = Integer(1))"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "#canvas_compositeEdges",
+    "symbol": "_mfb_ifn_canvas_5FcompositeEdges",
+    "returns": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "b", "storage": { "name": "List OF Byte", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "start", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "a", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "bb", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "e", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "c", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "d", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "f", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "edges", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "depth", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "out", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 }, "offset": -8, "mutable": true },
+    { "name": "cursor", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": true },
+    { "name": "more", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -24, "mutable": true },
+    { "name": "flags", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -32, "mutable": false },
+    { "name": "gid", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -40, "mutable": false },
+    { "name": "dx", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -48, "mutable": true },
+    { "name": "dy", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -56, "mutable": true },
+    { "name": "xx", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -64, "mutable": true },
+    { "name": "yx", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -72, "mutable": true },
+    { "name": "xy", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -80, "mutable": true },
+    { "name": "yy", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -88, "mutable": true },
+    { "name": "sx", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -96, "mutable": false },
+    { "name": "sy", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -104, "mutable": false },
+    { "name": "na", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -112, "mutable": false },
+    { "name": "nb", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -120, "mutable": false },
+    { "name": "nc", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -128, "mutable": false },
+    { "name": "nd", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -136, "mutable": false },
+    { "name": "ne", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -144, "mutable": false },
+    { "name": "nf", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -152, "mutable": false }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "while_loop_2", "kind": "whileLoop" },
+    { "name": "while_end_3", "kind": "whileEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "if_else_6", "kind": "ifElse" },
+    { "name": "if_end_7", "kind": "ifEnd" },
+    { "name": "if_else_8", "kind": "ifElse" },
+    { "name": "if_end_9", "kind": "ifEnd" },
+    { "name": "if_else_10", "kind": "ifElse" },
+    { "name": "if_end_11", "kind": "ifEnd" },
+    { "name": "if_else_12", "kind": "ifElse" },
+    { "name": "if_end_13", "kind": "ifEnd" },
+    { "name": "if_else_14", "kind": "ifElse" },
+    { "name": "if_end_15", "kind": "ifEnd" },
+    { "name": "if_else_16", "kind": "ifElse" },
+    { "name": "if_end_17", "kind": "ifEnd" }
+    ],
+    "operations": ["bind mutable out AS List OF Float = local edges", "branchIfFalse (local depth >= Integer(8)) -> if_else_0", "return local out", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind mutable cursor AS Integer = (local start + Integer(10))", "bind mutable more AS Boolean = Boolean(true)", "label while_loop_2", "branchIfFalse local more -> while_end_3", "bind immutable flags AS Integer = call #canvas_beU16(local b, local cursor)", "bind immutable gid AS Integer = call #canvas_beU16(local b, (local cursor + Integer(2)))", "assign cursor = (local cursor + Integer(4))", "bind mutable dx AS Float = Float(0.0)", "bind mutable dy AS Float = Float(0.0)", "branchIfFalse ((local flags MOD Integer(2)) = Integer(1)) -> if_else_4", "branchIfFalse (((local flags / Integer(2)) MOD Integer(2)) = Integer(1)) -> if_else_6", "assign dx = call toFloat(call #canvas_beS16(local b, local cursor))", "assign dy = call toFloat(call #canvas_beS16(local b, (local cursor + Integer(2))))", "branch -> if_end_7", "label if_else_6", "label if_end_7", "assign cursor = (local cursor + Integer(4))", "branch -> if_end_5", "label if_else_4", "branchIfFalse (((local flags / Integer(2)) MOD Integer(2)) = Integer(1)) -> if_else_8", "assign dx = call toFloat(call #canvas_beS8(local b, local cursor))", "assign dy = call toFloat(call #canvas_beS8(local b, (local cursor + Integer(1))))", "branch -> if_end_9", "label if_else_8", "label if_end_9", "assign cursor = (local cursor + Integer(2))", "label if_end_5", "bind mutable xx AS Float = Float(1.0)", "bind mutable yx AS Float = Float(0.0)", "bind mutable xy AS Float = Float(0.0)", "bind mutable yy AS Float = Float(1.0)", "branchIfFalse (((local flags / Integer(8)) MOD Integer(2)) = Integer(1)) -> if_else_10", "assign xx = call #canvas_f2dot14(local b, local cursor)", "assign yy = local xx", "assign cursor = (local cursor + Integer(2))", "branch -> if_end_11", "label if_else_10", "branchIfFalse (((local flags / Integer(64)) MOD Integer(2)) = Integer(1)) -> if_else_12", "assign xx = call #canvas_f2dot14(local b, local cursor)", "assign yy = call #canvas_f2dot14(local b, (local cursor + Integer(2)))", "assign cursor = (local cursor + Integer(4))", "branch -> if_end_13", "label if_else_12", "branchIfFalse (((local flags / Integer(128)) MOD Integer(2)) = Integer(1)) -> if_else_14", "assign xx = call #canvas_f2dot14(local b, local cursor)", "assign yx = call #canvas_f2dot14(local b, (local cursor + Integer(2)))", "assign xy = call #canvas_f2dot14(local b, (local cursor + Integer(4)))", "assign yy = call #canvas_f2dot14(local b, (local cursor + Integer(6)))", "assign cursor = (local cursor + Integer(8))", "branch -> if_end_15", "label if_else_14", "label if_end_15", "label if_end_13", "label if_end_11", "branchIfFalse ((((local flags / Integer(2048)) MOD Integer(2)) = Integer(1)) AND (NOT (((local flags / Integer(4096)) MOD Integer(2)) = Integer(1)))) -> if_else_16", "bind immutable sx AS Float = ((local xx * local dx) + (local xy * local dy))", "bind immutable sy AS Float = ((local yx * local dx) + (local yy * local dy))", "assign dx = local sx", "assign dy = local sy", "branch -> if_end_17", "label if_else_16", "label if_end_17", "bind immutable na AS Float = ((local a * local xx) + (local c * local yx))", "bind immutable nb AS Float = ((local bb * local xx) + (local d * local yx))", "bind immutable nc AS Float = ((local a * local xy) + (local c * local yy))", "bind immutable nd AS Float = ((local bb * local xy) + (local d * local yy))", "bind immutable ne AS Float = (((local a * local dx) + (local c * local dy)) + local e)", "bind immutable nf AS Float = (((local bb * local dx) + (local d * local dy)) + local f)", "assign out = call #canvas_affineGlyphEdges(local b, local gid, local na, local nb, local nc, local nd, local ne, local nf, local out, (local depth + Integer(1)))", "assign more = (((local flags / Integer(32)) MOD Integer(2)) = Integer(1))", "branch -> while_loop_2", "label while_end_3", "return local out"],
+    "calls": [
+    { "target": "#canvas_beU16", "symbol": "_mfb_ifn_canvas_5FbeU16", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_beS16", "symbol": "_mfb_ifn_canvas_5FbeS16", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_beS8", "symbol": "_mfb_ifn_canvas_5FbeS8", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_f2dot14", "symbol": "_mfb_ifn_canvas_5Ff2dot14", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_affineGlyphEdges", "symbol": "_mfb_ifn_canvas_5FaffineGlyphEdges", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#canvas_affineGlyphEdges",
+    "symbol": "_mfb_ifn_canvas_5FaffineGlyphEdges",
+    "returns": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "b", "storage": { "name": "List OF Byte", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "gid", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "a", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "bb", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "c", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "d", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "e", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "f", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 } },
+    { "name": "edges", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "depth", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "out", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 }, "offset": -8, "mutable": true },
+    { "name": "start", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "contours", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
+    { "name": "endsAt", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -32, "mutable": false },
+    { "name": "points", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -40, "mutable": false },
+    { "name": "instructions", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -48, "mutable": false },
+    { "name": "flagsAt", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -56, "mutable": false },
+    { "name": "flags", "storage": { "name": "List OF Integer", "class": "reference", "size": 8, "align": 8 }, "offset": -64, "mutable": false },
+    { "name": "xsAt", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -72, "mutable": false },
+    { "name": "xs", "storage": { "name": "List OF Integer", "class": "reference", "size": 8, "align": 8 }, "offset": -80, "mutable": false },
+    { "name": "ysAt", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -88, "mutable": false },
+    { "name": "ys", "storage": { "name": "List OF Integer", "class": "reference", "size": 8, "align": 8 }, "offset": -96, "mutable": false },
+    { "name": "px", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 }, "offset": -104, "mutable": true },
+    { "name": "py", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 }, "offset": -112, "mutable": true },
+    { "name": "i", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -120, "mutable": true },
+    { "name": "x", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -128, "mutable": false },
+    { "name": "y", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -136, "mutable": false },
+    { "name": "contour", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -144, "mutable": true },
+    { "name": "from", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -152, "mutable": true },
+    { "name": "last", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -160, "mutable": false }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "if_else_2", "kind": "ifElse" },
+    { "name": "if_end_3", "kind": "ifEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "while_loop_6", "kind": "whileLoop" },
+    { "name": "while_end_7", "kind": "whileEnd" },
+    { "name": "while_loop_8", "kind": "whileLoop" },
+    { "name": "while_end_9", "kind": "whileEnd" }
+    ],
+    "operations": ["bind mutable out AS List OF Float = local edges", "bind immutable start AS Integer = call #canvas_glyphStart(local b, local gid)", "branchIfFalse (local start < Integer(0)) -> if_else_0", "return local out", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable contours AS Integer = call #canvas_beS16(local b, local start)", "branchIfFalse (local contours < Integer(0)) -> if_else_2", "return call #canvas_compositeEdges(local b, local start, local a, local bb, local e, local c, local d, local f, local out, local depth)", "branch -> if_end_3", "label if_else_2", "label if_end_3", "branchIfFalse (local contours = Integer(0)) -> if_else_4", "return local out", "branch -> if_end_5", "label if_else_4", "label if_end_5", "bind immutable endsAt AS Integer = (local start + Integer(10))", "bind immutable points AS Integer = (call #canvas_beU16(local b, (local endsAt + ((local contours - Integer(1)) * Integer(2)))) + Integer(1))", "bind immutable instructions AS Integer = call #canvas_beU16(local b, (local endsAt + (local contours + local contours)))", "bind immutable flagsAt AS Integer = (((local endsAt + (local contours + local contours)) + Integer(2)) + local instructions)", "bind immutable flags AS List OF Integer = call #canvas_glyphFlags(local b, local flagsAt, local points)", "bind immutable xsAt AS Integer = call collections.getOr(local flags, local points, Integer(0))", "bind immutable xs AS List OF Integer = call #canvas_glyphCoords(local b, local xsAt, local flags, local points, Integer(2), Integer(16))", "bind immutable ysAt AS Integer = call collections.getOr(local xs, local points, Integer(0))", "bind immutable ys AS List OF Integer = call #canvas_glyphCoords(local b, local ysAt, local flags, local points, Integer(4), Integer(32))", "bind mutable px AS List OF Float = list []", "bind mutable py AS List OF Float = list []", "bind mutable i AS Integer = Integer(0)", "label while_loop_6", "branchIfFalse (local i < local points) -> while_end_7", "bind immutable x AS Float = call toFloat(call collections.getOr(local xs, local i, Integer(0)))", "bind immutable y AS Float = call toFloat(call collections.getOr(local ys, local i, Integer(0)))", "assign px = call collections.append(local px, (((local a * local x) + (local c * local y)) + local e))", "assign py = call collections.append(local py, (((local bb * local x) + (local d * local y)) + local f))", "assign i = (local i + Integer(1))", "branch -> while_loop_6", "label while_end_7", "bind mutable contour AS Integer = Integer(0)", "bind mutable from AS Integer = Integer(0)", "label while_loop_8", "branchIfFalse (local contour < local contours) -> while_end_9", "bind immutable last AS Integer = call #canvas_beU16(local b, (local endsAt + (local contour + local contour)))", "assign out = call #canvas_contourEdgesMapped(local flags, local px, local py, local from, local last, local out)", "assign from = (local last + Integer(1))", "assign contour = (local contour + Integer(1))", "branch -> while_loop_8", "label while_end_9", "return local out"],
+    "calls": [
+    { "target": "#canvas_glyphStart", "symbol": "_mfb_ifn_canvas_5FglyphStart", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_beS16", "symbol": "_mfb_ifn_canvas_5FbeS16", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_compositeEdges", "symbol": "_mfb_ifn_canvas_5FcompositeEdges", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_beU16", "symbol": "_mfb_ifn_canvas_5FbeU16", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_glyphFlags", "symbol": "_mfb_ifn_canvas_5FglyphFlags", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_glyphCoords", "symbol": "_mfb_ifn_canvas_5FglyphCoords", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_contourEdgesMapped", "symbol": "_mfb_ifn_canvas_5FcontourEdgesMapped", "kind": "local", "stringLiterals": [] }
+    ]
+  },
+  {
+    "name": "#canvas_contourEdgesMapped",
+    "symbol": "_mfb_ifn_canvas_5FcontourEdgesMapped",
+    "returns": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 },
+    "params": [
+    { "name": "flags", "storage": { "name": "List OF Integer", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "px", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "py", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 } },
+    { "name": "from", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "last", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } },
+    { "name": "edges", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    { "name": "out", "storage": { "name": "List OF Float", "class": "reference", "size": 8, "align": 8 }, "offset": -8, "mutable": true },
+    { "name": "count", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "startIndex", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": true },
+    { "name": "i", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -32, "mutable": true },
+    { "name": "curX", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -40, "mutable": true },
+    { "name": "curY", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -48, "mutable": true },
+    { "name": "originX", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -56, "mutable": false },
+    { "name": "originY", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -64, "mutable": false },
+    { "name": "pendingX", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -72, "mutable": true },
+    { "name": "pendingY", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -80, "mutable": true },
+    { "name": "havePending", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -88, "mutable": true },
+    { "name": "walk", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -96, "mutable": true },
+    { "name": "at", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -104, "mutable": false },
+    { "name": "x", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -112, "mutable": false },
+    { "name": "y", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -120, "mutable": false },
+    { "name": "midX", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -128, "mutable": false },
+    { "name": "midY", "storage": { "name": "Float", "class": "float", "size": 8, "align": 8 }, "offset": -136, "mutable": false }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" },
+    { "name": "while_loop_2", "kind": "whileLoop" },
+    { "name": "while_end_3", "kind": "whileEnd" },
+    { "name": "if_else_4", "kind": "ifElse" },
+    { "name": "if_end_5", "kind": "ifEnd" },
+    { "name": "if_else_6", "kind": "ifElse" },
+    { "name": "if_end_7", "kind": "ifEnd" },
+    { "name": "while_loop_8", "kind": "whileLoop" },
+    { "name": "while_end_9", "kind": "whileEnd" },
+    { "name": "if_else_10", "kind": "ifElse" },
+    { "name": "if_end_11", "kind": "ifEnd" },
+    { "name": "if_else_12", "kind": "ifElse" },
+    { "name": "if_end_13", "kind": "ifEnd" },
+    { "name": "if_else_14", "kind": "ifElse" },
+    { "name": "if_end_15", "kind": "ifEnd" },
+    { "name": "if_else_16", "kind": "ifElse" },
+    { "name": "if_end_17", "kind": "ifEnd" }
+    ],
+    "operations": ["bind mutable out AS List OF Float = local edges", "bind immutable count AS Integer = ((local last - local from) + Integer(1))", "branchIfFalse (local count < Integer(2)) -> if_else_0", "return local out", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind mutable startIndex AS Integer = Integer(-1)", "bind mutable i AS Integer = Integer(0)", "label while_loop_2", "branchIfFalse (local i < local count) -> while_end_3", "branchIfFalse ((local startIndex < Integer(0)) AND call #canvas_onCurve(local flags, (local from + local i))) -> if_else_4", "assign startIndex = local i", "branch -> if_end_5", "label if_else_4", "label if_end_5", "assign i = (local i + Integer(1))", "branch -> while_loop_2", "label while_end_3", "bind mutable curX AS Float = Float(0.0)", "bind mutable curY AS Float = Float(0.0)", "branchIfFalse (local startIndex < Integer(0)) -> if_else_6", "assign startIndex = Integer(0)", "assign curX = ((call collections.getOr(local px, local from, Float(0.0)) + call collections.getOr(local px, local last, Float(0.0))) / Float(2.0))", "assign curY = ((call collections.getOr(local py, local from, Float(0.0)) + call collections.getOr(local py, local last, Float(0.0))) / Float(2.0))", "branch -> if_end_7", "label if_else_6", "assign curX = call collections.getOr(local px, (local from + local startIndex), Float(0.0))", "assign curY = call collections.getOr(local py, (local from + local startIndex), Float(0.0))", "label if_end_7", "bind immutable originX AS Float = local curX", "bind immutable originY AS Float = local curY", "bind mutable pendingX AS Float = Float(0.0)", "bind mutable pendingY AS Float = Float(0.0)", "bind mutable havePending AS Boolean = Boolean(false)", "bind mutable walk AS Integer = Integer(1)", "label while_loop_8", "branchIfFalse (local walk <= local count) -> while_end_9", "bind immutable at AS Integer = (local from + ((local startIndex + local walk) MOD local count))", "bind immutable x AS Float = call collections.getOr(local px, local at, Float(0.0))", "bind immutable y AS Float = call collections.getOr(local py, local at, Float(0.0))", "branchIfFalse call #canvas_onCurve(local flags, local at) -> if_else_10", "branchIfFalse local havePending -> if_else_12", "assign out = call #canvas_quadEdges(local out, local curX, local curY, local pendingX, local pendingY, local x, local y)", "assign havePending = Boolean(false)", "branch -> if_end_13", "label if_else_12", "assign out = call #canvas_lineEdge(local out, local curX, local curY, local x, local y)", "label if_end_13", "assign curX = local x", "assign curY = local y", "branch -> if_end_11", "label if_else_10", "branchIfFalse local havePending -> if_else_14", "bind immutable midX AS Float = ((local pendingX + local x) / Float(2.0))", "bind immutable midY AS Float = ((local pendingY + local y) / Float(2.0))", "assign out = call #canvas_quadEdges(local out, local curX, local curY, local pendingX, local pendingY, local midX, local midY)", "assign curX = local midX", "assign curY = local midY", "branch -> if_end_15", "label if_else_14", "label if_end_15", "assign pendingX = local x", "assign pendingY = local y", "assign havePending = Boolean(true)", "label if_end_11", "assign walk = (local walk + Integer(1))", "branch -> while_loop_8", "label while_end_9", "branchIfFalse local havePending -> if_else_16", "assign out = call #canvas_quadEdges(local out, local curX, local curY, local pendingX, local pendingY, local originX, local originY)", "branch -> if_end_17", "label if_else_16", "assign out = call #canvas_lineEdge(local out, local curX, local curY, local originX, local originY)", "label if_end_17", "return local out"],
+    "calls": [
+    { "target": "#canvas_onCurve", "symbol": "_mfb_ifn_canvas_5FonCurve", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_quadEdges", "symbol": "_mfb_ifn_canvas_5FquadEdges", "kind": "local", "stringLiterals": [] },
+    { "target": "#canvas_lineEdge", "symbol": "_mfb_ifn_canvas_5FlineEdge", "kind": "local", "stringLiterals": [] }
     ]
   },
   {
@@ -5683,7 +5928,7 @@
     { "name": "if_end_3", "kind": "ifEnd" },
     { "name": "match_case_4", "kind": "matchCase" }
     ],
-    "operations": ["bind mutable sig AS List OF Integer = list []", "forEach item AS canvas.DrawItem IN local items", "match local item", "case canvas.Group -> match_case_1", "label match_case_1", "bind immutable g AS canvas.Group = extract canvas.Group (local item)", "branchIfFalse (local depth >= Integer(64)) -> if_else_2", "fail construct Error(Integer(77050024), ((String(canvas group nesting exceeded ) & call toString(Integer(64))) & String( levels -- this is a cycle or a bug)), construct ErrorLoc(String(builtins/canvas.mfb), Integer(4872), Integer(16)))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "bind immutable slot AS Integer = runtimeCall canvas canvas.groupResolve(g.name)", "assign sig = call collections.append(local sig, local slot)", "assign sig = call collections.append(local sig, runtimeCall canvas canvas.groupRevision(local slot))", "forEach inner AS Integer IN call #canvas_groupSignature(runtimeCall canvas canvas.groupItems(local slot), (local depth + Integer(1)))", "assign sig = call collections.append(local sig, local inner)", "next", "branch -> match_end_0", "case else -> match_case_4", "label match_case_4", "assign sig = local sig", "branch -> match_end_0", "label match_end_0", "next", "return local sig"],
+    "operations": ["bind mutable sig AS List OF Integer = list []", "forEach item AS canvas.DrawItem IN local items", "match local item", "case canvas.Group -> match_case_1", "label match_case_1", "bind immutable g AS canvas.Group = extract canvas.Group (local item)", "branchIfFalse (local depth >= Integer(64)) -> if_else_2", "fail construct Error(Integer(77050024), ((String(canvas group nesting exceeded ) & call toString(Integer(64))) & String( levels -- this is a cycle or a bug)), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5073), Integer(16)))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "bind immutable slot AS Integer = runtimeCall canvas canvas.groupResolve(g.name)", "assign sig = call collections.append(local sig, local slot)", "assign sig = call collections.append(local sig, runtimeCall canvas canvas.groupRevision(local slot))", "forEach inner AS Integer IN call #canvas_groupSignature(runtimeCall canvas canvas.groupItems(local slot), (local depth + Integer(1)))", "assign sig = call collections.append(local sig, local inner)", "next", "branch -> match_end_0", "case else -> match_case_4", "label match_case_4", "assign sig = local sig", "branch -> match_end_0", "label match_end_0", "next", "return local sig"],
     "calls": [
     { "target": "canvas.groupResolve", "symbol": "_mfb_rt_canvas_canvas_groupResolve", "kind": "runtime", "stringLiterals": [] },
     { "target": "canvas.groupRevision", "symbol": "_mfb_rt_canvas_canvas_groupRevision", "kind": "runtime", "stringLiterals": [] },
@@ -6660,7 +6905,7 @@
     { "name": "if_else_2", "kind": "ifElse" },
     { "name": "if_end_3", "kind": "ifEnd" }
     ],
-    "operations": ["bind immutable bytes AS List OF Byte = runtimeCall fs fs.readBytes(local path)", "bind immutable size AS List OF Integer = call #canvas_pngSize(local bytes)", "branchIfFalse (call len(local size) < Integer(2)) -> if_else_0", "fail construct Error(Integer(77050023), (String(not an image this build can decode: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5888), Integer(10)))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable pixels AS List OF Byte = call #canvas_pngDecode(local bytes)", "branchIfFalse (call len(local pixels) = Integer(0)) -> if_else_2", "fail construct Error(Integer(77050023), (String(image file is malformed: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5892), Integer(10)))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "return runtimeCall canvas canvas.createImage(call collections.getOr(local size, Integer(0), Integer(0)), call collections.getOr(local size, Integer(1), Integer(0)), local pixels)"],
+    "operations": ["bind immutable bytes AS List OF Byte = runtimeCall fs fs.readBytes(local path)", "bind immutable size AS List OF Integer = call #canvas_pngSize(local bytes)", "branchIfFalse (call len(local size) < Integer(2)) -> if_else_0", "fail construct Error(Integer(77050023), (String(not an image this build can decode: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(6089), Integer(10)))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable pixels AS List OF Byte = call #canvas_pngDecode(local bytes)", "branchIfFalse (call len(local pixels) = Integer(0)) -> if_else_2", "fail construct Error(Integer(77050023), (String(image file is malformed: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(6093), Integer(10)))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "return runtimeCall canvas canvas.createImage(call collections.getOr(local size, Integer(0), Integer(0)), call collections.getOr(local size, Integer(1), Integer(0)), local pixels)"],
     "calls": [
     { "target": "fs.readBytes", "symbol": "_mfb_rt_fs_fs_readBytes", "kind": "runtime", "stringLiterals": [] },
     { "target": "#canvas_pngSize", "symbol": "_mfb_ifn_canvas_5FpngSize", "kind": "local", "stringLiterals": [] },
@@ -6686,7 +6931,7 @@
     { "name": "if_else_2", "kind": "ifElse" },
     { "name": "if_end_3", "kind": "ifEnd" }
     ],
-    "operations": ["bind immutable bytes AS List OF Byte = runtimeCall fs fs.readBytes(local path)", "bind mutable dir AS Integer = Integer(0)", "branchIfFalse call #canvas_isCollection(local bytes) -> if_else_0", "bind immutable faces AS List OF Integer = call #canvas_sfntFaces(local bytes)", "branchIfFalse (call len(local faces) = Integer(0)) -> if_else_2", "fail construct Error(Integer(77050022), (String(font collection holds no faces: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5905), Integer(12)))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "assign dir = call collections.getOr(local faces, Integer(0), Integer(0))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "return call #canvas_loadFontBytes(local path, local bytes, local dir)"],
+    "operations": ["bind immutable bytes AS List OF Byte = runtimeCall fs fs.readBytes(local path)", "bind mutable dir AS Integer = Integer(0)", "branchIfFalse call #canvas_isCollection(local bytes) -> if_else_0", "bind immutable faces AS List OF Integer = call #canvas_sfntFaces(local bytes)", "branchIfFalse (call len(local faces) = Integer(0)) -> if_else_2", "fail construct Error(Integer(77050022), (String(font collection holds no faces: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(6106), Integer(12)))", "branch -> if_end_3", "label if_else_2", "label if_end_3", "assign dir = call collections.getOr(local faces, Integer(0), Integer(0))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "return call #canvas_loadFontBytes(local path, local bytes, local dir)"],
     "calls": [
     { "target": "fs.readBytes", "symbol": "_mfb_rt_fs_fs_readBytes", "kind": "runtime", "stringLiterals": [] },
     { "target": "#canvas_isCollection", "symbol": "_mfb_ifn_canvas_5FisCollection", "kind": "local", "stringLiterals": [] },
@@ -6716,7 +6961,7 @@
     { "name": "if_else_4", "kind": "ifElse" },
     { "name": "if_end_5", "kind": "ifEnd" }
     ],
-    "operations": ["bind immutable face AS List OF Byte = call #canvas_extractFace(local path, local bytes, local dir)", "branchIfFalse (NOT call #canvas_isTrueType(local face)) -> if_else_0", "fail construct Error(Integer(77050022), (String(not a TrueType font: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5918), Integer(10)))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable head AS Integer = call #canvas_fontTable(local face, String(head))", "branchIfFalse (local head >= Integer(0)) -> if_else_2", "bind immutable upem AS Integer = call #canvas_beU16(local face, (local head + Integer(18)))", "branchIfFalse ((local upem < Integer(16)) OR (local upem > Integer(16384))) -> if_else_4", "fail construct Error(Integer(77050022), (String(font unitsPerEm is outside 16..16384: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5929), Integer(12)))", "branch -> if_end_5", "label if_else_4", "label if_end_5", "branch -> if_end_3", "label if_else_2", "label if_end_3", "return runtimeCall canvas canvas.fontFromBytes(local face)"],
+    "operations": ["bind immutable face AS List OF Byte = call #canvas_extractFace(local path, local bytes, local dir)", "branchIfFalse (NOT call #canvas_isTrueType(local face)) -> if_else_0", "fail construct Error(Integer(77050022), (String(not a TrueType font: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(6119), Integer(10)))", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable head AS Integer = call #canvas_fontTable(local face, String(head))", "branchIfFalse (local head >= Integer(0)) -> if_else_2", "bind immutable upem AS Integer = call #canvas_beU16(local face, (local head + Integer(18)))", "branchIfFalse ((local upem < Integer(16)) OR (local upem > Integer(16384))) -> if_else_4", "fail construct Error(Integer(77050022), (String(font unitsPerEm is outside 16..16384: ) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(6130), Integer(12)))", "branch -> if_end_5", "label if_else_4", "label if_end_5", "branch -> if_end_3", "label if_else_2", "label if_end_3", "return runtimeCall canvas canvas.fontFromBytes(local face)"],
     "calls": [
     { "target": "#canvas_extractFace", "symbol": "_mfb_ifn_canvas_5FextractFace", "kind": "local", "stringLiterals": [] },
     { "target": "#canvas_isTrueType", "symbol": "_mfb_ifn_canvas_5FisTrueType", "kind": "local", "stringLiterals": [] },
@@ -6743,7 +6988,7 @@
     { "name": "if_else_0", "kind": "ifElse" },
     { "name": "if_end_1", "kind": "ifEnd" }
     ],
-    "operations": ["bind immutable bytes AS List OF Byte = runtimeCall fs fs.readBytes(local path)", "bind immutable faces AS List OF Integer = call #canvas_sfntFaces(local bytes)", "forEach nameId AS Integer IN list [Integer(6), Integer(4)]", "forEach dir AS Integer IN local faces", "branchIfFalse (call #canvas_faceName(local bytes, local dir, local nameId) = local face) -> if_else_0", "return call #canvas_loadFontBytes(local path, local bytes, local dir)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "next", "next", "fail construct Error(Integer(77050004), (((String(no face named ) & local face) & String( in )) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5945), Integer(8)))"],
+    "operations": ["bind immutable bytes AS List OF Byte = runtimeCall fs fs.readBytes(local path)", "bind immutable faces AS List OF Integer = call #canvas_sfntFaces(local bytes)", "forEach nameId AS Integer IN list [Integer(6), Integer(4)]", "forEach dir AS Integer IN local faces", "branchIfFalse (call #canvas_faceName(local bytes, local dir, local nameId) = local face) -> if_else_0", "return call #canvas_loadFontBytes(local path, local bytes, local dir)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "next", "next", "fail construct Error(Integer(77050004), (((String(no face named ) & local face) & String( in )) & local path), construct ErrorLoc(String(builtins/canvas.mfb), Integer(6146), Integer(8)))"],
     "calls": [
     { "target": "fs.readBytes", "symbol": "_mfb_rt_fs_fs_readBytes", "kind": "runtime", "stringLiterals": [] },
     { "target": "#canvas_sfntFaces", "symbol": "_mfb_ifn_canvas_5FsfntFaces", "kind": "local", "stringLiterals": [] },
@@ -6802,7 +7047,7 @@
     { "name": "if_else_8", "kind": "ifElse" },
     { "name": "if_end_9", "kind": "ifEnd" }
     ],
-    "operations": ["bind immutable fields AS List OF String = call #canvas_systemFontFields()", "bind mutable found AS Boolean = Boolean(false)", "bind mutable bestKey AS String = String()", "bind mutable bestPath AS String = String()", "bind mutable bestFace AS String = String()", "bind mutable i AS Integer = Integer(0)", "label while_loop_0", "branchIfFalse ((local i + Integer(2)) < call len(local fields)) -> while_end_1", "branchIfFalse (call collections.getOr(local fields, local i, String()) = local name) -> if_else_2", "bind immutable postScript AS String = call collections.getOr(local fields, (local i + Integer(1)), String())", "bind immutable path AS String = call collections.getOr(local fields, (local i + Integer(2)), String())", "bind immutable key AS String = ((local path & String(/)) & local postScript)", "branchIfFalse ((NOT local found) OR (local key < local bestKey)) -> if_else_4", "assign found = Boolean(true)", "assign bestKey = local key", "assign bestPath = local path", "assign bestFace = local postScript", "branch -> if_end_5", "label if_else_4", "label if_end_5", "branch -> if_end_3", "label if_else_2", "label if_end_3", "assign i = (local i + Integer(3))", "branch -> while_loop_0", "label while_end_1", "branchIfFalse (NOT local found) -> if_else_6", "fail construct Error(Integer(77050004), (String(no system font named: ) & local name), construct ErrorLoc(String(builtins/canvas.mfb), Integer(5983), Integer(10)))", "branch -> if_end_7", "label if_else_6", "label if_end_7", "branchIfFalse (local bestFace = String()) -> if_else_8", "assign bestFace = local name", "branch -> if_end_9", "label if_else_8", "label if_end_9", "return call #canvas_loadFontNamed(local bestPath, local bestFace)"],
+    "operations": ["bind immutable fields AS List OF String = call #canvas_systemFontFields()", "bind mutable found AS Boolean = Boolean(false)", "bind mutable bestKey AS String = String()", "bind mutable bestPath AS String = String()", "bind mutable bestFace AS String = String()", "bind mutable i AS Integer = Integer(0)", "label while_loop_0", "branchIfFalse ((local i + Integer(2)) < call len(local fields)) -> while_end_1", "branchIfFalse (call collections.getOr(local fields, local i, String()) = local name) -> if_else_2", "bind immutable postScript AS String = call collections.getOr(local fields, (local i + Integer(1)), String())", "bind immutable path AS String = call collections.getOr(local fields, (local i + Integer(2)), String())", "bind immutable key AS String = ((local path & String(/)) & local postScript)", "branchIfFalse ((NOT local found) OR (local key < local bestKey)) -> if_else_4", "assign found = Boolean(true)", "assign bestKey = local key", "assign bestPath = local path", "assign bestFace = local postScript", "branch -> if_end_5", "label if_else_4", "label if_end_5", "branch -> if_end_3", "label if_else_2", "label if_end_3", "assign i = (local i + Integer(3))", "branch -> while_loop_0", "label while_end_1", "branchIfFalse (NOT local found) -> if_else_6", "fail construct Error(Integer(77050004), (String(no system font named: ) & local name), construct ErrorLoc(String(builtins/canvas.mfb), Integer(6184), Integer(10)))", "branch -> if_end_7", "label if_else_6", "label if_end_7", "branchIfFalse (local bestFace = String()) -> if_else_8", "assign bestFace = local name", "branch -> if_end_9", "label if_else_8", "label if_end_9", "return call #canvas_loadFontNamed(local bestPath, local bestFace)"],
     "calls": [
     { "target": "#canvas_systemFontFields", "symbol": "_mfb_ifn_canvas_5FsystemFontFields", "kind": "local", "stringLiterals": [] },
     { "target": "#canvas_loadFontNamed", "symbol": "_mfb_ifn_canvas_5FloadFontNamed", "kind": "local", "stringLiterals": [] }

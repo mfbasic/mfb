@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/strings/grapheme-indic-context-rt
+Wrote AST to tests/rt-behavior/strings/grapheme-indic-context-rt/grapheme_indic_context_rt.ast
+Wrote IR to tests/rt-behavior/strings/grapheme-indic-context-rt/grapheme_indic_context_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/strings/grapheme-indic-context-rt
+Wrote executable to tests/rt-behavior/strings/grapheme-indic-context-rt/build/grapheme_indic_context_rt.out
+[exit 0]
+$ tests/rt-behavior/strings/grapheme-indic-context-rt/build/grapheme_indic_context_rt.out
+leading-linker folded=2 runtime=2 first=1
+extend-linker folded=2 runtime=2 first=2
+conjunct folded=1 runtime=1 first=3
+cons-extend-linker folded=1 runtime=1 first=4
+double-linker folded=1 runtime=1 first=4
+reset folded=3 runtime=3 first=2
+two-conjuncts folded=2 runtime=2 first=3
+linker-only folded=1 runtime=1 first=2
+[exit 0]

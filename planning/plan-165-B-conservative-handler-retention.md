@@ -3,7 +3,7 @@
 Last updated: 2026-10-03
 Effort: medium (estimate: 1h–2h)
 Depends on: plan-165-A
-Status: Planning only; not authorized for implementation
+Status: Not started; implementation awaits the owner's go-ahead
 
 ## Goal
 
@@ -13,8 +13,9 @@ handler is dead. Retain the handler and actual error capture whenever proof is a
 ## Prerequisites
 
 Plan-165-A must be complete before implementation (`rg -n '^Commit:|^- \[ \]'
-planning/plan-165-A-handler-contracts.md`, or its archived path). Explicit owner
-authorization to implement remains required; this session requests documents only.
+planning/plan-165-A-handler-contracts.md`, or its archived path), and an explicit
+owner go-ahead to implement this plan (for example `/follow-plan plan-165-B`).
+Reviewing or discussing the plan is not one.
 
 ## Current state and evidence
 
@@ -27,6 +28,14 @@ not emitted failure paths (`sed -n '3334,3370p' src/codegen/registry/mod.rs`).
 The toString argument rule recognizes List OF Byte as fallible but currently gives
 unknown argument types the infallible name-based answer
 (`sed -n '285,320p' src/codegen/builtins/mod.rs`).
+
+Bug-797 (commit a5324104b) added a third consumer of the same proof:
+`src/ir/verify/trap_init.rs` calls `inline_builtin_is_infallible` (with
+`NoTypeKinds`) to decide whether a call is a failure edge into a function-level
+handler, and therefore whether that handler may read a later-declared local
+(`TYPE_TRAP_LOCAL_UNINITIALIZED`); `trap_init::total_functions` builds project-function
+totality on top of it (`rg -n 'inline_builtin_is_infallible' src/ir/verify/trap_init.rs`).
+An unsound grant there accepts a handler read of a local that a failure skipped.
 
 These are unsafe proof mechanisms. This document does not claim a specific current
 empty-metadata builtin has an undeclared runtime failure; establish such a repro
@@ -46,7 +55,8 @@ absence of metadata cannot grant a proof. Unknown arguments cannot justify an
 overload-specific proof, especially toString's byte-decoding distinction.
 
 Test safety at the oracle, IR and runtime levels. Also audit
-`src/ir/fallible.rs:analyze`: function-body inference must use conservative answers,
+`src/ir/fallible.rs:analyze` and `src/ir/verify/trap_init.rs`: function-body
+inference and the bug-797 failure-edge census must both use conservative answers,
 including locals referenced from function-level handlers. Audit reporting may be
 less precise, but it must not be mistaken for the optimizer's proof source.
 
@@ -58,6 +68,12 @@ native lowering still unconditionally wraps the operation as successful.
 Do not remove useful proven optimizations wholesale, change declared error sets to
 hide missing proof, or add a runtime fallback. ABI and package format stay unchanged.
 Unproved handlers may make binaries larger, as explicitly preferred by the owner.
+Source compatibility also changes on purpose: a builtin that loses its proof
+becomes a failure edge in the bug-797 census, so a function handler that reads a
+local declared after such a call becomes `TYPE_TRAP_LOCAL_UNINITIALIZED`. That is
+the correct verdict (the read was unsound), not a regression; fix affected
+fixtures by moving the declaration before the call, as bug-797 did for bug-465's
+tcp/tls EOF fixtures, and list every such fixture in the commit.
 Byte identity is not the correctness criterion for intentionally retained checks.
 
 ## Phases
@@ -65,12 +81,15 @@ Byte identity is not the correctness criterion for intentionally retained checks
 ### Phase 1 — Audit and RED proof tests
 
 - [ ] Enumerate `inline_builtin_is_infallible` and raw-capture consumers with
-      `rg -n 'inline_builtin_is_infallible|inline_builtin_raw_supported' src`.
+      `rg -n 'inline_builtin_is_infallible|inline_builtin_raw_supported' src`
+      (expect `src/ir/verify/trap_init.rs` among them).
 - [ ] Record an implementation proof for each retained total primitive/overload.
 - [ ] Add failing tests that empty metadata alone and Unknown toString arguments
       cannot grant infallibility; verify unproved members remain raw-capable.
 - [ ] Add runtime byte-decoding failure cases through handler locals and wrappers;
       capture any observed defect in its own bug document.
+- [ ] Add a verifier test (alongside bug-797's in `src/ir/verify/tests.rs`) that an
+      unproved builtin call is a failure edge for handler-local readability.
 
 Acceptance: new oracle regressions fail for the documented unsafe proofs before
 implementation; audit lists every granting path (estimate: minutes plus source audit).
@@ -115,3 +134,9 @@ Verify specs with `cargo build`, `cargo test --bin mfb spec`, and rendered topic
 Planning only. An initial implementation attempt was removed at the owner's
 instruction; no compiler or test changes are retained. Any experimental success
 is not acceptance evidence for a future implementation.
+
+2026-10-03 review: bug-797 landed after this plan was written and made
+`src/ir/verify/trap_init.rs` a consumer of `inline_builtin_is_infallible`. Added it
+to the audit, the design and a verifier test, and recorded the intended
+`TYPE_TRAP_LOCAL_UNINITIALIZED` source-compatibility change. Replaced the
+session-specific authorization text with a reusable go-ahead condition.

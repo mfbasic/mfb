@@ -392,6 +392,7 @@ impl CodeBuilder<'_> {
             list_type,
             element_type,
             owned,
+            None,
         )?;
         self.emit(abi::branch(&advance));
         self.emit(abi::label(&append));

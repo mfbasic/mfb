@@ -943,6 +943,7 @@ pub(crate) fn lower_function(
         loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
         cleanup_scope_starts: Vec::new(),
+        scope_token_slot: None,
         pending_result_slots: None,
         escaping_value_slot: None,
         error_return_pads: HashMap::new(),
@@ -1004,6 +1005,19 @@ pub(crate) fn lower_function(
         string_app_resource_base_env: None,
         module_name: module_name.to_string(),
     };
+    // bug-789: a function that can recurse checks the stack at entry, before its
+    // parameters are spilled: the check's two temporaries then never share a
+    // register with a parameter it would have to reload. The raise is a cold block
+    // after the body.
+    let stack_overflow =
+        if crate::codegen::runtime::stack_limit::function_needs_stack_check(function) {
+            let label = builder.label("stack_overflow");
+            let start = builder.instructions.len();
+            builder.emit_stack_check(&label);
+            Some((label, start..builder.instructions.len()))
+        } else {
+            None
+        };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
         builder.locals.insert(
@@ -1202,6 +1216,23 @@ pub(crate) fn lower_function(
         builder.lower_ops(&function.body)?;
         if !builder.current_block_returns() {
             builder.emit_return_exit(None, None)?;
+        }
+        if let Some((label, check)) = stack_overflow {
+            // A body that lowered to no call at all (its NIR calls were inlined
+            // builtins) cannot recurse: drop the check, which would otherwise cost
+            // a leaf its leaf frame through the cold block's call.
+            let calls = builder.instructions[check.end..].iter().any(|instruction| {
+                matches!(
+                    instruction.op,
+                    crate::arch::ops::CodeOp::BranchLink
+                        | crate::arch::ops::CodeOp::BranchLinkRegister
+                )
+            });
+            if calls {
+                builder.emit_stack_overflow_block(&label)?;
+            } else {
+                builder.instructions.drain(check);
+            }
         }
     }
     // Fuse single-use `a*b ± c` float chains into one single-rounded fused op
@@ -1527,6 +1558,7 @@ pub(crate) fn lower_abi_function_helper(
         loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
         cleanup_scope_starts: Vec::new(),
+        scope_token_slot: None,
         pending_result_slots: None,
         escaping_value_slot: None,
         error_return_pads: HashMap::new(),
@@ -1718,6 +1750,7 @@ pub(crate) fn lower_thread_copy_function(
         loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
         cleanup_scope_starts: Vec::new(),
+        scope_token_slot: None,
         pending_result_slots: None,
         escaping_value_slot: None,
         error_return_pads: HashMap::new(),

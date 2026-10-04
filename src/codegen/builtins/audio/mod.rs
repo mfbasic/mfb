@@ -435,7 +435,7 @@ pub(crate) fn register(r: &mut Registry) {
         // A capture stream is driven from its owning thread (blocking read / OS
         // callback ring); not thread-sendable in v1 (plan-33-A §4).
         sendable: false,
-        // Audio records DO carry live tail state (backend handles at 32/40/48),
+        // Audio records DO carry live tail state (backend handles in the tail at `RESOURCE_TAIL_START`+),
         // but bug-464 deliberately left these unaudited and out of scope: an
         // audio handle's backend callbacks are bound to a device thread, which
         // is a separate question from whether the record copies. Declaring the

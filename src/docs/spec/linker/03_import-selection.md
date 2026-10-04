@@ -33,9 +33,11 @@ fields (`library`, `symbol`, `required_by`) already match an existing entry. The
 same symbol required by two different functions is kept twice at this layer;
 library dependencies are deduplicated separately by the container writer.
 Code lowering copies the import records without `required_by`, and the shared
-encoder preserves that list. ELF and Mach-O allocate slots per encoded import
-record; Windows groups records by DLL when building its IAT, preserving
-repeated symbol records within each DLL.
+encoder then keeps the first record of each `(library, symbol)` pair, in order, so
+the `EncodedImage` lists every import once (bug-802; before, `nm -u` showed
+`___error` three times when three helpers needed it). ELF and Mach-O allocate one
+stub and GOT slot per encoded import; Windows groups the records by DLL when
+building its IAT. The `.ncode` plan dump still lists the per-helper records.
 [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 [[src/arch/encode_plan.rs:encode_plan]]
 [[src/os/linux/link/elf.rs:build]] [[src/os/macos/link/mod.rs:append_import_stubs]]

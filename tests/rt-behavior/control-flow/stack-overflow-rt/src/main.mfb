@@ -1,0 +1,67 @@
+' bug-789: unbounded recursion raises ErrStackOverflow (77010002) at the entry of
+' the function that would have run past the thread's stack limit, instead of dying
+' by SIGSEGV on the stack guard. It is an ordinary failure: a TRAP catches it, the
+' program keeps running, and shallow recursion still returns its value. Covered:
+' direct, mutual, through a function value, and on a worker thread.
+IMPORT io
+IMPORT thread
+
+FUNC recur(n AS Integer) AS Integer
+  IF n = 0 THEN
+    RETURN 0
+  END IF
+  RETURN recur(n - 1) + 1
+END FUNC
+
+FUNC ping(n AS Integer) AS Integer
+  IF n = 0 THEN
+    RETURN 0
+  END IF
+  RETURN pong(n - 1) + 1
+END FUNC
+
+FUNC pong(n AS Integer) AS Integer
+  IF n = 0 THEN
+    RETURN 0
+  END IF
+  RETURN ping(n - 1) + 1
+END FUNC
+
+FUNC apply(f AS FUNC(Integer) AS Integer, n AS Integer) AS Integer
+  RETURN f(n)
+END FUNC
+
+FUNC down(n AS Integer) AS Integer
+  IF n = 0 THEN
+    RETURN 0
+  END IF
+  RETURN apply(down, n - 1) + 1
+END FUNC
+
+ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, n AS Integer) AS Integer
+  LET r = recur(n) TRAP(e)
+    RECOVER e.code
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC main() AS Integer
+  FOR attempt = 1 TO 2
+    LET r = recur(100000000) TRAP(e)
+      io::print("direct " & toString(e.code))
+      RECOVER -1
+    END TRAP
+  NEXT
+  LET m = ping(100000000) TRAP(e)
+    io::print("mutual " & toString(e.code))
+    RECOVER -1
+  END TRAP
+  LET c = down(100000000) TRAP(e)
+    io::print("function value " & toString(e.code))
+    RECOVER -1
+  END TRAP
+  RES t AS Thread OF Nothing TO Integer = thread::start(worker, 100000000)
+  io::print("worker " & toString(thread::waitFor(t)))
+  io::print("shallow " & toString(recur(10000)))
+  RETURN 0
+END FUNC

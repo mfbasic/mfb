@@ -74,6 +74,10 @@ impl LinuxArch for X86_64 {
         "libc.musl-x86_64.so.1"
     }
 
+    fn sys_prlimit64(&self) -> &'static str {
+        "302"
+    }
+
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend {
         &crate::arch::x86_64::backend::X86_64_BACKEND
     }

@@ -1,0 +1,26 @@
+{
+  "name": "weather",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "mode": "app",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "src": "resources/weather/*.bin",
+      "dst": "weather/"
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

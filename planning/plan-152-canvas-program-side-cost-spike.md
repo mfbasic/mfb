@@ -48,7 +48,7 @@ FUNC bulk(shift) AS List OF canvas::DrawItem
   items = collections::append(items, it)
 ```
 
-Then the real one: `examples/wind` `frameScene`. It does these every frame:
+Then the real one: `examples/weather` `frameScene`. It does these every frame:
 
 - `mapItems`: rebuilds ~coast polygons from `List OF Ring` for the current view.
 - `trailItems`: one `canvas::Line` per particle segment, with a `canvas::stroke` paint
@@ -85,7 +85,7 @@ loops of 10,000, 3 repetitions, and take the median.
       The question for each allocation: which source construct emits it, and does the value need it?
 - [ ] **A3 Profile.** Run `sample` (or Instruments Time Profiler) against the release worker thread of the full stress program. Attribute self time to: the arena alloc/free paths, memcpy, the list grow arm, trig, and user code. Cross-check against A1's ladder; if they disagree by >20%, find out why before continuing.
 - [ ] **A4 Floor.** Write the same loop in C (`/tmp`, `clang -O2`) with the same data layout: a malloc'd 4-point array per item, and an array of 10k tagged items. Also write it with one arena bump per item. This gives the floor for a value-semantics program that allocates per item. Distance from that floor is (a) or (b); the floor itself is (c).
-- [ ] **A5 wind.** The same split for `examples/wind`'s `frameScene`. Time `mapItems`, `trailItems`, the merge loop, and the simulation step separately, per frame, in release, and count items of each kind. This is what decides whether G3 (wind at 60 fps) is a codegen problem or a program-structure problem.
+- [ ] **A5 wind.** The same split for `examples/weather`'s `frameScene`. Time `mapItems`, `trailItems`, the merge loop, and the simulation step separately, per frame, in release, and count items of each kind. This is what decides whether G3 (wind at 60 fps) is a codegen problem or a program-structure problem.
 
 Deliverable: the table below, filled in, with the command behind each number.
 
@@ -97,7 +97,7 @@ Deliverable: the table below, filled in, with the command behind each number.
 For each (a)/(b) item Phase A finds, prototype the smallest change that removes it, and re-run A1. Candidates to confirm or kill, each a hypothesis until measured:
 
 - [ ] **B1 Moves into constructors and `append`.** Does `canvas::Polygon[points := ring(...)]` copy the returned list, even though a call result has no other owner? Does `items = append(items, it)` deep-copy `it`, even though `it` is dead after the line? plan-134-C's last-read analysis moves on bind/assign/return; check whether it covers constructor fields (`lower_value_stored`) and the in-place append item operand (`.ai/collections.md` "An accumulator threaded through a helper"). If it doesn't, the fix belongs in the compiler and changes no semantics. That is bin (a).
-      **Measured lead (examples/wind coastline load, release, 2026-09-24).**
+      **Measured lead (examples/weather coastline load, release, 2026-09-24).**
       - Building `List OF Ring`, where `TYPE Ring` = `points AS List OF Plane`,
         `levels AS List OF Integer` and `bounds AS Box`: 6,836 rings, 434,309 points
         total (63 per ring on average), took **3.1 s**, and **~3.0 s** of that was

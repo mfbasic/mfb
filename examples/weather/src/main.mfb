@@ -1,0 +1,604 @@
+' weather - NOAA's global wind at 10 m above the ground, at 850 mb (about 1.5
+' km up) and at 250 mb (about 10 km up, the jet streams), drawn as streamlines
+' on an Equal Earth map, each height in its own colours and the higher ones
+' fainter and underneath.
+'
+' The program downloads the latest GFS analysis from NOAA NOMADS, decodes the
+' GRIB2 it arrives in, and animates a few thousand massless tracers through the
+' field. Once that is on screen, a worker thread fetches the next five days of
+' the same run's forecast, and when the last of it is in, the forecast plays:
+' the wind under the tracers changes hour by hour along a tracker at the bottom
+' of the window. A button swaps the tracers for a colour wash of the temperature
+' or of the precipitation, which plays along with the forecast the same way.
+' Nothing is bundled but the land-and-lake map resource.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/weather
+'   open examples/weather/build/weather.app          (macOS)
+'   ./examples/weather/build/weather.AppImage        (Linux)
+'
+' Controls:
+'   q e            zoom in, zoom out
+'   a d            spin the world west, east (it wraps all the way round)
+'   w s            pan up, down
+'   W S (shift)    tilt the world north, south, as far as a pole in the middle
+'   arrow keys     the same as w a s d
+'   f              fullscreen on or off
+'   r              back to the whole world
+'   h              hide or show the captions
+'   space          play or stop the forecast
+'   1 2 3          the wind at the ground, at 1.5 km, at 10 km on or off
+'   esc            quit
+'
+' The mouse works the buttons and the tracker: click the round button at the top
+' right to go from the wind to the temperature to the precipitation and back,
+' click the one by the tracker to play or stop, and click or drag along the
+' tracker to go to a moment of the forecast.
+'
+' The program is in eleven files:
+'   grib.mfb      GRIB2: messages, sections, and the two packings NCEP writes
+'   fetch.mfb     which GFS cycle to ask NOMADS for, and the on-disk cache
+'   forecast.mfb  the worker thread that fetches the five-day forecast
+'   earth.mfb     the Equal Earth projection, and the window onto it
+'   land.mfb      the land-and-lake resource, and the map underlay
+'   flow.mfb      sampling the field, and the swarm of tracers over it
+'   raster.mfb    the weather layers, and the animated image they are drawn in
+'   temperature.mfb  the temperature layer's colours
+'   precipitation.mfb  the precipitation layer's colours, and its key
+'   timeline.mfb  the play/stop button and the tracker
+'   main.mfb      the font, the keys, the mouse, and the frame loop
+'
+' The first run downloads about 1.7 megabytes and takes a moment to decode
+' before the map appears, then about 75 megabytes more in the
+' background for the forecast; later runs of the same GFS cycle read the cached
+' files instead.
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT strings
+IMPORT thread
+
+' ---------------------------------------------------------------------------
+' The font
+' ---------------------------------------------------------------------------
+
+' The first of these fonts that is installed, or "" when none is. They are the
+' everyday sans-serif faces of macOS, Windows and the common Linux desktops. The
+' captions are the only text in the program, so a missing font is fatal but
+' cheap to diagnose.
+LET PREFERRED_FONTS AS List OF String = ["Arial", "Helvetica", "Verdana", "Segoe UI", "DejaVu Sans", "Liberation Sans", "Noto Sans", "Geneva"]
+
+FUNC systemFontName AS String
+  LET installed AS List OF String = canvas::listSystemFonts()
+  FOR EACH name IN PREFERRED_FONTS
+    IF collections::contains(installed, name) THEN RETURN name
+  NEXT
+  RETURN ""
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Input
+' ---------------------------------------------------------------------------
+
+' The next key press within `ms` milliseconds, with the arrow keys and Esc named
+' ("UP", "DOWN", "LEFT", "RIGHT", "ESC"), any other key that types text as that
+' text, and any other key as "OTHER". "" when no key was pressed in time (a
+' key's release is not a press), and "EOF" once the window has closed. Only the
+' two conditions a keyboard can actually produce are answered here — the wait
+' running out and the end of input; anything else is a real failure and goes on
+' up.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN "EOF"
+    PROPAGATE
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  MATCH k.key
+    CASE io::KeyName.Up : RETURN "UP"
+    CASE io::KeyName.Down : RETURN "DOWN"
+    CASE io::KeyName.Left : RETURN "LEFT"
+    CASE io::KeyName.Right : RETURN "RIGHT"
+    CASE io::KeyName.Escape : RETURN "ESC"
+    CASE io::KeyName.Unicode : RETURN k.grapheme
+    CASE ELSE : RETURN "OTHER"
+  END MATCH
+END FUNC
+
+' Hold the window open until the reader has had a chance to read something off
+' it. Used only for the failure screen, where returning would close the window
+' before the message could be read.
+FUNC waitForKey AS Nothing
+  DO WHILE TRUE
+    IF nextKey(200) <> "" THEN RETURN
+  LOOP
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Commands
+' ---------------------------------------------------------------------------
+
+TYPE Pan
+  dx AS Float          ' fractions of the window
+  dy AS Float
+END TYPE
+
+TYPE Zoom
+  factor AS Float
+END TYPE
+
+TYPE Spin
+  fraction AS Float    ' of the window, east positive
+END TYPE
+
+TYPE Tilt
+  fraction AS Float    ' of the window, north positive
+END TYPE
+
+TYPE Reset
+END TYPE
+
+TYPE ToggleCaptions
+END TYPE
+
+TYPE ToggleFullscreen
+END TYPE
+
+TYPE TogglePlay
+END TYPE
+
+TYPE ToggleHeight
+  height AS Height
+END TYPE
+
+TYPE Quit
+END TYPE
+
+TYPE Ignore
+END TYPE
+
+UNION Command
+  Pan
+  Spin
+  Tilt
+  Zoom
+  Reset
+  ToggleCaptions
+  ToggleFullscreen
+  TogglePlay
+  ToggleHeight
+  Quit
+  Ignore
+END UNION
+
+' How far one press pans or spins, as a fraction of the window.
+LET PAN_STEP AS Float = 0.09
+
+' What one press of the zoom keys multiplies the scale by.
+LET ZOOM_STEP AS Float = 1.18
+
+FUNC commandFor(key AS String) AS Command
+  MATCH key
+    CASE "w", "UP" : RETURN Pan[dx := 0.0, dy := PAN_STEP]
+    CASE "s", "DOWN" : RETURN Pan[dx := 0.0, dy := -PAN_STEP]
+    CASE "W" : RETURN Tilt[fraction := PAN_STEP]
+    CASE "S" : RETURN Tilt[fraction := -PAN_STEP]
+    CASE "a", "A", "LEFT" : RETURN Spin[fraction := -PAN_STEP]
+    CASE "d", "D", "RIGHT" : RETURN Spin[fraction := PAN_STEP]
+    CASE "q", "Q" : RETURN Zoom[factor := ZOOM_STEP]
+    CASE "e", "E" : RETURN Zoom[factor := 1.0 / ZOOM_STEP]
+    CASE "r", "R" : RETURN Reset[]
+    CASE "h", "H" : RETURN ToggleCaptions[]
+    CASE "f", "F" : RETURN ToggleFullscreen[]
+    CASE " " : RETURN TogglePlay[]
+    CASE "1" : RETURN ToggleHeight[height := Height.Surface]
+    CASE "2" : RETURN ToggleHeight[height := Height.Mid]
+    CASE "3" : RETURN ToggleHeight[height := Height.Jet]
+    CASE "ESC", "EOF" : RETURN Quit[]
+    CASE ELSE : RETURN Ignore[]
+  END MATCH
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The captions
+' ---------------------------------------------------------------------------
+
+LET CAPTION_COLOR AS color::Color = color::rgb(198, 214, 226)
+
+LET HINT_COLOR AS color::Color = color::rgb(120, 140, 158)
+
+' A caption size that holds still at any window size, within readable bounds.
+FUNC captionSize(v AS View) AS Float
+  RETURN math::clamp(v.height * 0.022, 12.0, 20.0)
+END FUNC
+
+FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, tint AS color::Color, text AS String) AS canvas::DrawItem
+  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(tint)]
+END FUNC
+
+' A full-window message on the void colour - the loading screen, and the one
+' that says why there is nothing to show.
+FUNC noticeScene(size AS canvas::Size, face AS canvas::Font, headline AS String, detail AS String) AS List OF canvas::DrawItem
+  LET width AS Float = toFloat(size.width)
+  LET height AS Float = toFloat(size.height)
+  LET big AS Float = math::clamp(height * 0.030, 14.0, 24.0)
+  LET small AS Float = big * 0.75
+
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(VOID_COLOR)]]
+
+  LET headlineWidth AS Float = canvas::measureText(face, big, headline).width
+  items = collections::append(items, textItem(face, (width - headlineWidth) / 2.0, height / 2.0, big, CAPTION_COLOR, headline))
+
+  IF detail <> "" THEN
+    LET detailWidth AS Float = canvas::measureText(face, small, detail).width
+    items = collections::append(items, textItem(face, (width - detailWidth) / 2.0, height / 2.0 + big * 1.8, small, HINT_COLOR, detail))
+  END IF
+
+  RETURN items
+END FUNC
+
+' How far in the view is, written the way a map says it.
+FUNC zoomCaption(v AS View, size AS canvas::Size) AS String
+  LET times AS Float = v.scale / fitScale(size)
+  RETURN "zoom " & toString(times, toByte(1)) & "x"
+END FUNC
+
+' The mode switch at the top right. Its icon names the active layer: three wind
+' streaks for wind, a thermometer for temperature, or a raindrop for
+' precipitation.
+TYPE ModeButton
+  x AS Float
+  y AS Float
+  radius AS Float
+END TYPE
+
+FUNC modeButtonFor(v AS View) AS ModeButton
+  LET radius AS Float = captionSize(v) * 1.15
+  LET margin AS Float = captionSize(v) * 1.2
+  RETURN ModeButton[x := v.width - margin - radius, y := margin + radius, radius := radius]
+END FUNC
+
+FUNC onModeButton(button AS ModeButton, at AS canvas::Point) AS Boolean
+  LET dx AS Float = at.x - button.x
+  LET dy AS Float = at.y - button.y
+  LET reach AS Float = button.radius * 1.25
+  RETURN dx * dx + dy * dy <= reach * reach
+END FUNC
+
+FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::DrawItem
+  LET cx AS Float = button.x
+  LET cy AS Float = button.y
+  LET r AS Float = button.radius
+  MUT items AS List OF canvas::DrawItem = [canvas::Circle[x := cx, y := cy, radius := r, paint := canvas::fillStroke(color::rgba(12, 28, 42, 150), color::rgba(255, 255, 255, 100), 1.2)]]
+
+  IF layer = Layer.Precipitation THEN
+    ' A disc with a point on top, the two sides of the point running into the
+    ' disc along its tangents so the outline has no corner.
+    LET drop AS color::Color = color::rgb(96, 158, 250)
+    LET body AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.18, radius := r * 0.34, paint := canvas::fill(drop)]
+    LET tip AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := cx, y := cy - r * 0.58], canvas::Point[x := cx + r * 0.304, y := cy + r * 0.028], canvas::Point[x := cx - r * 0.304, y := cy + r * 0.028]], paint := canvas::fill(drop)]
+    items = collections::append(items, [body, tip])
+  ELSEIF layer = Layer.Temperature THEN
+    LET stemWidth AS Float = r * 0.26
+    LET stemHeight AS Float = r * 0.92
+    LET stem AS canvas::DrawItem = canvas::RoundedRect[x := cx - stemWidth / 2.0, y := cy - r * 0.62, w := stemWidth, h := stemHeight, cornerRadius := stemWidth / 2.0, paint := canvas::fill(color::rgb(230, 238, 244))]
+    LET mercury AS canvas::DrawItem = canvas::RoundedRect[x := cx - stemWidth * 0.18, y := cy - r * 0.32, w := stemWidth * 0.36, h := r * 0.66, cornerRadius := stemWidth * 0.18, paint := canvas::fill(color::rgb(235, 65, 45))]
+    LET bulb AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.38, radius := r * 0.28, paint := canvas::fill(color::rgb(235, 65, 45))]
+    items = collections::append(items, [stem, mercury, bulb])
+  ELSE
+    LET tint AS color::Color = color::rgb(225, 238, 246)
+    LET north AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy - r * 0.34, x2 := cx + r * 0.42, y2 := cy - r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    LET middle AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.38, y1 := cy, x2 := cx + r * 0.58, y2 := cy, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    LET south AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy + r * 0.34, x2 := cx + r * 0.25, y2 := cy + r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    items = collections::append(items, [north, middle, south])
+  END IF
+
+  RETURN items
+END FUNC
+
+' One frame: the map, the selected weather layer, and the controls over it.
+FUNC frameScene(world AS Ring, v AS View, rasterItems AS List OF canvas::DrawItem, layer AS Layer, face AS canvas::Font, size AS canvas::Size, captions AS Boolean) AS List OF canvas::DrawItem
+  MUT items AS List OF canvas::DrawItem = mapItems(world, v)
+
+  IF layer = Layer.Wind THEN
+    FOR EACH item IN trailItems(v)
+      items = collections::append(items, item)
+    NEXT
+  ELSE
+    FOR EACH item IN rasterItems
+      items = collections::append(items, item)
+    NEXT
+  END IF
+
+  IF captions THEN
+    LET size1 AS Float = captionSize(v)
+    LET margin AS Float = size1 * 1.2
+    LET zoomText AS String = zoomCaption(v, size)
+    LET zoomWidth AS Float = canvas::measureText(face, size1, zoomText).width
+    items = collections::append(items, textItem(face, v.width - margin - zoomWidth, v.height - margin, size1, CAPTION_COLOR, zoomText))
+    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  W S tilt  \u{00B7}  space play/stop  \u{00B7}  1 2 3 wind heights  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
+    ' Fit the hint into the space left by the right-aligned zoom caption.
+    LET hintWidth AS Float = canvas::measureText(face, size1 * 0.85, hint).width
+    LET hintSize AS Float = size1 * 0.85 * math::min(1.0, math::max(1.0, v.width - margin * 3.0 - zoomWidth) / hintWidth)
+    items = collections::append(items, textItem(face, margin, v.height - margin, hintSize, HINT_COLOR, hint))
+  END IF
+
+  LET button AS ModeButton = modeButtonFor(v)
+  FOR EACH item IN modeButtonItems(button, layer)
+    items = collections::append(items, item)
+  NEXT
+
+  ' Every layer's key shares the top-left panel position and follows captions.
+  IF captions THEN
+    LET keyLeft AS Float = 10.0
+    LET keyTop AS Float = 10.0
+    MUT keyItems AS List OF canvas::DrawItem = []
+    IF layer = Layer.Temperature THEN
+      keyItems = temperatureKey(face, captionSize(v), keyLeft, keyTop)
+    ELSEIF layer = Layer.Precipitation THEN
+      keyItems = precipitationKey(face, captionSize(v), keyLeft, keyTop)
+    ELSE
+      keyItems = windKey(face, captionSize(v), keyLeft, keyTop)
+    END IF
+    items = collections::append(items, keyItems)
+  END IF
+
+  RETURN items
+END FUNC
+
+' How strongly each colour-wash layer is drawn over the map. Temperature covers
+' every pixel of the world, so it is kept faint enough for the land to read
+' through it; precipitation covers only where it is falling, and fades itself
+' in, so it is drawn nearly solid.
+FUNC rasterOpacity(layer AS Layer) AS Integer
+  IF layer = Layer.Precipitation THEN RETURN 230
+  RETURN 135
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The frame loop
+' ---------------------------------------------------------------------------
+
+' The loop is paced by the display. canvas::present installs a scene and returns at
+' once, so on its own the loop would spin as fast as the machine allows - burning a
+' core to compute frames nobody sees. canvas::waitFrame ends each pass: it returns
+' once the frame just presented has been picked up for drawing and one display
+' refresh has passed, so the loop runs at the monitor's rate and the next scene is
+' built while the last one draws. canvas::getFrameStats().dt is the time since the
+' previous present, which is the step the simulation advances by.
+
+' The longest step the simulation will take at once. Without it, a window
+' dragged to another desktop or a machine that went to sleep comes back with a
+' multi-second dt and every tracer teleports across an ocean.
+LET MAX_STEP_SECONDS AS Float = 0.05
+
+' ---------------------------------------------------------------------------
+' The forecast
+' ---------------------------------------------------------------------------
+'
+' The forecast hours are kept in a list in the order they arrived, which is the
+' order of the hours: index k is hour k * FORECAST_STEP_HOURS, and index 0 is
+' the analysis the program opened on. The frame loop draws through the two
+' either side of the moment shown, and keeps those two in their own bindings,
+' because reading a Winds out of the list copies the whole of both its fields -
+' fine once every few hundred frames, when the moment crosses into the next
+' pair, but not on every frame.
+
+MUT forecastFrames AS List OF Winds = []
+MUT earlierIndex AS Integer = -1
+MUT laterIndex AS Integer = -1
+MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), east850 := emptyField(), north850 := emptyField(), east250 := emptyField(), north250 := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
+MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), east850 := emptyField(), north850 := emptyField(), east250 := emptyField(), north250 := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
+
+FUNC emptyField AS Field
+  RETURN Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, interval := FALSE, values := []]
+END FUNC
+
+' Point earlierWinds and laterWinds at the pair either side of `hours`, and say
+' how far between them it falls.
+FUNC windsFor(hours AS Float) AS Float
+  LET last AS Integer = len(forecastFrames) - 1
+  LET spacing AS Float = toFloat(FORECAST_STEP_HOURS)
+  LET earlier AS Integer = math::clamp(math::floor(hours / spacing), 0, last)
+  LET later AS Integer = math::min(earlier + 1, last)
+
+  IF earlier <> earlierIndex THEN
+    earlierWinds = collections::get(forecastFrames, earlier)
+    earlierIndex = earlier
+  END IF
+  IF later <> laterIndex THEN
+    laterWinds = collections::get(forecastFrames, later)
+    laterIndex = later
+  END IF
+
+  IF later = earlier THEN RETURN 0.0
+  RETURN math::clamp((hours - toFloat(earlier) * spacing) / spacing, 0.0, 1.0)
+END FUNC
+
+' What the tracker says while the forecast is arriving.
+FUNC fetchedStatus AS String
+  RETURN "fetching the forecast  " & toString(len(forecastFrames) - 1) & " of " & toString(forecastSteps())
+END FUNC
+
+' Take one piece of news from the worker: a forecast hour to add to the end of
+' the list, or word of one it is waiting for.
+FUNC withNews(news AS ForecastNews, p AS Playback) AS Playback
+  MATCH news
+    CASE ForecastFrame(f)
+      forecastFrames = collections::append(forecastFrames, f.winds)
+      RETURN WITH p { loadedHours := toFloat(f.hour), status := fetchedStatus() }
+    CASE ForecastWait(w)
+      RETURN WITH p { status := w.reason & " - asking again shortly" }
+  END MATCH
+END FUNC
+
+' Take every piece of news the worker has sent so far. The worker is lent to
+' this function: it reads the queue, and the caller still holds the thread.
+FUNC drainNews(worker AS Thread OF ForecastNews TO Integer, p AS Playback) AS Playback
+  MUT q AS Playback = p
+  DO WHILE thread::poll(worker, 0)
+    q = withNews(thread::receive(worker, 0), q)
+  LOOP
+  RETURN q
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Main
+' ---------------------------------------------------------------------------
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Weather")
+
+  LET fontName AS String = systemFontName()
+  IF fontName = "" THEN
+    io::printError("weather: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
+    RETURN 1
+  END IF
+  RES face AS canvas::Font = canvas::loadSystemFont(fontName)
+
+  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS weather from NOAA NOMADS", "about 1.7 megabytes of GRIB2, then a moment to unpack it"))
+
+  LET analysis AS Analysis = loadAnalysis() TRAP(e)
+    canvas::present(noticeScene(canvas::getSize(), face, "No forecast to draw", e.message))
+    waitForKey()
+    RETURN 1
+  END TRAP
+  LET run AS Cycle = analysis.cycle
+  app::setTitle("Weather \u{00B7} " & analysis.winds.label)
+
+  ' The analysis is on screen from here on; the rest of the run arrives behind
+  ' it. Dropping the handle on the way out - quitting before the fetch is done -
+  ' cancels the worker.
+  forecastFrames = [analysis.winds]
+  RES worker AS Thread OF ForecastNews TO Integer = thread::start(fetchForecast, run)
+  MUT fetching AS Boolean = TRUE
+  MUT playback AS Playback = Playback[startSeconds := run.seconds, totalHours := toFloat(FORECAST_HOURS), loadedHours := 0.0, hours := 0.0, playing := FALSE, status := fetchedStatus()]
+  LET days AS List OF DayMark = dayMarks(playback)
+
+  LET world AS Ring = worldOutline()
+  loadCoastline()
+
+  MUT size AS canvas::Size = canvas::getSize()
+  MUT view AS View = wholeWorld(size)
+  MUT captions AS Boolean = TRUE
+  MUT layer AS Layer = Layer.Wind
+  MUT running AS Boolean = TRUE
+  MUT scrubbing AS Boolean = FALSE
+  seedSwarm(view)
+  LET initialMix AS Float = windsFor(0.0)
+  RES layerImage AS canvas::Image = canvas::createImage(RASTER_WIDTH, RASTER_HEIGHT, rasterPixels(Layer.Temperature, earlierWinds, laterWinds, initialMix, view))
+  canvas::enableMouse(TRUE)
+
+  DO WHILE running
+    IF canvas::didResize() THEN
+      size = canvas::getSize()
+      view = resized(view, size)
+      ' The swarm is sized for the window, so a resize that wants a different
+      ' number of tracers rebuilds it. Reseeding throws away every trail, which
+      ' is why it is only done when the count actually changes rather than on
+      ' every pixel of a drag.
+      IF particleCount() <> countFor(view) THEN seedSwarm(view)
+    END IF
+
+    ' The worker's news. Whether it has finished is asked before its queue is
+    ' drained, not after: a worker that sends its last hour and ends between
+    ' the two would otherwise be collected with that hour still unread.
+    IF fetching THEN
+      LET finished AS Boolean = NOT thread::isRunning(worker)
+      playback = drainNews(worker, playback)
+      IF finished THEN
+        fetching = FALSE
+        MUT problem AS String = ""
+        LET sent AS Integer = thread::waitFor(worker) TRAP(e)
+          problem = e.message
+          RECOVER 0
+        END TRAP
+        IF problem <> "" THEN
+          playback = WITH playback { status := "no forecast: " & problem }
+        ELSEIF sent < forecastSteps() THEN
+          playback = WITH playback { status := "the forecast stopped after " & toString(sent) & " of " & toString(forecastSteps()) & " hours" }
+        ELSE
+          ' All of it is in: start playing, from wherever the thumb was left.
+          playback = WITH playback { status := "", playing := TRUE }
+        END IF
+      END IF
+    END IF
+    LET ready AS Boolean = playback.loadedHours >= playback.totalHours
+    LET track AS Track = trackFor(view.width, view.height, captionSize(view))
+
+    MUT key AS String = nextKey(0)
+    DO WHILE key <> "" AND running
+      MATCH commandFor(key)
+        CASE Pan(p) : view = panned(view, p.dx, p.dy)
+        CASE Spin(t) : view = spun(view, t.fraction)
+        CASE Tilt(t) : view = tilted(view, t.fraction)
+        CASE Zoom(z) : view = zoomed(view, z.factor, size)
+        CASE Reset : view = wholeWorld(size)
+        CASE ToggleCaptions : captions = NOT captions
+          ' The window resizes as it goes in or out, and the resize is picked up
+          ' at the top of the next frame like any other.
+        CASE ToggleFullscreen : app::setFullscreen(NOT app::getFullscreen())
+        CASE TogglePlay : IF ready THEN playback = WITH playback { playing := NOT playback.playing }
+        CASE ToggleHeight(t) : toggleHeight(t.height)
+        CASE Quit : running = FALSE
+        CASE Ignore
+      END MATCH
+      key = nextKey(0)
+    LOOP
+
+    ' The mouse switches the weather layer, and works the forecast button and
+    ' tracker. A press on the tracker moves the thumb there and keeps it under
+    ' the pointer for as long as the button stays down, playing or not.
+    DO WHILE TRUE
+      LET mouse AS canvas::MouseEvent = canvas::pollMouse()
+      IF mouse.kind = canvas::MouseKind.None THEN EXIT DO
+      IF mouse.kind = canvas::MouseKind.Down AND mouse.button = canvas::MouseButton.Left THEN
+        IF onModeButton(modeButtonFor(view), mouse.position) THEN
+          layer = nextLayer(layer)
+        ELSEIF onButton(track, mouse.position) THEN
+          IF ready THEN playback = WITH playback { playing := NOT playback.playing }
+        ELSEIF onTrack(track, mouse.position) THEN
+          scrubbing = TRUE
+          playback = WITH playback { hours := hoursAt(track, playback, mouse.position.x) }
+        END IF
+      ELSEIF mouse.kind = canvas::MouseKind.Drag AND scrubbing THEN
+        playback = WITH playback { hours := hoursAt(track, playback, mouse.position.x) }
+      ELSEIF mouse.kind = canvas::MouseKind.Up THEN
+        scrubbing = FALSE
+      END IF
+    LOOP
+
+    LET elapsed AS Float = math::min(canvas::getFrameStats().dt, MAX_STEP_SECONDS)
+    LET zoom AS Float = view.scale / fitScale(size)
+
+    ' Playing runs the thumb along the line and round to the start again.
+    IF playback.playing AND NOT scrubbing THEN
+      MUT hours AS Float = playback.hours + elapsed * PLAY_HOURS_PER_SECOND
+      IF hours > playback.totalHours THEN hours = 0.0
+      playback = WITH playback { hours := hours }
+    END IF
+    LET mix AS Float = windsFor(playback.hours)
+
+    reprojectTrails(view)
+    stepSwarm(earlierWinds, laterWinds, mix, view, zoom, elapsed)
+    MUT rasterItems AS List OF canvas::DrawItem = []
+    IF layer <> Layer.Wind THEN
+      canvas::setBytes(layerImage, rasterPixels(layer, earlierWinds, laterWinds, mix, view))
+      rasterItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := canvas::fill(color::rgba(255, 255, 255, rasterOpacity(layer)))]]
+    END IF
+    MUT scene AS List OF canvas::DrawItem = frameScene(world, view, rasterItems, layer, face, size, captions)
+    FOR EACH item IN timelineItems(track, playback, days, face)
+      scene = collections::append(scene, item)
+    NEXT
+    canvas::present(scene)
+    canvas::waitFrame()
+  LOOP
+
+  RETURN 0
+END FUNC

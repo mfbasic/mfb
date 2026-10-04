@@ -148,6 +148,7 @@ pub(crate) fn lower_out(
     let compose_loop = builder.label("strings_nfc_compose_loop");
     let compose_write = builder.label("strings_nfc_compose_write");
     let compose_try = builder.label("strings_nfc_compose_try");
+    let compose_marked = builder.label("strings_nfc_compose_marked");
     let compose_try_tables = builder.label("strings_nfc_compose_try_tables");
     let compose_scan_loop = builder.label("strings_nfc_compose_scan_loop");
     let compose_found = builder.label("strings_nfc_compose_found");
@@ -434,8 +435,19 @@ pub(crate) fn lower_out(
     builder.emit_unicode_property_combining_class(&scratch13, &scratch15);
     builder.emit(abi::compare_immediate(&scratch26, "0"));
     builder.emit(abi::branch_eq(&compose_no_starter));
+    // Canonical composition blocking (UAX #15): a candidate is blocked from the
+    // starter by any intervening mark of class zero or of a class >= its own.
+    // `scratch28` is the highest class kept since the starter, and everything
+    // kept there is a non-starter. So a class-zero candidate composes only
+    // when nothing intervenes (`scratch28 = 0`), and a marked one only when its
+    // class is strictly higher (bug-795: the class-zero arm skipped the check, so
+    // `U+1100 U+0301 U+1161` composed the L+V pair across the accent).
     builder.emit(abi::compare_immediate(&scratch15, "0"));
+    builder.emit(abi::branch_ne(&compose_marked));
+    builder.emit(abi::compare_immediate(&scratch28, "0"));
     builder.emit(abi::branch_eq(&compose_try));
+    builder.emit(abi::branch(&compose_write));
+    builder.emit(abi::label(&compose_marked));
     builder.emit(abi::compare_registers(&scratch15, &scratch28));
     builder.emit(abi::branch_hi(&compose_try));
     builder.emit(abi::branch(&compose_write));

@@ -6,8 +6,10 @@ Depends on: plan-169-B
 
 The x86-64 encoder expands several single instructions into short sequences that
 need a temporary register, and it preserves that register with `push`/`pop`:
-`mul` for overflow checks (`push rax; push rdx; …; pop rdx; pop rax`), the
-ties-away float conversion, variable shifts into `rcx`, and division. Each
+the high-half multiply behind overflow checks (`umulh`/`smulh`: `push rax;
+push rdx; …; pop rdx; pop rax`), bit reversal (`rbit`), the ties-away float
+conversion (`fcvtas_x_from_d`), the packed f64↔i64 conversions (`fcvtzs_v`,
+`scvtf_v`), and variable shifts into `rcx` (`var_shift`, `var_shift_w`). Each
 `push` moves `rsp` for a few instructions. A debugger or profiler stop inside one
 of those windows, or a divide fault raised there, unwinds frame `#0` with the
 wrong `rsp` and loses the chain. In hot arithmetic (every overflow-checked
@@ -16,7 +18,7 @@ multiply) these windows are common.
 This sub-plan makes the encoder save its scratch to a **reserved slot in the
 frame** on Win64 instead, so `rsp` never moves in a body. Then it closes plan-169:
 documentation and the full suite. The outcome: on box 206, twenty consecutive
-gdb attaches to a busy program all give backtraces that end at `_main`.
+gdb attaches to a busy program all give backtraces that reach `_main`.
 
 References: plan-169-A, plan-169-B, `src/arch/x86_64/encode/emitter.rs`.
 
@@ -33,7 +35,8 @@ The prerequisites are stated in plan-169-A. In addition:
 - On Win64 no function changes `rsp` outside its prologue and epilogues: the
   census reports 0 `push` windows and 0 `sub` windows.
 - Twenty attaches on box 206 to `debug 3000 20000` (the `--debug -O0` example)
-  each give a backtrace ending at `_main`.
+  each give a backtrace that reaches `_main` with only `kernel32`/`ntdll` frames
+  past it and no `??` (plan-169-A §1: `_main` is not the outermost frame).
 - The full suite passes once.
 
 ### Non-goals (explicit constraints)
@@ -45,11 +48,35 @@ The prerequisites are stated in plan-169-A. In addition:
 ## 2. Current State
 
 Encoder sites that `push`/`pop`, all in `src/arch/x86_64/encode/emitter.rs`
-(`grep -n "push rax\|push rdx\|enc_push_reg\|0x50 + \|push rcx" …`): lines 451–452,
-542–545 (`push rax; push rdx` around `mul`), 951 (`fcvtas_x_from_d`), 1299 and
-1313 (`push rax; push rdx`, division forms), 2009 and 2086 (`push scratch`,
-variable shift into `rcx`), 2029 and 2104 (`push rcx`). The encoder sees one
-instruction at a time and knows nothing about the frame.
+(`grep -n "push rax\|0x50 + \|push rcx\|enc_push_reg(scratch)" src/arch/x86_64/encode/emitter.rs`
+→ 9 hits), by match arm or function:
+
+| Site | Pushes | Max qwords live |
+|---|---|---|
+| `"rbit"` arm | `rax`, `rdx` | 2 |
+| `"umulh" \| "smulh"` arm | `rax`, `rdx` (each skipped when it is `dst`) | 2 |
+| `"fcvtas_x_from_d"` arm | `rax` or `rcx` (whichever is not `dst`) | 1 |
+| `"fcvtzs_v"` arm | `rax`, `rdx` | 2 |
+| `"scvtf_v"` arm | `rax`, `rdx` | 2 |
+| `fn var_shift`, `dst == rcx` path | scratch | 1 |
+| `fn var_shift`, other path | `rcx` | 1 |
+| `fn var_shift_w`, `dst == rcx` path | scratch | 1 |
+| `fn var_shift_w`, other path | `rcx` | 1 |
+
+So a 16-byte slot covers every site. The encoder sees one instruction at a time
+and knows nothing about the frame.
+
+**Reads through `rsp` inside a window.** At least one site reads its own saved
+value back through `rsp` while the push is live: `var_shift`'s non-`rcx` path,
+when `value` is `rcx`, reloads the preserved `rcx` from `[rsp]` (`mov dst,
+[rsp]`, comment "reload the preserved copy from [rsp]"; `var_shift_w` has the
+same form). In the slot form that read must become `[rsp+slot]`. Phase 1 lists
+every `rsp`-relative read inside a push window, at every site.
+
+**Hand-built functions.** `_main` (`src/codegen/engine/function/entry.rs`), the
+app-mode functions (`src/target/win_x86_64/app/mod.rs`), and the hand-built
+trampolines (plan-169-A §2) do not pass through `finalize_frame`, so §3 step 1
+never annotates them. Any pushing op they contain would keep its `push`.
 
 ### Measured populations
 
@@ -64,6 +91,8 @@ instruction at a time and knows nothing about the frame.
 
 - UNVERIFIED: which frameless functions use a pushing instruction (they gain a
   small frame). Phase 1 measures it.
+- UNVERIFIED: which hand-built Windows functions use a pushing instruction.
+  Phase 1 measures it.
 
 ## 3. Design Overview
 
@@ -76,10 +105,20 @@ instruction at a time and knows nothing about the frame.
    `push`/`pop`. Without the field (every non-Win64 target) it encodes as today.
 3. A function that was frameless but uses such an instruction gets a minimal
    frame (it now moves `rsp` in a prologue, and A's tables describe it).
+4. A hand-built Win64 function that uses such an instruction reserves the slot
+   in its own frame and annotates the instruction itself, through the same
+   helper `finalize_frame` uses.
+5. **Guard.** On Win64, the encoder errors (naming the function) on a pushing
+   instruction with no `scratch=` field. This completes the plan-169-A/B guard:
+   after C, any body `rsp` change other than an epilogue is an error on Win64,
+   so a function nobody annotated cannot reach the image. Without it, a missed
+   hand-built function would keep its `push` and the census would be the only
+   thing to notice.
 
 **Correctness risk**: the slot must not alias a live slot (it is reserved, not
-reused) and the restore must come back to the same register; the encoder tests
-cover each of the 9 sites. Expected diffs: Windows `.ncode` of every function
+reused), the restore must come back to the same register, and every read of a
+saved value through `[rsp]` inside a window (§2) must be redirected to the slot;
+the encoder tests cover each of the 9 sites. Expected diffs: Windows `.ncode` of every function
 using a pushing instruction (most functions with an overflow-checked multiply).
 
 ## Phases
@@ -95,6 +134,10 @@ using a pushing instruction (most functions with an overflow-checked multiply).
       site's match arm); put the list beside the encoder as a function
       (`needs_scratch_slot(op)`).
 - [ ] Measure which frameless Windows functions use one; record the count.
+- [ ] Measure which hand-built Windows functions use one; record each with its
+      source site.
+- [ ] List every `rsp`-relative access inside a push window, per site (the
+      `var_shift`/`var_shift_w` `[rsp]` reload is one); record it here.
 
 Acceptance: the list covers every site.
   Check: a test that encodes each listed op without a slot on Win64 and finds a
@@ -104,9 +147,15 @@ Commit: —
 ### Phase 2: Slots
 
 - [ ] `vreg_frame.rs`: reserve the slot and annotate (Win64).
-- [ ] `emitter.rs`: the 9 sites use the slot when annotated.
+- [ ] `emitter.rs`: the 9 sites use the slot when annotated, including every
+      in-window `rsp`-relative access from Phase 1.
+- [ ] The hand-built functions from Phase 1 reserve and annotate their slot.
+- [ ] `emitter.rs`: on Win64, a pushing instruction without `scratch=` is an
+      error naming the function (§3 step 5).
 - [ ] Tests: each site's slot form decodes to the same arithmetic (encoder tests
-      comparing results on sample operands via the existing x86 test harness).
+      comparing results on sample operands via the existing x86 test harness),
+      including `var_shift`/`var_shift_w` with `value == rcx` (the `[rsp]`
+      reload); and the guard fires on Win64 and not on linux-x86_64.
 
 Acceptance: no Windows `push` window remains.
   Check: `p169-windows.py` (plan-169-A Appendix) over a fresh Windows census →
@@ -116,7 +165,8 @@ Commit: —
 ### Phase 3: Proof and docs
 
 - [ ] Box 206: twenty gdb attaches to `debug 3000 20000` (`--debug -O0`), each
-      `bt` ending at `_main`. Record the count.
+      `bt` reaching `_main` with only `kernel32`/`ntdll` frames past it and no
+      `??`. Record the count.
 - [ ] Update `mfb man debug backtraces`: remove "Windows: only the innermost
       frames", show the full Windows chain, and make the Windows attach script
       print the full `bt` (not `bt 1`). Re-run
@@ -126,7 +176,8 @@ Commit: —
 - [ ] Artifact gate: diffs only in Windows `.ncodesum` goldens; one objdump per
       fixture confirms the slot form; re-pin with proof.
 
-Acceptance: 20 of 20 attaches end at `_main`.
+Acceptance: 20 of 20 attaches reach `_main` with only system-DLL frames past
+it.
   Check: the 206 loop (est. 5 min).
 Commit: —
 

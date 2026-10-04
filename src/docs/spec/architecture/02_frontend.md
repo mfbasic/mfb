@@ -113,7 +113,8 @@ The chain has two stages:
    that only another builtin's injected source uses. So each late pass sees the source the passes before
    it added:
    - `http`'s companion imports `net`, so `net` follows `http`;
-   - crypto's injected source and the strings scalar seam import `encoding`, so `encoding` follows them;
+   - crypto's injected source imports `encoding`, so `encoding` follows it (the strings scalar seam no
+     longer does: `toScalars`/`fromScalars` are lowered natively since bug-772);
    - canvas's companion imports `color`, so `color` follows the generic pass;
    - canvas's PNG decoder calls `compress::zlibDecode`, so `compress` comes last.
 

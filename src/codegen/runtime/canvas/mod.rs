@@ -1041,7 +1041,7 @@ pub(crate) const EDGE_SLOTS: usize = 5;
 /// the scene's polygon edges against this and declines the frame to software if the
 /// total does not fit, so the emitter's own bound check is unreachable.
 ///
-/// 262,144 since bug-688 (it was 16,384, which `examples/wind`'s coastline alone
+/// 262,144 since bug-688 (it was 16,384, which `examples/weather`'s coastline alone
 /// exceeds): Metal's number since bug-686, and 4 MiB of region. A large polygon no
 /// longer costs every edge per covered pixel — the band index (`VULKAN_BAND_BASE_WORDS`)
 /// has the shader walk only its own band's edges.
@@ -1066,7 +1066,7 @@ pub(crate) const VULKAN_EDGE_RESIDUAL_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16
 /// software is the oracle, so declining is never worse than drawing.
 ///
 /// 65,536 since bug-688, Metal's `METAL_MAX_FRAME_ITEMS`: 4,096 (the old shared
-/// `CANVAS_MAX_FRAME_ITEMS`) sent `examples/wind` (about 5,700 blocks), a 5,000-quad
+/// `CANVAS_MAX_FRAME_ITEMS`) sent `examples/weather` (about 5,700 blocks), a 5,000-quad
 /// scene and a terminal screen of text to software. 13 MiB of item buffer at the
 /// current `ITEM_BLOCK_SIZE`, host-visible and mapped for the renderer's life.
 pub(crate) const VULKAN_MAX_FRAME_ITEMS: usize = 65536;
@@ -1075,7 +1075,7 @@ pub(crate) const VULKAN_MAX_FRAME_ITEMS: usize = 65536;
 /// Metal twin (bug-686; the Vulkan cap was the shared `CANVAS_MAX_FRAME_ITEMS` until bug-688).
 ///
 /// 4096 quads sent ordinary scenes to software: a terminal screen of text is one quad
-/// per glyph, `examples/wind` publishes about 5,700 blocks a frame, and the 1,000-item
+/// per glyph, `examples/weather` publishes about 5,700 blocks a frame, and the 1,000-item
 /// scenes bug-686 measured were a quarter of the way there. 65,536 blocks is 13 MiB of
 /// item buffer at the current `ITEM_BLOCK_SIZE`, and every frame region after it moves
 /// with it — which is why the shader's region bases are generated from these constants
@@ -1126,7 +1126,7 @@ pub(crate) const METAL_ITEM_BUFFER_BYTES: usize = METAL_MAX_FRAME_ITEMS * ITEM_B
 /// where Vulkan has always kept them, and the cap became a frame total to match.
 ///
 /// A Metal scene whose polygon edges sum past this is declined to software. It was
-/// 16384 until bug-686, which `examples/wind`'s coastline alone exceeds; 262,144 edges
+/// 16384 until bug-686, which `examples/weather`'s coastline alone exceeds; 262,144 edges
 /// is 4 MiB of region, and a 40,000-edge frame measured within max channel delta 1 of
 /// the software oracle (bug-686 spike C). Software is the oracle, so a declined frame
 /// is at least as correct — truncating instead would draw a *different shape*.

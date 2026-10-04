@@ -2187,6 +2187,65 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Ok(())
     }
 
+    /// bug-789: Windows reports any thread's exact stack — the reserved region's
+    /// bottom and top — through `GetCurrentThreadStackLimits` (kernel32, Windows 8+),
+    /// written into the arena's limit and scratch words. A self-contained, balanced
+    /// shadow-space frame like the neighbouring entry calls.
+    fn emit_stack_limit(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _stack: crate::codegen::engine::types::ThreadStack,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::codegen::error::constants::{
+            ARENA_STACK_LIMIT_OFFSET, ARENA_STACK_LIMIT_SCRATCH_OFFSET, ARENA_STATE_REGISTER,
+        };
+        instructions.extend([
+            abi::subtract_stack(0x20),
+            abi::add_immediate(
+                abi::mfb_arg(0),
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_OFFSET,
+            ),
+            abi::add_immediate(
+                abi::mfb_arg(1),
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+            ),
+        ]);
+        call_external(
+            from,
+            "GetCurrentThreadStackLimits",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
+        instructions.extend([
+            abi::add_stack(0x20),
+            abi::load_u64(
+                abi::c_arg(0),
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_OFFSET,
+            ),
+            abi::load_u64(
+                abi::c_arg(1),
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+            ),
+            abi::subtract_registers(abi::c_arg(1), abi::c_arg(1), abi::c_arg(0)),
+        ]);
+        crate::codegen::runtime::stack_limit::emit_limit_from_bounds(
+            instructions,
+            from,
+            abi::c_arg(0),
+            abi::c_arg(1),
+            abi::c_arg(2),
+        );
+        Ok(())
+    }
+
     fn emit_console_utf8(
         &self,
         from: &str,
@@ -4076,19 +4135,20 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         stderr: bool,
         newline: bool,
         term_state_offset: Option<usize>,
-        _platform_imports: &HashMap<String, String>,
+        platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Option<Result<(), String>> {
-        app::emit_app_io_write(
+        Some(app::emit_app_io_write(
+            self,
             symbol,
             stderr,
             newline,
             term_state_offset,
+            platform_imports,
             instructions,
             relocations,
-        );
-        Some(Ok(()))
+        ))
     }
 
     fn emit_app_io_flush(

@@ -1,7 +1,7 @@
-' wind-map-probe - measures how many canvas::DrawItems examples/wind's static
+' wind-map-probe - measures how many canvas::DrawItems examples/weather's static
 ' map contributes to a single animation frame's scene.
 '
-' bug-712: `examples/wind` used to splice mapItems()'s whole result (the
+' bug-712: `examples/weather` used to splice mapItems()'s whole result (the
 ' ocean rectangle plus one item per visible coastline ring/copy - dozens of
 ' items even at a world-sized zoom) into a fresh per-frame scene list every
 ' frame, so canvas::present copied the static map's geometry on every single
@@ -28,7 +28,7 @@ FUNC main AS Integer
   LET wholeItems AS List OF canvas::DrawItem = mapItems(world, wholeView)
   io::print("whole-world frame items: " & toString(len(wholeItems)))
 
-  LET zoomedView AS View = View[scale := wholeView.scale * 10.0, cx := wholeView.cx, cy := wholeView.cy, width := wholeView.width, height := wholeView.height, lon0 := wholeView.lon0]
+  LET zoomedView AS View = WITH wholeView { scale := wholeView.scale * 10.0 }
   LET zoomedItems AS List OF canvas::DrawItem = mapItems(world, zoomedView)
   io::print("10x zoom frame items: " & toString(len(zoomedItems)))
 

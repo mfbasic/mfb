@@ -19,7 +19,9 @@ plan-169 makes a Windows backtrace walk all the way to `_main`. This sub-plan
 writes the tables for every function that has a frame, and first makes every
 prologue describable: today a frame larger than 48 KiB has a prologue too long
 for `UNWIND_INFO` to express. The outcome: on box 206, a breakpoint in any
-MFBASIC function gives a backtrace that ends at `_main`, and `llvm-objdump
+MFBASIC function gives a backtrace that reaches `_main` and continues into the
+Windows thread-start frames (`kernel32!BaseThreadInitThunk`,
+`ntdll!RtlUserThreadStart`) with no `??` frame, and `llvm-objdump
 --unwind-info` decodes an entry for every function that moves `rsp`.
 
 Sub-plans B and C remove the two remaining places where `rsp` moves outside a
@@ -49,6 +51,8 @@ References:
 | Windows box 206 answers and has w64devkit gdb | `ssh test@192.168.1.206 "C:\Users\test\w64devkit\bin\gdb.exe --version"` → `GNU gdb …` | MET (2026-10-03) |
 | The `mfb man debug` harness runs on Windows | `bash scripts/man-debug-examples.sh target/release/mfb windows` → `0 failed` | MET (2026-10-03: 8 passed, 0 failed) |
 
+| Open Decisions 1 and 2 are resolved (Phase 3 builds on both) | read §Open Decisions → each says DECIDED | NOT MET |
+
 Everything below assumes these hold. (B and C point here for prerequisites.)
 
 > **NOTE: the Status column is a snapshot; the Command column is the truth.**
@@ -63,8 +67,11 @@ Everything below assumes these hold. (B and C point here for prerequisites.)
   whose `UNWIND_INFO` exactly describes that function's prologue.
 - Every Win64 prologue fits `UNWIND_INFO`: at most 255 bytes long and at most 255
   unwind-code slots, whatever the frame size.
-- On box 206, gdb's backtrace at a breakpoint in any MFBASIC function ends at
-  `_main`.
+- On box 206, gdb's backtrace at a breakpoint in any MFBASIC function reaches
+  `_main`, and every frame past it is in a Windows system DLL (`kernel32`,
+  `ntdll`): no `??` frame anywhere. `_main` is not the outermost frame: Windows
+  calls the PE entry point from `BaseThreadInitThunk`, whose own `.pdata` lets a
+  correct unwind continue past `_main`.
 
 ### Non-goals (explicit constraints)
 
@@ -132,7 +139,7 @@ Sections: `.text`, `.rdata`, `.data`, `.idata`, `.rsrc`, `.reloc`, `.mfbnote`,
 | What | Count | Command |
 |---|---|---|
 | Windows function instances surveyed | 2645 in 26 fixtures, plus brogue 249, dungeon 555 | `p169-census.sh` (Appendix) (builds every `tests/byte-identity/*` for `--target windows-x86_64 --debug`, objdumps), then `p169-frames.py` (Appendix) |
-| Fixtures that do not build for Windows | 2 (`audio`, `link-const-pins`), neither has a Windows golden | same; `ls tests/byte-identity/{audio,link-const-pins}/golden \| grep -c windows` → 1 (audio has one) |
+| Fixtures the census failed to build for Windows | 2 (`audio`, `link-const-pins`). `audio` HAS a Windows golden (`audio_codegen_cover_rt.windows-x86_64.ncodesum`), so the artifact gate covers it although the census does not: treat `audio` as possibly affected in every predicted diff set below | same; `ls tests/byte-identity/{audio,link-const-pins}/golden \| grep -c windows` → 1 |
 | Prologues over 255 bytes | 2 in the fixtures; 2 in brogue (802 and 745 bytes, 42 and 39 probe steps) | `p169-frames.py` (Appendix) "prologue > 255 bytes" |
 | Largest frame seen | 170200 bytes (brogue `buildDungeonFeatureCatalog`) | same, "max alloc" |
 | Frameless functions (no `rsp` change in prologue) | brogue 3 of 249; dungeon 23 of 555 | same, "frameless" |
@@ -156,9 +163,12 @@ Sections: `.text`, `.rdata`, `.data`, `.idata`, `.rsrc`, `.reloc`, `.mfbnote`,
   explicitly in the body (`movq $0x0, 0x70(%rsp)` in the census). UNVERIFIED that
   no slot is ever read before being written: Phase 1 task.
 - **Which registers a prologue scratch may use.** UNVERIFIED that `r10` and `r11`
-  carry no incoming argument under MFBASIC's internal convention (`rax`, `rdi`,
-  `rsi` do: `_mfb_ifn_canvas_5FpolylineScan` reads `rax` at entry). Phase 1 task:
-  read `src/arch/x86_64/regmodel.rs` argument banks.
+  carry no incoming value at function entry (`rax`, `rdi`, `rsi` do:
+  `_mfb_ifn_canvas_5FpolylineScan` reads `rax` at entry). `regmodel.rs` cannot
+  settle it: `r10`/`r11` are allocatable and caller-saved
+  (`WIN64_INT_ALLOCATABLE`, `INT_CALLER_SAVED`), so the argument banks say
+  nothing about them. The risk is a runtime helper with a bespoke register
+  convention that receives a value in `r10`/`r11`. Phase 1 task.
 
 ## 3. Design Overview
 
@@ -176,9 +186,15 @@ Sections: `.text`, `.rdata`, `.data`, `.idata`, `.rsrc`, `.reloc`, `.mfbnote`,
    a new `EncodedImage.unwind: Vec<EncodedUnwind>`. Other encoders leave it empty.
 4. **PE emission.** `write_executable` turns the records into `UNWIND_INFO`
    blobs in `.xdata` and sorted `RUNTIME_FUNCTION`s in `.pdata`, sets data
-   directory `[3]`, and refuses an image in which a function begins with
-   `sub rsp` but has no record (the guard against a hand-built frame nobody
-   annotated).
+   directory `[3]`.
+5. **The unannotated-frame guard lives in the encoder.** On Win64, the x86-64
+   encoder rejects (error naming the function) any `rsp`-decrementing
+   instruction in a function's prologue run that carries no `unwind`
+   annotation: the guard against a hand-built frame nobody annotated. A
+   linker-side byte check ("function begins with `sub rsp`") cannot serve:
+   after Phase 1 a large frame begins with `mov r11, rsp`, and `_main` may begin
+   with other instructions. B and C widen the guard to every body `rsp` change
+   that is not an epilogue (B: windows; C: pushes).
 
 **Correctness risk** concentrates in the unwind-code encoding (reverse order,
 the ALLOC_SMALL/LARGE thresholds, slot counts, the even-count padding). A wrong
@@ -193,9 +209,10 @@ proves it by running brogue's 170 KB frame on box 206.
 
 **Byte-identity is NOT this plan's gate.** Expected to change: every Windows
 `.exe` (new sections and directory); Windows `.ncode` of every function with a
-frame larger than one page (the probe). Expected unchanged: every non-Windows
-`.ncode` and linked output, and Windows `.ncode` of functions with frames of one
-page or less. A diff outside the expected set is a bug to root-cause (objdump one
+frame larger than one page (Phase 1, the probe); Windows `.ncode` of every
+function with a prologue (Phase 2, the `unwind` field, which is serialized into
+`.ncode` like every instruction field). Expected unchanged: every non-Windows
+`.ncode` and linked output. A diff outside the expected set is a bug to root-cause (objdump one
 fixture), never a reason to abandon the design.
 
 **Rejected alternatives:**
@@ -239,7 +256,13 @@ label mechanism. Frames of one page or less keep today's single `sub`.
 ### 4.2 Annotation
 
 `CodeInstruction` gains nothing structural: the annotation is an ordinary
-instruction field `unwind` (string), so `.ncode` dumps show it. `finalize_frame`
+instruction field `unwind` (string), so `.ncode` dumps show it. Because every
+field is serialized into `.ncode`, and `finalize_frame` is shared by every
+backend, **the annotation is added only when the active backend is Win64**
+(gate it the way `push_frame_allocation` gates the probe, on the active
+backend; e.g. a backend method `emits_unwind_annotations()` that only
+`Win64Backend` answers `true`). Annotating unconditionally would change every
+non-Windows `.ncodesum`. On Win64, `finalize_frame`
 annotates the `sub rsp, total` (`alloc=<total>`) and each `save_callee_saved`
 store (`save=r12@32`, `savexmm=xmm6@48`). The probe instructions are not
 annotated (they do not move `rsp`). A hand-built frame annotates its own
@@ -257,7 +280,11 @@ pub(crate) enum UnwindOp { Alloc(u32), SaveNonvol { reg: u8, offset: u32 }, Save
 ```
 
 The encoder errors if an annotated instruction ends past byte 255 of its
-function (the prologue-size limit), naming the function.
+function (the prologue-size limit), naming the function. It also enforces the
+§3 item 5 guard: on Win64, an `rsp`-decrementing instruction in the prologue run
+without an `unwind` field is an error naming the function. The encoder needs to
+know it is encoding for Win64 for this; pass it the way the encoder learns other
+per-target facts, not by sniffing the code.
 
 ### 4.4 `UNWIND_INFO` and `.pdata`
 
@@ -298,10 +325,15 @@ Sections: `.xdata` and `.pdata`, both `INITIALIZED_DATA | READ`, placed after
 
 ### Phase 1: Constant-size probe (uncertainty first)
 
-- [ ] Verify `r10`/`r11` carry no argument at function entry under the Win64
-      MFBASIC convention: read `src/arch/x86_64/regmodel.rs` argument banks and
-      `WIN64_MODEL`; record the evidence here. If either can, pick a register
-      that cannot, and say which.
+- [ ] Verify `r10`/`r11` carry no value at function entry on Win64. The
+      register model cannot prove it (both are allocatable and caller-saved).
+      Check the callers instead: grep every runtime-helper call site and
+      hand-built call sequence for a value placed in `r10`/`r11` before the call
+      (`grep -rn '"r10"\|"r11"\|physical("r1[01]")' src --include='*.rs'`, plus
+      the helper-call lowering in `src/codegen/runtime`), and any callee
+      documented as reading them at entry. Record the evidence here. If either
+      can carry a value into a function whose frame exceeds one page, pick a
+      register that cannot, and say which.
 - [ ] Verify no frame slot is read before it is written (the probe's stored zero
       is not relied on): grep `finalize_frame` callers for zero-initialized slot
       assumptions; record the evidence.
@@ -325,17 +357,27 @@ Commit: —
 ### Phase 2: Annotations and encoder records
 
 - [ ] `src/target/shared/abi.rs`: an `unwind` field helper.
-      `vreg_frame.rs:finalize_frame`: annotate the allocation and every save.
+      `vreg_frame.rs:finalize_frame`: annotate the allocation and every save,
+      **on Win64 only** (§4.2).
 - [ ] The five hand-built Windows frames (§2) annotate their allocation and saves.
 - [ ] `src/arch/image.rs`: `EncodedUnwind`, `UnwindOp`,
       `EncodedImage.unwind`; `encode_plan.rs` sets it empty; every test
       literal gets `unwind: Vec::new()` (count them with
       `grep -rn "debug_symbols: false" src | wc -l`, the field added last time).
 - [ ] `src/arch/x86_64/encode/`: record ops per function (§4.3); error past
-      byte 255.
+      byte 255; on Win64, error on an unannotated `rsp`-decrementing prologue
+      instruction (§3 item 5).
 - [ ] Tests: encoder tests that a `finalize_frame` function yields
-      `[(7, Alloc), (15, Save r12 @32), …]` with the real byte offsets, and that a
-      frameless function yields none.
+      `[(7, Alloc), (15, Save r12 @32), …]` with the real byte offsets, that a
+      frameless function yields none, and that the unannotated-prologue guard
+      fires (a hand-built `sub rsp` with no `unwind` field, Win64), and does not
+      fire for linux-x86_64.
+- [ ] Artifact gate: `bash scripts/artifact-gate.sh target/release/mfb all` →
+      diffs only in `*.windows-x86_64.ncodesum` goldens (expected: nearly all of
+      them, from the `unwind` field; `audio` included). For one fixture, diff the
+      `.ncode` and confirm the only change is added `unwind` fields. Re-pin only
+      the Windows sums, with that proof in the commit. Any non-Windows diff is a
+      bug: the annotation leaked past the Win64 gate.
 
 Acceptance: every function of brogue that moves `rsp` in its prologue has a
 record whose ops match its disassembly.
@@ -349,12 +391,10 @@ Commit: —
 - [ ] `src/os/windows/link/pe.rs`: `ImportDirectories.exception`; data directory
       `[3]`; `UNWIND_INFO` and `RUNTIME_FUNCTION` encoders (§4.4).
 - [ ] `src/os/windows/link/mod.rs:write_executable`: build both sections from
-      `image.unwind`, place them (§4.4), refuse a `sub rsp`-starting function
-      with no record.
+      `image.unwind`, place them (§4.4).
 - [ ] Tests in `src/os/windows/link/mod.rs`: decode the emitted `.pdata`/`.xdata`
       and check sort order, extents, every slot of an ALLOC_SMALL, ALLOC_LARGE
-      (both forms), SAVE_NONVOL, SAVE_XMM128 record, even padding, and that the
-      missing-record guard fires. `src/cli/info/tests.rs` PE cases still pass.
+      (both forms), SAVE_NONVOL, SAVE_XMM128 record, and even padding. `src/cli/info/tests.rs` PE cases still pass.
 
 Acceptance: llvm's decoder agrees with the records.
   Check: `objdump --unwind-info examples/debug/build/debug.exe` (Windows build) →
@@ -365,16 +405,20 @@ Commit: —
 
 - [ ] Box 206: `gdb -batch -ex 'break _mfb_fn_isPrime' -ex run -ex bt` on the
       `--debug -O0` example → frames `isPrime`, `countPrimes`, `runRound`,
-      `runRounds`, `main`, `_main`, nothing after. Record the transcript.
+      `runRounds`, `main`, `_main`, then only `kernel32`/`ntdll` frames
+      (`BaseThreadInitThunk`, `RtlUserThreadStart`), no `??`. Record the
+      transcript.
 - [ ] Box 206: the same at a breakpoint in a runtime helper reached through a
-      hand-built frame (`_mfb_rt_thread_trampoline` via `debug 1 1000 1`).
+      hand-built frame (`_mfb_rt_thread_trampoline` via `debug 1 1000 1`): the
+      chain reaches the trampoline, then only `kernel32`/`ntdll` frames, no `??`.
 - [ ] `src/docs/spec/linker/10_windows-x86_64.md`: data directory `[3]`, the
       `.pdata`/`.xdata` sections and their order, the probe sentence (§4.1).
 
 `mfb man debug backtraces` is not changed here: its Windows caveat stays true
 for stops inside mid-body windows until C, which rewrites the page.
 
-Acceptance: the breakpoint backtrace on Windows ends at `_main`.
+Acceptance: the breakpoint backtrace on Windows reaches `_main` (or the thread
+trampoline) and continues only through system-DLL frames, with no `??`.
   Check: the 206 transcript above (est. 3 min).
 Commit: —
 

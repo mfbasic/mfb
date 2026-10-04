@@ -194,8 +194,10 @@ END FUNC
     ));
     // `ab` arrives, then nothing for longer than the timeout, then `cd\n`: a read
     // times out (how many depends on how soon the program starts), and the next
-    // returns the WHOLE line — the `ab` it had read was kept.
-    let stdout = run_with_timed_stdin(&exe, &[(0, b"ab"), (900, b"cd\nx\n")]);
+    // returns the WHOLE line — the `ab` it had read was kept. The gap must outlast
+    // the program's start-up under a loaded parallel test run (900 ms did not), and
+    // stay well inside the program's 10 x 300 ms timeout budget.
+    let stdout = run_with_timed_stdin(&exe, &[(0, b"ab"), (2000, b"cd\nx\n")]);
     let lines: Vec<&str> = stdout.lines().collect();
     let first_line = lines
         .iter()

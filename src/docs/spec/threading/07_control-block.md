@@ -1,8 +1,8 @@
 # Control Block
 
-A thread value is a **view**: a 96-byte resource record whose `HANDLE` word points
+A thread value is a **view**: a 112-byte resource record whose `HANDLE` word points
 at the thread's **control block** (see § Views). The control block is a
-`CONTROL_BLOCK_SIZE` (1056-byte) block allocated from the process heap
+`CONTROL_BLOCK_SIZE` (1072-byte) block allocated from the process heap
 (`malloc`; `HeapAlloc` on Windows), not from any thread's arena, so either side
 can free it. Everything the parent side and the worker share lives in it: one
 lock, the run state and cancel flag, the stored result, the four queues, and the
@@ -32,7 +32,7 @@ offset  field
 384     outbound queue                (data plane, worker -> parent)
 576     resource inbound queue        (resource plane, parent -> worker)
 768     resource outbound queue       (resource plane, worker -> parent)
-960     worker view                   (the ThreadWorker resource record, 96 bytes)
+960     worker view                   (the ThreadWorker resource record, 112 bytes)
 ```
 [[src/codegen/runtime/thread/control_block.rs:CONTROL_OFFSET_LOCK]]
 [[src/codegen/runtime/thread/control_block.rs:CONTROL_OFFSET_RESOURCE_OUTBOUND_QUEUE]]

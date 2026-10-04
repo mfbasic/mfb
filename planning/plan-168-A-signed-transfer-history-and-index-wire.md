@@ -142,9 +142,9 @@ Everything below assumes these hold.
 | server.rs tests using v1 messages | 4 (`ownership_transfer_is_two_sided_and_rebinds_the_package`, `transfer_and_org_endpoints_reject_malformed_and_wrong_signatures`, `publish_aborts_the_staged_blob_when_the_ident_moved_owner`, `a_transferred_package_is_governed_by_its_current_owner`) | `grep -n 'async fn' repository/src/server.rs` read around each `transfer_offer_message` hit |
 | store transfer API call sites (`create_transfer_offer(` / `accept_transfer(`) | server.rs 2, store.rs 17 | `grep -rn 'create_transfer_offer(\|accept_transfer(' repository/src src tests \| grep -v 'pub fn' \| awk -F: '{print $1}' \| sort \| uniq -c` |
 | `publish_package_version(` call sites (why the publisher rides in `PublishMetadata`, not a new parameter) | 60 (store 36, server 15, backfill 8, gc 1) | `grep -rn 'publish_package_version(' repository/src src tests \| grep -v 'pub fn' \| awk -F: '{print $1}' \| sort \| uniq -c` |
-| `IndexVersion {` struct literals | 6 (server.rs:1949, client.rs:2587, client.rs:2598 `..with_abi`, pkg.rs:2371, pkg.rs:2708, resolve.rs:1252), 5 need the new fields | `grep -n 'IndexVersion {' repository/src/*.rs src/cli/*.rs \| grep -v 'struct\|impl\|->'` |
+| `IndexVersion {` struct literals | 6 (server.rs:1949, client.rs:2587, client.rs:2598 `..with_abi`, pkg.rs:2371, pkg.rs:2708, resolve.rs:1252), 5 need the new fields (1 production in server.rs + 4 test literals; client.rs:2598 inherits through `..with_abi`) | `grep -n 'IndexVersion {' repository/src/*.rs src/cli/*.rs \| grep -v 'struct\|impl\|->'` |
 | `IndexResponse {` struct literals | 3 (server.rs:1964, pkg.rs:2384, resolve.rs:1273) | `grep -n 'IndexResponse {' repository/src/*.rs src/cli/*.rs \| grep -v struct` |
-| Legacy accepted transfers on the hosted registry | UNMEASURED (no access to the production DB) | Phase 1 first task: operator runs `sqlite3 <db> "SELECT COUNT(*) FROM transfer_offers WHERE accepted_at IS NOT NULL"` |
+| Legacy accepted transfers on the hosted registry | UNMEASURED (no access to the production DB) | Phase 1 first task: operator runs `sqlite3 <db> "SELECT COUNT(*) FROM log_entries WHERE kind = 'transfer-accept'"`. Not `transfer_offers`: a later offer resets `accepted_at` to NULL (see §Verified properties), so that table under-counts |
 
 ### Verified properties
 
@@ -156,14 +156,25 @@ Everything below assumes these hold.
   `WHERE ident = ?1 AND owner_id = ?2` with the session owner. So the publisher
   of every existing row is the prefix owner, and the prefix owner also held
   `packages.owner_id` at publish time. This is how the backfill is derived.
-- **Every pre-fix release has epoch 0, except after a transfer back.** A pre-fix
-  recipient can never publish (the bug). A former owner cannot publish either,
-  because `publish_package_version` needs the current `owner_id`. The one
-  exception is a transfer back to the prefix owner (alice→bob→alice), after which
-  alice publishes again. Legacy history keeps only the latest offer row per
-  package (`UNIQUE(package_id)`), so the true epoch cannot be reconstructed. §4.4
-  makes legacy links chain terminators, so no client check depends on a legacy
-  epoch.
+- **`transfer_offers` does not hold the legacy history; the transparency log does.**
+  `transfer_offers` keeps one row per package (`UNIQUE(package_id)`), and
+  `store.rs:create_transfer_offer`'s UPSERT resets `accepted_at` to NULL (its
+  bug-274 comment says so). So after alice→bob is accepted and bob offers to
+  carol, the accepted transfer has no row at all, and a multi-hop alice→bob→carol
+  keeps only bob→carol. `log_entries` (append-only, ordered by `idx`) records
+  every `transfer-offer` `{"ident","from","to"}`, every `transfer-accept`
+  `{"ident","to"}` and every `publish` `{"ident","version","hash"}`
+  (`grep -n '"transfer-offer"\|"transfer-accept"\|"publish"' repository/src/store.rs`).
+  Replaying them in `idx` order gives each legacy transfer's real sequence,
+  from-owner (the owner before it), to-owner and timestamps, and each release's
+  real epoch (the number of accepts logged before its `publish` entry). Owner
+  names are never renamed or deleted (`grep -n 'UPDATE owners SET owner_display\|DELETE FROM owners' repository/src/store.rs`
+  → no output), so the payload names resolve.
+- **Pre-fix epochs are not all 0.** A pre-fix recipient can never publish (the
+  bug), and a former owner cannot either, because `publish_package_version`
+  needs the current `owner_id`. But after a transfer back to the prefix owner
+  (alice→bob→alice), alice publishes again, at epoch 2. The log replay (§4.2)
+  recovers that epoch.
 - **No production code deletes `package_versions`.**
   `grep -rn 'DELETE FROM package_versions' repository/src` hits only the test at
   `store.rs` (`a_shared_blob_survives_removing_one_of_its_versions`). The
@@ -280,13 +291,34 @@ Columns added with `add_column_if_missing`:
 - `package_versions`: `publisher_owner_id INTEGER NULL`,
   `publisher_ident_key_id INTEGER NULL`, `transfer_epoch INTEGER NOT NULL DEFAULT 0`.
 
-Idempotent backfill statements, run after the column additions:
+Idempotent backfill, run after the column additions:
 
 - `UPDATE package_versions SET publisher_owner_id = (SELECT o.id FROM owners o JOIN packages p ON p.id = package_versions.package_id WHERE o.owner_folded = lower(substr(p.ident, 1, instr(p.ident, '#') - 1))) WHERE publisher_owner_id IS NULL`.
   SQLite `lower()` is ASCII-only, which equals `fold_owner` (`to_ascii_lowercase`)
   because owner names are ASCII (`validate_owner_name`).
-- `INSERT INTO transfer_history (package_id, sequence, from_owner_id, to_owner_id, offered_at, accepted_at) SELECT package_id, 0, from_owner_id, to_owner_id, created_at, accepted_at FROM transfer_offers t WHERE accepted_at IS NOT NULL AND offer_signature IS NULL AND NOT EXISTS (SELECT 1 FROM transfer_history h WHERE h.package_id = t.package_id)`.
-  This adds one unsigned legacy link per legacy-accepted package (Open Decision A-D2).
+- `store.rs:backfill_legacy_transfers(conn)` replays the transparency log
+  (§2 Verified properties); `transfer_offers` is not a usable source. For each
+  package that has no `transfer_history` row and at least one `transfer-accept`
+  log entry, in one transaction per package:
+  1. Read the package's `transfer-offer`, `transfer-accept` and `publish`
+     entries in `idx` order (payloads parsed with `serde_json`, matched on
+     `ident`).
+  2. Walk them with `owner` = the prefix owner and `seq` = 0:
+     - `transfer-offer`: remember its `created_at` as the pending `offered_at`;
+     - `transfer-accept`: `INSERT` an unsigned `transfer_history` row
+       `(seq, from = owner, to = owner named by "to", offered_at, accepted_at = created_at)`
+       (`offered_at` falls back to `accepted_at` if no offer was logged), then
+       `owner = to`, `seq += 1`;
+     - `publish`: set that `(version, hash)` row's `transfer_epoch = seq`.
+  3. The walk must end at `packages.owner_id`. Otherwise `migrate` fails with
+     `transfer log for <ident> ends at <owner> but the package is owned by <owner>`.
+     A mismatch means the log and the tables disagree, and serving a guessed
+     chain would be worse than refusing to start. Phase 1's operator query
+     measures this before deployment.
+
+  Every legacy link is unsigned, so it is a chain terminator (§4.4, Open
+  Decision A-D2). Re-running `migrate` skips every package that already has
+  history rows, so it is a no-op.
 
 ### 4.3 Store API (`repository/src/store.rs`)
 
@@ -341,7 +373,10 @@ Idempotent backfill statements, run after the column additions:
 `name_binding_message` signature. Without it a client cannot trust any
 intermediate owner's key without a second unsigned `/idents` fetch.
 
-A link with null signatures is a **legacy link**: a chain terminator (C §4).
+A link with null signatures is a **legacy link**: a chain terminator (C §3).
+Releases after it verify only when published by the origin (prefix) owner, under
+today's prefix-owner trust (C §3, the origin-owner fallback). B refuses a publish
+that no client could verify (B §3).
 
 `IndexVersion` gains:
 
@@ -382,7 +417,10 @@ A link with null signatures is a **legacy link**: a chain terminator (C §4).
   `invalid transfer offer ident signature` (A-D3).
 - **Log:** `transfer-accept` payload gains `sequence`. Leaf hashing is unchanged.
 - **Database:** additive table, triggers, columns, and idempotent backfill. No
-  data is rewritten except NULL → backfilled publisher ids.
+  existing data is rewritten except NULL → backfilled publisher ids and, for
+  packages with logged legacy transfers, `transfer_epoch` 0 → its replayed value.
+  `migrate` refuses to start if a package's transfer log disagrees with its
+  stored owner (§4.2).
 - **Unchanged:** `.mfp` bytes, proof/attestation JSON, the name-binding message,
   `IndexResponse.owner` / `identKey` semantics, and `index_canonical_hash`.
 
@@ -400,9 +438,12 @@ is preserved behind the new store signatures.
 
 - [ ] Ask the operator for the legacy count (§Measured populations) and record it
       in Corrections. A-D2's choice does not depend on it, but the A-D2 follow-up
-      (operator ratification) does.
+      (operator ratification) does. Also ask them to run the §4.2 replay check
+      against a copy of the production DB (a build of this phase's `migrate`
+      on the copy) and record whether any package's log disagrees with its owner.
 - [ ] `repository/src/store.rs:migrate`: add the `transfer_history` table, the two
-      triggers, the column additions, and the two backfill statements (§4.2).
+      triggers, the column additions, the publisher backfill statement, and
+      `backfill_legacy_transfers` (§4.2).
 - [ ] `repository/src/crypto.rs`: add `release_digest`,
       `transfer_offer_message_v2` and `transfer_accept_message_v2` (§4.1).
 - [ ] `repository/src/store.rs`: `TransferTerms`, `transfer_terms`, the new
@@ -426,10 +467,19 @@ is preserved behind the new store signatures.
     `migrating_a_legacy_database_adds_the_metadata_columns_and_target_table`,
     ends with an unsigned seq-0 history row, publisher = prefix owner, epoch 0,
     and re-running `migrate` is a no-op.
+  - `migrating_recovers_an_accepted_transfer_hidden_by_a_later_offer`: legacy
+    alice→bob accepted, then bob offers to carol (row's `accepted_at` reset);
+    history gets the alice→bob seq-0 link.
+  - `migrating_replays_a_multi_hop_legacy_chain`: alice→bob→carol gives seq 0
+    alice→bob and seq 1 bob→carol.
+  - `migrating_recovers_epochs_after_a_legacy_round_trip`: alice→bob→alice with
+    releases before and after; the later releases get epoch 2.
+  - `migrating_refuses_a_log_that_disagrees_with_the_owner`: a `packages.owner_id`
+    the log never reaches fails `migrate` with the §4.2 message.
   - `publish_records_publisher_and_epoch`.
 
 Acceptance: history is recorded with signatures, cannot be mutated, and legacy
-databases migrate deterministically.
+databases migrate deterministically from the transparency log.
   Check: `cargo test -p mfb_repository --lib -- store::tests::transfer store::tests::migrating store::tests::publish_records store::tests::legacy store::tests::stale store::tests::a_stale_offer` → `test result: ok`, 0 failed, and every named new test listed as `ok` (est. 3–5 min, compile-dominated; guess).
 Commit: —
 
@@ -461,6 +511,13 @@ alone, using the real CLI signer against the real server.
     message is proven replayable (§2), so its exact bytes are the defect.
 - [ ] `repository/src/client.rs:transfer_offer` / `transfer_accept`: implement
       §4.5. `src/cli/pkg.rs:transfer_offer` drops the prefix owner.
+- [ ] `server.rs` tests: add the helper
+      `transfer_through_handlers(state, ident, from: &TestOwnerKeys, from_token, to: &TestOwnerKeys, to_token)`.
+      It reads the terms from `package_index`, signs the v2 offer and accept,
+      and calls the real `transfer_offer` / `transfer_accept` handlers. Phase 2's
+      server tests and plan-168-B use it. The store-level
+      `offer_and_accept_for_test` (Phase 1) lives in `store::tests` and cannot
+      reach the handlers.
 - [ ] Tests:
   - `server.rs` `a_second_transfer_is_offered_by_the_current_owner` (alice→bob→carol;
     sequences 0 and 1; bob's offer accepted, alice's refused).
@@ -480,9 +537,10 @@ Commit: —
       `IndexVersion.epoch` fields (all `#[serde(default)]`). `package_index`
       fills them from `transfer_history` and the extended version rows, and
       signs a `toBinding` per link.
-- [ ] Update the 5 `IndexVersion {` and 2 non-server `IndexResponse {` test
-      literals (pkg.rs:2371, pkg.rs:2708, pkg.rs:2384, resolve.rs:1252,
-      resolve.rs:1273, client.rs:2587) with the default values. These literal
+- [ ] Update the 4 `IndexVersion {` test literals (pkg.rs:2371, pkg.rs:2708,
+      resolve.rs:1252, client.rs:2587; client.rs:2598 inherits via `..with_abi`)
+      and the 2 non-server `IndexResponse {` test literals (pkg.rs:2384,
+      resolve.rs:1273) with the default values. These literal
       updates change no assertions.
 - [ ] `server.rs:package_detail`: serve the stored owner's ident key.
 - [ ] Tests (`server.rs`):
@@ -490,7 +548,8 @@ Commit: —
     offer signature verifies under alice's key, the accept under bob's, and the
     `toBinding` under the server key; versions carry `publisher.owner == "alice"`,
     `epoch == 0`.
-  - `a_legacy_transfer_is_served_unsigned`.
+  - `a_legacy_transfer_is_served_unsigned` (a replayed two-hop legacy chain is
+    served as two unsigned links with their real owners and sequences).
   - `the_package_page_pairs_the_current_owner_with_their_key`.
   - `client.rs` `an_older_index_without_transfer_fields_deserializes` (JSON
     without the new keys gives an empty/None/0 result).
@@ -507,7 +566,8 @@ Commit: —
   - §Install Path index JSON plus prose for `transfers` / `publisher` / `epoch` /
     `toBinding` and legacy links;
   - §Accounts "Ownership transfer": v2 messages, sequence, digest, append-only
-    history, stale-terms and legacy-offer refusals;
+    history, stale-terms and legacy-offer refusals, and the legacy history
+    replayed from the transparency log;
   - log-kind table note on `transfer-accept` payload;
   - remove the "`/index` still returns that prefix owner's ident key" clause from
     the deviation paragraph, replaced by "serves the signed transfer chain;
@@ -545,13 +605,16 @@ Commit: —
   owner. Rejected, because every older client's bug-581 owner check would then
   refuse every transferred index, including pre-transfer releases. (§4.4, §Compatibility)
 - **A-D2, legacy (pre-plan) accepted transfers have no signatures.**
-  Recommended: migrate them to unsigned seq-0 links that clients treat as chain
-  terminators. Releases before the link verify exactly as today; nothing after
-  it verifies (none can exist, per the bug). If the measured count is > 0, file a
-  follow-up for an operator-witnessed ratification flow. Alternative: let the
-  former owner co-sign a ratification now. It needs a new endpoint and
-  authorization from an account that no longer owns the package, so it is
-  deferred. (§4.2)
+  Recommended: replay them from the transparency log into unsigned links with
+  their real sequence and owners, which clients treat as chain terminators.
+  Releases before the first legacy link verify exactly as today. After it, only
+  the origin (prefix) owner's releases verify, under today's prefix-owner trust
+  (C §3 fallback; this keeps alice→bob→alice packages publishable, as they are
+  today). A later owner's release cannot verify, so B refuses to publish one. If
+  the measured count is > 0, file a follow-up for an operator-witnessed
+  ratification flow. Alternative: let the former owner co-sign a ratification
+  now. It needs a new endpoint and authorization from an account that no longer
+  owns the package, so it is deferred. (§4.2)
 - **A-D3, v1 transfer requests from older CLIs.** Recommended: refuse. Accepting
   them would create unverifiable links again. Alternative: accept v1 and record
   it as a legacy link. Rejected, because it re-strands the recipient. (§4.1)

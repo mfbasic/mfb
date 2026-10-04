@@ -347,7 +347,7 @@ impl TypeEnv {
                                         expected,
                                         ParameterType::Unknown | ParameterType::Nothing
                                     )
-                                    && !self.expression_compatible(&expected, &actual, value)
+                                    && !self.assignable(&expected, &actual, value)
                                 {
                                     let (actual, expected) = (actual.name(), expected.name());
                                     self.emit(
@@ -407,7 +407,7 @@ impl TypeEnv {
                         }
                         if let Some(state_type) = declared_state {
                             if let Some(actual) = self.infer_type(value, locals) {
-                                if !self.expression_compatible(&state_type, &actual, value) {
+                                if !self.assignable(&state_type, &actual, value) {
                                     let (actual, state_type) = (actual.name(), state_type.name());
                                     self.emit(
                                         "TYPE_ASSIGNMENT_MISMATCH",
@@ -430,7 +430,7 @@ impl TypeEnv {
                     // The exit code must be an Integer, and a constant code
                     // must fit the host's 0..255 exit-status range.
                     if let Some(actual) = self.infer_type(value, locals) {
-                        if !self.expression_compatible(&ParameterType::Integer, &actual, value) {
+                        if !self.assignable(&ParameterType::Integer, &actual, value) {
                             self.emit(
                                 "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
                                 format!("EXIT PROGRAM code has type {actual}, expected Integer."),

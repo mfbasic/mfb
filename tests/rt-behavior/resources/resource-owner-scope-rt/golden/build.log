@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/resource-owner-scope-rt
+Wrote AST to tests/rt-behavior/resources/resource-owner-scope-rt/resource_owner_scope_rt.ast
+Wrote IR to tests/rt-behavior/resources/resource-owner-scope-rt/resource_owner_scope_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/resource-owner-scope-rt
+Wrote executable to tests/rt-behavior/resources/resource-owner-scope-rt/build/resource_owner_scope_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/resource-owner-scope-rt/build/resource_owner_scope_rt.out
+1 handed back: open
+2 list handed back: open
+3 mixed list: fresh flushed, passed open
+4 mixed single: fresh flushed, passed open
+5 discarded: fresh flushed, passed open
+6 floated: open
+7 record field: open
+8 accepted: worker read 8
+[exit 0]

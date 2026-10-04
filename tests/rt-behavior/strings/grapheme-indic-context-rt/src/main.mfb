@@ -1,0 +1,24 @@
+' bug-796: runtime grapheme segmentation seeded its Indic-conjunct (GB9c) state
+' from the first scalar's raw property, so a LEADING linker looked like
+' consonant+linker and U+094D U+0915 became one cluster. Each line compares the
+' constant-folded count (unicode_segmentation, the oracle) with the runtime
+' count of the same string, and reports graphemeAt(s, 0)'s scalar count.
+IMPORT io
+IMPORT strings
+FUNC clusters(s AS String) AS Integer
+  RETURN len(strings::graphemes(s))
+END FUNC
+FUNC firstOf(s AS String) AS Integer
+  RETURN len(strings::toScalars(strings::graphemeAt(s, 0)))
+END FUNC
+FUNC main AS Integer
+  io::print("leading-linker folded=" & toString(len(strings::graphemes("\u{94d}\u{915}"))) & " runtime=" & toString(clusters("\u{94d}\u{915}")) & " first=" & toString(firstOf("\u{94d}\u{915}")))
+  io::print("extend-linker folded=" & toString(len(strings::graphemes("\u{93c}\u{94d}\u{915}"))) & " runtime=" & toString(clusters("\u{93c}\u{94d}\u{915}")) & " first=" & toString(firstOf("\u{93c}\u{94d}\u{915}")))
+  io::print("conjunct folded=" & toString(len(strings::graphemes("\u{915}\u{94d}\u{937}"))) & " runtime=" & toString(clusters("\u{915}\u{94d}\u{937}")) & " first=" & toString(firstOf("\u{915}\u{94d}\u{937}")))
+  io::print("cons-extend-linker folded=" & toString(len(strings::graphemes("\u{915}\u{93c}\u{94d}\u{937}"))) & " runtime=" & toString(clusters("\u{915}\u{93c}\u{94d}\u{937}")) & " first=" & toString(firstOf("\u{915}\u{93c}\u{94d}\u{937}")))
+  io::print("double-linker folded=" & toString(len(strings::graphemes("\u{915}\u{94d}\u{94d}\u{937}"))) & " runtime=" & toString(clusters("\u{915}\u{94d}\u{94d}\u{937}")) & " first=" & toString(firstOf("\u{915}\u{94d}\u{94d}\u{937}")))
+  io::print("reset folded=" & toString(len(strings::graphemes("\u{915}\u{94d}a\u{94d}\u{915}"))) & " runtime=" & toString(clusters("\u{915}\u{94d}a\u{94d}\u{915}")) & " first=" & toString(firstOf("\u{915}\u{94d}a\u{94d}\u{915}")))
+  io::print("two-conjuncts folded=" & toString(len(strings::graphemes("\u{915}\u{94d}\u{937}\u{915}\u{94d}\u{937}"))) & " runtime=" & toString(clusters("\u{915}\u{94d}\u{937}\u{915}\u{94d}\u{937}")) & " first=" & toString(firstOf("\u{915}\u{94d}\u{937}\u{915}\u{94d}\u{937}")))
+  io::print("linker-only folded=" & toString(len(strings::graphemes("\u{94d}\u{94d}"))) & " runtime=" & toString(clusters("\u{94d}\u{94d}")) & " first=" & toString(firstOf("\u{94d}\u{94d}")))
+  RETURN 0
+END FUNC

@@ -173,6 +173,7 @@ pub(crate) fn display_width_of(
     builder.emit_unicode_property_lookup(cp, prop);
     builder.emit_unicode_property_boundclass(prop, bc_prev);
     builder.emit_unicode_property_indic_conjunct_break(prop, icb_prev);
+    builder.emit_seed_indic_conjunct_state(icb_prev);
     builder.emit_unicode_property_charwidth(prop, cw);
     builder.emit(abi::move_register(cluster_w, cw));
     builder.emit(abi::move_register(pos, adv));

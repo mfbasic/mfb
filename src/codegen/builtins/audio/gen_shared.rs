@@ -29,14 +29,14 @@ use std::collections::HashMap;
 // --- AudioHandle: arena record, pointer-sized reference (plan-33-A §5.1) ------
 // Identical layout for both resource types. Shares the canonical plan-80
 // header: tag@0, handle (`H_KIND`)@8, closed@16, generic union STATE@24 — then
-// the audio-specific tail (sample-rate/…/mmap-`H_STATE` ptr) at 32+.
+// the audio-specific tail (sample-rate/…/mmap-`H_STATE` ptr) at `RESOURCE_TAIL_START`+.
 pub(crate) const H_KIND: usize = RESOURCE_OFFSET_HANDLE; // 1 = input, 2 = output
 pub(crate) const H_CLOSED: usize = RESOURCE_OFFSET_CLOSED; // mirror; authoritative `closed` is in state
-pub(crate) const H_SAMPLE_RATE: usize = 32;
-pub(crate) const H_CHANNELS: usize = 40;
-pub(crate) const H_BYTES_PER_FRAME: usize = 48; // channels * 2
-pub(crate) const H_BUFFER_FRAMES: usize = 56;
-pub(crate) const H_STATE: usize = 64; // -> mmap'd AudioState
+pub(crate) const H_SAMPLE_RATE: usize = RESOURCE_TAIL_START;
+pub(crate) const H_CHANNELS: usize = RESOURCE_TAIL_START + 8;
+pub(crate) const H_BYTES_PER_FRAME: usize = RESOURCE_TAIL_START + 16; // channels * 2
+pub(crate) const H_BUFFER_FRAMES: usize = RESOURCE_TAIL_START + 24;
+pub(crate) const H_STATE: usize = RESOURCE_TAIL_START + 32; // -> mmap'd AudioState
 pub(crate) const H_RECORD_SIZE: usize = RESOURCE_RECORD_SIZE_BYTES;
 
 // The `closed` mirror is at the canonical resource closed-flag offset
@@ -50,7 +50,7 @@ const _: () = assert!(H_RECORD_SIZE <= RESOURCE_RECORD_SIZE_BYTES);
 // The audio-specific tail (mmap `H_STATE` ptr) fits inside the shared envelope,
 // clear of the generic union STATE slot at `RESOURCE_OFFSET_STATE`.
 const _: () = assert!(H_STATE + 8 <= RESOURCE_RECORD_SIZE_BYTES);
-const _: () = assert!(H_SAMPLE_RATE > RESOURCE_OFFSET_STATE);
+const _: () = assert!(H_SAMPLE_RATE == RESOURCE_TAIL_START);
 
 pub(crate) const KIND_INPUT: &str = "1";
 pub(crate) const KIND_OUTPUT: &str = "2";

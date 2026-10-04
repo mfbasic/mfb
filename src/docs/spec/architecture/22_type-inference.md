@@ -174,8 +174,16 @@ The **IR verifier** applies these rules in order:
 
 Other composites, including `SetOf` and thread handles, therefore require exact
 structural equality at this seam unless a later identity rule matches them.
-The verifier does not implement general callable variance or isolation widening.
-[[src/ir/verify/compat.rs:compatible]]
+`compatible` does not implement general callable variance or isolation widening:
+it is also the annotation-integrity check, where a package's annotated type must
+agree with the type the verifier derives. Every *assignment* position (binding,
+assignment, return, call argument, constructor field, union wrap, `WITH` update,
+collection element, `STATE` write) instead asks `assignable`. That is
+`compatible` plus the literal coercions, plus one directional conversion: an
+`ISOLATED FUNC` stored where the ordinary `FUNC` of the same parameters (after
+peeling `RES`) and return is expected. The reverse, an ordinary callable in an
+isolated slot, still mismatches.
+[[src/ir/verify/compat.rs:compatible]] [[src/ir/verify/compat.rs:assignable]]
 
 The **HIR shape predicate** additionally peels a top-level `STATE` clause,
 recurses through sets and thread-handle components, and compares callable

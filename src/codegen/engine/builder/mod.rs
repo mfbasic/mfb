@@ -291,6 +291,9 @@ pub(crate) struct CodeBuilder<'a> {
     /// must run: only those belonging to inner blocks being exited, never the
     /// function-level locals that stay live (and visible) in the trap body.
     pub(crate) cleanup_scope_starts: Vec<usize>,
+    /// bug-755: this function's scope-token stack object, allocated on the first
+    /// claim, float, owner-checked drop or release (`resource::owner`).
+    pub(crate) scope_token_slot: Option<usize>,
     pub(crate) pending_result_slots: Option<PendingResultSlots>,
     /// plan-59-D: the stack slot holding the value **escaping** this scope, set
     /// only while emitting a `RETURN`'s cleanups.
@@ -733,6 +736,7 @@ impl<'a> CodeBuilder<'a> {
             loop_stack: Vec::new(),
             active_cleanups: Vec::new(),
             cleanup_scope_starts: Vec::new(),
+            scope_token_slot: None,
             pending_result_slots: None,
             escaping_value_slot: None,
             error_return_pads: HashMap::new(),
@@ -918,7 +922,7 @@ pub(crate) struct ResourceCleanup {
     /// Whether this resource kind actually uses the per-`File` I/O buffer words
     /// (`BUF_PTR`/`READ_PTR`) — i.e. whether it is a `File`.
     ///
-    /// Every resource kind shares the 96-byte record, but ONLY `File`'s open
+    /// Every resource kind shares the resource record, but ONLY `File`'s open
     /// helpers zero the buffer words after the (PRNG-poisoned) arena alloc.
     /// `net`'s `emit_make_handle` initializes offsets 0/8/16/24 and leaves 32–80 as
     /// poison; the layout comment calls those words "inert" for non-`File`
@@ -927,14 +931,14 @@ pub(crate) struct ResourceCleanup {
     /// `arena_free` a poison value and segfaulted every `net::` program during
     /// cleanup (plan-52-B Phase 2).
     pub(crate) has_io_buffers: bool,
-    /// bug-623: whether the drop also frees the 96-byte record itself, after the
+    /// bug-623: whether the drop also frees the resource record itself, after the
     /// close and the block reclaim, and nulls the binding's slot. True only for the
     /// kinds `CodeBuilder::resource_record_freed_at_drop` names (the `tcp`, `udp`
     /// and `tls` handles); every other kind keeps its record as the tombstone.
     pub(crate) frees_record: bool,
     /// bug-623 D: a successful `thread::transfer` moved this binding's resource to
     /// another thread. The drop then closes nothing, since the handle is the
-    /// receiver's. It frees only the sender's 96-byte tombstone record, and only
+    /// receiver's. It frees only the sender's tombstone record, and only
     /// when that record carries the moved bit, so a transfer that failed frees
     /// nothing here. The tombstone stays readable until then: every use of the
     /// binding after the transfer still sees `moved`. Set by
@@ -946,6 +950,9 @@ pub(crate) struct ResourceCleanup {
     /// and reclaims nothing while it reads 0. `None` for every binding that owns
     /// unconditionally.
     pub(crate) owner_flag_slot: Option<usize>,
+    /// bug-755: the nesting depth of the scope the binding belongs to. The drop
+    /// closes the record only when its owner word holds that scope's token.
+    pub(crate) scope_depth: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -969,6 +976,8 @@ pub(crate) struct ResourceUnionCleanup {
     pub(crate) closes_variant: bool,
     /// bug-648: the same run-time ownership flag as `ResourceCleanup.owner_flag_slot`.
     pub(crate) owner_flag_slot: Option<usize>,
+    /// bug-755: as `ResourceCleanup.scope_depth`, for the active variant's record.
+    pub(crate) scope_depth: usize,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources
@@ -985,7 +994,7 @@ pub(crate) enum OwnedListDrop {
     /// A single registered close op applied to each node's record pointer, plus what
     /// the drain may reclaim behind it (bug-645): the element's uniform `STATE` block,
     /// its two per-`File` I/O buffers, and — for a `resource_record_freed_at_drop`
-    /// kind — the 96-byte record. Exactly the descriptor `ActiveCleanup::Resource`
+    /// kind — the resource record. Exactly the descriptor `ActiveCleanup::Resource`
     /// carries for a lone binding, because the reclaim is the same one.
     Concrete {
         close: String,
@@ -1015,6 +1024,10 @@ pub(crate) struct OwnedListCleanup {
     /// drain may free them after the close. False keeps the close-only drain — a
     /// bounded leak rather than a double free (`record_ownership::owning_collections`).
     pub(crate) owns_elements: bool,
+    /// bug-755: the nesting depth of the owner collection's scope. A floated or
+    /// seeded record takes this scope's token, and the drain closes only the
+    /// records that still hold it.
+    pub(crate) scope_depth: usize,
 }
 
 /// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /

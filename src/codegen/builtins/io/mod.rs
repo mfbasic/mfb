@@ -49,7 +49,7 @@ mod gen_is_terminal;
 pub(crate) mod gen_read_family;
 pub(crate) mod gen_read_key_family;
 mod gen_read_line_family;
-mod gen_write_family;
+pub(crate) mod gen_write_family;
 
 const MODULE_INTRO: &str = r#"Standard stream input/output and terminal inspection"#;
 const MODULE_DESC: &str = r#"The `io` package provides access to the three standard streams — standard

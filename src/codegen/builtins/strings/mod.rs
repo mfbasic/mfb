@@ -79,6 +79,7 @@ pub(crate) mod gen_case_map;
 pub(crate) mod gen_graphemes;
 pub(crate) mod gen_left_right;
 pub(crate) mod gen_pad;
+mod gen_scalar_seam;
 mod gen_strings_support;
 pub(crate) mod gen_strip;
 pub(crate) mod gen_trim;

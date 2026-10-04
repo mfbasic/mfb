@@ -1,0 +1,63 @@
+{
+  "project": "grapheme_indic_context_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 },
+    { "module": "strings", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "clusters",
+      "line": 8,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 8 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "firstOf",
+      "line": 11,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.toScalars", "arguments": [{ "kind": "call", "callee": "strings.graphemeAt", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "0" }] }] }] }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "leading-linker folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "्क" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "्क" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "्क" }] }] } }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "extend-linker folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "़्क" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "़्क" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "़्क" }] }] } }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "conjunct folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "क्ष" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "क्ष" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "क्ष" }] }] } }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cons-extend-linker folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "क़्ष" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "क़्ष" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "क़्ष" }] }] } }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "double-linker folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "क््ष" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "क््ष" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "क््ष" }] }] } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "reset folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "क्a्क" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "क्a्क" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "क्a्क" }] }] } }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "two-conjuncts folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "क्षक्ष" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "क्षक्ष" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "क्षक्ष" }] }] } }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "linker-only folded=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "््" }] }] }] } }, "right": { "kind": "string", "value": " runtime=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "clusters", "arguments": [{ "kind": "string", "value": "््" }] }] } }, "right": { "kind": "string", "value": " first=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "firstOf", "arguments": [{ "kind": "string", "value": "््" }] }] } }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

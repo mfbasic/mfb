@@ -751,12 +751,14 @@ const REG_SCRATCH_OBJ: Reg = abi::LOCAL[2]; // transient object (class / NSStrin
 const REG_HEADLESS: Reg = abi::LOCAL[3]; // getenv("MFB_MACAPP_HEADLESS") result
 
 // `_main` stack frame: [sp+0]=argc, [sp+8]=argv (worker arg block),
-// [sp+16]=pthread_t, [sp+24..32]=input pipe fds (read, write).
-const FRAME_SIZE: usize = 32;
+// [sp+16]=pthread_t, [sp+24..32]=input pipe fds (read, write),
+// [sp+32..96]=the program thread's `pthread_attr_t` (bug-803).
+const FRAME_SIZE: usize = 96;
 const OFF_ARGC: usize = 0;
 const OFF_ARGV: usize = 8;
 const OFF_TID: usize = 16;
 const OFF_PIPE: usize = 24;
+const OFF_ATTR: usize = 32;
 
 /// Small instruction/relocation accumulator that records every relocation under
 /// a single `from` symbol, keeping the objc_msgSend boilerplate compact.
@@ -1360,6 +1362,35 @@ fn hex_cstring(text: &str) -> String {
 /// The `-release` send path (originally filed as bug-53).
 mod release_tests {
     use super::*;
+
+    /// The write body as the macOS platform emits it, with the imports the io
+    /// members carry (bug-799's fd loop resolves `_write`, its errno accessor and
+    /// the SIGPIPE pair through them).
+    fn emit_app_io_write(
+        symbol: &str,
+        stderr: bool,
+        newline: bool,
+        term_state_offset: Option<usize>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) {
+        let imports: std::collections::HashMap<String, String> =
+            ["_write", "___error", "_signal", "_raise"]
+                .into_iter()
+                .map(|symbol| (symbol.to_string(), "libSystem".to_string()))
+                .collect();
+        super::emit_app_io_write(
+            &crate::target::macos_aarch64::code::Platform,
+            symbol,
+            stderr,
+            newline,
+            term_state_offset,
+            &imports,
+            instructions,
+            relocations,
+        )
+        .expect("macOS app write body");
+    }
 
     /// A `-release` send is emitted by `load_selector(SEL_RELEASE)`, which lays
     /// down the `adrp/add` page pair for the selector C-string. That page pair

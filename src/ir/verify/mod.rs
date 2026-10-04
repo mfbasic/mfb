@@ -467,7 +467,7 @@ fn collect_diagnostics_with(
                         _ => default,
                     };
                     if let Some(actual) = env.infer_type(checked, &no_locals) {
-                        if !env.expression_compatible(&expected, &actual, checked) {
+                        if !env.assignable(&expected, &actual, checked) {
                             let (actual, expected) = (actual.name(), expected.name());
                             env.emit(
                                 "TYPE_DEFAULT_VALUE_MISMATCH",

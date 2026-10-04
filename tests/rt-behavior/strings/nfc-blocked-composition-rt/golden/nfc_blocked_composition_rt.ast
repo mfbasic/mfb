@@ -1,0 +1,78 @@
+{
+  "project": "nfc_blocked_composition_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 },
+    { "module": "strings", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "nfc",
+      "line": 8,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 8 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.normalizeNfc", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 11,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 11 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": null, "value": { "kind": "string", "value": "" }, "line": 12 },
+      {
+        "kind": "forEach",
+        "name": "c",
+        "iterable": { "kind": "call", "callee": "strings.toScalars", "arguments": [{ "kind": "identifier", "value": "s" }] },
+        "line": 13,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "c" }] }] } }, "line": 14 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "blockedLV" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "ᄀ́ᅡ" }] }] } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "blockedLV-fold" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "strings.normalizeNfc", "arguments": [{ "kind": "string", "value": "ᄀ́ᅡ" }] }] } }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "blockedLVT" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "가́ᆨ" }] }] } }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "adjacentLV" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "가" }] }] } }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "adjacentLVT" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "각" }] }] } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "accent" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "é" }] }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "reorder" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "ậ" }] }] } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "blocked-same-class" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "á́" }] }] } }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "oriya-adjacent" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "ୋ" }] }] } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "oriya-blocked" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "nfc", "arguments": [{ "kind": "string", "value": "େ́ା" }] }] } }] }, "line": 28 },
+      { "kind": "binding", "mutable": true, "name": "m", "type": null, "value": { "kind": "string", "value": "ᄀ́ᅡ" }, "line": 29 },
+      { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "strings.normalizeNfc", "arguments": [{ "kind": "identifier", "value": "m" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "selfupdate" }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "identifier", "value": "m" }] } }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      ]
+    }
+    ]
+  }
+  ]
+}

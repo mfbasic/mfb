@@ -97,19 +97,13 @@ Allocations are sparse: `2-203-0047`, `2-203-0057`, and `2-203-0134` have no reg
 entries. The `2-200` subsystem contains `0001`–`0017` and `0100`–`0101`.
 [[src/rules/table.rs:RULES]]
 
-### Code Collisions
+### Code Uniqueness
 
-Diagnostic codes must uniquely identify rules. The current registry violates
-that requirement for three codes:
-
-- **`1-102-0010`** is both `MFB_PARSE_BLOCK_TOO_DEEP` (the parser's statement-block
-  nesting cap) and `MFB_PARSE_TESTING_EXPECTED_TGROUP`.
-- **`2-205-0001`** is both `PACKAGE_VERSION_UNSUPPORTED` and `DOC_UNRESOLVED`.
-- **`2-205-0002`** is both `NATIVE_MANIFEST_INVALID` and `DOC_NAME_MISMATCH`.
-
-Name-based lookup selects the intended rule, but a consumer using only the
-numeric code cannot distinguish the paired rules. These are registry defects,
-not permitted aliases. A new rule must use an unused code in its range.
+Every rule has its own code, including a rule with no live emitter; a code is
+never reused for a second rule. `rules::tests::rule_codes_are_unique` enforces it
+over the whole registry, with no allowlist. A new rule takes an unused code in
+its range, checked against the table and against codes a plan has reserved.
+[[src/rules/table.rs:RULES]]
 [[src/rules/mod.rs:rule_for]] [[src/rules/table.rs:RULES]]
 
 ## Diagnostic Rendering
@@ -264,11 +258,11 @@ their unused message text. [[src/rules/table.rs:RULES]] Unless noted, severity i
 | `1-102-0007` | `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING` | error | pipeline expression is missing a placeholder |
 | `1-102-0008` | `MFB_PARSE_MISSING_NATIVE_SYMBOL` | error | a native LINK function must declare its native SYMBOL |
 | `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | error | a native LINK function must declare its ABI signature |
-| `1-102-0010` | `MFB_PARSE_BLOCK_TOO_DEEP` | error | statement block nesting is too deep |
 | `1-102-0010` | `MFB_PARSE_TESTING_EXPECTED_TGROUP` | error | a TESTING block may contain only TGROUP groups |
 | `1-102-0011` | `MFB_PARSE_TESTING_EXPECTED_TCASE` | error | a TGROUP may contain only TCASE cases and nested TGROUP groups |
 | `1-102-0012` | `MFB_PARSE_TESTING_DESCRIPTION` | error | a TGROUP/TCASE requires a string-literal description |
 | `1-102-0013` | `MFB_PARSE_RECORD_FIELD_ASSIGNMENT` | error | record field assignment is not supported |
+| `1-102-0014` | `MFB_PARSE_BLOCK_TOO_DEEP` | error | statement block nesting is too deep |
 
 ### `1-103` — DOC block structure (lexer/parser)
 
@@ -509,8 +503,6 @@ Package metadata:
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
-| `2-205-0001` | `PACKAGE_VERSION_UNSUPPORTED` | error | package binary representation or metadata version is unsupported |
-| `2-205-0002` | `NATIVE_MANIFEST_INVALID` | error | native-link metadata in a package is malformed or inconsistent |
 
 DOC block semantics (resolver):
 
@@ -537,6 +529,8 @@ DOC block semantics (resolver):
 | `2-205-0019` | `DOC_GROUP_INVALID_CONTEXT` | error | GROUP is valid only on FUNC doc blocks |
 | `2-205-0020` | `DOC_DUPLICATE_GROUP` | error | more than one GROUP line in a doc block |
 | `2-205-0021` | `DOC_OVERLOAD_UNRESOLVED` | error | DOC header parameter types match no overload of the declaration |
+| `2-205-0022` | `PACKAGE_VERSION_UNSUPPORTED` | error | package binary representation or metadata version is unsupported |
+| `2-205-0023` | `NATIVE_MANIFEST_INVALID` | error | native-link metadata in a package is malformed or inconsistent |
 
 ### `2-208` — Test framework (assertion builtins)
 

@@ -1041,7 +1041,10 @@ when a width-2 cluster has only one column left, advances a negative start colum
 without stamping, gives a control unit one column and no stamp, and never touches
 the cursor. The UTF-16 conversion, surrogate decode, combining-mark/ZWJ fold, width
 lookup and `TextOutW` of the whole cluster are the same instructions — down to the
-stack slots (`WALK_*`) — in both bodies. Every label the walk emits carries its
+stack slots (`WALK_*`) — in both bodies. The emitted `rsp` offsets of those slots
+differ by one constant per body: the frame finalizer shifts each function's scratch
+above its own outgoing-argument and callee-save area, and `io::write`'s headless
+write loop keeps two values in callee-saved registers. [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]] Every label the walk emits carries its
 specialization's prefix (`term_*`/`ww_*` for `Write`, the spellings that walk always
 had, and `dt_*`/`dt_ww_*` for `DrawText`); labels are function-scoped, and each
 member emits the walk once. Until bug-540 `emit_term_draw_text_at` carried its own

@@ -1,8 +1,6 @@
-//! `strings::toScalars` — scalar-seam member (`Body::Rewrite`).
-//!
-//! Backed by the injected scalar-seam chunk (`helper_scalar_seam.rs`, gated `WhenUsed`): a call
-//! rewrites to the internal `__strings_toScalars` FUNC through the registry's
-//! `rewrite_target`.
+//! `strings::toScalars` — lowered natively (`gen_scalar_seam::lower_to_scalars`,
+//! bug-772): one UTF-8 walk to count, one exactly-sized `List OF Scalar`, one walk
+//! to fill it.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -87,8 +85,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::named("Scalar")),
-            errors: vec![],
-            body: Body::Rewrite("__strings_toScalars"),
+            errors: vec!["ErrOutOfMemory"],
+            body: Body::abi_inline(super::gen_scalar_seam::lower_to_scalars),
         }],
     });
 }

@@ -83,6 +83,7 @@ pub(crate) fn register(r: &mut Registry) {
         .add_constant(constant("ErrTimeout", "77050008", "Operation did not complete before its deadline.", "_mfb_str_error_timeout"))
         .add_constant(constant("ErrInterrupted", "77050009", "Operation was interrupted before completion.", "_mfb_str_error_interrupted"))
         .add_constant(constant("ErrOutOfMemory", "77010001", "Allocation failed.", "_mfb_str_error_allocation"))
+        .add_constant(constant("ErrStackOverflow", "77010002", "The call depth exceeded the thread's stack. Raised at entry to the function that would have run past the thread's stack limit, before it binds anything; the caller's `TRAP` catches it and every frame unwound runs its cleanup, as for any failure. Distinct from `ErrOutOfMemory`: the arena may have room — the call chain is too deep.", "_mfb_str_error_stack_overflow"))
         .add_constant(constant("ErrPathNotFound", "77030001", "Filesystem path does not exist.", "_mfb_str_error_path_not_found"))
         .add_constant(constant("ErrInvalidPath", "77030002", "Filesystem path string is invalid for the host platform.", "_mfb_str_error_invalid_path"))
         .add_constant(constant("ErrAccessDenied", "77030003", "Filesystem access was denied.", "_mfb_str_error_access_denied"))
@@ -306,6 +307,10 @@ mod tests {
         //       not a malformed stream — the data may be perfectly valid — so it is not
         //       `ErrInvalidFormat`; and it is not `ErrOutOfMemory`, whose remedy is to
         //       free memory. The caller's fix is to raise the bound or reject the input.
+        //   +1  ErrStackOverflow (bug-789, owner decision 2026-10-03): unbounded
+        //       recursion used to die by SIGSEGV on the stack guard. Not
+        //       `ErrOutOfMemory`: the arena may have room, and the fix is to bound
+        //       the recursion (or use iteration), not to free memory.
         const LEGACY_ROWS: usize = 45;
         const ADDED_SINCE_MIGRATION: &[&str] = &[
             "ErrBadPixelCount",
@@ -315,6 +320,7 @@ mod tests {
             "ErrInvalidSurrogate",
             "ErrCanvasGroupLimit",
             "ErrTooLarge",
+            "ErrStackOverflow",
         ];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");

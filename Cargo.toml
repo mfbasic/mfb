@@ -673,6 +673,10 @@ path = "tests/guards/test_targets_registered.rs"
 
 # --- tests/link/ ------------------------------------------------------
 [[test]]
+name = "link_macos_unique_imports"
+path = "tests/link/link_macos_unique_imports.rs"
+
+[[test]]
 name = "link_linux_pie_headers"
 path = "tests/link/link_linux_pie_headers.rs"
 
@@ -1181,6 +1185,38 @@ path = "tests/runtime/rt_place_forward.rs"
 [[test]]
 name = "rt_inplace_field_mixed"
 path = "tests/runtime/rt_inplace_field_mixed.rs"
+
+[[test]]
+name = "rt_app_fd_write_failure"
+path = "tests/runtime/rt_app_fd_write_failure.rs"
+
+[[test]]
+name = "rt_scalar_seam_alloc"
+path = "tests/runtime/rt_scalar_seam_alloc.rs"
+
+[[test]]
+name = "rt_inplace_field_varwidth_set"
+path = "tests/runtime/rt_inplace_field_varwidth_set.rs"
+
+[[test]]
+name = "rt_stack_exhaustion"
+path = "tests/runtime/rt_stack_exhaustion.rs"
+
+[[test]]
+name = "rt_app_program_thread_stack"
+path = "tests/runtime/rt_app_program_thread_stack.rs"
+
+[[test]]
+name = "rt_res_list_from_call_leak"
+path = "tests/runtime/rt_res_list_from_call_leak.rs"
+
+[[test]]
+name = "rt_res_list_kept_by_call"
+path = "tests/runtime/rt_res_list_kept_by_call.rs"
+
+[[test]]
+name = "rt_resource_owner_scope"
+path = "tests/runtime/rt_resource_owner_scope.rs"
 
 [[test]]
 name = "rt_scope_drop_leaks"

@@ -568,7 +568,7 @@ bug-688 measured that on Vulkan too: the same scenes rendered with and without t
 gave byte-identical GPU frames on lavapipe, stars and spikes included.
 
 Before bug-688 Vulkan kept plan-116-A's 4,096 quads and stops, 16,384 edges and 1M
-texels, so `examples/wind`, a 5,000-quad scene, a tilemap and a 1080p background all
+texels, so `examples/weather`, a 5,000-quad scene, a tilemap and a 1080p background all
 fell back to software there. A cap past which a frame is declined is still a real
 limit: software is the oracle, so a declined frame is at least as correct, and
 truncating instead would draw a *different shape*.

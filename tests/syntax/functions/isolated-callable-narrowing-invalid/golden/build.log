@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/functions/isolated-callable-narrowing-invalid
+   5 | END FUNC
+   6 | FUNC main() AS Integer
+   7 |   LET f AS ISOLATED FUNC(Integer) AS Integer = plain
+     | ^
+tests/syntax/functions/isolated-callable-narrowing-invalid/src/main.mfb:7 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `f` has initializer type FUNC(Integer) AS Integer, expected ISOLATED FUNC(Integer) AS Integer.
+   6 | FUNC main() AS Integer
+   7 |   LET f AS ISOLATED FUNC(Integer) AS Integer = plain
+   8 |   LET g AS FUNC(String) AS Integer = plain
+     | ^
+tests/syntax/functions/isolated-callable-narrowing-invalid/src/main.mfb:8 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `g` has initializer type FUNC(Integer) AS Integer, expected FUNC(String) AS Integer.
+[exit 1]

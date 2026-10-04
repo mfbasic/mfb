@@ -431,14 +431,17 @@ fn fixed_width_list_set_on_a_state_field_writes_in_place() {
     );
 }
 
-/// DECLINE, and the most important test in this file. A variable-width element
-/// can be replaced by a LONGER one, which makes `lower_list_set_in_place`'s
-/// rebuild branch reachable -- and that branch installs a fresh block, which an
-/// inlined sub-block address must never receive. `list (State-Dynamic) set` is
-/// the worst row in the whole suite at 17742x, so the temptation to take it here
-/// is exactly proportional to how wrong it would be. plan-121-F owns that row.
+/// A variable-width element can be replaced by a LONGER one, and the repack that
+/// then makes room must never hand a fresh block to an inlined sub-block address
+/// inside the live STATE block. plan-121-D declined the route for that reason.
+/// bug-759 showed the only such path left is the overflow repack (since bug-627 the
+/// rebuild branch is reachable only by fixed-width lists), and the field route now
+/// passes it `InlineGrow`, which grows the STATE block itself. So the route runs,
+/// and must carry the grow machinery: the field offset read before any grow.
+/// `rt_inplace_field_varwidth_set` drives the overflow at a STATE site and checks
+/// the owner. `list (State-Dynamic) set` was the worst row in the suite at 17742x.
 #[test]
-fn variable_width_list_set_on_a_state_field_declines() {
+fn variable_width_list_set_on_a_state_field_grows_the_state_block() {
     let plan = ncode(
         "p121d_state_listset_var",
         &state_src(
@@ -449,18 +452,19 @@ fn variable_width_list_set_on_a_state_field_declines() {
     );
     assert_eq!(
         stack_slot_count(&plan, "_mfb_fn_mutate", "state_assign_value"),
-        1,
-        "plan-121-D: `set` of a VARIABLE-width element into a STATE-held List must \
-         DECLINE to the copying rebuild. The replacement can outgrow what it \
-         replaces, making the rebuild branch reachable; taking the sub-block route \
-         would hand that branch an address inside the live STATE block. Declining \
-         is slow, never wrong -- and only this negative test can see it, because \
-         no `.ncode` golden covers a STATE collection update at all (Correction D1)."
+        0,
+        "bug-759: `set` of a variable-width element into a STATE-held List runs in \
+         place, not the copying rebuild."
     );
     assert_eq!(
         stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_state_set_index"),
-        0,
-        "plan-121-D: the declining shape must not allocate the in-place arm's slot."
+        1,
+        "bug-759: the STATE list-`set` arm must be the one that fired."
+    );
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_mutate", "inplace_inlined_field_off") >= 1,
+        "bug-759: and it carries InlineGrow -- its overflow repack grows the STATE \
+         block, never a bare sub-block inside it."
     );
 }
 

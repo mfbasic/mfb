@@ -443,21 +443,15 @@ pub(super) fn emit_main_bootstrap(
     asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
     asm.push(abi::branch_eq("gui_defer_worker"));
 
-    // Headless: pthread_create(&tid, NULL, worker, &argblock); then spin while the
-    // worker runs the program and exits the process.
-    asm.push(abi::add_immediate(
-        abi::c_arg(0),
-        abi::stack_pointer(),
-        OFF_TID,
-    ));
-    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
-    asm.push(abi::add_immediate(
-        abi::c_arg(3),
-        abi::stack_pointer(),
-        OFF_ARGC,
-    ));
-    asm.call_external("_pthread_create", LIB_SYSTEM);
+    // Headless: start the program thread (&argblock as its argument), then spin
+    // while the worker runs the program and exits the process.
+    emit_spawn_program_thread(&mut asm, OFF_TID, OFF_ATTR, |asm| {
+        asm.push(abi::add_immediate(
+            abi::c_arg(3),
+            abi::stack_pointer(),
+            OFF_ARGC,
+        ));
+    });
     // Park the main thread (block in pause() forever) instead of busy-spinning at
     // 100% CPU; the worker runs the program and exits the process.
     asm.push(abi::label("spin"));
@@ -2350,13 +2344,64 @@ fn emit_format_exit_code(asm: &mut Asm, _frame: usize) {
     ));
 }
 
+/// bug-803: start the thread that runs the MFBASIC program with a
+/// `THREAD_STACK_BYTES` stack — the stack a console program and every
+/// `thread::start` worker get — not the 512 KiB pthread default.
+/// `pthread_create(&tid, &attr, _mfb_macapp_worker, arg)`; `tid` and the 64-byte
+/// `pthread_attr_t` are frame slots, and `load_arg` puts the start argument in
+/// `c_arg(3)` after the attribute calls (which clobber the argument registers).
+fn emit_spawn_program_thread(
+    asm: &mut Asm,
+    tid_offset: usize,
+    attr_offset: usize,
+    load_arg: impl FnOnce(&mut Asm),
+) {
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.call_external("_pthread_attr_init", LIB_SYSTEM);
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.push(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        &crate::codegen::error::constants::THREAD_STACK_BYTES.to_string(),
+    ));
+    asm.call_external("_pthread_attr_setstacksize", LIB_SYSTEM);
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        tid_offset,
+    ));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
+    load_arg(asm);
+    asm.call_external("_pthread_create", LIB_SYSTEM);
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.call_external("_pthread_attr_destroy", LIB_SYSTEM);
+}
+
 /// IMP for `applicationDidFinishLaunching:` — spawns the worker thread now that
 /// AppKit has finished launching (plan-01-term.md §6.4). Runs on the main thread.
 /// `void applicationDidFinishLaunching:(id self, SEL _cmd, id notification)`.
 pub(super) fn emit_did_finish_launching_helper() -> CodeFunction {
     let mut asm = Asm::new(DID_FINISH_LAUNCHING_SYMBOL);
-    // Frame: lr@0, pthread_t@8 (thrown away; the worker is never joined).
-    let frame = 32;
+    // Frame: lr@0, pthread_t@8 (thrown away; the worker is never joined),
+    // &argblock@16 (kept across the attribute calls), pthread_attr_t@32..96.
+    let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -2372,13 +2417,11 @@ pub(super) fn emit_did_finish_launching_helper() -> CodeFunction {
     // argblock = objc_getAssociatedObject(app, &ARG_ASSOC_KEY)
     asm.local_address(abi::c_arg(1), ARG_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register(abi::c_arg(3), abi::c_arg(0))); // arg = &argblock
+    asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 16)); // &argblock
 
-    // pthread_create(&tid, NULL, _mfb_macapp_worker, &argblock)
-    asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 8)); // &tid
-    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
-    asm.call_external("_pthread_create", LIB_SYSTEM);
+    emit_spawn_program_thread(&mut asm, 8, 32, |asm| {
+        asm.push(abi::load_u64(abi::c_arg(3), abi::stack_pointer(), 16));
+    });
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(frame));

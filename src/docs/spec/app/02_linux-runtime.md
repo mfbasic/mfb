@@ -120,7 +120,11 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
 - `close-request` → `_mfb_gtkapp_window_closed`; `gtk_window_present(window)`.
 - `pipe(fds)`: read fd → `ST_PIPE_READ_FD`, write fd → `ST_PIPE_WRITE_FD`, and
   `dup2(read, 0)` so the reused console read helpers consume committed input on fd 0.
-- `pthread_create(&thread, NULL, _mfb_gtkapp_worker, NULL)` then `pthread_detach`.
+- `pthread_create(&thread, &attr, _mfb_gtkapp_worker, NULL)` then `pthread_detach`.
+  `attr` gives the program thread a `THREAD_STACK_BYTES` (8 MiB) stack, the size a
+  console program's main thread and every `thread::start` worker get; default
+  attributes would give it the libc default (128 KiB on musl). The headless gate in
+  `_mfb_gtkapp_main` spawns the worker the same way. [[src/target/linux_gtk/bootstrap.rs:emit_spawn_program_thread]]
 
 ## Worker thread
 
@@ -313,7 +317,9 @@ string in `x0` (`[x0]`=len, `x0+8`=UTF-8 bytes). Three paths, in order:
    `"[stderr] "` prefix for the error variants, plus a trailing `'\n'` for the
    newline variants) into a `malloc` chunk `[0]=len(u64), [16..]=bytes`, then
    `g_idle_add(_mfb_gtkapp_append_idle, chunk)`.
-3. else (headless / pre-window) fd fallback: `write(fd, bytes, len)` to fd 1/2.
+3. else (headless / pre-window, or a failed chunk `malloc`) fd fallback: the console
+   write loop to fd 1/2 (`emit_fd_write_all`): every byte or `ErrWriteFailed`,
+   `EINTR` retried, stdout `EPIPE` re-raising SIGPIPE.
 
 `_mfb_gtkapp_append_idle` (main thread) calls `_mfb_gtkapp_append` (insert at the
 end iter + auto-scroll via a temporary mark) and frees the chunk.

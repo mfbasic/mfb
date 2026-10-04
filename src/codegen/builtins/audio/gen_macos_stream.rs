@@ -91,6 +91,8 @@ pub(crate) fn lower_open_output(
         // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
         abi::move_immediate(&v9, "Integer", RESOURCE_TAG_AUDIO),
         abi::store_u64(&v9, &v15, RESOURCE_OFFSET_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, &v15, RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, &v15, RESOURCE_OFFSET_STATE),
         abi::move_immediate(&v9, "Integer", KIND_OUTPUT),
         abi::store_u64(&v9, &v15, H_KIND),
@@ -730,6 +732,8 @@ pub(crate) fn lower_open_input(
         // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
         abi::move_immediate(&v9, "Integer", RESOURCE_TAG_AUDIO),
         abi::store_u64(&v9, &v15, RESOURCE_OFFSET_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, &v15, RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, &v15, RESOURCE_OFFSET_STATE),
         abi::move_immediate(&v9, "Integer", KIND_INPUT),
         abi::store_u64(&v9, &v15, H_KIND),

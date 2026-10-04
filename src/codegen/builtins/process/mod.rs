@@ -1,7 +1,7 @@
 //! The built-in `process` package (plan-90).
 //!
 //! `process` spawns and manages child processes. Its one resource, `Process`, is
-//! a native resource (tag 10) whose 96-byte record tail holds the three pipe fds
+//! a native resource (tag 10) whose resource record tail holds the three pipe fds
 //! (stdin-write / stdout-read / stderr-read) plus the cached exit/signal state.
 //!
 //! `process` is a **native** OS-seam package migrated onto the clean-room registry
