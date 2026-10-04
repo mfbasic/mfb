@@ -10,30 +10,6 @@
   "types": [
   {
     "kind": "type",
-    "line": 5,
-    "visibility": "export",
-    "name": "csv.CsvReader",
-    "fields": [
-    { "visibility": null, "line": 6, "name": "chars", "type": "List OF Integer" },
-    { "visibility": null, "line": 7, "name": "count", "type": "Integer" },
-    { "visibility": null, "line": 8, "name": "index", "type": "Integer" },
-    { "visibility": null, "line": 9, "name": "delimCode", "type": "Integer" },
-    { "visibility": null, "line": 10, "name": "quoteCode", "type": "Integer" }
-    ]
-  },
-  {
-    "kind": "type",
-    "line": 13,
-    "visibility": "export",
-    "name": "csv.CsvRow",
-    "fields": [
-    { "visibility": null, "line": 14, "name": "fields", "type": "List OF String" },
-    { "visibility": null, "line": 15, "name": "reader", "type": "csv.CsvReader" },
-    { "visibility": null, "line": 16, "name": "done", "type": "Boolean" }
-    ]
-  },
-  {
-    "kind": "type",
     "line": 12,
     "visibility": "export",
     "name": "io.Key",
@@ -156,178 +132,178 @@
   },
   {
     "name": "#csv_fieldValue",
-    "line": 23,
+    "line": 10,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "chars", "line": 23, "type": "List OF Integer", "default": null },
-    { "name": "buf", "line": 23, "type": "List OF Integer", "default": null },
-    { "name": "wasQuoted", "line": 23, "type": "Boolean", "default": null },
-    { "name": "fieldStart", "line": 23, "type": "Integer", "default": null },
-    { "name": "index", "line": 23, "type": "Integer", "default": null }
+    { "name": "chars", "line": 10, "type": "List OF Integer", "default": null },
+    { "name": "buf", "line": 10, "type": "List OF Integer", "default": null },
+    { "name": "wasQuoted", "line": 10, "type": "Boolean", "default": null },
+    { "name": "fieldStart", "line": 10, "type": "Integer", "default": null },
+    { "name": "index", "line": 10, "type": "Integer", "default": null }
     ],
     "returns": "String",
     "body": [
     {
       "op": "if",
-      "line": 24,
+      "line": 11,
       "condition": { "kind": "local", "name": "wasQuoted" },
       "then": [
-      { "op": "return", "line": 25, "value": { "kind": "call", "type": "String", "target": "#encoding_utf32Decode", "args": [{ "kind": "local", "name": "buf" }] } }
+      { "op": "return", "line": 12, "value": { "kind": "call", "type": "String", "target": "#encoding_utf32Decode", "args": [{ "kind": "local", "name": "buf" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 27, "value": { "kind": "call", "type": "String", "target": "#csv_decodeRange", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] } }
+    { "op": "return", "line": 14, "value": { "kind": "call", "type": "String", "target": "#csv_decodeRange", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] } }
     ]
   },
   {
     "name": "#csv_decodeRange",
-    "line": 32,
+    "line": 19,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "chars", "line": 32, "type": "List OF Integer", "default": null },
-    { "name": "startIndex", "line": 32, "type": "Integer", "default": null },
-    { "name": "endIndex", "line": 32, "type": "Integer", "default": null }
+    { "name": "chars", "line": 19, "type": "List OF Integer", "default": null },
+    { "name": "startIndex", "line": 19, "type": "Integer", "default": null },
+    { "name": "endIndex", "line": 19, "type": "Integer", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 33, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
-    { "op": "bind", "line": 34, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "startIndex" } },
+    { "op": "bind", "line": 20, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 21, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "startIndex" } },
     {
       "op": "while",
-      "line": 35,
+      "line": 22,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "endIndex" } },
       "body": [
-      { "op": "bind", "line": 36, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 23, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "i" }] } },
       {
         "op": "if",
-        "line": 37,
+        "line": 24,
         "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "1114111" } } },
         "then": [
-        { "op": "fail", "line": 38, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid code point" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "38" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "line": 25, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid code point" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "25" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
       },
       {
         "op": "if",
-        "line": 40,
+        "line": 27,
         "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "55296" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "57343" } } },
         "then": [
-        { "op": "fail", "line": 41, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "surrogate code point" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "41" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "line": 28, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "surrogate code point" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "28" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 43, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#encoding_fromCodepoint", "args": [{ "kind": "local", "name": "cp" }] } } },
-      { "op": "assign", "line": 44, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 30, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#encoding_fromCodepoint", "args": [{ "kind": "local", "name": "cp" }] } } },
+      { "op": "assign", "line": 31, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 46, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 33, "value": { "kind": "local", "name": "out" } }
     ]
   },
   {
     "name": "#csv_isDoubledQuote",
-    "line": 49,
+    "line": 36,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "chars", "line": 49, "type": "List OF Integer", "default": null },
-    { "name": "count", "line": 49, "type": "Integer", "default": null },
-    { "name": "index", "line": 49, "type": "Integer", "default": null },
-    { "name": "quoteCode", "line": 49, "type": "Integer", "default": null }
+    { "name": "chars", "line": 36, "type": "List OF Integer", "default": null },
+    { "name": "count", "line": 36, "type": "Integer", "default": null },
+    { "name": "index", "line": 36, "type": "Integer", "default": null },
+    { "name": "quoteCode", "line": 36, "type": "Integer", "default": null }
     ],
     "returns": "Boolean",
     "body": [
     {
       "op": "if",
-      "line": 50,
+      "line": 37,
       "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "local", "name": "count" } },
       "then": [
-      { "op": "return", "line": 51, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      { "op": "return", "line": 38, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 53,
+      "line": 40,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }, "right": { "kind": "local", "name": "quoteCode" } },
       "then": [
-      { "op": "return", "line": 54, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 41, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 56, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 43, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#csv_firstCode",
-    "line": 61,
+    "line": 48,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "s", "line": 61, "type": "String", "default": null }
+    { "name": "s", "line": 48, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 62, "mutable": false, "name": "codes", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "codes", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "s" }] } },
     {
       "op": "if",
-      "line": 63,
+      "line": 50,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "codes" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "line": 64, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "csv: dialect delimiter/quote must be a non-empty character" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "64" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 51, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "csv: dialect delimiter/quote must be a non-empty character" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "51" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 66, "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "codes" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    { "op": "return", "line": 53, "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "codes" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
     ]
   },
   {
     "name": "#csv_separatorLength",
-    "line": 72,
+    "line": 59,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "chars", "line": 72, "type": "List OF Integer", "default": null },
-    { "name": "count", "line": 72, "type": "Integer", "default": null },
-    { "name": "index", "line": 72, "type": "Integer", "default": null }
+    { "name": "chars", "line": 59, "type": "List OF Integer", "default": null },
+    { "name": "count", "line": 59, "type": "Integer", "default": null },
+    { "name": "index", "line": 59, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 73, "mutable": false, "name": "ch", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    { "op": "bind", "line": 60, "mutable": false, "name": "ch", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
     {
       "op": "if",
-      "line": 74,
+      "line": 61,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "Integer", "value": "10" } },
       "then": [
-      { "op": "return", "line": 75, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 62, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 77,
+      "line": 64,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "Integer", "value": "13" } },
       "then": [
       {
         "op": "if",
-        "line": 78,
+        "line": 65,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "local", "name": "count" } },
         "then": [
         {
           "op": "if",
-          "line": 79,
+          "line": 66,
           "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }, "right": { "kind": "const", "type": "Integer", "value": "10" } },
           "then": [
-          { "op": "return", "line": 80, "value": { "kind": "const", "type": "Integer", "value": "2" } }
+          { "op": "return", "line": 67, "value": { "kind": "const", "type": "Integer", "value": "2" } }
           ],
           "else": [
           ]
@@ -340,255 +316,276 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 84, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 71, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "#csv_stringifyRow",
-    "line": 87,
+    "line": 74,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "row", "line": 87, "type": "List OF String", "default": null },
-    { "name": "delimiter", "line": 87, "type": "String", "default": null },
-    { "name": "quote", "line": 87, "type": "String", "default": null }
+    { "name": "row", "line": 74, "type": "List OF String", "default": null },
+    { "name": "delimiter", "line": 74, "type": "String", "default": null },
+    { "name": "quote", "line": 74, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 88, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
-    { "op": "bind", "line": 89, "mutable": true, "name": "firstField", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    { "op": "bind", "line": 75, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 76, "mutable": true, "name": "firstField", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
     {
       "op": "forEach",
-      "line": 90,
+      "line": 77,
       "name": "field",
       "type": "String",
       "iterable": { "kind": "local", "name": "row" },
       "body": [
       {
         "op": "if",
-        "line": 91,
+        "line": 78,
         "condition": { "kind": "local", "name": "firstField" },
         "then": [
-        { "op": "assign", "line": 92, "name": "firstField", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        { "op": "assign", "line": 79, "name": "firstField", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
         ],
         "else": [
-        { "op": "assign", "line": 94, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "local", "name": "delimiter" } } }
+        { "op": "assign", "line": 81, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "local", "name": "delimiter" } } }
         ]
       },
-      { "op": "assign", "line": 96, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#csv_encodeField", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "delimiter" }, { "kind": "local", "name": "quote" }] } } }
+      { "op": "assign", "line": 83, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#csv_encodeField", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "delimiter" }, { "kind": "local", "name": "quote" }] } } }
       ]
     },
-    { "op": "return", "line": 98, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 85, "value": { "kind": "local", "name": "out" } }
     ]
   },
   {
     "name": "#csv_encodeField",
-    "line": 101,
+    "line": 88,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "field", "line": 101, "type": "String", "default": null },
-    { "name": "delimiter", "line": 101, "type": "String", "default": null },
-    { "name": "quote", "line": 101, "type": "String", "default": null }
+    { "name": "field", "line": 88, "type": "String", "default": null },
+    { "name": "delimiter", "line": 88, "type": "String", "default": null },
+    { "name": "quote", "line": 88, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
     {
       "op": "if",
-      "line": 102,
+      "line": 89,
       "condition": { "kind": "call", "type": "Boolean", "target": "#csv_needsQuote", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "delimiter" }, { "kind": "local", "name": "quote" }] },
       "then": [
-      { "op": "return", "line": 103, "value": { "kind": "call", "type": "String", "target": "#csv_quoteField", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "quote" }] } }
+      { "op": "return", "line": 90, "value": { "kind": "call", "type": "String", "target": "#csv_quoteField", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "quote" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 105, "value": { "kind": "local", "name": "field" } }
+    { "op": "return", "line": 92, "value": { "kind": "local", "name": "field" } }
     ]
   },
   {
     "name": "#csv_needsQuote",
-    "line": 108,
+    "line": 95,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "field", "line": 108, "type": "String", "default": null },
-    { "name": "delimiter", "line": 108, "type": "String", "default": null },
-    { "name": "quote", "line": 108, "type": "String", "default": null }
+    { "name": "field", "line": 95, "type": "String", "default": null },
+    { "name": "delimiter", "line": 95, "type": "String", "default": null },
+    { "name": "quote", "line": 95, "type": "String", "default": null }
     ],
     "returns": "Boolean",
     "body": [
     {
       "op": "if",
-      "line": 109,
+      "line": 96,
       "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "delimiter" }] },
       "then": [
-      { "op": "return", "line": 110, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 97, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 112,
+      "line": 99,
       "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "quote" }] },
       "then": [
-      { "op": "return", "line": 113, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 100, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 115,
+      "line": 102,
       "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "field" }, { "kind": "const", "type": "String", "value": "\r" }] },
       "then": [
-      { "op": "return", "line": 116, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 103, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 118,
+      "line": 105,
       "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "field" }, { "kind": "const", "type": "String", "value": "\n" }] },
       "then": [
-      { "op": "return", "line": 119, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 106, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 121, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 108, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#csv_quoteField",
-    "line": 124,
+    "line": 111,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "field", "line": 124, "type": "String", "default": null },
-    { "name": "quote", "line": 124, "type": "String", "default": null }
+    { "name": "field", "line": 111, "type": "String", "default": null },
+    { "name": "quote", "line": 111, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "line": 126, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "quote" }, "right": { "kind": "call", "type": "String", "target": "strings.replace", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "quote" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "quote" }, "right": { "kind": "local", "name": "quote" } }] } }, "right": { "kind": "local", "name": "quote" } } }
+    { "op": "return", "line": 113, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "quote" }, "right": { "kind": "call", "type": "String", "target": "strings.replace", "args": [{ "kind": "local", "name": "field" }, { "kind": "local", "name": "quote" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "quote" }, "right": { "kind": "local", "name": "quote" } }] } }, "right": { "kind": "local", "name": "quote" } } }
     ]
   },
   {
-    "name": "#csv_parse",
-    "line": 129,
+    "name": "#csv_scan",
+    "line": 118,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 129, "type": "String", "default": null },
-    { "name": "delimiter", "line": 129, "type": "String", "default": null },
-    { "name": "quote", "line": 129, "type": "String", "default": null }
+    { "name": "file", "line": 118, "type": "fs.File", "default": null },
+    { "name": "text", "line": 118, "type": "String", "default": null },
+    { "name": "delimCode", "line": 118, "type": "Integer", "default": null },
+    { "name": "quoteCode", "line": 118, "type": "Integer", "default": null },
+    { "name": "maxRecords", "line": 118, "type": "Integer", "default": null }
     ],
     "returns": "List OF List OF String",
     "body": [
-    { "op": "bind", "line": 130, "mutable": false, "name": "delimCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "delimiter" }] } },
-    { "op": "bind", "line": 131, "mutable": false, "name": "quoteCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "quote" }] } },
-    { "op": "bind", "line": 132, "mutable": false, "name": "chars", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "value" }] } },
-    { "op": "bind", "line": 133, "mutable": false, "name": "count", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
-    { "op": "bind", "line": 134, "mutable": true, "name": "rows", "type": "List OF List OF String", "value": { "kind": "list", "type": "List OF List OF String", "values": [] } },
-    { "op": "bind", "line": 135, "mutable": true, "name": "row", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
-    { "op": "bind", "line": 136, "mutable": true, "name": "fieldBuf", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 137, "mutable": true, "name": "fieldStart", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 138, "mutable": true, "name": "index", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 139, "mutable": true, "name": "inQuotes", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 140, "mutable": true, "name": "fieldStarted", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 141, "mutable": true, "name": "wasQuoted", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 142, "mutable": true, "name": "recordPending", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 119, "mutable": true, "name": "chars", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "bind", "line": 120, "mutable": true, "name": "count", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+    { "op": "bind", "line": 121, "mutable": true, "name": "rows", "type": "List OF List OF String", "value": { "kind": "list", "type": "List OF List OF String", "values": [] } },
+    { "op": "bind", "line": 122, "mutable": true, "name": "row", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+    { "op": "bind", "line": 123, "mutable": true, "name": "fieldBuf", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 124, "mutable": true, "name": "fieldStart", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 125, "mutable": true, "name": "index", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 126, "mutable": true, "name": "taken", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 127, "mutable": true, "name": "inQuotes", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 128, "mutable": true, "name": "fieldStarted", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 129, "mutable": true, "name": "wasQuoted", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 130, "mutable": true, "name": "recordPending", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 131, "mutable": true, "name": "done", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     {
       "op": "while",
-      "line": 144,
+      "line": 133,
       "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "local", "name": "count" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "done" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
       "body": [
-      { "op": "bind", "line": 145, "mutable": false, "name": "ch", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
       {
-        "op": "if",
-        "line": 146,
-        "condition": { "kind": "local", "name": "inQuotes" },
-        "then": [
+        "op": "while",
+        "line": 134,
+        "loop": "while",
+        "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "local", "name": "count" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "done" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } } },
+        "body": [
+        { "op": "bind", "line": 135, "mutable": false, "name": "ch", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
         {
           "op": "if",
-          "line": 147,
-          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "quoteCode" } },
+          "line": 136,
+          "condition": { "kind": "local", "name": "inQuotes" },
           "then": [
           {
             "op": "if",
-            "line": 148,
-            "condition": { "kind": "call", "type": "Boolean", "target": "#csv_isDoubledQuote", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "quoteCode" }] },
+            "line": 137,
+            "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "quoteCode" } },
             "then": [
-            { "op": "assign", "line": 149, "name": "fieldBuf", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "quoteCode" }] } },
-            { "op": "assign", "line": 150, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+            {
+              "op": "if",
+              "line": 138,
+              "condition": { "kind": "call", "type": "Boolean", "target": "#csv_isDoubledQuote", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "quoteCode" }] },
+              "then": [
+              { "op": "assign", "line": 139, "name": "fieldBuf", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "quoteCode" }] } },
+              { "op": "assign", "line": 140, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+              ],
+              "else": [
+              { "op": "assign", "line": 142, "name": "inQuotes", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+              { "op": "assign", "line": 143, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+              { "op": "assign", "line": 144, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+              ]
+            }
             ],
             "else": [
-            { "op": "assign", "line": 152, "name": "inQuotes", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-            { "op": "assign", "line": 153, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-            { "op": "assign", "line": 154, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            { "op": "assign", "line": 147, "name": "fieldBuf", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "ch" }] } },
+            { "op": "assign", "line": 148, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
             ]
           }
           ],
           "else": [
-          { "op": "assign", "line": 157, "name": "fieldBuf", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "ch" }] } },
-          { "op": "assign", "line": 158, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
-          ]
-        }
-        ],
-        "else": [
-        {
-          "op": "if",
-          "line": 160,
-          "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "#csv_separatorLength", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-          "then": [
-          { "op": "assign", "line": 161, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
-          { "op": "assign", "line": 162, "name": "rows", "value": { "kind": "call", "type": "List OF List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rows" }, { "kind": "local", "name": "row" }] } },
-          { "op": "assign", "line": 163, "name": "row", "value": { "kind": "list", "type": "List OF String", "values": [] } },
-          { "op": "assign", "line": 164, "name": "fieldBuf", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-          { "op": "assign", "line": 165, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-          { "op": "assign", "line": 166, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-          { "op": "assign", "line": 167, "name": "recordPending", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-          { "op": "assign", "line": 168, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "type": "Integer", "target": "#csv_separatorLength", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }] } } },
-          { "op": "assign", "line": 169, "name": "fieldStart", "value": { "kind": "local", "name": "index" } }
-          ],
-          "else": [
           {
             "op": "if",
-            "line": 170,
-            "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "delimCode" } },
+            "line": 150,
+            "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "#csv_separatorLength", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
             "then": [
-            { "op": "assign", "line": 171, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
-            { "op": "assign", "line": 172, "name": "fieldBuf", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-            { "op": "assign", "line": 173, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-            { "op": "assign", "line": 174, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-            { "op": "assign", "line": 175, "name": "recordPending", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-            { "op": "assign", "line": 176, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-            { "op": "assign", "line": 177, "name": "fieldStart", "value": { "kind": "local", "name": "index" } }
+            { "op": "assign", "line": 151, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
+            { "op": "assign", "line": 152, "name": "rows", "value": { "kind": "call", "type": "List OF List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rows" }, { "kind": "local", "name": "row" }] } },
+            { "op": "assign", "line": 153, "name": "row", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+            { "op": "assign", "line": 154, "name": "fieldBuf", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+            { "op": "assign", "line": 155, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+            { "op": "assign", "line": 156, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+            { "op": "assign", "line": 157, "name": "recordPending", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+            { "op": "assign", "line": 158, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "type": "Integer", "target": "#csv_separatorLength", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }] } } },
+            { "op": "assign", "line": 159, "name": "fieldStart", "value": { "kind": "local", "name": "index" } },
+            { "op": "assign", "line": 160, "name": "taken", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "taken" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+            {
+              "op": "if",
+              "line": 161,
+              "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "taken" }, "right": { "kind": "local", "name": "maxRecords" } },
+              "then": [
+              { "op": "assign", "line": 162, "name": "done", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+              ],
+              "else": [
+              ]
+            }
             ],
             "else": [
             {
               "op": "if",
-              "line": 178,
-              "condition": { "kind": "local", "name": "wasQuoted" },
+              "line": 164,
+              "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "delimCode" } },
               "then": [
-              { "op": "fail", "line": 179, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid CSV format" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "179" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+              { "op": "assign", "line": 165, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
+              { "op": "assign", "line": 166, "name": "fieldBuf", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+              { "op": "assign", "line": 167, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+              { "op": "assign", "line": 168, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+              { "op": "assign", "line": 169, "name": "recordPending", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+              { "op": "assign", "line": 170, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+              { "op": "assign", "line": 171, "name": "fieldStart", "value": { "kind": "local", "name": "index" } }
               ],
               "else": [
               {
                 "op": "if",
-                "line": 180,
-                "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "quoteCode" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "fieldStarted" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } } },
+                "line": 172,
+                "condition": { "kind": "local", "name": "wasQuoted" },
                 "then": [
-                { "op": "assign", "line": 181, "name": "inQuotes", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-                { "op": "assign", "line": 182, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-                { "op": "assign", "line": 183, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+                { "op": "fail", "line": 173, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid CSV format" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "173" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
                 ],
                 "else": [
-                { "op": "assign", "line": 185, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-                { "op": "assign", "line": 186, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+                {
+                  "op": "if",
+                  "line": 174,
+                  "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "quoteCode" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "fieldStarted" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } } },
+                  "then": [
+                  { "op": "assign", "line": 175, "name": "inQuotes", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+                  { "op": "assign", "line": 176, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+                  { "op": "assign", "line": 177, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+                  ],
+                  "else": [
+                  { "op": "assign", "line": 179, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+                  { "op": "assign", "line": 180, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+                  ]
+                }
                 ]
               }
               ]
@@ -598,247 +595,159 @@
           ]
         }
         ]
+      },
+      {
+        "op": "if",
+        "line": 183,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "done" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "then": [
+        { "op": "bind", "line": 184, "mutable": false, "name": "more", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readLineRaw", "args": [{ "kind": "local", "name": "file" }] } },
+        {
+          "op": "if",
+          "line": 185,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "more" }, "right": { "kind": "const", "type": "String", "value": "" } },
+          "then": [
+          { "op": "assign", "line": 186, "name": "done", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+          ],
+          "else": [
+          { "op": "assign", "line": 188, "name": "chars", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "more" }] } },
+          { "op": "assign", "line": 189, "name": "count", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+          { "op": "assign", "line": 190, "name": "index", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+          { "op": "assign", "line": 191, "name": "fieldStart", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+          ]
+        }
+        ],
+        "else": [
+        ]
       }
       ]
     },
     {
       "op": "if",
-      "line": 190,
+      "line": 196,
       "condition": { "kind": "local", "name": "inQuotes" },
       "then": [
-      { "op": "fail", "line": 191, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid CSV format" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "191" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 197, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid CSV format" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "197" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 194,
+      "line": 200,
       "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "local", "name": "fieldStarted" }, "right": { "kind": "local", "name": "recordPending" } }, "right": { "kind": "local", "name": "wasQuoted" } },
       "then": [
-      { "op": "assign", "line": 195, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
-      { "op": "assign", "line": 196, "name": "rows", "value": { "kind": "call", "type": "List OF List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rows" }, { "kind": "local", "name": "row" }] } }
+      { "op": "assign", "line": 201, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
+      { "op": "assign", "line": 202, "name": "rows", "value": { "kind": "call", "type": "List OF List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "rows" }, { "kind": "local", "name": "row" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 199, "value": { "kind": "local", "name": "rows" } }
+    { "op": "return", "line": 205, "value": { "kind": "local", "name": "rows" } }
+    ]
+  },
+  {
+    "name": "#csv_parse",
+    "line": 208,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 208, "type": "String", "default": null },
+    { "name": "delimiter", "line": 208, "type": "String", "default": null },
+    { "name": "quote", "line": 208, "type": "String", "default": null }
+    ],
+    "returns": "List OF List OF String",
+    "body": [
+    { "op": "bind", "line": 209, "mutable": false, "name": "delimCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "delimiter" }] } },
+    { "op": "bind", "line": 210, "mutable": false, "name": "quoteCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "quote" }] } },
+    { "op": "bind", "line": 211, "mutable": false, "name": "ended", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openData", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "r" }] } },
+    { "op": "return", "line": 212, "value": { "kind": "call", "type": "List OF List OF String", "target": "#csv_scan", "args": [{ "kind": "local", "name": "ended" }, { "kind": "local", "name": "value" }, { "kind": "local", "name": "delimCode" }, { "kind": "local", "name": "quoteCode" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  },
+  {
+    "name": "#csv_parseFile",
+    "line": 215,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 215, "type": "fs.File", "default": null },
+    { "name": "delimiter", "line": 215, "type": "String", "default": null },
+    { "name": "quote", "line": 215, "type": "String", "default": null }
+    ],
+    "returns": "List OF List OF String",
+    "body": [
+    { "op": "bind", "line": 216, "mutable": false, "name": "delimCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "delimiter" }] } },
+    { "op": "bind", "line": 217, "mutable": false, "name": "quoteCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "quote" }] } },
+    { "op": "return", "line": 218, "value": { "kind": "call", "type": "List OF List OF String", "target": "#csv_scan", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "local", "name": "delimCode" }, { "kind": "local", "name": "quoteCode" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
     ]
   },
   {
     "name": "#csv_stringify",
-    "line": 202,
+    "line": 221,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 202, "type": "List OF List OF String", "default": null },
-    { "name": "delimiter", "line": 202, "type": "String", "default": null },
-    { "name": "quote", "line": 202, "type": "String", "default": null },
-    { "name": "newline", "line": 202, "type": "String", "default": null }
+    { "name": "value", "line": 221, "type": "List OF List OF String", "default": null },
+    { "name": "delimiter", "line": 221, "type": "String", "default": null },
+    { "name": "quote", "line": 221, "type": "String", "default": null },
+    { "name": "newline", "line": 221, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 203, "mutable": false, "name": "checkDelimiter", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "delimiter" }] } },
-    { "op": "bind", "line": 204, "mutable": false, "name": "checkQuote", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "quote" }] } },
-    { "op": "bind", "line": 205, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
-    { "op": "bind", "line": 206, "mutable": true, "name": "firstRow", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    { "op": "bind", "line": 222, "mutable": false, "name": "checkDelimiter", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "delimiter" }] } },
+    { "op": "bind", "line": 223, "mutable": false, "name": "checkQuote", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "quote" }] } },
+    { "op": "bind", "line": 224, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 225, "mutable": true, "name": "firstRow", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
     {
       "op": "forEach",
-      "line": 207,
+      "line": 226,
       "name": "row",
       "type": "List OF String",
       "iterable": { "kind": "local", "name": "value" },
       "body": [
       {
         "op": "if",
-        "line": 208,
+        "line": 227,
         "condition": { "kind": "local", "name": "firstRow" },
         "then": [
-        { "op": "assign", "line": 209, "name": "firstRow", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        { "op": "assign", "line": 228, "name": "firstRow", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
         ],
         "else": [
-        { "op": "assign", "line": 211, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "local", "name": "newline" } } }
+        { "op": "assign", "line": 230, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "local", "name": "newline" } } }
         ]
       },
-      { "op": "assign", "line": 213, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#csv_stringifyRow", "args": [{ "kind": "local", "name": "row" }, { "kind": "local", "name": "delimiter" }, { "kind": "local", "name": "quote" }] } } }
+      { "op": "assign", "line": 232, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "#csv_stringifyRow", "args": [{ "kind": "local", "name": "row" }, { "kind": "local", "name": "delimiter" }, { "kind": "local", "name": "quote" }] } } }
       ]
     },
-    { "op": "return", "line": 215, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 234, "value": { "kind": "local", "name": "out" } }
     ]
   },
   {
-    "name": "#csv_parseStream",
-    "line": 218,
+    "name": "#csv_readRow",
+    "line": 237,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 218, "type": "String", "default": null },
-    { "name": "delimiter", "line": 218, "type": "String", "default": null },
-    { "name": "quote", "line": 218, "type": "String", "default": null }
+    { "name": "file", "line": 237, "type": "fs.File", "default": null },
+    { "name": "delimiter", "line": 237, "type": "String", "default": null },
+    { "name": "quote", "line": 237, "type": "String", "default": null }
     ],
-    "returns": "csv.CsvReader",
+    "returns": "List OF String",
     "body": [
-    { "op": "bind", "line": 219, "mutable": false, "name": "chars", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "value" }] } },
-    { "op": "return", "line": 220, "value": { "kind": "constructor", "type": "csv.CsvReader", "args": [{ "kind": "local", "name": "chars" }, { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "chars" }] }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "delimiter" }] }, { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "quote" }] }] } }
-    ]
-  },
-  {
-    "name": "#csv_next",
-    "line": 223,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    { "name": "reader", "line": 223, "type": "csv.CsvReader", "default": null }
-    ],
-    "returns": "csv.CsvRow",
-    "body": [
-    { "op": "bind", "line": 224, "mutable": false, "name": "chars", "type": "List OF Integer", "value": { "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "reader" }, "member": "chars" } },
-    { "op": "bind", "line": 225, "mutable": false, "name": "count", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "reader" }, "member": "count" } },
-    { "op": "bind", "line": 226, "mutable": false, "name": "delimCode", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "reader" }, "member": "delimCode" } },
-    { "op": "bind", "line": 227, "mutable": false, "name": "quoteCode", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "reader" }, "member": "quoteCode" } },
-    { "op": "bind", "line": 228, "mutable": true, "name": "index", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "reader" }, "member": "index" } },
+    { "op": "bind", "line": 238, "mutable": false, "name": "delimCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "delimiter" }] } },
+    { "op": "bind", "line": 239, "mutable": false, "name": "quoteCode", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#csv_firstCode", "args": [{ "kind": "local", "name": "quote" }] } },
+    { "op": "bind", "line": 240, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readLineRaw", "args": [{ "kind": "local", "name": "file" }] } },
     {
       "op": "if",
-      "line": 229,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "count" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "line": 241,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "line" }, "right": { "kind": "const", "type": "String", "value": "" } },
       "then": [
-      { "op": "fail", "line": 230, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "csv: the reader's count field is not the length of its chars" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "230" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 242, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77020003" }, { "kind": "const", "type": "String", "value": "csv: no record left before the end of the file" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "242" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    {
-      "op": "if",
-      "line": 232,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "index" }, "right": { "kind": "local", "name": "count" } } },
-      "then": [
-      { "op": "fail", "line": 233, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "csv: the reader's index field is outside 0 .. count" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "233" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
-      ],
-      "else": [
-      ]
-    },
-    {
-      "op": "if",
-      "line": 235,
-      "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "local", "name": "count" } },
-      "then": [
-      { "op": "return", "line": 236, "value": { "kind": "constructor", "type": "csv.CsvRow", "args": [{ "kind": "list", "type": "List OF String", "values": [] }, { "kind": "local", "name": "reader" }, { "kind": "const", "type": "Boolean", "value": "true" }] } }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "bind", "line": 238, "mutable": true, "name": "row", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
-    { "op": "bind", "line": 239, "mutable": true, "name": "fieldBuf", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 240, "mutable": true, "name": "fieldStart", "type": "Integer", "value": { "kind": "local", "name": "index" } },
-    { "op": "bind", "line": 241, "mutable": true, "name": "inQuotes", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 242, "mutable": true, "name": "fieldStarted", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 243, "mutable": true, "name": "wasQuoted", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    {
-      "op": "while",
-      "line": 244,
-      "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "local", "name": "count" } },
-      "body": [
-      { "op": "bind", "line": 245, "mutable": false, "name": "ch", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
-      {
-        "op": "if",
-        "line": 246,
-        "condition": { "kind": "local", "name": "inQuotes" },
-        "then": [
-        {
-          "op": "if",
-          "line": 247,
-          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "quoteCode" } },
-          "then": [
-          {
-            "op": "if",
-            "line": 248,
-            "condition": { "kind": "call", "type": "Boolean", "target": "#csv_isDoubledQuote", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "quoteCode" }] },
-            "then": [
-            { "op": "assign", "line": 249, "name": "fieldBuf", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "quoteCode" }] } },
-            { "op": "assign", "line": 250, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
-            ],
-            "else": [
-            { "op": "assign", "line": 252, "name": "inQuotes", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-            { "op": "assign", "line": 253, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-            { "op": "assign", "line": 254, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
-            ]
-          }
-          ],
-          "else": [
-          { "op": "assign", "line": 257, "name": "fieldBuf", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "ch" }] } },
-          { "op": "assign", "line": 258, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
-          ]
-        }
-        ],
-        "else": [
-        {
-          "op": "if",
-          "line": 260,
-          "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "#csv_separatorLength", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-          "then": [
-          { "op": "assign", "line": 261, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
-          { "op": "assign", "line": 262, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "type": "Integer", "target": "#csv_separatorLength", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }] } } },
-          { "op": "return", "line": 263, "value": { "kind": "constructor", "type": "csv.CsvRow", "args": [{ "kind": "local", "name": "row" }, { "kind": "constructor", "type": "csv.CsvReader", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "delimCode" }, { "kind": "local", "name": "quoteCode" }] }, { "kind": "const", "type": "Boolean", "value": "false" }] } }
-          ],
-          "else": [
-          {
-            "op": "if",
-            "line": 264,
-            "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "delimCode" } },
-            "then": [
-            { "op": "assign", "line": 265, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
-            { "op": "assign", "line": 266, "name": "fieldBuf", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-            { "op": "assign", "line": 267, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-            { "op": "assign", "line": 268, "name": "wasQuoted", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-            { "op": "assign", "line": 269, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-            { "op": "assign", "line": 270, "name": "fieldStart", "value": { "kind": "local", "name": "index" } }
-            ],
-            "else": [
-            {
-              "op": "if",
-              "line": 271,
-              "condition": { "kind": "local", "name": "wasQuoted" },
-              "then": [
-              { "op": "fail", "line": 272, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid CSV format" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "272" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
-              ],
-              "else": [
-              {
-                "op": "if",
-                "line": 273,
-                "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "local", "name": "quoteCode" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "fieldStarted" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } } },
-                "then": [
-                { "op": "assign", "line": 274, "name": "inQuotes", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-                { "op": "assign", "line": 275, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-                { "op": "assign", "line": 276, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
-                ],
-                "else": [
-                { "op": "assign", "line": 278, "name": "fieldStarted", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-                { "op": "assign", "line": 279, "name": "index", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
-                ]
-              }
-              ]
-            }
-            ]
-          }
-          ]
-        }
-        ]
-      }
-      ]
-    },
-    {
-      "op": "if",
-      "line": 282,
-      "condition": { "kind": "local", "name": "inQuotes" },
-      "then": [
-      { "op": "fail", "line": 283, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid CSV format" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/csv.mfb" }, { "kind": "const", "type": "Integer", "value": "283" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "assign", "line": 285, "name": "row", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "local", "name": "row" }, { "kind": "call", "type": "String", "target": "#csv_fieldValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "fieldBuf" }, { "kind": "local", "name": "wasQuoted" }, { "kind": "local", "name": "fieldStart" }, { "kind": "local", "name": "index" }] }] } },
-    { "op": "return", "line": 286, "value": { "kind": "constructor", "type": "csv.CsvRow", "args": [{ "kind": "local", "name": "row" }, { "kind": "constructor", "type": "csv.CsvReader", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "count" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "delimCode" }, { "kind": "local", "name": "quoteCode" }] }, { "kind": "const", "type": "Boolean", "value": "false" }] } }
+    { "op": "return", "line": 244, "value": { "kind": "call", "type": "List OF String", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF List OF String", "target": "#csv_scan", "args": [{ "kind": "local", "name": "file" }, { "kind": "local", "name": "line" }, { "kind": "local", "name": "delimCode" }, { "kind": "local", "name": "quoteCode" }, { "kind": "const", "type": "Integer", "value": "1" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } }
     ]
   },
   {

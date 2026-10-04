@@ -16,7 +16,7 @@ tests/syntax/json/func_json_parse_invalid/src/main.mfb:12 error[2-203-0043 TYPE_
   13 |   LET wrongType AS json::Json = json::parse(TRUE)
      | ^
 tests/syntax/json/func_json_parse_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.parse` has argument type(s) (Boolean), expected String or String, FUNC(String, Json) AS Json.
+               Call to `json.parse` has argument type(s) (Boolean), expected String or File or String, FUNC(String, Json) AS Json or File, FUNC(String, Json) AS Json.
   11 | FUNC main AS Integer
   12 |   LET missing AS json::Json = json::parse()
   13 |   LET wrongType AS json::Json = json::parse(TRUE)
@@ -28,7 +28,7 @@ tests/syntax/json/func_json_parse_invalid/src/main.mfb:13 error[2-203-0043 TYPE_
   14 |   LET tooMany AS json::Json = json::parse("{}", "{}")
      | ^
 tests/syntax/json/func_json_parse_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.parse` has argument type(s) (String, String), expected String or String, FUNC(String, Json) AS Json.
+               Call to `json.parse` has argument type(s) (String, String), expected String or File or String, FUNC(String, Json) AS Json or File, FUNC(String, Json) AS Json.
   12 |   LET missing AS json::Json = json::parse()
   13 |   LET wrongType AS json::Json = json::parse(TRUE)
   14 |   LET tooMany AS json::Json = json::parse("{}", "{}")
@@ -58,7 +58,7 @@ tests/syntax/json/func_json_parse_invalid/src/main.mfb:15 error[2-203-0043 TYPE_
   16 |   LET badReviver AS json::Json = json::parse("{}", wrongReviver)
      | ^
 tests/syntax/json/func_json_parse_invalid/src/main.mfb:16 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.parse` has argument type(s) (String, FUNC(Integer) AS Integer), expected String or String, FUNC(String, Json) AS Json.
+               Call to `json.parse` has argument type(s) (String, FUNC(Integer) AS Integer), expected String or File or String, FUNC(String, Json) AS Json or File, FUNC(String, Json) AS Json.
   14 |   LET tooMany AS json::Json = json::parse("{}", "{}")
   15 |   LET badName AS json::Json = json::parse(textValue := "{}")
   16 |   LET badReviver AS json::Json = json::parse("{}", wrongReviver)
