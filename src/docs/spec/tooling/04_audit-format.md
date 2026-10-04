@@ -286,29 +286,38 @@ fallible, the call's `capability` field).
 
 ### Fallible-call table
 
-A call is fallible if its callee's package is a known-fallible builtin namespace,
-or if it names a user function already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
+A call is fallible if its callee is a built-in that declares an error, if it falls
+under one of the hand-maintained builtin tables, or if it names a user function
+already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
 
 ```text
-fallible builtin packages: fs, io, json, net, thread, tls, http, tcp, udp
-per-builtin fallible sets: the raising members of crypto, datetime, audio, os,
-                           regex, csv and encoding, plus the bare conversions
-                           toInt / toFloat / toFixed / toMoney / toScalar / toByte
-otherwise:                 callee ∈ fallible-user-function set
+toInt(<enum>):              total (checked first)
+inline-census built-ins:    fallible iff some overload declares an error
+                            (bare general names, inline collections/strings/bits/math members)
+any other built-in:         fallible if some overload declares an error, or
+fallible builtin packages:  fs, io, json, net, thread, tls, http, tcp, udp, or
+per-builtin fallible sets:  the raising members of crypto, datetime, audio, os,
+                            regex, csv and encoding, plus the bare conversions
+otherwise:                  callee ∈ fallible-user-function set
 ```
 
-The per-builtin sets exist because those packages mix total and raising
-operations, so a coarse package match would over-report — `audio::xruns` is a
-counter read, most of `crypto` is computation over caller-supplied bytes, and
-`datetime` arithmetic is total. The membership is a manually maintained table; it is not computed from
-registry error descriptors.[[src/audit/collect/source.rs:is_fallible_builtin]]
+The declared-error rule is the one the inline-`TRAP` census applies (`./mfb spec
+language error-model`, rule 11), read off the same registry descriptors, so for
+the built-ins that census answers for — the bare `general` names and the
+inline-lowered members — `mfb audit` and the dead-handler warning agree by
+construction: every `toString` overload is fallible (each can raise
+`ErrOutOfMemory`), `len` and `typeName` are total, and an allocating
+`collections`/`strings` member is fallible.[[src/audit/collect/source.rs:in_inline_census]]
+[[src/audit/collect/source.rs:builtin_declares_error]]
+
+Outside that domain the hand tables are a floor, not a ceiling. They predate the
+declared-error rule, and they still cover a member whose body raises an error its
+descriptor does not declare — `crypto::hmac` is one — which the declared-error
+rule alone would report total.[[src/audit/collect/source.rs:is_fallible_builtin]]
 
 `toInt` of a provably enum-valued argument is treated as total. The collector
 tracks declared enum types, enum parameters and enum-valued local bindings for
-this exception. `tcp` and `udp` are whole-package entries because every member
-declares at least one error. A unit test keeps that true, so a total member added
-later would have to move both packages to the per-builtin table.
-[[src/audit/collect/source.rs:is_fallible_call]]
+this exception.[[src/audit/collect/source.rs:is_fallible_call]]
 
 A call whose error is fully handled by an enclosing inline `TRAP … RECOVER` does
 not make its function fallible, and its `propagation` is reported as `trap`. A
