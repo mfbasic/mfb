@@ -951,6 +951,10 @@ name = "rt_inline_trap_success_alloc"
 path = "tests/runtime/rt_inline_trap_success_alloc.rs"
 
 [[test]]
+name = "rt_returned_transform_element_type"
+path = "tests/runtime/rt_returned_transform_element_type.rs"
+
+[[test]]
 name = "rt_inline_trap_union_bind"
 path = "tests/runtime/rt_inline_trap_union_bind.rs"
 

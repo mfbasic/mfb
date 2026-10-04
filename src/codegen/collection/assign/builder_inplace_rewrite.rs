@@ -386,6 +386,22 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = resolved.collection_type.clone();
+        // The arm rewrites `x`'s elements as they are, so it needs `f` to return
+        // `x`'s element type. An assignment guarantees that by type-checking, but
+        // plan-147-B also runs this arm for `RETURN collections::transform(x, f)`,
+        // where only the FUNCTION's return type constrains the result: a mapping
+        // to another element type (`List OF Integer` -> `List OF String`) failed
+        // the whole build below. Decline before emitting anything; the copying
+        // `transform` builds the new list.
+        if let Some(output_type) = self
+            .static_type_name(&resolved.args[1])
+            .as_ref()
+            .and_then(typed_callable_return_type)
+        {
+            if *output_type != element_type {
+                return Ok(false);
+            }
+        }
         // plan-145-D/E: a variable-width element's reserve may repack (see
         // `replace`); the callable operand is no view into the owner.
         if list_entry_stride(&element_type) != 0 && !self.field_realloc_admitted(site, &[]) {
