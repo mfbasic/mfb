@@ -1,0 +1,124 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fixed_tostring_rounds_near_max",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "at",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 9, "type": "Fixed", "default": null },
+    { "name": "places", "line": 9, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "places" }] }] } }
+    ]
+  },
+  {
+    "name": "dflt",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 13, "type": "Fixed", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 14, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "max-ish 2: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.996" }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "dflt", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.996" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.996" }] } }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "max-ish 1: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.996" }, { "kind": "const", "type": "Integer", "value": "1" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.96" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "max-ish 0: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.5" }, { "kind": "const", "type": "Integer", "value": "0" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.49" }, { "kind": "const", "type": "Integer", "value": "0" }] } }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "max 2: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.99999999976716935634613037109375" }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.99999999976716935634613037109375" }] } }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "max 9: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.99999999976716935634613037109375" }, { "kind": "const", "type": "Integer", "value": "9" }] } }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "below 2: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.99" }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "2147483647.994" }, { "kind": "const", "type": "Integer", "value": "2" }] } }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "neg 2: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2147483647.996" } }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "dflt", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2147483647.996" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2147483647.996" } }] } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "neg 1: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2147483647.996" } }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "min 2: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "-2147483648" }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2147483647.99999999976716935634613037109375" } }, { "kind": "const", "type": "Integer", "value": "2" }] } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "small: " }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "0.125" }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "0.005" } }, { "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "at", "args": [{ "kind": "const", "type": "Fixed", "value": "0.99" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } }
+    ]
+  }
+  ]
+}

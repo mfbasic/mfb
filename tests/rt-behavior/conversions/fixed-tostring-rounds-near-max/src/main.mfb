@@ -1,0 +1,28 @@
+IMPORT io
+
+' bug-818: toString(Fixed) skipped its half-away-from-zero rounding step when
+' adding half a unit at the requested precision could pass i64::MAX, so values
+' next to the maximum Fixed were truncated: toString(2147483647.996F) printed
+' 2147483647.99. The rounding is done on the unsigned magnitude, which cannot
+' overflow, so every magnitude now rounds. Each line prints the runtime result
+' (through a parameter, so nothing is folded) and the folded literal result.
+FUNC at(x AS Fixed, places AS Integer) AS String
+  RETURN toString(x, toByte(places))
+END FUNC
+
+FUNC dflt(x AS Fixed) AS String
+  RETURN toString(x)
+END FUNC
+
+FUNC main() AS Nothing
+  io::print("max-ish 2: " & at(2147483647.996F, 2) & " " & dflt(2147483647.996F) & " " & toString(2147483647.996F))
+  io::print("max-ish 1: " & at(2147483647.996F, 1) & " " & at(2147483647.96F, 1))
+  io::print("max-ish 0: " & at(2147483647.5F, 0) & " " & at(2147483647.49F, 0))
+  io::print("max 2: " & at(2147483647.99999999976716935634613037109375F, 2) & " " & toString(2147483647.99999999976716935634613037109375F))
+  io::print("max 9: " & at(2147483647.99999999976716935634613037109375F, 9))
+  io::print("below 2: " & at(2147483647.99F, 2) & " " & at(2147483647.994F, 2))
+  io::print("neg 2: " & at(-2147483647.996F, 2) & " " & dflt(-2147483647.996F) & " " & toString(-2147483647.996F))
+  io::print("neg 1: " & at(-2147483647.996F, 1))
+  io::print("min 2: " & at(-2147483648F, 2) & " " & at(-2147483647.99999999976716935634613037109375F, 2))
+  io::print("small: " & at(0.125F, 2) & " " & at(-0.005F, 2) & " " & at(0.99F, 1))
+END FUNC

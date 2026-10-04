@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/conversions/fixed-tostring-rounds-near-max
+Wrote AST to tests/rt-behavior/conversions/fixed-tostring-rounds-near-max/fixed_tostring_rounds_near_max.ast
+Wrote IR to tests/rt-behavior/conversions/fixed-tostring-rounds-near-max/fixed_tostring_rounds_near_max.ir
+[exit 0]
+$ mfb build tests/rt-behavior/conversions/fixed-tostring-rounds-near-max
+Wrote executable to tests/rt-behavior/conversions/fixed-tostring-rounds-near-max/build/fixed_tostring_rounds_near_max.out
+[exit 0]
+$ tests/rt-behavior/conversions/fixed-tostring-rounds-near-max/build/fixed_tostring_rounds_near_max.out
+max-ish 2: 2147483648.00 2147483648.00 2147483648.00
+max-ish 1: 2147483648.0 2147483648.0
+max-ish 0: 2147483648 2147483647
+max 2: 2147483648.00 2147483648.00
+max 9: 2147483648.000000000
+below 2: 2147483647.99 2147483647.99
+neg 2: -2147483648.00 -2147483648.00 -2147483648.00
+neg 1: -2147483648.0
+min 2: -2147483648.00 -2147483648.00
+small: 0.13 -0.01 1.0
+[exit 0]

@@ -1,0 +1,64 @@
+{
+  "project": "fixed_tostring_rounds_near_max",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "at",
+      "line": 9,
+      "params": [
+      { "name": "x", "type": "Fixed", "default": null, "line": 9 },
+      { "name": "places", "type": "Integer", "default": null, "line": 9 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "places" }] }] }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dflt",
+      "line": 13,
+      "params": [
+      { "name": "x", "type": "Fixed", "default": null, "line": 13 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "max-ish 2: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.996F" }, { "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "dflt", "arguments": [{ "kind": "number", "value": "2147483647.996F" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2147483647.996F" }] } }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "max-ish 1: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.996F" }, { "kind": "number", "value": "1" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.96F" }, { "kind": "number", "value": "1" }] } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "max-ish 0: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.5F" }, { "kind": "number", "value": "0" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.49F" }, { "kind": "number", "value": "0" }] } }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "max 2: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.99999999976716935634613037109375F" }, { "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2147483647.99999999976716935634613037109375F" }] } }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "max 9: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.99999999976716935634613037109375F" }, { "kind": "number", "value": "9" }] } }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "below 2: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.99F" }, { "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "2147483647.994F" }, { "kind": "number", "value": "2" }] } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "neg 2: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483647.996F" } }, { "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "dflt", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483647.996F" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483647.996F" } }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "neg 1: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483647.996F" } }, { "kind": "number", "value": "1" }] } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "min 2: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648F" } }, { "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483647.99999999976716935634613037109375F" } }, { "kind": "number", "value": "2" }] } }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "small: " }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "0.125F" }, { "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.005F" } }, { "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "at", "arguments": [{ "kind": "number", "value": "0.99F" }, { "kind": "number", "value": "1" }] } }] }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}
