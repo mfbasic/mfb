@@ -438,6 +438,85 @@ END FUNC
 ",
         "65\n",
     ),
+    (
+        "transform_owns_callback_results",
+        "\
+IMPORT io
+IMPORT collections
+
+TYPE Holder
+  kids AS List OF Holder
+  id AS Integer
+END TYPE
+
+FUNC mul(i AS Integer) AS FUNC(Integer) AS Integer
+  RETURN LAMBDA(v AS Integer) -> v * i
+END FUNC
+
+FUNC main() AS Integer
+  MUT n AS Integer = 0
+  LET xs AS List OF Integer = [1, 2, 3]
+  FOR k = 1 TO 5
+    LET hs AS List OF Holder = [Holder[[], 1], Holder[[Holder[[], 7]], 2]]
+    LET fresh AS List OF Holder = collections::transform(hs, LAMBDA(h AS Holder) -> Holder[[], h.id + k])
+    LET same AS List OF Holder = collections::transform(hs, LAMBDA(h AS Holder) -> h)
+    LET fs AS List OF FUNC(Integer) AS Integer = collections::transform(xs, LAMBDA(i AS Integer) -> mul(i + k))
+    LET g AS Map OF Integer TO List OF Holder = collections::groupBy(hs, LAMBDA(h AS Holder) -> h.id MOD 2, LAMBDA(h AS Holder) -> Holder[[], h.id])
+    FOR EACH f IN fs
+      n = n + f(2)
+    NEXT
+    FOR EACH h IN fresh
+      n = n + h.id
+    NEXT
+    FOR EACH h IN same
+      n = n + h.id + len(h.kids)
+    NEXT
+    n = n + len(g)
+  NEXT
+  io::print(toString(n))
+  RETURN 0
+END FUNC
+",
+        "225\n",
+    ),
+    (
+        "transform_failing_callback_frees_partial_graphs",
+        "\
+IMPORT io
+IMPORT collections
+
+TYPE Holder
+  kids AS List OF Holder
+  f AS FUNC(Integer) AS Integer
+  id AS Integer
+END TYPE
+
+FUNC mk(h AS Holder) AS Holder
+  IF h.id = 3 THEN
+    FAIL error(7, \"boom\")
+  END IF
+  RETURN Holder[[Holder[[], LAMBDA(v AS Integer) -> v, 0]], LAMBDA(v AS Integer) -> v + h.id, h.id]
+END FUNC
+
+FUNC once() AS Integer
+  LET hs AS List OF Holder = [Holder[[], LAMBDA(v AS Integer) -> v, 1], Holder[[], LAMBDA(v AS Integer) -> v, 2], Holder[[], LAMBDA(v AS Integer) -> v, 3]]
+  LET out AS List OF Holder = collections::transform(hs, mk) TRAP(e)
+    RETURN -1
+  END TRAP
+  RETURN len(out)
+END FUNC
+
+FUNC main() AS Integer
+  MUT n AS Integer = 0
+  FOR k = 1 TO 5
+    n = n + once()
+  NEXT
+  io::print(toString(n))
+  RETURN 0
+END FUNC
+",
+        "-5\n",
+    ),
 ];
 
 /// Build with `--debug`, run, and return `(stdout, alloc_calls, free_calls,

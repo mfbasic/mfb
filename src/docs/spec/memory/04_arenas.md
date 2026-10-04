@@ -388,9 +388,11 @@ payload of a recursive type (one whose declaration reaches itself), or one holdi
 function value, is a graph of separate blocks that a byte copy would share, so those stores
 give an aliasing source its own graph first — unless the store is the source's last read,
 which moves it — and a collection a builtin builds out of another collection's elements
-copies those elements' graphs. An element READ (`collections::get`/`getOr`) is the one
-builtin result that already owns its graph — `materialize_owned_element` made it — so its
-edges are not copied a second time. [[src/codegen/builtins/collections/mod.rs:element_read_member]]
+copies those elements' graphs. Two kinds of builtin result already own their graphs, so
+their edges are not copied a second time: an element READ (`collections::get`/`getOr`,
+`materialize_owned_element`'s copy) and `collections::transform`'s list, which takes over
+each callback result (the callee copies anything it was lent before returning it) and
+frees an inline record or union result's own block once its bytes are appended. [[src/codegen/builtins/collections/mod.rs:member_result_owns_its_graph]] [[src/codegen/builtins/collections/func_transform.rs:lower_transform]]
 
 A free is emitted at **every** scope exit — the normal end-of-block drain,
 `EXIT`/`CONTINUE` (only back to the loop's entry depth), `RETURN`, and `TRAP`

@@ -3321,11 +3321,11 @@ impl CodeBuilder<'_> {
             || Some(lower(self, &arg_values, &ctx)),
         )?;
         // plan-134-E: a collection built out of other values owns its elements' graphs.
-        // An element READ (`get`/`getOr` of a nested collection) is not one: its result
-        // is already the independent copy `materialize_owned_element` made, edges and
-        // all, and copying those edges again orphaned the first copies — every `get` of
-        // a `List OF Node` out of a `List OF List OF Node` leaked one block per edge.
-        if crate::codegen::builtins::collections::element_read_member(target) {
+        // A member whose result already owns its graphs is not one: an element READ
+        // (`get`/`getOr`) is `materialize_owned_element`'s independent copy, and
+        // `transform` owns its callback results. Copying their edges again orphaned
+        // the first copies — one block per edge per call.
+        if crate::codegen::builtins::collections::member_result_owns_its_graph(target) {
             return Some(lowered);
         }
         Some(lowered.and_then(|result| self.own_collection_payload_edges(result)))

@@ -216,7 +216,9 @@ pub(crate) fn lower_transform(
         builder.emit(abi::label(&done));
         let result = builder.allocate_register();
         builder.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
-        return Ok(ValueResult {
+        // The evaluated body byte-copied each source element into the output, so
+        // the output's edges still point at the source's children: give it its own.
+        return builder.own_collection_payload_edges(ValueResult {
             origin: None,
             type_: output_list_type.clone(),
             location: Operand::from(result),
@@ -293,6 +295,24 @@ pub(crate) fn lower_transform(
             builder.emit(abi::label(&kept));
         } else {
             builder.free_callback_result(item_slot, &output_type)?;
+        }
+    } else if builder.owns_graph(&output_type) {
+        // A graph-owning result (a recursive value, a function value, or one holding
+        // either) is the callback's fresh value: the callee copies anything it was
+        // lent before returning it. The append took it over — a pointer payload
+        // whole, an inline record or union payload by its bytes, whose children now
+        // belong to the output — so only an inline payload's own block is left to
+        // free. The output therefore owns its edges, and the dispatch must not copy
+        // them again (`member_result_owns_its_graph`): that orphaned every callback
+        // result's graph (bug-781 follow-up).
+        if matches!(
+            builder.payload_edge_shape(&output_type),
+            Some(
+                crate::codegen::memory::arena::builder_arena_transfer::PayloadEdgeShape::InlineRecord
+                    | crate::codegen::memory::arena::builder_arena_transfer::PayloadEdgeShape::InlineUnion
+            )
+        ) {
+            builder.emit_shallow_block_free(&output_type, item_slot)?;
         }
     }
     builder.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
