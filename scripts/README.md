@@ -205,6 +205,15 @@ a `cargo test` target, another script, or a person.
   sender and exits after echoing `QUIT`. Usage: `python3 scripts/net_udp_echo_server.py`.
   Run by: `check-udp-echo.sh`.
 
+## Developer setup
+
+- **sign-debugger.sh** — Ad-hoc signs an `mfb` binary with the macOS
+  `com.apple.security.cs.debugger` entitlement, which `mfb dbg` needs to take another
+  program's task port; re-run after every `cargo build`, which drops the signature.
+  Usage: `sh scripts/sign-debugger.sh [path/to/mfb ...]` (default: `target/debug/mfb`
+  and `target/release/mfb`, whichever exist). Run by: a person on macOS; the
+  `cli_dbg` test (on a copy of `mfb`); named in `mfb dbg`'s attach-refused error.
+
 ## Man docs
 
 - **man-debug-examples.sh** — Runs every shell example in the `mfb man debug` topic on
