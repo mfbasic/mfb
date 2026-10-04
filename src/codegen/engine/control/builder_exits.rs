@@ -635,6 +635,65 @@ impl CodeBuilder<'_> {
         self.try_inplace_self_update(&site, update)
     }
 
+    /// bug-784: `RETURN WITH p { … }` in a destination variant (`<base>$into<j>`,
+    /// `p` parameter `j`): `p`'s slot holds the caller's destination — bytes inside
+    /// a list element, never an allocation of their own — so the update is the
+    /// field store over a span owner (`try_inplace_scalar_fields` with `p` as the
+    /// element owner): every value is computed first, then stored into `p`'s bytes
+    /// when the result keeps their exact size, and `p`'s address is returned.
+    /// Otherwise nothing is written and a fresh block holding the same values is
+    /// returned, as the base lowering would. The caller compares the result with
+    /// the destination to know which (`element_into_call`). `false` = nothing was
+    /// emitted and the ordinary return stands.
+    fn try_into_return(
+        &mut self,
+        value: &NirValue,
+        interior_temp_watermark: Option<usize>,
+    ) -> Result<bool, String> {
+        let Some(param) = self.element_updates.into_param.clone() else {
+            return Ok(false);
+        };
+        let NirValue::WithUpdate { target, .. } = value else {
+            return Ok(false);
+        };
+        if !matches!(target.as_ref(), NirValue::Local(name) if *name == param) {
+            return Ok(false);
+        }
+        let Some(type_) = self.locals.get(&param).map(|local| local.type_.clone()) else {
+            return Ok(false);
+        };
+        let result_slot = self.allocate_stack_object("into_result", 8);
+        let saved_owner = self.element_updates.field_owner.replace(param.clone());
+        self.element_updates.into_result_slot = Some(result_slot);
+        let handled =
+            self.try_inplace_scalar_fields(FieldContainer::Record { local: &param }, value);
+        self.element_updates.field_owner = saved_owner;
+        self.element_updates.into_result_slot = None;
+        if !handled? {
+            return Ok(false);
+        }
+        let hidden = format!("$intoresult{}", self.element_updates.hidden);
+        self.element_updates.hidden += 1;
+        self.locals.insert(
+            hidden.clone(),
+            LocalValue {
+                type_,
+                stack_offset: result_slot,
+                constant: None,
+                by_ref: false,
+            },
+        );
+        // The result is the destination (owned by the caller's element) or a
+        // fresh block this statement claimed: either way it leaves as it is.
+        let result = self.emit_return_exit_inner(
+            Some(&NirValue::Local(hidden.clone())),
+            true,
+            interior_temp_watermark,
+        );
+        self.locals.remove(&hidden);
+        result.map(|()| true)
+    }
+
     /// bug-766 C: run `RETURN WITH r { … }`'s field stores against `r`'s own block.
     ///
     /// `r` must be a binding whose block the return may move out
@@ -793,6 +852,11 @@ impl CodeBuilder<'_> {
         // The re-entry cannot recurse: its value is a `Local`, which
         // `returned_self_update_local` never matches.
         if let Some(value) = value {
+            // bug-784: in a destination variant, `RETURN WITH <destination> { … }`
+            // writes into the caller's destination when it can.
+            if self.try_into_return(value, interior_temp_watermark)? {
+                return Ok(());
+            }
             if let Some(name) = returned_self_update_local(value) {
                 let name = name.to_string();
                 if self.try_returned_self_update(&name, value)? {

@@ -3,7 +3,9 @@
 //! the element's own bytes when its size is unchanged, instead of rebuilding the
 //! whole element in a fresh block per update (M2), and an inline
 //! `inner := WITH h.inner { <scalars> }` stores those scalars into the element's
-//! `inner` sub-block without building a `Wide` at all (M1, inline form).
+//! `inner` sub-block without building a `Wide` at all (M1, inline form), and
+//! `inner := stepWide(h.inner, …)` calls `stepWide`'s destination variant, which
+//! writes its result straight into `h.inner`'s bytes (M1, call form).
 //!
 //! Each case runs `REPS` and `2 × REPS` rounds of 64 updates under `--debug`. The
 //! allocation growth per update must stay within the case's budget, nothing may
@@ -11,9 +13,12 @@
 //! through a plain owned copy (`ident(get(…))`), which the element-bound analysis
 //! does not see and which takes the general copying `WITH` and `set`.
 //!
-//! Budgets: an update whose new `inner` is the old one's size allocates nothing
-//! of its own; a helper call returning a fresh `Wide` (`stepWide`) still owes its
-//! result block, 1 per update (the call form of M1 is bug-784's remaining work).
+//! Budgets: an update whose new `inner` is the old one's size allocates nothing,
+//! through a helper call (`stepWide`) too. The `overlap_*` cases pin the
+//! destination variant's aliasing: the callee reads the destination it writes
+//! (its own fields, an argument that is a view into it), and a later update that
+//! reads the destination must not see the new value — that one keeps the call's
+//! result block, 1 per update.
 //! The `*_resize` cases change `inner`'s size on every update, so they take the
 //! rebuild (the `WITH` block, plus the call's) and are here for their output: the
 //! size-change branch must store the values the in-place branch computed, once.
@@ -67,6 +72,10 @@ END TYPE
 
 FUNC stepWide(w AS Wide, i AS Integer, tag AS String) AS Wide
   RETURN WITH w { count := w.count + 1, total := w.total + i MOD 7, flags := (w.flags * 5 + i) MOD 1024, pos := w.pos + w.vel * 0.25, vel := w.vel * 0.5 + toFloat(i MOD 4), energy := w.energy + w.vel, tag := tag }
+END FUNC
+
+FUNC stepSelf(w AS Wide, i AS Integer) AS Wide
+  RETURN WITH w { count := w.count + 1, total := w.count + w.total + i MOD 3, tag := w.name, pos := w.pos + w.vel }
 END FUNC
 
 FUNC newWide(id AS Integer) AS Wide
@@ -151,7 +160,7 @@ const CASES: &[(&str, &str, &str, &str, &str, Option<u64>)] = &[
         "      LET h AS Holder = collections::get(hs, k)\n      IF i MOD 2 = 0 THEN\n        hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagEven), touches := h.touches + 1 })\n      ELSE\n        hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 })\n      END IF",
         "      LET h AS Holder = ident(collections::get(hs, k))\n      IF i MOD 2 = 0 THEN\n        hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagEven), touches := h.touches + 1 })\n      ELSE\n        hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 })\n      END IF",
         "sumHolders(hs)",
-        Some(1),
+        Some(0),
     ),
     (
         "nestedsame",
@@ -159,7 +168,7 @@ const CASES: &[(&str, &str, &str, &str, &str, Option<u64>)] = &[
         "      LET h AS Holder = collections::get(hs, k)\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 })",
         "      LET h AS Holder = ident(collections::get(hs, k))\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 })",
         "sumHolders(hs)",
-        Some(1),
+        Some(0),
     ),
     (
         "nestedmut",
@@ -167,7 +176,7 @@ const CASES: &[(&str, &str, &str, &str, &str, Option<u64>)] = &[
         "      MUT h AS Holder = collections::get(hs, k)\n      h = WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 }\n      hs = collections::set(hs, k, h)",
         "      MUT h AS Holder = ident(collections::get(hs, k))\n      h = WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 }\n      hs = collections::set(hs, k, h)",
         "sumHolders(hs)",
-        Some(1),
+        Some(0),
     ),
     (
         "nestedinner",
@@ -220,6 +229,44 @@ const CASES: &[(&str, &str, &str, &str, &str, Option<u64>)] = &[
         "      LET h AS LateHolder = collections::get(hs, k)\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 })",
         "      LET h AS LateHolder = identL(collections::get(hs, k))\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 })",
         "sumL(hs)",
+        Some(0),
+    ),
+    (
+        // The callee reads the destination it writes: `total` reads the OLD
+        // `count`, `tag` copies the destination's own `name` span.
+        "overlap_callee_reads_destination",
+        "  MUT hs AS List OF Holder = holders()",
+        "      LET h AS Holder = collections::get(hs, k)\n      hs = collections::set(hs, k, WITH h { inner := stepSelf(h.inner, i), touches := h.touches + 1 })",
+        "      LET h AS Holder = ident(collections::get(hs, k))\n      hs = collections::set(hs, k, WITH h { inner := stepSelf(h.inner, i), touches := h.touches + 1 })",
+        "sumHolders(hs)",
+        Some(0),
+    ),
+    (
+        // The `tag` argument is a view into the destination itself (its `name`).
+        "overlap_argument_views_destination",
+        "  MUT hs AS List OF Holder = holders()",
+        "      LET h AS Holder = collections::get(hs, k)\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, h.inner.name), touches := h.touches + 1 })",
+        "      LET h AS Holder = ident(collections::get(hs, k))\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, h.inner.name), touches := h.touches + 1 })",
+        "sumHolders(hs)",
+        Some(0),
+    ),
+    (
+        // The `tag` argument is the very span the callee replaces.
+        "overlap_argument_is_replaced_span",
+        "  MUT hs AS List OF Holder = holders()",
+        "      LET h AS Holder = collections::get(hs, k)\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, h.inner.tag & \"x\"), touches := h.touches + 1 })\n      LET g AS Holder = collections::get(hs, k)\n      hs = collections::set(hs, k, WITH g { inner := stepWide(g.inner, i, g.inner.tag), touches := g.touches + 1 })",
+        "      LET h AS Holder = ident(collections::get(hs, k))\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, h.inner.tag & \"x\"), touches := h.touches + 1 })\n      LET g AS Holder = ident(collections::get(hs, k))\n      hs = collections::set(hs, k, WITH g { inner := stepWide(g.inner, i, g.inner.tag), touches := g.touches + 1 })",
+        "sumHolders(hs)",
+        None,
+    ),
+    (
+        // A later update reads the destination: it must see the OLD `inner`, so
+        // the destination variant is not used.
+        "overlap_later_update_reads_destination",
+        "  MUT hs AS List OF Holder = holders()",
+        "      LET h AS Holder = collections::get(hs, k)\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + h.inner.count })",
+        "      LET h AS Holder = ident(collections::get(hs, k))\n      hs = collections::set(hs, k, WITH h { inner := stepWide(h.inner, i, tagOdd), touches := h.touches + h.inner.count })",
+        "sumHolders(hs)",
         Some(1),
     ),
 ];
@@ -343,5 +390,46 @@ fn a_nested_record_update_allocates_only_what_its_size_change_needs() {
         failures.is_empty(),
         "bug-784: a nested record update must allocate only what a size change needs:\n  {}",
         failures.join("\n  ")
+    );
+}
+
+/// A failure after the destination was written would leave the element half
+/// updated. Under a function-level `TRAP` that reads the list, the destination
+/// variant is not used, and the failed update leaves the element as it was.
+#[test]
+fn a_later_failure_leaves_the_element_unchanged() {
+    let source = format!(
+        "{PRELUDE}
+FUNC run() AS Integer
+  MUT hs AS List OF Holder = []
+  LET tagOdd AS String = \"odd\"
+  hs = holders()
+  hs = collections::set(hs, 0, WITH collections::get(hs, 0) {{ touches := 9223372036854775807 }})
+  LET h AS Holder = collections::get(hs, 0)
+  hs = collections::set(hs, 0, WITH h {{ inner := stepWide(h.inner, 1, tagOdd), touches := h.touches + 1 }})
+  io::print(\"not reached\")
+  RETURN 0
+
+  TRAP(e)
+    LET q AS Holder = collections::get(hs, 0)
+    io::print(toString(q.inner.count) & \"/\" & q.inner.tag & \"/\" & toString(q.touches))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  io::print(\"run -> \" & toString(run()))
+  RETURN 0
+END FUNC
+"
+    );
+    let (out, alloc, free, live) = run("b784_later_failure", &source);
+    assert_eq!(
+        out, "0//9223372036854775807\nrun -> 1\n",
+        "a failed update must leave the element unchanged"
+    );
+    assert!(
+        alloc == free && live == 0,
+        "leaked: {alloc}/{free}/{live} B"
     );
 }

@@ -452,10 +452,30 @@ impl CodeBuilder<'_> {
         // still active but reads a null slot and skips, which is the existing
         // moved-out-null pattern (§14.7: a moved-from binding is not dropped).
         let mut handover = self.handover_site(target, args);
-        let called = handover
-            .as_ref()
-            .map_or(symbol, |site| site.symbol.as_str())
-            .to_string();
+        // bug-784: the one call a destination-passing element update armed calls
+        // its callee's destination variant (`analysis::into_dest`). Never beside a
+        // hand-over: the variant lends every parameter.
+        let into_symbol = match (self.element_updates.into_call_armed, self.current_call_key) {
+            (Some(armed), Some(call)) if armed == call && handover.is_none() => self
+                .element_updates
+                .into_sites
+                .get(&call)
+                .filter(|site| site.target == target)
+                .map(|site| {
+                    crate::codegen::engine::function::function_lowering::OwnedVariant::into_symbol_for(
+                        &crate::target::shared::nir::function_symbol(target),
+                        site.param,
+                    )
+                }),
+            _ => None,
+        };
+        let called = match &into_symbol {
+            Some(into) => into.clone(),
+            None => handover
+                .as_ref()
+                .map_or(symbol, |site| site.symbol.as_str())
+                .to_string(),
+        };
         let arg_values =
             self.emit_raw_call_handing_over(&called, args, "call_arg", handover.as_mut())?;
         let result_type = return_type

@@ -807,6 +807,20 @@ pub(crate) struct ElementUpdates {
     /// Counter for the hidden bindings of single-expression updates (and of
     /// bug-784's spilled element-update values).
     pub(crate) hidden: usize,
+    /// bug-784: this function's destination-passing call sites
+    /// (`analysis::into_dest`), by `call_key`.
+    pub(crate) into_sites: crate::codegen::engine::analysis::into_dest::IntoSites,
+    /// bug-784: the `call_key` of the one call `emit_call` lowers as a call of
+    /// its callee's destination variant; armed only around that call's
+    /// `lower_value`.
+    pub(crate) into_call_armed: Option<usize>,
+    /// bug-784: in a destination variant (`<base>$into<j>`), parameter `j`'s
+    /// name — the caller's destination.
+    pub(crate) into_param: Option<String>,
+    /// bug-784: while a destination variant lowers `RETURN WITH <param> { … }`
+    /// through the field store, the slot that receives the returned address (the
+    /// destination itself, or a fresh block on a size change). `None` otherwise.
+    pub(crate) into_result_slot: Option<usize>,
 }
 
 /// bug-766 B: the fixed-size record temporaries of the function being lowered
@@ -2227,8 +2241,11 @@ pub(crate) fn lower_module_for_platform(
                      function of this module"
                 ));
             }
-            let variant =
-                crate::codegen::engine::function::function_lowering::OwnedVariant { mask, symbol };
+            let variant = crate::codegen::engine::function::function_lowering::OwnedVariant {
+                mask,
+                into: None,
+                symbol,
+            };
             code_functions.push(lower_function(
                 function,
                 &function_symbols,
@@ -2248,6 +2265,64 @@ pub(crate) fn lower_module_for_platform(
             )?);
         }
         crate::trace::count("owned variants", emitted.len() as u64);
+    }
+    // bug-784: the destination variants (`analysis::into_dest`). The sites are a
+    // function of each function's NIR alone, which every lowering of it — base,
+    // owned or destination variant — shares, so this one pass covers them all.
+    {
+        let mut demand: Vec<(String, usize)> =
+            crate::codegen::engine::analysis::into_dest::demanded_into_variants(
+                &module.functions,
+                &type_model,
+                &functions,
+            )
+            .into_iter()
+            .collect();
+        demand.sort();
+        for (name, param) in &demand {
+            let Some(function) = functions.get(name.as_str()) else {
+                return Err(format!(
+                    "bug-784: a destination variant was demanded for `{name}`, which is \
+                     not a function of this module"
+                ));
+            };
+            let base = nir::function_symbol(&function.name);
+            let symbol =
+                crate::codegen::engine::function::function_lowering::OwnedVariant::into_symbol_for(
+                    &base, *param,
+                );
+            if function_symbols
+                .values()
+                .any(|existing| *existing == symbol)
+            {
+                return Err(format!(
+                    "bug-784: the destination-variant symbol `{symbol}` already names a \
+                     function of this module"
+                ));
+            }
+            let variant = crate::codegen::engine::function::function_lowering::OwnedVariant {
+                mask: 0,
+                into: Some(*param),
+                symbol,
+            };
+            code_functions.push(lower_function(
+                function,
+                &function_symbols,
+                &functions,
+                &package_return_types,
+                &platform_imports,
+                platform,
+                module.build_mode,
+                &globals,
+                &string_symbols,
+                &callback_referenced_functions,
+                &synthesized_constructors,
+                type_model.clone(),
+                &module.project,
+                Some(&variant),
+            )?);
+        }
+        crate::trace::count("destination variants", demand.len() as u64);
     }
     for (name, type_, symbol) in builtin_function_refs(module) {
         code_functions.push(lower_builtin_function_wrapper(

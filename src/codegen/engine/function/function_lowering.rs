@@ -791,6 +791,11 @@ pub(crate) fn scan_loop_locals(
 pub(crate) struct OwnedVariant {
     /// Bit `i` set = parameter `i` is owned by this lowering.
     pub(crate) mask: u64,
+    /// bug-784: `Some(j)` for a destination variant (`<base>$into<j>`, mask 0):
+    /// parameter `j` is the caller's destination, and `RETURN WITH <param j> { … }`
+    /// writes its result there when the size is unchanged
+    /// (`analysis::into_dest`).
+    pub(crate) into: Option<usize>,
     /// The symbol this lowering emits under.
     pub(crate) symbol: String,
 }
@@ -807,6 +812,13 @@ impl OwnedVariant {
     /// silently aliasing two functions.
     pub(crate) fn symbol_for(base: &str, mask: u64) -> String {
         format!("{base}$own{mask:x}")
+    }
+
+    /// bug-784: the symbol a destination variant of `base` for parameter `param`
+    /// emits under. Checked against the module's symbols like
+    /// [`Self::symbol_for`]'s.
+    pub(crate) fn into_symbol_for(base: &str, param: usize) -> String {
+        format!("{base}$into{param}")
     }
 
     /// Whether parameter `index` is owned by this lowering.
@@ -1122,6 +1134,19 @@ pub(crate) fn lower_function(
         )
     };
     builder.install_borrow_gets(borrow_gets);
+    // bug-784: the destination-passing call sites (after `install_borrow_gets`,
+    // which resets the element-update state), and — in a destination variant —
+    // the destination parameter.
+    builder.element_updates.into_sites =
+        crate::codegen::engine::analysis::into_dest::collect_into_sites(
+            function,
+            &builder.type_model,
+            functions,
+        );
+    builder.element_updates.into_param = variant
+        .and_then(|variant| variant.into)
+        .and_then(|index| function.params.get(index))
+        .map(|param| param.name.clone());
     // bug-770 C: `MUT x = get/getOr(…)` binds whose next statement appends to `x`
     // in place get their owned copy with growth headroom.
     builder.append_headroom_binds =
@@ -1316,6 +1341,9 @@ pub(crate) fn lower_function(
 
     Ok(CodeFunction {
         name: match variant {
+            Some(OwnedVariant {
+                into: Some(param), ..
+            }) => format!("{}$into{param}", function.name),
             Some(variant) => format!("{}$own{:x}", function.name, variant.mask),
             None => function.name.clone(),
         },

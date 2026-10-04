@@ -331,6 +331,13 @@ impl CodeBuilder<'_> {
         {
             return Ok(false);
         }
+        // bug-784: the replaced field's value is a call of a destination variant
+        // (`analysis::into_dest`) — the position of that update.
+        let into_call = if element && path.is_empty() {
+            self.element_into_call(owner, updates, &indices)
+        } else {
+            None
+        };
         match owner {
             // `G1` — a by-ref capture's slot holds the parent's slot address;
             // plan-145-H: `emit_field_owner_block` reads the block through it.
@@ -379,6 +386,9 @@ impl CodeBuilder<'_> {
         // to — what an element's size-change branch reads instead of re-running
         // the value.
         let mut spilled_values: Vec<SpilledValue> = Vec::with_capacity(updates.len());
+        // bug-784: a destination-variant call's `(result slot, destination slot,
+        // type)`.
+        let mut into_result: Option<(usize, usize, ParameterType)> = None;
         // plan-145-F: a borrowed overwrite source must be snapshotted only when
         // another store of this `WITH` could change it first.
         let snapshot = indices
@@ -389,7 +399,7 @@ impl CodeBuilder<'_> {
             || indices
                 .iter()
                 .any(|(_, kind)| matches!(kind, FieldStoreKind::Pointer(_)));
-        for (update, (index, kind)) in updates.iter().zip(indices) {
+        for (position, (update, (index, kind))) in updates.iter().zip(indices).enumerate() {
             let pointer = match kind {
                 FieldStoreKind::Scalar => None,
                 FieldStoreKind::Pointer(field_type) => Some(field_type),
@@ -407,7 +417,21 @@ impl CodeBuilder<'_> {
                     // except as that same span (a record cannot inline its own
                     // type, and every other sub-block ends before it), and the
                     // copy is forward, so `WITH w { tag := w.tag }` copies in place.
-                    let lowered = self.lower_value(&update.value)?;
+                    let into = into_call == Some(position);
+                    if into {
+                        self.element_updates.into_call_armed = Some(
+                            crate::codegen::engine::analysis::handover::call_key(&update.value),
+                        );
+                    }
+                    let lowered = self.lower_value(&update.value);
+                    self.element_updates.into_call_armed = None;
+                    let lowered = lowered?;
+                    // bug-784: a destination variant's result may be the element's
+                    // own bytes, which no statement-end free may touch; it is
+                    // freed below only when it is a fresh block.
+                    if into {
+                        self.claim_pending_temp(&lowered);
+                    }
                     let lowered = self.materialize_value(lowered)?;
                     let slot = self.allocate_stack_object("record_field_replace", 8);
                     self.emit(abi::store_u64(
@@ -415,6 +439,17 @@ impl CodeBuilder<'_> {
                         abi::stack_pointer(),
                         slot,
                     ));
+                    if into {
+                        // The destination's address, taken before any store can move
+                        // the element (the write-back fallback may relocate it).
+                        let dest_slot = self.allocate_stack_object("into_dest", 8);
+                        let block = self.emit_field_record_block(owner, &path)?;
+                        let dest = self.allocate_register();
+                        self.emit(abi::load_u64(&dest, &block, 8 * index));
+                        self.emit(abi::add_registers(&dest, &block, &dest));
+                        self.emit(abi::store_u64(&dest, abi::stack_pointer(), dest_slot));
+                        into_result = Some((slot, dest_slot, field_type.clone()));
+                    }
                     let size_slot = self.allocate_stack_object("record_field_replace_size", 8);
                     self.emit_inlined_block_size_from_ptr_slot(&field_type, slot, size_slot)?;
                     replace = Some(FieldReplace {
@@ -500,6 +535,8 @@ impl CodeBuilder<'_> {
                 // moves it.
                 let block = self.emit_field_record_block(owner, &path)?;
                 self.emit_field_stores(&block, &stores, &overwrites, &nested, None);
+                // bug-784: a destination variant returns its destination.
+                self.emit_into_result_is_owner(owner)?;
             }
             // bug-784: an element-bound owner — same size in place, else the
             // write-back over the spilled values.
@@ -522,6 +559,28 @@ impl CodeBuilder<'_> {
                 &nested,
                 replace,
             )?,
+        }
+        // bug-784: a destination variant that could not write in place returned a
+        // fresh block; it has been copied (or written back) and is freed here. One
+        // that wrote in place returned the destination itself, which the element
+        // owns.
+        if let Some((result_slot, dest_slot, field_type)) = into_result {
+            let kept = self.label("into_result_kept");
+            let result = self.allocate_register();
+            let dest = self.allocate_register();
+            self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+            self.emit(abi::load_u64(&dest, abi::stack_pointer(), dest_slot));
+            self.emit(abi::compare_registers(&result, &dest));
+            self.emit(abi::branch_eq(&kept));
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: field_type,
+                stack_offset: result_slot,
+                closure_captures: None,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            })?;
+            self.emit(abi::label(&kept));
         }
         // Each owned overwrite source is freed only after every copy (a later one
         // may not read it, but the frees call the arena, which clobbers the block
@@ -1019,9 +1078,31 @@ impl CodeBuilder<'_> {
         // element, but it may have used the block register; load it again.
         let block = self.emit_field_record_block(owner, path)?;
         self.emit_field_stores(&block, stores, &[], nested, Some((replace, offset_slot)));
+        self.emit_into_result_is_owner(owner)?;
         self.emit(abi::branch(&done));
         // A different size: the write-back, over hidden locals.
         self.emit(abi::label(&write_back));
+        // bug-784: in a destination variant there is no write-back — the
+        // destination is left as it is and the result is a fresh block built from
+        // the same values, as the base lowering returns.
+        if let Some(result_slot) = self.element_updates.into_result_slot {
+            let mut hidden = Vec::new();
+            let item =
+                self.element_write_back_item(value, path.len(), spilled_values, &mut hidden)?;
+            let fresh = self.lower_value(&item);
+            for name in hidden {
+                self.locals.remove(&name);
+            }
+            let fresh = fresh?;
+            self.claim_pending_temp(&fresh);
+            self.emit(abi::store_u64(
+                &fresh.location,
+                abi::stack_pointer(),
+                result_slot,
+            ));
+            self.emit(abi::label(&done));
+            return Ok(());
+        }
         let binding = self
             .element_updates
             .bindings
@@ -1042,6 +1123,159 @@ impl CodeBuilder<'_> {
         lowered?;
         self.emit(abi::label(&done));
         Ok(())
+    }
+
+    /// bug-784: in a destination variant's `RETURN WITH <param> { … }`, record
+    /// that the result is the destination itself — the owner's own block.
+    fn emit_into_result_is_owner(&mut self, owner: FieldContainer<'_>) -> Result<(), String> {
+        let Some(result_slot) = self.element_updates.into_result_slot else {
+            return Ok(());
+        };
+        let block = self.emit_field_owner_block(owner)?;
+        self.emit(abi::store_u64(&block, abi::stack_pointer(), result_slot));
+        Ok(())
+    }
+
+    /// bug-784: which update of an element-bound owner's `WITH` (its position)
+    /// may call its callee's destination variant, writing the new field value
+    /// straight into the element (`analysis::into_dest`).
+    ///
+    /// The variant writes the destination while this `WITH`'s values are still
+    /// being evaluated, before any of its own stores, so it is admitted only when
+    /// that cannot be seen:
+    ///
+    /// * the update is the one variable-width replace (`FieldStoreKind::Replace`)
+    ///   of a site `into_dest` recorded, whose destination argument reads exactly
+    ///   `<owner>.<field>`. Every update before it is a scalar or nested scalar,
+    ///   spilled as a value, never a view of the element;
+    /// * every update after it reads nothing the variant may have written: no
+    ///   `<owner>.<field>`, no `<owner>` whole, no other binding that may alias the
+    ///   element (a borrowed `get`, an element binding), not the container, and no
+    ///   call other than an infallible built-in (`later_value_misses_destination`);
+    /// * when an update after it can fail, the failure is not observable: no
+    ///   function-level `TRAP` and no inline result capture, and the container is a
+    ///   plain owned local of this function — the error leaves the function and
+    ///   the container with it. Otherwise a later failure would leave the element
+    ///   half updated, where the `WITH` it stands for leaves it unchanged.
+    ///
+    /// The variant itself reads every source before it writes (it is
+    /// `try_inplace_scalar_fields` over the destination: all values first, then
+    /// scalar slots, then the one replaced sub-block, whose source can overlap it
+    /// only as that same span).
+    fn element_into_call(
+        &self,
+        owner: FieldContainer<'_>,
+        updates: &[NirRecordUpdate],
+        indices: &[(usize, FieldStoreKind)],
+    ) -> Option<usize> {
+        if self.element_updates.into_result_slot.is_some() {
+            return None;
+        }
+        let FieldContainer::Record { local: owner_name } = owner else {
+            return None;
+        };
+        let binding = self.element_updates.bindings.get(owner_name)?;
+        let container = match &binding.template {
+            NirOp::Assign { name, .. } => {
+                crate::codegen::engine::analysis::borrow_get::ContainerRef::Local(name.clone())
+            }
+            NirOp::StoreGlobal { name, .. } => {
+                crate::codegen::engine::analysis::borrow_get::ContainerRef::Global(name.clone())
+            }
+            _ => return None,
+        };
+        let position = indices
+            .iter()
+            .position(|(_, kind)| matches!(kind, FieldStoreKind::Replace(_)))?;
+        if indices[..position]
+            .iter()
+            .any(|(_, kind)| !matches!(kind, FieldStoreKind::Scalar | FieldStoreKind::Nested(_)))
+        {
+            return None;
+        }
+        let update = updates.get(position)?;
+        let NirValue::Call { target, args, .. } = &update.value else {
+            return None;
+        };
+        let site = self.element_updates.into_sites.get(
+            &crate::codegen::engine::analysis::handover::call_key(&update.value),
+        )?;
+        if site.target != *target
+            || !args
+                .get(site.param)
+                .is_some_and(|arg| field_place_is(arg, owner, &[], update.field.as_str()))
+        {
+            return None;
+        }
+        let mut later_can_fail = false;
+        for later in &updates[position + 1..] {
+            if !self.later_value_misses_destination(
+                &later.value,
+                owner_name,
+                &update.field,
+                &container,
+            ) {
+                return None;
+            }
+            later_can_fail |= !self.nir_value_cannot_fail(&later.value);
+        }
+        if later_can_fail {
+            let crate::codegen::engine::analysis::borrow_get::ContainerRef::Local(name) =
+                &container
+            else {
+                return None;
+            };
+            let plain_local = self.locals.get(name).is_some_and(|local| !local.by_ref)
+                && !self.address_taken_locals.contains(name);
+            if self.trap.is_some() || self.raw_result_capture.is_some() || !plain_local {
+                return None;
+            }
+        }
+        Some(position)
+    }
+
+    /// bug-784: whether `value`, evaluated after a destination variant wrote
+    /// `<owner>.<field>`, reads only what that write cannot have changed:
+    /// constants, other scalar locals, fields of the owner other than `field`
+    /// (separate bytes: the write kept the sub-block's exact size), and
+    /// infallible built-ins over such values — never the owner whole, the
+    /// container, or a binding that may alias the element.
+    fn later_value_misses_destination(
+        &self,
+        value: &NirValue,
+        owner: &str,
+        field: &str,
+        container: &crate::codegen::engine::analysis::borrow_get::ContainerRef,
+    ) -> bool {
+        use crate::codegen::engine::analysis::borrow_get::ContainerRef;
+        match value {
+            NirValue::Const { .. } => true,
+            NirValue::Local(name) => {
+                name != owner
+                    && *container != ContainerRef::Local(name.clone())
+                    && !self.borrow_get_locals.contains(name)
+                    && !self.element_updates.bindings.contains_key(name)
+            }
+            NirValue::Global { name, .. } => *container != ContainerRef::Global(name.clone()),
+            NirValue::MemberAccess { target, member } => match target.as_ref() {
+                NirValue::Local(name) if name == owner => member != field,
+                _ => self.later_value_misses_destination(target, owner, field, container),
+            },
+            NirValue::Binary { left, right, .. } => {
+                self.later_value_misses_destination(left, owner, field, container)
+                    && self.later_value_misses_destination(right, owner, field, container)
+            }
+            NirValue::Unary { operand, .. } => {
+                self.later_value_misses_destination(operand, owner, field, container)
+            }
+            NirValue::Call { args, .. } | NirValue::RuntimeCall { args, .. } => {
+                self.nir_call_is_infallible_builtin(value)
+                    && args.iter().all(|arg| {
+                        self.later_value_misses_destination(arg, owner, field, container)
+                    })
+            }
+            _ => false,
+        }
     }
 
     /// bug-784: `value` (an element update's `WITH`) with each update value at the

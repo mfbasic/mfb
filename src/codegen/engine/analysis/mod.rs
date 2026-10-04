@@ -3,6 +3,7 @@
 pub(crate) mod append_headroom;
 pub(crate) mod borrow_get;
 pub(crate) mod handover;
+pub(crate) mod into_dest;
 pub(crate) mod last_use;
 pub(crate) mod module_analysis;
 pub(crate) use module_analysis::*;
