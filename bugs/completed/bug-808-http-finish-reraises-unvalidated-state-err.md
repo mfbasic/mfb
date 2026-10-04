@@ -8,8 +8,8 @@ Severity: MEDIUM
 
 Class: Correctness
 
-Status: Open
-Regression Test: proposed `tests/runtime/rt_http_finish_state_err_validation.rs`
+Status: Fixed
+Regression Test: `tests/net/rt_http_finish_state_err_validation.rs`
 
 `http::finish`'s own man page and registry `errors` list promise a closed set of
 eleven codes (`ErrOutOfMemory`, `ErrResourceClosed`, `ErrResourceMoved`,
@@ -158,3 +158,45 @@ out-of-table `state.err`).
 
 `cargo test --release --test rt_http_finish_state_err_validation`; re-run both
 reproduction cases above; `scripts/man-run-examples.sh http --run`.
+
+## Resolution (2026-10-04)
+
+Option (a). `__http_finish` re-raises `state.err` only when it is one of the eight
+codes a drive can record, and raises `ErrInvalidArgument` (already in its table, and
+the prose's "bad argument" class) for any other non-zero value. The recordable set,
+derived from the writers: `tcp::read` ∪ `tls::read` declared errors minus
+`ErrConnectionClosed` (diverted to `closed` by `__http_readNet`/`__http_readTls`),
+plus `__http_waitReadable`'s `ErrTimeout` and `__http_pump`'s `ErrOverflow` —
+`ErrInvalidArgument`, `ErrNetworkFailed`, `ErrOutOfMemory`, `ErrOverflow`,
+`ErrResourceClosed`, `ErrResourceMoved`, `ErrTimeout`, `ErrTlsFailed`. Behaviour for
+the real writers is unchanged. Each code is a literal `FAIL error(<code>, …)`, so the
+`Body::Mfb` declared-errors guard derives finish's set itself; the eight
+`DECLARED_EXTRA` rows that papered over the field re-raise are gone.
+
+The other `state.err` readers (`__http_done`) only test `<> 0`, which needs no
+validation.
+
+**Commit.** `94e9cf646` — body, prose, spec `stdlib/05_http.md`, guard rows, test.
+
+**Verification.**
+
+- `cargo test --release --test rt_http_finish_state_err_validation` with
+  `MFB_TEST_EXE` = HEAD's binary: `any_other_code_raises_err_invalid_argument`
+  FAILED (`77050021 -> 77050021 http stream transport failed`); with the fix: 2
+  passed. The reproduction's `77050021` and `123456789` now raise
+  `77050002`; the eight recordable codes raise themselves.
+- `cargo test --release --bin mfb declared_errors`: 24 passed.
+- `cargo test --release --bin mfb spec`: 46 passed; `cargo test --release --bin mfb
+  http`: 2 passed.
+- `scripts/man-census.sh --memory-scope http` / `--scope http`: 0 unclassified, 0
+  internals hits. `mfb man http finish` rendered and read.
+- `scripts/test-accept.sh` over the 14 fixtures that `IMPORT http`: 6 mismatches,
+  all `.ir`, all the `__http_finish` body plus line shifts (inspected
+  `http_async_stream_valid.ir` with line numbers normalized).
+
+**Expected golden moves (not regenerated here).** `.ir` of
+`rt-behavior/http/func_http_response_valid`, `rt-behavior/http/http-tcp-transport-rt`,
+`rt-behavior/packages/http-process-coexist-rt`, `syntax/http/http_async_stream_valid`,
+`syntax/resources/resource-state-qualified-import-valid`,
+`syntax/threads/func_thread_start_self_http_fanout`; native artifacts
+(`.ncode`/byte-identity) of any http program that links `__http_finish`.
