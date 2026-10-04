@@ -235,7 +235,10 @@ impl TypeEnv {
             }
             // A literal (or expression) pattern: its type must fit the
             // scrutinee. Enum member arms are Local names with no local type
-            // (infer_type -> None), so they fall through harmlessly here.
+            // (infer_type -> None), so they fall through harmlessly here. A
+            // literal pattern takes the scrutinee's type (bug-816), so it is
+            // range-checked in that type like any other typed slot.
+            self.check_literal_range(&scrutinee, v);
             if let Some(pattern_type) = self.infer_type(v, locals) {
                 if !self.expression_compatible(&scrutinee, &pattern_type, v) {
                     let pattern_type = pattern_type.name();

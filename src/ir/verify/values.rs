@@ -170,6 +170,8 @@ impl TypeEnv {
                     let Some(expected) = fields.and_then(|f| f.get(&update.field)) else {
                         continue;
                     };
+                    // The field's literal range, as for a constructor argument.
+                    self.check_literal_range(&resource_base_type(expected), &update.value);
                     let Some(actual) = self.infer_type(&update.value, locals) else {
                         continue;
                     };

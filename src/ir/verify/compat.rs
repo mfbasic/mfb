@@ -948,6 +948,10 @@ impl TypeEnv {
             let Some((field_name, field_type)) = fields.get(index) else {
                 continue;
             };
+            // A field is a typed slot like a call parameter: a literal that
+            // cannot be represented in it is a compile error, not a value the
+            // record silently truncates or lowering rejects without a location.
+            self.check_literal_range(&resource_base_type(field_type), arg);
             let Some(actual) = self.infer_type(arg, locals) else {
                 continue;
             };
