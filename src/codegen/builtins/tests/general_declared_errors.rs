@@ -227,8 +227,8 @@ const UNREACHABLE: &[(&str, &[&str], &str, &str)] = &[
         &["Money"],
         "ErrInvalidArgument",
         "emit_fixed_divide's emit_nonzero_or_invalid guards its divisor, and \
-         lower_to_fixed's Money arm passes the constant 100000 \
-         (move_immediate(&scale, \"Integer\", \"100000\")), which is never zero.",
+         lower_to_fixed's Money arm passes the constant 100000 as its divisor \
+         (an Integer immediate), which is never zero.",
     ),
 ];
 
