@@ -34,7 +34,10 @@ Numeric literals are initially untyped. An integer-looking literal (no `.`)
 defaults to `Integer` and a decimal-looking literal defaults to `Float` when
 there is no expected type. When the expected type is `Fixed`, a decimal literal
 is rounded to the nearest representable `Fixed` value. Uppercase `F` selects
-`Fixed`; lowercase `f` selects `Float`.
+`Fixed`; lowercase `f` selects `Float`. A suffix is never overridden by the
+expected type: a lowercase-`f` literal written where a `Fixed` is expected is
+converted the way `toFixed` converts that `Float`, and one written where a
+`Money` is expected is an error (use `1.25`, `1.25m`, or `toMoney(1.25f)`).
 An `Integer` literal may initialize a `Byte` only when statically in range. A
 `Money` literal uses an `m` or `M` suffix (`1.25m`) or an expected `Money` type.
 

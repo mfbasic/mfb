@@ -292,12 +292,20 @@ pub(crate) fn fixed_conversion_from_decimal(value: &str) -> Result<i64, FixedDec
     if whole.is_empty() && fractional.is_empty() {
         return Err(FixedDecimalError::Invalid);
     }
+    // A whole part of decimal digits too large for i128 is a well-formed number
+    // far outside the 32.32 range, not a malformed one (`1e400` expands to 401
+    // digits): reporting it Invalid skipped the verifier's range diagnostic and
+    // failed later, in lowering, with no source location (bug-820).
     let mut whole_value = if whole.is_empty() {
         0_i128
     } else {
-        whole
-            .parse::<i128>()
-            .map_err(|_| FixedDecimalError::Invalid)?
+        whole.parse::<i128>().map_err(|_| {
+            if whole.bytes().all(|digit| digit.is_ascii_digit()) {
+                FixedDecimalError::OutOfRange
+            } else {
+                FixedDecimalError::Invalid
+            }
+        })?
     };
     // Every fractional digit must be a decimal digit, even past the deciding
     // ones (bug-91: a long spelling rounds rather than being rejected).
@@ -366,6 +374,40 @@ pub(crate) fn fixed_decimal_from_raw(raw: i64) -> String {
     let whole = magnitude >> FRACTION_BITS;
     let fraction = magnitude & ((1_u128 << FRACTION_BITS) - 1);
     decimal_text(raw < 0, whole, fraction * FIVE_POW_32, 32)
+}
+
+/// The `Fixed` constant spelling of a `Float`-suffixed literal (`1.5f`) placed in
+/// a `Fixed` slot (bug-820). The literal is a `Float`, so it converts exactly as
+/// `toFixed(Float)` does at run time (`mfb spec language types`, "Promotion
+/// failures and equality"): the binary64 value — not the decimal spelling — is
+/// scaled by `2^32` and rounded to nearest, ties away from zero. `0.1f` therefore
+/// lowers to the carrier nearest the binary64 `0.1`, which can differ from the
+/// carrier nearest the decimal `0.1` that an unsuffixed literal takes.
+///
+/// `value` is the suffix-free spelling from [`classify_literal`]. An in-range
+/// result is the exact decimal of the carrier, so [`fixed_raw_from_decimal`]
+/// maps it back to that raw. An out-of-range binary64 keeps an out-of-range
+/// spelling (its shortest round-trip scientific form, which is itself out of
+/// range because every binary64 inside the Fixed range rounds into it), and a
+/// non-finite one keeps the source spelling, so the verifier's literal range
+/// check reports `TYPE_FIXED_LITERAL_OVERFLOW` in both cases.
+pub(crate) fn fixed_constant_from_float_literal(value: &str) -> String {
+    const SCALE: f64 = 4_294_967_296.0;
+    // 2^63: the first magnitude past the i64 raw range; -2^63 itself fits.
+    const RAW_LIMIT: f64 = 9_223_372_036_854_775_808.0;
+    let Ok(float) = value.parse::<f64>() else {
+        return value.to_string();
+    };
+    if !float.is_finite() {
+        return value.to_string();
+    }
+    // Multiplying by a power of two is exact; `round` is ties-away-from-zero.
+    let scaled = (float * SCALE).round();
+    if (-RAW_LIMIT..RAW_LIMIT).contains(&scaled) {
+        fixed_decimal_from_raw(scaled as i64)
+    } else {
+        format!("{float:e}")
+    }
 }
 
 /// The exact decimal spelling of a `Money` raw value (`raw / MONEY_SCALE`) — the
@@ -732,7 +774,10 @@ mod tests {
             // (bug-818: these were truncated to `…47.99`).
             ("2147483647.996", "2147483648.00"),
             ("-2147483647.996", "-2147483648.00"),
-            ("2147483647.99999999976716935634613037109375", "2147483648.00"),
+            (
+                "2147483647.99999999976716935634613037109375",
+                "2147483648.00",
+            ),
             ("2147483647.994", "2147483647.99"),
         ] {
             assert_eq!(
@@ -750,6 +795,50 @@ mod tests {
         assert_eq!(
             default_to_string_text(&crate::types::ParameterType::Float, "not-a-number"),
             None
+        );
+    }
+
+    /// bug-820: a `Float`-suffixed literal in a `Fixed` slot converts its
+    /// binary64 value, as `toFixed(Float)` does, and an out-of-range or
+    /// non-finite one keeps a spelling the range check rejects.
+    #[test]
+    fn fixed_constant_from_float_literal_converts_the_binary64_value() {
+        assert_eq!(fixed_constant_from_float_literal("1.5"), "1.5");
+        assert_eq!(fixed_constant_from_float_literal("0"), "0");
+        assert_eq!(fixed_constant_from_float_literal("1e2"), "100");
+        // binary64 0.1 is slightly above 0.1; both round to raw 429496730.
+        let tenth = fixed_constant_from_float_literal("0.1");
+        assert_eq!(fixed_raw_from_decimal(&tenth), Ok(429_496_730));
+        // A half-quantum binary64 rounds away from zero.
+        let half_quantum = fixed_constant_from_float_literal("0.000000000116415321826934814453125");
+        assert_eq!(fixed_raw_from_decimal(&half_quantum), Ok(1));
+        // The decimal spelling is inside the Fixed range, but the nearest
+        // binary64 is exactly 2^31, which is not: the Float value decides.
+        assert!(fixed_raw_from_decimal("2147483647.99999994").is_ok());
+        let past_max = fixed_constant_from_float_literal("2147483647.99999994");
+        assert_eq!(past_max, "2.147483648e9");
+        assert!(fixed_raw_from_decimal(&past_max).is_err());
+        // Its negation is the Fixed minimum (the lowering's bug-07 fold).
+        assert_eq!(
+            fixed_raw_from_decimal(&format!("-{past_max}")),
+            Ok(i64::MIN)
+        );
+        assert_eq!(fixed_constant_from_float_literal("3e9"), "3e9");
+        assert!(fixed_raw_from_decimal(&fixed_constant_from_float_literal("3e9")).is_err());
+        assert_eq!(fixed_constant_from_float_literal("1e400"), "1e400");
+        // Out of range, not malformed, so the verifier reports it (a whole
+        // part too long for i128 used to classify as Invalid).
+        assert_eq!(
+            fixed_conversion_from_decimal("1e400"),
+            Err(FixedDecimalError::OutOfRange)
+        );
+        assert_eq!(
+            fixed_conversion_from_decimal("-1e400"),
+            Err(FixedDecimalError::OutOfRange)
+        );
+        assert_eq!(
+            fixed_conversion_from_decimal("1x400"),
+            Err(FixedDecimalError::Invalid)
         );
     }
 
@@ -902,11 +991,13 @@ mod tests {
         assert!(fixed_raw_from_decimal(".")
             .unwrap_err()
             .contains("invalid Fixed constant"));
-        // A whole part too large to fit an i128 is rejected as malformed.
+        // A whole part too large to fit an i128 is a well-formed number out of
+        // range, not a malformed one (bug-820: reporting it malformed skipped
+        // the verifier's TYPE_FIXED_LITERAL_OVERFLOW).
         let huge_whole = format!("1{}", "0".repeat(39));
         assert!(fixed_raw_from_decimal(&huge_whole)
             .unwrap_err()
-            .contains("invalid Fixed constant"));
+            .contains("out of range"));
         // A non-digit in the significant fractional prefix (first 28 places).
         assert!(fixed_raw_from_decimal("1.5x")
             .unwrap_err()

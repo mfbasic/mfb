@@ -3074,6 +3074,14 @@ impl<'a> Walker<'a> {
         if self.compatible(expected, actual) {
             return true;
         }
+        // bug-820: a `Float`-suffixed literal (`1.5f`) is a Float, not an
+        // untyped literal. A Fixed slot still accepts it (lowering converts it as
+        // `toFixed(Float)` would); a Money slot does not, because nothing
+        // converts into Money implicitly (`mfb spec language types`, `Money`).
+        let float_suffixed_into_money = |number: &HirExpression| {
+            matches!(expected, ParameterType::Money)
+                && matches!(number, HirExpression::Number(text) if text.ends_with('f'))
+        };
         match (expected, actual, expression) {
             (ParameterType::Byte, ParameterType::Integer, HirExpression::Number(value)) => value
                 .parse::<u16>()
@@ -3082,7 +3090,7 @@ impl<'a> Walker<'a> {
                 ParameterType::Fixed | ParameterType::Money,
                 ParameterType::Integer | ParameterType::Float,
                 HirExpression::Number(_),
-            ) => true,
+            ) => !float_suffixed_into_money(expression),
             (
                 ParameterType::Fixed | ParameterType::Money,
                 ParameterType::Integer | ParameterType::Float,
@@ -3092,7 +3100,7 @@ impl<'a> Walker<'a> {
             ) if *operator == UnaryOp::Negate
                 && matches!(operand.as_ref(), HirExpression::Number(_)) =>
             {
-                true
+                !float_suffixed_into_money(operand)
             }
             (
                 ParameterType::ListOf(expected_element),

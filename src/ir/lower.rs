@@ -4814,6 +4814,21 @@ fn lower_expression_with_expected(
                 || value.ends_with('F')
                 || value.ends_with('m')
                 || value.ends_with('M');
+            // bug-820: a `Float`-suffixed literal stays a Float, but a Fixed slot
+            // accepts a Float literal (`mfb spec architecture type-inference`,
+            // "Literal Coercion"), so it is converted here, as `toFixed(Float)`
+            // would convert it. Left a Float const, its f64 bits reached the
+            // Q32.32 slot unconverted. A Money slot has no such coercion: the
+            // Float const stays, and the verifier rejects it.
+            if literal_type == numeric::LiteralType::Float
+                && is_suffixed
+                && expected == Some(&ParameterType::Fixed)
+            {
+                return IrValue::Const {
+                    type_: ParameterType::Fixed,
+                    value: numeric::fixed_constant_from_float_literal(&canonical),
+                };
+            }
             let type_ = if is_suffixed {
                 match literal_type {
                     numeric::LiteralType::Fixed => ParameterType::Fixed,
@@ -5698,15 +5713,19 @@ fn lower_expression_with_expected(
                     Some(ParameterType::Money) | Some(ParameterType::Fixed)
                 )
                 && matches!(operand.as_ref(), HirExpression::Number(_));
-            let result_type = if exact_literal_negation {
-                expected.cloned().unwrap_or(ParameterType::Unknown)
-            } else {
-                expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown)
-            };
             let lowered_operand = if exact_literal_negation {
                 lower_expression_with_expected(operand, expected, locals, context)
             } else {
                 lower_expression(operand, locals, context)
+            };
+            // The negation has its lowered literal's type. That is the slot's
+            // type for an unsuffixed literal, and for `-1.5f` in a Fixed slot
+            // (converted), but a suffix that keeps another type (`-1.5f` or
+            // `-1.5F` in a Money slot) keeps it here too, so the verifier sees a
+            // mismatch rather than a Money-annotated negation of a Float (bug-820).
+            let result_type = match (&lowered_operand, exact_literal_negation) {
+                (IrValue::Const { type_, .. }, true) => type_.clone(),
+                _ => expression_type(expression, locals, context).unwrap_or(ParameterType::Unknown),
             };
             // bug-07: the minimum `Fixed` (`-2147483648.0`) parses as
             // `-(2147483648.0F)`, but the positive magnitude overflows the i64

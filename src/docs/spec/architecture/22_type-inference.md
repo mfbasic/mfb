@@ -24,7 +24,10 @@ type fits an expected one.
 
 `lower_expression(expr)` lowers with `expected = None`;
 `lower_expression_with_expected(expr, Some(T))` is used only at these positions,
-where the declared or contextual type re-types an unsuffixed literal.
+where the declared or contextual type re-types an unsuffixed literal. A suffixed
+literal keeps its suffix type, with one conversion: an `f`-suffixed (`Float`)
+literal at a `Fixed` expected type is lowered as the `Fixed` constant nearest its
+binary64 value (see "Literal Coercion").
 [[src/ir/lower.rs:lower_expression_with_expected]]
 
 | Position | Expected type | Site |
@@ -110,8 +113,8 @@ holds a related predicate over HIR expressions (the literal shapes below are rea
 from whichever form is in hand). It first tries the structural relation
 `compatible`; if that fails it permits a small set of **literal-only** coercions
 that convert the *actual literal* toward the *expected* type. The following
-pseudocode describes the HIR shape predicate; IR verification has the scalar
-coercions but no recursive list-literal coercion arm:
+pseudocode describes the HIR shape predicate, where `Number f` is an
+`f`-suffixed (`Float`) literal:
 
 ```text
 expression_compatible(E, A, expr) =
@@ -119,12 +122,21 @@ expression_compatible(E, A, expr) =
   | E=Byte  ∧ A=Integer ∧ expr = Number n ∧ 0 ≤ n ≤ 255  ; small int literal → Byte
   | E=Fixed ∧ A∈{Integer,Float} ∧ expr = Number      ; numeric literal → Fixed
   | E=Fixed ∧ A∈{Integer,Float} ∧ expr = -Number     ; negated numeric literal → Fixed
-  | E=Money ∧ A∈{Integer,Float} ∧ expr = Number      ; decimal literal → Money
-  | E=Money ∧ A∈{Integer,Float} ∧ expr = -Number     ; negated decimal literal → Money
+  | E=Money ∧ A∈{Integer,Float} ∧ expr = Number, not Number f   ; decimal literal → Money
+  | E=Money ∧ A∈{Integer,Float} ∧ expr = -Number, not -Number f ; negated decimal literal → Money
   | E=List OF Ee ∧ A=List OF _ ∧ expr = ListLiteral vs
         ∧ ∀ v ∈ vs: v is a numeric literal
         ∧ expression_compatible(Ee, lit_type(v), v)   ; recurse element-wise
 ```
+
+IR verification sees the literal after lowering has typed it, so its coercions
+are narrower: the small-int → `Byte` arm, and an `Integer` constant (or its
+negation) into `Fixed` or `Money`. It admits **no** `Float` constant into a
+`Fixed` or `Money` slot, and has no recursive list-literal arm. Lowering retypes
+an unsuffixed literal to the slot's type and converts an `f`-suffixed one into a
+`Fixed` slot, so a `Float` constant still in such a slot is either a `Float`
+literal in a `Money` slot (a type error) or package IR that would hand the slot
+an f64 bit pattern as its carrier (bug-820).
 
 Properties:
 
@@ -136,9 +148,9 @@ Properties:
   each element). A general expression that merely *has* type `Integer` is never
   coerced; the small-int → `Byte` rule re-parses the literal text and bounds it
   at `255`.
-- `Fixed` and `Money` accept any numeric literal **unconditionally** (no range
-  check at this layer); range/precision rules for `Fixed`/`Money` are in
-  `./mfb spec language types`.
+- `Fixed` accepts any numeric literal, and `Money` any numeric literal that is
+  not `f`- or `F`-suffixed, with **no range check at this layer**; range/precision
+  rules for `Fixed`/`Money` are in `./mfb spec language types` (§4.12).
 - **Suffixed literals are intrinsically typed.** An `f`/`F`/`m`/`M`-suffixed literal
   (`mfb spec language lexical-structure` §2.1) has `actual` = `Float`/`Fixed`/`Money`
   from its suffix, *not* the untyped shape (`m` and `M` both yield `Money`, since
@@ -148,6 +160,22 @@ Properties:
   `E=Fixed ∧ A=Float ∧ expr=Number` rule. The suffix therefore *wins over* an
   expected type: the expected type never re-types a suffixed literal the way it
   coerces an unsuffixed one. `numeric_literal_type` returns the suffix type.
+- **A `Float` literal in a `Fixed` slot is converted, not re-typed.** `1.5f` in a
+  `Fixed` slot is lowered as the `Fixed` constant `toFixed(1.5f)` would produce:
+  the binary64 value, scaled by `2^32`, rounded to nearest with ties away from
+  zero. It is the binary64 value, not the decimal spelling, that is rounded, so
+  `2097152.0000000002f` is exactly `2097152` (the nearest binary64 is `2^21`)
+  while the unsuffixed `2097152.0000000002` is one quantum above it. The range
+  check is likewise decided on the binary64 value: `2147483647.99999994f` is
+  `TYPE_FIXED_LITERAL_OVERFLOW` (its binary64 is `2^31`) even though the
+  unsuffixed spelling is in range, and a non-finite `1e400f` is out of range.
+  [[src/numeric.rs:fixed_constant_from_float_literal]]
+- **A `Float` or `Fixed` literal in a `Money` slot is a type error.** Nothing
+  converts into `Money` implicitly (`mfb spec language types`, `Money`), so
+  `5.0f`, `-5.0f`, and `5.0F` in a `Money` slot are rejected by that slot's
+  mismatch rule (`TYPE_BINDING_MISMATCH`, `TYPE_CALL_ARGUMENT_MISMATCH`,
+  `TYPE_MATCH_PATTERN_MISMATCH`, …), exactly as a `Float` variable would be.
+  Write `5.0`, `5.0m`, or `toMoney(5.0f)`.
 
 [[src/ir/verify/compat.rs:expression_compatible]] [[src/ir/shape.rs:expression_compatible]]
 

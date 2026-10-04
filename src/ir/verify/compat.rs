@@ -686,19 +686,24 @@ impl TypeEnv {
                 (ParameterType::Byte, ParameterType::Integer) => {
                     return value.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16);
                 }
+                // An integer literal coerces to a Fixed or Money slot
+                // (plan-29-A §4.4). No `Float` const is admitted: lowering
+                // retypes an unsuffixed decimal literal to the slot's type and
+                // converts a `Float`-suffixed one into a Fixed slot, so a Float
+                // const reaching a Fixed or Money slot is a `1.5f` in a Money
+                // slot (a type error: no implicit conversion into Money) or
+                // package IR whose f64 bits would be read as a Q32.32 or
+                // Money carrier (bug-820).
                 (ParameterType::Fixed, ParameterType::Integer)
-                | (ParameterType::Fixed, ParameterType::Float) => return true,
-                // A decimal literal coerces to a Money slot (plan-29-A §4.4).
-                (ParameterType::Money, ParameterType::Integer)
-                | (ParameterType::Money, ParameterType::Float) => return true,
+                | (ParameterType::Money, ParameterType::Integer) => return true,
                 _ => {}
             }
         }
-        // Negated numeric literal into Fixed / Money (`-1`, `-1.25`).
+        // Negated integer literal into Fixed / Money (`-1`), as above.
         if matches!(expected, ParameterType::Fixed | ParameterType::Money) {
             if let IrValue::Unary { op, operand, .. } = value {
                 if *op == UnaryOp::Negate
-                    && matches!(operand.as_ref(), IrValue::Const { type_, .. } if matches!(type_, ParameterType::Integer | ParameterType::Float))
+                    && matches!(operand.as_ref(), IrValue::Const { type_, .. } if matches!(type_, ParameterType::Integer))
                 {
                     return true;
                 }
