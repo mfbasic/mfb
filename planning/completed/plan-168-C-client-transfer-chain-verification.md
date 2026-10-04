@@ -279,7 +279,7 @@ Acceptance: `cargo test --bin mfb spec` → `test result: ok` (est. 3–6 min; g
   Measured: `test result: ok. 46 passed; 0 failed`. The rename
   `follow_rotated_pin` → `follow_identity_pin` had left the §Ident Rotation
   citation dangling; it now cites `follow_identity_pin`.
-Commit: (this commit — recorded on archive)
+Commit: 352c4c63a
 
 ## Validation Plan
 
