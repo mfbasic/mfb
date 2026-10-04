@@ -5,10 +5,10 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (documentation correctness)
 
-Status: Open — native-body sweep DONE (2026-09-27): every package's native lowering is guarded (`declared_errors_all.rs`, 53 guards green; full suite 251/0, artifact gate 0 diffs; siblings 641/722/724/727/731 fixed and archived). REMAINING: the `Body::Mfb` guard (Phase 1, second box) and bug-645's `sum` row. Owner decision 2026-09-25 stands: every function must list every error it can
+Status: Open — native-body sweep DONE (2026-09-27): every package's native lowering is guarded (`declared_errors_all.rs`, 53 guards green; full suite 251/0, artifact gate 0 diffs; siblings 641/722/724/727/731 fixed and archived). bug-645's `sum` row: DONE — already landed at this HEAD (`f6f1cb561`, an ancestor; `errors: vec!["ErrFloatOverflow", "ErrFloatNaN"]` on the `Float` overload, `src/codegen/builtins/collections/func_sum.rs:115`). Phase 1's `Body::Mfb` guard: DONE (2026-10-03) — `src/codegen/builtins/tests/mfb_body_declared_errors.rs` scans every `Body::Mfb` member's source for its own `FAIL error(<code>, …)` sites plus every call it makes (a qualified `pkg::name(` call trusts that member's own declared `errors`; a bare `__name(` call to a package-private `RegistryHelper` is inlined and scanned recursively). It runs clean of classification failures (every call across the whole registry resolves) and measures 211 `Body::Mfb` members total; it currently **fails** as Phase 1's acceptance requires, listing the 136 of those 211 whose declared `errors` differ from what the scan finds (the other 75 already declare exactly what the scan finds — mostly members with no `FAIL` and no error-bearing callee at all). The 136 are recorded below. **REMAINING: Phase 2** — fill `errors` and align prose for those 136 members across 15 packages (`astrings`, `audio`, `canvas`, `color`, `csv`, `json`, `regex`, `datetime`, `encoding`, `collections`, `crypto`, `net`, `http`, `vector`). This is its own large effort: the guard's propagation is function-level (not per-overload — the same coarseness bug-645 already flagged for the native sweep), so several of the 136 findings are an overload mismatch rather than a real gap (e.g. `collections::sort`'s reported `ErrNotFound` comes only from `collections::get`'s unrelated map overload; `sort`'s own calls are the list overload, which cannot raise it) and need the same `unreachable_via_callee`-style evidence `declared_errors_all.rs` uses before touching a descriptor, not a mechanical copy of the scan's output. Owner decision 2026-09-25 stands: every function must list every error it can
 produce.** That includes `ErrOutOfMemory` on every member that can raise it, and the
-`Body::Mfb` members' `FAIL` codes. Land after bug-702 and bug-701, which change raise sets.
-Regression Test: extend `src/codegen/builtins/tests/fs_declared_errors.rs` from `fs` to every package (Phase 1)
+`Body::Mfb` members' `FAIL` codes. Land after bug-702 and bug-701, which change raise sets (both landed; see `bugs/completed/`).
+Regression Test: extend `src/codegen/builtins/tests/fs_declared_errors.rs` from `fs` to every package (Phase 1); `src/codegen/builtins/tests/mfb_body_declared_errors.rs` (Phase 1, `Body::Mfb`)
 
 bug-694 found that every `fs` descriptor declared `errors: vec![]`, so no `fs`
 man page had an Errors table. Its Phase 1 audit ran the same measurement on every
@@ -162,18 +162,200 @@ raised by a shared emitter. bug-694 added the lowering sweep for `fs` only
 
 - [x] Extend the sweep to every package; make `term`/`crypto`/`canvas`/`app`
       lower in the harness. (`declared_errors_all.rs`, one guard per package)
-- [ ] Add the `Body::Mfb` guard (see Blast Radius).
-- [ ] Record the complete per-member list here.
+- [x] Add the `Body::Mfb` guard (see Blast Radius).
+      `src/codegen/builtins/tests/mfb_body_declared_errors.rs`: a whole-registry
+      source scan (not a lowering — an `Mfb` body has no native instructions to
+      lower). Per member: union its own `FAIL error(<code>)` sites with, for
+      every call it makes, the called member's own declared `errors` (a
+      qualified `pkg::name(` call) or a recursive inline scan of a
+      package-private `RegistryHelper`'s `FUNC … END FUNC` block (a bare
+      `__name(` call that is not a sibling member's rewrite symbol). A
+      `CASE pkg::Variant(binding)` / `CASE __pkg_Variant(binding)`
+      union-pattern match parses identically to a call and is excluded
+      explicitly (`preceded_by_case`). Zero classification failures: every
+      call reached by every `Body::Mfb` member in the registry resolves to
+      either a registered member or a registered helper block.
+- [x] Record the complete per-member list here.
 
-Acceptance: the guard fails listing exactly the measured members.
-Commit: —
+Acceptance: the guard fails listing exactly the measured members. **Met**: the
+raw comparison (`declared == expected`, no baseline) fails, listing the 136
+members below. The COMMITTED test does not assert that raw comparison directly
+— `cargo test` runs on every push and AGENTS.md forbids landing with the
+suite red — it asserts against a `PHASE_1_BASELINE` constant pinned to
+exactly these 136 strings (a ratchet: a mismatch outside the baseline still
+fails the build, catching a new regression, but the already-known 136 do
+not, so Phase 1 lands green). Phase 2 shrinks `PHASE_1_BASELINE` by removing
+each entry it fixes, never edits one in place, until the guard needs no
+baseline at all and can tighten to the plain `is_empty()` form
+`declared_errors_all.rs`'s guards use.
+
+Commit: (this worktree, bug-698 branch)
+
+**The complete per-member list** (`cargo test --release --bin mfb
+every_body_mfb_member_declares_exactly_the_errors_its_source_can_raise`,
+2026-10-03; format `pkg::member: undeclared [...]`, union-of-implementations
+granularity — see the Status line's caveat on function- vs. overload-level
+precision before treating an entry as final truth for Phase 2):
+
+```
+astrings::addAttribute: undeclared ["ErrOutOfMemory"]
+astrings::removeAttribute: undeclared ["ErrOutOfMemory"]
+astrings::clearAttributes: undeclared ["ErrOutOfMemory"]
+astrings::getAttributes: undeclared ["ErrOutOfMemory"]
+astrings::toMarkdown: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+audio::render: undeclared ["ErrFloatNaN", "ErrInvalidArgument", "ErrOutOfMemory"]
+audio::play: undeclared ["ErrFloatInf", "ErrFloatNaN", "ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow"]
+canvas::present: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrOverflow", "ErrResourceClosed"]
+canvas::getFrameStats: undeclared ["ErrOverflow"]
+canvas::waitFrame: undeclared ["ErrOutOfMemory"]
+canvas::presentLayers: undeclared ["ErrInvalidArgument", "ErrOutOfMemory", "ErrOverflow"]
+canvas::loadImage: undeclared ["ErrAccessDenied", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrInvalidPath", "ErrPathNotFound", "ErrReadFailed", "ErrTooLarge"]
+canvas::loadFont: undeclared ["ErrAccessDenied", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrInvalidPath", "ErrReadFailed"]
+canvas::listSystemFonts: undeclared ["ErrIndexOutOfRange", "ErrInvalidFormat"]
+canvas::loadSystemFont: undeclared ["ErrIndexOutOfRange", "ErrInvalidFormat"]
+canvas::measureText: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+color::toPacked: undeclared ["ErrInvalidArgument"]
+color::fromPacked: undeclared ["ErrInvalidArgument"]
+color::fromHex: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+color::toHex: undeclared ["ErrIndexOutOfRange"]
+color::toHexAlpha: undeclared ["ErrIndexOutOfRange"]
+color::hsl: undeclared ["ErrOverflow"]
+color::hsla: undeclared ["ErrOverflow"]
+color::toHsl: undeclared ["ErrInvalidArgument", "ErrOverflow"]
+color::saturate: undeclared ["ErrInvalidArgument", "ErrOverflow"]
+color::desaturate: undeclared ["ErrInvalidArgument", "ErrOverflow"]
+color::rotateHue: undeclared ["ErrInvalidArgument", "ErrOverflow"]
+color::fromName: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+color::nameOf: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+csv::parse: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+csv::stringify: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound"]
+csv::parseStream: undeclared ["ErrIndexOutOfRange", "ErrNotFound"]
+csv::readRow: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+json::get: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+json::getOr: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+json::parse: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+json::stringify: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+regex::find: undeclared ["ErrInvalidArgument", "ErrOutOfMemory"]
+regex::findAll: undeclared ["ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+regex::match: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+regex::replace: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+regex::findMatch: undeclared ["ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+regex::findAllMatches: undeclared ["ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+regex::count: undeclared ["ErrNotFound", "ErrOutOfMemory"]
+regex::split: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+datetime::toUtc: undeclared ["ErrInvalidArgument", "ErrOverflow"]
+datetime::toLocal: undeclared ["ErrOverflow"]
+datetime::format: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+datetime::parse: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow"]
+datetime::toIso: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+datetime::parseIso: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrOverflow"]
+datetime::formatDuration: undeclared ["ErrInvalidArgument", "ErrOutOfMemory"]
+encoding::utf16Encode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+encoding::utf16Decode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound"]
+encoding::utf32Encode: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+encoding::hexEncode: undeclared ["ErrIndexOutOfRange"]
+encoding::hexDecode: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+encoding::base32Encode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument"]
+encoding::base32Decode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+encoding::base64Encode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument"]
+encoding::base64Decode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+encoding::base64UrlEncode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument"]
+encoding::base64UrlDecode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+encoding::percentEncode: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+encoding::percentDecode: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+encoding::htmlEscape: undeclared ["ErrIndexOutOfRange"]
+encoding::htmlUnescape: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+encoding::formUrlEncode: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+encoding::formUrlDecode: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+encoding::punycodeEncode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+encoding::punycodeDecode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+encoding::uleb128Encode: undeclared ["ErrInvalidArgument", "ErrOutOfMemory"]
+encoding::uleb128Decode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound"]
+encoding::sleb128Encode: undeclared ["ErrInvalidArgument", "ErrOutOfMemory"]
+encoding::sleb128Decode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound"]
+encoding::varintEncode: undeclared ["ErrInvalidArgument", "ErrOutOfMemory"]
+encoding::varintDecode: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound"]
+encoding::codepageDecode: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+encoding::codepageEncode: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::sort: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::sortBy: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::take: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::drop: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::any: undeclared ["ErrIndexOutOfRange", "ErrNotFound"]
+collections::all: undeclared ["ErrIndexOutOfRange", "ErrNotFound"]
+collections::groupBy: undeclared ["ErrIndexOutOfRange", "ErrNotFound"]
+collections::mapValues: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+collections::flatten: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::zip: undeclared ["ErrIndexOutOfRange", "ErrNotFound"]
+collections::chunks: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::window: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::distinct: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+collections::merge: undeclared ["ErrIndexOutOfRange"]
+collections::partition: undeclared ["ErrIndexOutOfRange", "ErrNotFound"]
+collections::toSet: undeclared ["ErrOutOfMemory"]
+collections::union: undeclared ["ErrOutOfMemory"]
+collections::intersection: undeclared ["ErrOutOfMemory"]
+collections::difference: undeclared ["ErrOutOfMemory"]
+collections::symmetricDifference: undeclared ["ErrOutOfMemory"]
+crypto::uuid7: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound"]
+crypto::ulid: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound"]
+net::toUrl: undeclared ["ErrIndexOutOfRange", "ErrNotFound", "ErrOutOfMemory"]
+net::percentDecode: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+net::parseQuery: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNotFound", "ErrOutOfMemory"]
+http::read: undeclared ["ErrAddressNotFound", "ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"]
+http::write: undeclared ["ErrAddressNotFound", "ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"]
+http::startRead: undeclared ["ErrAddressNotFound", "ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"]
+http::ready: undeclared ["ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"]
+http::pump: undeclared ["ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"]
+http::done: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNotFound", "ErrOutOfMemory"]
+http::finish: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNotFound", "ErrOutOfMemory"]
+http::server: undeclared ["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory"]
+http::serverSSL: undeclared ["ErrAddressInvalid", "ErrNetworkFailed", "ErrOutOfMemory", "ErrTlsFailed"]
+http::handleRequest: undeclared ["ErrConnectionClosed", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNetworkFailed", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"]
+http::route: undeclared ["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrNotFound", "ErrOutOfMemory"]
+http::responseDefault: undeclared ["ErrOutOfMemory"]
+http::ok: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+http::status: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+http::json: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+http::withHeader: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory"]
+http::bytes: undeclared ["ErrOutOfMemory"]
+http::respondFile: undeclared ["ErrIndexOutOfRange", "ErrOutOfMemory", "ErrReadFailed", "ErrResourceClosed", "ErrResourceMoved"]
+http::respondPath: undeclared ["ErrAccessDenied", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidPath", "ErrNotFound", "ErrOutOfMemory", "ErrPathNotFound", "ErrReadFailed", "ErrWriteFailed"]
+vector::length: undeclared ["ErrFloatDomain", "ErrInvalidArgument"]
+vector::normalize: undeclared ["ErrFloatDomain", "ErrOverflow"]
+vector::distance: undeclared ["ErrFloatDomain", "ErrInvalidArgument"]
+vector::project: undeclared ["ErrOverflow"]
+vector::angle: undeclared ["ErrFloatDomain", "ErrOverflow"]
+vector::lerp: undeclared ["ErrInvalidArgument", "ErrOverflow"]
+vector::lerp_unclamped: undeclared ["ErrOverflow"]
+vector::slerp: undeclared ["ErrFloatDomain", "ErrFloatNaN", "ErrOverflow"]
+vector::clamp_length: undeclared ["ErrFloatDomain", "ErrOverflow"]
+vector::min: undeclared ["ErrInvalidArgument"]
+vector::max: undeclared ["ErrInvalidArgument"]
+vector::abs: undeclared ["ErrOverflow"]
+vector::rotate_2d: undeclared ["ErrFloatNaN", "ErrOverflow"]
+```
+
+Every entry above is "declared but never raised []" — every `Body::Mfb` member in
+the registry currently declares `errors: vec![]` (native `Mfb` bodies were entirely
+outside bug-694/bug-698's native-lowering sweep until this guard), so Phase 2 starts
+from zero on every one of these 136 members, not a partial list.
 
 ### Phase 2: descriptors and prose, package by package
 
 - [ ] Fill `errors` and align prose; `scripts/man-census.sh --memory-scope`,
       `--scope`, and `scripts/man-run-examples.sh <pkg> --run` per package.
+      Also covers the native-sweep `errors:` vectors; the `Body::Mfb` half is
+      the 136-member list Phase 1 recorded above, in
+      `src/codegen/builtins/tests/mfb_body_declared_errors.rs`'s
+      `PHASE_1_BASELINE` — remove each member's entry there as its descriptor
+      and prose are fixed (never edit an entry in place; see that const's own
+      doc comment on re-deriving each one from the source rather than copying
+      the recorded list verbatim, since the guard's function-level, not
+      per-overload, propagation overstates some of them).
 
-Acceptance: the guard passes.
+Acceptance: the guard passes (`PHASE_1_BASELINE` is empty and the assertion is
+tightened to the plain `is_empty()` form).
 Commit: —
 
 ### Phase 3: validation
