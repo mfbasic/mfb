@@ -120,7 +120,11 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
 - `close-request` → `_mfb_gtkapp_window_closed`; `gtk_window_present(window)`.
 - `pipe(fds)`: read fd → `ST_PIPE_READ_FD`, write fd → `ST_PIPE_WRITE_FD`, and
   `dup2(read, 0)` so the reused console read helpers consume committed input on fd 0.
-- `pthread_create(&thread, NULL, _mfb_gtkapp_worker, NULL)` then `pthread_detach`.
+- `pthread_create(&thread, &attr, _mfb_gtkapp_worker, NULL)` then `pthread_detach`.
+  `attr` gives the program thread a `THREAD_STACK_BYTES` (8 MiB) stack, the size a
+  console program's main thread and every `thread::start` worker get; default
+  attributes would give it the libc default (128 KiB on musl). The headless gate in
+  `_mfb_gtkapp_main` spawns the worker the same way. [[src/target/linux_gtk/bootstrap.rs:emit_spawn_program_thread]]
 
 ## Worker thread
 

@@ -110,8 +110,8 @@ fn emit_headless_scripted_resize(asm: &mut Asm) {
 /// `__libc_start_main` exits cleanly.
 pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
-    // lr@0, argc@8, argv@16, headless pthread_t@24.
-    let frame = 48;
+    // lr@0, argc@8, argv@16, headless pthread_t@24, headless pthread_attr_t@48..112.
+    let frame = 112;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -149,14 +149,10 @@ pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, Str
     asm.call_external("getenv");
     asm.push(abi::compare_immediate(abi::c_return(0), "0"));
     asm.push(abi::branch_eq("gtk_path"));
-    // pthread_create(&thread@sp+24, NULL, _mfb_gtkapp_worker, NULL), then park.
-    // The worker owns termination: its finish helper `_exit`s with the program's
-    // code, so this thread never has to wake up.
-    asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 24));
-    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    asm.call_external("pthread_create");
+    // Spawn the worker on thread@sp+24, then park. The worker owns termination: its
+    // finish helper `_exit`s with the program's code, so this thread never has to
+    // wake up.
+    emit_spawn_program_thread(&mut asm, 24, 48);
     if uses_canvas {
         emit_headless_scripted_resize(&mut asm);
     }
@@ -272,14 +268,59 @@ fn emit_input_pipe_wiring(asm: &mut Asm) {
     asm.store_state(abi::SCRATCH[1], ST_PIPE_READ_FD);
 }
 
+/// `pthread_create(&tid@sp+tid_offset, &attr, _mfb_gtkapp_worker, NULL)` with a
+/// `THREAD_STACK_BYTES` stack (bug-803), the size every console program and every
+/// `thread::start` worker gets. The default attributes would give the program the
+/// libc default instead (128 KiB on musl). `attr_offset` addresses 64 free bytes in
+/// the caller's frame: a `pthread_attr_t` is 56 or 64 bytes on every Linux target.
+fn emit_spawn_program_thread(asm: &mut Asm, tid_offset: usize, attr_offset: usize) {
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.call_external("pthread_attr_init");
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.push(abi::move_immediate(
+        abi::c_arg(1),
+        "Integer",
+        &crate::codegen::error::constants::THREAD_STACK_BYTES.to_string(),
+    ));
+    asm.call_external("pthread_attr_setstacksize");
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        tid_offset,
+    ));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.call_external("pthread_create");
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        attr_offset,
+    ));
+    asm.call_external("pthread_attr_destroy");
+}
+
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
     uses_mouse: bool,
     uses_window: bool,
 ) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
-    // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
-    let frame = 32;
+    // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24,
+    // pthread_attr_t@32..96.
+    let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
@@ -426,12 +467,8 @@ pub(super) fn emit_activate_handler(
         emit_input_pipe_wiring(&mut asm);
     }
 
-    // pthread_create(&thread@sp+8, NULL, _mfb_gtkapp_worker, NULL); detach.
-    asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 8));
-    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
-    asm.local_address(abi::c_arg(2), WORKER_SYMBOL);
-    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-    asm.call_external("pthread_create");
+    // Spawn the worker on thread@sp+8; detach.
+    emit_spawn_program_thread(&mut asm, 8, 32);
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 8));
     asm.call_external("pthread_detach");
 

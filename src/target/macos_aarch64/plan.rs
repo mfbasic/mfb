@@ -154,6 +154,7 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_pthread_create"),
             ("libSystem", "_pthread_attr_init"),
             ("libSystem", "_pthread_attr_setstacksize"),
+            ("libSystem", "_pthread_attr_destroy"),
             ("libSystem", "_pause"),
             ("libSystem", "_getenv"),
             ("libSystem", "_write"),

@@ -751,12 +751,14 @@ const REG_SCRATCH_OBJ: Reg = abi::LOCAL[2]; // transient object (class / NSStrin
 const REG_HEADLESS: Reg = abi::LOCAL[3]; // getenv("MFB_MACAPP_HEADLESS") result
 
 // `_main` stack frame: [sp+0]=argc, [sp+8]=argv (worker arg block),
-// [sp+16]=pthread_t, [sp+24..32]=input pipe fds (read, write).
-const FRAME_SIZE: usize = 32;
+// [sp+16]=pthread_t, [sp+24..32]=input pipe fds (read, write),
+// [sp+32..96]=the program thread's `pthread_attr_t` (bug-803).
+const FRAME_SIZE: usize = 96;
 const OFF_ARGC: usize = 0;
 const OFF_ARGV: usize = 8;
 const OFF_TID: usize = 16;
 const OFF_PIPE: usize = 24;
+const OFF_ATTR: usize = 32;
 
 /// Small instruction/relocation accumulator that records every relocation under
 /// a single `from` symbol, keeping the objc_msgSend boilerplate compact.

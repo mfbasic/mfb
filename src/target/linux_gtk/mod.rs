@@ -1112,6 +1112,9 @@ pub(crate) fn app_mode_imports(
         // exactly as the console runtime resolves them on glibc.
         (libpthread, "pthread_create"),
         (libpthread, "pthread_detach"),
+        // bug-803: the program thread gets a `THREAD_STACK_BYTES` stack.
+        (libpthread, "pthread_attr_init"),
+        (libpthread, "pthread_attr_setstacksize"),
         // bug-789: the app-mode entry asks for its worker thread's stack to set the
         // thread's stack limit (`emit_stack_limit`, `ThreadStack::Inherited`).
         (libpthread, "pthread_self"),
@@ -1537,6 +1540,9 @@ mod import_tests {
             "__libc_start_main",
             "pthread_create",
             "pthread_detach",
+            "pthread_attr_init",
+            "pthread_attr_setstacksize",
+            "pthread_attr_destroy",
             "g_idle_add",
             "g_application_run",
             "gtk_window_present",
