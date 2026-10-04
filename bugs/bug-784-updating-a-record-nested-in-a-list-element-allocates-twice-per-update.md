@@ -1,11 +1,11 @@
 # bug-784: updating a record nested inside a list element allocates twice per update
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Effort: medium (guess)
 Severity: MEDIUM — a silent per-update allocation cost on a common record shape; output correct
 Class: Other (performance)
 
-Status: Partially fixed — M2 and the inline form of M1 landed; the call form of M1 (`inner := step(h.inner, …)`) is open (see *Remaining work*)
+Status: Fixed for the measured shapes (M2, M1 inline and call forms); the benchmark `record nested` row itself is blocked by a separate borrow-analysis limitation (see *Benchmark row*)
 Regression Test: `tests/runtime/rt_record_nested_update.rs`
 
 Split out of bug-766, which removed the allocations for most record-update spellings
@@ -109,28 +109,77 @@ Every printed result is identical before and after. Timing (N = 200 000, three r
 each, loaded machine): `nested` 155/177/103 → 82/95/86 ns/op, `nestedinner`
 146/127/229 → 4/5/4 ns/op.
 
-## Remaining work — M1, call form
+## M1, call form — destination variants (2026-10-04)
 
-`inner := stepWide(h.inner, i, tag)` still costs the callee's result block, 1 per
-update (`nestedcall` alone measures the same 1). No hand-over can remove it as the
-calling convention stands: plan-147's owned variant takes ownership of an arena
-block, may free it (bug-766 D's rebuild on a granule change) and returns a block,
-while `h.inner` is a span inside the list's data region — handing it over would
-free a pointer into a live allocation. Removing the allocation needs one of:
+`inner := stepWide(h.inner, i, tag)` used to cost the callee's result block. The
+callee already receives `h.inner` as a pointer to the element's own bytes (an
+argument is lent), so a second lowering of the callee writes its result there:
 
-1. a per-call-site recycled block: copy `h.inner` into a function-scoped arena
-   block (allocated once, re-copied while its walked size keeps the granule), hand
-   THAT over to the `$own` variant, write the result into the element (the M2
-   store), and keep the returned block as the next iteration's instead of freeing
-   it; freed (walk-sized) on every exit, error and `TRAP` paths included. New
-   frame-scoped state with exit cleanup plus a `handover.rs:consuming_use` arm for
-   a field-read argument; or
-2. a destination-passing variant of the callee that writes its `WITH` result into
-   a caller-supplied span when the size is unchanged — an ABI addition.
+- **Analysis — `src/codegen/engine/analysis/into_dest.rs`.** `collect_into_sites`
+  finds, in each element-bound binding's update `WITH` (`collect_borrow_gets` with
+  "no call writes a global", a superset of the lowering's set), an update
+  `f := g(…, p.f, …)` whose callee `g` qualifies for that parameter
+  (`into_param_eligible`: the parameter's type is the return type, a flat record,
+  never assigned or address-taken, and some `RETURN WITH <param> { … }` exists).
+  The same function feeds the builder's sites and the variant demand
+  (`demanded_into_variants`), so a called variant always exists.
+- **Callee — `<base>$into<j>` (`OwnedVariant::into`, `try_into_return`).**
+  `RETURN WITH w { … }` runs `try_inplace_scalar_fields` with `w` as a span owner:
+  **read-before-write by construction** — every update value (scalars, the
+  replaced `String`'s source pointer and its size) is computed and spilled
+  before the first store; the stores then go scalar slots, then the one replaced
+  sub-block (whose source may overlap it only as that same span — forward copy),
+  then nested scalars. When the result's exact size equals `w`'s, it is written
+  into `w` and `w`'s address returned; otherwise nothing is written and a fresh
+  block built from the spilled values is returned.
+- **Caller — `element_into_call`.** The call is lowered to the variant symbol,
+  its result claimed off the pending-temp list, and compared with the
+  destination's address (taken right after the call): equal = done in place,
+  nothing freed; different = the existing M2 replace / write-back over the fresh
+  block, which is then freed. Because the variant writes while the caller's `WITH`
+  values are still being evaluated, the caller admits it only when that is
+  unobservable: every earlier update is a scalar or nested scalar; every later
+  update reads neither `p.f`, `p` whole, the container, nor a binding that may
+  alias the element, and calls only infallible built-ins
+  (`later_value_misses_destination`); and if a later update can fail, no `TRAP` or
+  inline result capture is active and the container is a plain owned local (the
+  error leaves the function with it).
 
-Both are new mechanisms rather than a fix of an existing route, so they are left
-for a follow-up. Until then the goal row "`nestedsame` and `nestedmut` allocate 0"
-is not met (1 each); `nestedinner` is (0), and `nested` meets "at most 1".
+Measured (`/tmp/b784/gen.sh`, `DEBUG=1`, `arena.0.alloc_calls`, N = 1000 / 2000):
+`nested`, `nestedsame`, `nestedmut` 1482 / 2482 → **546 / 546** (1 → 0 per
+update; the 546 includes each element's first, size-changing update). Output
+identical. `tests/runtime/rt_record_nested_update.rs` (on the M2-only compiler:
+1.00 per update for `nested`, `nestedsame`, `nestedmut`, `not_last_inlined` and
+the two overlap cases):
+
+- `overlap_callee_reads_destination` — `stepSelf` reads the old `count` after
+  updating it in source order and copies the destination's own `name` into `tag`;
+- `overlap_argument_views_destination` — the `tag` argument is `h.inner.name`, a
+  view into the destination;
+- `overlap_argument_is_replaced_span` — the `tag` argument is the very span the
+  callee replaces;
+- `overlap_later_update_reads_destination` — `touches := h.touches +
+  h.inner.count` must see the OLD count, so the variant is refused (1 per update);
+- `a_later_failure_leaves_the_element_unchanged` — an overflowing later update
+  under a function-level `TRAP`: the element is unchanged.
+
+The last two were proved to guard something: with both gates disabled the
+overlap case printed `809377900` against the contrast's `120552185`, and the
+failure case left the element half updated.
+
+## Benchmark row
+
+The benchmark's `test_record_nested` gets none of this — not M2 and not the
+destination variant (its `.ncode` still has `bl _mfb_fn_stepWide` then
+`record_build_alloc_ok`). The cause is not this bug's code: the function binds
+`LET h AS Holder = collections::get(holders, k)` a second time in its checksum
+loop, and `borrow_get::collect_borrow_gets` keys its facts by NIR local name
+across the whole function (`bind_counts`, `gets`), so a re-bound name is never
+element-bound. Renaming the second `h` to `hh` in a copy of
+`benchmark/mfb/src/recordbench.mfb` made the build emit and call
+`_mfb_fn_stepWide$into0`. Making the analysis scope-aware (or alpha-renaming
+re-bound block-local names before it) is a separate change to a shared analysis
+and is left as its own ticket; the benchmark source was not edited.
 
 ## Goal / Non-goals
 
@@ -146,6 +195,6 @@ is not met (1 each); `nestedinner` is (0), and `nested` meets "at most 1".
       and M2 in the `.ncode` (see *Findings*).
 - [x] Phase 2 — M2: exact-size replacement of a variable-width field of an
       element-bound record (the actual decline; see *Findings*).
-- [ ] Phase 3 — M1: inline form done (`nested_scalar_with`); call form open (see
-      *Remaining work*).
+- [x] Phase 3 — M1: inline form (`nested_scalar_with`) and call form (destination
+      variants, `analysis::into_dest`).
 - [ ] Phase 4 — goldens, full suite, benchmark `record nested` row (batch gate).
