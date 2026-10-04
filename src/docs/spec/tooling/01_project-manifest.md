@@ -37,7 +37,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `description` | string | yes⁵ | one-line summary shown on the registry; at most **4096 bytes**. Carried inside the signed `.mfp` payload as `PACKAGE_META` section 18 (./mfb spec package package-meta-section) |
 | `author` | string | no | package author metadata |
 | `url` | string | no | package homepage/source URL |
-| `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
+| `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires that shape (any owner prefix — after a transfer the recipient signs the transferred ident, and the registry decides who may) and defaults it to `<owner>#<name>` |
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
 | `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
 | `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |

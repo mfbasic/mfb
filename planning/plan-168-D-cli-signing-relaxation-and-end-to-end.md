@@ -124,26 +124,30 @@ Acceptance: the scenario passes through shipped binaries.
   restored to its pre-Phase-1 text the same test fails at step 4 with
   `project ident `alice#xfer_pkg` does not belong to owner `bob`` — the bug's
   documented build-side mechanism.
-Commit: (this commit — recorded in the next)
+Commit: ab3cc833c
 
 ### Phase 3: Spec close-out and bug closure
 
-- [ ] `01_repository-protocol.md`: delete the "Current implementation deviation"
+- [x] `01_repository-protocol.md`: delete the "Current implementation deviation"
       paragraph under §Accounts — Transfers. The transfer contract paragraph now
       describes shipped behavior; check that every cited symbol resolves.
-- [ ] `03_signing.md` build step 1: "a declared ident is used as-is; the registry
+- [x] `03_signing.md` build step 1: "a declared ident is used as-is; the registry
       issues the attestation only to the package's stored owner (or, for a new
       ident, its prefix owner)".
-- [ ] Measure the remaining stale prose:
+- [x] Measure the remaining stale prose:
       `grep -rn 'prefix' src/docs/spec/package-manager | grep -i 'transfer\|signing_ident'`
       → fix every hit that describes pre-fix behavior. Record the count in Corrections.
-- [ ] Update `bugs/bug-792-*.md`: Status Fixed, Regression Test =
+- [x] Update `bugs/bug-792-*.md`: Status Fixed, Regression Test =
       `repository/src/server.rs:tests::spec_probe_transfer_recipient_can_publish`,
       the Phase commits. Move it to `bugs/completed/`.
 
 Acceptance: the spec has no deviation for transfers, and citations resolve.
   Check: `grep -c 'Current implementation deviation' src/docs/spec/package-manager/01_repository-protocol.md` → one fewer than before this phase (record both numbers), and `cargo test -p mfb --bins citations_resolve` → `test result: ok` (est. 4–6 min; guess).
-Commit: —
+  Measured: `2` before, `1` after (the remaining one is the signed-metadata
+  `/index` binding deviation, unrelated); `cargo test -p mfb --bins
+  citations_resolve` → `test result: ok. 1 passed`; `cargo test --bin mfb
+  spec` → `46 passed`.
+Commit: (this commit — recorded on archive)
 
 ## Validation Plan
 
@@ -167,6 +171,21 @@ Commit: —
   before any package row exists.
 
 ## Corrections
+
+- **Stale prefix prose (Phase 3 measurement).** `grep -rn 'prefix'
+  src/docs/spec/package-manager | grep -i 'transfer\|signing_ident'` → 3 hits;
+  1 described pre-fix behavior (the deviation paragraph, deleted) and 2 are
+  accurate (the stored-owner offer refusal; the origin-owner rule past a legacy
+  link). The grep misses wording without "prefix": three more stale statements
+  were fixed — `tooling/01_project-manifest.md`'s `ident` row and
+  `tooling/07_cli-reference.md`'s `--sign` paragraph ("must belong to the
+  signing owner"), and the `mfb info` chain description there, which now covers
+  a transferred ident.
+- **Phase 2 step 5's "`[Verified]`" is asserted on `mfb build`** (`uses xfer_pkg
+  - [Verified]`) and on `pkg verify`; `pkg update` itself prints the lock diff,
+  the notice and the installs, not a verification verdict. "`mfb build` passes
+  offline" is asserted as a build that verifies against the pin alone (the build
+  never contacts the registry); the registry is not stopped mid-test.
 
 ## Summary
 

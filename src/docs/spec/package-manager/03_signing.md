@@ -163,7 +163,9 @@ builds with no intermediate-output selectors; other outputs error.
 every signed build fetches a fresh attestation. [[src/cli/build/signing.rs:load_build_signing_info]]
 
 1. Fix the signed identity: the manifest `ident` when declared (it must be
-   `<owner>#<package>` and belong to the signing owner), else the canonical
+   `<owner>#<package>`, and is used as-is — the registry issues the attestation
+   only to the package's stored owner or, for a new ident, its prefix owner, so
+   a transfer's recipient signs the transferred ident), else the canonical
    `<owner>#<name>`; the version comes from the validated manifest.
    [[src/cli/build/signing.rs:signing_ident]]
 2. Read the local **ident** keypair (`<owner>.ident.{prv,pub}`; register or

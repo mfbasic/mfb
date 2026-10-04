@@ -1163,17 +1163,13 @@ recovered the same way. A log that does not end at the package's stored owner
 stops the migration with `transfer log for <ident> ends at <owner> but the
 package is owned by <owner>`.[[repository/src/store.rs:backfill_legacy_transfers]]
 
-The transfer contract requires the recipient to be able to publish subsequent
-versions under the unchanged package ident, while pre-transfer releases remain
-verifiable under their original publisher keys.
-
-**Current implementation deviation:** `/signing`, `/release-state`,
-`/validate` and `/publish` authorize the stored new owner, `/index` serves the
-signed transfer chain, and clients verify it, but the build path is not
-transfer-complete: `signing_ident` rejects a different prefix at build time. A
-recipient therefore cannot build and publish a new version under the
-transferred ident through the current CLI. Existing package bytes and
-signatures are unchanged.
+A transfer's recipient publishes subsequent versions under the unchanged
+package ident: `/signing`, `/release-state`, `/validate` and `/publish`
+authorize the package's stored owner, `mfb build --sign` signs a declared ident
+whatever owner its prefix names, and clients accept the recipient's releases
+only through the signed transfer chain (Install Path). Releases published before
+the transfer keep verifying under their original publisher keys, and no package
+bytes or signatures change.
 [[repository/src/server.rs:require_package_owner]][[repository/src/server.rs:validate_package_request]][[repository/src/server.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store.rs:accept_transfer]]
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`

@@ -1,11 +1,11 @@
 # bug-792: A transferred package cannot receive a new release from its recipient
 
-Last updated: 2026-10-02
+Last updated: 2026-10-04
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
-Status: Open
-Regression Test: proposed `repository/src/server.rs:tests::spec_probe_transfer_recipient_can_publish`
+Status: Fixed (plan-168 A–D, 2026-10-04)
+Regression Test: `repository/src/server.rs:tests::spec_probe_transfer_recipient_can_publish` (the reproduction below, with the transfer routed through the real signed handlers); end to end `tests/cli/cli_repo_governance.rs:repo_transfer_recipient_publishes_and_consumers_verify_both_owners`
 
 A successful transfer must let the recipient build, attest, publish, and install a
 new release under the unchanged package ident while preserving verification of
@@ -147,30 +147,82 @@ change requires design before implementation.
 
 ### Phase 1 — failing tests and audit
 
-- [ ] Land the reproduction as a regression test and add contrast cases from the
+- [x] Land the reproduction as a regression test and add contrast cases from the
       blast-radius audit.
-- [ ] Confirm the tests fail for the documented mechanism and audit all listed
+- [x] Confirm the tests fail for the documented mechanism and audit all listed
       consumers before selecting the implementation.
 
 Acceptance: reproducible RED tests and completed consumer audit.
-Commit: —
+  Measured: `cargo test -p mfb_repository --lib -- spec_probe_transfer` failed
+  with exactly `recipient validation failed: ["session owner does not match
+  package ident owner", "session key does not match current owner key"]`
+  (plan-168-B Phase 1). The consumer audit is plan-168-A §2 / plan-168-C §2; it
+  also found a pre-existing rotation defect (a registry add of a pre-rotation
+  release refused to install), landed RED as
+  `repo_registry_add_of_a_pre_rotation_release_installs` and fixed by plan-168-C.
+Commit: fab5bbea3 (probe + contrast), 27cff5fe2 (rotation RED)
 
 ### Phase 2 — implementation
 
-- [ ] Implement the design above and update the owning embedded specs.
-- [ ] Verify the reproduction and contrast cases without weakening assertions.
+- [x] Implement the design above and update the owning embedded specs.
+- [x] Verify the reproduction and contrast cases without weakening assertions.
 
 Acceptance: the target behavior holds and existing valid flows remain valid.
-Commit: —
+  Measured: the probe and its contrast cases pass (plan-168-B Phase 2, `11
+  passed`); three existing tests changed one line each, with the AGENTS.md proof
+  in their commits (`publish_aborts_the_staged_blob_when_the_ident_moved_owner`,
+  `signing_ident_rejects_bad_idents`,
+  `build_project_sign_rejects_a_foreign_manifest_ident` → `_malformed_`), and the
+  v1-transfer tests were migrated to v2 with every assertion kept.
+Commit: 0b3c5db49, fe5242d24 (A); ed3f34ab2, ffd19bbc8 (B); aa5b5b79f,
+144cadc99, 352c4c63a (C); bb166a318 (D)
 
 ### Phase 3 — full verification
 
-- [ ] Run the full repository crate suite and root project suite.
-- [ ] Re-run CLI integration scenarios and the original reproduction.
-- [ ] Review any generated-output differences against the intended contract.
+- [~] Run the full repository crate suite and root project suite. The
+      repository crate: `cargo test -p mfb_repository --no-fail-fast` → `EXIT=0`
+      (450 lib tests). The root project suite is run once for the batch by the
+      coordinator's gate, not by this change.
+- [x] Re-run CLI integration scenarios and the original reproduction.
+      `cargo test --test cli_repo_install --test cli_repo_publish --test
+      cli_repo_governance` → all pass (8 + 10 + 9 after plan-168-D), including
+      the end-to-end transfer scenario, which fails at the build step with
+      plan-168-D Phase 1 reverted.
+- [x] Review any generated-output differences against the intended contract.
+      No golden or generated artifact is touched by plan-168 (no codegen,
+      runtime or `.mfp` byte change).
 
 Acceptance: complete suites pass and the goal is demonstrated end to end.
-Commit: —
+Commit: ab3cc833c (end to end), and the plan-168-D Phase 3 close-out
+
+## Resolution
+
+A transfer is now a signed, append-only record that clients verify, and every
+step that tied identity to the ident prefix follows it:
+
+- **Record (plan-168-A).** Both halves sign v2 terms `(ident, sequence,
+  fromOwner, fromIdentFingerprint, toOwner, releaseDigest)`, verified by the
+  store inside its writing transaction; accepted links go to an append-only
+  `transfer_history` (triggers abort UPDATE/DELETE); legacy transfers are
+  replayed from the transparency log as unsigned links; each release records
+  publisher, publisher key and epoch; `/index` serves `transfers` (with a
+  server-signed `toBinding`) and `versions[].publisher` / `.epoch`; the CLI
+  offers as the package's current owner.
+- **Authorization (plan-168-B).** `/validate` and `/publish` authorize the
+  stored owner (prefix only for a first publish, origin owner only past a legacy
+  link); proof/attestation `owner` binds to the release author; token scopes
+  follow the stored owner.
+- **Trust (plan-168-C).** `repository/src/trust.rs` verifies a release's key for
+  its publisher from the pin (or first use) through rotation chains and the
+  signed links; `pkg add`, the resolver/lock, indirect dependencies,
+  `pkg verify` pin-follow and `mfb info` use it, and pins move with a notice.
+- **Build (plan-168-D).** `signing_ident` accepts any well-formed ident; the
+  registry's `/signing` decides.
+
+Owner follow-ups: the hosted registry's legacy-transfer count and the
+`migrate` replay check against a copy of its database were not available to
+this change (plan-168-A Corrections); the A-D2 ratification flow depends on
+that count.
 
 ## Validation Plan
 

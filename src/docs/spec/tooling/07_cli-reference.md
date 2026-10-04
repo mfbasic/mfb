@@ -156,8 +156,10 @@ repository to be reachable: the build reads the local
 **ident** key, generates a **one-off signing keypair**, fetches a server
 **attestation** via `POST /signing`, mints the ident-signed **proof**, and
 threads the bundle to the package writer; the one-off private key is discarded
-with the build. The signed ident is the manifest `ident` (which must belong to
-`owner`), else `<owner>#<name>`. See `./mfb spec package-manager signing`.
+with the build. The signed ident is the manifest `ident` (any
+`<owner>#<package>` — after an ownership transfer the recipient signs the
+transferred ident, and the registry attests only the package's stored owner),
+else `<owner>#<name>`. See `./mfb spec package-manager signing`.
 [[src/cli/build/signing.rs:load_build_signing_info]]
 
 `--unsigned` relaxes exactly one check, and only in one direction. An unsigned
@@ -779,7 +781,11 @@ The chain is walked in order, and the first failure is printed as `trust chain:
 NOT VERIFIED (<reason>)`:[[src/cli/info.rs:verify_chain]] `identFingerprint` and
 `signingFingerprint` are the fingerprints of `identKey` and `signingKey`;
 `author` equals `owner`; the proof verifies under `identKey` and names this
-owner and both fingerprints, and its ident belongs to the owner; the blob names a
+owner and both fingerprints, and its ident belongs to the owner — its prefix
+names the owner, or (checked once the attestation's signature verifies, since it
+needs the registry) the registry's signed transfer chain places the signing
+ident in the owner's ownership; else `proof ident does not belong to the signing
+owner`; the blob names a
 `registry` (else `no registry in the signing metadata`); that registry answers
 `GET /ident` (else `registry <url> is unreachable: <error>`) with the key whose
 fingerprint the attestation's signed `repoFingerprint` names (else `registry <url>
