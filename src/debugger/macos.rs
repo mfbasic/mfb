@@ -171,9 +171,15 @@ const EXC_MESSAGE_BUFFER: usize = 1024;
 /// The reply: header, NDR (little-endian integers), return code.
 const EXC_REPLY_SIZE: u32 = 36;
 const NDR_RECORD: [u8; 8] = [0, 0, 0, 0, 1, 0, 0, 0];
-/// How long one instruction may take before the step reports the thread as
-/// waiting (in a system call that blocks).
+/// How long a step waits for an instruction before looking at why it has not
+/// finished: a thread sitting just after an `svc` is blocked in a system call
+/// and is reported as waiting; any other is merely slow (its code paging in,
+/// the machine busy) and is waited for again, up to `STEP_LIMIT_MS` in all.
 const STEP_TIMEOUT_MS: u32 = 2000;
+const STEP_LIMIT_MS: u64 = 30_000;
+/// `svc #imm`: `1101 0100 000 imm16 000 01`.
+const SVC_MASK: u32 = 0xffe0_001f;
+const SVC_BITS: u32 = 0xd400_0001;
 /// `brk #imm`: `1101 0100 001 imm16 000 00`.
 const BRK_MASK: u32 = 0xffe0_001f;
 const BRK_BITS: u32 = 0xd420_0000;
@@ -1146,16 +1152,27 @@ impl Task {
             let resumed = unsafe { task_resume(self.task) } == KERN_SUCCESS;
             let mut raised = (0..threads.len()).map(|_| None).collect::<Vec<_>>();
             if resumed {
-                let deadline = Instant::now() + Duration::from_millis(u64::from(STEP_TIMEOUT_MS));
-                while active.iter().any(|at| raised[*at].is_none()) {
-                    let left = deadline.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
+                let started = Instant::now();
+                let slice = Duration::from_millis(u64::from(STEP_TIMEOUT_MS));
+                let mut deadline = started + slice;
+                loop {
+                    while active.iter().any(|at| raised[*at].is_none()) {
+                        let left = deadline.saturating_duration_since(Instant::now());
+                        if left.is_zero() {
+                            break;
+                        }
+                        if let Some(exception) = port.receive(left.as_millis().max(1) as u32) {
+                            place(threads, &mut raised, exception);
+                        }
+                    }
+                    let blocked = active
+                        .iter()
+                        .filter(|at| raised[**at].is_none())
+                        .all(|at| self.in_system_call(threads[*at]));
+                    if blocked || started.elapsed() >= Duration::from_millis(STEP_LIMIT_MS) {
                         break;
                     }
-                    let Some(exception) = port.receive(left.as_millis() as u32) else {
-                        break;
-                    };
-                    place(threads, &mut raised, exception);
+                    deadline = Instant::now() + slice;
                 }
             }
             // SAFETY: as above.
@@ -1223,6 +1240,17 @@ impl Task {
             }
         }
         result.map(|()| steps)
+    }
+
+    /// Whether `thread` is blocked in a system call: its program counter is just
+    /// past an `svc`, where the kernel holds it until the call returns.
+    fn in_system_call(&self, thread: MachPort) -> bool {
+        let Ok(general) = general_state(thread) else {
+            return false;
+        };
+        self.read(general[32].wrapping_sub(4), 4)
+            .map(|bytes| u32::from_le_bytes(bytes[..].try_into().expect("4 bytes")))
+            .is_ok_and(|word| word & SVC_MASK == SVC_BITS)
     }
 
     /// A single-step and a `brk` both raise `EXC_BREAKPOINT`; a `brk` leaves

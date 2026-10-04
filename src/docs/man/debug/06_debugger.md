@@ -224,8 +224,9 @@ Stepped 3 instructions; thread 0 is at 0x0000000104fccc80 in isPrime+0x224.
 `step 0` only says where the thread is, and a negative count is refused.
 
 A thread waiting in the system, in `os::sleep` or `thread::waitFor` for
-example, cannot run its next instruction until the wait ends. `step` gives up
-after two seconds and says so:
+example, cannot run its next instruction until the wait ends. `step` notices
+that the thread is waiting in the system, gives up after two seconds, and says
+so:
 
 ```
 Stopped after 0 instructions: thread 0 is waiting in a system call at 0x00000001967f53cc.

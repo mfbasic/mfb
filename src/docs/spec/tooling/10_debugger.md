@@ -146,15 +146,20 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   `EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES`), and per round: sets
   `MDSCR_EL1.SS` through `ARM_DEBUG_STATE64` on every thread still stepping,
   `task_resume`s, collects exceptions until each of those threads has raised
-  one or 2000 ms have passed, `task_suspend`s, clears `SS`, takes any
+  one or the wait gives up, `task_suspend`s, clears `SS`, takes any
   exception that arrived late, and answers every exception `KERN_SUCCESS`. A
   thread that has raised its exception waits for the answer, so each runs one
   instruction a round. A single-step and a `brk` both arrive as
   `EXC_BREAKPOINT` with code `EXC_ARM_BREAKPOINT`; a `brk` is the one whose
   instruction is `brk` and whose `pc` did not move. A thread that raised
   another exception (`StepStop::Exception`; the faulting instruction is retried
-  when the program next runs) or none in time (`Waiting`: a system call that
-  blocks) is held with `thread_suspend` for the remaining rounds. A
+  when the program next runs) or none in time (`Waiting`) is held with
+  `thread_suspend` for the remaining rounds. The wait runs in 2000 ms slices
+  (`STEP_TIMEOUT_MS`); after each, it gives up only when every thread still
+  without an exception is blocked in a system call — its `pc` just past an
+  `svc` — or 30 s (`STEP_LIMIT_MS`) have passed in all. A thread executing an
+  ordinary instruction that is merely slow (its code paging in, a loaded
+  machine) is waited for, not reported as waiting. A
   `task_suspend` that fails ends every stepping thread as `Exited`. Afterwards
   every hold is given back and the program's own exception handlers put back.
   [[src/debugger/macos.rs:ExceptionPort]] [[src/debugger/macos.rs:Task]]
