@@ -92,7 +92,6 @@
     { "op": "mov", "dst": "x1", "src": "x0" },
     { "op": "ldr_u64", "dst": "x0", "base": "x19", "offset": "1680" },
     { "op": "sub", "dst": "x0", "lhs": "x0", "rhs": "x1" },
-    { "op": "str_u64", "src": "xzr", "base": "x19", "offset": "1688" },
     { "op": "lsr_imm", "dst": "x1", "src": "x1", "shift": "2" },
     { "op": "mov_imm", "dst": "x2", "type": "Integer", "value": "524288" },
     { "op": "cmp", "lhs": "x1", "rhs": "x2" },
