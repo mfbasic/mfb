@@ -53,6 +53,7 @@ mod link_out_widths;
 mod link_struct_widths;
 mod literal_coercion;
 mod math;
+mod mfb_body_declared_errors;
 mod money_operators;
 mod nir_dump;
 mod nir_fault;
