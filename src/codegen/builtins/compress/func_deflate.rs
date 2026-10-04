@@ -24,7 +24,8 @@ The result is valid DEFLATE data, so zlib and every tool built on it can decompr
 not byte-for-byte what zlib's own compressor would produce. The same `data` and `level` always
 give the same bytes, on every platform.
 
-`compress::deflate` is written in MFBASIC itself and uses no system library."#;
+`compress::deflate` is written in MFBASIC itself and uses no system library. `ErrOutOfMemory`
+means the program ran out of memory."#;
 const EX: &str = r#"Compress some repetitive text, then decompress it again:
 
 ```
@@ -83,7 +84,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__compress_deflate"),
         }],
     });

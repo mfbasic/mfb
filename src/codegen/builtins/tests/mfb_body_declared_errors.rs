@@ -1803,6 +1803,14 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
     // `point` is a code point below 128 (checked), and `strings::find` in a
     // 128-scalar codepage table returns a scalar index 0 .. 127.
     ("__encoding_codepageEncode", "toByte", "ErrOverflow"),
+    // bug-814. Each value is `bits::band(_, 255)` bound to a name first, a
+    // decoded literal symbol `0 <= sym < 256`, `endPos MOD 256` of a
+    // non-negative position, `bits::sr(c, 8)` of `0 <= c <= 65535`, a zlib header
+    // byte of a value below 31000, or the gzip XFL 0/2/4.
+    ("__compress_inflateCore", "toByte", "ErrOverflow"),
+    ("__compress_deflateCore", "toByte", "ErrOverflow"),
+    ("__compress_zlibEncode", "toByte", "ErrOverflow"),
+    ("__compress_gzipEncode", "toByte", "ErrOverflow"),
 ];
 
 /// A code a qualified `pkg::member(` call can raise that no call of that member
@@ -1813,7 +1821,114 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
 /// proof covers every call of that member in the `FUNC`, from its arguments'
 /// ranges, and a proof that depends on the callers names them. One entry per
 /// line (`rustfmt::skip`), so a FUNC's entries read as one block under its proof.
-const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[];
+#[rustfmt::skip]
+const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[
+    // --- compress: the inflate core (RFC 1951 decoder) ---
+    // Every `data` read is `IF pos < n` guarded (`pos` starts at the caller's
+    // `start`: 0, 2 after a zlib header checked `n >= 2`, or a gzip header end
+    // checked `<= n`) or a stored-block copy after `pos + remaining > n` FAILs.
+    // `litT`/`distT`/`clT` come from `__compress_buildTable` with roots 9/6/7, so
+    // they hold at least 512/64/128 entries for the `bits::band(bitBuf, 511/63/127)`
+    // lookups; a sub-table index is `off + (bits below 2^subBits)`, inside the
+    // sub-table buildTable appended at `off`. `li` is checked `< 29` and `dsym <
+    // 30` before indexing the 29-entry length and 30-entry distance tables;
+    // `ci < hclen <= 19` indexes the 19-entry CL_ORDER; `lens` holds exactly
+    // `hlit + hdist >= 258` entries when `lens[256]` is read and `have >= 1` when
+    // `lens[have - 1]` is; `clens` is 19 long and CL_ORDER's values are 0 .. 18.
+    // A copy reads `out[from + k]` with `1 <= dist <= outLen` checked, so `from`
+    // is in `0 .. outLen - 1` and `from + k` below the list's growing length.
+    // Shifts: a refill shifts a byte by `bitCount <= 48`; every drop is a code
+    // length `entry MOD 16` of an entry checked `>= 0` (0 .. 15), an extra-bit
+    // count from the length/distance tables (0 .. 5 / 0 .. 13), `drop = bitCount
+    // MOD 8` of a non-negative count, or a literal; `bits::sl(1, sub)` takes a
+    // `(entry - 1048576) MOD 16` of an entry checked `>= 1048576`.
+    ("__compress_inflateCore", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_inflateCore", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_inflateCore", "bits::sl", "ErrInvalidArgument"),
+    ("__compress_inflateCore", "bits::sr", "ErrInvalidArgument"),
+    // `bl`/`nextCode` are 16 long and indexed by a code length 0 .. 15 (every
+    // caller's lengths are a fixed 5/7/8/9, or a decoded 3-bit or `cl < 16`
+    // length) or by `bitLen`/`maxLen` in 0 .. 15. `lens[start + i]` with `i <
+    // count` stays inside every caller's list: (0, 288) of 288, (0, 32) of 32,
+    // (0, 19) of 19, (0, hlit) and (hlit, hdist) of `hlit + hdist`. The table
+    // starts `2^root` long (root 9/6/7 from every caller); a direct entry is
+    // written at `rev + k * 2^l < 2^root`, and a long code's sub-table entry at
+    // `off + sj`, `sj < 2^subBits`, inside the sub-table appended at `off` — a
+    // prefix-free code (over-subscription FAILs; an incomplete code is only
+    // accepted with `maxLen = 1`, which has no long codes) never finds a direct
+    // entry at a long code's root prefix. Shifts are by `root`, `l`, `b < l`,
+    // `l - root` and `maxLen - root`, all in 0 .. 15 where evaluated.
+    ("__compress_buildTable", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_buildTable", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_buildTable", "bits::sl", "ErrInvalidArgument"),
+    // The inflate core always appends its 8-byte end position, so `withEnd`
+    // holds at least 8 bytes: `last - k` is in range and `len - 8 >= 0`.
+    ("__compress_endPosition", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_stripEnd", "collections::mid", "ErrIndexOutOfRange"),
+    ("__compress_inflate", "collections::mid", "ErrIndexOutOfRange"),
+    // `data[0]`/`data[1]` after `n < 2` FAILs; `data[endPos + k]`, k < 4, after
+    // `endPos + 4 > n` FAILs.
+    ("__compress_zlibDecode", "collections::get", "ErrIndexOutOfRange"),
+    // Every header read follows a `pos + 10 > n` / `p + 2 > n` / `p >= n` FAIL;
+    // the header CRC covers `pos .. p` with `p <= n`; `__compress_le32` reads
+    // `endPos .. endPos + 7` after `endPos + 8 > n` FAILs; `member[k]`, k < its
+    // length.
+    ("__compress_gzipDecode", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_gzipDecode", "collections::mid", "ErrIndexOutOfRange"),
+    ("__compress_le32", "collections::get", "ErrIndexOutOfRange"),
+    // `i + 7 <= n - 1` in the eight-byte loop and `i < n` in the tail; the
+    // 2048-entry slicing table is read at `k * 256 + (a byte)`, k in 0 .. 7: a
+    // data byte, `bits::band(_, 255)`, or `bits::sr(x, 24)` of `x`, a 32-bit
+    // value (the running CRC is checked or derived in 0 .. 2^32 - 1, and every
+    // table entry is a 32-bit CRC). Adler-32 reads `data[i]`, `i < n`.
+    ("__compress_crc32", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_adler32", "collections::get", "ErrIndexOutOfRange"),
+    // --- compress: the deflate encoder ---
+    // Every caller rejects a level outside 0 .. 9 first, so the 10-entry
+    // configuration lists are in range. `head` has 32768 entries indexed by a
+    // 15-bit hash; `prev` has `min(n, 32768)` indexed by `bits::band(p, 32767)` of
+    // a position `p < n`. A match compares `data[cand + k]`/`data[pos + k]` only
+    // while `k < maxLen <= n - pos` (`AND` short-circuits) with `cand < pos`, and
+    // `data[pos + bestLen]` while `bestLen < maxLen` (a match reaching `maxLen`
+    // exits). `pos - 1` is read only after `pos` advanced. LEN_SYM (259 entries)
+    // is indexed by a match length 3 .. 258, DIST_CODE (512) by `d1 < 256` or `256
+    // + bits::sr(d1, 7)` with `d1 = dist - 1 <= 32767`; LEN/DIST tables by a
+    // `li <= 28` / `dsym <= 29` read off them; `litFreq` (286) at a literal, 256 or
+    // `257 + li`, `distFreq` (30) at `dsym`; the code lists (288/286 and 30) at
+    // the same symbols. The bit writer flushes to `bitCount < 8` after every
+    // symbol, so a shift count is at most 10 + 15 + 5 + 15 = 45.
+    ("__compress_deflateCore", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_deflateCore", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_deflateCore", "bits::sl", "ErrInvalidArgument"),
+    // `freqs`/`lens` are equal-length (`__compress_codeLengths` returns one length
+    // per frequency); `litFreq` (286) is shorter than FIXED_LIT (288); `i < len`.
+    ("__compress_treeBits", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_fixedLitBits", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_headerBits", "collections::get", "ErrIndexOutOfRange"),
+    // `lens[0]` and `lens[n + 1]` with `n + 1 < codes`, `codes` (hlit <= 286 /
+    // hdist <= 30) at most the list's length.
+    ("__compress_treeRle", "collections::get", "ErrIndexOutOfRange"),
+    // `litLens[hlit - 1]`/`distLens[hdist - 1]` with hlit in 258 .. 286 and hdist
+    // in 2 .. 30; `clFreq`/`clLens`/`clCodes` are 19 long and indexed by a
+    // code-length symbol `entry MOD 32` in 0 .. 18 (zlib's send_tree invariant:
+    // a repeat count is decremented only when it is >= 4, so every `count - 3`
+    // and `count - 11` is >= 0), or by a CL_ORDER value 0 .. 18.
+    ("__compress_dynamicHeader", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_dynamicHeader", "collections::set", "ErrIndexOutOfRange"),
+    // Package-merge over `count` (19, 30 or 286) symbols: `f[node]`, node 0 .. 2;
+    // the insertion sort reads `keys[j - 1]` only for `j > 0` (`AND`
+    // short-circuits); pool indices are pool entries created earlier; `cur` holds
+    // at least `2n - 2` items after `limit - 1` merges because `n <= 2^limit` (286 <
+    // 2^15, 30 < 2^15, 19 < 2^7); the stack is read and removed at `top`, its
+    // last index; `lens[sym]` with `sym < count`.
+    ("__compress_codeLengths", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_codeLengths", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_codeLengths", "collections::removeAt", "ErrIndexOutOfRange"),
+    // Code lengths are 1 .. 15 (package-merge with limit 15 or 7), indexing the
+    // 16-entry `blCount`/`nextCode`; `b - 1` is 0 .. 14.
+    ("__compress_canonicalCodes", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_canonicalCodes", "collections::set", "ErrIndexOutOfRange"),
+];
 
 /// The mirror image of [`UNREACHABLE_VIA_CALLEE`]: a code this sweep's model
 /// CANNOT see as reachable, but that really is — the `Body::Mfb` counterpart
@@ -2061,13 +2176,6 @@ const REWRITE_DECLARED_EXTRA: &[(&str, &str, &str)] = &[];
 /// entry that no longer mismatches. Phase 2 removes entries as it fixes them, and
 /// then this list.
 const REWRITE_PHASE_1_BASELINE: &[&str] = &[
-    "compress::crc32 (__compress_crc32): undeclared [\"ErrIndexOutOfRange\"], declared but never raised []",
-    "compress::inflate (__compress_inflate): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "compress::zlibDecode (__compress_zlibDecode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "compress::gzipDecode (__compress_gzipDecode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "compress::deflate (__compress_deflate): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "compress::zlibEncode (__compress_zlibEncode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "compress::gzipEncode (__compress_gzipEncode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
     "crypto::hmac (__crypto_hmac): undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
     "crypto::hmac (__crypto_hmacText): undeclared [\"ErrOutOfMemory\"], declared but never raised []",
     "crypto::hkdf (__crypto_hkdf): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",

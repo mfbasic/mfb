@@ -147,7 +147,9 @@ around it. [[src/codegen/builtins/compress/helper_inflate_core.rs:BODY]]
 [[src/codegen/builtins/compress/helper_zlib_frame.rs:BODY]] [[src/codegen/builtins/compress/helper_gzip_frame.rs:BODY]]
 
 Every refusal of malformed input raises `ErrInvalidFormat` (`77050003`); output past `maxBytes` raises
-`ErrTooLarge` (`77050027`); a negative `maxBytes` raises `ErrInvalidArgument` (`77050002`).
+`ErrTooLarge` (`77050027`); a negative `maxBytes` raises `ErrInvalidArgument` (`77050002`); building the
+result can raise `ErrOutOfMemory` (`77010001`). No other code escapes: every table read and input read in
+the core is bounded by a check before it, so malformed input never surfaces as an index error.
 [[src/codegen/builtins/errorcode/mod.rs:register]]
 
 ### The core
@@ -299,7 +301,8 @@ around it. [[src/codegen/builtins/compress/helper_deflate_core.rs:BODY]]
 `FLEVEL` and `XFL` are the values zlib 1.2.12's `deflate.c` writes; the header bytes equal Python's and
 Node's zlib at every level (checked 2026-09-14). Decoders do not use either field. The gzip header names
 no file, no time and no operating system, so it does not depend on where or when the program runs. A
-`level` outside 0–9 raises `ErrInvalidArgument` (`77050002`) before any work.
+`level` outside 0–9 raises `ErrInvalidArgument` (`77050002`) before any work; building the result can
+raise `ErrOutOfMemory` (`77010001`), and nothing else escapes.
 
 **Guaranteed:** the output is valid data of its format, so any conforming decoder — zlib's included —
 decodes it back to `data`; and the same `data` and `level` give the same bytes on every target. **Not

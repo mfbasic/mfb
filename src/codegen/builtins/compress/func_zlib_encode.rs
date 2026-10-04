@@ -26,7 +26,8 @@ The result is valid zlib data, so zlib and every tool built on it can decompress
 byte-for-byte what zlib's own compressor would produce. The same `data` and `level` always give
 the same bytes, on every platform.
 
-`compress::zlibEncode` is written in MFBASIC itself and uses no system library."#;
+`compress::zlibEncode` is written in MFBASIC itself and uses no system library. `ErrOutOfMemory`
+means the program ran out of memory."#;
 const EX: &str = r#"Compress some repetitive text into zlib data, then decompress it again:
 
 ```
@@ -71,7 +72,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__compress_zlibEncode"),
         }],
     });
