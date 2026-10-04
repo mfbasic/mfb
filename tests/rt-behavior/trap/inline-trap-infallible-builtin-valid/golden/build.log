@@ -5,12 +5,6 @@ $ mfb build -ast -ir tests/rt-behavior/trap/inline-trap-infallible-builtin-valid
      | ^
 tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/src/main.mfb:15 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
                Inline TRAP handler is unreachable — `len` cannot fail, so the handler is dead code.
-  19 |   io::print("len=" & toString(n))
-  20 | 
-  21 |   LET s AS String = toString(42) TRAP(e)
-     | ^
-tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/src/main.mfb:21 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
-               Inline TRAP handler is unreachable — `toString` cannot fail, so the handler is dead code.
   27 |   ' A total bits op (rotate): the variable shifts sl/sr/sra are fallible
   28 |   ' (out-of-range count traps ErrInvalidArgument), so they would NOT be dead here.
   29 |   LET b AS Integer = bits::rl64(1, 4) TRAP(e)
@@ -33,12 +27,6 @@ $ mfb build tests/rt-behavior/trap/inline-trap-infallible-builtin-valid
      | ^
 tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/src/main.mfb:15 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
                Inline TRAP handler is unreachable — `len` cannot fail, so the handler is dead code.
-  19 |   io::print("len=" & toString(n))
-  20 | 
-  21 |   LET s AS String = toString(42) TRAP(e)
-     | ^
-tests/rt-behavior/trap/inline-trap-infallible-builtin-valid/src/main.mfb:21 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
-               Inline TRAP handler is unreachable — `toString` cannot fail, so the handler is dead code.
   27 |   ' A total bits op (rotate): the variable shifts sl/sr/sra are fallible
   28 |   ' (out-of-range count traps ErrInvalidArgument), so they would NOT be dead here.
   29 |   LET b AS Integer = bits::rl64(1, 4) TRAP(e)
