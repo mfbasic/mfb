@@ -860,6 +860,26 @@ mod macos {
         let exit = body(&session.until_prompt());
         assert_eq!(exit[0], "libsystem_c.dylib`exit:", "{exit:?}");
 
+        // The calls that led to isPrime, innermost first, ending at the
+        // program's entry; `bt 2` keeps the innermost two.
+        session.send("bt\n");
+        let frames = body(&session.until_prompt());
+        assert_eq!(frames[0], "* thread #0, task = 'MFB Main'", "{frames:?}");
+        assert!(frames[1].starts_with("  * frame #0: 0x"), "{frames:?}");
+        assert!(frames[1].ends_with(" debug.out`isPrime"), "{frames:?}");
+        for (line, function) in frames[2..].iter().zip([
+            "debug.out`countPrimes",
+            "debug.out`runRound",
+            "debug.out`runRounds",
+            "debug.out`main",
+            "debug.out`main",
+        ]) {
+            assert!(line.contains(&format!(" {function} + ")), "{frames:?}");
+        }
+        assert_eq!(frames.len(), 7, "{frames:?}");
+        session.send("bt 2\n");
+        assert_eq!(body(&session.until_prompt()), frames[..3]);
+
         // The registers isPrime starts with, and the function's return.
         session.send("list reg x0 sp\n");
         let registers = table_rows(&session.until_prompt(), REGISTER_COLUMNS);

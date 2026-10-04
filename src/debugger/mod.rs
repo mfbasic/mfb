@@ -8,6 +8,7 @@
 //! platform produced it. A platform joins by implementing [`Backend`] and
 //! answering it from [`host_backend`]; the prompt and the CLI need no change.
 
+pub(crate) mod backtrace;
 pub(crate) mod breakpoints;
 pub(crate) mod disassemble;
 pub(crate) mod names;

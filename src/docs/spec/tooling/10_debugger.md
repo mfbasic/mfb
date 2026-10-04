@@ -5,7 +5,7 @@
 programs and nothing else, and there is no cross-debugging. Today it starts or
 attaches to a program, pauses it, lists its functions, threads, registers and
 arenas, single-steps one thread or all of them, runs it to software
-breakpoints, and disassembles it; it is the seam later debugger features build
+breakpoints, disassembles it, and unwinds its threads' calls; it is the seam later debugger features build
 on.
 
 The developer-facing guide is `./mfb man debug debugger`.
@@ -267,6 +267,8 @@ Then, repeatedly:
 | `list breakpoint` | prints the breakpoint listing |
 | `run`, `r` | runs the program to the next stop |
 | `finish`, `f` | runs the current thread until its function returns |
+| `backtrace [<count>] [<id>]`, `bt …` | prints thread `<id>`'s frames (default the current thread), the innermost `<count>` (default all) |
+| `backtrace all`, `bt all` | prints every thread's frames |
 | `restart`, `rs` | starts a launched program again |
 | `disassemble`, `dis` | disassembles the current function |
 | `dis <count>` | disassembles `<count>` instructions from the current `pc` |
@@ -300,6 +302,9 @@ Then, repeatedly:
 | `breakpoint` with more than `r <target>` | `too many arguments to '<name>'` |
 | a target starting `0x` that is not hex | `'<target>' is not an address` |
 | `run` with arguments | `'<name>' takes no arguments` |
+| a `backtrace` count that is not a `usize` of 1 or more | `'<count>' is not a number of frames (1 or more), or 'all'` |
+| `backtrace` with three arguments | `'<name>' takes at most two arguments` |
+| `backtrace <count> <id>` past the last thread | `no thread <id>: the program has <n> thread(s); type 'list thread' for them` |
 | `dis 0` (or a count past `u64`) | `cannot show <count> instructions; give 1 or more` |
 | `dis` with two arguments | `'<name>' takes at most one argument` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
@@ -625,6 +630,51 @@ on. Any other stop — a user breakpoint, an exception, Ctrl-C, the end —
 removes them and is reported as `run` reports it. With no function at the
 `pc`: `cannot finish: no known function holds 0x…`; with no `ret` found:
 `cannot finish: no ret instruction found in the function at 0x…`.
+
+### `backtrace`
+
+[[src/debugger/backtrace.rs:frames]] Unwinds thread `<id>` (default the
+current thread, falling back to 0 when it has ended) from its `pc`, `sp`,
+`fp` and `lr`. Executables carry no unwind tables and MFBASIC code keeps no
+frame-pointer chain (`./mfb spec memory native-calling-convention`), so each
+frame is unwound by reading its function's code from its start to the frame's
+`pc` (`state_at`), as lldb does for code without unwind tables:
+[[src/debugger/backtrace.rs:state_at]]
+
+- The state tracked is `sp - CFA` (the CFA is the `sp` on entry), where `lr`
+  and the caller's `fp` are saved (offsets from the CFA), and `fp - CFA` once
+  the function points `fp` at a frame record.
+- `sub`/`add sp, sp, #imm{, lsl #12}` move `sp`; `str` (unsigned offset, pre-
+  and post-index) and `stp` (offset, pre- and post-index) through `sp`, `fp`,
+  or a register set by `add x<n>, sp, #imm` record where `x29`/`x30` went;
+  `ldr`/`ldp` of `x29`/`x30` put them back in their registers; `add x29, sp,
+  #imm` sets `fp`; `sub sp, x29, #imm` sets `sp` from it; any other write to
+  `sp` makes it unknown, and the CFA then comes from `fp`.
+- The prologue is the leading run of `sp` decrements, stores through `sp` (or a
+  register set from it), `add x<n>, sp, #imm` and hints. The state it leaves is
+  the body's: `ret`, `br`, or `b` outside the function's extent restores it, so
+  an epilogue in the middle of a function does not leak into the code after it.
+
+A frame's caller resumes at the saved `lr` (the thread's `lr` for the
+innermost frame while it is unsaved), with `sp` the CFA and `fp` the saved one
+(else unchanged); the address has bits 63–47 cleared. The function for a frame
+after the first is looked up at its return address less 4, so a call that is a
+function's last instruction is attributed to it. The walk ends after the
+program entry `_main` (whose caller's return address is gone once it calls),
+at a frame no function holds (the innermost one is unwound as a function that
+has not touched the stack), when the next return address is 0, when the next
+frame's `sp` is below this one's (or equal, past the innermost frame), or at
+4096 frames.
+
+Output follows lldb's `bt`: per thread,
+`<mark> thread #<id>[, name = '<name>'], task = '<task>'` (`<mark>` `*` for the
+current thread, else a space; `<name>` only for a thread that named itself;
+`<task>` as `list thread`), then per frame
+`  <mark> frame #<n>: 0x<pc> <image>`<function>[ + <offset>]`, `<mark>` `*` on
+the current thread's frame 0, `<function>` named as `dis` names it
+(`disassemble::display_name`), else `0x<start>`; the offset is decimal and
+omitted when 0; a frame no image names prints only its address.
+[[src/debugger/backtrace.rs:lines]]
 
 ### `restart`
 

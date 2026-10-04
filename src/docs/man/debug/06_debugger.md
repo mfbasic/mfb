@@ -36,9 +36,9 @@ and stops; use gdb there (`mfb man debug breakpoints`).
 
 The debugger is new: for now it pauses a program, lists its functions,
 threads, registers and memory pools, steps one thread or all of them an
-instruction at a time, runs it to breakpoints, shows its machine code, and
-lets it go. Backtraces and the other tools in this topic still come from lldb
-and gdb.
+instruction at a time, runs it to breakpoints, shows its machine code and
+the calls each thread is in, and lets it go. The other tools in this topic
+still come from lldb and gdb.
 
 ### Commands
 
@@ -64,6 +64,8 @@ and gdb.
 | `list breakpoint` | `l breakpoint` | lists the breakpoints |
 | `run` | `r` | runs the program until a breakpoint or its end |
 | `finish` | `f` | runs until the current function returns |
+| `backtrace [<count>] [<thread>]` | `bt …` | shows the calls the current thread is in (below) |
+| `backtrace all` | `bt all` | shows the calls every thread is in |
 | `restart` | `rs` | starts the program again |
 | `disassemble` | `dis` | shows the machine code of the current function |
 | `dis <count>` | | shows the next `<count>` instructions |
@@ -334,6 +336,60 @@ If a breakpoint is reached first, `finish` stops there instead.
 arguments, and keeps your breakpoints. It works on a program `mfb dbg`
 started, even after it has ended, and picks up a program you rebuilt in the
 meantime.
+
+### Backtraces
+
+`bt` shows the calls that led to where the program is, the way lldb's `bt`
+does: the function the thread is in first, then the function that called it,
+and so on out to your program's entry, `main`. "The thread" is the one `run`
+last stopped or `step` last ran (thread 0 at first).
+
+```
+DBG> bp isPrime
+Set a breakpoint at 0x000000010212caa4 in isPrime.
+DBG> run
+Thread 0 hit a breakpoint at 0x000000010212caa4 in isPrime.
+DBG> bt
+* thread #0, task = 'MFB Main'
+  * frame #0: 0x000000010212caa4 debug.out`isPrime
+    frame #1: 0x000000010212cfc8 debug.out`countPrimes + 584
+    frame #2: 0x000000010212d260 debug.out`runRound + 344
+    frame #3: 0x000000010212dfa8 debug.out`runRounds + 1924
+    frame #4: 0x000000010212edbc debug.out`main + 2908
+    frame #5: 0x000000010212c634 debug.out`main + 348
+```
+
+Each frame is the address the thread will go on from in that function — for
+every frame but the first, the instruction after the call — then the file and
+function, and how many bytes into the function that is. Functions are named as
+`dis` names them, so the last `main` is the program's entry, which calls your
+`main`.
+
+`bt 3` shows only the first three frames, `bt 3 2` the first three of thread 2
+(the `<id>` from `list thread`), and `bt all` every thread's, the current one
+marked `*`. A thread paused in a system library shows the library's functions
+too, the way lldb shows them:
+
+```
+DBG> bt all
+* thread #0, task = 'MFB Main'
+  * frame #0: 0x00000001967f53cc libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000019683409c libsystem_pthread.dylib`_pthread_cond_wait + 984
+    frame #2: 0x000000010200c318 debug.out`thread::waitFor + 96
+    frame #3: 0x0000000102005bf0 debug.out`runRounds + 972
+    frame #4: 0x0000000102006dbc debug.out`main + 2908
+    frame #5: 0x0000000102004634 debug.out`main + 348
+  thread #1, task = 'User Thread'
+    frame #0: 0x0000000102004ba4 debug.out`isPrime + 256
+    frame #1: 0x0000000102004fc8 debug.out`countPrimes + 584
+    frame #2: 0x0000000102005260 debug.out`runRound + 344
+    frame #3: 0x0000000102005310 debug.out`roundWorker + 76
+    frame #4: 0x000000010200e0f4 debug.out`mfb_rt_thread_trampoline + 132
+    frame #5: 0x0000000196833bc8 libsystem_pthread.dylib`_pthread_start + 136
+    frame #6: 0x000000019682eb80 libsystem_pthread.dylib`thread_start + 8
+```
+
+A backtrace needs the program's function names, so build it with `--debug`.
 
 ### Reading machine code
 

@@ -10,6 +10,7 @@
 
 use std::io::{BufRead, Write};
 
+use super::backtrace;
 use super::breakpoints::{Breakpoints, Finish, Target};
 use super::disassemble::{self, Request};
 use super::names::{classify_defined, linked_name, Origin};
@@ -37,6 +38,8 @@ Commands:
   disassemble, dis
                   Disassemble the current function, dis <count> instructions
                   from the current one, or dis <function>
+  backtrace, bt   Show the current thread's calls: bt [<count>] [<thread>]
+                  Every thread's: bt all
   step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa    Run every thread together: step-all [<count>] (default 1)
   quit, q         End the session: kill the program if the debugger launched
@@ -96,8 +99,22 @@ enum Command {
     Finish,
     Restart,
     ShowMemory { location: Location, size: u64 },
+    Backtrace(Backtrace),
     Quit,
     Empty,
+}
+
+/// Which threads' calls `backtrace` shows.
+#[derive(Debug, PartialEq, Eq)]
+enum Backtrace {
+    /// The innermost `count` frames (default all) of `thread` (default the
+    /// current thread).
+    Thread {
+        count: Option<usize>,
+        thread: Option<usize>,
+    },
+    /// Every frame of every thread.
+    All,
 }
 
 /// Which bytes of an arena block `show arena` dumps.
@@ -236,6 +253,20 @@ fn parse(line: &str) -> Result<Command, String> {
             thread: thread_id(thread)?,
         }),
         ("step" | "s", _) => Err(format!("'{name}' takes at most two arguments")),
+        ("backtrace" | "bt", []) => Ok(Command::Backtrace(Backtrace::Thread {
+            count: None,
+            thread: None,
+        })),
+        ("backtrace" | "bt", ["all"]) => Ok(Command::Backtrace(Backtrace::All)),
+        ("backtrace" | "bt", [count]) => Ok(Command::Backtrace(Backtrace::Thread {
+            count: Some(frame_count(count)?),
+            thread: None,
+        })),
+        ("backtrace" | "bt", [count, thread]) => Ok(Command::Backtrace(Backtrace::Thread {
+            count: Some(frame_count(count)?),
+            thread: Some(thread_id(thread)?),
+        })),
+        ("backtrace" | "bt", _) => Err(format!("'{name}' takes at most two arguments")),
         ("step-all" | "sa", []) => Ok(Command::StepAll(1)),
         ("step-all" | "sa", [count]) => Ok(Command::StepAll(step_count(count)?)),
         ("step-all" | "sa", _) => Err(format!("'{name}' takes at most one argument")),
@@ -332,6 +363,13 @@ fn number(word: &str) -> Result<u64, String> {
     .map_err(|_| format!("'{word}' is not a number"))
 }
 
+fn frame_count(word: &str) -> Result<usize, String> {
+    word.parse::<usize>()
+        .ok()
+        .filter(|count| *count > 0)
+        .ok_or_else(|| format!("'{word}' is not a number of frames (1 or more), or 'all'"))
+}
+
 fn thread_id(word: &str) -> Result<usize, String> {
     word.parse::<usize>()
         .map_err(|_| format!("'{word}' is not a thread id; type 'list thread' for the threads"))
@@ -413,16 +451,20 @@ pub(crate) fn register_lines(registers: &[Register]) -> Vec<String> {
         registers
             .iter()
             .map(|register| {
-                let (hex, decimal) = match register.value {
-                    RegisterValue::Bits64(value) => {
-                        (format!("0x{value:016x}"), (value as i64).to_string())
-                    }
-                    RegisterValue::Bits128(value) => (format!("0x{value:032x}"), value.to_string()),
-                };
-                [register.name.clone(), hex, format!("({decimal})")]
+                let (hex, decimal) = register_value(register);
+                [register.name.clone(), hex, decimal]
             })
             .collect(),
     )
+}
+
+/// A register's value as `list reg` shows it: in full-width hex, and in
+/// decimal in parentheses.
+fn register_value(register: &Register) -> (String, String) {
+    match register.value {
+        RegisterValue::Bits64(value) => (format!("0x{value:016x}"), format!("({})", value as i64)),
+        RegisterValue::Bits128(value) => (format!("0x{value:032x}"), format!("({value})")),
+    }
 }
 
 /// The `list thread` lines: `<id> <name> <pc> <task>`. A thread's name is the
@@ -919,12 +961,9 @@ fn finish(
                 registers
                     .iter()
                     .find(|register| register.name == name)
-                    .map(|register| register_lines(std::slice::from_ref(register)).remove(0))
-                    .map(|line| {
-                        line.split_whitespace()
-                            .skip(1)
-                            .collect::<Vec<_>>()
-                            .join(" ")
+                    .map(|register| {
+                        let (hex, decimal) = register_value(register);
+                        format!("{hex} {decimal}")
                     })
                     .unwrap_or_default()
             };
@@ -994,6 +1033,46 @@ fn show_memory(
     let bytes = inferior.read_bytes(address, size as usize)?;
     let mut lines = vec![format!("Memory at 0x{address:016x}{described}:")];
     lines.extend(memory_lines(address, &bytes));
+    Ok(lines)
+}
+
+/// The `backtrace` lines: one thread's frames, or every thread's, the
+/// current thread marked. A current thread that has since ended falls back to
+/// thread 0.
+fn backtrace(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    current: usize,
+    request: Backtrace,
+) -> Result<Vec<String>, String> {
+    let threads = inferior.threads()?;
+    let roles = runtime::roles(inferior, &threads, program.app)?;
+    let current = if current < threads.len() {
+        current
+    } else {
+        MAIN_THREAD
+    };
+    let (chosen, limit) = match request {
+        Backtrace::All => ((0..threads.len()).collect(), backtrace::MAX_FRAMES),
+        Backtrace::Thread { count, thread } => {
+            let thread = thread.unwrap_or(current);
+            if thread >= threads.len() {
+                return Err(no_thread(thread, threads.len()));
+            }
+            (vec![thread], count.unwrap_or(backtrace::MAX_FRAMES))
+        }
+    };
+    let mut lines = Vec::new();
+    for thread in chosen {
+        let frames = backtrace::frames(inferior, thread, limit)?;
+        lines.extend(backtrace::lines(
+            thread,
+            threads[thread].name.as_deref(),
+            roles[thread].label(),
+            &frames,
+            thread == current,
+        ));
+    }
     Ok(lines)
 }
 
@@ -1106,6 +1185,7 @@ pub(crate) fn run(
                     lines
                 })
             }
+            Ok(Command::Backtrace(request)) => backtrace(inferior, program, current, request),
             Ok(Command::ShowMemory { location, size }) => {
                 show_memory(inferior, current, &location, size)
             }
@@ -1849,6 +1929,58 @@ Address            Symbol              Written name
             )
         );
         assert_eq!(inferior.inserted, [0x1004]);
+    }
+
+    #[test]
+    fn backtrace_parses_its_forms_in_both_spellings() {
+        for name in ["backtrace", "bt"] {
+            assert_eq!(
+                parse(name),
+                Ok(Command::Backtrace(Backtrace::Thread {
+                    count: None,
+                    thread: None
+                }))
+            );
+            assert_eq!(
+                parse(&format!("{name} all")),
+                Ok(Command::Backtrace(Backtrace::All))
+            );
+            assert_eq!(
+                parse(&format!("{name} 5")),
+                Ok(Command::Backtrace(Backtrace::Thread {
+                    count: Some(5),
+                    thread: None
+                }))
+            );
+            assert_eq!(
+                parse(&format!("{name} 5 2")),
+                Ok(Command::Backtrace(Backtrace::Thread {
+                    count: Some(5),
+                    thread: Some(2)
+                }))
+            );
+        }
+        for (line, message) in [
+            (
+                "bt 0",
+                "'0' is not a number of frames (1 or more), or 'all'",
+            ),
+            (
+                "bt -1",
+                "'-1' is not a number of frames (1 or more), or 'all'",
+            ),
+            (
+                "bt x",
+                "'x' is not a number of frames (1 or more), or 'all'",
+            ),
+            (
+                "bt 1 x",
+                "'x' is not a thread id; type 'list thread' for the threads",
+            ),
+            ("bt 1 2 3", "'bt' takes at most two arguments"),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
     }
 
     #[test]
