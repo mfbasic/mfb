@@ -40,7 +40,11 @@ underrun event.
 `audio::render(note)` [[src/codegen/builtins/audio/func_render.rs:render]] is a pure MFBASIC tone
 synthesizer — not a device call. It renders an `AudioNote` to mono `s16le` PCM at
 48 kHz and returns it as the same `List OF Byte` layout `write` consumes, so a
-rendered tone plays with no conversion. It opens no hardware and never raises.
+rendered tone plays with no conversion. It opens no hardware, so it raises no device
+error. It does refuse a note longer than ten minutes — `noteFrames` above 28,800,000,
+the limit `play` applies to a track — with `ErrInvalidArgument` (`77050002`) before
+rendering a frame; a non-positive `noteFrames` renders the empty list.
+[[src/codegen/builtins/audio/func_render.rs:__audio_render]]
 Unlike the native surface, `render` and its two value records (`AudioEnvelope`,
 `AudioNote`) live in the package's MFBASIC source companion,[[src/codegen/builtins/audio/mod.rs]]
 injected on `IMPORT audio` exactly like

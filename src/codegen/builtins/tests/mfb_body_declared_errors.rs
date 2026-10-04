@@ -1360,8 +1360,8 @@ pub(crate) struct MfbSweepResult {
 /// package's same-named member. Coordinator correction, 2026-10-03.
 const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("astrings", "toMarkdown", "ErrIndexOutOfRange"),
-    // audio
-    ("audio", "render", "ErrInvalidArgument"),
+    // audio (`render`'s ErrInvalidArgument row is gone: since bug-810 render
+    // raises it itself, for a note past the ten-minute limit)
     ("audio", "play", "ErrFloatInf"),
     ("audio", "play", "ErrFloatNaN"),
     ("audio", "play", "ErrOverflow"),

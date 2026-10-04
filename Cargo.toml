@@ -799,6 +799,10 @@ name = "rt_audio_mml_bounds"
 path = "tests/runtime/rt_audio_mml_bounds.rs"
 
 [[test]]
+name = "rt_audio_render_huge_note_frames"
+path = "tests/runtime/rt_audio_render_huge_note_frames.rs"
+
+[[test]]
 name = "rt_bounds_elim_backedge"
 path = "tests/runtime/rt_bounds_elim_backedge.rs"
 
