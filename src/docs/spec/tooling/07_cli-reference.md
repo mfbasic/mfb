@@ -62,7 +62,7 @@ convention: **2** for argument/usage errors, **1** for runtime failures, **0** f
 | `repo publish` | `mfb repo publish <owner_name> [path]` | 0 ok; 2 usage; 1 failed |
 | `repo check-abi` | `mfb repo check-abi [location]` | 0 compatible; 2 usage; 1 breaking or failed |
 | `repo release-state` | `mfb repo release-state <available\|deprecated\|yanked> [version]` | 0 ok; 2 usage; 1 failed |
-| `repo transfer` | `mfb repo transfer <ident> <to-owner>` | 0 ok; 2 usage; 1 failed |
+| `repo transfer` | `mfb repo transfer <ident> <to-owner>` (run by the package's current owner) | 0 ok; 2 usage; 1 failed |
 | `repo transfer-accept` | `mfb repo transfer-accept <owner>#<package>@<to-owner>` | 0 ok; 2 usage; 1 failed |
 | `org grant` | `mfb org grant <org> <member> <role> [--as <grantor>]` | 0 ok; 2 usage; 1 failed |
 | `org remove` | `mfb org remove <org> <member> [--as <grantor>]` | 0 ok; 2 usage; 1 failed |

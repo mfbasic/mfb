@@ -484,7 +484,8 @@ is preserved behind the new store signatures.
 Acceptance: history is recorded with signatures, cannot be mutated, and legacy
 databases migrate deterministically from the transparency log.
   Check: `cargo test -p mfb_repository --lib -- store::tests::transfer store::tests::migrating store::tests::publish_records store::tests::legacy store::tests::stale store::tests::a_stale_offer` → `test result: ok`, 0 failed, and every named new test listed as `ok` (est. 3–5 min, compile-dominated; guess).
-Commit: —
+  Measured: `test result: ok. 13 passed; 0 failed` with all nine new tests listed `ok`.
+Commit: 0b3c5db49
 
 ### Phase 2: Server handlers and the v2 signers (the uncertainty experiment)
 
@@ -531,7 +532,10 @@ alone, using the real CLI signer against the real server.
 
 Acceptance: a real CLI transfer round-trips under v2, and a replayed link is refused.
   Check: `cargo test -p mfb_repository --lib -- transfer` → `test result: ok`, 0 failed (est. 3–5 min; guess), and `cargo test --test cli_repo_governance repo_ownership_transfer_is_two_sided_and_rebinds_the_package` → `1 passed` (est. 8–15 min on a cold release build. Nothing smaller drives the shipped `mfb` signer against the shipped `mfb-repo` verifier, and a mismatch between those two is exactly the failure this phase must catch).
-Commit: —
+  Measured: `cargo test -p mfb_repository --lib -- transfer` → `test result: ok. 14 passed; 0 failed`
+  (plus `a_replayed_link_is_refused ... ok` in the full run), and the governance
+  test → `test result: ok. 1 passed` against release `mfb` + `mfb-repo`.
+Commit: 0b3c5db49
 
 ### Phase 3: `/index` transfer wire and the package page fix
 
@@ -560,11 +564,12 @@ Commit: —
 Acceptance: `/index` serves a chain whose every signature verifies, and an older
 client's JSON shape still parses.
   Check: `cargo test -p mfb_repository --lib -- the_index_serves a_legacy_transfer the_package_page an_older_index package_index` → `test result: ok`, 0 failed (est. 3–5 min; guess).
-Commit: —
+  Measured: `test result: ok. 6 passed; 0 failed`.
+Commit: 0b3c5db49
 
 ### Phase 4: Spec sync for A's contracts
 
-- [ ] `src/docs/spec/package-manager/01_repository-protocol.md`:
+- [x] `src/docs/spec/package-manager/01_repository-protocol.md`:
   - endpoint table rows for the transfer routes (request fields);
   - §Install Path index JSON plus prose for `transfers` / `publisher` / `epoch` /
     `toBinding` and legacy links;
@@ -578,9 +583,9 @@ Commit: —
   - Cite `[[repository/src/store.rs:accept_transfer]]`,
     `[[repository/src/crypto.rs:transfer_offer_message_v2]]`,
     `[[repository/src/server.rs:package_index]]`.
-- [ ] `src/docs/spec/package-manager/03_signing.md`: replace the two
+- [x] `src/docs/spec/package-manager/03_signing.md`: replace the two
       `-transfer-*-v1` table rows with the `-v2` rows and their field lists.
-- [ ] `src/docs/spec/tooling/07_cli-reference.md`: the `repo transfer` row now
+- [x] `src/docs/spec/tooling/07_cli-reference.md`: the `repo transfer` row now
       states "run by the package's current owner".
 
 Acceptance: the spec renders with resolving citations and names no v1 transfer domain.

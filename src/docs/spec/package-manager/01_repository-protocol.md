@@ -116,8 +116,8 @@ timestamp private keys. Publisher private keys are not stored in plaintext. [[re
 | `/orgs/members` | POST | session + ident signature | `OrgMemberRequest` | `OrgMemberResponse` | `org grant`/`org remove` |
 | `/tokens` | POST | session + ident signature | `TokenIssueRequest` | `TokenIssueResponse` | `token issue` |
 | `/tokens/revoke` | POST | session + ident signature | `TokenRevokeRequest` | `TokenRevokeResponse` | `token revoke` |
-| `/packages/transfer/offer` | POST | session + ident signature | `TransferOfferRequest` | `TransferResponse` | `repo transfer` |
-| `/packages/transfer/accept` | POST | session + ident signature | `TransferAcceptRequest` | `TransferResponse` | `repo transfer-accept` |
+| `/packages/transfer/offer` | POST | session + ident signature | `TransferOfferRequest` (`ident`, `fromOwner`, `toOwner`, `sequence`, `releaseDigest`, `sessionToken`, `identSignature`) | `TransferResponse` | `repo transfer` |
+| `/packages/transfer/accept` | POST | session + ident signature | `TransferAcceptRequest` (`ident`, `toOwner`, `sessionToken`, `identSignature`) | `TransferResponse` | `repo transfer-accept` |
 | `/root.json` | GET | none | — | `RootResponse` | `repo trust` |
 | `/snapshot.json` | GET | none | — | `SignedMetadataResponse` | `repo trust` |
 | `/timestamp.json` | GET | none | — | `SignedMetadataResponse` | `repo trust` |
@@ -462,8 +462,8 @@ one** entry, inside the same transaction as the state change):
 | `org-role` | org role grant/remove |
 | `token-issue` | token issue |
 | `token-revoke` | token revoke |
-| `transfer-offer` | package transfer offer |
-| `transfer-accept` | package transfer accept |
+| `transfer-offer` | package transfer offer (`{"ident","from","to"}`) |
+| `transfer-accept` | package transfer accept (`{"ident","to","sequence"}`; entries written before signed transfers carry no `sequence`) |
 | `release-state` | release-state change |
 | `root-init` / `root-renew` / `root-reanchor` | root metadata operator ceremonies |
 
@@ -744,10 +744,52 @@ anchor rather than a bare field. An unknown owner or malformed ident yields
   "versions": [
     { "version": "1.2.3", "hash": "<hex>", "publishedAt": 1700000000,
       "state": "available", "abiIndex": {},
-      "logEntry": { "index": 7, "leafHash": "<hex>" } }
+      "logEntry": { "index": 7, "leafHash": "<hex>" },
+      "publisher": { "owner": "alice", "identFingerprint": "<hex>|null" },
+      "epoch": 0 }
+  ],
+  "transfers": [
+    { "sequence": 0, "fromOwner": "alice", "fromIdentKey": "ed25519:<base64url>|null",
+      "toOwner": "bob", "toIdentKey": "ed25519:<base64url>|null",
+      "releaseDigest": "<hex>|null",
+      "offerSignature": "<base64url>|null", "acceptSignature": "<base64url>|null",
+      "offeredAt": 1700000000, "acceptedAt": 1700000100,
+      "toBinding": { "owner": "bob", "identKey": "ed25519:<base64url>",
+                     "identFingerprint": "<hex>", "nameBindingSignature": "<base64url>" } }
   ]
 }
 ```
+
+The top-level `owner`, `identKey`, `identFingerprint` and `nameBindingSignature`
+always describe the ident-**prefix** owner, whether or not the package has since
+been transferred. Ownership after a transfer is carried by `transfers`, the
+package's accepted transfers oldest first: link `k` moves the package from its
+`k`-th owner to the next, and the current owner is the last link's `toOwner` (or
+the top-level `owner` when `transfers` is empty).
+[[repository/src/server.rs:package_index]][[repository/src/server.rs:TransferLink]]
+
+- `offerSignature` is the from-owner's signature under `fromIdentKey`, and
+  `acceptSignature` the to-owner's under `toIdentKey`, both over the v2 transfer
+  messages on `(ident, sequence, fromOwner, fingerprint(fromIdentKey), toOwner,
+  releaseDigest)` described under Ownership transfer below.
+- `toBinding` is the to-owner's **current** ident key under a fresh server name
+  binding (the same `mfb-repo-name-binding-v1` message as the top-level binding),
+  so an intermediate owner's newest key is server-authenticated without a second,
+  unsigned `GET /idents/<owner>` fetch.
+- A link whose keys, `releaseDigest` and both signatures are `null` is a
+  **legacy link**: a transfer accepted before the registry recorded signed
+  transfers, replayed from the transparency log with its real owners, position
+  and timestamps. Nothing about it can be authenticated.
+
+Each version carries `publisher` (the owner who published it; its
+`identFingerprint` is `null` for a release published before the registry
+recorded publisher keys) and `epoch`, the number of accepted transfers before it
+was published.[[repository/src/store.rs:list_package_versions]] All three fields are
+additive: a response from an older registry omits them, which reads as no
+transfers, publisher unknown, epoch `0` — what such a registry's data means. A
+client that ignores them keeps verifying untransferred packages and pre-transfer
+releases exactly as before; a transferred package's post-transfer release fails
+its prefix-owner pin check, never silently passes.
 
 The name binding is a server signature over `"mfb-repo-name-binding-v1\0" ||
 owner || "\0" || identFingerprint` (signing domain
@@ -1024,21 +1066,65 @@ to sign the package proof). `POST /tokens/revoke` revokes it and closes its
 sessions. Issue, use (via the log), and revoke are all
 logged.[[repository/src/server.rs:issue_token]][[repository/src/store.rs:publish_token_for_key]]
 
-**Ownership transfer.** Two-sided: `POST /packages/transfer/offer` (current
-owner's ident signs `transfer_offer_message(ident, from, to)`) then `POST
-/packages/transfer/accept` (recipient's ident signs
-`transfer_accept_message(ident, to)`). The server re-binds the package to the
-new owner and logs both halves. The transfer contract requires the recipient to
-be able to publish subsequent versions under the unchanged package ident, while
-pre-transfer releases remain verifiable under their original publisher keys.
+**Ownership transfer.** Two-sided, and both halves sign the same **terms**:
+`(ident, sequence, fromOwner, fromIdentFingerprint, toOwner, releaseDigest)`.
+
+- `sequence` is the number of accepted transfers of the ident before this one
+  (decimal ASCII in the signed bytes), so a recorded link cannot be replayed at
+  another position in the chain.
+- `fromOwner` / `toOwner` are the registered display names; `fromIdentFingerprint`
+  is the offering owner's current ident key.
+- `releaseDigest` is the hex SHA-256 of `version || "\0" || hash || "\n"`
+  concatenated over **every** version of the ident (all states), sorted by
+  `(version, hash)`.[[repository/src/crypto.rs:release_digest]]
+
+`POST /packages/transfer/offer` is made by the package's **current** (stored)
+owner, which after a transfer is no longer the ident prefix; any other session
+owner is refused with `offering owner does not currently own the package; it is
+owned by <owner>`. The offerer's ident signs `"mfb-repo-transfer-offer-v2\0"`
+followed by the six terms separated by `"\0"`. `POST /packages/transfer/accept`
+is signed by the recipient's ident over `"mfb-repo-transfer-accept-v2\0"` and
+the same six terms.[[repository/src/crypto.rs:transfer_offer_message_v2]] A client
+computes the terms from `/index`: `sequence` is `transfers.len()`, the digest
+covers `versions[]`, and the current owner and key come from the last link's
+`toBinding` (or the top-level binding).[[repository/src/client.rs:transfer_offer]]
+
+The registry recomputes the terms and verifies each signature inside the writing
+transaction.[[repository/src/store.rs:create_transfer_offer]][[repository/src/store.rs:accept_transfer]]
+
+- An offer or accept whose terms no longer match — another transfer or a
+  release landed in between, or the offerer rotated their ident — is refused
+  with `transfer terms are stale (sequence/releases changed); re-run the offer`.
+- An offer pending since before signed transfers carries no terms and is refused
+  at accept with `this offer predates signed transfers; the owner must re-offer`.
+- A signature over the pre-v2 messages is refused as an invalid ident signature.
+- An offer is only acceptable while its offerer still owns the package.
+
+An accepted transfer appends one row to the package's transfer history,
+re-binds the package to the recipient, and logs the acceptance with its
+`sequence`. The history is append-only: the database aborts any `UPDATE` or
+`DELETE` of it. Each published version records its publisher, the publisher's
+ident key, and its epoch (the history length at publish time).
+[[repository/src/store.rs:migrate]][[repository/src/store.rs:publish_package_version]]
+Transfers accepted before signed transfers existed are replayed into the history
+from the transparency log when the registry database is migrated, as unsigned
+legacy links with their real positions and owners, and each release's epoch is
+recovered the same way. A log that does not end at the package's stored owner
+stops the migration with `transfer log for <ident> ends at <owner> but the
+package is owned by <owner>`.[[repository/src/store.rs:backfill_legacy_transfers]]
+
+The transfer contract requires the recipient to be able to publish subsequent
+versions under the unchanged package ident, while pre-transfer releases remain
+verifiable under their original publisher keys.
 
 **Current implementation deviation:** `/signing` and `/release-state` authorize
-the stored new owner, but the publish and consumer paths are not transfer-complete:
-`validate_package_request` still requires the ident prefix's owner and auth
-key, `signing_ident` rejects a different prefix at build time, and `/index`
-still returns that prefix owner's ident key. A recipient therefore cannot
-publish a new version under the transferred ident through the current CLI and
-validation path. Existing package bytes and signatures are unchanged.
+the stored new owner, and `/index` serves the signed transfer chain, but the
+publish and consumer paths are not transfer-complete: `validate_package_request`
+still requires the ident prefix's owner and auth key, `signing_ident` rejects a
+different prefix at build time, and clients do not yet verify the transfer
+chain. A recipient therefore cannot publish a new version under the transferred
+ident through the current CLI and validation path. Existing package bytes and
+signatures are unchanged.
 [[repository/src/server.rs:require_package_owner]][[repository/src/server.rs:validate_package_request]][[repository/src/server.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store.rs:accept_transfer]]
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`
