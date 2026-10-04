@@ -37,7 +37,7 @@ trailing `:` with nothing after it counts as absent, so
 
 A **non-empty** explicit port must not carry a leading `+` or `-` (ports are
 unsigned), must be base-10 digits, and must not exceed 65535; each of those
-raises `ErrInvalidFormat`.
+raises `ErrInvalidFormat`. `ErrOutOfMemory` means the program ran out of memory.
 
 What remains is split at the first `#` into a fragment and at the first `?` into a
 query, each stored without its leading punctuation. An absent path becomes `"/"`.
@@ -181,7 +181,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("href", "The absolute URL to parse. Also accepted under the alternate named-argument spellings `value` and `url`, so `net::toUrl(href := s)`, `net::toUrl(value := s)`, and `net::toUrl(url := s)` all bind position 0.", &["value", "url"], ParameterType::String)],
             return_type: ParameterType::named(super::URL_TYPE),
-            errors: vec!["ErrInvalidFormat", "ErrUnsupported"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory", "ErrUnsupported"],
             body: Body::mfb(BODY, "__net_toUrl"),
         }],
     });

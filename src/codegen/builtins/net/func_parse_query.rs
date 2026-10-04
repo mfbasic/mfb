@@ -31,7 +31,9 @@ a non-hexadecimal pair, or bytes that do not form valid UTF-8 — is kept as its
 raw undecoded text instead of failing, so `"k=%2"` yields the value `"%2"`. One
 bad component therefore never sinks an otherwise valid query, which is what lets
 the built-in `http` server route framing errors to a 400 response without letting
-soft query-decode failures do the same."#;
+soft query-decode failures do the same.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Parse a query and read its values:
 
@@ -105,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![super::req("s", "The query string, without its leading `?`. Also accepted under the alternate named-argument spellings `query` and `value`, so `net::parseQuery(s := q)`, `net::parseQuery(query := q)`, and `net::parseQuery(value := q)` all bind position 0.", &["query", "value"], ParameterType::String)],
             return_type: ParameterType::map_of(ParameterType::String, ParameterType::String),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__net_parseQuery"),
         }],
     });
