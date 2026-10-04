@@ -54,6 +54,12 @@ pub(crate) fn lower_module_mir(
 /// instead of the code that ships.
 pub(crate) struct Platform;
 
+/// bug-800: libSystem's POSIX `realpath`, the symbol `<stdlib.h>` binds `realpath`
+/// to. The bare legacy `_realpath` resolves a relative path through a `getcwd` that
+/// scans every parent directory: ~0.17 s per call with a 350 000-entry `$TMPDIR`
+/// above the working directory, against ~0 for this one. With a caller-supplied
+/// buffer the two return, fail and set `errno` identically.
+pub(crate) const DARWIN_REALPATH_SYMBOL: &str = "_realpath$DARWIN_EXTSN";
 const DARWIN_PROT_READ_WRITE: &str = "3";
 const DARWIN_MAP_PRIVATE_ANON: &str = "4098";
 const DARWIN_SYSCALL_MMAP: &str = "33554629";
@@ -875,7 +881,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         emit_libsystem_call(
             from,
-            "_realpath",
+            DARWIN_REALPATH_SYMBOL,
             platform_imports,
             instructions,
             relocations,

@@ -201,6 +201,16 @@ impl LeWriter {
 /// offsets computed by the caller, zero-length sections already omitted);
 /// `entry_rva` is the `AddressOfEntryPoint`; `dirs` fills data directories
 /// `[1]`/`[12]`.
+/// A `--debug` build's COFF symbol table (plan-166): `count` 18-byte records
+/// followed by the COFF string table, written past the last section. It is file
+/// data only: no section, RVA, `SizeOfImage` or data directory describes it.
+pub(super) struct CoffSymbolTable {
+    pub(super) records: Vec<u8>,
+    /// `u32` total size (including itself), then each long name NUL-terminated.
+    pub(super) strings: Vec<u8>,
+    pub(super) count: u32,
+}
+
 pub(super) fn write_image(
     sections: &[Section],
     entry_rva: u32,
@@ -208,6 +218,7 @@ pub(super) fn write_image(
     // plan-66-I: `true` links the GUI subsystem (WINDOWS_GUI=2, app mode);
     // `false` the console subsystem (WINDOWS_CUI=3).
     gui: bool,
+    coff_symbols: Option<&CoffSymbolTable>,
 ) -> Vec<u8> {
     let n = sections.len();
     let headers_size = size_of_headers(n);
@@ -250,8 +261,12 @@ pub(super) fn write_image(
     w.u16(0x8664); // Machine = AMD64
     w.u16(n as u16); // NumberOfSections
     w.u32(0); // TimeDateStamp (determinism)
-    w.u32(0); // PointerToSymbolTable
-    w.u32(0); // NumberOfSymbols
+              // PointerToSymbolTable / NumberOfSymbols: zero unless a `--debug` build appends
+              // its table at `total_file_size`, which is already FileAlignment-aligned.
+    w.u32(coff_symbols.map_or(0, |_| {
+        u32::try_from(total_file_size).expect("PE image larger than 4 GiB")
+    }));
+    w.u32(coff_symbols.map_or(0, |table| table.count));
     w.u16(OPTIONAL_HEADER_SIZE as u16); // SizeOfOptionalHeader = 0xF0
                                         // bug-504: no RELOCS_STRIPPED — the image is relocatable (see `.reloc`).
     w.u16(IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE);
@@ -367,6 +382,10 @@ pub(super) fn write_image(
     }
     // Pad the final section's raw data out to FileAlignment.
     w.pad_to(total_file_size);
+    if let Some(table) = coff_symbols {
+        w.bytes(&table.records);
+        w.bytes(&table.strings);
+    }
 
     w.buf
 }
@@ -402,7 +421,13 @@ mod tests {
             file_offset: text_file,
             bytes: &text,
         }];
-        write_image(&sections, text_rva, ImportDirectories::default(), false)
+        write_image(
+            &sections,
+            text_rva,
+            ImportDirectories::default(),
+            false,
+            None,
+        )
     }
 
     /// The GUI-subsystem (app-mode) sibling of `single_text_image`, used to assert
@@ -420,7 +445,13 @@ mod tests {
             file_offset: text_file,
             bytes: &text,
         }];
-        write_image(&sections, text_rva, ImportDirectories::default(), true)
+        write_image(
+            &sections,
+            text_rva,
+            ImportDirectories::default(),
+            true,
+            None,
+        )
     }
 
     #[test]
@@ -546,7 +577,7 @@ mod tests {
             iat: (0x3100, 16),
             ..ImportDirectories::default()
         };
-        let image = write_image(&sections, text_rva, dirs, false);
+        let image = write_image(&sections, text_rva, dirs, false, None);
         let dd = 0x80 + 4 + 20 + 112;
         assert_eq!(le_u32(&image, dd + 8), 0x3000, "Import[1] RVA");
         assert_eq!(le_u32(&image, dd + 8 + 4), 40, "Import[1] size");
@@ -572,7 +603,7 @@ mod tests {
             basereloc: (0x5000, 12),
             ..ImportDirectories::default()
         };
-        let image = write_image(&sections, text_rva, dirs, false);
+        let image = write_image(&sections, text_rva, dirs, false, None);
         let dd = 0x80 + 4 + 20 + 112;
         assert_eq!(le_u32(&image, dd + 5 * 8), 0x5000, "BaseReloc[5] RVA");
         assert_eq!(le_u32(&image, dd + 5 * 8 + 4), 12, "BaseReloc[5] size");

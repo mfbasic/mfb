@@ -387,3 +387,33 @@ fn reloc(
         library: library.map(str::to_string),
     }
 }
+
+/// A symbol defined twice — two data objects, or a data object reusing a
+/// function's name — is refused. The layout would place the name at two
+/// offsets while every relocation resolved to the first; macOS TLS server
+/// builds shipped three such duplicates until plan-166's `--debug` symbol
+/// table refused them.
+#[test]
+fn a_symbol_defined_twice_is_refused() {
+    let object = |symbol: &str| CodeDataObject {
+        symbol: symbol.to_string(),
+        kind: "bytes".to_string(),
+        layout: "const".to_string(),
+        align: 1,
+        size: 1,
+        value: "00".to_string(),
+    };
+    let refused = refusal("a data object defined twice", |p| {
+        p.data_objects.push(object("_probe_twice"));
+        p.data_objects.push(object("_probe_twice"));
+    });
+    assert!(
+        refused.contains("defines symbol '_probe_twice' more than once"),
+        "{refused:?}"
+    );
+    let refused = refusal("a data object named like a function", |p| {
+        let function = p.functions[0].symbol.clone();
+        p.data_objects.push(object(&function));
+    });
+    assert!(refused.contains("more than once"), "{refused:?}");
+}

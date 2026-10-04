@@ -1,0 +1,114 @@
+IMPORT collections
+IMPORT io
+IMPORT os
+IMPORT thread
+
+' The program the `mfb man debug` walkthroughs debug.
+'
+' It counts the primes in a run of pseudo-random ranges, one range per round,
+' and prints one line per round plus a total. The work is deterministic, so
+' every run prints the same thing, and the call chain is a few levels deep:
+'
+'   main -> runRounds -> runRound -> countPrimes -> isPrime
+'                                 -> next_seed
+'                     -> formatLine
+'
+' Usage:  debug [rounds [size [threads]]]
+'   rounds   how many ranges to scan (default 5)
+'   size     how many numbers each range holds (default 20000)
+'   threads  1 runs each round on its own worker thread (default 0)
+'
+' Raise both to make it run long enough to attach a debugger or a profiler.
+
+' The next value of a small linear congruential generator. Its name has an
+' underscore on purpose: the walkthroughs show how that spelling appears in a
+' debugger.
+FUNC next_seed(seed AS Integer) AS Integer
+  RETURN (seed * 1103515245 + 12345) MOD 2147483648
+END FUNC
+
+' Whether n is prime, by trial division. This is where the program spends its
+' time, so it is the function a profiler points at.
+FUNC isPrime(n AS Integer) AS Boolean
+  IF n < 2 THEN
+    RETURN FALSE
+  END IF
+  MUT d AS Integer = 2
+  DO WHILE d * d <= n
+    IF n MOD d = 0 THEN
+      RETURN FALSE
+    END IF
+    d = d + 1
+  LOOP
+  RETURN TRUE
+END FUNC
+
+' How many of the `size` numbers starting at `first` are prime.
+FUNC countPrimes(first AS Integer, size AS Integer) AS Integer
+  MUT found AS Integer = 0
+  FOR n = first TO first + size - 1
+    IF isPrime(n) THEN
+      found = found + 1
+    END IF
+  NEXT
+  RETURN found
+END FUNC
+
+' One round: pick a range start from the seed, then count its primes.
+FUNC runRound(seed AS Integer, size AS Integer) AS Integer
+  LET first = next_seed(seed) MOD 1000000
+  RETURN countPrimes(first, size)
+END FUNC
+
+' One range to scan, handed to a worker thread.
+TYPE Job
+  seed AS Integer
+  size AS Integer
+END TYPE
+
+' A worker thread's whole job: one round.
+ISOLATED FUNC roundWorker(w AS ThreadWorker OF Nothing TO Integer, job AS Job) AS Integer
+  RETURN runRound(job.seed, job.size)
+END FUNC
+
+FUNC formatLine(round AS Integer, found AS Integer) AS String
+  RETURN "round " & toString(round) & ": " & toString(found) & " primes"
+END FUNC
+
+' Every round, printing one line each, and the total across them.
+FUNC runRounds(rounds AS Integer, size AS Integer, threads AS Boolean) AS Integer
+  MUT seed AS Integer = 1
+  MUT total AS Integer = 0
+  FOR round = 1 TO rounds
+    seed = next_seed(seed)
+    MUT found AS Integer = 0
+    IF threads THEN
+      RES t AS Thread OF Nothing TO Integer = thread::start(roundWorker, Job[seed, size])
+      found = thread::waitFor(t)
+    ELSE
+      found = runRound(seed, size)
+    END IF
+    io::print(formatLine(round, found))
+    total = total + found
+  NEXT
+  RETURN total
+END FUNC
+
+FUNC main() AS Integer
+  LET args = os::args()
+  MUT rounds AS Integer = 5
+  MUT size AS Integer = 20000
+  MUT threads AS Boolean = FALSE
+  IF len(args) >= 1 THEN
+    rounds = toInt(collections::get(args, 0))
+  END IF
+  IF len(args) >= 2 THEN
+    size = toInt(collections::get(args, 1))
+  END IF
+  IF len(args) >= 3 THEN
+    threads = toInt(collections::get(args, 2)) = 1
+  END IF
+  LET total = runRounds(rounds, size, threads)
+  io::print("total: " & toString(total) & " primes")
+  RETURN 0
+END FUNC

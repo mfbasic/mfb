@@ -1271,9 +1271,9 @@ FUNC reboundEachIteration() AS Integer
 END FUNC
 
 FUNC readInHandler() AS Integer
-  LET a AS Node = Node[kids := [], tag := toInt(\"7\")]
+  LET a AS Node = Node[kids := [], tag := 7]
   LET b AS Node = a
-  RETURN b.tag
+  RETURN b.tag + toInt(\"7\")
   TRAP(err)
     RETURN a.tag
   END TRAP

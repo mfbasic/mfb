@@ -1,6 +1,6 @@
 use crate::arch::image::{EncodedImage, EncodedSection};
 use crate::os::link_encode::{
-    adrp_page21, patch_aarch64_reloc, put_u16, put_u32, put_u64, AArch64RelocCtx,
+    adrp_page21, patch_aarch64_reloc, put_u16, put_u32, put_u64, section_vmaddr, AArch64RelocCtx,
 };
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_DESCRIPTOR_SIZE, MFB_NOTE_OWNER};
 use crate::os::object_plan::align;
@@ -178,6 +178,20 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
         .filter(|symbol| symbol.section == EncodedSection::Text)
         .map(|symbol| symbol.offset)
         .ok_or_else(|| format!("entry symbol '{}' does not resolve to text", image.entry))?;
+    // plan-166: a `--debug` build lists its own symbols at the addresses the
+    // relocations above resolved them to.
+    let debug = if image.debug_symbols {
+        Some(commands::debug_symtab(
+            image,
+            &commands::SymbolWindows {
+                code_offset,
+                rodata_vmaddr,
+                data_vmaddr,
+            },
+        )?)
+    } else {
+        None
+    };
     encode_mach_o(
         project_name,
         code_offset,
@@ -186,6 +200,7 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
         &image.data,
         &libraries,
         image,
+        debug.as_ref(),
     )
 }
 
@@ -419,6 +434,21 @@ fn data_const_size(image: &EncodedImage) -> usize {
 /// read-only constants.
 fn data_const_section_count(import_count: usize, init_count: usize, has_rodata: bool) -> u32 {
     (import_count > 0) as u32 + (init_count > 0) as u32 + has_rodata as u32
+}
+
+/// `n_sect` of `__TEXT,__text`: the first section in the image.
+const TEXT_SECTION_ORDINAL: u8 = 1;
+
+/// 1-based section ordinals (`nlist_64.n_sect`) of `__DATA_CONST,__const` and
+/// `__DATA,__data`, from the same flags that decide which sections exist.
+/// `__TEXT` always holds two sections (`__text`, then `__stubs` or
+/// `__unwind_info`); `__DATA_CONST` lists `__got`, `__mod_init_func`, `__const`
+/// in that order; `__DATA` follows it. Each ordinal is meaningful only when its
+/// section exists.
+fn data_section_ordinals(import_count: usize, init_count: usize, has_rodata: bool) -> (u8, u8) {
+    let before_const = 2 + (import_count > 0) as u8 + (init_count > 0) as u8;
+    let data_const = data_const_section_count(import_count, init_count, has_rodata) as u8;
+    (before_const + 1, 2 + data_const + 1)
 }
 
 /// Rebase opcode stream for `LC_DYLD_INFO_ONLY`. The `__mod_init_func` pointers

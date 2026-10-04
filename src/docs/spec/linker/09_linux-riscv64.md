@@ -213,8 +213,9 @@ When the build supplies executable signing metadata, the linker emits it as a
 `.mfbsign` ELF section (shared with the other Linux targets) and, on a signed
 build, seals its content signature over the finished file
 (`./mfb spec package-manager signing`). Unlike macOS, Linux executables carry no
-other signature.
-[[src/os/linux/link/elf.rs:append_elf_signing_section]]
+other signature. The section header table that holds it (shared with a `--debug`
+build's `.symtab`) is described in `./mfb spec linker static-and-dynamic-output`.
+[[src/os/linux/link/elf.rs:append_elf_sections]]
 
 ## See Also
 

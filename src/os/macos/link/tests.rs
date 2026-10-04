@@ -28,6 +28,7 @@ fn none() -> EncodedImage {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     }
 }
 
@@ -161,6 +162,7 @@ fn rejects_initializer_without_text_symbol() {
         initializers: vec!["_missing".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = tempfile::tempdir().unwrap();
     let error = write_executable(dir.path(), "init", &image)
@@ -210,6 +212,7 @@ fn runs_initializer_before_entry_without_imports() {
         initializers: vec!["_init0".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = std::env::temp_dir().join(format!("mfb_modinit_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -279,6 +282,7 @@ fn runs_initializer_before_entry_with_imports() {
         initializers: vec!["_init0".to_string()],
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = std::env::temp_dir().join(format!("mfb_modinit_imp_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -316,6 +320,7 @@ fn writes_mfb_sign_section_to_mach_o() {
             br#"{"owner":"alice"}"#,
         )),
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(dir.path(), "signed", &image).expect("link signed mach-o");
@@ -417,6 +422,7 @@ fn provenance_note_coexists_with_the_mfb_sign_segment() {
             br#"{"owner":"alice"}"#,
         )),
         rpaths: Vec::new(),
+        debug_symbols: false,
     };
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(dir.path(), "noted-signed", &image).expect("link signed mach-o");
@@ -481,6 +487,7 @@ fn noted_mach_o_verifies_and_runs() {
             initializers: Vec::new(),
             signing_metadata: metadata,
             rpaths: Vec::new(),
+            debug_symbols: false,
         };
         let dir = tempfile::tempdir().unwrap();
         let path = write_executable(dir.path(), name, &image).expect("link mach-o");
@@ -898,6 +905,7 @@ fn library_ordinal_rejects_absent_library() {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths: Vec::new(),
+        debug_symbols: false,
     })
     .unwrap();
     assert_eq!(library_ordinal(&libraries, "libSystem").unwrap(), 1);
@@ -1398,6 +1406,7 @@ fn exit_zero_image(rpaths: Vec<String>) -> EncodedImage {
         initializers: Vec::new(),
         signing_metadata: None,
         rpaths,
+        debug_symbols: false,
     }
 }
 
@@ -1579,4 +1588,339 @@ fn refuses_to_write_an_executable_under_a_traversing_name() {
         !dir.path().join("build").exists(),
         "nothing may be created on refusal"
     );
+}
+
+// ===== plan-166: `--debug` symbol table =====
+
+/// The `LC_SYMTAB` / `LC_DYSYMTAB` / `LC_FUNCTION_STARTS` view of a Mach-O, read
+/// the way `nm` and dyld do: from the load commands, not from the writer's
+/// layout structs.
+struct ParsedSymtab {
+    /// `(name, n_type, n_sect, n_value)` in table order.
+    symbols: Vec<(String, u8, u8, u64)>,
+    /// `ilocalsym, nlocalsym, iextdefsym, nextdefsym, iundefsym, nundefsym`.
+    dysymtab: [u32; 6],
+    indirect: Vec<u32>,
+    /// Function start file offsets, decoded from the ULEB deltas.
+    function_starts: Vec<u64>,
+    /// `(sectname, addr)` in ordinal order (index 0 = ordinal 1).
+    sections: Vec<(String, u64)>,
+}
+
+fn parse_symtab(bytes: &[u8]) -> ParsedSymtab {
+    let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let u64_at = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let fixed = |at: usize| {
+        let raw = &bytes[at..at + 16];
+        let end = raw.iter().position(|byte| *byte == 0).unwrap_or(16);
+        String::from_utf8(raw[..end].to_vec()).unwrap()
+    };
+    let mut parsed = ParsedSymtab {
+        symbols: Vec::new(),
+        dysymtab: [0; 6],
+        indirect: Vec::new(),
+        function_starts: Vec::new(),
+        sections: Vec::new(),
+    };
+    let mut command = 32;
+    for _ in 0..u32_at(16) {
+        match u32_at(command) {
+            0x19 => {
+                for index in 0..u32_at(command + 64) as usize {
+                    let section = command + 72 + index * 80;
+                    parsed.sections.push((fixed(section), u64_at(section + 32)));
+                }
+            }
+            0x2 => {
+                let symoff = u32_at(command + 8) as usize;
+                let nsyms = u32_at(command + 12) as usize;
+                let stroff = u32_at(command + 16) as usize;
+                for index in 0..nsyms {
+                    let entry = symoff + index * 16;
+                    let name_at = stroff + u32_at(entry) as usize;
+                    let end = name_at + bytes[name_at..].iter().position(|b| *b == 0).unwrap();
+                    parsed.symbols.push((
+                        String::from_utf8(bytes[name_at..end].to_vec()).unwrap(),
+                        bytes[entry + 4],
+                        bytes[entry + 5],
+                        u64_at(entry + 8),
+                    ));
+                }
+            }
+            0xb => {
+                for (slot, value) in parsed.dysymtab.iter_mut().enumerate() {
+                    *value = u32_at(command + 8 + slot * 4);
+                }
+                let indirectoff = u32_at(command + 56) as usize;
+                let count = u32_at(command + 60) as usize;
+                parsed.indirect = (0..count).map(|i| u32_at(indirectoff + i * 4)).collect();
+            }
+            0x26 => {
+                let offset = u32_at(command + 8) as usize;
+                let size = u32_at(command + 12) as usize;
+                let mut cursor = offset;
+                let mut address = 0u64;
+                while cursor < offset + size {
+                    let mut delta = 0u64;
+                    let mut shift = 0;
+                    loop {
+                        let byte = bytes[cursor];
+                        cursor += 1;
+                        delta |= ((byte & 0x7f) as u64) << shift;
+                        shift += 7;
+                        if byte & 0x80 == 0 {
+                            break;
+                        }
+                    }
+                    if delta == 0 {
+                        break;
+                    }
+                    address += delta;
+                    parsed.function_starts.push(address);
+                }
+                assert!(
+                    bytes[cursor..offset + size].iter().all(|b| *b == 0),
+                    "LC_FUNCTION_STARTS pads with zeros after its terminator"
+                );
+            }
+            _ => {}
+        }
+        command += u32_at(command + 4) as usize;
+    }
+    parsed
+}
+
+fn ordinal_of(parsed: &ParsedSymtab, name: &str) -> u8 {
+    parsed
+        .sections
+        .iter()
+        .position(|(sectname, _)| sectname == name)
+        .unwrap_or_else(|| panic!("section {name} present")) as u8
+        + 1
+}
+
+fn section_addr(parsed: &ParsedSymtab, name: &str) -> u64 {
+    parsed.sections[ordinal_of(parsed, name) as usize - 1].1
+}
+
+/// Two functions, one constant and one writable data object, and one import:
+/// every section kind a local can land in, plus the stub/GOT path.
+fn debug_image() -> EncodedImage {
+    let main = code_fn(
+        "_main",
+        vec![
+            inst("adrp", &[("dst", "x0"), ("symbol", "_msg")]),
+            inst(
+                "add_pageoff",
+                &[("dst", "x0"), ("src", "x0"), ("symbol", "_msg")],
+            ),
+            inst("bl", &[("target", "_helper")]),
+            inst("bl", &[("target", "_write")]),
+            inst("ret", &[]),
+        ],
+    );
+    let helper = code_fn("_helper", vec![inst("ret", &[])]);
+    let object = |symbol: &str, kind: &str| crate::codegen::engine::types::CodeDataObject {
+        symbol: symbol.to_string(),
+        kind: kind.to_string(),
+        layout: String::new(),
+        align: 8,
+        size: 16,
+        value: "hi".to_string(),
+    };
+    let mut image = encode_aarch64(
+        vec![crate::codegen::engine::types::CodeImport {
+            library: "libSystem".to_string(),
+            symbol: "_write".to_string(),
+        }],
+        vec![object("_msg", "constant"), object("_glob", "global")],
+        vec![main, helper],
+        "_main",
+    );
+    image.debug_symbols = true;
+    image
+}
+
+#[test]
+fn debug_symbols_lists_locals_before_imports() {
+    let image = debug_image();
+    assert!(image.rodata_size > 0 && image.data.len() > image.rodata_size);
+    let parsed = parse_symtab(&encode_executable_bytes("dbg", &image).unwrap());
+    let locals = &parsed.symbols[..4];
+    let names: Vec<_> = locals.iter().map(|symbol| symbol.0.as_str()).collect();
+    // Text first by offset, then data by offset (constants, then writable).
+    assert_eq!(names, ["_main", "_helper", "_msg", "_glob"]);
+    let text = section_addr(&parsed, "__text");
+    let rodata = section_addr(&parsed, "__const");
+    let data = section_addr(&parsed, "__data");
+    for (name, n_type, n_sect, n_value) in locals {
+        assert_eq!(*n_type, 0x0e, "{name}: N_SECT, not N_EXT");
+        let expected_sect = match name.as_str() {
+            "_main" | "_helper" => ordinal_of(&parsed, "__text"),
+            "_msg" => ordinal_of(&parsed, "__const"),
+            _ => ordinal_of(&parsed, "__data"),
+        };
+        assert_eq!(*n_sect, expected_sect, "{name}: n_sect");
+        let expected =
+            symbol_vmaddr(&image, name, text, data, Some((rodata, image.rodata_size))).unwrap();
+        assert_eq!(*n_value, expected, "{name}: n_value");
+    }
+    assert_eq!(parsed.symbols[4], ("_write".to_string(), 0x1, 0, 0));
+    assert_eq!(parsed.symbols.len(), 5);
+}
+
+#[test]
+fn debug_symbols_shift_indirect_table_and_iundefsym() {
+    let parsed = parse_symtab(&encode_executable_bytes("dbg", &debug_image()).unwrap());
+    // ilocalsym, nlocalsym, iextdefsym, nextdefsym, iundefsym, nundefsym.
+    assert_eq!(parsed.dysymtab, [0, 4, 4, 0, 4, 1]);
+    // The one stub's indirect entry names `_write`, which now sits at index 4.
+    assert_eq!(parsed.indirect, vec![4]);
+    assert_eq!(parsed.symbols[parsed.indirect[0] as usize].0, "_write");
+
+    // Without `--debug` the same image keeps the import-only table.
+    let image = EncodedImage {
+        debug_symbols: false,
+        ..debug_image()
+    };
+    let parsed = parse_symtab(&encode_executable_bytes("dbg", &image).unwrap());
+    assert_eq!(parsed.dysymtab, [0, 0, 0, 0, 0, 1]);
+    assert_eq!(parsed.indirect, vec![0]);
+    assert_eq!(parsed.symbols, vec![("_write".to_string(), 0x1, 0, 0)]);
+    assert!(parsed.function_starts.is_empty());
+}
+
+#[test]
+fn debug_symbols_on_import_less_image() {
+    // No imports, initializers or constants: the chained-fixups path, which
+    // writes no symtab at all without `--debug`.
+    let image = EncodedImage {
+        debug_symbols: true,
+        ..exit_zero_image(Vec::new())
+    };
+    let parsed = parse_symtab(&encode_executable_bytes("dbg", &image).unwrap());
+    let text = section_addr(&parsed, "__text");
+    assert_eq!(parsed.symbols, vec![("_main".to_string(), 0x0e, 1, text)]);
+    assert_eq!(parsed.dysymtab, [0, 1, 1, 0, 1, 0]);
+    assert!(parsed.indirect.is_empty());
+    assert_eq!(parsed.function_starts, vec![text - VM_BASE]);
+
+    let plain =
+        parse_symtab(&encode_executable_bytes("dbg", &exit_zero_image(Vec::new())).unwrap());
+    assert!(plain.symbols.is_empty());
+    assert_eq!(plain.dysymtab, [0; 6]);
+}
+
+#[test]
+fn function_starts_lists_every_function() {
+    let image = debug_image();
+    let parsed = parse_symtab(&encode_executable_bytes("dbg", &image).unwrap());
+    // `__text`'s file offset is its address minus the `__TEXT` base.
+    let text_file_offset = section_addr(&parsed, "__text") - VM_BASE;
+    let expected: Vec<u64> = ["_main", "_helper"]
+        .iter()
+        .map(|name| {
+            let symbol = image.symbols.iter().find(|s| s.name == *name).unwrap();
+            text_file_offset + symbol.offset as u64
+        })
+        .collect();
+    assert_eq!(parsed.function_starts, expected);
+}
+
+/// The stub path with a shifted symtab still binds and runs: a `--debug` image
+/// that calls two imports passes `codesign -v` and exits 0.
+#[cfg(target_os = "macos")]
+#[test]
+fn debug_symbols_image_with_imports_runs() {
+    let words: [u32; 6] = [
+        0x9400_0000, // bl _nw_path_monitor_create
+        0xB400_0060, // cbz x0, fail (+12)
+        0xD280_0000, // movz x0, #0
+        0x1400_0002, // b done (+8)
+        0xD280_00E0, // fail: movz x0, #7
+        0x9400_0000, // done: bl _exit
+    ];
+    let mut text = Vec::new();
+    for word in words {
+        put_u32(&mut text, word);
+    }
+    let external = |offset: usize, target: &str, library: &str| EncodedRelocation {
+        offset,
+        target: target.to_string(),
+        kind: "branch26".to_string(),
+        binding: "external".to_string(),
+        library: Some(library.to_string()),
+    };
+    let image = EncodedImage {
+        text,
+        symbols: vec![text_symbol("_main", 0), text_symbol("_fail", 16)],
+        relocations: vec![
+            external(0, "_nw_path_monitor_create", "Network"),
+            external(20, "_exit", "libSystem"),
+        ],
+        imports: vec![
+            import("libSystem", "_exit"),
+            import("Network", "_nw_path_monitor_create"),
+        ],
+        debug_symbols: true,
+        ..none()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "dbgrun", &image).expect("link");
+    let verified = std::process::Command::new("/usr/bin/codesign")
+        .arg("-v")
+        .arg(&path)
+        .status()
+        .expect("run codesign");
+    assert!(
+        verified.success(),
+        "codesign -v accepts the larger __LINKEDIT"
+    );
+    let status = std::process::Command::new(&path).status().expect("run");
+    assert_eq!(status.code(), Some(0));
+}
+
+/// The 16 `LC_UUID` bytes of a Mach-O.
+fn mach_o_uuid(bytes: &[u8]) -> [u8; 16] {
+    let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let mut command = 32;
+    for _ in 0..u32_at(16) {
+        if u32_at(command) == 0x1b {
+            return bytes[command + 8..command + 24].try_into().unwrap();
+        }
+        command += u32_at(command + 4) as usize;
+    }
+    panic!("LC_UUID must be present");
+}
+
+/// plan-166: a `--debug` build's UUID is derived from its contents, so two
+/// different programs never share one (symbolicators cache names by UUID), and
+/// rebuilding the same program keeps it. Without `--debug` it stays constant.
+#[test]
+fn debug_uuid_differs_between_images_and_is_stable() {
+    let first = mach_o_uuid(&encode_executable_bytes("dbg", &debug_image()).unwrap());
+    let again = mach_o_uuid(&encode_executable_bytes("dbg", &debug_image()).unwrap());
+    let other_image = EncodedImage {
+        debug_symbols: true,
+        ..exit_zero_image(Vec::new())
+    };
+    let other = mach_o_uuid(&encode_executable_bytes("dbg", &other_image).unwrap());
+    assert_eq!(first, again, "same program, same UUID");
+    assert_ne!(first, other, "different programs, different UUIDs");
+    assert_eq!(first[6] >> 4, 4, "RFC 4122 version 4");
+    assert_eq!(first[8] >> 6, 0b10, "RFC 4122 variant");
+
+    let constant = [0x4d, 0x46, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    for image in [
+        EncodedImage {
+            debug_symbols: false,
+            ..debug_image()
+        },
+        exit_zero_image(Vec::new()),
+    ] {
+        assert_eq!(
+            mach_o_uuid(&encode_executable_bytes("dbg", &image).unwrap()),
+            constant
+        );
+    }
 }

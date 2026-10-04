@@ -49,8 +49,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| The host `nm` reads Mach-O, ELF and COFF (it is llvm-nm) | `nm --version \| head -1` → `llvm-nm, compatible with GNU nm` | MET (2026-10-03) |
-| A release compiler built from the pre-plan commit is saved for the byte-identity check | `ls /tmp/mfb-166-base` → exists | NOT MET (Phase 0 task) |
+| The host `nm` reads Mach-O, ELF and COFF (it is llvm-nm) | `nm --version \| head -1` → `llvm-nm, compatible with GNU nm` | MET (2026-10-03, re-run at plan start) |
+| A release compiler built from the pre-plan commit is saved for the byte-identity check | `ls /tmp/mfb-166-base` → exists | MET (2026-10-03, Phase 0; built from 9270cad02) |
 
 Everything below assumes these hold.
 
@@ -160,9 +160,10 @@ names `--ncode` shows and `mfb spec linker symbols-and-relocations` documents.
 - **Symbol names are unique** in brogue (measured above). Not proven for every
   program. The shared builder refuses a duplicate name rather than emitting two
   entries (Phase 1).
-- **UNVERIFIED: macOS symbolication keys caches by UUID.** If `sample`/Instruments
-  cache names per UUID, two different `--debug` programs that share the constant
-  UUID could show each other's names. Phase 3 measures this. See Open Decision 2.
+- **Measured (Phase 3): the shared constant UUID breaks `sample`.** A `--debug`
+  life binary with the constant UUID patched back in (and re-signed) samples as
+  all `???`; the same binary with its content-derived UUID samples with names.
+  See Corrections.
 
 ## 3. Design Overview
 
@@ -307,27 +308,35 @@ bytes. That is the byte-identity gate.
 Saves the pre-plan compiler, so every later phase can prove that builds without
 `--debug` did not move.
 
-- [ ] `cargo build --release` at the pre-plan commit, then
-      `cp target/release/mfb /tmp/mfb-166-base`.
-- [ ] Record its `git rev-parse --short HEAD` in Corrections as the baseline commit.
+- [x] `cargo build --release` at the pre-plan commit, then
+      `cp target/release/mfb /tmp/mfb-166-base`. Built in a clean detached
+      worktree `/tmp/p166-base-wt` (`CARGO_TARGET_DIR=/tmp/p166-base-target`),
+      so no plan edit can leak into it → `Finished release profile in 3m 29s`.
+- [x] Record its `git rev-parse --short HEAD` in Corrections as the baseline commit.
+      → `9270cad02` (Corrections).
 
-Acceptance: `/tmp/mfb-166-base --version` prints the baseline commit.
-  Check: `/tmp/mfb-166-base --version` → names the recorded commit (est. 5 min, the release build).
-Commit: — (no tree change)
+Acceptance: the saved compiler is provably the pre-plan commit's build.
+  Check: `git -C /tmp/p166-base-wt rev-parse --short HEAD; git -C /tmp/p166-base-wt status --short | wc -l; shasum -a 256 /tmp/mfb-166-base`
+  → `9270cad02`, `0`, `6a2c1f88…4df91788` (2026-10-03). The original check
+  (`--version` names the commit) cannot pass: `--version` prints the build time
+  and `Local Development`, no commit (see Corrections).
+Commit: 32322360f (plan-doc record only; no source change)
 
 ### Phase 1: Flag and shared symbol list
 
 Adds the field and the format-neutral list. No writer reads them yet, so output is
 unchanged.
 
-- [ ] `src/arch/image.rs`: add `debug_symbols: bool` (§4.1).
+- [x] `src/arch/image.rs`: add `debug_symbols: bool` (§4.1).
       `src/arch/encode_plan.rs`: set `false`. Add `debug_symbols: false` to the
       53 test literals (`grep -rn "EncodedImage {" src --include='*.rs' | grep -v "fn \|struct "`
-      lists all 54).
-- [ ] The five target backends (`src/target/{macos_aarch64,linux_aarch64,linux_x86_64,linux_riscv64,win_x86_64}/mod.rs`):
+      lists all 54). Only 24 test literals needed the field; the other 29 spread
+      `..base` (see Corrections). `cargo build --tests` → compiles.
+- [x] The five target backends (`src/target/{macos_aarch64,linux_aarch64,linux_x86_64,linux_riscv64,win_x86_64}/mod.rs`):
       `image.debug_symbols = debug.enabled;` beside `image.signing_metadata = …`.
-- [ ] New `src/os/debug_symbols.rs` (§4.2), registered in `src/os/mod.rs`.
-- [ ] Tests in `src/os/debug_symbols.rs`:
+- [x] New `src/os/debug_symbols.rs` (§4.2), registered in `src/os/mod.rs`.
+      `EncodedSection` gained `Debug` for the test asserts.
+- [x] Tests in `src/os/debug_symbols.rs`:
       `sizes_run_to_next_symbol_and_last_to_section_end`,
       `aliases_share_the_next_distinct_offset`,
       `text_is_function_data_is_object`, `duplicate_name_is_rejected`,
@@ -335,78 +344,104 @@ unchanged.
 
 Acceptance: the new unit tests pass, and no linked output changes yet.
   Check: `cargo test --bin mfb debug_symbols` → 5 passed (est. 3 min including build).
-Commit: —
+  Result (2026-10-03): `test result: ok. 5 passed; 0 failed`.
+Commit: 0c2c86eec
 
 ### Phase 2: Mach-O symbol table, dysymtab, function starts
 
 Writes the locals when `debug_symbols` is true. This phase carries the
 indirect-table risk.
 
-- [ ] `src/os/macos/link/commands.rs`: `linkedit_layout` takes the local count and
+- [x] `src/os/macos/link/commands.rs`: `linkedit_layout` takes the local count and
       the function-starts byte length, and sizes `symbol_count`, `string_size`,
       `function_starts` and `data_in_code_offset` from them, on both the
-      data-const and chained-fixups paths.
-- [ ] `commands.rs:symbol_table` / `string_table`: emit locals first (§4.3), with
+      data-const and chained-fixups paths. (It takes `Option<&DebugSymtab>`,
+      which carries both.)
+- [x] `commands.rs:symbol_table` / `string_table`: emit locals first (§4.3), with
       import strings first in the string table. `dysymtab`: write
       `ilocalsym/nlocalsym/iextdefsym/iundefsym` from the counts.
-- [ ] `src/os/macos/link/macho.rs:encode_unsigned_mach_o`: write the shifted
+- [x] `src/os/macos/link/macho.rs:encode_unsigned_mach_o`: write the shifted
       indirect table (`L + index`). Write the symtab/strtab on the chained-fixups
-      path when `L > 0`. Write the ULEB function-starts list.
-- [ ] Section-ordinal helper beside `data_const_section_count`, derived from the
-      same booleans (§2).
-- [ ] Tests in `src/os/macos/link/tests.rs`, parsing the emitted bytes:
+      path when `L > 0`. Write the ULEB function-starts list. The table is
+      built once in `encode_executable_bytes` (`commands.rs:debug_symtab`) with
+      the relocation windows, and addresses use the new shared
+      `link_encode.rs:section_vmaddr` that `symbol_vmaddr` now calls.
+- [x] Section-ordinal helper beside `data_const_section_count`, derived from the
+      same booleans (§2): `mod.rs:data_section_ordinals`.
+- [x] Tests in `src/os/macos/link/tests.rs`, parsing the emitted bytes:
       `debug_symbols_lists_locals_before_imports` (n_type, n_sect, n_value against
       `symbol_vmaddr`), `debug_symbols_shift_indirect_table_and_iundefsym`,
       `debug_symbols_on_import_less_image`, and
       `function_starts_lists_every_function`. The flag-off path is covered by the
       existing Mach-O tests passing with no edit beyond the `debug_symbols: false`
-      field, plus the byte-identity loop.
-- [ ] Signed + debug: in `src/cli/info/tests.rs`, add a macOS case that writes a
+      field, plus the byte-identity loop. Added
+      `debug_symbols_image_with_imports_runs` (macOS-only): a `--debug` image
+      calling two imports passes `codesign -v` and exits 0.
+- [x] Signed + debug: in `src/cli/info/tests.rs`, add a macOS case that writes a
       signed image with `debug_symbols: true` and checks that `mfb info` reports
-      the signature valid.
+      the signature valid. `a_signed_debug_image_reports_intact_contents`
+      (B and C add their formats to its list) → `cargo test --bin mfb cli::info`
+      → 21 passed.
 
 Acceptance: a `--debug` macOS program that calls libc **runs correctly** and `nm`
 lists its functions.
   Check: `rm -rf /tmp/p166 && mkdir -p /tmp/p166 && mfb init /tmp/p166/hello && mfb build --debug /tmp/p166/hello && /tmp/p166/hello/build/hello.out; echo "exit=$?"; nm /tmp/p166/hello/build/hello.out | grep ' t _mfb_fn_main$'` → the program's greeting, `exit=0`, and one `t _mfb_fn_main` line (est. 1 min). An `exit` other than 0, or a crash, points at the indirect-table shift (§3).
   Check: `cargo test --bin mfb macos::link` → all pass (est. 3 min).
-Commit: —
+  Result (2026-10-03, dev compiler): `Hello World`, `exit=0`,
+  `000000010000070c t _mfb_fn_main`; `test result: ok. 44 passed; 0 failed`.
+  Spot check: hello_world macOS without `--debug`, baseline vs new → `cmp` identical.
+Commit: 305d45d06
 
 ### Phase 3: Tool proof and UUID
 
 Proves that the tools developers actually use read the table, and settles the UUID
 question with a measurement.
 
-- [ ] `codesign --verify --verbose build/hello.out` on a `--debug` build → valid.
-- [ ] `lldb build/hello.out -o 'b mfb_fn_main' -o run -o bt -o quit` → stops in
+- [x] `codesign --verify --verbose build/hello.out` on a `--debug` build → valid.
+      → `valid on disk` / `satisfies its Designated Requirement` (2026-10-03).
+- [x] `lldb build/hello.out -o 'b mfb_fn_main' -o run -o bt -o quit` → stops in
       `mfb_fn_main`. The backtrace shows names. Record the output in Corrections.
-- [ ] `atos -o build/hello.out -l 0x100000000 <address of _mfb_fn_main from nm>`
-      → `_mfb_fn_main`.
-- [ ] Build `examples/brogue` and `examples/life` with `--debug`, run
+      → `Breakpoint 1: where = hello.out\`mfb_fn_main, address = 0x000000010000070c`,
+      stopped there; a breakpoint on `mfb_rt_io_io_print` gives a named
+      three-frame `bt` (Corrections).
+- [x] `atos -o build/hello.out -l 0x100000000 <address of _mfb_fn_main from nm>`
+      → `_mfb_fn_main`. → `atos … 0x000000010000070c 0x0000000100000720` →
+      `mfb_fn_main (in hello.out) + 0`, `mfb_fn_main (in hello.out) + 20` (atos
+      drops the leading `_`, as for every C symbol).
+- [x] Build `examples/brogue` and `examples/life` with `--debug`, run
       `sample <pid> 2` on each in turn, and check that each profile names that
       program's own functions. If the second profile shows the first program's
       names, the UUID hypothesis is confirmed. Record the result in Corrections.
-- [ ] Per Open Decision 2: content-derived `LC_UUID` in `--debug` builds
+      → Each profile names only its own functions (life: `mfb_rt_term_term_sync`;
+      brogue `rng`: `mfb_fn_dumpRng` ×24, `mfb_fn_ranval`, …; 0 `???`, 0 life
+      names in the brogue profile). With the constant UUID patched back in,
+      life's profile is all `???`: the hypothesis holds, in a stronger form
+      (Corrections).
+- [x] Per Open Decision 2: content-derived `LC_UUID` in `--debug` builds
       (`commands.rs:uuid_command` takes the 16 bytes; §4.3), plus a test
-      `debug_uuid_differs_between_images_and_is_stable`.
+      `debug_uuid_differs_between_images_and_is_stable`. (`commands.rs:debug_uuid`;
+      `cargo test --bin mfb macos::link` → 45 passed.)
 
 Acceptance: lldb breaks by name on a `--debug` binary, and two different `--debug`
 programs have different UUIDs.
   Check: `dwarfdump --uuid build/hello.out; dwarfdump --uuid <brogue>/build/brogue.out` → two different UUIDs (est. 1 min).
-Commit: —
+  Result (2026-10-03): hello `ED6105C4-45C5-4268-9541-DAD0F7BFDC13`, brogue
+  `A35E698B-85A4-4BC8-B2C4-B3FBF64143A4`, life `1C1FCF69-73C6-4655-9207-96168A30AA62`.
+Commit: 41e11a226
 
 ### Phase 4: Docs and help
 
 `--debug` now means two things. The help text and the spec say so.
 
-- [ ] `src/cli/help.rs:167` and `:201`: `--debug` says it also writes the
+- [x] `src/cli/help.rs:167` and `:201`: `--debug` says it also writes the
       program's function and data names into the executable's symbol table, for
       debuggers and profilers. The `BuildOptions::debug` doc comment in
       `src/cli/build/mod.rs` says the same.
-- [ ] `src/docs/spec/tooling/09_debug-report.md`: a "Symbol tables" section (what
+- [x] `src/docs/spec/tooling/09_debug-report.md`: a "Symbol tables" section (what
       is written, that a build without `--debug` writes none, which formats are
       done), citing `[[src/os/debug_symbols.rs:debug_symbols]]`.
       `src/docs/spec/tooling/07_cli-reference.md:144`: the `--debug` row.
-- [ ] `src/docs/spec/linker/04_symbols-and-relocations.md`: a "Debug symbol
+- [x] `src/docs/spec/linker/04_symbols-and-relocations.md`: a "Debug symbol
       tables" section covering the shared model (§4.2: names verbatim, sizes,
       ordering, no names in builds without `--debug`).
       `src/docs/spec/linker/06_macos-aarch64.md`: locals before imports, the
@@ -414,7 +449,11 @@ Commit: —
 
 Acceptance: the spec renders and its citations resolve.
   Check: `cargo build && cargo test --bin mfb spec` → pass; `scripts/spec-census.sh --citations` → no new dangling citation (est. 5 min).
-Commit: —
+  Result (2026-10-03): `cargo test --bin mfb spec` → 44 passed; `cargo test --bin mfb help`
+  → 116 passed; `--citations` → `MISS-PATH 0 / MISS-LINE 0 / MISS-SYMBOL 0` (baseline
+  worktree: same); `--links linker tooling` → `unresolved=0`; `--render linker
+  tooling` → 0 leaks.
+Commit: 098d9d53b
 
 ## Validation Plan
 
@@ -435,6 +474,10 @@ Commit: —
        <(cd /tmp/p166-id/mfb && find . -path '*/build/*' -type f | sort | xargs shasum -a 256)
   ```
   → no output, and no `BUILD FAILED` line.
+  Result (2026-10-03, release build of 098d9d53b plus the no-op plan-166-B
+  Phase 1 refactor): `bash /tmp/p166-identity.sh target/release/mfb` (this loop,
+  with each copy's stale `build/` removed first) → `IDENTICAL`, 16 files, no
+  `BUILD FAILED`.
 - Doc sync: Phase 4.
 - Final gate: deferred to plan-166-C, which runs the full suite once after the
   last format lands.
@@ -453,7 +496,39 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Test-literal count (Phase 1).** The plan said 53 test literals need
+  `debug_symbols: false`. Only 24 did: counting added `debug_symbols: false,`
+  lines in the Phase 1 diff → 25 (24 test literals + `encode_plan`). The other
+  29 matches of the population grep spread `..base` from a helper, so they
+  inherit the field. No other letter's scope derived from the 53.
+- **Baseline commit (Phase 0): `9270cad02`.** `/tmp/mfb-166-base` sha256
+  `6a2c1f8892e5fa5dace1fadcc8505b17480af79a2cf134150deed2fc4df91788`.
+- **Phase 0 acceptance was uncheckable as written.** `/tmp/mfb-166-base --version`
+  prints `MFBasic Compiler 0.1.0 / <build time> / Local Development`, never a
+  commit. Strengthened to: the build came from a clean detached worktree at the
+  baseline commit (`git -C /tmp/p166-base-wt rev-parse` + empty `status`), plus
+  the binary's sha256.
+- **lldb transcript (Phase 3).** `lldb build/hello.out -b -o 'b mfb_fn_main' -o run -o bt`:
+  `Breakpoint 1: where = hello.out\`mfb_fn_main, address = 0x000000010000070c`,
+  `stop reason = breakpoint 1.1`, `frame #0: … hello.out\`mfb_fn_main`. At function
+  entry `bt` shows one frame (the return address is not yet stored and there is no
+  unwind info; names-only scope). One call deeper, `b mfb_rt_io_io_print` gives
+  `frame #0 mfb_rt_io_io_print`, `frame #1 mfb_fn_main + 24`, `frame #2 main + 248`.
+  lldb and atos show names without the leading `_`, as for any C symbol.
+- **UUID hypothesis confirmed, stronger than stated (Phase 3).** The plan guessed
+  two programs sharing a UUID might show *each other's* names. Measured: a `--debug`
+  life binary whose `LC_UUID` was patched back to the constant
+  `4D464200-…-000000000001` and re-signed (`codesign -f -s -`) samples as
+  `??? (in life-cu.out) load address … + 0x8dc00`, with **no** names, while the
+  unpatched binary (derived UUID `1C1FCF69-…`) samples as `mfb_rt_term_term_sync
+  (in life.out) + 3104`. The symbolicator caches by UUID, and the constant UUID
+  was already cached as symbol-less from earlier builds. So the derived UUID is
+  required, not just good practice. Probes: `/tmp/p166-constuuid.py`,
+  `/tmp/p166-ptyrun.py` (one-off).
+- **`sample` needs a live process on a sized pty.** life exits at once on a 0×0
+  pty, and brogue is a CLI (`brogue rng <seed> <count>`, `brogue dig …`), not
+  interactive. The probe gave the pty a 40×120 size and ran
+  `brogue rng 1 1000000000` as the long-running workload.
 
 ## Summary
 

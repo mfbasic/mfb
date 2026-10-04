@@ -96,16 +96,35 @@ pub(in crate::os) fn symbol_vmaddr(
         .iter()
         .find(|symbol| symbol.name == symbol_name)
         .ok_or_else(|| format!("symbol '{symbol_name}' does not resolve"))?;
-    Ok(match symbol.section {
-        EncodedSection::Text => text_vmaddr + symbol.offset as u64,
+    Ok(section_vmaddr(
+        symbol.section,
+        symbol.offset,
+        text_vmaddr,
+        data_vmaddr,
+        rodata,
+    ))
+}
+
+/// The address rule behind [`symbol_vmaddr`], for a symbol already located by
+/// `(section, offset)` — what the `--debug` symbol-table writers hold (plan-166),
+/// so every table entry lands exactly where relocations resolve the same name.
+pub(in crate::os) fn section_vmaddr(
+    section: EncodedSection,
+    offset: usize,
+    text_vmaddr: u64,
+    data_vmaddr: u64,
+    rodata: Option<(u64, usize)>,
+) -> u64 {
+    match section {
+        EncodedSection::Text => text_vmaddr + offset as u64,
         EncodedSection::Data => match rodata {
-            Some((rodata_vmaddr, rodata_size)) if symbol.offset < rodata_size => {
-                rodata_vmaddr + symbol.offset as u64
+            Some((rodata_vmaddr, rodata_size)) if offset < rodata_size => {
+                rodata_vmaddr + offset as u64
             }
-            Some((_, rodata_size)) => data_vmaddr + (symbol.offset - rodata_size) as u64,
-            None => data_vmaddr + symbol.offset as u64,
+            Some((_, rodata_size)) => data_vmaddr + (offset - rodata_size) as u64,
+            None => data_vmaddr + offset as u64,
         },
-    })
+    }
 }
 
 /// Everything the shared AArch64 relocation arms need beyond the `text` buffer
@@ -276,6 +295,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         }
     }
 

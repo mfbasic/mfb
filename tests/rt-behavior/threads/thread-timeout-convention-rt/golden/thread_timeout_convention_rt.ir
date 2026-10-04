@@ -186,21 +186,24 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 59, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancelForever", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "line": 60, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "expectReceiveZeroTimeout", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "bind", "line": 61, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "expectReceiveNegativeInvalid", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "bind", "line": 62, "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "expectSendNegativeInvalid", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "thread.cancel", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "bind", "line": 64, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
-    { "op": "return", "line": 66, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "c" } } },
+    { "op": "bind", "line": 59, "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 60, "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 61, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 62, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancelForever", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "assign", "line": 63, "name": "a", "value": { "kind": "call", "type": "Integer", "target": "expectReceiveZeroTimeout", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "assign", "line": 64, "name": "b", "value": { "kind": "call", "type": "Integer", "target": "expectReceiveNegativeInvalid", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "assign", "line": 65, "name": "c", "value": { "kind": "call", "type": "Integer", "target": "expectSendNegativeInvalid", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "thread.cancel", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 67, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "return", "line": 69, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "c" } } },
     {
       "op": "trap",
-      "line": 67,
+      "line": 70,
       "name": "werr",
       "body": [
-      { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
-      { "op": "return", "line": 69, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "c" } } }
+      { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+      { "op": "return", "line": 72, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "c" } } }
       ]
     }
     ]

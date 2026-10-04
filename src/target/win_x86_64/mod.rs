@@ -454,6 +454,7 @@ impl NativeBackend for Backend {
         progress("encoding image");
         let mut image = crate::arch::x86_64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.cloned();
+        image.debug_symbols = debug.enabled;
         progress("linking executable");
         // plan-66-I: app mode emits a GUI-subsystem PE; icon/version are threaded
         // toward the writer for the plan-66-K `.rsrc` resource section.

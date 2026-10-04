@@ -61,10 +61,11 @@ arch; see `provenance-marker`.
 For a dynamic image the linker builds `.dynstr`, `.dynsym` (entry 0 is the null
 symbol), a SysV `.hash` table, `.rela`, and `.got`, then a `.dynamic` section
 carrying the tags below. These names identify regions of the dynamic payload;
-the writer emits no ELF section-header table unless signing metadata is present.
-The signing table names only `.mfbsign` and `.shstrtab`.
+the writer emits a section header table only for a signed or `--debug` build,
+and that table describes only `.dynstr` and `.dynamic` of the payload (see
+`./mfb spec linker static-and-dynamic-output`).
 [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
-[[src/os/linux/link/elf.rs:append_elf_signing_section]]
+[[src/os/linux/link/elf.rs:append_elf_sections]]
 
 The `.hash` table is one bucket over every imported symbol: `nbucket=1`,
 `nchain=imports+1`, `bucket[0]=1`, then the chain — `chain[0]=0` for the null
@@ -149,6 +150,8 @@ When the build supplies executable signing metadata, the linker emits it as a
 `.mfbsign` ELF section and, on a signed build, seals its content signature over
 the finished file (`./mfb spec package-manager signing`). Unlike macOS, Linux
 executables carry no other signature. [[src/os/linux/link/mod.rs:encode_executable_bytes]]
+The section header table that holds it (shared with a `--debug` build's
+`.symtab`) is described in `./mfb spec linker static-and-dynamic-output`.
 
 ## See Also
 

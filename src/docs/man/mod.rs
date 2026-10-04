@@ -72,6 +72,7 @@ mod tests {
         // Every topic advertised by `mfb man <topic>` resolves to a non-empty
         // overview with a one-line summary.
         for name in [
+            "debug",
             "errors",
             "flow",
             "lambda",

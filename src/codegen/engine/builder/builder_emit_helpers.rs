@@ -812,6 +812,19 @@ impl CodeBuilder<'_> {
     }
 }
 
+/// plan-147-D: an approved hand-over at the call being emitted — the owned-variant
+/// symbol to call, and the caller slots the hand-over nulls.
+pub(crate) struct HandOverSite {
+    pub(crate) symbol: String,
+    /// Caller slots to null: one per handed-over LOCAL.
+    pub(crate) slots: Vec<usize>,
+    /// plan-147-E: argument positions handed over as fresh temporaries.
+    pub(crate) temp_indices: Vec<usize>,
+    /// plan-147-E: argument positions that are `OP(x, …)` on an owned local at its
+    /// last use, which the lowering tries to update in place.
+    pub(crate) arg_update_indices: Vec<usize>,
+}
+
 #[cfg(test)]
 mod arena_call_tests {
     /// `emit_arena_alloc_call` (bug-322) replaced 45 hand-written blocks that
@@ -857,17 +870,4 @@ mod arena_call_tests {
             }
         }
     }
-}
-
-/// plan-147-D: an approved hand-over at the call being emitted — the owned-variant
-/// symbol to call, and the caller slots the hand-over nulls.
-pub(crate) struct HandOverSite {
-    pub(crate) symbol: String,
-    /// Caller slots to null: one per handed-over LOCAL.
-    pub(crate) slots: Vec<usize>,
-    /// plan-147-E: argument positions handed over as fresh temporaries.
-    pub(crate) temp_indices: Vec<usize>,
-    /// plan-147-E: argument positions that are `OP(x, …)` on an owned local at its
-    /// last use, which the lowering tries to update in place.
-    pub(crate) arg_update_indices: Vec<usize>,
 }

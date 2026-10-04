@@ -207,6 +207,15 @@ a `cargo test` target, another script, or a person.
 
 ## Man docs
 
+- **man-debug-examples.sh** — Runs every shell example in the `mfb man debug` topic on
+  the platform it is for: `sh macos` blocks here, `sh linux` blocks on a Linux box and
+  `powershell windows` blocks on a Windows box over ssh (each block's `mfb build` is
+  cross-built here and shipped; a stub `mfb` stands in remotely). A block passes when
+  it exits 0 and names an MFBASIC function or prints a debug report; logs land in
+  `$OUT`. Remote boxes and tool paths come from `LINUX_SSH`, `LINUX_TARGET`,
+  `LINUX_TOOLS`, `WINDOWS_SSH`, `WINDOWS_TOOLS`. Usage:
+  `bash scripts/man-debug-examples.sh <mfb-exe> [macos|linux|windows|all] [--setup]`.
+  Run by: a person, after editing `src/docs/man/debug/` or `examples/debug/`.
 - **man-run-examples.sh** — Compiles (and with `--run` runs, or with `--test` runs
   `mfb test` on) every Examples block lifted from one package's rendered `mfb man`
   pages. With `--topic` it takes a narrative guide topic instead, compiling each

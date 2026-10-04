@@ -382,7 +382,10 @@ existence/stat, current/temp directory, fs path operations, errno, file
 open/read/close/sync/seek, rename, `mkstemps`, directory open/read/close,
 `realpath`, arena map/unmap, variadic calls, and the app-mode entry/IO/term
 helpers. Each implementation supplies the OS-correct syscall or libc sequence
-for that operation.
+for that operation. On macOS `realpath` binds libSystem's POSIX entry point,
+`_realpath$DARWIN_EXTSN` — the symbol `<stdlib.h>` binds — never the bare legacy
+`_realpath`, whose `getcwd` scans every parent directory of a relative path and
+costs a directory read per call.[[src/target/macos_aarch64/code.rs:DARWIN_REALPATH_SYMBOL]]
 
 **Windows marshalling buffers.** Every Windows path and environment seam calls a
 wide (`*W`) Win32 API, converting UTF-8 to UTF-16 with `MultiByteToWideChar` and
