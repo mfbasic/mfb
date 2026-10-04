@@ -608,6 +608,13 @@ element (freeable-flat, not a `String`) that is:
   [[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
 - **An element-bound update** (see *Self-updates*).
 
+Each binding is classified on its own. A local is never redeclared while it is
+live, so a name bound again — in a later loop, in the other arm of an `IF`, or
+after a nested block that bound it has ended — names a different binding, and
+every rule above is applied to each binding with the reads in its own scope; one
+binding's verdict never extends to another of the same name.
+[[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
+
 The binding registers no scope-drop free: the container owns the element.
 A `String` element is always copied — its `get` builds the `String` block, so
 there is no element block to point at — and so is a `getOr` over a default
