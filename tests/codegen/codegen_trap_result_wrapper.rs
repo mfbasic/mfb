@@ -114,6 +114,16 @@ fn a_trapped_call_never_copies_the_result_wrapper() {
 
 /// The same for a `String` payload, where the abandoned copy was 195 B rather
 /// than 134 B because the `Result` inlines the whole string.
+///
+/// bug-778: a trapped call's temporary no longer has a heap wrapper — its
+/// `String` payload is the callee's own block, moved to the binding — so the
+/// param-borrow verdict now applies to it exactly as it does untrapped: the
+/// borrowing callee's block IS the caller's `base` and must be copied once (the
+/// same use-after-free `a_param_borrow_without_a_trap_still_copies` pins; with the
+/// copy removed this program exits on SIGSEGV after its first iteration), while
+/// the computing callee's is taken as it is. So the wrapper's absence is asserted
+/// against the UNTRAPPED binds: the borrow costs the trapped bind exactly the one
+/// copy it costs the untrapped one, and the `TRAP` adds none of its own.
 #[test]
 fn a_trapped_string_call_never_copies_the_result_wrapper() {
     let borrows = ncode(
@@ -150,9 +160,37 @@ fn a_trapped_string_call_never_copies_the_result_wrapper() {
         \x20 io::print(n)\n\
          END FUNC\n",
     );
+    let untrapped = |name: &str, body: &str| {
+        ncode(
+            name,
+            &format!(
+                "IMPORT io\n\
+                 FUNC pick(s AS String, i AS Integer) AS String\n\
+                \x20 IF i < 0 THEN\n\
+                \x20   FAIL error(1, \"neg\")\n\
+                \x20 END IF\n\
+                \x20 {body}\n\
+                 END FUNC\n\
+                 FUNC main() AS Nothing\n\
+                \x20 LET base AS String = \"abcdefghij\"\n\
+                \x20 LET n AS String = pick(base, 3)\n\
+                \x20 io::print(n)\n\
+                 END FUNC\n"
+            ),
+        )
+    };
+    let plain_borrows = untrapped("b778_plain_borrow_str", "RETURN s");
+    let plain_computes = untrapped("b778_plain_computes_str", "RETURN toString(len(s))");
+    // Compared as the borrow-minus-compute DELTA, because the trapped programs
+    // also copy their `RECOVER "x"` literal, which the untrapped ones do not have.
+    let trapped_delta = flat_copies(&borrows, "_mfb_fn_main") as isize
+        - flat_copies(&computes, "_mfb_fn_main") as isize;
+    let plain_delta = flat_copies(&plain_borrows, "_mfb_fn_main") as isize
+        - flat_copies(&plain_computes, "_mfb_fn_main") as isize;
     assert_eq!(
-        flat_copies(&borrows, "_mfb_fn_main"),
-        flat_copies(&computes, "_mfb_fn_main"),
+        trapped_delta, plain_delta,
+        "the only copy a param-returning callee adds under a TRAP is the one its \
+         untrapped bind needs too — the TRAP copies no wrapper"
     );
 }
 
