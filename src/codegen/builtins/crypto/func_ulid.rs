@@ -46,7 +46,8 @@ ordinary ASCII lexical ordering; calls within one millisecond use independent
 randomness and are not guaranteed to sort in call order. Clock, entropy, or
 out-of-memory failures propagate from the underlying built-ins; a host clock
 reading outside the range `datetime::nowNanos` can represent (before 1678 or after
-2262) raises `ErrOverflow`."#;
+2262) raises `ErrOverflow`. A host clock set before 1970 gives a negative
+millisecond count, which cannot be encoded and raises `ErrIndexOutOfRange`."#;
 const EX: &str = r#"Generate a compact, time-sortable identifier:
 
 ```
@@ -69,7 +70,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec!["ErrOverflow", "ErrUnknown", "ErrOutOfMemory"],
+            errors: vec!["ErrOverflow", "ErrUnknown", "ErrOutOfMemory", "ErrIndexOutOfRange"],
             body: Body::mfb(BODY, "__crypto_ulid"),
         }],
     });
