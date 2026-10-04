@@ -14,6 +14,7 @@ pub(crate) mod disassemble;
 pub(crate) mod names;
 pub(crate) mod prompt;
 pub(crate) mod runtime;
+pub(crate) mod values;
 
 #[cfg(any(target_os = "macos", test))]
 mod macho;

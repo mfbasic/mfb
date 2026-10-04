@@ -8,7 +8,7 @@ arenas, single-steps one thread or all of them, runs it to software
 breakpoints, disassembles it, and unwinds its threads' calls; it is the seam later debugger features build
 on.
 
-The developer-facing guide is `./mfb man debug debugger`.
+The developer-facing guide is `./mfb man debug`.
 
 ## Invocation
 
@@ -258,6 +258,8 @@ Then, repeatedly:
 | `list reg [<id>] <what>...` | prints thread `<id>`'s registers (default 0) of each group or name in `<what>` |
 | `list arena` | prints the arena listing |
 | `show mem <where> [<size>]` | dumps `<size>` bytes (default 64) of memory |
+| `show type` | prints the `TYPE_USAGE` block |
+| `show type <type> <where> [...]` | prints the arena value at `<where>` read as `<type>` |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
@@ -290,6 +292,11 @@ Then, repeatedly:
 | `show mem` with a location that is neither `0x…` nor `<register>[±<n>]` | `'<where>' is not an address or a register` |
 | `show mem` with a size of 0 or over 65536 | `cannot show <size> bytes; give 1 to 65536` |
 | `show mem` at a vector register | `'<name>' is a vector register, not an address` |
+| `show type <type>` with no location | `'show type <type>' needs an address or a register: show type <type> <where>` |
+| `show type <word>` for a `<word>` that is no type | `cannot show type '<word>'; the types are: int, float, fixed, money, bool, byte, scalar, string, list, set, map, resource` |
+| a scalar, `string` or `resource` view with more than a location | `too many arguments to 'show type <type>'` |
+| a `list`/`set` span or type that reads as neither | `'<word>' is not an index or a range (3, 0..10, 2..) or a type` |
+| a `map` argument but `keys`, `values`, an index or `get` | `'<word>' is not an index, 'keys', 'values' or 'get <key>'` |
 | `finish` or `restart` with arguments | `'<name>' takes no arguments` |
 | `restart` of an attached program | `restart needs a program the debugger launched; this one was attached to` |
 | `finish` where no known function holds the `pc` | `cannot finish: no known function holds 0x…` |
@@ -309,8 +316,8 @@ Then, repeatedly:
 | `dis` with two arguments | `'<name>' takes at most one argument` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
 | `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
-| `show` alone | `'show' needs what to show: show mem <where> [<size>], or show arena [<id>]` |
-| `show <what>` but `mem` or `arena` | `cannot show '<what>'; 'show mem' and 'show arena' are what can be shown` |
+| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, or show arena [<id>]` |
+| `show <what>` but `mem`, `type` or `arena` | `cannot show '<what>'; 'show mem', 'show type' and 'show arena' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
@@ -492,6 +499,93 @@ offset (`sp`, `sp+0x18`, `x19-16`; a 64-bit register only). It prints
 `Memory at 0x<address>:` — with ` (<register>±0x<offset> of thread <t>)` for a
 register — then the bytes as `show arena`'s dump does, each line led by its
 full address (`0x` + 16 digits). [[src/debugger/prompt.rs:memory_lines]]
+
+### `show type`
+
+[[src/debugger/values.rs:show]] `show type <type> <where> [...]` reads the value
+at `<where>` (as `show mem` resolves it: an address, or a register's value plus
+an offset) as `<type>`; `show type` alone prints the `TYPE_USAGE` block, even
+after the program has ended. `<type>` is `int`/`integer`, `float`, `fixed`,
+`money`, `bool`/`boolean`, `byte`, `scalar`, `string`, `list`, `set`, `map` or
+`resource`, in any case. [[src/debugger/values.rs:parse_view]]
+
+Every byte read must lie in the usable space (`blockAddress + 32` up to
+`blockAddress + blockSize`) of one block of one arena in the `--debug` registry
+(`Region`); without a registry the command fails with `'show type' reads values
+in the arena, which needs a debug build; …`, and before the runtime has started
+with `no arenas yet: …`. An address in no block is `0x<address> is not in an
+arena block, so it holds no <Type>; 'show mem' reads any memory`; one whose
+bytes run past their block is `not a <Type> at 0x<address>: its <n> bytes run
+past the end of their arena block`. Layouts are `./mfb spec memory
+heap-values`, `scalar-storage` and `collections`.
+
+| Type | Bytes | Prints |
+| --- | --- | --- |
+| `int` | 8 | `Value: 0x<16 hex> (<signed decimal>)` |
+| `float` | 8 | `Value: 0x<16 hex> (<f64, as Rust's Debug>)` |
+| `fixed` | 8 | `Value: 0x<16 hex> (<as toString prints it: 2 places, rounded half away from zero>)` |
+| `money` | 8 | `Value: 0x<16 hex> (<raw / 100000, 5 places>)` |
+| `bool` | 1 | `Value: 0x00 (FALSE)` or `0x01 (TRUE)`; any other byte fails |
+| `byte` | 1 | `Value: 0x<2 hex> (<decimal>)` |
+| `scalar` | 4 | `Value: 0x<8 hex> (U+<hex> '<char>')`; a non-codepoint fails |
+| `string` | 8 + length + 1 | `Length: <n> Value: "<text>"` |
+
+A `string`'s length word, its bytes and its NUL must lie in the block
+(`not a String … its length, <n>, runs past the end of its arena block`), its
+bytes must be UTF-8 (`not a String … byte <i> of its value, 0x<b>, is not
+UTF-8`), and at most 65536 bytes are shown, then ` (the first 65536 bytes)`. Text
+is escaped as `char::escape_debug` does ([[src/debugger/values.rs:quoted]]).
+
+`list`, `set` and `map` read a 40-byte `CollectionHeader` and check it: the kind
+byte (0 or 2 for `list`, 3 for `set`, 1 for `map`; else `not a <Type> … its kind
+byte is <k>, a <Kind>` or `…, which no collection has`), the type codes (a list's
+key type 0 and a known value code; a set's known key code and Boolean value; a
+map's known codes), `count <= capacity`, `dataLength <= dataCapacity`, a kind-2
+list's `count * width <= dataCapacity`, and that the block —
+`40 + capacity*40 (none for kind 2) + dataCapacity`, the hash index excluded — is
+in one arena block. With no further argument each prints one line:
+
+```text
+List Type: <type> Length: <count> Capacity: <capacity> Data: <dataLength>/<dataCapacity> bytes Block: 0x<start>-0x<end> (<size> bytes)
+Set Type: <type> Length: <count - dead> Removed: <dead> Capacity: … Data: … Block: …
+Map Keys: <count - dead> Key Type: <type> Value Type: <type> Removed: <dead> Capacity: … Data: … Block: …
+```
+
+`<type>` names a runtime type code (code 22 is `object (Set, record, enum,
+resource or function)`). `list|set <where> [<type>] <span>` prints the elements
+`<span>` picks — `<i>`, `<a>..<b>` (`a < b`, `b` excluded) or `<a>..` — as a
+table `Index Address Bytes Value` (`Element` for a set), skipping removed
+entries; a span past the last element fails with `no element <i>: the <Type> has
+<n> (numbered from 0)`. Each entry's flags must be used (1), or removed (2) in a
+set or map, and its payloads within `dataLength`. `map <where> keys [<type>]`
+and `values [<type>]` print every key or value the same way; `map <where> <i>`
+prints `Index: <i>`, `Key: <value> at 0x<address> (<n> bytes)` and `Value: …`;
+`map <where> get <key>` prints the same for the entry whose key bytes equal
+`<key>` encoded as the key type stores it (the rest of the line, less one pair of
+surrounding quotes; Integer decimal or `0x` hex, Float, Fixed and Money decimal,
+Boolean `TRUE`/`FALSE`, Byte, Scalar as one character or `U+<hex>`; codes 20–22
+cannot be looked up), else `the map has no key <key>`.
+
+A payload is decoded by its type code: Nothing as `Nothing`, a scalar as above
+(its size must be the type's width), String bytes as `"<text>"`, a nested List
+or Map (codes 20/21) as its header line plus ` (inline)` for a block inlined in
+the data region or ` (stored at 0x…)` for an 8-byte payload holding the block's address. Code 22 needs
+`<type>`: `set` (inline or pointer, as above) or `resource` (an 8-byte pointer,
+shown as `resource` shows it); without one it prints `(type code 22: name it, as
+set or resource, to read it)`. A `<type>` that contradicts a known code fails
+with `the elements are <Type>, not <Type>`.
+
+`resource` reads a 112-byte resource record and prints one line:
+`Type: <kind> Closed: Y|N Moved: Y|N <handle>: <value> State: 0x<16 hex> Scope:
+<scope>` then the kind's own fields (`File`: `Write Buffer`, `Write Filled`,
+`Write Enabled`, `Read Buffer`, `Read Position`, `Read Filled`, `At EOF`; the
+TLS and audio tails of the layout tables), counts in decimal and addresses in
+hex. `Closed` and `Moved` are bits 0 and 1 of the word at `+16`; `<handle>` is
+`Handle (fd)` in decimal for the fd-backed kinds; `<scope>` is the owner word at
+`+32`: `none (not bound to a scope yet)` for 0, else the token with its depth and
+token slot decoded (`((sp + token_slot) << 12) -
+depth`). A tag outside the resource tag table fails with `not a resource …: its
+tag, <t>, is no resource kind`.
 
 ### `show arena`
 

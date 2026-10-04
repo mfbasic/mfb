@@ -15,6 +15,7 @@ use super::breakpoints::{Breakpoints, Finish, Target};
 use super::disassemble::{self, Request};
 use super::names::{classify_defined, linked_name, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
+use super::values::{self, Region, View};
 use super::{
     Ending, Exit, FunctionSymbol, Inferior, Program, Register, RegisterGroup, RegisterValue,
     RunStop, StepStop, ThreadFacts,
@@ -30,6 +31,8 @@ Commands:
   show            Show memory: show mem <address|register[+offset]> [<size>]
                   An arena's state and blocks: show arena [<id>]
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
+                  An arena value as a type: show type <type> <address|register[+offset]>
+                  ('show type' alone for the types and their forms)
   breakpoint, bp  Set a breakpoint: breakpoint <address|function>
                   Remove one: breakpoint r <address|function>
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
@@ -99,6 +102,8 @@ enum Command {
     Finish,
     Restart,
     ShowMemory { location: Location, size: u64 },
+    ShowType { location: Location, view: View },
+    TypeUsage,
     Backtrace(Backtrace),
     Quit,
     Empty,
@@ -309,12 +314,25 @@ fn parse(line: &str) -> Result<Command, String> {
             size: number(size)?,
         }),
         ("show", ["mem", ..]) => Err("too many arguments to 'show mem'".to_string()),
+        ("show", ["type", type_word, location, rest @ ..]) => {
+            let view = values::parse_view(type_word, rest, line)?;
+            Ok(Command::ShowType {
+                location: Location::parse(location)?,
+                view,
+            })
+        }
+        ("show", ["type"]) => Ok(Command::TypeUsage),
+        ("show", ["type", type_word]) => Err(format!(
+            "'show type {type_word}' needs an address or a register: show type {type_word} <where>"
+        )),
         ("show", []) => Err(
-            "'show' needs what to show: show mem <where> [<size>], or show arena [<id>]"
+            "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
+             or show arena [<id>]"
                 .to_string(),
         ),
         ("show", [other, ..]) => Err(format!(
-            "cannot show '{other}'; 'show mem' and 'show arena' are what can be shown"
+            "cannot show '{other}'; 'show mem', 'show type' and 'show arena' are what can be \
+             shown"
         )),
         ("disassemble" | "dis", []) => Ok(Command::Disassemble(Request::Current)),
         ("disassemble" | "dis", [word]) if word.bytes().all(|byte| byte.is_ascii_digit()) => {
@@ -1010,14 +1028,70 @@ fn show_memory(
     if size == 0 || size > MAX_MEMORY {
         return Err(format!("cannot show {size} bytes; give 1 to {MAX_MEMORY}"));
     }
-    let (address, described) = match location {
-        Location::Address(address) => (*address, String::new()),
+    let (address, described) = resolve(inferior, current, location)?;
+    let bytes = inferior.read_bytes(address, size as usize)?;
+    let mut lines = vec![format!("Memory at 0x{address:016x}{described}:")];
+    lines.extend(memory_lines(address, &bytes));
+    Ok(lines)
+}
+
+/// `show type`: the value at `location` read as the type `view` names. It
+/// must be in one of the program's arena blocks, which needs a `--debug`
+/// build's arena registry to find.
+fn show_type(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    current: usize,
+    location: &Location,
+    view: &View,
+) -> Result<Vec<String>, String> {
+    let (address, _) = resolve(inferior, current, location)?;
+    let threads = inferior.threads()?;
+    let roles = runtime::roles(inferior, &threads, program.app)?;
+    let Some(arenas) = runtime::arenas(inferior, &threads, &roles)? else {
+        return Err(
+            "'show type' reads values in the arena, which needs a debug build; \
+                    rebuild the program with: mfb build --debug -O0 <project>"
+                .to_string(),
+        );
+    };
+    if arenas.is_empty() {
+        return Err("no arenas yet: the program's runtime has not started".to_string());
+    }
+    let mut regions = Vec::new();
+    for arena in &arenas {
+        for (number, block) in runtime::blocks(inferior, arena.address)?.iter().enumerate() {
+            regions.push(Region::of_block(
+                arena.id,
+                number,
+                block.address,
+                block.size,
+            ));
+        }
+    }
+    values::show(
+        &mut |at, length| inferior.read_bytes(at, length),
+        &regions,
+        address,
+        view,
+    )
+}
+
+/// The address `location` names for thread `current`, and how to describe it
+/// when it came from a register: ` (<register>+<offset> of thread <t>)`.
+fn resolve(
+    inferior: &mut dyn Inferior,
+    current: usize,
+    location: &Location,
+) -> Result<(u64, String), String> {
+    match location {
+        Location::Address(address) => Ok((*address, String::new())),
         Location::Register { name, offset } => {
             let registers = inferior.registers(current)?;
             let register = registers
                 .iter()
                 .find(|register| &register.name == name)
-                .ok_or_else(|| format!("no register '{name}'; type 'list reg' for them all"))?;
+                .ok_or_else(|| format!("no register '{name}'; type 'list reg' for the groups"))?;
             let RegisterValue::Bits64(base) = register.value else {
                 return Err(format!("'{name}' is a vector register, not an address"));
             };
@@ -1027,13 +1101,9 @@ fn show_memory(
                 offset if *offset < 0 => format!("{name}-{:#x}", offset.unsigned_abs()),
                 offset => format!("{name}+{offset:#x}"),
             };
-            (address, format!(" ({shown} of thread {current})"))
+            Ok((address, format!(" ({shown} of thread {current})")))
         }
-    };
-    let bytes = inferior.read_bytes(address, size as usize)?;
-    let mut lines = vec![format!("Memory at 0x{address:016x}{described}:")];
-    lines.extend(memory_lines(address, &bytes));
-    Ok(lines)
+    }
 }
 
 /// The `backtrace` lines: one thread's frames, or every thread's, the
@@ -1147,6 +1217,7 @@ pub(crate) fn run(
             Ok(Command::Empty) => Ok(Vec::new()),
             Ok(Command::Help) => Ok(vec![HELP.to_string()]),
             Ok(Command::Quit) => break,
+            Ok(Command::TypeUsage) => Ok(values::TYPE_USAGE.lines().map(str::to_string).collect()),
             Ok(Command::List(
                 listing @ (None | Some(Listing::Breakpoints | Listing::RegisterUsage)),
             )) => list(inferior, program, &breakpoints, listing),
@@ -1186,6 +1257,9 @@ pub(crate) fn run(
                 })
             }
             Ok(Command::Backtrace(request)) => backtrace(inferior, program, current, request),
+            Ok(Command::ShowType { location, view }) => {
+                show_type(inferior, program, current, &location, &view)
+            }
             Ok(Command::ShowMemory { location, size }) => {
                 show_memory(inferior, current, &location, size)
             }
@@ -1683,6 +1757,91 @@ x0       0x000000000000002c (44)
     }
 
     #[test]
+    fn show_type_needs_a_debug_build_s_arenas() {
+        let (_, err, _) = session("show type string x1\nq\n", Ending::Killed, false);
+        assert_eq!(
+            err,
+            "error: 'show type' reads values in the arena, which needs a debug build; rebuild \
+             the program with: mfb build --debug -O0 <project>\n"
+        );
+    }
+
+    #[test]
+    fn show_type_alone_shows_its_usage() {
+        let (out, err, _) = session("show type\nq\n", Ending::Killed, false);
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}{}\n{PROMPT}Killed process 42.\n",
+                values::TYPE_USAGE
+            )
+        );
+    }
+
+    #[test]
+    fn show_type_parses_a_type_a_location_and_a_view() {
+        assert_eq!(
+            parse("show type string x1"),
+            Ok(Command::ShowType {
+                location: Location::Register {
+                    name: "x1".to_string(),
+                    offset: 0
+                },
+                view: View::String
+            })
+        );
+        assert_eq!(
+            parse("show type list 0x1000 resource 2..5"),
+            Ok(Command::ShowType {
+                location: Location::Address(0x1000),
+                view: View::List {
+                    element: Some(values::Kind::Resource),
+                    span: Some(values::Span {
+                        start: 2,
+                        end: Some(5)
+                    })
+                }
+            })
+        );
+        assert_eq!(
+            parse("show type map x3 get Grace Hopper"),
+            Ok(Command::ShowType {
+                location: Location::Register {
+                    name: "x3".to_string(),
+                    offset: 0
+                },
+                view: View::Map(values::MapView::Get("Grace Hopper".to_string()))
+            })
+        );
+        for (line, message) in [
+            (
+                "show type string",
+                "'show type string' needs an address or a register: show type string <where>",
+            ),
+            (
+                "show type string x1 8",
+                "too many arguments to 'show type string'",
+            ),
+            (
+                "show type record x1",
+                "cannot show type 'record'; the types are: int, float, fixed, money, bool, \
+                 byte, scalar, string, list, set, map, resource",
+            ),
+            (
+                "show type list x1 3..1",
+                "'3..1' is not an index or a range (3, 0..10, 2..) or a type",
+            ),
+            (
+                "show type map x1 nope",
+                "'nope' is not an index, 'keys', 'values' or 'get <key>'",
+            ),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
+    }
+
+    #[test]
     fn memory_lines_lead_with_full_addresses() {
         assert_eq!(
             memory_lines(0x16f0_0010, b"MFB!"),
@@ -2155,11 +2314,12 @@ Thread 1 hit a breakpoint at 0x0000000000007000.
         for (line, message) in [
             (
                 "show",
-                "'show' needs what to show: show mem <where> [<size>], or show arena [<id>]",
+                "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
+                 or show arena [<id>]",
             ),
             (
                 "show it",
-                "cannot show 'it'; 'show mem' and 'show arena' are what can be shown",
+                "cannot show 'it'; 'show mem', 'show type' and 'show arena' are what can be shown",
             ),
             (
                 "show arena x",

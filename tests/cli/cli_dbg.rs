@@ -806,6 +806,39 @@ mod macos {
         app.wait().unwrap();
     }
 
+    /// The String `formatLine` returns, read from the arena by `show type`
+    /// at the address `finish` reports in `x1`.
+    #[test]
+    fn show_type_reads_a_returned_string_from_the_arena() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bp formatLine\n");
+        session.until_prompt();
+        session.send("run\n");
+        session.until_prompt();
+        session.send("finish\n");
+        let returned = body(&session.until_prompt());
+        assert!(
+            returned.len() == 1 && returned[0].contains(" returned from formatLine "),
+            "{returned:?}"
+        );
+        session.send("show type string x1\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Length: 18 Value: \"round 1: 37 primes\""]
+        );
+        session.send("show type int x1\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Value: 0x0000000000000012 (18)"]
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
     /// Breakpoints by written name and by a system function's symbol (pending
     /// until the libraries load), `run` to each, then to the end.
     #[test]

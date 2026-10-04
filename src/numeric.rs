@@ -188,7 +188,7 @@ pub(crate) fn default_to_string_text(
 /// magnitude half-away-from-zero by `ceil(2^31 / 10^2)` (bug-312 K1), split at
 /// the radix point, and emit each fraction digit as the carry of a truncating
 /// ×10 step.
-fn fixed_default_to_string_text(raw: i64) -> String {
+pub(crate) fn fixed_default_to_string_text(raw: i64) -> String {
     // Half a 2^-32 ULP at two decimal places, rounded up so an exactly
     // representable boundary value (`0.125`) lands on the away-from-zero side.
     const HALF: u64 = (1_u64 << 31).div_ceil(100);
