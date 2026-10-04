@@ -2,9 +2,9 @@
 '
 ' The analysis the program opens on is hour 0 of a GFS run. The same run holds a
 ' forecast every three hours after it, and this file fetches hours 3 to 120 of
-' it - forty more files of about a megabyte each - so the map can play
-' them. That takes a while, and the map is already up and animating, so it is
-' done on a thread of its own: the worker downloads and decodes one hour at a
+' it - forty more files of about 1.8 megabytes each - so the map can
+' play them. That takes a while, and the map is already up and animating, so it
+' is done on a thread of its own: the worker downloads and decodes one hour at a
 ' time and sends each one back as it is ready, and the frame loop picks them up
 ' between frames.
 '

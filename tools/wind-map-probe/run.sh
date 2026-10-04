@@ -4,15 +4,15 @@
 # one item (a canvas::Group node) to a frame's scene, at any zoom, and that
 # stays true on a repeated call with the same View (mapItems's own cache).
 #
-# This probe exercises the REAL examples/wind/src/land.mfb and earth.mfb, and
-# the real examples/wind/resources/wind/coastline.bin — copied into a scratch
+# This probe exercises the REAL examples/weather/src/land.mfb and earth.mfb, and
+# the real examples/weather/resources/weather/coastline.bin — copied into a scratch
 # staging directory fresh on every run, never committed here. If land.mfb or
 # earth.mfb regresses, the next run stages the regressed file and this probe
 # catches it; a committed fork of those files could not.
 #
 # probe/main.mfb (the only file that IS committed under this tool) is
 # probe-only glue: it calls mapItems() directly and prints how many items
-# it returns. It is not a copy of anything in examples/wind.
+# it returns. It is not a copy of anything in examples/weather.
 #
 # Usage: run.sh <path-to-mfb-binary>
 
@@ -26,8 +26,8 @@ fi
 MFB_BIN=$(cd "$(dirname "$MFB_BIN")" && pwd)/$(basename "$MFB_BIN")
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-WIND_SRC="$SCRIPT_DIR/../../examples/wind/src"
-WIND_RESOURCES="$SCRIPT_DIR/../../examples/wind/resources/wind"
+WEATHER_SRC="$SCRIPT_DIR/../../examples/weather/src"
+WEATHER_RESOURCES="$SCRIPT_DIR/../../examples/weather/resources/weather"
 
 STAGE=$(mktemp -d)
 cleanup() {
@@ -37,14 +37,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-mkdir -p "$STAGE/src" "$STAGE/resources/wind"
+mkdir -p "$STAGE/src" "$STAGE/resources/weather"
 
 # The real, unmodified files under test — copied fresh, not forked.
-cp "$WIND_SRC/land.mfb" "$STAGE/src/land.mfb"
-cp "$WIND_SRC/earth.mfb" "$STAGE/src/earth.mfb"
-cp "$WIND_RESOURCES/coastline.bin" "$STAGE/resources/wind/coastline.bin"
+cp "$WEATHER_SRC/land.mfb" "$STAGE/src/land.mfb"
+cp "$WEATHER_SRC/earth.mfb" "$STAGE/src/earth.mfb"
+cp "$WEATHER_RESOURCES/coastline.bin" "$STAGE/resources/weather/coastline.bin"
 
-# The probe's own driver — glue, not a fork of anything in examples/wind.
+# The probe's own driver — glue, not a fork of anything in examples/weather.
 cp "$SCRIPT_DIR/probe/main.mfb" "$STAGE/src/main.mfb"
 
 cat > "$STAGE/project.json" <<'EOF'
@@ -63,8 +63,8 @@ cat > "$STAGE/project.json" <<'EOF'
   ],
   "resources": [
     {
-      "src": "resources/wind/*.bin",
-      "dst": "wind/"
+      "src": "resources/weather/*.bin",
+      "dst": "weather/"
     }
   ],
   "entry": "main",

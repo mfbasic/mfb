@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Generate a minimal, spec-legal GRIB2 fixture for bug-711's regression test.
 
-Builds four GRIB2 messages, each a 1x1 grid carrying one of the four fields
-examples/wind/src/fetch.mfb:windsFrom requires (UGRD 10 m, VGRD 10 m, TMP
-2 m, PRATE surface), using data representation template 5.0 at bit width 0
+Builds eight GRIB2 messages, each a 1x1 grid carrying one of the eight fields
+examples/weather/src/fetch.mfb:windsFrom requires (UGRD and VGRD at 10 m,
+850 mb and 250 mb, TMP 2 m, PRATE surface), using data representation template 5.0 at bit width 0
 (a constant field, so section 7 needs no packed data). Decodes correctly
-with the real, unmodified examples/wind/src/grib.mfb. See README.md for why
+with the real, unmodified examples/weather/src/grib.mfb. See README.md for why
 this replaced a captured real (926 KB) GFS analysis file.
 
 Usage: generate.py [output-path]  (default: /tmp/synthetic-valid-analysis.grb2)
@@ -118,14 +118,22 @@ def grib_message(category, parameter, surface, height, value):
     return section0 + body + b'7777'
 
 def build_fixture():
-    # The four fields wind.mfb:windsFrom's pick() calls require:
+    # The eight fields fetch.mfb:windsFrom's pick() calls require:
     #   east         cat 2 param 2 surface 103 height 10   (UGRD 10 m)
     #   north        cat 2 param 3 surface 103 height 10   (VGRD 10 m)
+    #   east850      cat 2 param 2 surface 100 height 85000 (UGRD 850 mb)
+    #   north850     cat 2 param 3 surface 100 height 85000 (VGRD 850 mb)
+    #   east250      cat 2 param 2 surface 100 height 25000 (UGRD 250 mb)
+    #   north250     cat 2 param 3 surface 100 height 25000 (VGRD 250 mb)
     #   temperature  cat 0 param 0 surface 103 height 2     (TMP 2 m)
     #   precipitation cat 1 param 7 surface 1 height 0      (PRATE surface)
     msgs = [
         grib_message(2, 2, 103, 10, 3.5),
         grib_message(2, 3, 103, 10, -1.25),
+        grib_message(2, 2, 100, 85000, 5.0),
+        grib_message(2, 3, 100, 85000, -2.0),
+        grib_message(2, 2, 100, 25000, 30.0),
+        grib_message(2, 3, 100, 25000, 4.5),
         grib_message(0, 0, 103, 2, 288.15),
         grib_message(1, 7, 1, 0, 0.0002),
     ]

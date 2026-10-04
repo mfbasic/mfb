@@ -11,7 +11,7 @@
 #     minted host-scratch pointer). The block sat in a large bin and a quick bin at
 #     once; the next small allocation handed it out and the next walk of that bin
 #     faulted: `tls-poll-rt` (two connects in one process) never printed `loop=`,
-#     and `examples/wind` died with 0xC0000005 while its worker decoded forecasts.
+#     and `examples/weather` died with 0xC0000005 while its worker decoded forecasts.
 #
 # So this cross-builds each fixture for windows-x86_64, ships the executable to the
 # Windows box, runs it there and compares its stdout and exit code with the

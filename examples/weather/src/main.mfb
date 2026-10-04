@@ -1,5 +1,7 @@
-' wind - NOAA's global 10 m wind field, drawn as streamlines on an Equal Earth
-' map.
+' weather - NOAA's global wind at 10 m above the ground, at 850 mb (about 1.5
+' km up) and at 250 mb (about 10 km up, the jet streams), drawn as streamlines
+' on an Equal Earth map, each height in its own colours and the higher ones
+' fainter and underneath.
 '
 ' The program downloads the latest GFS analysis from NOAA NOMADS, decodes the
 ' GRIB2 it arrives in, and animates a few thousand massless tracers through the
@@ -11,19 +13,21 @@
 ' Nothing is bundled but the land-and-lake map resource.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
-'   mfb build examples/wind
-'   open examples/wind/build/wind.app          (macOS)
-'   ./examples/wind/build/wind.AppImage        (Linux)
+'   mfb build examples/weather
+'   open examples/weather/build/weather.app          (macOS)
+'   ./examples/weather/build/weather.AppImage        (Linux)
 '
 ' Controls:
 '   q e            zoom in, zoom out
 '   a d            spin the world west, east (it wraps all the way round)
 '   w s            pan up, down
+'   W S (shift)    tilt the world north, south, as far as a pole in the middle
 '   arrow keys     the same as w a s d
 '   f              fullscreen on or off
 '   r              back to the whole world
 '   h              hide or show the captions
 '   space          play or stop the forecast
+'   1 2 3          the wind at the ground, at 1.5 km, at 10 km on or off
 '   esc            quit
 '
 ' The mouse works the buttons and the tracker: click the round button at the top
@@ -44,8 +48,8 @@
 '   timeline.mfb  the play/stop button and the tracker
 '   main.mfb      the font, the keys, the mouse, and the frame loop
 '
-' The first run downloads about 0.9 megabytes and takes a moment to decode
-' before the map appears, then about 44 megabytes more in the
+' The first run downloads about 1.7 megabytes and takes a moment to decode
+' before the map appears, then about 75 megabytes more in the
 ' background for the forecast; later runs of the same GFS cycle read the cached
 ' files instead.
 
@@ -132,6 +136,10 @@ TYPE Spin
   fraction AS Float    ' of the window, east positive
 END TYPE
 
+TYPE Tilt
+  fraction AS Float    ' of the window, north positive
+END TYPE
+
 TYPE Reset
 END TYPE
 
@@ -144,6 +152,10 @@ END TYPE
 TYPE TogglePlay
 END TYPE
 
+TYPE ToggleHeight
+  height AS Height
+END TYPE
+
 TYPE Quit
 END TYPE
 
@@ -153,11 +165,13 @@ END TYPE
 UNION Command
   Pan
   Spin
+  Tilt
   Zoom
   Reset
   ToggleCaptions
   ToggleFullscreen
   TogglePlay
+  ToggleHeight
   Quit
   Ignore
 END UNION
@@ -170,8 +184,10 @@ LET ZOOM_STEP AS Float = 1.18
 
 FUNC commandFor(key AS String) AS Command
   MATCH key
-    CASE "w", "W", "UP" : RETURN Pan[dx := 0.0, dy := PAN_STEP]
-    CASE "s", "S", "DOWN" : RETURN Pan[dx := 0.0, dy := -PAN_STEP]
+    CASE "w", "UP" : RETURN Pan[dx := 0.0, dy := PAN_STEP]
+    CASE "s", "DOWN" : RETURN Pan[dx := 0.0, dy := -PAN_STEP]
+    CASE "W" : RETURN Tilt[fraction := PAN_STEP]
+    CASE "S" : RETURN Tilt[fraction := -PAN_STEP]
     CASE "a", "A", "LEFT" : RETURN Spin[fraction := -PAN_STEP]
     CASE "d", "D", "RIGHT" : RETURN Spin[fraction := PAN_STEP]
     CASE "q", "Q" : RETURN Zoom[factor := ZOOM_STEP]
@@ -180,6 +196,9 @@ FUNC commandFor(key AS String) AS Command
     CASE "h", "H" : RETURN ToggleCaptions[]
     CASE "f", "F" : RETURN ToggleFullscreen[]
     CASE " " : RETURN TogglePlay[]
+    CASE "1" : RETURN ToggleHeight[height := Height.Surface]
+    CASE "2" : RETURN ToggleHeight[height := Height.Mid]
+    CASE "3" : RETURN ToggleHeight[height := Height.Jet]
     CASE "ESC", "EOF" : RETURN Quit[]
     CASE ELSE : RETURN Ignore[]
   END MATCH
@@ -302,7 +321,7 @@ FUNC frameScene(world AS Ring, v AS View, rasterItems AS List OF canvas::DrawIte
     LET zoomText AS String = zoomCaption(v, size)
     LET zoomWidth AS Float = canvas::measureText(face, size1, zoomText).width
     items = collections::append(items, textItem(face, v.width - margin - zoomWidth, v.height - margin, size1, CAPTION_COLOR, zoomText))
-    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  space play/stop  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
+    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  W S tilt  \u{00B7}  space play/stop  \u{00B7}  1 2 3 wind heights  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
     ' Fit the hint into the space left by the right-aligned zoom caption.
     LET hintWidth AS Float = canvas::measureText(face, size1 * 0.85, hint).width
     LET hintSize AS Float = size1 * 0.85 * math::min(1.0, math::max(1.0, v.width - margin * 3.0 - zoomWidth) / hintWidth)
@@ -314,15 +333,17 @@ FUNC frameScene(world AS Ring, v AS View, rasterItems AS List OF canvas::DrawIte
     items = collections::append(items, item)
   NEXT
 
-  ' Colour-wash keys share the top-left panel position and follow captions.
-  IF captions AND layer <> Layer.Wind THEN
+  ' Every layer's key shares the top-left panel position and follows captions.
+  IF captions THEN
     LET keyLeft AS Float = 10.0
     LET keyTop AS Float = 10.0
     MUT keyItems AS List OF canvas::DrawItem = []
     IF layer = Layer.Temperature THEN
       keyItems = temperatureKey(face, captionSize(v), keyLeft, keyTop)
-    ELSE
+    ELSEIF layer = Layer.Precipitation THEN
       keyItems = precipitationKey(face, captionSize(v), keyLeft, keyTop)
+    ELSE
+      keyItems = windKey(face, captionSize(v), keyLeft, keyTop)
     END IF
     items = collections::append(items, keyItems)
   END IF
@@ -371,8 +392,8 @@ LET MAX_STEP_SECONDS AS Float = 0.05
 MUT forecastFrames AS List OF Winds = []
 MUT earlierIndex AS Integer = -1
 MUT laterIndex AS Integer = -1
-MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
-MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
+MUT earlierWinds AS Winds = Winds[east := emptyField(), north := emptyField(), east850 := emptyField(), north850 := emptyField(), east250 := emptyField(), north250 := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
+MUT laterWinds AS Winds = Winds[east := emptyField(), north := emptyField(), east850 := emptyField(), north850 := emptyField(), east250 := emptyField(), north250 := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
 
 FUNC emptyField AS Field
   RETURN Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, interval := FALSE, values := []]
@@ -432,16 +453,16 @@ END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
-  app::setTitle("Wind")
+  app::setTitle("Weather")
 
   LET fontName AS String = systemFontName()
   IF fontName = "" THEN
-    io::printError("wind: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
+    io::printError("weather: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
     RETURN 1
   END IF
   RES face AS canvas::Font = canvas::loadSystemFont(fontName)
 
-  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS weather from NOAA NOMADS", "about 0.9 megabytes of GRIB2, then a moment to unpack it"))
+  canvas::present(noticeScene(canvas::getSize(), face, "Fetching the latest GFS weather from NOAA NOMADS", "about 1.7 megabytes of GRIB2, then a moment to unpack it"))
 
   LET analysis AS Analysis = loadAnalysis() TRAP(e)
     canvas::present(noticeScene(canvas::getSize(), face, "No forecast to draw", e.message))
@@ -449,7 +470,7 @@ FUNC main AS Integer
     RETURN 1
   END TRAP
   LET run AS Cycle = analysis.cycle
-  app::setTitle("Wind \u{00B7} " & analysis.winds.label)
+  app::setTitle("Weather \u{00B7} " & analysis.winds.label)
 
   ' The analysis is on screen from here on; the rest of the run arrives behind
   ' it. Dropping the handle on the way out - quitting before the fetch is done -
@@ -469,7 +490,7 @@ FUNC main AS Integer
   MUT layer AS Layer = Layer.Wind
   MUT running AS Boolean = TRUE
   MUT scrubbing AS Boolean = FALSE
-  seedSwarm(countFor(view), view)
+  seedSwarm(view)
   LET initialMix AS Float = windsFor(0.0)
   RES layerImage AS canvas::Image = canvas::createImage(RASTER_WIDTH, RASTER_HEIGHT, rasterPixels(Layer.Temperature, earlierWinds, laterWinds, initialMix, view))
   canvas::enableMouse(TRUE)
@@ -482,7 +503,7 @@ FUNC main AS Integer
       ' number of tracers rebuilds it. Reseeding throws away every trail, which
       ' is why it is only done when the count actually changes rather than on
       ' every pixel of a drag.
-      IF particleCount() <> countFor(view) THEN seedSwarm(countFor(view), view)
+      IF particleCount() <> countFor(view) THEN seedSwarm(view)
     END IF
 
     ' The worker's news. Whether it has finished is asked before its queue is
@@ -516,6 +537,7 @@ FUNC main AS Integer
       MATCH commandFor(key)
         CASE Pan(p) : view = panned(view, p.dx, p.dy)
         CASE Spin(t) : view = spun(view, t.fraction)
+        CASE Tilt(t) : view = tilted(view, t.fraction)
         CASE Zoom(z) : view = zoomed(view, z.factor, size)
         CASE Reset : view = wholeWorld(size)
         CASE ToggleCaptions : captions = NOT captions
@@ -523,6 +545,7 @@ FUNC main AS Integer
           ' at the top of the next frame like any other.
         CASE ToggleFullscreen : app::setFullscreen(NOT app::getFullscreen())
         CASE TogglePlay : IF ready THEN playback = WITH playback { playing := NOT playback.playing }
+        CASE ToggleHeight(t) : toggleHeight(t.height)
         CASE Quit : running = FALSE
         CASE Ignore
       END MATCH
@@ -562,7 +585,7 @@ FUNC main AS Integer
     END IF
     LET mix AS Float = windsFor(playback.hours)
 
-    reprojectTrails(view.lon0)
+    reprojectTrails(view)
     stepSwarm(earlierWinds, laterWinds, mix, view, zoom, elapsed)
     MUT rasterItems AS List OF canvas::DrawItem = []
     IF layer <> Layer.Wind THEN

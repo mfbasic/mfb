@@ -41,15 +41,17 @@ FUNC layerPixel(layer AS Layer, earlier AS Winds, later AS Winds, mix AS Float, 
 END FUNC
 
 ' RGBA8 pixels of a layer for the visible view. One inverse-projection is done
-' per row to recover latitude; longitude then follows directly from Equal
-' Earth's x equation. Pixels outside the oval world are transparent.
+' per row to recover the map-frame latitude; the map-frame longitude then
+' follows directly from Equal Earth's x equation, and the two are turned back
+' into a place (only a tilted map has any turning to do). Pixels outside the
+' oval world are transparent.
 FUNC rasterPixels(layer AS Layer, earlier AS Winds, later AS Winds, mix AS Float, v AS View) AS List OF Byte
   MUT pixels AS List OF Byte = []
 
   FOR row = 0 TO RASTER_HEIGHT - 1
     LET sy AS Float = (toFloat(row) + 0.5) * v.height / toFloat(RASTER_HEIGHT)
     LET rowPlane AS Plane = toPlane(v, 0.0, sy)
-    LET rowPlace AS Unprojected = unproject(rowPlane, v.lon0)
+    LET rowPlace AS Unprojected = unprojectRel(rowPlane)
     LET lat AS Float = rowPlace.place.lat
     LET theta AS Float = thetaOf(lat)
     LET lonFactor AS Float = degrees(EE_M * eeDenominator(theta) / math::cos(theta))
@@ -61,7 +63,7 @@ FUNC rasterPixels(layer AS Layer, earlier AS Winds, later AS Winds, mix AS Float
       LET relativeLon AS Float = p.x * lonFactor
 
       IF insideY AND math::abs(relativeLon) <= 180.0 THEN
-        LET g AS Geo = Geo[lon := wrapLon(relativeLon + v.lon0), lat := lat]
+        LET g AS Geo = fromMapFrame(Geo[lon := relativeLon, lat := lat], v.lon0, v.tilt)
         pixels = collections::append(pixels, layerPixel(layer, earlier, later, mix, g))
       ELSE
         pixels = collections::append(pixels, CLEAR_PIXEL)
