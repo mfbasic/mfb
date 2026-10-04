@@ -761,7 +761,6 @@ impl CodeBuilder<'_> {
             self.emit_owned_value_drop(&OwnedValueCleanup {
                 type_: field_type,
                 stack_offset: result_slot,
-                closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
                 result_wrapper: None,

@@ -2350,6 +2350,7 @@ pub(crate) fn lower_module_for_platform(
                 type_model.clone(),
                 &module.project,
                 Some(&variant),
+                &mut closure_env_layouts,
             )?);
         }
         crate::trace::count("destination variants", demand.len() as u64);
