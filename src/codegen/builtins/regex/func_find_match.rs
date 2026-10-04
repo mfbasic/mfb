@@ -76,7 +76,8 @@ compilation is checked before `start`, so `ErrInvalidFormat` takes precedence
 when both apply.
 
 `findMatch` does not mutate `value` or `pattern` and has no side effects. To
-extract every match rather than the first, use `regex::findAllMatches`."#;
+extract every match rather than the first, use `regex::findAllMatches`.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Extract the text of the first run of digits, which `regex::find` alone cannot
 give you because the length is not known in advance:
@@ -174,7 +175,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named("MatchInfo"),
-            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange"],
+            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__regex_findMatch"),
         }],
     });

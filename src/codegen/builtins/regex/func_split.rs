@@ -84,7 +84,8 @@ There is no `limit` parameter, because `strings::split` has none either; every
 piece is always returned.
 
 `split` does not mutate `value` or `pattern` and has no side effects. The
-returned list and its elements are their own values.
+returned list and its elements are their own values. `ErrOutOfMemory` means the
+program ran out of memory.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
@@ -181,7 +182,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::String),
-            errors: vec!["ErrInvalidFormat", "ErrInvalidArgument"],
+            errors: vec!["ErrInvalidFormat", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__regex_split"),
         }],
     });

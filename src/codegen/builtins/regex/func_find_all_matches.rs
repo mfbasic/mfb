@@ -78,7 +78,8 @@ every run of digits. An invalid pattern fails with `ErrInvalidFormat`. Pattern
 compilation is checked before `start`, so `ErrInvalidFormat` takes precedence
 when both apply.
 
-`findAllMatches` does not mutate `value` or `pattern` and has no side effects."#;
+`findAllMatches` does not mutate `value` or `pattern` and has no side effects.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r##"Extract every run of digits, which `regex::findAll` alone cannot give you
 because the lengths differ from match to match:
@@ -176,7 +177,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::named("MatchInfo")),
-            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange"],
+            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__regex_findAllMatches"),
         }],
     });

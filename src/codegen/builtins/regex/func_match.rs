@@ -43,7 +43,8 @@ raises `ErrNotFound` on absence: test with `match`, then call `find` for the
 position.
 
 
-`match` does not mutate `value` or `pattern` and has no side effects."#;
+`match` does not mutate `value` or `pattern` and has no side effects.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Test for a substring and an anchored pattern:
 
@@ -102,7 +103,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Boolean,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__regex_match"),
         }],
     });

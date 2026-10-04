@@ -76,7 +76,7 @@ malformed, it is a well-formed pattern this member declines, so it fails with
 `value`, `replace` does not fail; it returns a fresh `String` equal to `value`.
 
 `replace` does not mutate `value`, `pattern`, or `replacement` and has no side
-effects."##;
+effects. `ErrOutOfMemory` means the program ran out of memory."##;
 
 const EX: &str = r##"Replace every match, and reorder capture groups (note the doubled backslashes):
 
@@ -172,7 +172,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat", "ErrInvalidArgument"],
+            errors: vec!["ErrInvalidFormat", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__regex_replace"),
         }],
     });

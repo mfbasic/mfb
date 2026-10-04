@@ -64,7 +64,8 @@ are wanted, use `regex::findAllMatches`, which performs this same scan and
 reports the same matches with all of that attached; `findAll` is the cheaper
 call when only the positions are needed.
 
-`findAll` does not mutate `value` or `pattern` and has no side effects."#;
+`findAll` does not mutate `value` or `pattern` and has no side effects.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"List the start of every digit (note the doubled backslash in the String literal):
 
@@ -151,7 +152,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::Integer),
-            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange"],
+            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__regex_findAll"),
         }],
     });

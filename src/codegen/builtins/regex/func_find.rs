@@ -88,7 +88,8 @@ end index, or a capture group is wanted, use `regex::findMatch`, which performs
 this same search and returns all of it; `find` is the cheaper call when only the
 position is needed.
 
-`find` does not mutate `value` or `pattern` and has no side effects."#;
+`find` does not mutate `value` or `pattern` and has no side effects.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Find the first occurrence, and the first at or after a start position:
 
@@ -193,7 +194,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Integer,
-            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange", "ErrNotFound"],
+            errors: vec![
+                "ErrInvalidFormat",
+                "ErrIndexOutOfRange",
+                "ErrNotFound",
+                "ErrOutOfMemory",
+            ],
             body: Body::mfb(FUNC_BODY, "__regex_find"),
         }],
     });

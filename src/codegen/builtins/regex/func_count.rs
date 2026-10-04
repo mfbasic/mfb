@@ -71,6 +71,7 @@ digits. An invalid pattern fails with `ErrInvalidFormat`. Pattern compilation is
 checked before `start`, so `ErrInvalidFormat` takes precedence when both apply.
 
 `count` does not mutate `value` or `pattern` and has no side effects.
+`ErrOutOfMemory` means the program ran out of memory.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
@@ -168,6 +169,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "ErrInvalidFormat",
                 "ErrInvalidArgument",
                 "ErrIndexOutOfRange",
+                "ErrOutOfMemory",
             ],
             body: Body::mfb(FUNC_BODY, "__regex_count"),
         }],
