@@ -111,8 +111,9 @@ fn emit_headless_scripted_resize(asm: &mut Asm) {
 pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
     // lr@0, argc@8, argv@16, headless pthread_t@24.
+    let frame = 48;
     asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(48));
+    asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -215,7 +216,7 @@ pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, Str
     // return 0 -> __libc_start_main calls exit(0).
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(32));
+    asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(GTK_MAIN_SYMBOL, "Integer")
 }
