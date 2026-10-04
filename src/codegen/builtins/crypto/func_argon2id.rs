@@ -56,14 +56,19 @@ rounding, so this matches every other implementation. The value you passed is bo
 into the derivation as well, so two `memoryKiB` values that round to the same block
 count still derive **different** keys: record the exact number you used.
 
-Ranges, each raising `ErrInvalidArgument` when missed: `parallelism` is 1 through
-16777215; `iterations` is at least 1; `length` is at least 4; `salt` is at least 8
-bytes (16 is the recommended length); and `memoryKiB` runs from eight times
+Ranges, each raising `ErrInvalidArgument` when missed, naming the parameter: every
+bound RFC 9106 section 3.1 places on this call's inputs is enforced, before any
+memory is taken. `parallelism` is 1 through 16777215 (RFC 9106's `1` through
+`2^24-1`); `iterations` is 1 through 4294967295 (RFC 9106's passes `t`, `1` through
+`2^32-1`); `length` is 4 through 4294967295 (RFC 9106's tag length `T`, `4` through
+`2^32-1`); `password` is at most 4294967295 bytes, including empty (RFC 9106's
+message length); `salt` is 8 through 4294967295 bytes (RFC 9106's nonce length is
+at most 4294967295; the 8-byte floor is this call's own, stricter than the RFC,
+and 16 is the recommended length); and `memoryKiB` runs from eight times
 `parallelism` through 2097152 (2 GiB), which is the largest memory RFC 9106
-recommends. A
-`memoryKiB` above that ceiling is refused outright — the call raises before it reserves
-anything, so an absurd request is an error and not an exhausted machine. `password` may
-be any length, including empty.
+recommends, not the largest it allows. A `memoryKiB` above that ceiling is refused
+outright — the call raises before it reserves anything, so an absurd request is an
+error and not an exhausted machine.
 
 **Cost.** This is a portable software core, not a native one, so it is far slower than
 a C Argon2 — it works through roughly 22 MiB of Argon2 memory per second on a 2026
@@ -103,21 +108,21 @@ END FUNC
 pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     let password_param = || Parameter {
         name: "password",
-        desc: "The password bytes; any length, including empty.",
+        desc: "The password bytes; any length up to 4294967295, including empty.",
         aliases: &[],
         ty: bytes(),
         default: DefaultValue::None,
     };
     let salt_param = || Parameter {
         name: "salt",
-        desc: "The salt bytes; at least 8, and 16 random bytes unique to this password is best.",
+        desc: "The salt bytes; 8 through 4294967295; 16 random bytes is best.",
         aliases: &[],
         ty: bytes(),
         default: DefaultValue::None,
     };
     let length_param = || Parameter {
         name: "length",
-        desc: "Number of output bytes to derive; must be at least 4.",
+        desc: "Number of output bytes to derive; 4 through 4294967295.",
         aliases: &[],
         ty: ParameterType::Integer,
         default: DefaultValue::None,

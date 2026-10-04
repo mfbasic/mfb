@@ -31,10 +31,13 @@ FUNC __crypto_argon2id(password AS List OF Byte, salt AS List OF Byte, memoryKiB
   IF iterations < 1 OR iterations > 4294967295 THEN
     FAIL error(77050002, "argon2id iterations out of range")
   END IF
-  IF length < 4 THEN
+  IF length < 4 OR length > 4294967295 THEN
     FAIL error(77050002, "argon2id length out of range")
   END IF
-  IF len(salt) < 8 THEN
+  IF len(password) > 4294967295 THEN
+    FAIL error(77050002, "argon2id password out of range")
+  END IF
+  IF len(salt) < 8 OR len(salt) > 4294967295 THEN
     FAIL error(77050002, "argon2id salt out of range")
   END IF
   IF memoryKiB < 8 * parallelism OR memoryKiB > 2097152 THEN
@@ -191,4 +194,44 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         import_name: None,
         natively_called: false,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BODY;
+
+    // bug-819: RFC 9106 section 3.1's bounds on `length` (tag length T, 4..2^32-1)
+    // and the `password` (message) and `salt` (nonce) lengths (both at most
+    // 2^32-1 bytes) are enforced in the SAME pre-allocation guard block as the
+    // already-enforced `parallelism`/`iterations`/`memoryKiB` bounds, before the
+    // first `collections::append` call builds anything. These three bounds are
+    // checked here, on the source text, rather than by actually driving the
+    // member with a password/salt/length that reaches 2^32 bytes: constructing
+    // that much real data (or asking the fixed check to let it through to the
+    // final `length`-byte output buffer) would require multiple GiB of real
+    // allocation in a test process, which is exactly what RFC 9106 compliance is
+    // supposed to make unreachable, not exercise.
+    #[test]
+    fn body_enforces_rfc_9106_length_bound() {
+        assert!(
+            BODY.contains("length > 4294967295"),
+            "RFC 9106 section 3.1: tag length T is 4..2^32-1; the upper bound is missing"
+        );
+    }
+
+    #[test]
+    fn body_enforces_rfc_9106_password_bound() {
+        assert!(
+            BODY.contains("len(password) > 4294967295"),
+            "RFC 9106 section 3.1: the message (password) length is at most 2^32-1 bytes"
+        );
+    }
+
+    #[test]
+    fn body_enforces_rfc_9106_salt_upper_bound() {
+        assert!(
+            BODY.contains("len(salt) > 4294967295"),
+            "RFC 9106 section 3.1: the nonce (salt) length is at most 2^32-1 bytes"
+        );
+    }
 }

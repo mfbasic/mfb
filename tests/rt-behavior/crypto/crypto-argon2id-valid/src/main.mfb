@@ -80,4 +80,8 @@ FUNC main() AS Nothing
   io::print("length-3=" & attempt(32, 1, 1, 3, 16))
   io::print("salt-7=" & attempt(32, 1, 1, 32, 7))
   io::print("salt-8=" & attempt(32, 1, 1, 4, 8))
+  ' bug-819: RFC 9106 section 3.1's tag length T is 4..2^32-1. A `length` above
+  ' that must raise, never try to derive it -- the check runs before any output
+  ' buffer is sized, so the huge value here costs nothing to reject.
+  io::print("length-over-max=" & attempt(32, 1, 1, 4294967296, 16))
 END FUNC

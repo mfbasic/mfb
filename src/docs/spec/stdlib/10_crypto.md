@@ -106,11 +106,20 @@ extensions); computation is portable-arithmetic only, identical across targets.
   [[src/codegen/builtins/crypto/helper_argon2id.rs:BODY]]
   `argon2id` is the specified answer for **storing** a password and PBKDF2 is the
   answer for RFC 8018 / WPA2 interoperation; the two are not interchangeable.
-  Its cost parameters are validated in one place, before any memory is taken:
-  `parallelism` in `1..=16777215`, `iterations ≥ 1`, `length ≥ 4`, `len(salt) ≥ 8`,
-  and `memoryKiB` in `8 × parallelism ..= 2097152` — RFC 9106 §4's largest
-  recommended memory. Every out-of-range value raises `ErrInvalidArgument`
-  (`77050002`); an over-large `memoryKiB` is refused rather than attempted. The
+  Every parameter RFC 9106 §3.1 bounds is validated in one place, before any
+  memory is taken: `parallelism` in `1..=16777215` (RFC's `1..=2^24-1`),
+  `iterations` in `1..=4294967295` (RFC's passes `t`, `1..=2^32-1`), `length`
+  in `4..=4294967295` (RFC's tag length `T`, `4..=2^32-1`), `len(password)` at
+  most `4294967295` (RFC's message length, `≤2^32-1`), `len(salt)` in
+  `8..=4294967295` (RFC's nonce length is `≤2^32-1`; the lower bound of 8 is
+  this package's own floor, stricter than the RFC, which places no minimum on
+  the nonce), and `memoryKiB` in `8 × parallelism ..= 2097152` — a ceiling this
+  package holds well inside RFC 9106's own `8×parallelism..=2^32-1`, so an
+  absurd request is refused before it is attempted rather than left to
+  exhaust the machine. Every out-of-range value raises `ErrInvalidArgument`
+  (`77050002`) naming the parameter. This member does not expose Argon2's
+  optional secret or associated-data inputs, so RFC 9106's bounds on those two
+  do not apply here. The
   `crypto::Argon2Profile` overload is a wrapper that resolves its variant to those
   same three parameters and calls the explicit one, so both spellings share one
   validation site and one memory-fill site and are byte-identical for the same
