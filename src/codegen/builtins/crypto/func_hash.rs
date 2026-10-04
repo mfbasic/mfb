@@ -82,8 +82,7 @@ of those rests on collision resistance.
 
 The digest is a deterministic, one-way function of the message alone: the same
 `type` and `data` always produce the same bytes, with no key, salt, or randomness.
-Any input length is accepted, including the empty message. The function is **total**
-— it never raises an error.
+Any input length is accepted, including the empty message; no input is refused.
 
 Two overloads accept the message. The `List OF Byte` overload hashes the raw bytes
 exactly as given; the `String` overload hashes the UTF-8 encoding of the string

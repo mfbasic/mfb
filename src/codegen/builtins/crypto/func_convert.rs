@@ -96,7 +96,7 @@ MFBASIC software cores computed over the `bits` package — no platform cryptogr
 library — so the converted key pair is byte-identical on every target (macOS, Linux,
 Windows; aarch64, x86-64). The Ed448 conversion is verified against an
 OpenSSL-backed oracle through the invariant `X448(convertedPrivate, 5) ==
-convertedPublic`."#;
+convertedPublic`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"```
 IMPORT crypto
 
@@ -132,7 +132,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named("KeyPair"),
-            errors: vec![],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__crypto_convert"),
         }],
     });

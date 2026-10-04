@@ -71,6 +71,15 @@
 //! without `TRAP` awareness. See [`resolve`]/[`resolve_inline_traps`]/
 //! [`scan_calls_and_fails`] for the three-layer implementation.
 
+//!
+//! **`Body::Rewrite` is covered too (bug-814).** A `Rewrite` implementation's
+//! call becomes a call to a fixed `__`-symbol whose body is a package helper
+//! `FUNC`; [`rewrite_sweep`] resolves that block exactly as above and compares it
+//! with the one implementation's own `errors`. Qualified calls are narrowed where
+//! the text fixes the answer ([`qualified_call_codes`]), and a code a helper's
+//! call cannot raise from its arguments' ranges is proven per helper `FUNC` in
+//! [`UNREACHABLE_QUALIFIED_CALL`] / [`UNREACHABLE_GENERAL_CALL`].
+
 use crate::codegen::registry::{registry, Body};
 use crate::types::ParameterType;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -1811,6 +1820,28 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
     ("__compress_deflateCore", "toByte", "ErrOverflow"),
     ("__compress_zlibEncode", "toByte", "ErrOverflow"),
     ("__compress_gzipEncode", "toByte", "ErrOverflow"),
+    ("__crypto_appendBeWord", "toByte", "ErrOverflow"),
+    ("__crypto_appendBeWord64", "toByte", "ErrOverflow"),
+    ("__crypto_pad512", "toByte", "ErrOverflow"),
+    // `bits::bxor`/`bits::bor` of two bytes, or of a byte and 128 / the pad 54/92,
+    // stays a byte; `bits::sl(parity, 7)` of a parity bit is 0 or 128; `clampScalar`'s
+    // `(b AND 127) OR 64` is at most 127; the sponge suffix is 6 or 31 at every call.
+    ("__crypto_xorPad", "toByte", "ErrOverflow"),
+    ("__crypto_xorBytes", "toByte", "ErrOverflow"),
+    ("__crypto_keccakSponge", "toByte", "ErrOverflow"),
+    ("__crypto_clampScalar", "toByte", "ErrOverflow"),
+    ("__crypto_clampScalar448", "toByte", "ErrOverflow"),
+    ("__crypto_ed448Prune", "toByte", "ErrOverflow"),
+    ("__crypto_ed448Encode", "toByte", "ErrOverflow"),
+    ("__crypto_packPoint", "toByte", "ErrOverflow"),
+    // `counter <= ceil(length / L) <= 255`: `crypto::hkdf` rejects `length > 255
+    // * L`, and HPKE's LabeledExpand asks at most 64 bytes of a 32/64-byte HMAC.
+    ("__crypto_hkdfExpand", "toByte", "ErrOverflow"),
+    // `uuid4`'s version/variant bytes are `(b AND 15) OR 64 <= 79` and `(b AND 63)
+    // OR 128 <= 191`; `randomIntBig`'s top byte is a byte `MOD 2^topBits`, topBits
+    // in 1 .. 8.
+    ("__crypto_uuid4", "toByte", "ErrOverflow"),
+    ("__crypto_randomIntBig", "toByte", "ErrOverflow"),
 ];
 
 /// A code a qualified `pkg::member(` call can raise that no call of that member
@@ -1928,6 +1959,194 @@ const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[
     // 16-entry `blCount`/`nextCode`; `b - 1` is 0 .. 14.
     ("__compress_canonicalCodes", "collections::get", "ErrIndexOutOfRange"),
     ("__compress_canonicalCodes", "collections::set", "ErrIndexOutOfRange"),
+    // --- crypto: shared byte-list helpers ---
+    // Each reads index `i < len` of its own argument (`concat`'s `b`,
+    // `concatInt`'s `b`, `isAllZero`'s `b`, `xorPad`'s `data`), `0 .. len(data)`
+    // (`copyBytes`), or the shorter length (`constantTimeEqual`).
+    ("__crypto_concat", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_concatInt", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_isAllZero", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_xorPad", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_constantTimeEqual", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_copyBytes", "collections::mid", "ErrIndexOutOfRange"),
+    // `xorBytes(a, b)` reads `b[i]`, `i < len(a)`: its callers pass equal-length
+    // lists (`__crypto_gcmTag`: two 16-byte blocks; `__crypto_pbkdf2Block`: two
+    // outputs of the same HMAC).
+    ("__crypto_xorBytes", "collections::get", "ErrIndexOutOfRange"),
+    // `slice(data, start, stop)` / `truncate(data, n)`: every caller passes `0 <=
+    // start <= stop <= len(data)` / `0 <= n <= len(data)` — fixed digests and
+    // seeds (a SHA-512 64, a SHAKE256-114 or ChaCha20 64-byte block cut at 32/57,
+    // an HPKE key schedule's 44 bytes cut at 32/44, a length-checked 64/114-byte
+    // signature), `__crypto_decrypt`'s box after `total < nenc + 16` FAILs, the
+    // sponge's `off <= n`, and output loops that run until `len(okm) >= length`.
+    ("__crypto_slice", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_truncate", "collections::mid", "ErrIndexOutOfRange"),
+    // --- crypto: SHA-1 / SHA-2 ---
+    // `pad512`/`pad1024` leave a multiple of 64/128 bytes, and each block loop
+    // runs `base < total`, so a schedule's `beWord`/`beWord64` reads `base .. base
+    // + 63/127`; the other `beWord64` callers read a 16-byte GCM subkey block at
+    // 0/8, GHASH data (a multiple of 16) at `o`/`o + 8`, `beWords64`'s
+    // multiple-of-8 hex constants and the 192-byte Keccak RC table at `t * 8`, t
+    // < 24. The schedules index their own 80/64-entry `w` at `t - 2 .. t - 16`
+    // for `t >= 16`; the cores read `w`/K256 (64) or K512 (80) at `t` below the
+    // round count and their 8-word IV at 0 .. 7.
+    ("__crypto_beWord", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_beWord64", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha1Schedule", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha256Schedule", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha512Schedule", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha1_bytes", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha2_32", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha2_64", "collections::get", "ErrIndexOutOfRange"),
+    // Shift counts `56 - i * 8` / `i * 8` for `i < 8`, and `__crypto_shr32`'s
+    // count from its only callers, `ssig0` (3) and `ssig1` (10).
+    ("__crypto_pad512", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_appendBeWord64", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_appendLeLane", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_shr32", "bits::sr", "ErrInvalidArgument"),
+    // --- crypto: Keccak-f[1600] ---
+    // The state is always 25 lanes (`__crypto_keccakZero`, then `set`s and
+    // rounds that return 25); `lane`/`fl`/`sq < rateLanes <= 18`. An absorb
+    // reads `off + rate <= n`; the padded tail is exactly `rate` bytes (the tail
+    // is `n - off < rate` bytes plus the suffix byte), so `last = rate - 1` and
+    // `fl * 8 + 7` are in it. A round reads `c` (5) at `MOD 5`, `a`/`t`/`b`/`out`
+    // (25) at `x + 5y < 25`, and the 25-entry RHO/PI tables, whose PI values are
+    // 0 .. 24; `keccakF` reads the 24 round constants at `round < 24`.
+    // `leLane(data, o)` reads `o .. o + 7`: the sponge's checked offsets above,
+    // BLAKE2b's 128-byte blocks at `base + i * 8`, i < 16, and Argon2's 1024-byte
+    // H' output at `k * 8`, k < 128; its shift `i * 8` is at most 56.
+    ("__crypto_keccakSponge", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_keccakSponge", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_keccakRound", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_keccakRound", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_keccakF", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_leLane", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_leLane", "bits::sl", "ErrInvalidArgument"),
+    // --- crypto: Curve25519 / Ed25519 (16 limbs) ---
+    // Every field element is 16 limbs (`gf0`/`gf1`/`unpack25519` build 16, and
+    // `edA`/`edZ`/`edM`/`sel25519`/`car25519` map 16 to 16), so the limb loops'
+    // `i, j, k < 16` and `car25519`'s `i + 1` (for `i < 15`) are in range. A point
+    // is four elements (64 limbs; `gfAt(p, 0 .. 3)`), a ladder pair two
+    // (128; `first64`/`last64`/`cswap128` read `i` and `64 + i`, i < 64).
+    // `unpack25519`/`clampScalar` read 32 bytes; every caller passes 32: a key
+    // length-checked by `__crypto_exchange`/`__crypto_hpkeRecipientPub`/
+    // `__crypto_ed25519Verify`, `crypto::randomBytes(32)`, a 32-byte truncated
+    // SHA-512, a `pack25519` output (32), the 32-byte X25519 base, or HPKE's
+    // `enc` (`nenc` = 32). The ladders index the 32-byte scalar at `bits::sr(i, 3)`
+    // / `i / 8` for `i <= 255`, and shift by `bits::band(i, 7)`.
+    ("__crypto_sel25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_edA", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_edZ", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_edM", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_par25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gfAt", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_first64", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_last64", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_car25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_car25519", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_pack25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_pack25519", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_unpack25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_unpack25519", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_packPoint", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_packPoint", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_cswap128", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_cswap128", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gf1", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gf121665", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_x25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_x25519", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_scalarmult", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_scalarmult", "bits::sr", "ErrInvalidArgument"),
+    // --- crypto: Curve448 / Ed448 (16 limbs of 28 bits) ---
+    // As for Curve25519: every `gf448` value is 16 limbs, a product's `c` is 31
+    // (`n + 16 <= 30` for `n <= 14`, `n + 24 <= 30` for `n <= 6`), a point 48 limbs
+    // (`ed448PointAt(p, 0 .. 2)`) and a ladder pair 96 (`ed448Cswap` reads `i`,
+    // `48 + i`; the ladder cuts it at 0/48). `gf448Unpack`/`clampScalar448` read 56
+    // bytes: a length-checked 56-byte key, `crypto::randomBytes(56)`, a 56-byte
+    // SHAKE256 output, a `gf448Pack` output (56), the 56-byte base, a 57-byte Ed448
+    // key cut to 56, or the two 56-byte hex constants of the Ed448 base point.
+    // `ed448Prune` reads 0/55/56 of a 57-byte truncated SHAKE256 output, and
+    // `ed448Encode` byte 0 of a 56-byte pack. The ladders index the 56/57-byte
+    // scalar at `bits::sr(i, 3)` for `i <= 447`; shifts are `i * 8`/`k * 8` for `i,
+    // k < 7` and `bits::band(i, 7)`.
+    ("__crypto_gf448Add", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Sub", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Mul", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448MulSmall", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Select", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Encode", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Carry", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Carry", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar448", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar448", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Prune", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Prune", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Cswap", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Cswap", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Unpack", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Unpack", "bits::sl", "ErrInvalidArgument"),
+    ("__crypto_gf448Pack", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Pack", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_x448", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_x448", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_ed448Scalarmult", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Scalarmult", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Scalarmult", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_ed448PointAt", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_ed448PubToX448", "collections::mid", "ErrIndexOutOfRange"),
+    // --- crypto: BLAKE2b and Argon2id ---
+    // BLAKE2b's chain `h` is 8 words and the IV 8; the working vector `v` 16 and
+    // the message `m` 16, read at SIGMA values 0 .. 15; SIGMA holds 12 rounds of 16
+    // (`s + 15 <= 191`); `blake2bG`'s four indices are literals 0 .. 15 at every
+    // call; the digest loop reads `h[i / 8]`, `i < outLen <= 64` (H0 asks 64, H'
+    // asks `outLen <= 64` or 64, or its last `outLen - 32r` in 33 .. 64), shifting
+    // by `(i MOD 8) * 8 <= 56`. `gather3` reads each of its three lists below that
+    // list's length, from `i < stop <= n`.
+    ("__crypto_blake2b3", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_blake2b3", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_blake2b3", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_blake2bCompress", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_blake2bCompress", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_blake2bG", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_blake2bG", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gather3", "collections::get", "ErrIndexOutOfRange"),
+    // Argon2id: `mem` holds `blocks + 4` blocks of 128 words (`blocks >= 8 *
+    // parallelism` after the range checks), and every offset is a block number
+    // times 128 plus `k < 128`: a lane's first two blocks, the current block
+    // `curr` and its predecessor `prev` (both inside the current lane), the
+    // reference block (`refLane = (rnd >> 32) MOD parallelism`, `refIdx` reduced
+    // `MOD laneLen`), the last column, or the four scratch blocks past the matrix
+    // (`inputOff + 6`, `addrOff + idx MOD 128`). The fill reads three such 128-word
+    // blocks, its `r`/`tmp` are 128 words (`2g + 16k + 1 <= 127`), and the
+    // permutation takes and returns 16 words. `argon2Le32` shifts by `i * 8`, i < 4.
+    ("__crypto_argon2id", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_argon2id", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Fill", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Fill", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Fill", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_argon2P", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_argon2P", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_argon2P", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Le32", "bits::sr", "ErrInvalidArgument"),
+    // --- crypto: random draws ---
+    // `crypto::randomBytes(8)`/`(16)` is a literal count inside 0 .. 16 MiB, and
+    // the result is exactly that many bytes: `rand62`/`rand63` read 0 .. 7,
+    // `uuid4` reads and writes 6 and 8 and cuts its 32-character hex string at
+    // 0 .. 32. `randomIntBig` draws `byteCount = (width + 7) / 8 >= 1` bytes
+    // (`max > min`, so the span is at least 2) and reads/writes `byteCount - 1`.
+    ("__crypto_rand62", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_rand62", "crypto::randomBytes", "ErrInvalidArgument"),
+    ("__crypto_rand63", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_rand63", "crypto::randomBytes", "ErrInvalidArgument"),
+    ("__crypto_uuid4", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_uuid4", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_uuid4", "strings::mid", "ErrIndexOutOfRange"),
+    ("__crypto_uuid4", "crypto::randomBytes", "ErrInvalidArgument"),
+    ("__crypto_randomIntBig", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_randomIntBig", "collections::set", "ErrIndexOutOfRange"),
 ];
 
 /// The mirror image of [`UNREACHABLE_VIA_CALLEE`]: a code this sweep's model
@@ -2168,33 +2387,6 @@ const REWRITE_UNREACHABLE: &[(&str, &str, &str)] = &[];
 /// checked-arithmetic raise) but that the member really raises.
 const REWRITE_DECLARED_EXTRA: &[(&str, &str, &str)] = &[];
 
-/// bug-814 Phase 1: the `Body::Rewrite` implementations whose declared `errors`
-/// differ from what their target can raise, as measured when this guard was
-/// added (`cargo test --release --bin mfb
-/// every_body_rewrite_implementation_declares_exactly_the_errors_its_target_can_raise`).
-/// A ratchet, not a pass: a mismatch outside this list fails, and so does an
-/// entry that no longer mismatches. Phase 2 removes entries as it fixes them, and
-/// then this list.
-const REWRITE_PHASE_1_BASELINE: &[&str] = &[
-    "crypto::hmac (__crypto_hmac): undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::hmac (__crypto_hmacText): undeclared [\"ErrOutOfMemory\"], declared but never raised []",
-    "crypto::hkdf (__crypto_hkdf): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::pbkdf2 (__crypto_pbkdf2): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::argon2id (__crypto_argon2id): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\"], declared but never raised []",
-    "crypto::argon2id (__crypto_argon2idProfile): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\"], declared but never raised []",
-    "crypto::shake256 (__crypto_shake256): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::shake256 (__crypto_shake256Text): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::randomInt (__crypto_randomInt): undeclared [\"ErrIndexOutOfRange\"], declared but never raised []",
-    "crypto::randomInt (__crypto_randomIntBig): undeclared [\"ErrIndexOutOfRange\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::uuid4 (__crypto_uuid4): undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::convert (__crypto_convert): undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::exchange (__crypto_exchange): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::encrypt (__crypto_encrypt): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\", \"ErrUnknown\"], declared but never raised []",
-    "crypto::encrypt (__crypto_encryptText): undeclared [\"ErrOutOfMemory\"], declared but never raised []",
-    "crypto::decrypt (__crypto_decrypt): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
-    "crypto::constantTimeEqual (__crypto_constantTimeEqual): undeclared [\"ErrIndexOutOfRange\"], declared but never raised []",
-];
-
 pub(crate) fn rewrite_sweep() -> RewriteSweepResult {
     let codes = codes_by_value();
     let reg = registry();
@@ -2281,29 +2473,18 @@ fn every_body_rewrite_implementation_declares_exactly_the_errors_its_target_can_
         result.failures.join("\n  ")
     );
     assert!(
-        result.measured_implementations >= 1,
-        "the sweep found no Body::Rewrite implementations"
+        result.measured_implementations >= 34,
+        "the sweep found only {} Body::Rewrite implementations; there were 34 (29 members) \
+         when this was written",
+        result.measured_implementations
     );
-    let unexpected: Vec<&str> = result
-        .mismatched
-        .iter()
-        .map(String::as_str)
-        .filter(|m| !REWRITE_PHASE_1_BASELINE.contains(m))
-        .collect();
-    let stale: Vec<&str> = REWRITE_PHASE_1_BASELINE
-        .iter()
-        .copied()
-        .filter(|b| !result.mismatched.iter().any(|m| m == b))
-        .collect();
     assert!(
-        unexpected.is_empty() && stale.is_empty(),
+        result.mismatched.is_empty(),
         "{} of {} Body::Rewrite implementation(s) declare errors that differ from what their \
-         target can raise outside the Phase 1 baseline (fix the implementation's `errors` in \
-         src/codegen/builtins/<pkg>/func_*.rs):\n  {}\nbaseline entries that no longer \
-         mismatch (remove them):\n  {}",
-        unexpected.len(),
+         target can raise (fix the implementation's `errors` in \
+         src/codegen/builtins/<pkg>/func_*.rs):\n  {}",
+        result.mismatched.len(),
         result.measured_implementations,
-        unexpected.join("\n  "),
-        stale.join("\n  ")
+        result.mismatched.join("\n  ")
     );
 }

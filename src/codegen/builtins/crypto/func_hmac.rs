@@ -38,7 +38,8 @@ the block size is right-padded with zero bytes to the block size; the padded key
 then combined with the inner (`0x36`) and outer (`0x5c`) pads. The MAC is a
 deterministic function of `type`, `key`, and `data` alone — the same inputs always
 produce the same bytes, with no salt or randomness. Any key and message length is
-accepted, including empty; the function is **total** and never raises an error.
+accepted, including empty; no input is refused, and the only error is `ErrOutOfMemory`,
+when the program runs out of memory.
 
 Two overloads accept the message: the `List OF Byte` overload authenticates the raw
 bytes as given, while the `String` overload authenticates the string's UTF-8 encoding
@@ -122,7 +123,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: bytes(),
-                errors: vec![],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::Rewrite("__crypto_hmac"),
             },
             Implementation {
@@ -150,7 +151,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: bytes(),
-                errors: vec![],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::Rewrite("__crypto_hmacText"),
             },
         ],

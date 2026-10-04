@@ -44,7 +44,7 @@ MFBASIC Keccak-f[1600] core (24 rounds; each 64-bit lane is one `Integer` bit
 pattern manipulated only through the `bits` package). No platform cryptographic
 library is called, so the output is **byte-identical on macOS, Linux, and
 Windows**. No loop bound, branch, or index depends on the message or state
-contents; only the public message and output lengths do."#;
+contents; only the public message and output lengths do. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Derive 64 bytes from a message and print them as hex:
 
 ```
@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
                 body: Body::Rewrite("__crypto_shake256"),
             },
             Implementation {
@@ -121,7 +121,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
                 body: Body::Rewrite("__crypto_shake256Text"),
             },
         ],
