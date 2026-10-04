@@ -859,6 +859,9 @@ pub(crate) struct ElementUpdates {
     /// through the field store, the slot that receives the returned address (the
     /// destination itself, or a fresh block on a size change). `None` otherwise.
     pub(crate) into_result_slot: Option<usize>,
+    /// bug-784: the per-binding roles of re-bound names, by `Bind` `op_key`
+    /// (`analysis::borrow_get::BorrowGets::rebound`), applied at each bind.
+    pub(crate) rebound: HashMap<usize, crate::codegen::engine::analysis::borrow_get::Rebound>,
 }
 
 /// bug-766 B: the fixed-size record temporaries of the function being lowered

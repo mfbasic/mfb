@@ -72,17 +72,17 @@ pub(crate) fn collect_into_sites(
         &mut address_taken,
     );
     let borrow = collect_borrow_gets(&function.body, &address_taken, &|_, _| false);
-    if borrow.elements.is_empty() {
-        return IntoSites::new();
-    }
     // The update statements, by `op_key`, with the binding each one updates.
     let mut updates: HashMap<usize, &str> = HashMap::new();
-    for (name, binding) in &borrow.elements {
+    for (name, binding) in borrow.element_bindings() {
         for (update, _) in binding.sites() {
             if let Some(update) = update {
-                updates.insert(update, name.as_str());
+                updates.insert(update, name);
             }
         }
+    }
+    if updates.is_empty() {
+        return IntoSites::new();
     }
     struct Finder<'a> {
         updates: &'a HashMap<usize, &'a str>,

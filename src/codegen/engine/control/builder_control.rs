@@ -2154,9 +2154,65 @@ impl CodeBuilder<'_> {
             }
             updates.bindings.insert(name, binding);
         }
+        // bug-784: a re-bound name's role is switched at each of its binds
+        // (`apply_rebound`), so it starts in no name-keyed set. An element-bound
+        // binding the lowering does not alias is a copy, as above; its sites are
+        // registered now (they are keyed by op).
+        use crate::codegen::engine::analysis::borrow_get::ReboundRole;
+        for (key, mut rebound) in borrow_gets.rebound {
+            names.remove(&rebound.name);
+            if let ReboundRole::Element(binding) = &rebound.role {
+                let aliased = self.is_freeable_flat_value(&binding.type_)
+                    && binding.type_ != ParameterType::String
+                    && self.type_model.record_fields.contains_key(&binding.type_)
+                    && !self.promotable_vector_locals.contains(&rebound.name);
+                if aliased {
+                    for (update, write_back) in binding.sites() {
+                        if let Some(update) = update {
+                            updates.updates.insert(update, rebound.name.clone());
+                        }
+                        updates.write_backs.extend(write_back);
+                    }
+                } else {
+                    rebound.role = ReboundRole::Copy;
+                }
+            }
+            updates.rebound.insert(key, rebound);
+        }
         self.borrow_get_locals = names;
         self.element_updates = updates;
         self.install_scratch_copies(borrow_gets.scratch);
+    }
+
+    /// bug-784: at the `Bind` `key` of a re-bound name, make the name's
+    /// name-keyed borrow state this binding's (`BorrowGets::rebound`). The bindings
+    /// of a name have disjoint scopes and the lowering visits them in order, so
+    /// every read of the name in this binding's scope sees this state. `true` when
+    /// the binding borrows (its scratch copy, if the name has one, is skipped).
+    fn apply_rebound(&mut self, key: usize) -> bool {
+        use crate::codegen::engine::analysis::borrow_get::ReboundRole;
+        let Some(rebound) = self.element_updates.rebound.get(&key).cloned() else {
+            return false;
+        };
+        match rebound.role {
+            ReboundRole::Copy => {
+                self.borrow_get_locals.remove(&rebound.name);
+                self.element_updates.bindings.remove(&rebound.name);
+                false
+            }
+            ReboundRole::Borrow => {
+                self.borrow_get_locals.insert(rebound.name.clone());
+                self.element_updates.bindings.remove(&rebound.name);
+                true
+            }
+            ReboundRole::Element(binding) => {
+                self.borrow_get_locals.insert(rebound.name.clone());
+                self.element_updates
+                    .bindings
+                    .insert(rebound.name.clone(), *binding);
+                true
+            }
+        }
     }
 
     /// bug-689: `p = WITH p { … }` on an element-bound `p` — `p`'s slot holds the
@@ -2770,7 +2826,15 @@ impl CodeBuilder<'_> {
                         // bug-766 B: a scratch copy lowers its `get` as the same
                         // borrow, copies the element into its record-temp region
                         // at once, and owns no block either.
-                        let scratch_copy = self.record_temps.bindings.get(name).copied();
+                        // bug-784: a re-bound name takes this binding's role; a
+                        // borrowing one skips the name's scratch copy.
+                        let rebound_borrow = self
+                            .apply_rebound(crate::codegen::engine::analysis::last_use::op_key(op));
+                        let scratch_copy = if rebound_borrow {
+                            None
+                        } else {
+                            self.record_temps.bindings.get(name).copied()
+                        };
                         let is_borrow_get = (self.borrow_get_locals.contains(name)
                             || scratch_copy.is_some())
                             && self.is_freeable_flat_value(type_)

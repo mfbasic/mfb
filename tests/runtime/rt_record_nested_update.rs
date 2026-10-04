@@ -433,3 +433,125 @@ END FUNC
         "leaked: {alloc}/{free}/{live} B"
     );
 }
+
+/// bug-784: `benchmark/mfb/src/recordbench.mfb:test_record_nested`'s shape — the
+/// update loop's `LET h = get(hs, k)` and a checksum loop that binds `h` again.
+/// The second binding once disqualified the first (the borrow analysis keyed
+/// facts by name across the function): 3 allocations per update. Each binding is
+/// its own now, so the update loop allocates nothing per update.
+fn rebound_program(updates: u32, contrast: bool) -> String {
+    let get = |k: &str| {
+        if contrast {
+            format!("ident(collections::get(hs, {k}))")
+        } else {
+            format!("collections::get(hs, {k})")
+        }
+    };
+    format!(
+        "{PRELUDE}
+FUNC main() AS Integer
+  LET tagEven AS String = \"even-step\"
+  LET tagOdd AS String = \"odd\"
+  MUT hs AS List OF Holder = holders()
+  FOR i = 0 TO {last}
+    LET k AS Integer = i MOD 64
+    LET h AS Holder = {g1}
+    IF i MOD 2 = 0 THEN
+      hs = collections::set(hs, k, WITH h {{ inner := stepWide(h.inner, i, tagEven), touches := h.touches + 1 }})
+    ELSE
+      hs = collections::set(hs, k, WITH h {{ inner := stepWide(h.inner, i, tagOdd), touches := h.touches + 1 }})
+    END IF
+  NEXT
+  MUT sumv AS Integer = 0
+  FOR k = 0 TO 63
+    LET h AS Holder = {g2}
+    sumv = (sumv * 31 + h.id + len(h.label) + h.touches + wideSum(h.inner)) MOD 1000000007
+  NEXT
+  io::print(toString(sumv))
+  RETURN 0
+END FUNC
+",
+        last = updates - 1,
+        g1 = get("k"),
+        g2 = get("k"),
+    )
+}
+
+#[test]
+fn a_rebound_get_binding_keeps_its_element_update() {
+    let updates = 64 * REPS;
+    let (want, _, _, _) = run("b784_rebound_contrast", &rebound_program(updates, true));
+    let (got, alloc, free, live) = run("b784_rebound_1", &rebound_program(updates, false));
+    let (got2, alloc2, free2, live2) = run("b784_rebound_2", &rebound_program(2 * updates, false));
+    let (want2, _, _, _) = run(
+        "b784_rebound_contrast_2",
+        &rebound_program(2 * updates, true),
+    );
+    assert_eq!(
+        got, want,
+        "the update loop must print what the copying spelling prints"
+    );
+    assert_eq!(got2, want2);
+    assert!(
+        alloc == free && live == 0 && alloc2 == free2 && live2 == 0,
+        "leaked: {alloc}/{free}/{live} B, {alloc2}/{free2}/{live2} B"
+    );
+    assert_eq!(
+        alloc2,
+        alloc,
+        "{alloc} allocations at {updates} updates, {alloc2} at {}: a re-bound `h` \
+         must not cost its element update an allocation",
+        2 * updates
+    );
+}
+
+/// bug-784, the negative: with `h` bound three times, a binding whose container
+/// is written while it is live, and one passed whole to a function, must still
+/// be copies — each prints the value it read, not what the container holds later.
+#[test]
+fn an_unsafe_rebinding_beside_a_borrowing_one_reads_its_own_copy() {
+    let source = format!(
+        "{PRELUDE}
+FUNC touchesOf(h AS Holder) AS Integer
+  RETURN h.touches
+END FUNC
+
+FUNC main() AS Integer
+  MUT hs AS List OF Holder = holders()
+  MUT gs AS List OF Holder = holders()
+  MUT out AS String = \"\"
+  FOR j = 0 TO 2
+    LET h AS Holder = collections::get(hs, j)
+    out = out & toString(h.inner.count) & \",\"
+  NEXT
+  FOR j = 0 TO 2
+    LET h AS Holder = collections::get(gs, j)
+    gs = collections::set(gs, j, Holder[id := 99, label := \"replaced-label\", inner := newWide(50 + j), touches := 7])
+    out = out & toString(h.id) & \"/\" & h.label & \"/\" & h.inner.name & \";\"
+  NEXT
+  FOR j = 0 TO 2
+    LET h AS Holder = collections::get(gs, j)
+    out = out & toString(touchesOf(h)) & \"+\" & toString(h.id) & \" \"
+  NEXT
+  IF len(out) > 0 THEN
+    LET h AS Holder = collections::get(hs, 1)
+    out = out & h.label
+  ELSE
+    LET h AS Holder = collections::get(gs, 1)
+    out = out & h.label
+  END IF
+  io::print(out)
+  RETURN 0
+END FUNC
+"
+    );
+    let (out, alloc, free, live) = run("b784_rebound_negative", &source);
+    assert_eq!(
+        out,
+        "0,0,0,0/holder-0/wide-0;1/holder-1/wide-1;2/holder-2/wide-2;7+99 7+99 7+99 holder-1\n"
+    );
+    assert!(
+        alloc == free && live == 0,
+        "leaked: {alloc}/{free}/{live} B"
+    );
+}

@@ -70,7 +70,7 @@
 //! a fixed-size record (`CodeBuilder::install_borrow_gets`).
 
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
-use crate::target::shared::nir::{NirOp, NirValue};
+use crate::target::shared::nir::{NirMatchPattern, NirOp, NirValue};
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 
@@ -197,6 +197,52 @@ pub(crate) struct BorrowGets {
     /// never escape — read only through fields or as the target of a `WITH`
     /// that is a `set`/`append` item — with their declared type.
     pub(crate) scratch: HashMap<String, ParameterType>,
+    /// bug-784: per `Bind` (`op_key`) of a name the function binds more than once
+    /// (in disjoint scopes — a local is never redeclared while live), that one
+    /// binding's classification. The name-keyed fields above say nothing about
+    /// such a name except that it is in `names`/`pinned` when ANY of its bindings
+    /// borrows (which is all `last_use` asks: a name to exclude); the lowering
+    /// switches the name's role at each of these binds.
+    pub(crate) rebound: HashMap<usize, Rebound>,
+}
+
+/// bug-784: one binding of a name bound more than once in the function.
+#[derive(Clone)]
+pub(crate) struct Rebound {
+    /// The binding's (source) name.
+    pub(crate) name: String,
+    pub(crate) role: ReboundRole,
+}
+
+/// bug-784: how one binding of a re-bound name is lowered.
+#[derive(Clone)]
+pub(crate) enum ReboundRole {
+    /// An owned copy (or the name's scratch copy, `BorrowGets::scratch`).
+    Copy,
+    /// A borrow (`BorrowGets::names`), pinned or windowed.
+    Borrow,
+    /// An element-bound binding (boxed: it carries write-back templates).
+    Element(Box<ElementBinding>),
+}
+
+impl BorrowGets {
+    /// Every element-bound binding — by name, and (bug-784) each one of a
+    /// re-bound name — with its source name.
+    pub(crate) fn element_bindings(&self) -> impl Iterator<Item = (&str, &ElementBinding)> {
+        self.elements
+            .iter()
+            .map(|(name, binding)| (name.as_str(), binding))
+            .chain(
+                self.rebound
+                    .values()
+                    .filter_map(|rebound| match &rebound.role {
+                        ReboundRole::Element(binding) => {
+                            Some((rebound.name.as_str(), binding.as_ref()))
+                        }
+                        _ => None,
+                    }),
+            )
+    }
 }
 
 /// bug-766 B: the item of a `set(c, k, item)` / `append(c, item)` call — the
@@ -833,7 +879,467 @@ impl SiteCheck<'_> {
 /// reach a `StoreGlobal` of `g`; a caller that cannot answer may say `false`
 /// ONLY if it uses the result solely to exclude names (the answer then describes
 /// a superset of the real borrows, which is the safe direction for exclusion).
+///
+/// bug-784: the rules below reason about THE binding of a name, so a name bound
+/// twice — `LET h = get(…)` in one loop and again in a later one, or in both
+/// arms of an `IF` — used to disqualify every binding of it. A local is never
+/// redeclared while it is live (`mfb spec language bindings-and-scope`, "No
+/// shadowing of an in-scope local"), so such bindings have disjoint scopes and
+/// each is a binding of its own. The classification therefore runs on a copy of
+/// the body in which every binding of a re-bound name — `Bind`, `FOR`/`FOR EACH`
+/// variable, `TRAP` name — gets a unique name and every read resolves to the
+/// binding in scope (`rename_ops`); the results are mapped back to the real
+/// ops (`op_key`s, write-back templates) and, for a re-bound name, reported per
+/// binding in [`BorrowGets::rebound`]. A function with no re-bound name is
+/// classified exactly as before.
 pub(crate) fn collect_borrow_gets(
+    ops: &[NirOp],
+    address_taken: &HashSet<String>,
+    global_written: &dyn Fn(&[NirOp], &str) -> bool,
+) -> BorrowGets {
+    let rebound = rebound_names(ops);
+    let by_name = collect_borrow_gets_by_name(ops, address_taken, global_written);
+    if rebound.is_empty() {
+        return by_name;
+    }
+    let mut renamed = ops.to_vec();
+    let mut state = RenameState {
+        rebound: &rebound,
+        scopes: vec![HashMap::new()],
+        next: 0,
+        origin: HashMap::new(),
+    };
+    rename_ops(&mut renamed, &mut state);
+    let origin = state.origin;
+    // A renamed binding is address-taken when its name is.
+    let mut renamed_address_taken = address_taken.clone();
+    for (unique, name) in &origin {
+        if address_taken.contains(name) {
+            renamed_address_taken.insert(unique.clone());
+        }
+    }
+    let scoped = collect_borrow_gets_by_name(&renamed, &renamed_address_taken, global_written);
+    // The copy's ops, by `op_key`, to the real ones they were cloned from.
+    let mut real: HashMap<usize, &NirOp> = HashMap::new();
+    pair_ops(ops, &renamed, &mut real);
+    let real_key = |key: usize| real.get(&key).map(|op| op_key(op));
+    let real_binding = |binding: &ElementBinding| -> Option<ElementBinding> {
+        let real_site = |template_key: usize, update: Option<usize>, write_back: Option<usize>| {
+            Some((
+                (*real.get(&template_key)?).clone(),
+                match update {
+                    Some(key) => Some(real_key(key)?),
+                    None => None,
+                },
+                match write_back {
+                    Some(key) => Some(real_key(key)?),
+                    None => None,
+                },
+            ))
+        };
+        let (template, update, write_back) = real_site(
+            binding.write_back.or(binding.update)?,
+            binding.update,
+            binding.write_back,
+        )?;
+        let mut other_sites = Vec::with_capacity(binding.other_sites.len());
+        for site in &binding.other_sites {
+            let (template, update, write_back) = real_site(
+                site.write_back.or(site.update)?,
+                site.update,
+                site.write_back,
+            )?;
+            other_sites.push(ElementSite {
+                template,
+                update,
+                write_back,
+            });
+        }
+        Some(ElementBinding {
+            type_: binding.type_.clone(),
+            template,
+            update,
+            write_back,
+            other_sites,
+        })
+    };
+    let mut out = BorrowGets {
+        scratch: by_name.scratch,
+        ..BorrowGets::default()
+    };
+    // Bindings that kept their name: exactly as classified (a re-bound container
+    // or index local may have made one more of them borrowable).
+    for name in &scoped.names {
+        if !origin.contains_key(name) {
+            out.names.insert(name.clone());
+            out.scratch.remove(name);
+        }
+    }
+    for name in &scoped.pinned {
+        if !origin.contains_key(name) {
+            out.pinned.insert(name.clone());
+        }
+    }
+    for (name, binding) in &scoped.elements {
+        if origin.contains_key(name) {
+            continue;
+        }
+        match real_binding(binding) {
+            Some(binding) => {
+                out.elements.insert(name.clone(), binding);
+            }
+            // Unmappable (cannot happen: the copy has the real ops' shape) —
+            // the binding is then a copy.
+            None => {
+                out.names.remove(name);
+                out.pinned.remove(name);
+            }
+        }
+    }
+    // Each binding of a re-bound name, by its real `Bind`.
+    let mut roles: Vec<(usize, Rebound)> = Vec::new();
+    for_each_bind(&renamed, &mut |op| {
+        let NirOp::Bind { name: unique, .. } = op else {
+            return;
+        };
+        let Some(name) = origin.get(unique) else {
+            return;
+        };
+        let Some(key) = real_key(op_key(op)) else {
+            return;
+        };
+        let role = match scoped.elements.get(unique).and_then(&real_binding) {
+            Some(binding) => ReboundRole::Element(Box::new(binding)),
+            None if scoped.names.contains(unique) && !scoped.elements.contains_key(unique) => {
+                ReboundRole::Borrow
+            }
+            None => ReboundRole::Copy,
+        };
+        if !matches!(role, ReboundRole::Copy) {
+            out.names.insert(name.clone());
+            if scoped.pinned.contains(unique) {
+                out.pinned.insert(name.clone());
+            }
+        }
+        roles.push((
+            key,
+            Rebound {
+                name: name.clone(),
+                role,
+            },
+        ));
+    });
+    // A name none of whose bindings borrows needs no per-binding switch.
+    let borrowing: HashSet<String> = roles
+        .iter()
+        .filter(|(_, rebound)| !matches!(rebound.role, ReboundRole::Copy))
+        .map(|(_, rebound)| rebound.name.clone())
+        .collect();
+    out.rebound = roles
+        .into_iter()
+        .filter(|(_, rebound)| borrowing.contains(&rebound.name))
+        .collect();
+    out
+}
+
+/// bug-784: the names `ops` binds more than once — `Bind`, `FOR`/`FOR EACH`
+/// variables, `TRAP` names.
+fn rebound_names(ops: &[NirOp]) -> HashSet<String> {
+    struct Count(HashMap<String, usize>);
+    impl NirVisitor for Count {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { name, .. }
+                | NirOp::For { name, .. }
+                | NirOp::ForEach { name, .. }
+                | NirOp::Trap { name, .. } => *self.0.entry(name.clone()).or_insert(0) += 1,
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut count = Count(HashMap::new());
+    count.visit_ops(ops);
+    count
+        .0
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// bug-784: the state of [`rename_ops`].
+struct RenameState<'a> {
+    rebound: &'a HashSet<String>,
+    /// One map per open block: a re-bound name → the unique name of the binding
+    /// of it in scope there.
+    scopes: Vec<HashMap<String, String>>,
+    next: usize,
+    /// Unique name → source name.
+    origin: HashMap<String, String>,
+}
+
+impl RenameState<'_> {
+    /// Give a binding of `name` a unique name if `name` is re-bound. `@` never
+    /// appears in a source or compiler-internal local name.
+    fn bind(&mut self, name: &mut String) {
+        if !self.rebound.contains(name.as_str()) {
+            return;
+        }
+        let unique = format!("{name}@{}", self.next);
+        self.next += 1;
+        self.origin.insert(unique.clone(), name.clone());
+        self.scopes
+            .last_mut()
+            .expect("a scope is open")
+            .insert(name.clone(), unique.clone());
+        *name = unique;
+    }
+
+    /// The binding a read of `name` sees: the innermost open one.
+    fn resolve(&self, name: &mut String) {
+        if !self.rebound.contains(name.as_str()) {
+            return;
+        }
+        if let Some(unique) = self
+            .scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name.as_str()))
+        {
+            *name = unique.clone();
+        }
+    }
+
+    fn block(&mut self, ops: &mut [NirOp]) {
+        self.scopes.push(HashMap::new());
+        rename_ops(ops, self);
+        self.scopes.pop();
+    }
+}
+
+/// bug-784: rename every binding of a re-bound name in `ops` (in place, in the
+/// current scope) and every read of one, following the resolver's scoping: a
+/// block's bindings are visible to its later statements and its nested blocks;
+/// `IF`/`ELSE` arms, loop bodies, `MATCH` cases and `TRAP` bodies are nested
+/// blocks; a loop variable or `TRAP` name is bound in its body's scope.
+fn rename_ops(ops: &mut [NirOp], state: &mut RenameState<'_>) {
+    for op in ops {
+        match op {
+            NirOp::Bind { name, value, .. } => {
+                if let Some(value) = value {
+                    rename_value(value, state);
+                }
+                state.bind(name);
+            }
+            NirOp::StoreGlobal { value, .. } => {
+                if let Some(value) = value {
+                    rename_value(value, state);
+                }
+            }
+            NirOp::Assign { name, value } => {
+                rename_value(value, state);
+                state.resolve(name);
+            }
+            NirOp::StateAssign { resource, value } => {
+                rename_value(value, state);
+                state.resolve(resource);
+            }
+            NirOp::Return { value } => {
+                if let Some(value) = value {
+                    rename_value(value, state);
+                }
+            }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => rename_value(code, state),
+            NirOp::Fail { error } => rename_value(error, state),
+            NirOp::Eval { value } => rename_value(value, state),
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                rename_value(condition, state);
+                state.block(then_body);
+                state.block(else_body);
+            }
+            NirOp::Match { value, cases } => {
+                rename_value(value, state);
+                for case in cases {
+                    state.scopes.push(HashMap::new());
+                    match &mut case.pattern {
+                        NirMatchPattern::Else => {}
+                        NirMatchPattern::Value(value) => rename_value(value, state),
+                        NirMatchPattern::OneOf(values) => {
+                            for value in values {
+                                rename_value(value, state);
+                            }
+                        }
+                    }
+                    rename_ops(&mut case.body, state);
+                    if let Some(guard) = &mut case.guard {
+                        rename_value(guard, state);
+                    }
+                    state.scopes.pop();
+                }
+            }
+            NirOp::While {
+                condition, body, ..
+            } => {
+                rename_value(condition, state);
+                state.block(body);
+            }
+            NirOp::For {
+                name,
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                rename_value(start, state);
+                rename_value(end, state);
+                rename_value(step, state);
+                state.scopes.push(HashMap::new());
+                state.bind(name);
+                rename_ops(body, state);
+                state.scopes.pop();
+            }
+            NirOp::DoUntil { body, condition } => {
+                state.block(body);
+                rename_value(condition, state);
+            }
+            NirOp::ForEach {
+                name,
+                iterable,
+                body,
+                ..
+            } => {
+                rename_value(iterable, state);
+                state.scopes.push(HashMap::new());
+                state.bind(name);
+                rename_ops(body, state);
+                state.scopes.pop();
+            }
+            NirOp::Trap { name, body } => {
+                state.scopes.push(HashMap::new());
+                state.bind(name);
+                rename_ops(body, state);
+                state.scopes.pop();
+            }
+        }
+    }
+}
+
+/// bug-784: [`rename_ops`] for a value: every read of a local resolves to the
+/// binding in scope. Exhaustive, so a new variant cannot be skipped silently.
+fn rename_value(value: &mut NirValue, state: &mut RenameState<'_>) {
+    match value {
+        NirValue::Local(name) | NirValue::LocalRef { name, .. } => state.resolve(name),
+        NirValue::Const { .. }
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for capture in captures {
+                rename_value(capture, state);
+            }
+        }
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => {
+            for arg in args {
+                rename_value(arg, state);
+            }
+        }
+        NirValue::Checked { value, .. }
+        | NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => rename_value(value, state),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            rename_value(target, state);
+            for update in updates {
+                rename_value(&mut update.value, state);
+            }
+        }
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
+            for value in values {
+                rename_value(value, state);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                rename_value(key, state);
+                rename_value(value, state);
+            }
+        }
+        NirValue::MemberAccess { target, .. } => rename_value(target, state),
+        NirValue::Binary { left, right, .. } => {
+            rename_value(left, state);
+            rename_value(right, state);
+        }
+        NirValue::Unary { operand, .. } => rename_value(operand, state),
+    }
+}
+
+/// bug-784: pair each op of `copy` (by `op_key`) with the op of `real` it was
+/// cloned from — the two trees have the same shape.
+fn pair_ops<'r>(real: &'r [NirOp], copy: &[NirOp], out: &mut HashMap<usize, &'r NirOp>) {
+    for (real_op, copy_op) in real.iter().zip(copy) {
+        out.insert(op_key(copy_op), real_op);
+        let pairs: Vec<(&'r [NirOp], &[NirOp])> = match (real_op, copy_op) {
+            (
+                NirOp::If {
+                    then_body: a,
+                    else_body: b,
+                    ..
+                },
+                NirOp::If {
+                    then_body: c,
+                    else_body: d,
+                    ..
+                },
+            ) => vec![(a, c), (b, d)],
+            (NirOp::Match { cases: a, .. }, NirOp::Match { cases: b, .. }) => a
+                .iter()
+                .zip(b)
+                .map(|(a, b)| (a.body.as_slice(), b.body.as_slice()))
+                .collect(),
+            (NirOp::While { body: a, .. }, NirOp::While { body: b, .. })
+            | (NirOp::For { body: a, .. }, NirOp::For { body: b, .. })
+            | (NirOp::DoUntil { body: a, .. }, NirOp::DoUntil { body: b, .. })
+            | (NirOp::ForEach { body: a, .. }, NirOp::ForEach { body: b, .. })
+            | (NirOp::Trap { body: a, .. }, NirOp::Trap { body: b, .. }) => vec![(a, b)],
+            _ => Vec::new(),
+        };
+        for (a, b) in pairs {
+            pair_ops(a, b, out);
+        }
+    }
+}
+
+/// bug-784: every `Bind` in `ops`, at any depth.
+fn for_each_bind(ops: &[NirOp], f: &mut dyn FnMut(&NirOp)) {
+    struct Binds<'f>(&'f mut dyn FnMut(&NirOp));
+    impl NirVisitor for Binds<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if matches!(op, NirOp::Bind { .. }) {
+                (self.0)(op);
+            }
+            walk_op(self, op);
+        }
+    }
+    Binds(f).visit_ops(ops);
+}
+
+/// The name-keyed classification [`collect_borrow_gets`] runs (on a renamed copy
+/// when a name is re-bound).
+fn collect_borrow_gets_by_name(
     ops: &[NirOp],
     address_taken: &HashSet<String>,
     global_written: &dyn Fn(&[NirOp], &str) -> bool,
@@ -1637,5 +2143,156 @@ END FUNC
         count.visit_value(&bound);
         // The WITH's target and the one field read.
         assert_eq!(count.0, 2);
+    }
+
+    /// bug-784: the role of each binding of `name` in `main`, by the container
+    /// its `get` reads, sorted by container.
+    fn rebound_roles(body: &str, name: &str) -> Vec<(String, &'static str)> {
+        let module = lower(body);
+        let main = function(&module, "main");
+        let mut address_taken = HashSet::new();
+        crate::codegen::engine::function::function_lowering::collect_address_taken_locals(
+            &main.body,
+            &mut address_taken,
+        );
+        let got = collect_borrow_gets(&main.body, &address_taken, &|_, _| false);
+        struct Binds<'a> {
+            name: &'a str,
+            got: &'a BorrowGets,
+            out: Vec<(String, &'static str)>,
+        }
+        impl NirVisitor for Binds<'_> {
+            fn visit_op(&mut self, op: &NirOp) {
+                if let NirOp::Bind {
+                    name,
+                    value: Some(value),
+                    ..
+                } = op
+                {
+                    if name == self.name {
+                        let container = get_call(value)
+                            .and_then(|(_, args)| match args.first() {
+                                Some(NirValue::Local(c)) => Some(c.clone()),
+                                _ => None,
+                            })
+                            .unwrap_or_default();
+                        let role = match self.got.rebound.get(&op_key(op)).map(|r| &r.role) {
+                            Some(ReboundRole::Element(_)) => "element",
+                            Some(ReboundRole::Borrow) => "borrow",
+                            Some(ReboundRole::Copy) => "copy",
+                            None => "unswitched",
+                        };
+                        self.out.push((container, role));
+                    }
+                }
+                walk_op(self, op);
+            }
+        }
+        let mut binds = Binds {
+            name,
+            got: &got,
+            out: Vec::new(),
+        };
+        binds.visit_ops(&main.body);
+        binds.out.sort();
+        binds.out
+    }
+
+    fn roles(pairs: &[(&str, &'static str)]) -> Vec<(String, &'static str)> {
+        pairs.iter().map(|(c, r)| (c.to_string(), *r)).collect()
+    }
+
+    /// bug-784: the benchmark's shape — `LET h = get(…)` in one loop and again in a
+    /// later one (and the loop variable `j` bound twice too). Each binding is a
+    /// binding of its own; the old name-keyed rule made both copies.
+    #[test]
+    fn a_name_bound_in_two_sequential_loops_borrows_in_each() {
+        let got = rebound_roles(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  MUT ys AS List OF P = mk()\n  \
+             MUT t AS Integer = 0\n  FOR j = 0 TO 1\n    LET h AS P = collections::get(xs, j)\n    \
+             t = t + h.age\n  NEXT\n  FOR j = 0 TO 1\n    LET h AS P = collections::get(ys, j)\n    \
+             t = t + h.age\n  NEXT\n  RETURN t\nEND FUNC\n",
+            "h",
+        );
+        assert_eq!(got, roles(&[("xs", "borrow"), ("ys", "borrow")]));
+    }
+
+    /// bug-784: the same name in the two arms of an `IF` (sibling scopes).
+    #[test]
+    fn a_name_bound_in_sibling_arms_borrows_in_each() {
+        let got = rebound_roles(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  MUT ys AS List OF P = mk()\n  \
+             MUT t AS Integer = 0\n  IF len(xs) > 1 THEN\n    LET h AS P = collections::get(xs, 0)\n    \
+             t = t + h.age\n  ELSE\n    LET h AS P = collections::get(ys, 0)\n    t = t + h.age\n  \
+             END IF\n  RETURN t\nEND FUNC\n",
+            "h",
+        );
+        assert_eq!(got, roles(&[("xs", "borrow"), ("ys", "borrow")]));
+    }
+
+    /// bug-784: a re-bind inside the same loop body — once in a nested `IF` block,
+    /// once after it ends.
+    #[test]
+    fn a_name_rebound_inside_the_same_loop_borrows_in_each() {
+        let got = rebound_roles(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  MUT ys AS List OF P = mk()\n  \
+             MUT t AS Integer = 0\n  FOR j = 0 TO 1\n    IF j > 0 THEN\n      \
+             LET h AS P = collections::get(xs, j)\n      t = t + h.age\n    END IF\n    \
+             LET h AS P = collections::get(ys, j)\n    t = t + h.age\n  NEXT\n  RETURN t\nEND FUNC\n",
+            "h",
+        );
+        assert_eq!(got, roles(&[("xs", "borrow"), ("ys", "borrow")]));
+    }
+
+    /// bug-784: `test_record_nested`'s exact pattern — an element-bound binding in
+    /// the update loop and a read-only one of the same name in the checksum loop.
+    #[test]
+    fn an_element_update_survives_a_later_read_only_rebind() {
+        let got = rebound_roles(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  MUT t AS Integer = 0\n  \
+             FOR j = 0 TO 1\n    LET h AS P = collections::get(xs, j)\n    \
+             xs = collections::set(xs, j, WITH h { age := h.age + 1 })\n  NEXT\n  \
+             FOR j = 0 TO 1\n    LET h AS P = collections::get(xs, j)\n    t = t + h.age\n  NEXT\n  \
+             RETURN t\nEND FUNC\n",
+            "h",
+        );
+        let kinds: Vec<&str> = got.iter().map(|(_, role)| *role).collect();
+        let mut kinds_sorted = kinds.clone();
+        kinds_sorted.sort();
+        assert_eq!(kinds_sorted, vec!["borrow", "element"], "{got:?}");
+    }
+
+    /// bug-784, the negative: a binding that is NOT safe to borrow stays a copy
+    /// even though another binding of its name borrows — its container is written
+    /// while it is live, or it escapes whole into a call. One binding's verdict
+    /// never leaks to another.
+    #[test]
+    fn an_unsafe_rebinding_stays_a_copy_beside_a_borrowing_one() {
+        let got = rebound_roles(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  MUT ys AS List OF P = mk()\n  \
+             MUT zs AS List OF P = mk()\n  MUT t AS Integer = 0\n  FOR j = 0 TO 1\n    \
+             LET h AS P = collections::get(xs, j)\n    t = t + h.age\n  NEXT\n  FOR j = 0 TO 1\n    \
+             LET h AS P = collections::get(ys, j)\n    \
+             ys = collections::set(ys, j, P[age := 9, trail := [1.0]])\n    t = t + h.age\n  NEXT\n  \
+             FOR j = 0 TO 1\n    LET h AS P = collections::get(zs, j)\n    t = t + f(h)\n  NEXT\n  \
+             RETURN t\nEND FUNC\n",
+            "h",
+        );
+        assert_eq!(
+            got,
+            roles(&[("xs", "borrow"), ("ys", "copy"), ("zs", "copy")])
+        );
+    }
+
+    /// bug-784: a function that binds no name twice is classified exactly as by
+    /// name — nothing is switched per binding.
+    #[test]
+    fn a_function_without_rebinds_has_no_per_binding_roles() {
+        let got = classify(
+            "FUNC main() AS Integer\n  MUT xs AS List OF P = mk()\n  LET h AS P = collections::get(xs, 0)\n  \
+             RETURN h.age\nEND FUNC\n",
+        );
+        assert!(got.rebound.is_empty());
+        assert!(got.names.contains("h"));
     }
 }
