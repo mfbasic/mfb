@@ -349,6 +349,12 @@ pub(crate) struct CodeBuilder<'a> {
     /// lowering the body (`unboxed_trap_result_candidates`); a bind still checks
     /// the payload type before taking the unboxed form.
     pub(crate) unboxed_trap_candidates: HashMap<String, UnboxedTrapUses>,
+    /// bug-778: the inline-`TRAP` delivery slots (`$trap_valN`, `$trap_errN`)
+    /// read exactly once, by the whole value of a `Bind`/`Assign` — the
+    /// desugar's `Bind y = $trap_valN`. That read is the slot's last use, so the
+    /// owning store MOVES the block out instead of copying it
+    /// (`trap_delivery_moves`, consulted by `lower_value_owned`).
+    pub(crate) trap_delivery_moves: HashSet<String>,
     /// bug-778: the unboxed trap results bound so far, by local name — what the
     /// three readers consult instead of dereferencing a `Result` block.
     pub(crate) unboxed_trap_locals: HashMap<String, UnboxedTrapResult>,
@@ -764,6 +770,7 @@ impl<'a> CodeBuilder<'a> {
             trap_discard_error_results: HashSet::new(),
             raw_result_discard_error: false,
             unboxed_trap_candidates: HashMap::new(),
+            trap_delivery_moves: HashSet::new(),
             unboxed_trap_locals: HashMap::new(),
             unboxed_trap_pending: None,
             unboxed_trap_active: None,

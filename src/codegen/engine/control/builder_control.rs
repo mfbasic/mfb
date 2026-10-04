@@ -2977,6 +2977,22 @@ impl CodeBuilder<'_> {
                             // A `d`-native `Float` stores via `str d` (plan-01
                             // float-dnative); every other value via `str x`.
                             self.store_value_at(&result, abi::stack_pointer(), stack_offset);
+                        } else if owns_freeable_value
+                            && !owns_resource_slot
+                            && is_inline_trap_delivery_slot(name)
+                            && self.result_payload_is_block(type_)
+                        {
+                            // bug-778: the inline-`TRAP` desugar's delivery slots —
+                            // `$trap_valN` (the value) and `$trap_errN` (a check
+                            // chain's error) — are assigned on every path before
+                            // they are read: the `Ok` arm assigns the value, a
+                            // failure assigns the error, and every handler path must
+                            // `RECOVER` (which assigns) or diverge (`mfb spec language
+                            // error-model` §8 rule 12). A default block here is built
+                            // and freed unread on every evaluation, success included.
+                            // The slot was zeroed above, and a null slot is what the
+                            // assignment's free of the old value and the scope drop
+                            // both skip.
                         } else {
                             let result = self.lower_default_value(type_)?;
                             // The default empty `String` is static rodata; copy it
@@ -5501,4 +5517,16 @@ mod transfer_temp_classification_tests {
             );
         }
     }
+}
+
+/// bug-778: whether `name` is one of the inline-`TRAP` desugar's delivery slots
+/// (`ir::lower::lower_inline_trap`): `$trap_valN`, which carries the value on the
+/// `Ok` and `RECOVER` paths, or `$trap_errN`, a check chain's shared error. Both
+/// are declared without an initializer and assigned before every read. The `$`
+/// cannot begin a source identifier, so only the desugar mints these names.
+pub(crate) fn is_inline_trap_delivery_slot(name: &str) -> bool {
+    ["$trap_val", "$trap_err"].iter().any(|prefix| {
+        name.strip_prefix(prefix)
+            .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+    })
 }

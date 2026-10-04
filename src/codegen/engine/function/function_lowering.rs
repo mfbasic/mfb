@@ -510,6 +510,64 @@ fn unboxed_trap_result_candidates(ops: &[NirOp]) -> HashMap<String, UnboxedTrapU
         .collect()
 }
 
+/// bug-778: the inline-`TRAP` delivery slots whose one read can MOVE.
+///
+/// `lower_inline_trap` stages the trapped value in `$trap_valN` (and a check
+/// chain's error in `$trap_errN`) and delivers it with `Bind y = $trap_valN` (or
+/// `Assign`). When that store is the slot's ONLY read in the function — checked
+/// here, not assumed, so an optimizer rewrite that reads it again keeps the copy
+/// — the read is its last use, and copying the block only to drop the original at
+/// scope end is a wasted allocation on every evaluation. Address-taken slots are
+/// excluded (`LocalRef`), and so is a slot read anywhere but a store's whole
+/// value.
+fn trap_delivery_moves(ops: &[NirOp]) -> HashSet<String> {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    #[derive(Default)]
+    struct Collector {
+        stored: HashMap<String, usize>,
+        reads: HashMap<String, usize>,
+        address_taken: HashSet<String>,
+    }
+    impl NirVisitor for Collector {
+        fn visit_op(&mut self, op: &NirOp) {
+            let stored = match op {
+                NirOp::Bind {
+                    value: Some(value), ..
+                } => Some(value),
+                NirOp::Assign { value, .. } => Some(value),
+                _ => None,
+            };
+            if let Some(NirValue::Local(name)) = stored {
+                *self.stored.entry(name.clone()).or_default() += 1;
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Local(name) => *self.reads.entry(name.clone()).or_default() += 1,
+                NirValue::LocalRef { name, .. } => {
+                    self.address_taken.insert(name.clone());
+                }
+                _ => {}
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut collector = Collector::default();
+    collector.visit_ops(ops);
+    collector
+        .stored
+        .iter()
+        .filter(|(name, stored)| {
+            crate::codegen::engine::control::is_inline_trap_delivery_slot(name)
+                && **stored == 1
+                && collector.reads.get(*name) == Some(&1)
+                && !collector.address_taken.contains(*name)
+        })
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
 /// Small-vector locals safe to keep in registers (their lanes) for their whole
 /// lifetime, with no arena block (plan-01-vector). A candidate is a binding of a
 /// vector type (`Float2/3/4`, `Fixed*`, `Integer*`) whose initializer produces a
@@ -1076,6 +1134,7 @@ pub(crate) fn lower_function(
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
         unboxed_trap_candidates: HashMap::new(),
+        trap_delivery_moves: HashSet::new(),
         unboxed_trap_locals: HashMap::new(),
         unboxed_trap_pending: None,
         unboxed_trap_active: None,
@@ -1336,6 +1395,7 @@ pub(crate) fn lower_function(
     builder.trap_discard_error_results = trap_discard_error_results(&function.body);
     // bug-778: the inline-`TRAP` temporaries that need no heap `Result` block.
     builder.unboxed_trap_candidates = unboxed_trap_result_candidates(&function.body);
+    builder.trap_delivery_moves = trap_delivery_moves(&function.body);
     // plan-86 K1: a pure parameter-passthrough function returns its argument uncopied;
     // the caller copies at its ownership boundary. Only the user-function path sets
     // this — builtin/thread-copy wrappers default false (never param-borrow, and no
@@ -1728,6 +1788,7 @@ pub(crate) fn lower_abi_function_helper(
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
         unboxed_trap_candidates: HashMap::new(),
+        trap_delivery_moves: HashSet::new(),
         unboxed_trap_locals: HashMap::new(),
         unboxed_trap_pending: None,
         unboxed_trap_active: None,
@@ -1978,6 +2039,7 @@ pub(crate) fn helper_code_builder<'a>(
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
         unboxed_trap_candidates: HashMap::new(),
+        trap_delivery_moves: HashSet::new(),
         unboxed_trap_locals: HashMap::new(),
         unboxed_trap_pending: None,
         unboxed_trap_active: None,

@@ -789,6 +789,21 @@ impl CodeBuilder<'_> {
         if self.unboxed_trap_read_moves(value) {
             return Ok(result);
         }
+        // bug-778: the desugar's delivery `Bind y = $trap_valN` is that slot's one
+        // read (`trap_delivery_moves`), so the store takes the block and nulls the
+        // slot — whose drop then skips it — instead of copying it.
+        if let NirValue::Local(name) = value {
+            if self.trap_delivery_moves.contains(name)
+                && self.is_freeable_flat_value(&result.type_)
+                && !self.owns_graph(&result.type_)
+            {
+                if let Some(local) = self.locals.get(name).filter(|local| !local.by_ref) {
+                    let slot = local.stack_offset;
+                    self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+                    return Ok(result);
+                }
+            }
+        }
         // A register-native vector reaching an owner boundary (a binding, global,
         // return, closure env) materializes to its block here — the block is
         // registered as a temp by `vector_value_as_block` and claimed just below,
