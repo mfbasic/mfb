@@ -28,7 +28,8 @@ current `json::JsonArr`, a token on an array that is not spelled as an index, or
 a `json::JsonNull`, `json::JsonBool`, `json::JsonNum` or `json::JsonStr` reached
 while path elements remain.
 
-`json::getOr` never fails, whatever `path` contains.
+`json::getOr` never fails because of what `path` contains — the only way the
+call fails is `ErrOutOfMemory`, which has nothing to do with `path`.
 
 An empty `path` performs no traversal and returns `value` unchanged, whatever
 variant it is; `defaultValue` is never consulted in that case.
@@ -38,6 +39,8 @@ indistinguishable from a value that was genuinely present. In particular
 `json::getOr(doc, path, json::JsonNull[NOTHING])` returns the same thing whether the key
 was absent or was present with the JSON value `null`. When that distinction
 matters, use `json::get` and catch the failure instead.
+
+`ErrOutOfMemory` means the program ran out of memory.
 
 The `value` and `defaultValue` arguments each accept the `json::Json` union or any one
 of its six member types directly. `path` may also be passed by the name `key`,
@@ -169,7 +172,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named("Json"),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__json_getOr"),
         }],
     });

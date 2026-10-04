@@ -118,7 +118,9 @@ The argument accepts the `json::Json` union or any one of its six member types
 a scalar member value can be serialized without wrapping it.
 
 The output is always re-readable by `json::parse`, which makes
-`parse`/`stringify` a lossless round trip for every value `parse` can produce."#;
+`parse`/`stringify` a lossless round trip for every value `parse` can produce.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Round-trip a document through text:
 
@@ -306,7 +308,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 // the code stays listed rather than becoming an undocumented way
                 // for the call to fail; it simply should never be seen. The two
                 // non-finite codes were already in that position (see the DESC).
-                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
+                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf", "ErrOutOfMemory"],
                 body: Body::mfb(FUNC_BODY, "__json_stringify"),
             },
             // plan-120-D: indent by a number of spaces. Same arity as the String
@@ -327,7 +329,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::String,
-                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
+                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf", "ErrOutOfMemory"],
                 body: Body::mfb(FUNC_BODY_COUNT, "__json_stringifyCount"),
             },
             // plan-120-D: indent by a literal string, e.g. a tab.
@@ -343,7 +345,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 ],
                 return_type: ParameterType::String,
-                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf"],
+                errors: vec!["ErrInvalidFormat", "ErrFloatNaN", "ErrFloatInf", "ErrOutOfMemory"],
                 body: Body::mfb(FUNC_BODY_TEXT, "__json_stringifyText"),
             },
         ],

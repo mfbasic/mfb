@@ -51,7 +51,9 @@ argument may also be passed by the name `key`.
 
 Unlike JavaScript's `JSON.parse`, which hands back a plain object you then index
 with ordinary syntax, `json::get` is how a whole path is read in one call — there
-is no separate array accessor to reach for."#;
+is no separate array accessor to reach for.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Read a nested member by key path:
 
@@ -177,7 +179,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named("Json"),
-            errors: vec!["ErrNotFound"],
+            errors: vec!["ErrNotFound", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__json_get"),
         }],
     });

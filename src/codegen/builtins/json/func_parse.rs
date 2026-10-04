@@ -121,7 +121,9 @@ nothing to ask for removal with and every return is stored. Returning
 `json::JsonNull[NOTHING]` therefore stores a JSON null instead of dropping the
 member.
 
-The argument may also be passed by the name `text`."#;
+The argument may also be passed by the name `text`.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Parse an object and read a nested value out of it:
 
@@ -260,6 +262,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     "ErrInvalidSurrogate",
                     "ErrDepthExceeded",
                     "ErrOverflow",
+                    "ErrOutOfMemory",
                 ],
                 body: Body::mfb(FUNC_BODY, "__json_parse"),
             },
@@ -287,6 +290,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     "ErrInvalidSurrogate",
                     "ErrDepthExceeded",
                     "ErrOverflow",
+                    "ErrOutOfMemory",
                 ],
                 body: Body::mfb(FUNC_BODY_REVIVE, "__json_parseRevive"),
             },
