@@ -1302,3 +1302,7 @@ path = "tests/runtime/rt_trapped_call_capability_gate.rs"
 name = "rt_union_trap_bind_default"
 path = "tests/runtime/rt_union_trap_bind_default.rs"
 
+
+[[test]]
+name = "rt_crypto_random_int_span"
+path = "tests/runtime/rt_crypto_random_int_span.rs"

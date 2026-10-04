@@ -124,7 +124,10 @@ extensions); computation is portable-arithmetic only, identical across targets.
   (`77050016`), returning plaintext only on success. `aad` defaults to empty.
 - **Secure random and identifiers** — `randomBytes` (raw bytes), `randomInt`
   (uniform, unbiased, rejection-sampled, inclusive `[min, max]`; the `Integer` form
-  rejects a span whose `max - min` overflows a signed 64-bit `Integer`, and the
+  rejects a span whose `max - min` overflows a signed 64-bit `Integer` with
+  `ErrInvalidArgument` and accepts every other span — a span of exactly
+  `9223372036854775807`, whose 2^63 outcomes no `Integer` count can hold, is one
+  uniform 63-bit draw — and the
   `big::Int` form — `randomInt(min AS big::Int, max AS big::Int) AS big::Int`, available
   when the program also imports `big` — has no span limit: it draws just enough bytes to
   cover the span, masks the top byte to the span's bit length, and rejects rather than
