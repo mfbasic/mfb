@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: proposed `tests/runtime/rt_resource_review_805.rs` plus syntax/behavior fixtures described below.
+Status: Fixed (2026-10-03, bug-staging-7, 5814f14f4)
+Regression Test: `tests/runtime/rt_resource_review_805.rs` (18 runtime tests)
 
 A function that declares its result container before producing a resource,
 then returns `List OF List OF Holder` with a `RES fs::File` field, passes source
@@ -142,26 +142,27 @@ alias deduplication, moved/closed records, and owner-word guards before freeing.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_resource_review_805.rs` reproducing the input above,
+- [x] Add `tests/runtime/rt_resource_review_805.rs` reproducing the input above,
       asserting the expected result rather than the observed failure.
-- [ ] Add syntax and runtime fixtures for success, failure, alias, and nesting
-      siblings in the blast-radius list; demonstrate RED before editing behavior.
-- [ ] Complete the listed sibling audit, recording which cases fail and why.
+- [x] Add runtime tests for success, failure, alias, and nesting siblings in the
+      blast-radius list; RED against the base compiler (see Resolution). No
+      `tests/rt-behavior` fixture was added: its goldens belong to the batch gate.
+- [x] Complete the listed sibling audit, recording which cases fail and why.
 
 Acceptance: the primary regression fails for the documented reason, and each
 sibling has a measured outcome or an explicit untested status.
-Commit: —
+Commit: 5814f14f4
 
 ### Phase 2 — the fix
 
-- [ ] Implement the design above and all confirmed in-scope sibling fixes.
-- [ ] Preserve the non-goals and add matching valid/invalid function fixtures.
-- [ ] Update the owning language/memory/architecture topics to the implemented
+- [x] Implement the design above and all confirmed in-scope sibling fixes.
+- [x] Preserve the non-goals (controls and non-goal cases in the runtime tests).
+- [x] Update the owning language/memory/architecture topics to the implemented
       contract; remove the as-is limitation when the corresponding proof passes.
 
 Acceptance: primary and sibling regressions pass, including observable cleanup
 and the existing contrast cases.
-Commit: —
+Commit: 5814f14f4
 
 ### Phase 3 — expected outputs + full validation
 
@@ -171,12 +172,12 @@ Commit: —
       lines disproved by the new contract, never blanket rebaseline.
 - [ ] Run `cargo test`, including the new runtime regression and affected runtime
       targets, then `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-- [ ] Run the primary and sibling programs on affected native backends using
+- [x] Run the primary and sibling programs on affected native backends using
       `.ai/remote_systems.md`; record unavailable environments explicitly.
 
 Acceptance: all required gates pass; the source programs demonstrate the intended
 behavior, and artifact differences are limited to reviewed changes.
-Commit: —
+Commit: — (full suite / acceptance / artifact gate: coordinator batch run)
 
 ## Validation Plan
 
@@ -198,3 +199,97 @@ The repair crosses ownership analysis and observable resource behavior. This
 report preserves a runnable reproduction and a test-first implementation plan;
 the accompanying specification change describes current behavior, not a shipped
 compiler fix.
+
+## Resolution (2026-10-03, bug-staging-7)
+
+Fixed in `5814f14f4`. The reproduction builds and prints `first`
+(`MFB_TEST_EXE=… cargo test --test rt_resource_review_805
+a_nested_list_of_records_returns_a_live_handle`: ok; FAILED against the base
+compiler `/tmp/b805-head-target/release/mfb`, built from `bug-staging-7` at
+`692e7f32d`).
+
+**One walk for "every resource this value reaches".** `src/codegen/resource/walk.rs`
+(`CodeBuilder::emit_for_each_resource`) descends a value by its type — list and map
+elements (a map skips its tombstones), record fields (read exactly as
+`lower_field_access` reads them), a data union's active variant (the record it
+inlines at `+16`) — and hands every resource leaf (a record, or a resource-union
+box) to one visitor. A type that reaches itself (`TYPE Node { h AS RES File, kids AS
+List OF Node }`) is expanded once per kind and walked through a run-time worklist of
+arena nodes, never by recursion on the native stack. Its consumers:
+
+* `RETURN` releases every reached record the returning frame owns
+  (`emit_release_returned_value`), not only a resource, a union or a flat
+  `List OF RES` — the reason the fix could not stop at making the program compile:
+  with the drop descriptor alone it compiled and then printed `Resource handle is
+  already closed`, because `make`'s drain closed `f` at `make`'s exit.
+* A binding of a call result adopts every reached resource (`setup_owned_list` +
+  `emit_owned_list_seed_from_collection`), and so — found by this audit, broken at
+  base for a flat `List OF RES` too — does an ASSIGNMENT of a call result to an
+  existing container binding (`call_assigned_owner_containers`): at base those
+  resources were owned by nobody and a buffered write through them was lost.
+* A discarded call result closes the unowned records it reaches
+  (`emit_close_discarded_value`).
+
+**The owned-list drop is the leaf's, not the container's.** `collection_resource_drop`
+took one aggregate layer and required a close op there; `resource_leaf_drop` takes
+the leaf, and a container reaching several leaf kinds (a record with a `File` field
+and a resource-union field — refused at base, "an owned-list carries one close op")
+registers one list per kind. `record_resource_field_element` and the free
+`record_res_field_types`/`is_resource_owning_container` are gone with that refusal.
+
+**`RETURN` of an owner container keeps its drains.** It used to remove them
+(`deactivate_owned_list`). The release already makes every returned record unowned,
+so the kept drains close nothing the caller adopts; they free the 16-byte node every
+float allocated (16 B leaked per call at base, `a_returned_flat_resource_list_frees_its_float_nodes`)
+and close a resource removed from the container before the `RETURN`, which at base
+stayed owned by the dead frame and was never closed
+(`a_resource_removed_before_the_return_closes_in_the_callee`).
+`record_ownership::owning_collections` now also treats a collection of records that
+reach a resource as able to own its adopted records, so the adopting drain reclaims
+them: 0 bytes live after 50 or 100 calls (`a_returned_nested_aggregate_leaks_nothing_per_call`;
+112 B per call before that change).
+
+**Sibling found in the heterogeneous-record audit.** Declaring `UNION Stream {
+fs::File, tcp::Socket }` anywhere made `RETURN f` of a plain `File` hand the caller a
+16-byte copy of the record's head: `inline_collection_payload_size` answered for the
+variant with the union's inline size. A concrete resource is now never an inline
+payload (`a_declared_resource_union_does_not_change_a_plain_file_return`; at base
+`RES f = fresh(); fs::writeAll(f, "+")` in such a program raised
+`7-703-0009 … moved to another thread`).
+
+### Sibling audit (measured)
+
+`tests/runtime/rt_resource_review_805.rs`, 18 tests. Against the base compiler 16
+FAIL and the 2 controls pass (`the_flat_resource_list_return_is_unchanged`,
+`a_passed_in_handle_returned_inside_a_nested_aggregate_keeps_its_owner`); the
+bug-643 control `a_repackaged_…` fails there only because its nested `make()` does
+not lower. With the fix all 18 pass.
+
+| Case | Base | Fixed |
+| --- | --- | --- |
+| `List OF List OF Holder` return (primary, read + buffered + `--debug`) | lowering error | first / closes once at caller scope, `double_free_skips 0` |
+| `List OF Holder`, `Map OF String TO Holder`, record holding `List OF Holder` | lowering error | transfer, close once at caller |
+| record with `File` + resource-union fields | lowering error (one close op) | both transfer |
+| data-union variant carrying a `RES` field | lowering error | transfers |
+| recursive record tree | lowering error | every handle transfers, `double_free_skips 0` |
+| discarded nested result | lowering error | closed at the call statement |
+| error before the `RETURN` | lowering error | closed by the callee's error exit |
+| passed-in handle returned nested (bug-755 shape) | works | unchanged |
+| `collections::take`/`get` over the caller's nested value (bug-643) | lowering error | adopts nothing |
+| flat `List OF RES` return (contrast) | works, 16 B/call node leak | works, no leak |
+| assignment of a call result to a container binding | never closed | adopted into the binding's scope |
+
+### Validation
+
+* `cargo test --release --test rt_resource_review_805` (+ the 26 resource/global
+  runtime and codegen tests listed in the 806 resolution): ok.
+* `cargo test --release --bin mfb -- resource owned escape module_owner spec record_ownership`: ok.
+* `scripts/test-accept.sh` over the resource/thread/fs/tcp/net/native/scope/memory/
+  process/package fixtures: see the 806 resolution.
+* Cross-target: the primary and nine sibling programs cross-built with
+  `mfb build --target linux-aarch64|linux-riscv64|windows-x86_64` and run on box 2226
+  (Debian aarch64 glibc), 2229 (Alpine riscv64 musl) and 192.168.1.206 (Win11 x86_64):
+  identical output and file contents on all three.
+
+Not run here (coordinator's batch gate): full `cargo test`, full acceptance, artifact
+gate. Expected golden moves are listed in the 806 resolution.
