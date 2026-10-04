@@ -398,8 +398,15 @@ pub struct TokenRevokeResponse {
     pub revoked: bool,
 }
 
-/// Two-sided ownership transfer (plan-10-D1). Both halves are ident-signed and
-/// logged; already-published versions keep verifying against the old ident.
+/// Two-sided ownership transfer (plan-10-D1, signed terms since plan-168-A).
+/// Both halves are ident-signed over the same v2 terms and logged; the accepted
+/// pair is kept in the append-only transfer history `/index` serves, and
+/// already-published versions keep verifying against the old ident.
+///
+/// `sequence` and `releaseDigest` are the terms the offer signs, which the
+/// client computes from `/index` (`transfers.len()` and
+/// `crypto::release_digest` over `versions`); the registry refuses terms that
+/// no longer match its own.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TransferOfferRequest {
     pub ident: String,
@@ -407,6 +414,9 @@ pub struct TransferOfferRequest {
     pub from_owner: String,
     #[serde(rename = "toOwner")]
     pub to_owner: String,
+    pub sequence: i64,
+    #[serde(rename = "releaseDigest")]
+    pub release_digest: String,
     #[serde(rename = "sessionToken")]
     pub session_token: String,
     #[serde(rename = "identSignature")]
@@ -530,6 +540,75 @@ pub struct IndexResponse {
     #[serde(rename = "serverFingerprint")]
     pub server_fingerprint: String,
     pub versions: Vec<IndexVersion>,
+    /// The package's accepted ownership transfers, oldest first (plan-168-A).
+    /// Empty for a package that never moved, and absent from an older
+    /// registry's response, which reads the same way: the prefix owner (the
+    /// top-level `owner`) is the only owner.
+    #[serde(default)]
+    pub transfers: Vec<TransferLink>,
+}
+
+/// One accepted ownership transfer as `/index` serves it (plan-168-A §4.4).
+///
+/// `offerSignature` is the from-owner's signature under `fromIdentKey`, and
+/// `acceptSignature` the to-owner's under `toIdentKey`, both over the v2
+/// messages (`crypto::transfer_offer_message_v2` / `_accept_`) on `(ident,
+/// sequence, fromOwner, fp(fromIdentKey), toOwner, releaseDigest)`. A link
+/// whose keys, digest and signatures are all null is a LEGACY link replayed
+/// from the transparency log: nothing about it can be authenticated.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct TransferLink {
+    pub sequence: i64,
+    #[serde(rename = "fromOwner")]
+    pub from_owner: String,
+    /// `ed25519:<base64url>`, or null for a legacy link.
+    #[serde(rename = "fromIdentKey")]
+    pub from_ident_key: Option<String>,
+    #[serde(rename = "toOwner")]
+    pub to_owner: String,
+    /// `ed25519:<base64url>`, or null for a legacy link.
+    #[serde(rename = "toIdentKey")]
+    pub to_ident_key: Option<String>,
+    #[serde(rename = "releaseDigest")]
+    pub release_digest: Option<String>,
+    #[serde(rename = "offerSignature")]
+    pub offer_signature: Option<String>,
+    #[serde(rename = "acceptSignature")]
+    pub accept_signature: Option<String>,
+    #[serde(rename = "offeredAt")]
+    pub offered_at: i64,
+    #[serde(rename = "acceptedAt")]
+    pub accepted_at: i64,
+    /// The to-owner's CURRENT ident under a fresh server name binding, so a
+    /// client can trust an intermediate owner's newest key without a second,
+    /// unsigned `/idents` fetch.
+    #[serde(rename = "toBinding")]
+    pub to_binding: OwnerBinding,
+}
+
+/// A server-signed name binding: `nameBindingSignature` is the registry
+/// server key's signature over `crypto::name_binding_message(owner,
+/// identFingerprint)` (plan-168-A §4.4).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct OwnerBinding {
+    pub owner: String,
+    /// `ed25519:<base64url>`.
+    #[serde(rename = "identKey")]
+    pub ident_key: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+    #[serde(rename = "nameBindingSignature")]
+    pub name_binding_signature: String,
+}
+
+/// Who published one release (plan-168-A §4.4). `identFingerprint` is null for
+/// a release published before the registry recorded publisher keys; clients
+/// verify the downloaded header's `identKey`, never this field.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct Publisher {
+    pub owner: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: Option<String>,
 }
 
 /// `GET /packages/<owner>#<package>` (plan-61-B): the public, anonymous package
@@ -657,6 +736,13 @@ pub struct IndexVersion {
     /// The version's publish transparency-log entry (plan-23-B3), if present.
     #[serde(rename = "logEntry")]
     pub log_entry: Option<LogEntry>,
+    /// The publishing owner (plan-168-A); absent from an older registry.
+    #[serde(default)]
+    pub publisher: Option<Publisher>,
+    /// The number of accepted transfers before this release was published
+    /// (plan-168-A); 0 from an older registry, which never recorded one.
+    #[serde(default)]
+    pub epoch: u32,
 }
 
 impl IndexVersion {
@@ -1661,16 +1747,20 @@ async fn package_detail(
     State(state): State<AppState>,
     axum::extract::Path(ident): axum::extract::Path<String>,
 ) -> Result<Json<PackageDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (owner_part, _package_part) = split_ident(&ident)?;
+    split_ident(&ident)?;
     let Some(detail) = state.store.package_detail(&ident).map_err(internal)? else {
         // One 404 for "no such package", whatever the reason. Distinguishing
         // "unknown owner" from "unknown package under a known owner" would
         // turn this route into an owner-enumeration oracle.
         return Err(not_found("unknown package".to_string()));
     };
+    // The key shown is the STORED owner's (plan-168-A), the account
+    // `detail.owner` names. After a transfer that is no longer the ident
+    // prefix, and pairing it with the prefix owner's key described an account
+    // that does not exist.
     let Some((owner_record, ident_key)) = state
         .store
-        .owner_with_ident_key(owner_part)
+        .owner_with_ident_key(&detail.owner)
         .map_err(internal)?
     else {
         return Err(not_found("unknown package".to_string()));
@@ -1946,6 +2036,8 @@ async fn package_index(
             });
         let abi_index =
             serde_json::from_str(&row.abi_index).unwrap_or_else(|_| serde_json::json!({}));
+        let epoch = u32::try_from(row.transfer_epoch)
+            .map_err(|_| internal(format!("release {} has a negative epoch", row.version)))?;
         versions.push(IndexVersion {
             version: row.version,
             hash: row.hash,
@@ -1953,6 +2045,11 @@ async fn package_index(
             state: row.state,
             abi_index,
             log_entry,
+            publisher: row.publisher_display.map(|owner| Publisher {
+                owner,
+                ident_fingerprint: row.publisher_ident_fingerprint,
+            }),
+            epoch,
         });
     }
     let (server_public, server_private) = state.store.server_keypair().map_err(internal)?;
@@ -1961,15 +2058,57 @@ async fn package_index(
         &crypto::name_binding_message(&owner_record.owner_display, &ident_key.fingerprint),
     )
     .map_err(internal)?;
+    let mut transfers = Vec::new();
+    for record in state.store.transfer_history(&ident).map_err(internal)? {
+        let Some((to_record, to_key)) = state
+            .store
+            .owner_with_ident_key(&record.to_owner)
+            .map_err(internal)?
+        else {
+            return Err(internal(format!(
+                "transfer recipient {} has no current ident key",
+                record.to_owner
+            )));
+        };
+        let to_binding = crypto::sign(
+            &server_private,
+            &crypto::name_binding_message(&to_record.owner_display, &to_key.fingerprint),
+        )
+        .map_err(internal)?;
+        transfers.push(TransferLink {
+            sequence: record.sequence,
+            from_owner: record.from_owner,
+            from_ident_key: record.from_ident_key.as_deref().map(metadata_key),
+            to_owner: record.to_owner,
+            to_ident_key: record.to_ident_key.as_deref().map(metadata_key),
+            release_digest: record.release_digest,
+            offer_signature: record.offer_signature.as_deref().map(crypto::encode_bytes),
+            accept_signature: record.accept_signature.as_deref().map(crypto::encode_bytes),
+            offered_at: record.offered_at,
+            accepted_at: record.accepted_at,
+            to_binding: OwnerBinding {
+                owner: to_record.owner_display,
+                ident_key: metadata_key(&to_key.public_key),
+                ident_fingerprint: to_key.fingerprint,
+                name_binding_signature: crypto::encode_bytes(&to_binding),
+            },
+        });
+    }
     Ok(Json(IndexResponse {
         ident: ident.clone(),
         owner: owner_record.owner_display,
-        ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_key.public_key)),
+        ident_key: metadata_key(&ident_key.public_key),
         ident_fingerprint: ident_key.fingerprint,
         name_binding_signature: crypto::encode_bytes(&name_binding),
         server_fingerprint: crypto::fingerprint(&server_public),
         versions,
+        transfers,
     }))
+}
+
+/// A public key in project-metadata form, `ed25519:<base64url>`.
+fn metadata_key(public_key: &[u8]) -> String {
+    format!("ed25519:{}", crypto::encode_bytes(public_key))
 }
 
 /// Snapshot metadata lifetime (plan-10-C2): the snapshot pins the index state
@@ -2246,24 +2385,42 @@ async fn revoke_token(
 }
 
 /// `POST /packages/transfer/offer` (plan-10-D1): the current owner offers a
-/// package to a recipient, authorized by the current owner's ident.
+/// package to a recipient, authorized by the current owner's ident signature
+/// over the v2 offer terms (plan-168-A). The store verifies the signature and
+/// the terms inside its writing transaction.
 async fn transfer_offer(
     State(state): State<AppState>,
     Json(request): Json<TransferOfferRequest>,
 ) -> Result<Json<TransferResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (_owner, ident_public) =
+    let (_owner, _ident_public) =
         session_and_ident(&state, &request.from_owner, &request.session_token)?;
+    // The offer is signed by the STORED owner under their display name, which
+    // after a transfer is no longer the ident prefix. Name it on a mismatch so
+    // the caller can see whose ident must sign.
+    if let Some(current) = state
+        .store
+        .package_owner(&request.ident)
+        .map_err(internal)?
+    {
+        if current.owner_display != request.from_owner {
+            return Err(bad_request(format!(
+                "offering owner does not currently own the package; it is owned by {}",
+                current.owner_display
+            )));
+        }
+    }
     let signature =
         crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
-    crypto::verify(
-        &ident_public,
-        &crypto::transfer_offer_message(&request.ident, &request.from_owner, &request.to_owner),
-        &signature,
-    )
-    .map_err(|_| bad_request("invalid transfer offer ident signature".to_string()))?;
     state
         .store
-        .create_transfer_offer(&request.ident, &request.from_owner, &request.to_owner)
+        .create_transfer_offer(
+            &request.ident,
+            &request.from_owner,
+            &request.to_owner,
+            request.sequence,
+            &request.release_digest,
+            &signature,
+        )
         .map_err(bad_request)?;
     Ok(Json(TransferResponse {
         ident: request.ident,
@@ -2273,24 +2430,20 @@ async fn transfer_offer(
 }
 
 /// `POST /packages/transfer/accept` (plan-10-D1): the recipient accepts a
-/// pending offer; the package is re-bound to them and both halves are logged.
+/// pending offer by signing the v2 accept message over the same terms
+/// (plan-168-A); the package is re-bound to them, the signed pair is appended
+/// to the transfer history, and the acceptance is logged.
 async fn transfer_accept(
     State(state): State<AppState>,
     Json(request): Json<TransferAcceptRequest>,
 ) -> Result<Json<TransferResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let (_owner, ident_public) =
+    let (_owner, _ident_public) =
         session_and_ident(&state, &request.to_owner, &request.session_token)?;
     let signature =
         crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
-    crypto::verify(
-        &ident_public,
-        &crypto::transfer_accept_message(&request.ident, &request.to_owner),
-        &signature,
-    )
-    .map_err(|_| bad_request("invalid transfer accept ident signature".to_string()))?;
     state
         .store
-        .accept_transfer(&request.ident, &request.to_owner)
+        .accept_transfer(&request.ident, &request.to_owner, &signature)
         .map_err(bad_request)?;
     Ok(Json(TransferResponse {
         ident: request.ident,
@@ -3274,12 +3427,17 @@ async fn publish_package(
         mfb_wire::docs::read_doc_table(section).ok()?;
         Some(section.to_vec())
     });
+    // plan-168-A §4.3: the publisher's ident key is the one the header names,
+    // which validation has already required to equal `identFingerprint` and the
+    // publisher's current ident.
+    let publisher_ident_fingerprint = Some(request.ident_fingerprint.clone());
     let publish_metadata = match manifest_metadata {
         Some(meta) => crate::store::PublishMetadata {
             author: Some(meta.author).filter(|value| !value.is_empty()),
             url: Some(meta.url).filter(|value| !value.is_empty()),
             description,
             docs,
+            publisher_ident_fingerprint,
         },
         // `docs` is set explicitly here too. Left to `..Default::default()` it
         // would silently become `None` for every package without a MANIFEST
@@ -3287,6 +3445,7 @@ async fn publish_package(
         None => crate::store::PublishMetadata {
             description,
             docs,
+            publisher_ident_fingerprint,
             ..Default::default()
         },
     };
@@ -4257,6 +4416,114 @@ mod tests {
         (artifact, response.hash)
     }
 
+    /// The v2 terms of the next transfer of `ident`, read from the real
+    /// `package_index` handler the way a client reads them (plan-168-A §4.5):
+    /// `(sequence, current owner, their bound fingerprint, release digest)`.
+    async fn index_transfer_terms(state: &AppState, ident: &str) -> (i64, String, String, String) {
+        let index = package_index(State(state.clone()), axum::extract::Path(ident.to_string()))
+            .await
+            .expect("index served")
+            .0;
+        let (owner, fingerprint) = match index.transfers.last() {
+            Some(link) => (
+                link.to_binding.owner.clone(),
+                link.to_binding.ident_fingerprint.clone(),
+            ),
+            None => (index.owner.clone(), index.ident_fingerprint.clone()),
+        };
+        let digest = crypto::release_digest(
+            index
+                .versions
+                .iter()
+                .map(|version| (version.version.as_str(), version.hash.as_str())),
+        );
+        (index.transfers.len() as i64, owner, fingerprint, digest)
+    }
+
+    /// A `/packages/transfer/offer` request of `ident` from `from_owner` to
+    /// `to_owner`, signed by `signer`'s ident over the current v2 terms.
+    async fn signed_offer(
+        state: &AppState,
+        ident: &str,
+        from_owner: &str,
+        signer: &TestOwnerKeys,
+        from_token: &str,
+        to_owner: &str,
+    ) -> TransferOfferRequest {
+        let (sequence, owner, fingerprint, digest) = index_transfer_terms(state, ident).await;
+        let message = crypto::transfer_offer_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence,
+            from_owner: &owner,
+            from_ident_fingerprint: &fingerprint,
+            to_owner,
+            release_digest: &digest,
+        });
+        TransferOfferRequest {
+            ident: ident.to_string(),
+            from_owner: from_owner.to_string(),
+            to_owner: to_owner.to_string(),
+            sequence,
+            release_digest: digest,
+            session_token: from_token.to_string(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(&signer.ident_private, &message).unwrap(),
+            ),
+        }
+    }
+
+    /// A `/packages/transfer/accept` request of `ident` by `to_owner`, signed by
+    /// `signer`'s ident over the current v2 terms.
+    async fn signed_accept(
+        state: &AppState,
+        ident: &str,
+        to_owner: &str,
+        signer: &TestOwnerKeys,
+        to_token: &str,
+    ) -> TransferAcceptRequest {
+        let (sequence, owner, fingerprint, digest) = index_transfer_terms(state, ident).await;
+        let message = crypto::transfer_accept_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence,
+            from_owner: &owner,
+            from_ident_fingerprint: &fingerprint,
+            to_owner,
+            release_digest: &digest,
+        });
+        TransferAcceptRequest {
+            ident: ident.to_string(),
+            to_owner: to_owner.to_string(),
+            session_token: to_token.to_string(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(&signer.ident_private, &message).unwrap(),
+            ),
+        }
+    }
+
+    /// The whole two-sided transfer through the real `transfer_offer` /
+    /// `transfer_accept` handlers, with terms read from `package_index`
+    /// (plan-168-A Phase 2; plan-168-B uses it too).
+    #[allow(clippy::too_many_arguments)]
+    async fn transfer_through_handlers(
+        state: &AppState,
+        ident: &str,
+        from_owner: &str,
+        from: &TestOwnerKeys,
+        from_token: &str,
+        to_owner: &str,
+        to: &TestOwnerKeys,
+        to_token: &str,
+    ) {
+        let offer = signed_offer(state, ident, from_owner, from, from_token, to_owner).await;
+        let _ = transfer_offer(State(state.clone()), Json(offer))
+            .await
+            .expect("offer");
+        let accept = signed_accept(state, ident, to_owner, to, to_token).await;
+        let _ = transfer_accept(State(state.clone()), Json(accept))
+            .await
+            .expect("accept");
+    }
+
     /// plan-48-A §4.2/§4.3: the native-blob write half. A blob PUTs, HEADs, and
     /// GETs back byte-identically under the `.bin` namespace; a hash-mismatched
     /// body stores nothing; a re-PUT is a cheap success; an unauthenticated or
@@ -5022,52 +5289,26 @@ mod tests {
         publish_valid_package(&state, &alice, &alice_token, "1.0.0").await;
 
         // An offer signed by the wrong ident is refused.
-        let bad_offer = TransferOfferRequest {
-            ident: "alice#toolbox".to_string(),
-            from_owner: "alice".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: alice_token.clone(),
-            ident_signature: crypto::encode_bytes(
-                &crypto::sign(
-                    &bob.ident_private,
-                    &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
-                )
-                .unwrap(),
-            ),
-        };
+        let bad_offer =
+            signed_offer(&state, "alice#toolbox", "alice", &bob, &alice_token, "bob").await;
         assert!(transfer_offer(State(state.clone()), Json(bad_offer))
             .await
             .is_err());
 
         // A correctly signed offer, then a bob-signed acceptance, re-binds it.
-        let offer = TransferOfferRequest {
-            ident: "alice#toolbox".to_string(),
-            from_owner: "alice".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: alice_token.clone(),
-            ident_signature: crypto::encode_bytes(
-                &crypto::sign(
-                    &alice.ident_private,
-                    &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
-                )
-                .unwrap(),
-            ),
-        };
+        let offer = signed_offer(
+            &state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+        )
+        .await;
         let _ = transfer_offer(State(state.clone()), Json(offer))
             .await
             .expect("offer");
-        let accept = TransferAcceptRequest {
-            ident: "alice#toolbox".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: bob_token.clone(),
-            ident_signature: crypto::encode_bytes(
-                &crypto::sign(
-                    &bob.ident_private,
-                    &crypto::transfer_accept_message("alice#toolbox", "bob"),
-                )
-                .unwrap(),
-            ),
-        };
+        let accept = signed_accept(&state, "alice#toolbox", "bob", &bob, &bob_token).await;
         let _ = transfer_accept(State(state.clone()), Json(accept))
             .await
             .expect("accept");
@@ -5711,6 +5952,7 @@ mod tests {
                         url: Some("https://example.invalid".to_string()),
                         description: None,
                         docs: None,
+                        publisher_ident_fingerprint: None,
                     },
                 )
                 .unwrap();
@@ -6645,6 +6887,7 @@ mod tests {
                     // plan-61-E extends this fixture to the description too.
                     description: Some("<img src=x onerror=alert('desc')>".to_string()),
                     docs: None,
+                    publisher_ident_fingerprint: None,
                 },
             )
             .unwrap();
@@ -9239,77 +9482,72 @@ mod tests {
         let bob = register_owner_with_all_keys(&h.store, "bob");
         let alice_token = open_session(&h.store, "alice", &alice.auth_private);
         let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        // A v2 transfer signs the package's terms (plan-168-A), so the package
+        // has to exist for a signature to be judged at all.
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
 
-        let mut offer = TransferOfferRequest {
-            ident: "alice#toolbox".to_string(),
-            from_owner: "alice".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: alice_token.clone(),
-            ident_signature: NOT_BASE64.to_string(),
-        };
+        let mut offer = signed_offer(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+        )
+        .await;
+        offer.ident_signature = NOT_BASE64.to_string();
         assert_eq!(
             err_of(transfer_offer(State(h.state.clone()), Json(offer)).await).1,
             "malformed identSignature",
         );
         // A signature over a different recipient does not authorize this one.
-        offer = TransferOfferRequest {
-            ident: "alice#toolbox".to_string(),
-            from_owner: "alice".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: alice_token,
-            ident_signature: crypto::encode_bytes(
-                &crypto::sign(
-                    &alice.ident_private,
-                    &crypto::transfer_offer_message("alice#toolbox", "alice", "carol"),
-                )
-                .unwrap(),
-            ),
-        };
+        let mut offer = signed_offer(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "carol",
+        )
+        .await;
+        offer.to_owner = "bob".to_string();
+        assert_eq!(
+            err_of(transfer_offer(State(h.state.clone()), Json(offer)).await).1,
+            "invalid transfer offer ident signature",
+        );
+        // A v1-domain signature (the replayable pre-plan-168 message) is refused.
+        let mut v1 = b"mfb-repo-transfer-offer-v1\0".to_vec();
+        v1.extend_from_slice(b"alice#toolbox\0alice\0bob");
+        let mut offer = signed_offer(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+        )
+        .await;
+        offer.ident_signature =
+            crypto::encode_bytes(&crypto::sign(&alice.ident_private, &v1).unwrap());
         assert_eq!(
             err_of(transfer_offer(State(h.state.clone()), Json(offer)).await).1,
             "invalid transfer offer ident signature",
         );
 
-        let mut accept = TransferAcceptRequest {
-            ident: "alice#toolbox".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: bob_token.clone(),
-            ident_signature: NOT_BASE64.to_string(),
-        };
+        let mut accept = signed_accept(&h.state, "alice#toolbox", "bob", &bob, &bob_token).await;
+        accept.ident_signature = NOT_BASE64.to_string();
         assert_eq!(
             err_of(transfer_accept(State(h.state.clone()), Json(accept)).await).1,
             "malformed identSignature",
         );
         // Alice cannot sign bob's acceptance for him.
-        accept = TransferAcceptRequest {
-            ident: "alice#toolbox".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: bob_token.clone(),
-            ident_signature: crypto::encode_bytes(
-                &crypto::sign(
-                    &alice.ident_private,
-                    &crypto::transfer_accept_message("alice#toolbox", "bob"),
-                )
-                .unwrap(),
-            ),
-        };
+        let accept = signed_accept(&h.state, "alice#toolbox", "bob", &alice, &bob_token).await;
         assert_eq!(
             err_of(transfer_accept(State(h.state.clone()), Json(accept)).await).1,
             "invalid transfer accept ident signature",
         );
         // A correctly signed acceptance with no pending offer is still refused.
-        let unoffered = TransferAcceptRequest {
-            ident: "alice#toolbox".to_string(),
-            to_owner: "bob".to_string(),
-            session_token: bob_token.clone(),
-            ident_signature: crypto::encode_bytes(
-                &crypto::sign(
-                    &bob.ident_private,
-                    &crypto::transfer_accept_message("alice#toolbox", "bob"),
-                )
-                .unwrap(),
-            ),
-        };
+        let unoffered = signed_accept(&h.state, "alice#toolbox", "bob", &bob, &bob_token).await;
         assert_eq!(
             err_of(transfer_accept(State(h.state.clone()), Json(unoffered)).await).0,
             StatusCode::BAD_REQUEST,
@@ -10595,41 +10833,17 @@ mod tests {
         .await;
 
         // Hand the package to bob.
-        let _ = transfer_offer(
-            State(h.state.clone()),
-            Json(TransferOfferRequest {
-                ident: "alice#toolbox".to_string(),
-                from_owner: "alice".to_string(),
-                to_owner: "bob".to_string(),
-                session_token: alice_token.clone(),
-                ident_signature: crypto::encode_bytes(
-                    &crypto::sign(
-                        &alice.ident_private,
-                        &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
-                    )
-                    .unwrap(),
-                ),
-            }),
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
         )
-        .await
-        .expect("offer");
-        let _ = transfer_accept(
-            State(h.state.clone()),
-            Json(TransferAcceptRequest {
-                ident: "alice#toolbox".to_string(),
-                to_owner: "bob".to_string(),
-                session_token: bob_token,
-                ident_signature: crypto::encode_bytes(
-                    &crypto::sign(
-                        &bob.ident_private,
-                        &crypto::transfer_accept_message("alice#toolbox", "bob"),
-                    )
-                    .unwrap(),
-                ),
-            }),
-        )
-        .await
-        .expect("accept");
+        .await;
 
         // Alice's session still validates the package (she still holds the
         // ident named in the header, and the attestation is genuine), but the
@@ -10656,6 +10870,333 @@ mod tests {
             .unwrap());
     }
 
+    /// plan-168-A: a recipient can pass the package on. The second offer is
+    /// signed by bob — the stored owner — and the former owner is refused.
+    #[tokio::test]
+    async fn a_second_transfer_is_offered_by_the_current_owner() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let carol = register_owner_with_all_keys(&h.store, "carol");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        let carol_token = open_session(&h.store, "carol", &carol.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
+        )
+        .await;
+
+        // alice, the ident prefix but no longer the owner, cannot offer.
+        let stale = signed_offer(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "carol",
+        )
+        .await;
+        assert_eq!(
+            err_of(transfer_offer(State(h.state.clone()), Json(stale)).await).1,
+            "offering owner does not currently own the package; it is owned by bob",
+        );
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "bob",
+            &bob,
+            &bob_token,
+            "carol",
+            &carol,
+            &carol_token,
+        )
+        .await;
+        assert_eq!(
+            h.store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "carol"
+        );
+        let history = h.store.transfer_history("alice#toolbox").unwrap();
+        let links: Vec<_> = history
+            .iter()
+            .map(|r| (r.sequence, r.from_owner.as_str(), r.to_owner.as_str()))
+            .collect();
+        assert_eq!(links, vec![(0, "alice", "bob"), (1, "bob", "carol")]);
+    }
+
+    /// plan-168-A: a recorded link cannot be replayed. After alice -> bob ->
+    /// alice, re-POSTing the exact seq-0 offer bytes (alice -> bob) is refused:
+    /// it names position 0, and the next link is position 2.
+    #[tokio::test]
+    async fn a_replayed_link_is_refused() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        let recorded = signed_offer(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+        )
+        .await;
+        let replay = TransferOfferRequest {
+            ident: recorded.ident.clone(),
+            from_owner: recorded.from_owner.clone(),
+            to_owner: recorded.to_owner.clone(),
+            sequence: recorded.sequence,
+            release_digest: recorded.release_digest.clone(),
+            session_token: recorded.session_token.clone(),
+            ident_signature: recorded.ident_signature.clone(),
+        };
+        let _ = transfer_offer(State(h.state.clone()), Json(recorded))
+            .await
+            .expect("offer");
+        let accept = signed_accept(&h.state, "alice#toolbox", "bob", &bob, &bob_token).await;
+        let recorded_accept = TransferAcceptRequest {
+            ident: accept.ident.clone(),
+            to_owner: accept.to_owner.clone(),
+            session_token: accept.session_token.clone(),
+            ident_signature: accept.ident_signature.clone(),
+        };
+        let _ = transfer_accept(State(h.state.clone()), Json(accept))
+            .await
+            .expect("accept");
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "bob",
+            &bob,
+            &bob_token,
+            "alice",
+            &alice,
+            &alice_token,
+        )
+        .await;
+
+        // The replayed offer names a position that is no longer next.
+        let (status, message) = err_of(transfer_offer(State(h.state.clone()), Json(replay)).await);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(message.contains("transfer terms are stale"), "{message}");
+        // And the recorded acceptance does not verify over today's terms.
+        let (status, message) =
+            err_of(transfer_accept(State(h.state.clone()), Json(recorded_accept)).await);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(message, "invalid transfer accept ident signature");
+        assert_eq!(
+            h.store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "alice"
+        );
+        assert_eq!(h.store.transfer_history("alice#toolbox").unwrap().len(), 2);
+    }
+
+    /// plan-168-A Phase 3: `/index` serves the transfer as a link whose every
+    /// signature verifies — the offer under alice's key, the accept under bob's,
+    /// and bob's current binding under the server key — and tags each release
+    /// with its publisher and epoch.
+    #[tokio::test]
+    async fn the_index_serves_a_verifiable_transfer_chain() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
+        )
+        .await;
+
+        let index = package_index(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("index served")
+        .0;
+        // The top-level binding still describes the ident-prefix owner.
+        assert_eq!(index.owner, "alice");
+        assert_eq!(
+            index.ident_fingerprint,
+            crypto::fingerprint(&alice.ident_public)
+        );
+        assert_eq!(index.transfers.len(), 1);
+        let link = &index.transfers[0];
+        assert_eq!(
+            (
+                link.sequence,
+                link.from_owner.as_str(),
+                link.to_owner.as_str()
+            ),
+            (0, "alice", "bob")
+        );
+        let key = |value: &Option<String>| {
+            package::decode_metadata_key(value.as_deref().unwrap(), "key").unwrap()
+        };
+        let from_key = key(&link.from_ident_key);
+        let to_key = key(&link.to_ident_key);
+        assert_eq!(from_key, alice.ident_public);
+        assert_eq!(to_key, bob.ident_public);
+        let digest = link.release_digest.clone().unwrap();
+        assert_eq!(
+            digest,
+            crypto::release_digest(
+                index
+                    .versions
+                    .iter()
+                    .map(|v| (v.version.as_str(), v.hash.as_str()))
+            )
+        );
+        let from_fp = crypto::fingerprint(&from_key);
+        let terms = crypto::TransferTermsRef {
+            ident: "alice#toolbox",
+            sequence: 0,
+            from_owner: &link.from_owner,
+            from_ident_fingerprint: &from_fp,
+            to_owner: &link.to_owner,
+            release_digest: &digest,
+        };
+        let signature = |value: &Option<String>| {
+            crypto::decode_bytes(value.as_deref().unwrap(), "signature").unwrap()
+        };
+        crypto::verify(
+            &from_key,
+            &crypto::transfer_offer_message_v2(terms),
+            &signature(&link.offer_signature),
+        )
+        .expect("the offer verifies under alice's key");
+        crypto::verify(
+            &to_key,
+            &crypto::transfer_accept_message_v2(terms),
+            &signature(&link.accept_signature),
+        )
+        .expect("the accept verifies under bob's key");
+        let server_public = h.store.server_public_key().unwrap();
+        let bound = crate::client::verify_owner_binding(&server_public, &link.to_binding)
+            .expect("the toBinding verifies under the server key");
+        assert_eq!(bound, bob.ident_public);
+        assert_eq!(link.to_binding.owner, "bob");
+
+        assert_eq!(index.versions.len(), 1);
+        let publisher = index.versions[0].publisher.clone().unwrap();
+        assert_eq!(publisher.owner, "alice");
+        assert_eq!(
+            publisher.ident_fingerprint,
+            Some(crypto::fingerprint(&alice.ident_public))
+        );
+        assert_eq!(index.versions[0].epoch, 0);
+    }
+
+    /// plan-168-A Phase 3: a pre-plan transfer chain, replayed from the log by
+    /// `migrate`, is served as unsigned links carrying their real owners and
+    /// positions — and with a current binding for each recipient.
+    #[tokio::test]
+    async fn a_legacy_transfer_is_served_unsigned() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        register_owner_with_all_keys(&h.store, "carol");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        crate::store::tests::legacy_transfer(&h.store, "alice#toolbox", "alice", "bob");
+        crate::store::tests::legacy_transfer(&h.store, "alice#toolbox", "bob", "carol");
+        h.store.migrate().unwrap();
+
+        let index = package_index(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("index served")
+        .0;
+        let links: Vec<_> = index
+            .transfers
+            .iter()
+            .map(|l| (l.sequence, l.from_owner.as_str(), l.to_owner.as_str()))
+            .collect();
+        assert_eq!(links, vec![(0, "alice", "bob"), (1, "bob", "carol")]);
+        for link in &index.transfers {
+            assert_eq!(link.from_ident_key, None);
+            assert_eq!(link.to_ident_key, None);
+            assert_eq!(link.release_digest, None);
+            assert_eq!(link.offer_signature, None);
+            assert_eq!(link.accept_signature, None);
+        }
+        let server_public = h.store.server_public_key().unwrap();
+        assert_eq!(
+            crate::client::verify_owner_binding(&server_public, &index.transfers[0].to_binding)
+                .unwrap(),
+            bob.ident_public
+        );
+        assert_eq!(index.versions[0].publisher.as_ref().unwrap().owner, "alice");
+        assert_eq!(index.versions[0].epoch, 0);
+    }
+
+    /// plan-168-A Phase 3: the package page names the stored owner and shows
+    /// THAT owner's key. It used to pair "bob" with alice's (prefix) key.
+    #[tokio::test]
+    async fn the_package_page_pairs_the_current_owner_with_their_key() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
+        )
+        .await;
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+        assert_eq!(detail.owner, "bob");
+        assert_eq!(
+            detail.ident_fingerprint,
+            crypto::fingerprint(&bob.ident_public)
+        );
+        assert_eq!(
+            detail.ident_key,
+            format!("ed25519:{}", crypto::encode_bytes(&bob.ident_public))
+        );
+    }
+
     /// bug-494 (audit-3 REPO-03): `/release-state` and `/signing` authorized
     /// on the ident's `owner#` prefix, which never moves when ownership does.
     /// After a correctly guarded transfer the former owner could still yank the
@@ -10674,41 +11215,17 @@ mod tests {
         publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
 
         // Hand the package to bob through the real two-sided handshake.
-        let _ = transfer_offer(
-            State(h.state.clone()),
-            Json(TransferOfferRequest {
-                ident: "alice#toolbox".to_string(),
-                from_owner: "alice".to_string(),
-                to_owner: "bob".to_string(),
-                session_token: alice_token.clone(),
-                ident_signature: crypto::encode_bytes(
-                    &crypto::sign(
-                        &alice.ident_private,
-                        &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
-                    )
-                    .unwrap(),
-                ),
-            }),
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
         )
-        .await
-        .expect("offer");
-        let _ = transfer_accept(
-            State(h.state.clone()),
-            Json(TransferAcceptRequest {
-                ident: "alice#toolbox".to_string(),
-                to_owner: "bob".to_string(),
-                session_token: bob_token.clone(),
-                ident_signature: crypto::encode_bytes(
-                    &crypto::sign(
-                        &bob.ident_private,
-                        &crypto::transfer_accept_message("alice#toolbox", "bob"),
-                    )
-                    .unwrap(),
-                ),
-            }),
-        )
-        .await
-        .expect("accept");
+        .await;
         assert_eq!(
             h.store
                 .package_owner("alice#toolbox")

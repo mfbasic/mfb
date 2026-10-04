@@ -144,6 +144,9 @@ pub async fn run(store: &Store, blob_store: &BlobStore) -> Result<BackfillReport
                 url: Some(signed.url).filter(|value| !value.is_empty()),
                 description,
                 docs: None,
+                // `replace_version_metadata` rewrites author/url/description
+                // only; the publisher recorded at publish time stays as it is.
+                publisher_ident_fingerprint: None,
             },
             None => PublishMetadata {
                 description,

@@ -1,6 +1,6 @@
 # plan-168-A: Signed transfer history, publisher identity, and the `/index` transfer wire
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Overall Effort: x-large (1d–3d across A, B, C, D)
 Effort: large (3h–1d)
 Depends on: nothing
@@ -53,7 +53,7 @@ These are a precondition on all of plan-168. Sub-plans B, C and D point here.
 | Must be true | Command | Status |
 |---|---|---|
 | bug-792 is still open (not already fixed) | `ls bugs/bug-792-*` → `bugs/bug-792-transferred-package-recipient-cannot-publish.md` | MET |
-| The transfer protocol is still v1 (this plan replaces it) | `grep -c 'transfer-offer-v1' repository/src/crypto.rs` → `1` | MET |
+| The transfer protocol is still v1 (this plan replaces it) | `grep -c 'transfer-offer-v1' repository/src/crypto.rs` → `1` | MET at start (`git show bug-staging-9:repository/src/crypto.rs \| grep -c transfer-offer-v1` → `1`); `0` after this plan, by design |
 | No other plan-168 sub-plan has started | `grep -l 'Commit: [0-9a-f]' planning/plan-168-*` → no output | MET |
 
 Everything below assumes these hold.
@@ -436,27 +436,30 @@ that no client could verify (B §3).
 Lands alone: nothing reads the new columns yet, and the existing transfer behavior
 is preserved behind the new store signatures.
 
-- [ ] Ask the operator for the legacy count (§Measured populations) and record it
+- [~] Ask the operator for the legacy count (§Measured populations) and record it
       in Corrections. A-D2's choice does not depend on it, but the A-D2 follow-up
       (operator ratification) does. Also ask them to run the §4.2 replay check
       against a copy of the production DB (a build of this phase's `migrate`
       on the copy) and record whether any package's log disagrees with its owner.
-- [ ] `repository/src/store.rs:migrate`: add the `transfer_history` table, the two
+      **Partial:** no operator registry was reachable from this execution, so
+      both measurements are recorded as unavailable in Corrections; the
+      operator still owes them before deployment.
+- [x] `repository/src/store.rs:migrate`: add the `transfer_history` table, the two
       triggers, the column additions, the publisher backfill statement, and
       `backfill_legacy_transfers` (§4.2).
-- [ ] `repository/src/crypto.rs`: add `release_digest`,
+- [x] `repository/src/crypto.rs`: add `release_digest`,
       `transfer_offer_message_v2` and `transfer_accept_message_v2` (§4.1).
-- [ ] `repository/src/store.rs`: `TransferTerms`, `transfer_terms`, the new
+- [x] `repository/src/store.rs`: `TransferTerms`, `transfer_terms`, the new
       `create_transfer_offer` / `accept_transfer` signatures, `pending_offer`,
       `transfer_history`, the `PublishMetadata.publisher_ident_fingerprint` write
       path, and the `list_package_versions` extension (§4.3).
-- [ ] Migrate the 17 store.rs call sites of `create_transfer_offer(` /
+- [x] Migrate the 17 store.rs call sites of `create_transfer_offer(` /
       `accept_transfer(` to the new signatures through a `#[cfg(test)]` helper
       `offer_and_accept_for_test(store, ident, from_keys, to_keys)` that signs real
       v2 messages. Assertions stay unchanged: this is an API migration, not a
       re-baseline (`a_stale_offer_cannot_rebind_a_package_after_ownership_moved`
       and `transfer_offer_and_accept_error_branches` keep every assertion).
-- [ ] Tests (`store.rs` tests):
+- [x] Tests (`store.rs` tests):
   - `transfer_history_is_append_only_and_sequenced`: two transfers give sequences
     0 and 1, and an `UPDATE` / `DELETE` aborts with "append-only".
   - `stale_terms_refuse_offer_and_accept`: a version published between offer and
@@ -488,7 +491,7 @@ Commit: —
 Proves the premise that both sides can compute identical terms from `/index`
 alone, using the real CLI signer against the real server.
 
-- [ ] `repository/src/server.rs`: `TransferOfferRequest` gains `sequence: i64`
+- [x] `repository/src/server.rs`: `TransferOfferRequest` gains `sequence: i64`
       and `#[serde(rename = "releaseDigest")] release_digest: String`.
       `transfer_offer`:
   - `session_and_ident(from_owner)`;
@@ -497,10 +500,10 @@ alone, using the real CLI signer against the real server.
   - verify the v2 offer signature over (request terms + the offerer's current
     fingerprint);
   - `create_transfer_offer` with the signature.
-- [ ] `transfer_accept`: `pending_offer(ident, to_owner)`, verify the v2 accept
+- [x] `transfer_accept`: `pending_offer(ident, to_owner)`, verify the v2 accept
       signature over the stored terms, then
       `accept_transfer(..., to_ident_key_id, signature)`.
-- [ ] Delete the v1 builders from `crypto.rs`. Migrate the 4 server.rs tests and
+- [x] Delete the v1 builders from `crypto.rs`. Migrate the 4 server.rs tests and
       the 1 client.rs test that use them to v2 signing. Assertions stay the same,
       except that `transfer_and_org_endpoints_reject_malformed_and_wrong_signatures`
       gains one case: a v1-domain signature is refused.
@@ -509,16 +512,16 @@ alone, using the real CLI signer against the real server.
     protect "both halves are ident-signed". (3) No spec or test depends on the v1
     bytes beyond the `03_signing.md` table row updated in Phase 4. (4) The v1
     message is proven replayable (§2), so its exact bytes are the defect.
-- [ ] `repository/src/client.rs:transfer_offer` / `transfer_accept`: implement
+- [x] `repository/src/client.rs:transfer_offer` / `transfer_accept`: implement
       §4.5. `src/cli/pkg.rs:transfer_offer` drops the prefix owner.
-- [ ] `server.rs` tests: add the helper
+- [x] `server.rs` tests: add the helper
       `transfer_through_handlers(state, ident, from: &TestOwnerKeys, from_token, to: &TestOwnerKeys, to_token)`.
       It reads the terms from `package_index`, signs the v2 offer and accept,
       and calls the real `transfer_offer` / `transfer_accept` handlers. Phase 2's
       server tests and plan-168-B use it. The store-level
       `offer_and_accept_for_test` (Phase 1) lives in `store::tests` and cannot
       reach the handlers.
-- [ ] Tests:
+- [x] Tests:
   - `server.rs` `a_second_transfer_is_offered_by_the_current_owner` (alice→bob→carol;
     sequences 0 and 1; bob's offer accepted, alice's refused).
   - `a_replayed_link_is_refused`: re-POST the recorded seq-0 offer bytes after
@@ -532,18 +535,18 @@ Commit: —
 
 ### Phase 3: `/index` transfer wire and the package page fix
 
-- [ ] `server.rs`: add the `TransferLink`, `OwnerBinding` and `Publisher`
+- [x] `server.rs`: add the `TransferLink`, `OwnerBinding` and `Publisher`
       structs. Add the `IndexResponse.transfers`, `IndexVersion.publisher` and
       `IndexVersion.epoch` fields (all `#[serde(default)]`). `package_index`
       fills them from `transfer_history` and the extended version rows, and
       signs a `toBinding` per link.
-- [ ] Update the 4 `IndexVersion {` test literals (pkg.rs:2371, pkg.rs:2708,
+- [x] Update the 4 `IndexVersion {` test literals (pkg.rs:2371, pkg.rs:2708,
       resolve.rs:1252, client.rs:2587; client.rs:2598 inherits via `..with_abi`)
       and the 2 non-server `IndexResponse {` test literals (pkg.rs:2384,
       resolve.rs:1273) with the default values. These literal
       updates change no assertions.
-- [ ] `server.rs:package_detail`: serve the stored owner's ident key.
-- [ ] Tests (`server.rs`):
+- [x] `server.rs:package_detail`: serve the stored owner's ident key.
+- [x] Tests (`server.rs`):
   - `the_index_serves_a_verifiable_transfer_chain`: after alice→bob, the link's
     offer signature verifies under alice's key, the accept under bob's, and the
     `toBinding` under the server key; versions carry `publisher.owner == "alice"`,
@@ -624,7 +627,57 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Legacy transfer count (Phase 1, first task): UNAVAILABLE.** This execution
+  had no access to the hosted registry or a copy of its database, so neither the
+  `log_entries` count nor the §4.2 replay check against production data could be
+  run. The code does not depend on the count: `backfill_legacy_transfers`
+  replays any number of legacy transfers from the log (tested at 1 and 2 hops,
+  an accepted transfer hidden by a later offer, a round trip, a hand-built
+  pre-plan schema, and the refusal case). Still owed by the operator before
+  deploying: the count query, and this `migrate` run on a copy of the production
+  DB (a log that disagrees with its owner makes `migrate` refuse to start). The
+  A-D2 follow-up (an operator-witnessed ratification flow if the count is > 0)
+  stays an owner decision.
+- **The store verifies both signatures, inside the writing transaction** (§4.3
+  had the server verify and the store record). With server-side verification an
+  offer replaced between the server's `pending_offer` read and the store's write
+  could record an accept signature over terms other than the stored offer's. So
+  `create_transfer_offer(ident, from, to, sequence, digest, signature)`
+  recomputes the terms and verifies the offer under the stored owner's current
+  ident, and `accept_transfer(ident, to_owner, signature)` verifies the accept
+  over the package's CURRENT terms under the recipient's current ident, then
+  requires the pending offer to carry exactly those terms (sequence, digest,
+  offerer key still current). There is therefore no `pending_offer` API and no
+  `to_ident_key_id` parameter: nothing would call them. The handlers keep
+  `session_and_ident` for authentication; the error strings are unchanged.
+- **Phases 1–3 landed as one commit.** The new store signatures verify v2, so
+  the v1 server path could not survive behind them (Phase 1's "lands alone"),
+  and the Phase 2 signer reads `transfers` from `/index` (Phase 3), which is the
+  A-D4 argument applied inside the letter.
+- **`transfer_and_org_endpoints_reject_malformed_and_wrong_signatures`** now
+  publishes `alice#toolbox` first: a v2 signature covers the package's terms, so
+  without a package every request is refused as unknown before its signature is
+  judged. Every assertion is unchanged; the v1-domain refusal case was added as
+  planned.
+- **`PublishMetadata` was not only built with `..Default::default()`** (§2
+  Verified properties). `server.rs:publish_package`'s `Some(meta)` arm and
+  `backfill.rs` name every field, so both set the new one (the backfill sets
+  `None`: `replace_version_metadata` never rewrites the publisher), and two
+  `server.rs` test literals gained `publisher_ident_fingerprint: None`.
+- **The publisher backfill `UPDATE` runs only when a row needs it.**
+  `store::tests::open_repository_leaves_an_already_private_database_alone_and_still_works`
+  failed on the unconditional statement: re-opening a deliberately read-only
+  (`0400`) database must not write. An `EXISTS` probe guards it.
+- **Helper signatures carry owner names.** `offer_and_accept_for_test` and
+  `transfer_through_handlers` take the from/to owner names, because
+  `RegisteredKeys` / `TestOwnerKeys` carry none.
+- **The client signs the recipient's registered display name**, read from
+  `GET /idents/<to-owner>`: the registry verifies over the display form, and the
+  typed name may differ in case.
+- `client::transfer_offer` lost its `from_owner` parameter, so
+  `client::tests::network_flows_reject_invalid_owner_names_before_any_request`
+  passes the invalid owner as the recipient (same assertion: refused before any
+  request).
 
 ## Summary
 

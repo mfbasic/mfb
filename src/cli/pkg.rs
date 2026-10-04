@@ -296,16 +296,18 @@ fn upload_vendor_blobs(
     Ok(())
 }
 
-/// `mfb repo transfer <owner>#<package> <to-owner>` (plan-10-D1): the current
-/// owner offers a package to a recipient (signed with the local ident key).
+/// `mfb repo transfer <owner>#<package> <to-owner>` (plan-10-D1): the
+/// package's current owner offers it to a recipient (signed with the local
+/// ident key). The offering account is the current owner the registry's
+/// `/index` names (plan-168-A), which after a transfer is no longer the ident
+/// prefix, so a recipient can pass the package on.
 pub(crate) fn transfer_offer(ident: &str, to_owner: &str) -> Result<(), String> {
-    let Some((from_owner, _)) = ident.split_once('#') else {
+    if ident.split_once('#').is_none() {
         return Err("ident must use <owner>#<package>".to_string());
-    };
+    }
     let repo_url = mfb_repository::client::repo_url_from_env();
     let paths = super::local_paths_for_repo(&repo_url)?;
-    let response =
-        mfb_repository::client::transfer_offer(&repo_url, &paths, ident, from_owner, to_owner)?;
+    let response = mfb_repository::client::transfer_offer(&repo_url, &paths, ident, to_owner)?;
     println!(
         "Offered {} to {}; they must run `mfb repo transfer-accept {}` to accept.",
         response.ident, response.to_owner, response.ident
@@ -2375,6 +2377,8 @@ mod tests {
             state: state.to_string(),
             abi_index: serde_json::Value::Null,
             log_entry: None,
+            publisher: None,
+            epoch: 0,
         }
     }
 
@@ -2389,6 +2393,7 @@ mod tests {
             name_binding_signature: String::new(),
             server_fingerprint: "sf".to_string(),
             versions,
+            transfers: Vec::new(),
         }
     }
 
@@ -2712,6 +2717,8 @@ mod tests {
             state: state.to_string(),
             abi_index: abi,
             log_entry: None,
+            publisher: None,
+            epoch: 0,
         }
     }
 

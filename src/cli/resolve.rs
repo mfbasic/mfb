@@ -1256,6 +1256,8 @@ mod tests {
             state: state.to_string(),
             abi_index: serde_json::Value::Null,
             log_entry: None,
+            publisher: None,
+            epoch: 0,
         }
     }
 
@@ -1278,6 +1280,7 @@ mod tests {
                 name_binding_signature: String::new(),
                 server_fingerprint: "sf".to_string(),
                 versions,
+                transfers: Vec::new(),
             },
             requested: "1.0.0".to_string(),
             requirers: map,
