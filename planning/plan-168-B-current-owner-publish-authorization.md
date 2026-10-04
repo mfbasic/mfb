@@ -33,6 +33,8 @@ See plan-168-A §Prerequisites, plus:
   and publish a new version under the unchanged ident, with their own ident key.
 - A session owner who is not the stored owner is refused, even when the ident
   prefix names them.
+- A publish that no client could verify is refused: after an unsigned legacy
+  transfer link, only the origin (prefix) owner may publish (plan-168-A A-D2).
 - First publish (no `packages` row) is unchanged: the prefix decides.
 - Proof and attestation `owner` fold-equal `package.author`, and the ident keeps
   its `<owner>#<package>` shape check.
@@ -64,14 +66,16 @@ See plan-168-A §Prerequisites, plus:
     `src/cli/pkg.rs:validate_package_file`,
     `src/cli/build/packages.rs:classify_installed_package`;
   - tests: `repository/src/package.rs`, `src/target/package_mfp/mod.rs`,
-    `tests/cli/cli_repo_publish.rs`.
-  - Command: `grep -rn 'verify_proof\b\|verify_attestation\b' --include=*.rs src repository/src tests`.
+    `tests/cli/cli_repo_publish.rs`;
+  - one comment, not a call: `src/cli/resolve.rs` (names `verify_attestation`).
+  - Command: `grep -rn 'verify_proof\b\|verify_attestation\b' --include='*.rs' src repository/src tests`
+    (quote the glob; zsh rejects the unquoted form).
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| verify_proof/verify_attestation call lines (production 6, tests 9) | 15 | command above, `\| grep -v 'pub fn' \| wc -l` |
+| verify_proof/verify_attestation lines (production 6: server.rs 2, build/packages.rs 2, pkg.rs 2; tests 12: package.rs 8, package_mfp/mod.rs 2, cli_repo_publish.rs 2; 1 comment in resolve.rs) | 19 | command above, `\| grep -v 'pub fn' \| wc -l` |
 | Diagnostics strings asserted on | "session key does not match current owner key" 3, "package ident owner is not registered" 2, "package author does not match owner name" 2, "package identKey does not match the owner's current ident key" 1 | `grep -rn '<string>' repository/src src tests \| wc -l` |
 | `scope_permits` / `scope_owner_matches` references | 15 | `grep -c 'scope_permits\|scope_owner_matches' repository/src/server.rs` |
 
@@ -97,6 +101,13 @@ See plan-168-A §Prerequisites, plus:
     → new diagnostic `session owner is not the package's current owner`;
     `None` → the existing prefix comparison and its existing string;
   - `package.author == owner.owner_display`;
+  - with a package row: if `transfer_history` has any unsigned (legacy) link and
+    the session owner is not the prefix owner, new diagnostic
+    `package ownership moved before signed transfers, so clients cannot verify a release by a later owner`.
+    Clients stop trusting owners at the first legacy link and fall back to the
+    origin owner only (plan-168-C §3), so such a release would publish but
+    never install. Refusing here keeps the server and the clients consistent.
+    The store reads this through a new `Store::has_legacy_transfer(ident) -> bool`;
   - step 5 compares the header fingerprint with
     `owner_with_ident_key(claims.sub)`.
 - `verify_proof` / `verify_attestation`: keep the ident shape check; replace
@@ -120,14 +131,20 @@ See plan-168-A §Prerequisites, plus:
 
 - [ ] `repository/src/server.rs` tests: land the bug's probe as
       `spec_probe_transfer_recipient_can_publish`. Replace its two
-      `h.store.create_transfer_offer` / `accept_transfer` lines with the A
-      helper that drives the real v2 handlers. All assertions stay as written in
+      `h.store.create_transfer_offer` / `accept_transfer` lines with
+      `transfer_through_handlers(&h.state, "alice#toolbox", &alice, &alice_token, &bob, &bob_token)`
+      (plan-168-A Phase 2, `server.rs` tests). All assertions stay as written in
       the bug doc.
 - [ ] Add the contrast tests:
   - `the_former_owner_cannot_publish_after_transfer`: alice validates
     `alice#toolbox@2.0.0` and is refused with
     `session owner is not the package's current owner`;
-  - `first_publish_is_still_prefix_bound`.
+  - `first_publish_is_still_prefix_bound`;
+  - `a_legacy_recipient_cannot_publish_an_unverifiable_release` (a hand-inserted
+    unsigned history row alice→bob; bob's validate is refused with the
+    legacy-transfer diagnostic);
+  - `the_origin_owner_publishes_after_a_legacy_round_trip` (unsigned
+    alice→bob→alice rows; alice's validate passes).
 - [ ] Confirm RED: the probe fails with the bug's documented diagnostics.
 
 Acceptance: the regression is RED for the documented mechanism.
@@ -142,7 +159,8 @@ Commit: —
     passes; alice-owner proof on a bob-authored package fails);
   - `a_case_differing_legacy_prefix_still_verifies`.
 - [ ] `repository/src/server.rs:validate_package_request`, `scope_permits`,
-      `issue_token`, `publish_package`: implement §3.
+      `issue_token`, `publish_package`, and `repository/src/store.rs:has_legacy_transfer`:
+      implement §3.
 - [ ] Tests:
   - `a_recipient_token_scoped_to_the_transferred_package_can_attest`;
   - `the_publish_records_bob_as_publisher_at_epoch_1`;
@@ -151,13 +169,14 @@ Commit: —
 
 Acceptance: the probe is GREEN, the contrast cases hold, and no pre-existing
 publish test changed.
-  Check: `cargo test -p mfb_repository --lib -- spec_probe_transfer the_former_owner first_publish proof_owner a_case_differing a_recipient_token the_publish_records publish_chain a_transferred_package` → `test result: ok`, 0 failed (est. 3–5 min; guess).
+  Check: `cargo test -p mfb_repository --lib -- spec_probe_transfer the_former_owner first_publish a_legacy_recipient the_origin_owner proof_owner a_case_differing a_recipient_token the_publish_records publish_chain a_transferred_package` → `test result: ok`, 0 failed (est. 3–5 min; guess).
 Commit: —
 
 ### Phase 3: Spec sync
 
 - [ ] `01_repository-protocol.md` §`/validate`:
-  - step 1 becomes stored-owner authorization (first publish uses the prefix);
+  - step 1 becomes stored-owner authorization (first publish uses the prefix),
+    plus the legacy-transfer refusal;
   - step 5 checks the session owner's current ident;
   - step 6 binds the proof owner to `author`;
   - remove the `validate_package_request` clause from the deviation paragraph.
@@ -185,6 +204,10 @@ Commit: —
   `bob#*` covers `alice#toolbox` after the transfer. Alternative: require an
   exact scope per transferred package. More friction, and no security gain,
   because the stored owner already controls the package.
+- **B-D3, publishing past a legacy transfer.** Recommended: refuse unless the
+  publisher is the origin (prefix) owner, because clients can verify nothing
+  else there (plan-168-C §3). Alternative: accept and let clients refuse at
+  install. Rejected: the registry would list releases nobody can install.
 
 ## Corrections
 
