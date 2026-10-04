@@ -1,6 +1,6 @@
 # plan-168-D: `mfb build --sign` accepts a transferred ident; end-to-end proof and close-out
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Effort: medium (1h–2h)
 Depends on: plan-168-C
 
@@ -26,7 +26,7 @@ See plan-168-A, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-168-C complete | `grep -c '^Commit: —' planning/plan-168-C-*.md` → `0` (or archived) | NOT MET |
+| plan-168-C complete | `grep -c '^Commit: —' planning/plan-168-C-*.md` → `0` (or archived) | MET (archived in `e48c24b69`) |
 
 ## 1. Goal
 
@@ -89,12 +89,13 @@ See plan-168-A, plus:
 
 ### Phase 1: Relax `signing_ident`
 
-- [ ] `src/cli/build/signing.rs:signing_ident` per §3 (also update its doc
+- [x] `src/cli/build/signing.rs:signing_ident` per §3 (also update its doc
       comment, which says the ident "must belong to the signing owner");
       `src/cli/build/mod.rs` tests per §3.
 
 Acceptance: `cargo test -p mfb --bin mfb -- signing_ident build_project_sign_rejects_a_malformed_manifest_ident` → `test result: ok`, 0 failed (est. 3–6 min; guess).
-Commit: —
+  Measured: `test result: ok. 4 passed; 0 failed`.
+Commit: (this commit — recorded in the next)
 
 ### Phase 2: End-to-end CLI scenario
 

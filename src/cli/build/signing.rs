@@ -17,8 +17,13 @@ pub(crate) struct BuildSigningInfo {
     pub(crate) executable_signing: crate::arch::image::ExecutableSigning,
 }
 
-/// The identity a `--sign` build signs for: the manifest ident when declared
-/// (which must belong to the signing owner), else `<owner>#<name>`.
+/// The identity a `--sign` build signs for: the manifest ident when declared,
+/// else `<owner>#<name>`. A declared ident must have the `<owner>#<package>`
+/// shape but need not name the signing owner: after an ownership transfer the
+/// recipient signs releases of an ident whose prefix names the original owner
+/// (bug-792). Who may sign for an ident is the registry's decision — `/signing`
+/// attests only the package's stored owner, or for a new ident its prefix
+/// owner.
 pub(super) fn signing_ident(
     owner: &str,
     name: &str,
@@ -27,14 +32,9 @@ pub(super) fn signing_ident(
     if manifest_ident.is_empty() {
         return Ok(format!("{owner}#{name}"));
     }
-    let Some((ident_owner, _)) = manifest_ident.split_once('#') else {
+    if manifest_ident.split_once('#').is_none() {
         return Err(format!(
             "project ident `{manifest_ident}` must use <owner>#<package> to be signed"
-        ));
-    };
-    if !ident_owner.eq_ignore_ascii_case(owner) {
-        return Err(format!(
-            "project ident `{manifest_ident}` does not belong to owner `{owner}`"
         ));
     }
     Ok(manifest_ident.to_string())

@@ -1763,9 +1763,17 @@ mod tests {
         assert!(signing_ident("ada", "shape", "no-hash")
             .unwrap_err()
             .contains("must use <owner>#<package>"));
-        assert!(signing_ident("ada", "shape", "bob#shape")
-            .unwrap_err()
-            .contains("does not belong to owner"));
+    }
+
+    /// bug-792: the recipient of a transferred package signs releases of an
+    /// ident whose prefix names the original owner; the registry's `/signing`
+    /// decides who may (its stored package owner), not this local check.
+    #[test]
+    fn signing_ident_accepts_a_transferred_ident() {
+        assert_eq!(
+            signing_ident("bob", "shape", "ada#shape"),
+            Ok("ada#shape".to_string())
+        );
     }
 
     #[test]
@@ -4077,11 +4085,11 @@ mod tests {
         build_project(&options).expect("windows app build with no icon succeeds");
     }
 
-    /// `--sign` with a manifest `ident` owned by a different signer fails at
+    /// `--sign` with a manifest `ident` that is not `<owner>#<package>` fails at
     /// `signing_ident` — before any registry/key access — exercising the signing
     /// error arm.
     #[test]
-    fn build_project_sign_rejects_a_foreign_manifest_ident() {
+    fn build_project_sign_rejects_a_malformed_manifest_ident() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("project.json"),
@@ -4092,7 +4100,7 @@ mod tests {
                 "  \"mfb\": \"1.0\",\n",
                 "  \"kind\": \"executable\",\n",
                 "  \"entry\": \"main\",\n",
-                "  \"ident\": \"ada#app\",\n",
+                "  \"ident\": \"ada-app\",\n",
                 "  \"targets\": [\"native\"],\n",
                 "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
                 "}\n"
@@ -4105,7 +4113,7 @@ mod tests {
             "IMPORT io\n\nFUNC main() AS Nothing\n  io::print(\"hi\")\nEND FUNC\n",
         )
         .unwrap();
-        // `zed` does not own `ada#app`, so signing_ident rejects it.
+        // `ada-app` has no `#`, so signing_ident rejects it.
         let options = parse_build_options(s(&["--sign", "zed", dir.path().to_str().unwrap()]))
             .expect("options");
         assert!(build_project(&options).is_err());
