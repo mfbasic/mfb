@@ -1333,6 +1333,12 @@ mod tests {
         assert!(r.declares_error("general.toMoney", "ErrOverflow"));
         assert!(r.declares_error("general.toMoney", "ErrInvalidFormat"));
         assert!(r.declares_error("general.toScalar", "ErrInvalidArgument"));
+        // bug-807: toString/toInt/error declared nothing while raising.
+        assert!(r.declares_error("general.toString", "ErrEncoding"));
+        assert!(r.declares_error("general.toString", "ErrOutOfMemory"));
+        assert!(r.declares_error("general.toInt", "ErrInvalidFormat"));
+        assert!(r.declares_error("general.toInt", "ErrOverflow"));
+        assert!(r.declares_error("general.error", "ErrOutOfMemory"));
         // A conversion does not declare an error it never raises.
         assert!(!r.declares_error("general.toByte", "ErrInvalidFormat"));
         assert!(!r.declares_error("general.len", "ErrOverflow"));

@@ -12,7 +12,8 @@ is written as a bare name, with no `IMPORT` and no package prefix.
 
 From a **`String`** it parses a decimal number. Text that is not one raises
 `ErrInvalidFormat`, and a value outside the range a `Fixed` can hold — roughly
-±2.1 billion — raises `ErrOverflow`.
+±2.1 billion — raises `ErrOverflow`. From an `Integer`, a `Float` or a `Money` it
+converts the number, and one outside that range raises `ErrOverflow` too.
 
 `Fixed` is **binary** fixed-point, so most decimal fractions are rounded to the
 nearest value it can hold on the way in: `toFixed("0.1")` gives the closest

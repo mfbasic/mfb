@@ -21,9 +21,10 @@ that is not a whole number in the base given — including the empty string.
 `TRAP` the conversion, or go through `toFloat` and then `toInt` if a decimal
 should be accepted and truncated.
 
-From a **`Float`** or a `Fixed` it **truncates toward zero**: `toInt(1.9)` is
-`1` and `toInt(-1.9)` is `-1`. It does not round. When you want the nearest
-integer, round first with `math::round`.
+From a **`Float`**, a `Fixed` or a `Money` it **truncates toward zero**:
+`toInt(1.9)` is `1` and `toInt(-1.9)` is `-1`. It does not round. When you want
+the nearest integer, round first with `math::round`. A `Byte` gives its value and
+a `Scalar` its code point.
 
 From an **enum** value you get the member's position in its `ENUM`
 declaration, counting from 0: the first member is `0`, the next `1`, and so on.
@@ -31,12 +32,14 @@ This never fails. The numbers follow the order the members are written in, so
 reordering the members of an `ENUM` changes them. To go back from a number to
 a member, keep the members in a `List` and read it with `collections::get`.
 
-A value too large for a 64-bit `Integer` raises `ErrOverflow`.
+A number outside the 64-bit `Integer` range — written in the text, or held by
+the `Float` — raises `ErrOverflow`.
 
-`toInt` is one of the fallible conversions (except from an enum, which cannot
-fail), so its result auto-propagates like
-any other call: on bad input it routes to your `TRAP`, or fails to your caller.
-It never returns a sentinel such as `-1` or `0` to mean "could not convert"."#;
+Only the `String` and `Float` forms can fail. A `Fixed`, `Money`, `Byte` or
+`Scalar` always fits an `Integer`, and an enum is just its position, so those
+forms never raise. A failure auto-propagates like any other call: on bad input
+it routes to your `TRAP`, or fails to your caller. `toInt` never returns a
+sentinel such as `-1` or `0` to mean "could not convert"."#;
 
 const EX: &str = r#"Parse in base 10 and base 16, and see truncation:
 
@@ -113,7 +116,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         TO_INT,
         (INTRO, DESC, EX),
         ParameterType::Integer,
-        vec![],
+        vec!["ErrInvalidFormat", "ErrOverflow"],
         vec![
             req(
                 "value",

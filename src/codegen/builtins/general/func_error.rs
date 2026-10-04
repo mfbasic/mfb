@@ -10,8 +10,9 @@ const INTRO: &str = "Construct an `Error` value from a numeric code and a messag
 const DESC: &str = r#"`error` builds an `Error` from a numeric `code` and a human-readable `message`.
 It is written as a bare name, with no `IMPORT` and no package prefix.
 
-Building an `Error` does not fail anything by itself — it just makes the value.
-`FAIL` is what raises it:
+Building an `Error` does not raise it — it just makes the value, and accepts any
+`code` and `message`. Making the value can still raise `ErrOutOfMemory`, which
+means the program ran out of memory. `FAIL` is what raises the `Error`:
 
 ```
 FAIL error(77050002, "the port must be between 1 and 65535")
@@ -85,7 +86,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         ERROR,
         (INTRO, DESC, EX),
         ParameterType::named("Error"),
-        vec![],
+        vec!["ErrOutOfMemory"],
         vec![
             req(
                 "code",

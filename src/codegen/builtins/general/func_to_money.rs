@@ -11,8 +11,9 @@ const DESC: &str = r#"`toMoney` converts a value to `Money`, MFBASIC's exact dec
 written as a bare name, with no `IMPORT` and no package prefix.
 
 From a **`String`** it parses a decimal amount. Text that is not one raises
-`ErrInvalidFormat`, and an amount outside the range `Money` can hold raises
-`ErrOverflow`.
+`ErrInvalidFormat`, and an amount outside the range `Money` can hold — about
+±92 trillion — raises `ErrOverflow`. An `Integer` or a `Float` outside that range
+raises `ErrOverflow` as well; every `Fixed` and `Byte` fits.
 
 **Convert from text, not from a `Float`.** `Money` is exact base-10 arithmetic —
 one-tenth is one-tenth, and adding a hundred of them gives exactly ten. A

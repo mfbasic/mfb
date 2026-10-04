@@ -27,7 +27,13 @@ written in the `ENUM`, without the type name: `toString(Color.Green)` is
 `"Green"`. When you want the type too, `typeName(c) & "." & toString(c)` gives
 `"Color.Green"`.
 
-`toString` never fails."#;
+A `List OF Byte` is read as UTF-8 text: bound as
+`LET b AS List OF Byte = [104, 105]`, `toString(b)` is `"hi"`. Bytes that are not
+well-formed UTF-8 raise `ErrEncoding` — this is the only form that can fail
+because of its argument.
+
+Every form builds a new `String`, so any of them can raise `ErrOutOfMemory`,
+which means the program ran out of memory."#;
 
 const EX: &str = r#"Render several types, and note what a `Float` does by default:
 
@@ -96,7 +102,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         TO_STRING,
         (INTRO, DESC, EX),
         ParameterType::String,
-        vec![],
+        vec!["ErrEncoding", "ErrOutOfMemory"],
         vec![
             req(
                 "value",

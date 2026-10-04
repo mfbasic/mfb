@@ -16,7 +16,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 | `error(code, message)` | 2 | `Error` | `(Integer, String)` — builds the read-only `Error` record |
 | `len(value)` | 1 | `Integer` | `String`, `List OF T`, `Set OF T`, `Map OF K TO V` |
 | `typeName(value)` | 1 | `String` | any `T` (never reads the value) |
-| `toString(value[, decimals])` | 1–2 | `String` | `Integer`/`Float`/`Fixed`/`Money`/`Boolean`/`String`/`Byte`/`Scalar`/`List OF Byte`, any enum (the bare member name; infallible); optional `Byte` precision for `Float`/`Fixed`/`Money` |
+| `toString(value[, decimals])` | 1–2 | `String` | `Integer`/`Float`/`Fixed`/`Money`/`Boolean`/`String`/`Byte`/`Scalar`/`List OF Byte` (decoded as UTF-8), any enum (the bare member name); optional `Byte` precision for `Float`/`Fixed`/`Money` |
 | `toInt(value[, base])` | 1–2 | `Integer` | `String`, `Byte`, `Float`, `Fixed`, `Money`, `Scalar`, any enum (the member's 0-based declaration index; infallible); optional `Integer` `base` (2–36) for `String` radix parsing |
 | `toFloat(value)` | 1 | `Float` | `String`, `Integer`, `Fixed`, `Money` |
 | `toFixed(value)` | 1 | `Fixed` | `String`, `Integer`, `Float`, `Money` |
@@ -40,6 +40,27 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 > the element type a higher-order call has already bound — because a bare name
 > such as `isPositive` is defined over `Integer`, `Float` and `Fixed` and the
 > reference alone does not choose one.
+
+**Raise sets.** Each general built-in's `errors` — the Errors table of
+`mfb man general <name>` — is the union of what its overloads raise, measured by
+lowering one call per overload on every backend
+([[src/codegen/builtins/tests/general_declared_errors.rs:OVERLOADS]]), which also
+pins each overload's own set. `toString` raises `ErrOutOfMemory` on every form
+(it always builds a new `String`) and `ErrEncoding` only on `List OF Byte`;
+`toInt` raises `ErrInvalidFormat`/`ErrOverflow` on its `String` forms,
+`ErrOverflow` on `Float`, and nothing on `Fixed`, `Money`, `Byte`, `Scalar` or an
+enum; `error` raises `ErrOutOfMemory` (building the record), never anything about
+its arguments; `toFixed` raises `ErrOverflow` on every numeric source and
+`ErrInvalidFormat`/`ErrOverflow` on `String`; `toMoney` raises `ErrOverflow` on
+`Integer`/`Float` and `ErrInvalidFormat`/`ErrOverflow` on `String`, and nothing on
+`Fixed` (always below ±2³¹) or `Byte`; `len`, `typeName` and the `is*` predicates
+raise nothing. A `Float` argument of `toInt`, `toFixed`, `toMoney`, `isZero`,
+`isPositive` or `isNegative` is an observation boundary like any call argument
+(./mfb spec language types), so a non-finite arithmetic argument fails with
+`ErrFloatOverflow`/`ErrFloatNaN` at the call and never reaches the conversion —
+which is why no `Float` overload lists `ErrInvalidFormat` (bug-807; before it,
+`toInt(1.0 / 0.0)` reported `ErrInvalidFormat` and `isNegative(0.0 / 0.0)`
+answered `TRUE`). [[src/codegen/engine/convert/builder_conversions.rs:lower_to_int]]
 
 All eighteen except `error` are **overridable** (see §18.3). Every other built-in
 member named below lives in an **import-gated standard package** and is *not*
