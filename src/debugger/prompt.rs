@@ -1855,7 +1855,7 @@ x0       0x000000000000002c (44)
 
     #[test]
     fn show_type_needs_a_debug_build_s_arenas() {
-        let (_, err, _) = session("show type string x1\nq\n", Ending::Killed, false);
+        let (_, err, _) = session("show type string x0\nq\n", Ending::Killed, false);
         assert_eq!(
             err,
             "error: 'show type' reads values in the arena, which needs a debug build; rebuild \
