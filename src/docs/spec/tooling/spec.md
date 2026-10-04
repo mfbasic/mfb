@@ -3,10 +3,10 @@
 The `mfb` toolchain's externally-observable contracts that are **not** language
 semantics or on-disk package bytes: the project manifest, how source files are
 selected, the lock file, the audit output, the formatter's normalization, the
-HTML documentation renderer, and the CLI surface itself. These are stable formats
-and behaviors a consumer (an IDE, a CI gate, a reimplementation) depends on, so
-they are specified here as reimplementable contracts rather than left as prose in
-the command help.
+HTML documentation renderer, the debugger, and the CLI surface itself. These are
+stable formats and behaviors a consumer (an IDE, a CI gate, a reimplementation)
+depends on, so they are specified here as reimplementable contracts rather than
+left as prose in the command help.
 
 This package owns the *formats and algorithms*. The build *pipeline* those
 commands drive is `./mfb spec architecture`; the language they compile is
@@ -29,6 +29,8 @@ registry/signing workflow behind `repo publish`/`repo`/`build --sign` is
 - `auditability` — the scope and limits of source, manifest and package analysis.
 - `debug-report` — the `--debug` build's stderr measurement report: when it prints,
   its line format, and its sections.
+- `debugger` — `mfb dbg`: operand classification, the MFBASIC/native check, the
+  per-host backend seam, the macOS launch/attach mechanics, and the `DBG>` prompt.
 
 ## See Also
 

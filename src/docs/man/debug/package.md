@@ -6,6 +6,8 @@ Debugging and profiling an MFBASIC program with lldb, gdb and the platform tools
 
 ```
 mfb build --debug [-O0] [path]
+mfb dbg <binary> [-- <args>...]
+mfb dbg <pid>
 mfb man debug [topic]
 ```
 
@@ -31,6 +33,9 @@ lines or variables: a debugger cannot step one source line at a time, show
 functions.
 
 `mfb test --debug` builds its test programs the same way.
+
+On macOS, `mfb dbg` pauses a program you start, or one that is already
+running, at a `DBG>` prompt. `mfb man debug debugger` explains it.
 
 ### The example program
 
@@ -158,6 +163,7 @@ administrator to change the setting.
 - `profiler` — find the functions the program spends its time in.
 - `lookup` — turn an address from a crash or a log into a function name, and back.
 - `report` — every line of the debug report a `--debug` build prints at exit.
+- `debugger` — pause a program with `mfb dbg`, the MFBASIC debugger (macOS).
 
 ## Errors
 
@@ -170,5 +176,6 @@ No errors. This topic describes tools, not MFBASIC functions.
 - `mfb man debug profiler`
 - `mfb man debug lookup`
 - `mfb man debug report`
+- `mfb man debug debugger`
 - `mfb man optimizations`
 - `mfb spec tooling debug-report`
