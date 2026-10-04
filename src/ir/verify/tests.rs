@@ -9244,3 +9244,38 @@ fn read_only_records_are_refused_under_their_qualified_identity() {
         );
     }
 }
+
+// --- branch arms start from the construct's entry state ---------------------
+
+fn read_of(name: &str) -> IrOp {
+    eval(IrValue::Call {
+        target: "fs.readLine".to_string(),
+        args: vec![IrValue::Local(name.to_string())],
+        type_: ParameterType::parse("String"),
+        loc: IrSourceLoc::default(),
+    })
+}
+
+fn if_op(condition: IrValue, then_body: Vec<IrOp>, else_body: Vec<IrOp>) -> IrOp {
+    IrOp::If {
+        condition,
+        then_body,
+        else_body,
+        loc: IrSourceLoc::default(),
+    }
+}
+
+#[test]
+fn a_close_on_one_arm_does_not_move_the_resource_on_its_sibling() {
+    // Each arm starts from the state before the IF; the ELSE never follows the THEN.
+    let body = vec![
+        bind("f", "fs.File", None, true, false),
+        if_op(
+            const_of("Boolean", "true"),
+            vec![close_eval("f")],
+            vec![read_of("f")],
+        ),
+    ];
+    let p = project(vec![owner_fn("run", "Nothing", body, &["f"])], vec![]);
+    expect_no_rule(&p, "TYPE_USE_AFTER_MOVE");
+}

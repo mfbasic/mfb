@@ -134,23 +134,34 @@ impl TypeEnv {
         // Run `body` as a branch: fresh scope, then merge the new moves of a
         // fall-through branch back into the outer set (the former source checker's MaybeMoved —
         // moved on *some* path means unusable after the join).
+        //
+        // Every branch of one construct starts from `entry`, the state BEFORE the
+        // construct — never from the outer set as a sibling branch already merged
+        // into it. Starting the `ELSE` from the merged set made a close in the
+        // `THEN` a use-after-move in the `ELSE`, two paths that never meet.
+        type Entry = (
+            HashSet<String>,
+            HashMap<String, HashSet<String>>,
+            HashMap<String, HashSet<String>>,
+        );
         let run_branch =
             |body: &[IrOp],
+             entry: &Entry,
              locals: &HashMap<String, ParameterType>,
              moved: &mut HashSet<String>,
              aliases: &mut HashMap<String, HashSet<String>>,
              contains: &mut HashMap<String, HashSet<String>>| {
-                let mut branch_moved = moved.clone();
+                let mut branch_moved = entry.0.clone();
                 // Aliases discovered inside a branch merge back the same way moves do:
                 // "may alias on *some* fall-through path" is still may-alias after the
                 // join, and treating it otherwise would lose the relation exactly where
                 // it is needed.
-                let mut branch_aliases = aliases.clone();
+                let mut branch_aliases = entry.1.clone();
                 // Containment merges the same way, and for the same reason: a relation
                 // established on *some* fall-through path is still a may-hold after the
                 // join, and dropping it there would lose it exactly where a later consume
                 // needs it.
-                let mut branch_contains = contains.clone();
+                let mut branch_contains = entry.2.clone();
                 self.check_resource_moves(
                     body,
                     &mut locals.clone(),
@@ -374,12 +385,14 @@ impl TypeEnv {
                     else_body,
                     ..
                 } => {
-                    run_branch(then_body, locals, moved, aliases, contains);
-                    run_branch(else_body, locals, moved, aliases, contains);
+                    let entry = (moved.clone(), aliases.clone(), contains.clone());
+                    run_branch(then_body, &entry, locals, moved, aliases, contains);
+                    run_branch(else_body, &entry, locals, moved, aliases, contains);
                 }
                 IrOp::Match { cases, .. } => {
+                    let entry = (moved.clone(), aliases.clone(), contains.clone());
                     for case in cases {
-                        run_branch(&case.body, locals, moved, aliases, contains);
+                        run_branch(&case.body, &entry, locals, moved, aliases, contains);
                     }
                 }
                 IrOp::ForEach {
@@ -409,7 +422,8 @@ impl TypeEnv {
                     }
                 }
                 IrOp::While { body, .. } | IrOp::For { body, .. } | IrOp::DoUntil { body, .. } => {
-                    run_branch(body, locals, moved, aliases, contains);
+                    let entry = (moved.clone(), aliases.clone(), contains.clone());
+                    run_branch(body, &entry, locals, moved, aliases, contains);
                 }
                 // bug-676: every route into the function-level handler closes the
                 // function's own resources first (`trap_route_cleanups`, codegen:

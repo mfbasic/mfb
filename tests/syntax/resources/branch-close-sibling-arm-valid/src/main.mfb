@@ -1,0 +1,37 @@
+' A close on one branch arm does not move the resource on a sibling arm: the two
+' paths never meet. Each arm starts from the state before the IF / MATCH, not from
+' the state a sibling arm already merged in.
+IMPORT fs
+IMPORT io
+
+ENUM Mode
+  Close
+  Read
+  Skip
+END ENUM
+
+FUNC ifElse(path AS String, shut AS Boolean) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  IF shut THEN
+    fs::close(f)
+  ELSE
+    io::print(fs::readLine(f))
+  END IF
+END FUNC
+
+FUNC byCase(path AS String, mode AS Mode) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  MATCH mode
+    CASE Mode.Close
+      fs::close(f)
+    CASE Mode.Read
+      io::print(fs::readLine(f))
+    CASE ELSE
+      io::print("skip")
+  END MATCH
+END FUNC
+
+FUNC main() AS Nothing
+  ifElse("a.txt", FALSE)
+  byCase("a.txt", Mode.Read)
+END FUNC

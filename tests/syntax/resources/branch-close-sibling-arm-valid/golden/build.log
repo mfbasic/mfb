@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/branch-close-sibling-arm-valid
+Wrote AST to tests/syntax/resources/branch-close-sibling-arm-valid/branch_close_sibling_arm_valid.ast
+Wrote IR to tests/syntax/resources/branch-close-sibling-arm-valid/branch_close_sibling_arm_valid.ir
+[exit 0]

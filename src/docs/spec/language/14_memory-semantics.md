@@ -149,7 +149,9 @@ with the message — `"Binding \`name\` was moved and cannot be used again."`
 — regardless of whether the earlier move was definite or path-dependent.
 
 At a branch — each arm of `IF`/`ELSE`, every `MATCH` case, and loop/`TRAP`
-bodies — the arm runs against a *clone* of the entering set, and the new moves
+bodies — the arm runs against a *clone* of the set entering the construct (never
+the set a sibling arm has already merged into, so a close in `THEN` does not
+reach `ELSE`), and the new moves
 it accumulates are unioned back into the outer set only if the arm *falls
 through*. An arm that diverges (a top-level `RETURN`/`FAIL`/`EXIT PROGRAM`)
 cannot reach the code after the branch, so its moves are dropped from the merge

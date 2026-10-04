@@ -1,0 +1,171 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "branch_close_sibling_arm_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 7,
+    "visibility": "public",
+    "name": "Mode",
+    "members": [
+    { "name": "Close" },
+    { "name": "Read" },
+    { "name": "Skip" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "ifElse",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 13, "type": "String", "default": null },
+    { "name": "shut", "line": 13, "type": "Boolean", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    {
+      "op": "if",
+      "line": 15,
+      "condition": { "kind": "local", "name": "shut" },
+      "then": [
+      { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "byCase",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 22, "type": "String", "default": null },
+    { "name": "mode", "line": 22, "type": "Mode", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 23, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "$match0", "type": "Mode", "value": { "kind": "local", "name": "mode" } },
+    {
+      "op": "match",
+      "line": 24,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 25,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Close" } },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } }
+        ]
+      },
+      {
+        "line": 27,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Read" } },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] }] } }
+        ]
+      },
+      {
+        "line": 29,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "skip" }] } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 34,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "ifElse", "args": [{ "kind": "const", "type": "String", "value": "a.txt" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "byCase", "args": [{ "kind": "const", "type": "String", "value": "a.txt" }, { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Read" }] } }
+    ]
+  }
+  ]
+}

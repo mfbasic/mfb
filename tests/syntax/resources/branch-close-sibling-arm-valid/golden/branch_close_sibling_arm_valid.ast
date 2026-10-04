@@ -1,0 +1,111 @@
+{
+  "project": "branch_close_sibling_arm_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 4 },
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "enum",
+      "visibility": "public",
+      "name": "Mode",
+      "line": 7,
+      "members": [
+      { "name": "Close", "line": 8 },
+      { "name": "Read", "line": 9 },
+      { "name": "Skip", "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "ifElse",
+      "line": 13,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 13 },
+      { "name": "shut", "type": "Boolean", "default": null, "line": 13 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 14 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "shut" },
+        "line": 15,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 16 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 18 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "byCase",
+      "line": 22,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 22 },
+      { "name": "mode", "type": "Mode", "default": null, "line": 22 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 23 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "mode" },
+        "line": 24,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Close" } },
+          "guard": null,
+          "line": 25,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 26 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Read" } },
+          "guard": null,
+          "line": 27,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 28 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 29,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "skip" }] }, "line": 30 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 34,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "ifElse", "arguments": [{ "kind": "string", "value": "a.txt" }, { "kind": "boolean", "value": false }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "byCase", "arguments": [{ "kind": "string", "value": "a.txt" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Read" }] }, "line": 36 }
+      ]
+    }
+    ]
+  }
+  ]
+}
