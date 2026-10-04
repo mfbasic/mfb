@@ -113,14 +113,8 @@ impl Location {
             Some(at) => {
                 let amount = number(&word[at + 1..])?;
                 let amount = i64::try_from(amount).map_err(|_| format!("'{word}' is too far"))?;
-                (
-                    &word[..at],
-                    if &word[at..at + 1] == "-" {
-                        -amount
-                    } else {
-                        amount
-                    },
-                )
+                let negative = word[at..].starts_with('-');
+                (&word[..at], if negative { -amount } else { amount })
             }
             None => (word, 0),
         };
@@ -1471,7 +1465,7 @@ x0   0x000000000000002c (44)
     fn memory_lines_lead_with_full_addresses() {
         assert_eq!(
             memory_lines(0x16f0_0010, b"MFB!"),
-            ["0x000000016f000010 4d 46 42 21                                     | M F B !"]
+            ["0x0000000016f00010 4d 46 42 21                                     | M F B !"]
         );
     }
 

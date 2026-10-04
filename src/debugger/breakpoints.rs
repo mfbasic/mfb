@@ -22,10 +22,10 @@ use super::{FunctionSymbol, Inferior, RunStop, StepStop};
 pub(crate) struct Breakpoint {
     /// Where it is written; `None` while its function is not loaded.
     pub(crate) address: Option<u64>,
-    /// The symbol it is on (with `+0x<offset>` inside a function), or `-`.
-    pub(crate) symbol: String,
-    /// The name the developer wrote (likewise), or `-`.
-    pub(crate) written: String,
+    /// The symbol it is on (with `+0x<offset>` inside a function), if any.
+    pub(crate) symbol: Option<String>,
+    /// The name the developer wrote (likewise), if any.
+    pub(crate) written: Option<String>,
     /// The function symbol it is in and its offset there, by which a restart
     /// finds it again; `None` for an address no function holds.
     pub(crate) anchor: Option<(String, u64)>,
@@ -57,15 +57,18 @@ pub(crate) struct Breakpoints {
     entry_passed: bool,
 }
 
-/// The written name of a function symbol, or `-`.
-fn written(function: &FunctionSymbol) -> String {
+/// The written name of a function symbol, if it has one.
+fn written(function: &FunctionSymbol) -> Option<String> {
     if function.linked {
-        linked_name(&function.name)
+        Some(linked_name(&function.name))
     } else {
-        classify_defined(&function.name)
-            .1
-            .unwrap_or_else(|| "-".to_string())
+        classify_defined(&function.name).1
     }
+}
+
+/// A name as `list breakpoint` prints it: `-` for none.
+fn shown(name: &Option<String>) -> &str {
+    name.as_deref().unwrap_or("-")
 }
 
 /// The breakpoints a name asks for: symbols spelled `name`, or else functions
@@ -78,14 +81,14 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
     if matches.is_empty() {
         matches = functions
             .iter()
-            .filter(|function| written(function) == name)
+            .filter(|function| written(function).as_deref() == Some(name))
             .collect();
     }
     let mut found: Vec<Breakpoint> = Vec::new();
     for function in matches {
         let duplicate = found.iter().any(|other| match function.address {
             Some(_) => other.address == function.address,
-            None => other.address.is_none() && other.symbol == function.name,
+            None => other.address.is_none() && other.symbol.as_ref() == Some(&function.name),
         });
         let bound_elsewhere = function.address.is_none()
             && functions
@@ -94,7 +97,7 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
         if !duplicate && !bound_elsewhere {
             found.push(Breakpoint {
                 address: function.address,
-                symbol: function.name.clone(),
+                symbol: Some(function.name.clone()),
                 written: written(function),
                 anchor: Some((function.name.clone(), 0)),
             });
@@ -106,12 +109,14 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
 /// The breakpoint for `address`: named by the function that holds it (with the
 /// offset into it), a linked function bound there, or neither.
 fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
-    let offset = |name: String, start: u64| {
-        if name == "-" || address == start {
-            name
-        } else {
-            format!("{name}+{:#x}", address - start)
-        }
+    let offset = |name: Option<String>, start: u64| {
+        name.map(|name| {
+            if address == start {
+                name
+            } else {
+                format!("{name}+{:#x}", address - start)
+            }
+        })
     };
     let holder = functions.iter().find(|function| {
         !function.linked
@@ -123,7 +128,7 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
         let start = function.address.unwrap_or(address);
         return Breakpoint {
             address: Some(address),
-            symbol: offset(function.name.clone(), start),
+            symbol: offset(Some(function.name.clone()), start),
             written: offset(written(function), start),
             anchor: Some((function.name.clone(), address - start)),
         };
@@ -134,14 +139,14 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
     {
         Some(function) => Breakpoint {
             address: Some(address),
-            symbol: function.name.clone(),
+            symbol: Some(function.name.clone()),
             written: written(function),
             anchor: Some((function.name.clone(), 0)),
         },
         None => Breakpoint {
             address: Some(address),
-            symbol: "-".to_string(),
-            written: "-".to_string(),
+            symbol: None,
+            written: None,
             anchor: None,
         },
     }
@@ -149,15 +154,11 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
 
 /// How a breakpoint reads in a sentence: `0x… in isPrime`.
 fn place(breakpoint: &Breakpoint) -> String {
-    let name = if breakpoint.written != "-" {
-        &breakpoint.written
-    } else {
-        &breakpoint.symbol
-    };
-    match (breakpoint.address, name.as_str()) {
-        (Some(address), "-") => format!("0x{address:016x}"),
-        (Some(address), name) => format!("0x{address:016x} in {name}"),
-        (None, _) => breakpoint.symbol.clone(),
+    let name = breakpoint.written.as_ref().or(breakpoint.symbol.as_ref());
+    match (breakpoint.address, name) {
+        (Some(address), None) => format!("0x{address:016x}"),
+        (Some(address), Some(name)) => format!("0x{address:016x} in {name}"),
+        (None, _) => shown(&breakpoint.symbol).to_string(),
     }
 }
 
@@ -197,7 +198,7 @@ impl Breakpoints {
                 None => lines.push(format!(
                     "Set a pending breakpoint on {}: it is placed when the program has \
                      loaded its libraries.",
-                    breakpoint.symbol
+                    shown(&breakpoint.symbol)
                 )),
             }
             self.list.push(breakpoint);
@@ -229,13 +230,13 @@ impl Breakpoints {
                 let by_symbol = self
                     .list
                     .iter()
-                    .filter(|breakpoint| &breakpoint.symbol == name)
+                    .filter(|breakpoint| breakpoint.symbol.as_ref() == Some(name))
                     .cloned()
                     .collect::<Vec<_>>();
                 if by_symbol.is_empty() {
                     self.list
                         .iter()
-                        .filter(|breakpoint| &breakpoint.written == name)
+                        .filter(|breakpoint| breakpoint.written.as_ref() == Some(name))
                         .cloned()
                         .collect()
                 } else {
@@ -270,7 +271,7 @@ impl Breakpoints {
         sorted.sort_by_key(|breakpoint| (breakpoint.address.is_none(), breakpoint.address));
         let width = sorted
             .iter()
-            .map(|breakpoint| breakpoint.symbol.len())
+            .map(|breakpoint| shown(&breakpoint.symbol).len())
             .max()
             .unwrap_or(0);
         sorted
@@ -281,7 +282,8 @@ impl Breakpoints {
                     .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}"));
                 format!(
                     "{address:<18} {:<width$} {}",
-                    breakpoint.symbol, breakpoint.written
+                    shown(&breakpoint.symbol),
+                    shown(&breakpoint.written)
                 )
             })
             .collect()
@@ -485,7 +487,7 @@ impl Breakpoints {
                 .then(|| {
                     functions
                         .iter()
-                        .find(|function| function.name == pending.symbol)
+                        .find(|function| pending.symbol.as_ref() == Some(&function.name))
                         .and_then(|function| function.address)
                 })
                 .flatten();
@@ -497,17 +499,17 @@ impl Breakpoints {
                 // Another breakpoint is already there; this one adds nothing.
                 notes.push(format!(
                     "The pending breakpoint on {} is at 0x{address:016x}, which already has one.",
-                    pending.symbol
+                    shown(&pending.symbol)
                 ));
                 self.list.remove(index);
                 continue;
             }
             inferior.insert_breakpoint(address)?;
             self.list[index].address = Some(address);
-            self.list[index].anchor = Some((self.list[index].symbol.clone(), 0));
+            self.list[index].anchor = self.list[index].symbol.clone().map(|symbol| (symbol, 0));
             notes.push(format!(
                 "Placed the pending breakpoint on {} at 0x{address:016x}.",
-                self.list[index].symbol
+                shown(&self.list[index].symbol)
             ));
             index += 1;
         }
