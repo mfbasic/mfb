@@ -284,11 +284,6 @@ pub(crate) fn arg_type_makes_inline_builtin_fallible(
 ) -> bool {
     match inline_builtin_arg_fallibility_rule(target) {
         None => false,
-        // `toString(<List OF Byte>)` decodes UTF-8 and can raise `ErrEncoding`.
-        Some(ArgFallibility::ToStringOverAListOfByte) => matches!(
-            arg_types.first(),
-            Some(ParameterType::ListOf(element)) if **element == ParameterType::Byte
-        ),
         // `replace` over anything but a `List` — i.e. the `String` overload, and
         // any future overload — refuses an empty needle.
         Some(ArgFallibility::ReplaceOverAnythingButAList) => {
@@ -306,7 +301,6 @@ pub(crate) fn arg_type_makes_inline_builtin_fallible(
 /// the shared list below, so the recogniser and the measurer cannot drift.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ArgFallibility {
-    ToStringOverAListOfByte,
     ReplaceOverAnythingButAList,
     /// bug-679, and the one entry that points the other way. The two above
     /// *remove* infallibility from a name that has it; this one *grants* it to a
@@ -325,9 +319,6 @@ enum ArgFallibility {
 /// exists). Keeping it as one function is what stops a recogniser and its
 /// measurer becoming two lists that lose an entry.
 fn inline_builtin_arg_fallibility_rule(target: &str) -> Option<ArgFallibility> {
-    if target == "toString" {
-        return Some(ArgFallibility::ToStringOverAListOfByte);
-    }
     if native_builtin_target(target) == Some("replace") {
         return Some(ArgFallibility::ReplaceOverAnythingButAList);
     }
@@ -368,9 +359,12 @@ pub(crate) fn inline_builtin_fallibility_depends_on_args(target: &str) -> bool {
 /// `strings.mid`, ...); `arg_types` discriminates the one overload-dependent
 /// entry (see [`arg_type_makes_inline_builtin_fallible`]).
 pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterType]) -> bool {
-    // bug-486: `toString(<List OF Byte>)` is the one overload-dependent entry. Its
-    // raw lowering is `lower_to_string` run under a `raw_result_capture`, exactly
-    // like the members below.
+    // Every `toString` overload is fallible (it can raise `ErrOutOfMemory`, and the
+    // `List OF Byte` one also `ErrEncoding`), and its raw lowering is
+    // `lower_to_string` run under a `raw_result_capture`, like the members below.
+    if target == "toString" {
+        return true;
+    }
     if arg_type_makes_inline_builtin_fallible(target, arg_types) {
         return true;
     }
@@ -480,7 +474,10 @@ pub(crate) fn inline_builtin_is_infallible(
     {
         return true;
     }
-    if matches!(target, "len" | "toString" | "typeName") {
+    // `toString` is not here: every overload builds a new `String` and can raise
+    // `ErrOutOfMemory` (bug-807; owner decision 2026-10-04: a call that can run out
+    // of memory is fallible), so an inline `TRAP` handler on it is live.
+    if matches!(target, "len" | "typeName") {
         return true;
     }
     // The pure queries that allocate nothing. `keys`/`values`/`append`/`prepend`/
@@ -1283,9 +1280,10 @@ mod tests {
     #[test]
     fn inline_builtin_fallibility_census() {
         // Infallible-for-TRAP: raise no user-trappable domain error (plan-21-A).
+        // `toString` is fallible since the owner's 2026-10-04 decision (every
+        // overload can raise `ErrOutOfMemory`); `tostring_is_fallible_on_every_overload`.
         for c in [
             "len",
-            "toString",
             "typeName",
             "bits.band",
             "bits.bor",
@@ -1361,24 +1359,16 @@ mod tests {
         ));
     }
 
-    /// bug-486: the census answers per OVERLOAD for the names whose fallibility
-    /// depends on the argument type. `toString(<List OF Byte>)` decodes UTF-8 and
-    /// raises `ErrEncoding`; every other `toString` is total, and the name-keyed
-    /// answer above must be untouched for them.
+    /// bug-486 made `toString(<List OF Byte>)` fallible (it raises `ErrEncoding`).
+    /// Since bug-807 every overload declares `ErrOutOfMemory`, and the owner's rule
+    /// (2026-10-04) is that a call that can run out of memory is fallible: every
+    /// `toString` overload is fallible and raw-supported, so an inline `TRAP`
+    /// handler on it is live and never flagged `TYPE_INLINE_TRAP_DEAD_HANDLER`.
     #[test]
-    fn tostring_is_fallible_only_on_a_byte_list() {
+    fn tostring_is_fallible_on_every_overload() {
         let bytes = [ParameterType::list_of(ParameterType::Byte)];
-        assert!(!inline_builtin_is_infallible(
-            "toString",
-            &bytes,
-            &NoTypeKinds
-        ));
-        assert!(inline_builtin_raw_supported("toString", &bytes));
-        assert!(!inline_trap_unsupported("toString", &bytes, &NoTypeKinds));
-
-        // Every other overload — including the two-argument precision form, a
-        // list of something else, and the no-types fallback — stays infallible.
         for args in [
+            bytes.to_vec(),
             vec![ParameterType::Integer],
             vec![ParameterType::Float, ParameterType::Byte],
             vec![ParameterType::String],
@@ -1387,10 +1377,11 @@ mod tests {
             vec![],
         ] {
             assert!(
-                inline_builtin_is_infallible("toString", &args, &NoTypeKinds),
-                "expected infallible: toString{args:?}"
+                !inline_builtin_is_infallible("toString", &args, &NoTypeKinds),
+                "expected fallible: toString{args:?}"
             );
-            assert!(!inline_builtin_raw_supported("toString", &args));
+            assert!(inline_builtin_raw_supported("toString", &args));
+            assert!(!inline_trap_unsupported("toString", &args, &NoTypeKinds));
         }
 
         // The cheap gate every consumer uses to decide whether to type its

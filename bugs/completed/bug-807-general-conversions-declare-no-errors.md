@@ -255,3 +255,12 @@ non-`List OF Byte` argument infallible by name, although it now declares
 (`audit/collect/source.rs:is_fallible_builtin`) does not list `toString` at all, so it
 reports `toString(<List OF Byte>)` as total — the same reporting-side gap bug-679
 describes for `toInt`, left with that decision.
+
+## Owner decision (2026-10-04): `toString` is fallible
+
+"toString is failable if it can OOM… so treat it as failable." The inline-`TRAP`
+census (`builtins::inline_builtin_is_infallible`) no longer lists `toString`. Every
+overload is fallible and raw-supported (`inline_builtin_raw_supported`), so an inline
+`TRAP` handler on any `toString` is live and none is flagged
+`TYPE_INLINE_TRAP_DEAD_HANDLER`. The per-overload rule bug-486 added for
+`List OF Byte` is retired: it is subsumed. Spec 8 rule 11 is updated.
