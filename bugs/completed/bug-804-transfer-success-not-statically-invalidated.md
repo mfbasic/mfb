@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: proposed `tests/runtime/rt_resource_review_804.rs` plus syntax/behavior fixtures described below.
+Status: Fixed
+Regression Test: `tests/runtime/rt_resource_review_804.rs`; fixtures `tests/syntax/threads/thread-transfer-use-after-move-invalid`, `tests/syntax/threads/thread-transfer-failure-handler-valid`, `tests/syntax/resources/branch-close-sibling-arm-valid`.
 
 A direct `thread::transfer(t, f)` followed by a read of `f` builds successfully;
 the read is refused only at runtime. The single correct behavior is that a read
@@ -173,11 +173,11 @@ lowering or verifying the pre-branch `CallResult`.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_resource_review_804.rs` reproducing the input above,
+- [x] Add `tests/runtime/rt_resource_review_804.rs` reproducing the input above,
       asserting the expected result rather than the observed failure.
-- [ ] Add syntax and runtime fixtures for success, failure, alias, and nesting
+- [x] Add syntax and runtime fixtures for success, failure, alias, and nesting
       siblings in the blast-radius list; demonstrate RED before editing behavior.
-- [ ] Complete the listed sibling audit, recording which cases fail and why.
+- [x] Complete the listed sibling audit, recording which cases fail and why.
 
 Acceptance: the primary regression fails for the documented reason, and each
 sibling has a measured outcome or an explicit untested status.
@@ -185,9 +185,9 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Implement the design above and all confirmed in-scope sibling fixes.
-- [ ] Preserve the non-goals and add matching valid/invalid function fixtures.
-- [ ] Update the owning language/memory/architecture topics to the implemented
+- [x] Implement the design above and all confirmed in-scope sibling fixes.
+- [x] Preserve the non-goals and add matching valid/invalid function fixtures.
+- [x] Update the owning language/memory/architecture topics to the implemented
       contract; remove the as-is limitation when the corresponding proof passes.
 
 Acceptance: primary and sibling regressions pass, including observable cleanup
@@ -229,3 +229,58 @@ The repair crosses ownership analysis and observable resource behavior. This
 report preserves a runnable reproduction and a test-first implementation plan;
 the accompanying specification change describes current behavior, not a shipped
 compiler fix.
+
+## Resolution (2026-10-03)
+
+Commits: `ded6e1445` (sibling-arm entry state), `d7d273c94` (transfer success edge).
+
+**Fix.** `TypeEnv::transferred_resource` (`src/ir/verify/link.rs`) names the
+binding a resource-plane transfer sends (`thread.transferResource`, and
+`thread.emitResource`). `check_resource_moves` (`src/ir/verify/resources.rs`)
+attaches the move to the success edge: a propagating `Call` moves the binding and
+its may-aliases on the op's continuation; an inline `CallResult` is remembered by
+its `$trap_res` temp and the sibling `If ResultIsOk` starts only its success arm
+with the binding moved. The conservative join then rejects a read after recovery.
+For a check chain the failing checks' `$trap_failed` flag is recorded
+(`transfer_failure_flags`) so the single handler behind it starts without the
+success-only move. `consumed_resource` still excludes transfer (it consumes on
+every edge).
+
+**Sibling bug fixed first (`ded6e1445`).** Every `IF`/`MATCH` arm ran against the
+outer moved set that the previous arm had already merged into, so a close in
+`THEN` was a false `TYPE_USE_AFTER_MOVE` in `ELSE` (verified at unchanged HEAD
+`91da29ed1`). The inline-TRAP failure arm is that `ELSE`, so this had to be fixed
+for the failure handler to stay legal. Arms now start from the construct's entry
+state.
+
+**Sibling audit (measured, macOS AArch64, `rt_resource_review_804` + unit tests).**
+
+| Case | Before | After |
+| --- | --- | --- |
+| Parent `transfer` then read | built; runtime `ErrResourceMoved` | `TYPE_USE_AFTER_MOVE` |
+| Worker `transfer` (→ `emitResource`) then read | built; runtime refusal | `TYPE_USE_AFTER_MOVE` |
+| May-alias (`RES g = same(f)`) read after transferring `f` | built; runtime refusal | `TYPE_USE_AFTER_MOVE` |
+| Read after inline-TRAP join | built; runtime refusal | `TYPE_USE_AFTER_MOVE` |
+| Read after check-chain join | built | `TYPE_USE_AFTER_MOVE` |
+| Inline failure handler reads/closes `f` | built, prints `first` | unchanged |
+| Check-chain handler reads `f` (argument ok, or argument failed) | built | unchanged; prints `first`, `no wait first` |
+| Diverging success arm, read after join | — | accepted (unit test) |
+| Decoded package IR | no transfer effect | same IR-shape rule (10 unit tests on raw IR) |
+| Function-level `IrOp::Trap` | locals closed | unchanged |
+| Callee transferring its `RES` parameter | runtime guard | unchanged (runtime guard; `rt_moved_handle_guards` green) |
+
+**Fixture corrected.** `tests/rt-behavior/native/native-resource-thread-accept-rt`
+read its database directly after a successful transfer to observe
+`ErrResourceMoved`. It now transfers through a `give(RES db, t)` callee (the
+untracked-alias case), keeping `used=2000` / `movedCount=2000`; only its
+`.ast`/`.ir` goldens move.
+
+**Verification.** `cargo test --release --test rt_resource_review_804` 7/7;
+`cargo test --release --bin mfb -- transfer use_after_move …` 38/38 and
+`ir::verify::tests` 472/472; related integration targets (15 binaries, incl.
+`rt_moved_handle_guards`, `rt_scope_drop_leaks`, `rt_resource_owner_scope`,
+`rt_thread_block_arena`, `rt_recursive_thread_transfer`) all pass;
+`scripts/test-accept.sh` over the 113 transfer / resource / use-after-move
+fixtures passes. Spec: language memory-semantics §14.9, resource-management §15,
+threads §16. Other native targets were not run: the change is confined to the
+target-independent IR verifier and emits no code.
