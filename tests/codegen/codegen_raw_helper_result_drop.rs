@@ -62,14 +62,21 @@ fn helper_result_owners(plan: &Value, symbol: &str) -> usize {
         .count()
 }
 
-/// How many `Result` blocks `symbol` materialises — the DENOMINATOR. One per
-/// inline `TRAP` over a runtime helper, whether or not its payload is a block.
+/// How many `Result`s `symbol` materialises — the DENOMINATOR. One per inline
+/// `TRAP` over a runtime helper, whether or not its payload is a block. Since
+/// bug-778 a `Result` the trap can keep unboxed lives in stack slots
+/// (`unboxed_trap_payload`) instead of a `raw_result` block; either is one.
 fn materialised_results(plan: &Value, symbol: &str) -> usize {
     function(plan, symbol)["stackSlots"]
         .as_array()
         .expect("stack slots array")
         .iter()
-        .filter(|slot| slot["type"].as_str() == Some("raw_result"))
+        .filter(|slot| {
+            matches!(
+                slot["type"].as_str(),
+                Some("raw_result" | "unboxed_trap_payload")
+            )
+        })
         .count()
 }
 
@@ -130,9 +137,11 @@ fn a_trapped_helper_string_result_gains_exactly_one_owner_and_the_plain_call_non
     );
     assert_eq!(
         helper_result_owners(&trapped, "_mfb_fn_main"),
-        1,
-        "the helper's own block must have exactly ONE owner; zero is bug-566's \
-         leak, two frees a block already freed"
+        0,
+        "since bug-778 the trapped value is MOVED into the binding (no copy into \
+         a boxed `Result`), so the binding is the helper block's one owner, as in \
+         the plain call; a separate owner here would free it twice \
+         (rt_scope_drop_leaks and the bug-778 runtime counts prove no leak)"
     );
 }
 
@@ -223,11 +232,12 @@ fn a_trapped_thread_wait_for_result_is_never_given_an_owner() {
     );
     assert_eq!(
         helper_result_owners(&plan, "_mfb_fn_main"),
-        1,
-        "exactly one of the two payload blocks may be freed here. The \
+        0,
+        "neither payload gets a separate owner since bug-778 moves a trapped value \
+         into its binding; above all, nothing may free the `thread::waitFor` block here. The \
          `fs::readText` block is this arena's; the `thread::waitFor` block is the \
-         WORKER's, and freeing it is cross-arena corruption. If this reads 2, the \
-         `thread` exclusion in `runtime_call_result_is_foreign_arena` stopped \
+         WORKER's, and freeing it is cross-arena corruption. If this reads nonzero, \
+         check the `thread` exclusion in `runtime_call_result_is_foreign_arena` stopped \
          working"
     );
 }
@@ -253,8 +263,8 @@ fn a_trapped_helper_collection_result_gains_one_owner() {
     );
     assert_eq!(
         helper_result_owners(&plan, "_mfb_fn_main"),
-        2,
-        "both payloads are blocks this arena allocated: a `List OF Byte` from \
-         `fs` and a `String` from `os`"
+        0,
+        "both payloads are blocks this arena allocated; since bug-778 each is \
+         moved into its binding, which owns it, so no separate owner is emitted"
     );
 }
