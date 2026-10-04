@@ -108,7 +108,7 @@ Everything below assumes these hold.
 | What | Count | Command |
 |---|---|---|
 | `BuildOptions` struct literals | 6 | `grep -rn "BuildOptions {" src --include='*.rs' \| grep -v "struct BuildOptions" \| wc -l` → 6 |
-| `tests/cli/*.rs` integration tests | 35 | `ls tests/cli/*.rs \| wc -l` → 35 |
+| `tests/cli/*.rs` integration tests | 36 | `ls tests/cli/*.rs \| wc -l` → 36 (2026-10-03) |
 | Help blocks to edit | 2 (`BUILD_HELP`, `TEST_HELP`) | `grep -n "^pub.*_HELP\|^const .*_HELP" src/cli/help.rs` |
 
 ### Verified properties
@@ -141,6 +141,22 @@ Everything below assumes these hold.
 
    `ConfigDiagnostic` gains a `file` field (`project.json` |
    `project-local.json`), so every diagnostic names the file it came from.
+
+   **Where it runs: `build_project`, never `validate_project_manifest`.** The
+   validator can't tell the invoked project from a source dependency:
+   `build_project` calls it on its own project, and
+   `source_packages.rs:build_source_dependency` calls `build_project` again for
+   every dependency (plan-167-A §2). `mfb fmt`, `mfb doc` and `mfb pkg` call it
+   too. So `validate_config` keeps validating `project.json` alone, as A left it.
+   `build_project` calls `load_project_config` only when
+   `options.package_output_dir.is_none()`. As a result:
+   - a source dependency's `project-local.json` is never read, even when the
+     dependency is a local directory that has one;
+   - `mfb fmt` and `mfb doc` never read `project-local.json`, so a broken local
+     file doesn't block formatting or docs;
+   - `mfb pkg publish` and the ABI check (`pkg.rs`, `package_output_dir: None`)
+     do read it, through `build_project`, so a broken local file in a package
+     project still stops a build of that project (requirement 2).
 3. **Selection.** In `build_project`, for the invoked project only
    (`package_output_dir.is_none()`) and on every path (executable, test,
    package), select `options.config.as_deref().unwrap_or("release")`. An
@@ -261,9 +277,16 @@ The local file overrides and extends configs, with full validation.
 
 - [ ] `src/manifest/config.rs`: `ConfigDiagnostic.file`; `load_project_config`
       per §3.2; the merge per §4. Add rule rows 2-200-0026 and 0027.
-- [ ] `src/manifest/mod.rs:validate_config`: call `load_project_config` for the
-      invoked project. Render each diagnostic against its own file's path.
-      `build_project` takes the merged `ProjectConfig` for selection.
+- [ ] `src/cli/build/mod.rs:build_project`: when
+      `options.package_output_dir.is_none()`, call `load_project_config` (per
+      §3.2's "Where it runs") instead of A's `project.json`-only accessor.
+      Render each diagnostic against its own file's path, and use the merged
+      `ProjectConfig` for selection. `src/manifest/mod.rs:validate_config` is
+      unchanged.
+- [ ] Unit or integration test: a source dependency (declared by directory)
+      whose directory holds a malformed `project-local.json` builds, and the
+      consumer's build succeeds. This proves the dependency's local file is never
+      read.
 - [ ] Unit tests in `config.rs`:
       - override keeps type → ok;
       - override changes type → 0027 at the local line;

@@ -287,7 +287,7 @@ fn table(
 // ---------------------------------------------------------------------------
 
 pub(crate) const MH_MAGIC_64: u32 = 0xfeed_facf;
-const LC_SEGMENT_64: u32 = 0x19;
+pub(crate) const LC_SEGMENT_64: u32 = 0x19;
 const LC_CODE_SIGNATURE: u32 = 0x1d;
 const LC_NOTE: u32 = 0x31;
 const LC_LOAD_DYLIB: u32 = 0xc;
@@ -295,8 +295,8 @@ const LC_LOAD_WEAK_DYLIB: u32 = 0x8000_0018;
 const LC_RPATH: u32 = 0x8000_001c;
 const LC_REEXPORT_DYLIB: u32 = 0x8000_001f;
 const LC_LOAD_UPWARD_DYLIB: u32 = 0x8000_0023;
-const SEGMENT_COMMAND_SIZE: usize = 72;
-const SECTION_SIZE: usize = 80;
+pub(crate) const SEGMENT_COMMAND_SIZE: usize = 72;
+pub(crate) const SECTION_SIZE: usize = 80;
 
 /// A 64-bit little-endian Mach-O: the macOS target.
 fn inspect_mach_o(bytes: &[u8]) -> Option<RawBinary<'_>> {
@@ -486,20 +486,20 @@ fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
     ))
 }
 
-fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
+pub(crate) fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(
         bytes.get(at..at.checked_add(4)?)?.try_into().ok()?,
     ))
 }
 
-fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
+pub(crate) fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
     Some(u64::from_le_bytes(
         bytes.get(at..at.checked_add(8)?)?.try_into().ok()?,
     ))
 }
 
 /// `length` bytes at `offset`, or `None` when that range leaves the file.
-fn range(bytes: &[u8], offset: u64, length: u64) -> Option<&[u8]> {
+pub(crate) fn range(bytes: &[u8], offset: u64, length: u64) -> Option<&[u8]> {
     let start = usize::try_from(offset).ok()?;
     let end = start.checked_add(usize::try_from(length).ok()?)?;
     bytes.get(start..end)
@@ -510,7 +510,7 @@ fn align4(value: u64) -> Option<usize> {
 }
 
 /// The bytes before the first NUL (all of them when there is none).
-fn c_bytes(bytes: &[u8]) -> &[u8] {
+pub(crate) fn c_bytes(bytes: &[u8]) -> &[u8] {
     let end = bytes
         .iter()
         .position(|byte| *byte == 0)

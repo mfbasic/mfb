@@ -83,8 +83,9 @@ Everything below assumes these hold.
 - A package's own `config` section does not apply to its code. The consuming
   executable's config applies to every call, including package code, the same
   rule `maxBuffer` follows (`src/ir/binary.rs`: "the CONSUMING project's
-  project.json"). A package's `config` is still validated by its own build
-  (plan-167-A).
+  project.json"). A package's `config` is still validated whenever the package
+  is built, which includes a source dependency's build inside the consumer's
+  build (plan-167-A §2, §Compatibility).
 
 ## 2. Current State
 
@@ -119,7 +120,7 @@ Everything below assumes these hold.
 | `os` member files | 24 | `ls src/codegen/builtins/os/func_*.rs \| wc -l` → 24 |
 | `target::shared::lower::lower_project` callers (every one gains the config argument) | 12: `testutil.rs` ×2, `macos_aarch64/mod.rs` ×6 (one executable path, five dump paths passing `stdin_log_cap: None`), and one each in `linux_aarch64`, `linux_x86_64`, `linux_riscv64`, `win_x86_64` | `grep -rn "lower::lower_project(" src --include='*.rs' \| wc -l` → 12 |
 | Executable-path `write_executable` callers in `src/target.rs`, `src/target/*/mod.rs` and `src/cli` (the backend trait chain the config rides; the `os/*/link` ones are linker-level and untouched) | 6 | `grep -rn "write_executable(" src/target.rs src/target/*/mod.rs src/cli --include='*.rs' \| grep -v "fn write_executable" \| wc -l` → 6 |
-| Highest used `2-203` rule code | `2-203-0140` | `grep -o 'code: "2-203-[0-9]*"' src/rules/table.rs \| sort \| tail -1` |
+| Highest used `2-203` rule code | `2-203-0143`; 0141 and 0142 are unused and reserved for this plan (the comment above `TYPE_TRAP_LOCAL_UNINITIALIZED` in `src/rules/table.rs`) | `grep -o 'code: "2-203-[0-9]*"' src/rules/table.rs \| sort \| tail -1` → `2-203-0143`; `grep -n "reserved by plan-167-B" src/rules/table.rs` → 1 hit (2026-10-03) |
 | `rt-behavior/os` fixtures | 32 | `ls tests/rt-behavior/os \| wc -l` → 32 |
 
 ### Verified properties
@@ -134,9 +135,25 @@ Everything below assumes these hold.
   lexeme).* **UNVERIFIED.** Task B-0 reads the IR lowering of a string literal
   (`src/ir/lower.rs`, the HIR string literal arm) and records the encoding here.
   The fold must produce the same encoding.
-- *A negative numeric default (`-5`, `-2.5`) is a literal at the HIR level that
-  `shape.rs` can recognize.* **UNVERIFIED.** Task B-0 reads how the parser and
-  HIR represent `-5` (a literal, or unary minus on a literal) and records it.
+- *A negative numeric default (`-5`, `-2.5`) is recognizable in `shape.rs`.*
+  Verified (2026-10-03): `-5` is a `UnaryOp::Negate` over a literal, not a
+  literal on its own. `shape.rs` already matches that shape, e.g. the
+  `UnaryOp::Negate => link_const_foldable(operand, …)` arm and
+  `is_bare_decimal_float` (`rg -n "UnaryOp::Negate" src/ir/shape.rs`). The
+  literal check accepts a literal, or `Negate` over a numeric literal, the same
+  way.
+- *A mutable walk over every `IrValue` exists.* Verified (2026-10-03):
+  `src/ir/value.rs:visit_value_mut` visits every nested value, with a test
+  (`visit_value_mut_rewrites_every_node_uncapped`). The fold uses it for every
+  value reachable from a statement or a global initializer.
+- *The `os.getConfigOr` call target survives `merge_packages`.* **UNVERIFIED.**
+  `src/target/shared/nir/lower.rs:merge_packages` rewrites package symbols to
+  identity-prefixed names. Task B-0 confirms that a builtin call target inside
+  package code keeps its `os.getConfigOr` name after the merge.
+- *Every call position has a file for the diagnostic.* **UNVERIFIED.** A call
+  in a function body takes its file from `IrFunction.file`. Task B-0 records
+  which file a call in a global initializer reports, and which file a call in
+  code merged from a `.mfp` reports (a path that may not exist on this machine).
 
 ## 3. Design Overview
 
@@ -175,8 +192,8 @@ position a call can sit in. A missed position leaves an unfolded intrinsic that
 must fail loudly (B-0 verifies this), never silently miscompile. The other risk
 is the constant's encoding (String escapes, Float lexeme, Integer range).
 
-**Where design uncertainty concentrates:** the three UNVERIFIED properties above.
-All three are cheap reads, scheduled first (B-0).
+**Where design uncertainty concentrates:** the four UNVERIFIED properties above.
+All four are cheap reads or a one-call build, scheduled first (B-0).
 
 **Gate class:** a behavior-adding plan. Programs without `getConfigOr` must stay
 byte-identical (checked on one unaffected fixture). The new fixtures are expected
@@ -248,9 +265,10 @@ before the fold is written.
 
 - [ ] B-0: re-run the two caller-count commands in "Measured populations". If
       either count moved, record it in Corrections.
-- [ ] B-0: resolve the three UNVERIFIED properties in "Verified properties":
-      string `Const.value` encoding, the HIR shape of `-5`, and the
-      unfolded-intrinsic behavior. For the last one, register the member, build
+- [ ] B-0: resolve the four UNVERIFIED properties in "Verified properties":
+      string `Const.value` encoding, the unfolded-intrinsic behavior, the call
+      target name after `merge_packages`, and the diagnostic file for a call in
+      a global initializer or in `.mfp` code. For the last one, register the member, build
       `os::getConfigOr("k", "d")` with no fold, and record the exact failure.
       If it builds and runs, that's a missing guard: add a codegen-time
       `Err("os.getConfigOr reached codegen unfolded")` at the intrinsic dispatch
@@ -289,10 +307,10 @@ This phase makes calls return config values everywhere a program can be built.
       explaining why; those builds emit `.mfp` and never fold.
 - [ ] `src/target/shared/config_fold.rs:fold_config_calls` per §3.2. It walks
       every `IrValue` in every function body, global initializer and nested
-      value. Use the existing IR mutable walker if B-0 finds one; otherwise write
-      the walk, with a test that builds a call in each position (statement
-      expression, nested argument, record field, list literal, lambda body,
-      global initializer). The Integer value is the decimal `i64`, the Float
+      value, using `src/ir/value.rs:visit_value_mut`. Add a test that builds a
+      call in each position (statement expression, nested argument, record
+      field, list literal, lambda body, global initializer), so a statement
+      kind the walk doesn't reach shows up as a failure. The Integer value is the decimal `i64`, the Float
       value is the config lexeme, and the String value uses the encoding B-0
       recorded.
 - [ ] `src/target/shared/lower.rs:lower_project`: call the fold after
@@ -368,6 +386,6 @@ Commit: —
 ## Summary
 
 The risk is in the fold's coverage and the encoding of the constant it emits.
-B-0 front-loads the three facts the fold depends on, and Phase 2's position test
+B-0 front-loads the four facts the fold depends on, and Phase 2's position test
 pins the coverage. No runtime code, no runtime error code, and no `AbiCtx`
 change. Programs that don't use the call are untouched.

@@ -21,9 +21,9 @@ verbatim, whichever form was typed.
 
 Help is **per command**, not two-tier. The top-level screen groups the commands
 and advertises only the common `pkg` (`add`/`update`/`install`/`verify`) and
-`repo` (`register`/`auth`) members, and twelve commands then carry a `--help`
+`repo` (`register`/`auth`) members, and thirteen commands then carry a `--help`
 screen of their own: `init`, `init-pkg`, `pkg`, `repo`, `build`, `test`, `fmt`,
-`audit`, `info`, `doc`, `man`, and `spec`. Explicit `--help`/`-h` requests select these screens before argument parsing.
+`audit`, `info`, `dbg`, `doc`, `man`, and `spec`. Explicit `--help`/`-h` requests select these screens before argument parsing.
 Usage failures in dispatch/build/test/audit, and the fmt/doc parsers, print
 top-level usage; `pkg`/`repo` errors use the shared command-error renderer.
 `man` errors print their error text; `spec` embeds top-level usage for an
@@ -72,6 +72,7 @@ convention: **2** for argument/usage errors, **1** for runtime failures, **0** f
 | `key rotate` | `mfb key rotate <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
 | `info` | `mfb info <binary>` | 0 every inspection outcome (incl. not an MFBasic binary, an unverified chain, an unreadable file); 2 missing/extra arg |
+| `dbg` | `mfb dbg <binary> [-- <args>...]`, `mfb dbg <pid>` | 0 session ended by quit or end of input; 2 usage; 1 unsupported host, not an MFBASIC or native binary, no such process, launch/attach failed (`./mfb spec tooling debugger`) |
 | `man` | `mfb man [package] [function] [--all]` | 0 ok (also a closed output pipe); 1 other output failure; 2 invalid arguments |
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok (also a closed output pipe); 1 other output failure; 2 unknown topic, bad flag, or >2 positionals |
 

@@ -33,6 +33,22 @@ pub(crate) use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSymb
 #[cfg(test)]
 use crate::arch::image::{EncodedSection, ImportKind};
 
+/// Encode one instruction on its own, for the decoder's round-trip tests.
+#[cfg(test)]
+pub(crate) fn encode_instruction(instruction: &CodeInstruction) -> Result<Vec<u8>, String> {
+    let mut encoder = Encoder {
+        text: Vec::new(),
+        data: Vec::new(),
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: HashMap::new(),
+        labels: HashMap::new(),
+        patches: Vec::new(),
+    };
+    encoder.emit_instruction(instruction)?;
+    Ok(encoder.text)
+}
+
 /// Encode a plan into a linkable image. The two-pass label/emit orchestration is
 /// shared across all backends (bug-341-B1); this backend supplies the AArch64
 /// `Encoder` (its [`crate::arch::encode_plan::InstructionEncoder`] impl lives in

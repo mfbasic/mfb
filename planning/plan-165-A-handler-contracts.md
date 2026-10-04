@@ -1,21 +1,22 @@
 # plan-165-A: Handler routing and typed return contracts
 
 Last updated: 2026-10-03
-Overall Effort: large (estimate: 3h–1d, excluding bug-798 and full-suite latency)
+Overall Effort: large (estimate: 3h–1d, excluding full-suite latency)
 Effort: medium (estimate: 1h–2h)
 Depends on: nothing
-Status: Planning only; not authorized for implementation
+Status: Not started; implementation awaits the owner's go-ahead
 
 ## Review coverage and execution order
 
 All review points have a written work item; this ledger describes documents, not
-completed compiler work. Implementation order is A → B → C → D, with bug-798 fixed
-before C and D, and the 3.1 design accepted before D.
+completed compiler work. Implementation order is A → B → C → D. Bug-798, a
+prerequisite of C and D, is fixed (commit 526600e93). The 3.1 design must be
+accepted before D.
 
 | Review | Owning document | Scope |
 |---|---|---|
 | 3.1 | [plan-165-D](plan-165-D-expression-observation-traps.md) | Complete expression/assignment observation boundary and operator-only eligibility proposal |
-| 3.1 discovered defect | [bug-798](../bugs/bug-798-inline-trap-float-observation.md) | Reproduced premature Float observation |
+| 3.1 discovered defect | [bug-798](../bugs/completed/bug-798-inline-trap-float-observation.md) | Premature Float observation under inline TRAP; fixed |
 | 3.2 | [plan-165-C](plan-165-C-conditional-inline-trap.md) | Conditional AND/OR evaluation with recovery |
 | 3.3 | This plan | Handler routing and lexical PROPAGATE matrix |
 | 3.4 | This plan | Declared RETURN type, Error as successful data, FAIL semantics |
@@ -28,9 +29,9 @@ successful Error values without changing RETURN into a failure mechanism.
 
 ## Prerequisites
 
-The owner must explicitly authorize implementation of this plan. The current
-instruction is to write bugs and plans only. Before starting, run
-`git status --short` and isolate unrelated work.
+An explicit owner go-ahead to implement this plan (for example
+`/follow-plan plan-165-A` or "implement plan-165-A"). Reviewing or discussing the
+plan is not one. Before starting, run `git status --short` and isolate unrelated work.
 
 ## Current state and evidence
 
@@ -39,7 +40,8 @@ instruction is to write bugs and plans only. Before starting, run
 - `src/ir/lower.rs:lower_inline_trap` lowers handlers with their own error binding;
   `lower_statement` translates PROPAGATE to FAIL of that binding
   (`sed -n '1175,1203p' src/ir/lower.rs`; `sed -n '1895,1950p' src/ir/lower.rs`).
-- Baseline build/run of `/tmp/mfb-error-review-red/2` produced
+- Baseline build/run of `/tmp/mfb-error-review-red/2` (re-verified with
+  `target/debug/mfb build` after bug-797 and bug-798 landed) produced
   `90000002`, `90000003`, `inner=90000004`, `90000001`, `90000005`, each on its own
   line: failing RECOVER and RETURN operands reached the function handler; nested
   recovery preserved the outer caught error; returning an Error succeeded.
@@ -49,6 +51,17 @@ instruction is to write bugs and plans only. Before starting, run
 - Reusing the outer inline error binding name in the inner handler was rejected
   with `SYMBOL_DUPLICATE_LOCAL`; use distinct names in routing tests. Do not
   silently change the language's shadowing policy.
+- `src/docs/spec/language/08_error-model.md` already states part of this contract:
+  §8.6 rule 3 (a function handler's own failures reach the caller; failures leaving
+  an inline handler reach the function handler), rule 4 (PROPAGATE refers to the
+  current error) and "`RETURN` never produces an error"
+  (`rg -n 'never produces an error|PROPAGATE. is valid' src/docs/spec/language/08_error-model.md`).
+  Missing: the innermost-lexical PROPAGATE binding, the outer binding after nested
+  recovery, and failing RECOVER/RETURN operands.
+- Bug-797 (commit a5324104b) added §8.6a: a function handler may read a top-level
+  local only if it is initialized on every failure edge
+  (`TYPE_TRAP_LOCAL_UNINITIALIZED`, `src/ir/verify/trap_init.rs`). Routing tests
+  that read body locals from a function handler must satisfy that rule.
 
 ## Design
 
@@ -92,6 +105,8 @@ UNVERIFIED, not presumed correct. Byte identity is not a runtime correctness gat
 - [ ] Test RETURN Error in an Error-returning function and rejection in Integer
       and Nothing functions, including return from handler bodies.
 - [ ] If a route fails, capture a RED reproduction and fix through a bug document.
+- [ ] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
+      existing `tests/runtime/rt_inline_trap_*` targets.
 
 Acceptance: proposed `cargo test --test rt_error_model_recovery` passes, proving
 observable routing and compile-time return-type rejection (estimate: minutes).
@@ -99,8 +114,9 @@ Commit: —
 
 ### Phase 2 — Canonical specification
 
-- [ ] Add the routing table and lexical binding rule to
-      `src/docs/spec/language/08_error-model.md`.
+- [ ] Extend the existing §8.6 rules 3–4 in
+      `src/docs/spec/language/08_error-model.md` with the lexical binding rule and
+      the routing table rows they do not already state; do not restate them.
 - [ ] Pair successful `RETURN error(...)` in `AS Error` with `FAIL error(...)`;
       explain that a failing RETURN operand prevents return from completing.
 - [ ] Update related function/type cross-references without duplicating the table.
@@ -115,7 +131,7 @@ Recommend TRAP on production of the complete assignment value, preserving all
 existing numeric failure timing. The parser already supplies the full expression;
 this would not mean trapping only the last division, nor deferring every error
 until a final store. Integer failures remain immediate, while Float observation
-occurs at its existing source boundaries. Bug-798 shows why this distinction matters.
+occurs at its existing source boundaries. Bug-798 (fixed) showed why this distinction matters.
 The complete proposal and implementation work order are in
 [plan-165-D](plan-165-D-expression-observation-traps.md); acceptance of its design
 and permission to implement remain separate decisions.
@@ -141,3 +157,9 @@ Verify specs with `cargo build`, `cargo test --bin mfb spec`, and rendered topic
 Planning only. An initial implementation attempt was removed at the owner's
 instruction; no compiler or test changes are retained. Any experimental success
 is not acceptance evidence for a future implementation.
+
+2026-10-03 review: bug-798 and bug-797 landed after this plan was written. Fixed
+the bug-798 link (now under `bugs/completed/`) and its status, recorded the
+existing §8.6 rules so Phase 2 extends rather than duplicates them, noted the
+bug-797 handler-local rule, added `[[test]]` registration, and replaced the
+session-specific authorization text with a reusable go-ahead condition.

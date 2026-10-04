@@ -3,6 +3,7 @@
 /// `super::abi` / `crate::arch::aarch64::abi` unchanged.
 pub(crate) use crate::target::shared::abi;
 pub(crate) mod backend;
+pub(crate) mod decode;
 pub(crate) mod encode;
 pub(crate) mod regmodel;
 pub(crate) mod reloc;

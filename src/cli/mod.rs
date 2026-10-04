@@ -1,4 +1,5 @@
 pub mod build;
+pub mod dbg;
 pub mod dispatch;
 pub mod doc;
 pub mod fmt;

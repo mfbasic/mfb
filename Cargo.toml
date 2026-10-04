@@ -188,6 +188,10 @@ name = "cli_fmt_scalar_quote"
 path = "tests/cli/cli_fmt_scalar_quote.rs"
 
 [[test]]
+name = "cli_dbg"
+path = "tests/cli/cli_dbg.rs"
+
+[[test]]
 name = "cli_init_symlink"
 path = "tests/cli/cli_init_symlink.rs"
 

@@ -26,6 +26,7 @@ Build & Development:
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
   info <binary>           Inspect an MFBASIC executable: libraries, signer, integrity
+  dbg <binary>|<pid>      Debug an MFBASIC program: launch it, or attach to it
 
 Documentation & Reference:
   doc [options] [path]    Render HTML docs from package or file source
@@ -65,6 +66,7 @@ Build & Development:
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
   info <binary>           Inspect an MFBASIC executable: libraries, signer, integrity
+  dbg <binary>|<pid>      Debug an MFBASIC program: launch it, or attach to it
 
 Documentation & Reference:
   doc [options] [path]    Render HTML docs from package or file source

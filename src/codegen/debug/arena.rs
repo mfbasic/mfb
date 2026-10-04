@@ -64,7 +64,7 @@ pub(crate) const ARENA_KIND_GRAPHICS: &str = "2";
 pub(crate) const ARENA_KIND_THREAD_BLOCK: &str = "3";
 
 const ARENA_REPORT_SYMBOL: &str = "_mfb_debug_report_arena";
-const ARENA_BASE_SYMBOL: &str = "_mfb_rt_debug_arena_base";
+pub(crate) const ARENA_BASE_SYMBOL: &str = "_mfb_rt_debug_arena_base";
 const ARENA_LOCK_SYMBOL: &str = "_mfb_rt_debug_arena_lock";
 const ARENA_COUNT_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_count";
 const ARENA_OVERFLOW_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_overflow";
@@ -79,14 +79,14 @@ const ARENA_SERIES_COUNT_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_series_key_coun
 
 /// Registry capacity. A program that registers more arenas than this loses their
 /// slots (and so their counts); `arena.registry_overflow` reports how many.
-const ARENA_DEBUG_SLOTS: usize = 1024;
-const REGION_COUNT_OFFSET: usize = 0;
+pub(crate) const ARENA_DEBUG_SLOTS: usize = 1024;
+pub(crate) const REGION_COUNT_OFFSET: usize = 0;
 const REGION_OVERFLOW_OFFSET: usize = 8;
 /// The monotonic clock (nanoseconds) when the main arena registered: every series
 /// sample's `t_ns` is measured from it.
 const REGION_T0_OFFSET: usize = 16;
-const REGION_HEADER_SIZE: usize = 24;
-const SLOT_KIND_OFFSET: usize = 8;
+pub(crate) const REGION_HEADER_SIZE: usize = 24;
+pub(crate) const SLOT_KIND_OFFSET: usize = 8;
 
 /// Counter words of a slot, after `state_ptr` (+0) and `kind` (+8).
 pub(crate) const COUNTER_MAPS: usize = 16;
@@ -160,7 +160,8 @@ const SERIES_FIELDS: [(&str, usize); 4] = [
 ];
 
 /// One slot: `state_ptr`, `kind`, the counters, and the series.
-const SLOT_SIZE: usize = SERIES_SAMPLES_OFFSET + (SERIES_CAPACITY + 1) * SERIES_SAMPLE_SIZE;
+pub(crate) const SLOT_SIZE: usize =
+    SERIES_SAMPLES_OFFSET + (SERIES_CAPACITY + 1) * SERIES_SAMPLE_SIZE;
 const REGION_SIZE: usize = REGION_HEADER_SIZE + ARENA_DEBUG_SLOTS * SLOT_SIZE;
 
 // The counter offsets are contiguous words ending where the series starts, and the

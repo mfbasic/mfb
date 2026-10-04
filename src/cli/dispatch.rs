@@ -8,11 +8,12 @@ use std::process;
 
 use crate::audit;
 use crate::cli::build::{build_project, parse_build_options, parse_test_options};
+use crate::cli::dbg::run_dbg_command;
 use crate::cli::doc::run_doc_command;
 use crate::cli::fmt::run_fmt_command;
 use crate::cli::help::{
-    AUDIT_HELP, BUILD_HELP, DOC_HELP, FMT_HELP, INFO_HELP, INIT_HELP, INIT_PKG_HELP, PKG_HELP,
-    REPO_HELP, SPEC_HELP, TEST_HELP, USAGE,
+    AUDIT_HELP, BUILD_HELP, DBG_HELP, DOC_HELP, FMT_HELP, INFO_HELP, INIT_HELP, INIT_PKG_HELP,
+    PKG_HELP, REPO_HELP, SPEC_HELP, TEST_HELP, USAGE,
 };
 use crate::cli::info::run_info_command;
 use crate::cli::init::{init_package_project, init_project};
@@ -231,6 +232,22 @@ pub(crate) fn dispatch(args: Vec<String>) -> i32 {
                 return 0;
             }
             if let Err(err) = run_info_command(&info_args) {
+                return crate::cli::dispatch_command_error(err);
+            }
+        }
+        Some("dbg") => {
+            let dbg_args = args.collect::<Vec<_>>();
+            // Only the debugger's own arguments: a `--help` after `--` belongs
+            // to the launched program.
+            if dbg_args
+                .iter()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| is_help_flag(arg))
+            {
+                println!("{DBG_HELP}");
+                return 0;
+            }
+            if let Err(err) = run_dbg_command(&dbg_args) {
                 return crate::cli::dispatch_command_error(err);
             }
         }

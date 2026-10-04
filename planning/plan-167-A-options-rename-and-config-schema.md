@@ -113,6 +113,16 @@ Everything below assumes these hold.
   first line containing `"name"`. A config key called `name` or `version` would
   land on the top-level field's line. That's why the config validator needs its
   own positions.
+- **`validate_project_manifest` has six production callers, and one of them
+  is recursive.** `src/cli/build/mod.rs:build_project`, `src/cli/fmt.rs`,
+  `src/cli/doc.rs` and `src/cli/pkg.rs` ×3
+  (`grep -rn "validate_project_manifest(" src/cli --include='*.rs' | wc -l` → 6).
+  `build_project` also runs for every source dependency:
+  `src/cli/build/source_packages.rs:build_source_dependency` calls it with
+  `package_output_dir: Some(cache)`. So a new check in the validator applies to
+  `mfb fmt`, `mfb doc` and `mfb pkg`, and to every source dependency's
+  `project.json` during the consuming app's build, not only to the project the
+  user invoked.
 - **Unknown top-level manifest keys are ignored.** No validator iterates the
   keys. `targets` is documented as "reserved … not read by any stage".
 - **`config` has no position in the validator yet**, so no existing diagnostic
@@ -126,7 +136,7 @@ Everything below assumes these hold.
 | Manifests in the repo with a `"config"` key (all of them are the `stdinLogCap` ones) | 19 | `grep -rl --include=project.json '"config"' . \| grep -v '^./target' \| wc -l` → 19 |
 | Files under `src tests scripts` mentioning `stdinLogCap` | 6 | `rg -l 'stdinLogCap' src tests scripts \| wc -l` → 6 (`manifest/mod.rs`, `cli/init.rs`, `target/shared/nir/mod.rs`, `docs/spec/threading/09_os-integration.md`, `docs/spec/tooling/01_project-manifest.md`, `codegen/io/stdin/stdin_broadcast.rs`) |
 | Highest used `2-200` rule code | `2-200-0017` (plus the `0100`/`0101` block) | `grep -o 'code: "2-200-[0-9]*"' src/rules/table.rs \| sort \| tail -4` |
-| Rule rows today | 252 | `rg -c 'name: "' src/rules/table.rs` → 252 |
+| Rule rows today | 253 | `rg -c 'name: "' src/rules/table.rs` → 253 (2026-10-03) |
 
 ### Verified properties
 
@@ -250,6 +260,11 @@ pub(crate) struct LosslessError { pub line: u32, pub message: String }
 - Config names and keys must match `^[A-Za-z][A-Za-z0-9_.-]*$` (Open Decision D9).
   A dotted key like `db.host` is just a key, not a nested path.
 - Two members that compare equal under ASCII case-folding are a duplicate.
+- Lookup is exact. `os::getConfigOr` (plan-167-B) matches its `key` argument
+  byte for byte. The case-insensitive duplicate rule exists so that only one
+  spelling of a key can be declared. A call that spells the key differently
+  (`"Port"` against a declared `port`) finds no key and yields its default,
+  like any other undeclared key.
 
 ### 5.4 Cross-config consistency (Open Decision D3)
 
@@ -275,6 +290,9 @@ New rows in `src/rules/table.rs`, all severity error, all with rendered position
 
 `PROJECT_JSON_CONFIG_MOVED_OPTION` fires instead of `PROJECT_JSON_CONFIG_SHAPE`
 for the `stdinLogCap` member, so an old manifest gets the actionable message.
+It also replaces `PROJECT_JSON_CONFIG_RELEASE_MISSING`: when `config` has a
+`stdinLogCap` member, the missing-`release` check is skipped. An old manifest
+(`"config": {"stdinLogCap": N}`) therefore reports exactly one diagnostic, 0018.
 All config errors are reported in one run, matching the `valid`-flag style of
 `validate_project_manifest`.
 
@@ -284,6 +302,19 @@ All config errors are reported in one run, matching the `valid`-flag style of
   is the rename to `"options"`. External projects created by `mfb init` before
   this plan carry this key, so the release notes and the error message must both
   say how to fix it.
+- **Breaking, for apps that use old source packages:** a source dependency's
+  `project.json` goes through `validate_project_manifest` during the consuming
+  app's build (§2). A third-party package written by an older `mfb init-pkg`
+  still carries `config.stdinLogCap`, so the app's build fails with 2-200-0018
+  until the package is updated. The diagnostic names the dependency's own
+  `project.json` path, so the fix is clear. This is the user's no-alias
+  decision (2026-10-03) applied to every manifest the build reads. A package's
+  `config` section is validated whenever the package is built, including inside
+  a consumer's build. Its values never apply to the consumer (plan-167-B).
+- **Other commands:** `mfb fmt`, `mfb doc` and `mfb pkg` run the same validator,
+  so an old-shape or malformed `config` also stops them. This is intended:
+  requirement 2 says any issue in `config` is an error, and every command that
+  reads the manifest already fails on its other invalid fields.
 - **Unchanged:** every other manifest field, `mfb.lock`, `.mfp` format, codegen,
   and the stdin cap default.
 
@@ -325,7 +356,7 @@ old manifest fails with a clear message.
 Acceptance: an old-shape manifest fails with 2-200-0018, and a renamed one bakes
 the same cap.
   Check: `scripts/test-accept.sh target/release/mfb /tmp/acc-167 project-config-moved-option-error`
-  → pass (est. 1 min). Then build `spikes/` or `examples/browser/` (one of the 19
+  → pass (est. 1 min). Then build `spikes/s1` (an executable, one of the 19
   renamed) with both `/tmp/mfb-167-base` (from the parent commit, with `config`)
   and the new compiler (`options`), and `cmp` the two executables → identical
   (est. 2 min). Last, `rg -l 'stdinLogCap' src tests scripts | xargs rg -n '"config"'`
@@ -349,7 +380,7 @@ This phase adds the primitive with no callers. It's safe because nothing calls i
   - depth cap;
   - every `project.json` under `tests/` parses, with the same structure as
     tinyjson. The comparison is a test-only conversion `LosslessValue` →
-    `tinyjson::JsonValue`, run over `find tests -name project.json` (1582 files).
+    `tinyjson::JsonValue`, run over `find tests -name project.json` (1590 files, 2026-10-03).
 
 Acceptance: the reader agrees with tinyjson on every manifest in the tree, and
 keeps what tinyjson drops.
@@ -384,6 +415,14 @@ project builds byte-identically.
       `project-*` manifest fixtures), each with a golden `build.log`:
       `project-config-valid` (builds, exit 0), plus one `project-config-<rule>-error`
       fixture per §5.5 rule (0019–0024).
+- [ ] Fixture `tests/syntax/project/project-config-dependency-moved-option-error/`:
+      an executable whose source dependency (declared by directory, modelled on
+      `source-package-dependency-rt`) still has `"config": {"stdinLogCap": N}`.
+      The golden `build.log` shows a single 2-200-0018 diagnostic naming the
+      dependency's `project.json`. This pins the §Compatibility consequence.
+- [ ] Spec `tooling/01_project-manifest.md`: state that the `config` checks run
+      wherever the manifest is validated (`mfb build`, `mfb test`, `mfb fmt`,
+      `mfb doc`, `mfb pkg`, and each source dependency's build).
 - [ ] Spec `tooling/01_project-manifest.md`: a new `## Named configs (config)`
       section stating §5.1–§5.4 exactly as implemented, with
       `[[src/manifest/config.rs:parse_config]]`; the new codes in Diagnostic
@@ -439,5 +478,5 @@ Commit: —
 
 The risk here is low and local. The rename is a mechanical breaking change with a
 targeted error. The lossless reader is a standalone parser checked against
-tinyjson on 1582 real manifests. The validator is pure functions with a test per
+tinyjson on 1590 real manifests. The validator is pure functions with a test per
 rule. Codegen is untouched, so valid projects stay byte-identical.
