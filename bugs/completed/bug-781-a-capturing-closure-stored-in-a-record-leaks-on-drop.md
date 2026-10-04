@@ -331,8 +331,9 @@ free_calls`, `live_bytes 0`, `double_free_skips 0` at the default level, `-O1` a
 `-O3` (macOS aarch64) and on linux-aarch64 glibc (2226), linux-riscv64 musl (2229) and
 windows-x86_64 (206).
 
-**Still open (pre-existing, not introduced here; same counts on the base compiler
-with a recursive `TYPE Holder / kids AS List OF Holder`):**
+**Follow-ups, both since fixed** (`3121b0453` transform ownership, `a9dae84ed` nested
+lambda captures; pre-existing, same counts on the base compiler with a recursive
+`TYPE Holder / kids AS List OF Holder`):
 
 1. A native `collections::transform` whose callback returns a fresh graph-owning
    record leaks the record block and its edges (`free_callback_result` skips
