@@ -2,17 +2,20 @@
 '
 ' The data is NOAA's Global Forecast System, served by NOMADS. The whole GFS
 ' output for one hour is hundreds of megabytes, so this asks NOMADS' filter CGI
-' for the four fields it actually draws - UGRD and VGRD, the eastward and
-' northward components of the wind at 10 metres above the ground, TMP at two
-' metres above the ground, and PRATE, the precipitation rate at the surface - on
-' the half degree grid.
+' for the fields it actually draws - UGRD and VGRD, the eastward and northward
+' components of the wind, at 10 metres above the ground and at the 850 and 250
+' millibar pressure levels (about one and a half and ten kilometres up), TMP at
+' two metres above the ground, and PRATE, the precipitation rate at the surface
+' - on the half degree grid.
 '
-' That takes two requests per hour, because the filter asks for every variable
-' at every level named: asking for PRATE's level, the surface, in the same
-' request as the rest would bring the ground's own temperature along too. The
-' two answers are GRIB2 files, and a GRIB2 file is nothing but its messages one
-' after another, so they are kept as one file: the wind and temperature, then
-' the precipitation. For the analysis that is about 0.9 megabytes.
+' That takes three requests per hour, because the filter asks for every
+' variable at every level named: asking for PRATE's level, the surface, in the
+' same request as the rest would bring the ground's own temperature along too,
+' and asking for the pressure levels alongside the heights would bring the
+' temperature at them. The three answers are GRIB2 files, and a GRIB2 file is
+' nothing but its messages one after another, so they are kept as one file: the
+' surface wind and temperature, the wind aloft, then the precipitation. For the
+' analysis that is about 1.7 megabytes.
 '
 ' GFS runs four times a day, at 00, 06, 12 and 18 UTC, and the analysis hour of
 ' a run appears on NOMADS roughly four hours after the run's nominal time. So
@@ -30,7 +33,7 @@
 ' Downloads are cached in the host temporary directory under the cycle and hour
 ' they came from, so the second run of the program starts instantly and a
 ' rebuild while working on the drawing costs nothing. Only the newest cycle is
-' kept: a run is 41 files and about 45 megabytes, and a new one comes out every
+' kept: a run is 41 files and about 75 megabytes, and a new one comes out every
 ' six hours.
 
 IMPORT collections
@@ -68,7 +71,7 @@ END TYPE
 ' project's top-level symbols are shared across every .mfb file), reused here
 ' rather than duplicated.
 FUNC emptyWinds AS Winds
-  RETURN Winds[east := emptyField(), north := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
+  RETURN Winds[east := emptyField(), north := emptyField(), east850 := emptyField(), north850 := emptyField(), east250 := emptyField(), north250 := emptyField(), temperature := emptyField(), precipitation := emptyField(), label := ""]
 END FUNC
 
 ' The analysis the program opens on, and the run it came from - which is the run
@@ -87,9 +90,9 @@ LET PUBLISH_DELAY_SECONDS AS Integer = 14400
 LET CYCLES_TO_TRY AS Integer = 8
 
 ' The grid NOMADS is asked for. The half-degree grid is 720 by 361 points and
-' about a megabyte an hour for the four requested fields, which is more detail
-' than the picture can show at a world-sized zoom and enough to hold up when
-' zoomed in.
+' about 1.7 megabytes an hour for the eight requested fields, which is
+' more detail than the picture can show at a world-sized zoom and enough to hold
+' up when zoomed in.
 LET GRID_NAME AS String = "0p50"
 
 FUNC cycleAt(epochSeconds AS Integer) AS Cycle
@@ -108,9 +111,11 @@ FUNC hourCaption(c AS Cycle, hour AS Integer) AS String
   RETURN "+" & toString(hour) & " h of the " & c.caption & " run"
 END FUNC
 
-' The two filter requests that make up one hour: the levels and variables
+' The three filter requests that make up one hour: the levels and variables
 ' each asks for, as query-string parameters.
 LET WIND_AND_TEMPERATURE AS String = "&lev_10_m_above_ground=on&lev_2_m_above_ground=on&var_UGRD=on&var_VGRD=on&var_TMP=on"
+
+LET WIND_ALOFT AS String = "&lev_850_mb=on&lev_250_mb=on&var_UGRD=on&var_VGRD=on"
 
 LET PRECIPITATION AS String = "&lev_surface=on&var_PRATE=on"
 
@@ -135,7 +140,7 @@ END FUNC
 ' Every cached file ends with this. It names what the file holds, so a file
 ' cached by a build that asked for other fields is never taken for one of these.
 FUNC cacheSuffix AS String
-  RETURN "-wind-temp-rain-" & GRID_NAME & ".grb2"
+  RETURN "-wind-wind850-wind250-temp-rain-" & GRID_NAME & ".grb2"
 END FUNC
 
 ' Where one hour of a cycle is kept between runs.
@@ -196,10 +201,11 @@ FUNC cycleData(c AS Cycle, hour AS Integer) AS Winds
   END IF
 
   LET weather AS List OF Byte = download(c, hour, WIND_AND_TEMPERATURE)
+  LET aloft AS List OF Byte = download(c, hour, WIND_ALOFT)
   LET rain AS List OF Byte = download(c, hour, PRECIPITATION)
-  LET both AS List OF Byte = collections::append(weather, rain)
-  LET winds AS Winds = windsFrom(both, c)
-  fs::writeBytesAtomic(path, both)
+  LET fetched AS List OF Byte = collections::append(collections::append(weather, aloft), rain)
+  LET winds AS Winds = windsFrom(fetched, c)
+  fs::writeBytesAtomic(path, fetched)
   RETURN winds
 END FUNC
 
@@ -216,15 +222,16 @@ FUNC attemptCycle(c AS Cycle, hour AS Integer) AS Attempt
   END TRAP
 END FUNC
 
-' The two wind components, temperature and precipitation rate out of one
-' cycle's file. Discipline 0, category 2 is momentum; parameter 2 is the u
-' component and 3 the v. Category 0, parameter 0 is temperature, and category 1,
-' parameter 7 the precipitation rate. Surface type 103 is "specified height
-' above ground"; wind is at 10 metres and temperature at 2 metres. Surface type 1
-' is the ground itself.
+' The two wind components at each height, temperature and precipitation rate
+' out of one cycle's file. Discipline 0, category 2 is momentum; parameter 2 is
+' the u component and 3 the v. Category 0, parameter 0 is temperature, and
+' category 1, parameter 7 the precipitation rate. Surface type 103 is "specified
+' height above ground"; wind is at 10 metres and temperature at 2 metres.
+' Surface type 100 is an isobaric surface, given in pascals: 85000 is 850
+' millibars and 25000 is 250. Surface type 1 is the ground itself.
 FUNC windsFrom(data AS List OF Byte, c AS Cycle) AS Winds
   LET fields AS List OF Field = decodeFile(data)
-  RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), temperature := pick(fields, 0, 0, 103, 2), precipitation := pick(fields, 1, 7, 1, 0), label := "GFS surface weather  " & c.caption]
+  RETURN Winds[east := pick(fields, 2, 2, 103, 10), north := pick(fields, 2, 3, 103, 10), east850 := pick(fields, 2, 2, 100, 85000), north850 := pick(fields, 2, 3, 100, 85000), east250 := pick(fields, 2, 2, 100, 25000), north250 := pick(fields, 2, 3, 100, 25000), temperature := pick(fields, 0, 0, 103, 2), precipitation := pick(fields, 1, 7, 1, 0), label := "GFS surface weather  " & c.caption]
 END FUNC
 
 ' The most recent GFS surface analysis this machine can get hold of, and the run

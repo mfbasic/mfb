@@ -82,6 +82,10 @@ IMPORT io
 TYPE Winds
   east AS Field
   north AS Field
+  east850 AS Field
+  north850 AS Field
+  east250 AS Field
+  north250 AS Field
   temperature AS Field
   precipitation AS Field
   label AS String
@@ -122,8 +126,8 @@ EOF
 # cachePath does, without needing a second run: gfs-<day>-<hour>-<hourTag>-<suffix>.
 TMPDIR_RESOLVED=${TMPDIR:-/tmp}
 CACHE_DIR="${TMPDIR_RESOLVED%/}/mfb-weather-gfs"
-CORRUPT_PATH="$CACHE_DIR/gfs-19990101-00-f000-wind-temp-rain-0p50.grb2"
-VALID_PATH="$CACHE_DIR/gfs-19990101-06-f000-wind-temp-rain-0p50.grb2"
+CORRUPT_PATH="$CACHE_DIR/gfs-19990101-00-f000-wind-wind850-wind250-temp-rain-0p50.grb2"
+VALID_PATH="$CACHE_DIR/gfs-19990101-06-f000-wind-wind850-wind250-temp-rain-0p50.grb2"
 
 "$MFB_BIN" build "$WORK" >"$WORK/build.log" 2>&1 || {
   echo "FAIL: driver did not build" >&2
