@@ -1123,7 +1123,15 @@ MUT __CANVAS_DISPLAY_OVERRIDE_READ AS Boolean = FALSE
 
 FUNC __canvas_readDisplayOverride() AS Nothing
   IF NOT __CANVAS_DISPLAY_OVERRIDE_READ THEN
-    canvas::setDisplayOverride(toInt(os::getEnvOr("MFB_CANVAS_DISPLAY_HZ", "0")) * 1000)
+    ' bug-807: a malformed or out-of-range override is ignored, as if unset. It is a
+    ' harness affordance, so it must never make a present or a frame-stats read fail.
+    MUT hz AS Integer = toInt(os::getEnvOr("MFB_CANVAS_DISPLAY_HZ", "0")) TRAP(e)
+      RECOVER 0
+    END TRAP
+    IF hz < 0 OR hz > 1000000 THEN
+      hz = 0
+    END IF
+    canvas::setDisplayOverride(hz * 1000)
     __CANVAS_DISPLAY_OVERRIDE_READ = TRUE
   END IF
 END FUNC

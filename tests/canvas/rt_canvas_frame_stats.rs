@@ -322,3 +322,30 @@ fn loop_ms(out: &str) -> i64 {
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or_else(|| panic!("no loopMs= line in:\n{out}"))
 }
+
+/// bug-807: `MFB_CANVAS_DISPLAY_HZ` is a harness affordance, so a value that is not
+/// a whole number of hertz in range is ignored as if unset. It used to go straight
+/// through `toInt`, so `getFrameStats` (and the first `present`) raised
+/// `ErrInvalidFormat` or `ErrOverflow` from an environment variable no member
+/// documents.
+#[test]
+fn a_malformed_display_override_is_ignored() {
+    let body = "  stats(\"before\")\n  canvas::present([box(10.0)])\n  stats(\"after\")\n";
+    let unset = run("canvas_stats_override_unset", &program(body), &[]);
+    for (name, value) in [
+        ("canvas_stats_override_text", "ninety"),
+        ("canvas_stats_override_huge", "99999999999999999999"),
+        ("canvas_stats_override_range", "9000000000000"),
+        ("canvas_stats_override_negative", "-60"),
+    ] {
+        let out = run(name, &program(body), &[("MFB_CANVAS_DISPLAY_HZ", value)]);
+        for tag in ["before", "after"] {
+            assert_eq!(
+                field(&out, tag, "displayHz"),
+                field(&unset, tag, "displayHz"),
+                "MFB_CANVAS_DISPLAY_HZ={value} must read as unset ({tag}):\n{out}"
+            );
+        }
+        assert_eq!(number(&out, "after", "presents"), 1.0, "{value}:\n{out}");
+    }
+}
