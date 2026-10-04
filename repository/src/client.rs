@@ -770,6 +770,15 @@ pub fn fetch_ident_chain(repo_url: &str, owner: &str) -> Result<IdentChainRespon
     get_json::<IdentChainResponse>(repo_url, &format!("/idents/{owner}"))
 }
 
+/// The owners' rotation chains as plan-168-C's verifier (`crate::trust`) takes
+/// them, read from `GET /idents/<owner>` on `repo_url`. The chain needs no
+/// server signature: each link is signed by the key it retires.
+pub fn registry_chains(
+    repo_url: &str,
+) -> impl Fn(&str) -> Result<Vec<crate::server::IdentChainLink>, String> + '_ {
+    move |owner: &str| fetch_ident_chain(repo_url, owner).map(|response| response.chain)
+}
+
 /// Walk a signed ident chain from `pinned` (plan-23-B2 pin-follow): verify
 /// each link's old-key signature over the rotation message and follow
 /// old→new until the chain is exhausted. Returns the newest chained

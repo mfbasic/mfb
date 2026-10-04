@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use mfb_repository::server::IdentChainLink;
+use mfb_repository::server::{IdentChainLink, IndexResponse};
 use tinyjson::JsonValue;
 
 use crate::cli::help::INFO_HELP;
@@ -78,6 +78,16 @@ pub(crate) trait RegistryLookup {
     /// The owner's ident rotation links, each signed by the key it retires
     /// (`GET /idents/<owner>`).
     fn ident_chain(&self, registry: &str, owner: &str) -> Result<Vec<IdentChainLink>, String>;
+    /// The package's index — its prefix owner's binding and the signed
+    /// ownership transfers — verified under `server_key`
+    /// (`GET /index/<owner>#<package>`, plan-168-C).
+    fn index(
+        &self,
+        registry: &str,
+        server_key: &[u8],
+        owner: &str,
+        package: &str,
+    ) -> Result<IndexResponse, String>;
 }
 
 /// The registry over the network, through the repository client's
@@ -106,6 +116,16 @@ impl RegistryLookup for OnlineRegistry {
 
     fn ident_chain(&self, registry: &str, owner: &str) -> Result<Vec<IdentChainLink>, String> {
         mfb_repository::client::fetch_ident_chain(registry, owner).map(|chain| chain.chain)
+    }
+
+    fn index(
+        &self,
+        registry: &str,
+        server_key: &[u8],
+        owner: &str,
+        package: &str,
+    ) -> Result<IndexResponse, String> {
+        mfb_repository::client::fetch_index_with_key(registry, server_key, owner, package)
     }
 }
 // coverage:on
@@ -391,10 +411,17 @@ fn verify_chain(
         |field: &str| json_str(proof, field).ok_or_else(|| format!("proof has no `{field}`"));
     let ident = signed("ident")?;
     let version = signed("version")?;
-    let package = match ident.split_once('#') {
-        Some((ident_owner, package)) if ident_owner.eq_ignore_ascii_case(&blob.owner) => package,
-        _ => return Err("proof ident does not belong to the signing owner".to_string()),
+    const NOT_THE_OWNERS: &str = "proof ident does not belong to the signing owner";
+    let (ident_owner, package) = match ident.split_once('#') {
+        Some((ident_owner, package)) if !ident_owner.is_empty() && !package.is_empty() => {
+            (ident_owner, package)
+        }
+        _ => return Err(NOT_THE_OWNERS.to_string()),
     };
+    // plan-168-C: an ident whose prefix names another owner belongs to the
+    // signer only through a signed ownership transfer, which the registry's
+    // index must show (checked below, once its key is known).
+    let transferred = !ident_owner.eq_ignore_ascii_case(&blob.owner);
 
     let url = blob
         .registry
@@ -419,6 +446,28 @@ fn verify_chain(
         &attestation_signature,
     )
     .map_err(|_| "invalid attestation signature".to_string())?;
+    // The signer's current key, when the ident reached them by transfer: the
+    // verified chain must show the signing ident key in their ownership.
+    let transferred_current = if transferred {
+        let index = registry
+            .index(url, &server_public, ident_owner, package)
+            .map_err(|_| NOT_THE_OWNERS.to_string())?;
+        let chain_of = |owner: &str| registry.ident_chain(url, owner);
+        let chain = mfb_repository::trust::verify_chain(
+            &server_public,
+            &index,
+            &chain_of,
+            mfb_repository::trust::Anchor::FirstUse,
+        )
+        .map_err(|_| NOT_THE_OWNERS.to_string())?;
+        Some(
+            chain
+                .owner_key(&blob.owner, &ident_public)
+                .ok_or_else(|| NOT_THE_OWNERS.to_string())?,
+        )
+    } else {
+        None
+    };
     for (field, value) in [
         ("owner", blob.owner.as_str()),
         ("ident", ident),
@@ -429,7 +478,11 @@ fn verify_chain(
         expect(&attestation, "attestation", field, value)?;
     }
 
-    let state = match registry.current_ident(url, &server_public, &blob.owner, package) {
+    let current = match transferred_current {
+        Some(current) => Ok(current),
+        None => registry.current_ident(url, &server_public, &blob.owner, package),
+    };
+    let state = match current {
         Err(err) => IdentState::Unknown(err),
         Ok(current) if current == ident_public => IdentState::Current,
         Ok(current) => {

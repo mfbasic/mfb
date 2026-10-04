@@ -237,26 +237,31 @@ Acceptance: `cargo test -p mfb_repository --lib -- trust::` → `test result: ok
   plus `a_pin_off_every_chain_is_a_reanchor`. Mutations (dropping the digest
   check, the accept-key chain check, or the per-owner key check) each turn
   tests red (5 failed).
-Commit: (this commit — recorded in the next)
+Commit: aa5b5b79f
 
 ### Phase 3: Wire every consumer
 
-- [ ] `src/cli/pkg.rs`: `follow_identity_pin` (rename of `follow_rotated_pin`,
+- [x] `src/cli/pkg.rs`: `follow_identity_pin` (rename of `follow_rotated_pin`,
       rotation behavior preserved; the existing rotation integration test runs
       unchanged), and `add_package_from_registry`.
-- [ ] `src/cli/resolve.rs`: `resolve` (verify the selected release and lock its
+- [x] `src/cli/resolve.rs`: `resolve` (verify the selected release and lock its
       key), `registry_dependency_for`, `apply_manifest_change` pin rewrite.
       Update the lock-key unit tests' expected key only where the test asserts
       `index.ident_key` semantics. Each such edit carries the AGENTS.md 4-answer
       proof: the old behavior is the bug-792 / Phase 1 defect.
-- [ ] `src/cli/info.rs:verify_chain` + `RegistryLookup` (proof ident,
+- [x] `src/cli/info.rs:verify_chain` + `RegistryLookup` (proof ident,
       `FirstUse` verifier); fake-registry tests in `src/cli/info/tests.rs`:
       `a_transferred_executable_reports_the_new_owner`,
       `a_foreign_ident_without_a_chain_is_refused`.
 
 Acceptance: consumers compile against the verifier, and their unit tests pass.
   Check: `cargo test -p mfb --bin mfb -- cli::info cli::resolve cli::pkg` → `test result: ok`, 0 failed (est. 4–8 min; guess).
-Commit: —
+  Measured: `test result: ok. 113 passed; 0 failed`. Phase 1's RED
+  `repo_registry_add_of_a_pre_rotation_release_installs` is now `ok`, and the
+  rotation test `repo_ident_rotation_follows_pins_and_reanchor_hard_errors`
+  runs unchanged and passes (`cargo test --test cli_repo_install --test
+  cli_repo_publish --test cli_repo_governance` → `EXIT=0`: 8 + 10 + 6 passed).
+Commit: (this commit — recorded in the next)
 
 ### Phase 4: Spec sync
 
@@ -298,6 +303,42 @@ Commit: —
   today.
 
 ## Corrections
+
+- **The verifier's error is an enum**, `TrustError::{Reanchored, Untrusted}`,
+  not a bare detail string: `pkg verify` must keep reporting a pin that is on
+  no owner's chain as `PACKAGE_IDENT_REANCHORED` ("NO chain link") and every
+  other failure as `PACKAGE_IDENT_KEY_UNTRUSTED`. A pin that still chains to
+  some owner's current key but sits in no tenure is `Untrusted`, not a
+  re-anchor. The API is `verify_chain(...) -> VerifiedChain` plus
+  `VerifiedChain::verify_release`, with `verify_release(...)` composing them;
+  `VerifiedChain::owner_key` answers `mfb info`'s question (is this key in this
+  owner's tenure, and what is their current key), because an executable is not
+  a registry release.
+- **A legacy link is one with ANY of its five signed fields null**, not only
+  both signatures: treating a half-signed link as a terminator can only deny,
+  never grant.
+- **`follow_identity_pin` keeps the rotation-only follow for a release the
+  registry does not list.** The existing rotation integration test installs
+  locally built (`build --sign`, never published) packages, which `/index`
+  cannot vouch for; `follow_listed_release` verifies through the transfer
+  chain only when the index lists the installed `(version, content hash)`, and
+  otherwise the pre-plan rotation walk decides, unchanged. The test runs
+  unchanged and passes.
+- **`resolve` returns `Resolution { lock, pin_changes }`** and
+  `apply_closed_manifest` returns the text it wrote (pins rewritten), so the
+  closure loop continues from the committed manifest rather than re-moving the
+  same pins each round. Notices (rotation or transfer) print after the write.
+- **`registry_dependency_for` fetches the requirer's release** to verify its
+  key (first use) rather than pinning the index's current key, which is the
+  Phase 1 defect for an indirect dependency.
+- **`mfb info`**: `RegistryLookup` gains `index(...)`; `current_ident` stays for
+  the prefix-owner path, whose behavior is unchanged (including `REPLACED` for a
+  re-anchor). For a transferred ident every failure to establish the signer's
+  ownership reports the existing `proof ident does not belong to the signing
+  owner`. The test fake gained an `indexes` field; its `ident_chain` now answers
+  a non-`alice` owner only inside a transfer test (asserted).
+- **No resolver lock-key unit test asserted `index.ident_key` semantics**, so
+  none changed (`cargo test --bin mfb -- cli::resolve` passes unchanged).
 
 - **The suspected rotation defect is real** (§2 UNVERIFIED claim, Phase 1).
   `repo_registry_add_of_a_pre_rotation_release_installs` (register alice,
