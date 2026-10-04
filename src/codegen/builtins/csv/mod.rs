@@ -89,12 +89,12 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "count",
                 ty: ParameterType::Integer,
-                description: "The scalar count.",
+                description: "The number of scalars in `chars`. `csv::readRow` raises `ErrInvalidArgument` when it is anything else.",
             },
             RecordProp {
                 name: "index",
                 ty: ParameterType::Integer,
-                description: "The scan cursor.",
+                description: "The scan cursor, from 0 through `count`; `count` means the input is used up. `csv::readRow` raises `ErrInvalidArgument` for any other value.",
             },
             RecordProp {
                 name: "delimCode",

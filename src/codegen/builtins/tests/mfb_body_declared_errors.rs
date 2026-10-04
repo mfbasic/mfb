@@ -633,6 +633,13 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("csv", "parseStream", "ErrIndexOutOfRange"),
     ("csv", "parseStream", "ErrNotFound"),
     ("csv", "readRow", "ErrNotFound"),
+    // readRow (`__csv_next`) first FAILs ErrInvalidArgument unless `count =
+    // len(chars)` and `0 <= index <= count`; every later read is
+    // `collections::get(chars, i)` with `i` in `index .. count - 1` (the `WHILE
+    // index < count` loop, `__csv_isDoubledQuote`/`__csv_separatorLength`'s own
+    // `index + 1 < count` guards) or `__csv_decodeRange` over `fieldStart ..
+    // index`, a sub-range of the same bounds.
+    ("csv", "readRow", "ErrIndexOutOfRange"),
     // crypto
     ("crypto", "uuid7", "ErrIndexOutOfRange"),
     ("crypto", "uuid7", "ErrNotFound"),

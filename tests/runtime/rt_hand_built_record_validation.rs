@@ -100,3 +100,54 @@ END FUNC
     ];
     assert_lines(&run("hand_built_datetime_month", source), &expected);
 }
+
+/// `csv::readRow` on a `CsvReader` whose `count` is not the length of `chars`,
+/// or whose `index` is not a position in `0 .. count`.
+#[test]
+fn csv_read_row_of_an_inconsistent_reader_is_invalid_argument() {
+    let source = r#"IMPORT csv
+IMPORT io
+
+FUNC show(label AS String, r AS csv::CsvReader) AS Nothing
+  LET row AS csv::CsvRow = csv::readRow(r)
+  MUT text AS String = ""
+  FOR EACH f IN row.fields
+    text = text & "[" & f & "]"
+  NEXT
+  io::print(label & " " & text & " done=" & toString(row.done) & " next=" & toString(row.reader.index))
+  RETURN
+TRAP(e)
+  io::print(label & " raised " & toString(e.code) & " " & e.message)
+  RETURN
+END TRAP
+END FUNC
+
+FUNC main() AS Nothing
+  LET good AS csv::CsvReader = csv::parseStream("a,b\nc,d")
+  LET chars AS List OF Integer = good.chars
+  show("valid", good)
+  show("valid-second", csv::CsvReader[chars, 7, 4, 44, 34])
+  show("valid-end", csv::CsvReader[chars, 7, 7, 44, 34])
+  show("count-long", csv::CsvReader[chars, 50, 0, 44, 34])
+  show("count-long-tail", csv::CsvReader[chars, 50, 4, 44, 34])
+  show("count-short", csv::CsvReader[chars, 3, 0, 44, 34])
+  show("count-neg", csv::CsvReader[chars, -1, 0, 44, 34])
+  show("index-neg", csv::CsvReader[chars, 7, -1, 44, 34])
+  show("index-past", csv::CsvReader[chars, 7, 8, 44, 34])
+END FUNC
+"#;
+    let count = "raised 77050002 csv: the reader's count field is not the length of its chars";
+    let index = "raised 77050002 csv: the reader's index field is outside 0 .. count";
+    let expected: Vec<String> = vec![
+        "valid [a][b] done=FALSE next=4".to_string(),
+        "valid-second [c][d] done=FALSE next=7".to_string(),
+        "valid-end  done=TRUE next=7".to_string(),
+        format!("count-long {count}"),
+        format!("count-long-tail {count}"),
+        format!("count-short {count}"),
+        format!("count-neg {count}"),
+        format!("index-neg {index}"),
+        format!("index-past {index}"),
+    ];
+    assert_lines(&run("hand_built_csv_reader", source), &expected);
+}

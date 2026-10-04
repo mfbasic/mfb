@@ -26,10 +26,15 @@ doubled quotes, CR/LF and CRLF record separators, and the suppression of a
 trailing empty row. The dialect is fixed when the reader is opened by
 `csv::parseStream`.
 
-A `csv::CsvReader` built directly with values that do not describe a real
-position — for example a `count` larger than the length of `chars`, or a
-negative `index` — raises `ErrIndexOutOfRange`. Building the returned row needs
-memory; `ErrOutOfMemory` means the program ran out of memory.
+A record that is not well-formed CSV — a quoted field with no closing quote, or
+text after a field's closing quote other than a delimiter or a record separator —
+raises `ErrInvalidFormat`, as `csv::parse` does; so does a scalar in `chars` that
+is not a Unicode scalar value.
+
+A `csv::CsvReader` built directly, rather than by `csv::parseStream` or a previous
+`csv::readRow`, raises `ErrInvalidArgument` when its `count` is not the length of
+`chars`, or its `index` is negative or past `count`. Building the returned row
+needs memory; `ErrOutOfMemory` means the program ran out of memory.
 
 `csv::readRow` has no side effects."#;
 
@@ -58,6 +63,12 @@ r#"FUNC __csv_next(reader AS CsvReader) AS CsvRow
   LET delimCode AS Integer = reader.delimCode
   LET quoteCode AS Integer = reader.quoteCode
   MUT index AS Integer = reader.index
+  IF count <> len(chars) THEN
+    FAIL error(77050002, "csv: the reader's count field is not the length of its chars")
+  END IF
+  IF index < 0 OR index > count THEN
+    FAIL error(77050002, "csv: the reader's index field is outside 0 .. count")
+  END IF
   IF index >= count THEN
     RETURN CsvRow[[], reader, TRUE]
   END IF
@@ -123,13 +134,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "reader",
-                desc: "A reader from `csv::parseStream` or a previous `csv::readRow`. A reader built directly with a `count` larger than the length of `chars`, or a negative `index`, raises `ErrIndexOutOfRange`.",
+                desc: "A reader from `csv::parseStream` or a previous `csv::readRow`. A reader built directly whose `count` is not the length of `chars`, or whose `index` is negative or past `count`, raises `ErrInvalidArgument`.",
                 aliases: &[],
                 ty: ParameterType::named("CsvReader"),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named("CsvRow"),
-            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange", "ErrOutOfMemory"],
+            errors: vec!["ErrInvalidArgument", "ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__csv_next"),
         }],
     });

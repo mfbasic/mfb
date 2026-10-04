@@ -164,6 +164,16 @@ row). An equivalence test pins this over a corpus. The benefit is memory: a call
 processes arbitrarily large input one row at a time without ever building the
 whole `List OF List OF String`. [[src/codegen/builtins/csv/func_parse_stream.rs:__csv_parseStream]]
 
+`CsvReader` is an exported record, so a program can build one directly. `readRow`
+relies on `count = len(chars)` and `0 <= index <= count` for every `chars` read, so
+it checks both on entry and fails `ErrInvalidArgument` (`77050002`) naming the
+field, instead of leaking the list read's `ErrIndexOutOfRange`; a reader from
+`parseStream` or a previous `readRow` always satisfies them. `index = count` is the
+exhausted reader (`done = TRUE`). `delimCode`/`quoteCode` are only compared, never
+used as an index, so they are not checked; an element of `chars` that is not a
+Unicode scalar value fails `ErrInvalidFormat` when its field is decoded, as for
+`parse`. [[src/codegen/builtins/csv/func_read_row.rs:__csv_next]]
+
 ## Round-trip notes
 
 - Cell **values** round-trip (quoting is added/removed transparently).
