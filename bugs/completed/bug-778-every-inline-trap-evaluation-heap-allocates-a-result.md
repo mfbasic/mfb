@@ -1,12 +1,12 @@
 # bug-778: every inline `TRAP` evaluation heap-allocates a `Result` block per fallible node, even when nothing fails
 
-Last updated: 2026-09-28
+Last updated: 2026-10-03
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (performance: an arena allocation + free + entropy scrub per trapped call on the success path)
 
-Status: Open
-Regression Test: `tests/runtime/rt_inline_trap_success_alloc.rs` (to be added, Phase 1)
+Status: Fixed (2026-10-03); the batch gate (full suite, artifact-gate, benchmark) is the coordinator's
+Regression Test: `tests/runtime/rt_inline_trap_success_alloc.rs`
 
 `LET x = f(a) TRAP(e) … END TRAP` desugars (`mfb spec language error-model` §8.8) to a bind of a compiler temporary
 `$trap_res = CallResult(f(a))`, which is then read by `ResultIsOk` / `ResultValue` / `ResultError`. Native codegen
@@ -215,31 +215,31 @@ program is accepted), independent of the allocation cost. It needs its own numbe
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_inline_trap_success_alloc.rs`, modeled on
+- [x] Add `tests/runtime/rt_inline_trap_success_alloc.rs`, modeled on
       `tests/runtime/rt_debug_arena.rs::fill_counters_match_known_allocations` (`--debug` counters at N and 2N). For each
       shape in the table, assert `delta(alloc_calls)` of the trapped program equals the plain program's. It fails today
       (+1 to +3 per evaluation).
-- [ ] Add error-path guards to the same file: each shape with an input that fails, checking the handler's `e.code` /
+- [x] Add error-path guards to the same file: each shape with an input that fails, checking the handler's `e.code` /
       `e.message`, and `live_bytes == 0` at exit. These pass today and must keep passing.
 
 Acceptance: the success-path assertions fail by exactly the measured counts; the error-path guards pass.
-Commit: —
+Commit: ee6602437
 
 ### Phase 2 — the fix
 
-- [ ] Codegen: the unboxed trap-result representation (`builder_values.rs` `CallResult`/`Checked`/`ResultIsOk`/
+- [x] Codegen: the unboxed trap-result representation (`builder_values.rs` `CallResult`/`Checked`/`ResultIsOk`/
       `ResultValue`/`ResultError` arms, `builder_arena_transfer.rs`), with the boxed fallback for every non-temporary `Result`.
 
 Acceptance: Phase 1 passes; `rt_scope_drop_leaks.rs`, `rt_callback_failure_reaches_trap.rs`, every
 `tests/rt-behavior/**/*trap*` fixture and the error-model acceptance goldens pass unchanged.
-Commit: —
+Commit: 0bc2c56aa (frame slots), 97620e74a (delivery slot), 43c64a5fc (test correction)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] `.ir` goldens: expect **no** change, since the desugar is untouched. Any `.ir` diff is a bug-hunt trigger.
+- [x] `.ir` goldens: expect **no** change, since the desugar is untouched. Any `.ir` diff is a bug-hunt trigger.
       `.ncode`/codegen goldens shift only inside trapped statements. Localize one fixture before accepting any diff
       (AGENTS.md).
-- [ ] Re-run the table: equal allocation counts, and time within target.
+- [x] Re-run the table: equal allocation counts, and time within target.
 - [ ] `./benchmark/run.sh 10`: no row regresses; the scalarbench rows (bug-772) and JSON/HTTP rows move only within noise
       or better.
 - [ ] Full suite.
@@ -268,3 +268,116 @@ The cost is one heap round-trip per fallible node per trapped evaluation, paid o
 uses the idiomatic per-item inline `TRAP`. The fix is a codegen representation change for compiler temporaries only, with
 the risk in block-payload ownership and the `Float`/`Nothing`/worker-arena special cases. The IR and the language are
 untouched.
+
+## Resolution (2026-10-03)
+
+Fixed in codegen, as designed; the IR and the language are untouched.
+
+**Frame slots** (0bc2c56aa). `function_lowering.rs:unboxed_trap_result_candidates` verifies the property on the final
+NIR. A `Result` local qualifies when it is bound once by a `CallResult`/`Checked`, never assigned or address-taken, every
+read is the direct operand of a reader, and `ResultValue`/`ResultError` appear at most once each, as the whole value of a
+`Bind`/`Assign`. This answers the Open Decision: a verified use-analysis, with no NIR marker and no name test. Such a
+temporary keeps its tag in its own slot, plus a payload slot and, when the handler reads `e`, an error slot
+(`src/codegen/error/result/unboxed_trap.rs`). Every trapped producer ends in `finish_unboxed_trap_result`:
+
+- the direct and `FUNC`-value callee arms of `lower_value`;
+- `materialize_current_result`, used by conversions, inline builtins, infallible members, runtime helpers and `Checked`.
+
+On `Ok` the producer keeps the payload: the producer's own block when an owning bind of the untrapped value would take it,
+otherwise a copy. On an error it keeps the adopted-or-rebuilt flat `Error`. That code is
+`emit_trapped_error_block`, split out of `emit_trapped_error_result`. When nothing reads the `Error`, the producer frees it
+at once behind the bug-565 parked-pointer guard. The readers MOVE a block out and null its slot, and the slots' own drops
+free whatever was never read. Eligible payloads are scalar words, `Nothing` and flat blocks. Resources, recursive
+values, nested `Result`s, callables and `thread::waitFor` keep the heap form. If an armed producer does not fill the
+slots, the build fails loudly.
+
+**Delivery slot** (97620e74a). A block-typed `$trap_valN`/`$trap_errN` gets no default block, by §8 rule 12. When its
+only read is the delivery store, that store moves the block. Without this, `userStr` kept +1 at every level (the
+default `""` copy) and +2 at `-O0`.
+
+**Test correction** (43c64a5fc). `codegen_trap_result_wrapper::a_trapped_string_call_never_copies_the_result_wrapper`
+asserted the trapped borrow and compute binds copy equally. Without a wrapper, the borrow's block IS the caller's
+argument, and binding it uncopied crashed (SIGSEGV after the first loop iteration). The assertion now compares against
+the untrapped binds; the four-question proof is in the commit.
+
+### Measurements
+
+`arena.0.alloc_calls` per 1000 successful evaluations, trapped/plain. `/tmp/b778-h/gen/run.sh` on macOS aarch64; the
+regression test asserts equality for every shape at `-O0`–`-O3`:
+
+| shape | HEAD (4073c70e2) | fixed |
+|---|---:|---:|
+| `toScalar(65 + (i MOD d))` | 3000 / 0 | 0 / 0 |
+| `userInt(x)` | 1000 / 0 | 0 / 0 |
+| `userStr(x)` | 4000 / 1000 | 1000 / 1000 |
+| `toInt(t)` | 1000 / 0 | 0 / 0 |
+| `userInt(5)` | 1000 / 0 | 0 / 0 |
+| `userInt(x) * 2 + 3` | 3000 / 0 | 0 / 0 |
+| `userFl(x) * f` | 2000 / 0 | 0 / 0 |
+| `collections::get(names, k)` | 5000 / 1000 | 1000 / 1000 |
+| `userDuo(x)` (record) | 4000 / 1000 | 1000 / 1000 |
+| `userList(x)` | 4000 / 1000 | 1000 / 1000 |
+| `g(x)` (`FUNC` value) | 1000 / 0 | 0 / 0 |
+| discarded `userInt`/`userStr`/`userNothing` | 4000 / 1000 | 1000 / 1000 |
+
+ns/eval, the minimum of 7 runs of 10⁶ evaluations, trapped/plain (`/tmp/b778-h/timing.sh`). All fixed rows meet the
+1.5×+2 ns target; absolute numbers come from a shared host.
+
+| shape | `-O1` HEAD | `-O1` fixed | `-O3` HEAD | `-O3` fixed |
+|---|---:|---:|---:|---:|
+| `toScalar` chain | 36 / 4 | 8 / 4 | 39 / 3 | 6 / 3 |
+| `userInt` | 14 / 4 | 5 / 4 | 13 / 4 | 4 / 4 |
+| `userStr` | 45 / 13 | 20 / 13 | 44 / 12 | 15 / 12 |
+| `toInt` parse | 19 / 7 | 11 / 7 | 16 / 7 | 8 / 7 |
+| root operator | 41 / 5 | 9 / 5 | 34 / 4 | 7 / 4 |
+| `Float` root | 25 / 5 | 7 / 5 | 29 / 4 | 6 / 4 |
+| `collections::get` | 177 / 14 | 19 / 14 | 84 / 12 | 17 / 12 |
+| record | 156 / 16 | 17 / 16 | 97 / 14 | 16 / 19 |
+| list | 306 / 23 | 25 / 22 | 283 / 21 | 27 / 26 |
+
+### Error path
+
+The test's error program checks four things for each shape. The inline handler's `code`/`message` must equal a
+function-level `TRAP` oracle's. The success value must be unchanged. A loop that alternates success and failure (one
+handler reads `e`, one does not) must handle exactly the failing half. The arena must end with `live_bytes 0` and no
+double-free skip, at `-O0`/`-O1`/`-O3`.
+
+The program output is byte-identical to the HEAD compiler's output on macOS. The same programs were cross-built at `-O1`
+and give equal alloc deltas and identical error output on:
+
+- linux-aarch64 glibc (box 2226);
+- linux-riscv64 musl (box 2229);
+- windows-x86_64 (box 206).
+
+### Golden moves (for the batch gate)
+
+`.ast`/`.ir` do not change. `artifact-gate.sh` ran per builtin over all 28 `tests/byte-identity` fixtures at the final
+commit: every host golden passed, and the `.ncode`/`.nir`/`.mir`/`.nplan`/`.nobj` goldens moved for 9 fixtures (5 diffs
+each). In 8 of them only functions with an inline `TRAP` changed, and every one of them shrank
+(`/tmp/b778-h/fndiff.sh`). In `thread`, only `main` changed (6146 -> 6221 instructions): that is the `waitFor`
+error-path fix, 271a1c97a.
+
+| fixture | functions that changed |
+|---|---|
+| `audio` | `__audio_mmlParseUint` |
+| `http` | 21 helpers |
+| `json` | `__json_parseHexQuad` |
+| `net`, `tcp`, `tls`, `udp` | `__net_decodeQueryComponent`, `__net_parsePort` |
+| `regex` | `__regex_parseHexEscape` |
+| `thread` | `main` (grew; 271a1c97a) |
+
+Any other native golden of a program with an inline `TRAP` moves the same way. `test-accept.sh` over the `*trap*`
+fixtures: 68/68.
+
+### Found and fixed on the way (pre-existing, reproduced at HEAD)
+
+- 271a1c97a: an inline `TRAP` on `thread::waitFor` of a failing worker crashed with SIGSEGV. It adopted an empty
+  current-error slot, because the worker's tag 3 names a block parked in the worker's arena. Under a function-level
+  `TRAP`, the same failure leaked the message copy: 32 B per failure.
+- 2f376db4c: `RETURN collections::transform(x, f)` with `f` changing the element type failed the build. plan-147-B ran
+  the same-type in-place arm.
+
+### Left to the batch gate
+
+The full `cargo test` and the full artifact-gate/test-accept sweep were not run here. Neither was
+`./benchmark/run.sh 10`, per the batch's scope rules.

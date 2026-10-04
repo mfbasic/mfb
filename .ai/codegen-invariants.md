@@ -524,6 +524,22 @@ node, on which nodes are indexed — a position means `fallible[position]` to on
 `debug_assert_eq!` pins the agreement, so CI (which runs DEBUG) is where a desync
 surfaces.
 
+**A `$trap_resN` temp is usually not a heap `Result` (bug-778).** When its every use
+is `ResultIsOk`/`ResultValue`/`ResultError` of the local, with the two value readers
+at most once each and as the whole value of a `Bind`/`Assign`
+(`function_lowering.rs:unboxed_trap_result_candidates`, checked on the final NIR),
+codegen keeps it in frame slots (`error/result/unboxed_trap.rs`): the producer fills
+them instead of calling `emit_build_result_inline`, and the readers MOVE a block out
+(null the slot) rather than copy. Three things follow. A desugar change that adds a
+read in any other position silently falls back to the heap form — a cost, not a
+miscompile — so re-measure `rt_inline_trap_success_alloc` after touching
+`lower_inline_trap`. A new `CallResult`/`Checked` producer must end in
+`finish_unboxed_trap_result` when `unboxed_trap_active` is set, or the bind fails the
+build with an internal error. And the delivery slots `$trap_valN`/`$trap_errN` get no
+default block and their one read moves (`trap_delivery_moves`): both rest on §8 rule
+12 (every handler path `RECOVER`s or diverges), so a desugar that could read a slot
+before assigning it must drop the `is_inline_trap_delivery_slot` elision.
+
 ## TRAP inside a MATCH CASE mis-types its temp as Unknown
 
 A trap-bound producer written directly inside a `MATCH CASE` body — `MUT x AS T = <call> TRAP(e) … RECOVER … END TRAP` inside `CASE Variant(v)` — passes `-ast -ir` but fails native codegen with:
