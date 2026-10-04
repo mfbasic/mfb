@@ -582,7 +582,18 @@
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res44" } },
       "then": [
       { "op": "bind", "line": 140, "mutable": false, "name": "$trap_arg43", "type": "Shape", "value": { "kind": "resultValue", "type": "Shape", "value": { "kind": "local", "name": "$trap_res44" } } },
-      { "op": "assign", "line": 140, "name": "$trap_val46", "value": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "local", "name": "$trap_arg43" }] } }
+      { "op": "bind", "line": 140, "mutable": false, "name": "$trap_res45", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "nameOf", "args": [{ "kind": "local", "name": "$trap_arg43" }] } },
+      {
+        "op": "if",
+        "line": 140,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res45" } },
+        "then": [
+        { "op": "assign", "line": 140, "name": "$trap_val46", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res45" } } }
+        ],
+        "else": [
+        { "op": "assign", "line": 140, "name": "$trap_failed47", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ]
+      }
       ],
       "else": [
       { "op": "assign", "line": 140, "name": "$trap_failed47", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
@@ -615,7 +626,18 @@
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res51" } },
         "then": [
         { "op": "bind", "line": 143, "mutable": false, "name": "$trap_arg50", "type": "Shape", "value": { "kind": "resultValue", "type": "Shape", "value": { "kind": "local", "name": "$trap_res51" } } },
-        { "op": "assign", "line": 143, "name": "$trap_val53", "value": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "local", "name": "$trap_arg50" }] } }
+        { "op": "bind", "line": 143, "mutable": false, "name": "$trap_res52", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "nameOf", "args": [{ "kind": "local", "name": "$trap_arg50" }] } },
+        {
+          "op": "if",
+          "line": 143,
+          "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res52" } },
+          "then": [
+          { "op": "assign", "line": 143, "name": "$trap_val53", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res52" } } }
+          ],
+          "else": [
+          { "op": "assign", "line": 143, "name": "$trap_failed54", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+          ]
+        }
         ],
         "else": [
         { "op": "assign", "line": 143, "name": "$trap_failed54", "value": { "kind": "const", "type": "Boolean", "value": "true" } }

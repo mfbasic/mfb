@@ -236,36 +236,62 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "strings.find", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] }, { "kind": "const", "type": "String", "value": "z" }] } },
-    { "op": "bind", "line": 14, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    { "op": "bind", "line": 14, "mutable": true, "name": "$trap_failed6", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 14, "mutable": true, "name": "$trap_err7", "type": "Error", "value": null },
+    { "op": "bind", "line": 14, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
+    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res1", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] } },
     {
       "op": "if",
       "line": 14,
-      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
       "then": [
-      { "op": "assign", "line": 14, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      { "op": "bind", "line": 14, "mutable": false, "name": "$trap_arg0", "type": "String", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "strings.find", "args": [{ "kind": "local", "name": "$trap_arg0" }, { "kind": "const", "type": "String", "value": "z" }] } },
+      {
+        "op": "if",
+        "line": 14,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+        "then": [
+        { "op": "assign", "line": 14, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
+        ],
+        "else": [
+        { "op": "assign", "line": 14, "name": "$trap_failed6", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        { "op": "assign", "line": 14, "name": "$trap_err7", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } }
+        ]
+      }
       ],
       "else": [
-      { "op": "bind", "line": 14, "mutable": false, "name": "ea", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
-      { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "strings.find", "args": [{ "kind": "local", "name": "plain" }, { "kind": "const", "type": "String", "value": "z" }] } },
-      { "op": "bind", "line": 15, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
+      { "op": "assign", "line": 14, "name": "$trap_failed6", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 14, "name": "$trap_err7", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 14,
+      "condition": { "kind": "local", "name": "$trap_failed6" },
+      "then": [
+      { "op": "bind", "line": 14, "mutable": false, "name": "ea", "type": "Error", "value": { "kind": "local", "name": "$trap_err7" } },
+      { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "strings.find", "args": [{ "kind": "local", "name": "plain" }, { "kind": "const", "type": "String", "value": "z" }] } },
+      { "op": "bind", "line": 15, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
       {
         "op": "if",
         "line": 15,
-        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res4" } },
         "then": [
-        { "op": "assign", "line": 15, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
+        { "op": "assign", "line": 15, "name": "$trap_val5", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res4" } } }
         ],
         "else": [
-        { "op": "bind", "line": 15, "mutable": false, "name": "eb", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+        { "op": "bind", "line": 15, "mutable": false, "name": "eb", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res4" } } },
         { "op": "return", "line": 16, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "trap:" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "ea" }, "member": "code" }] } }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "eb" }, "member": "code" }] } } }
         ]
       },
-      { "op": "bind", "line": 15, "mutable": false, "name": "ft", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
+      { "op": "bind", "line": 15, "mutable": false, "name": "ft", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
       { "op": "return", "line": 18, "value": { "kind": "const", "type": "String", "value": "astr-trapped-plain-not" } }
+      ],
+      "else": [
       ]
     },
-    { "op": "bind", "line": 14, "mutable": false, "name": "fa", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "fa", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "return", "line": 20, "value": { "kind": "const", "type": "String", "value": "no-trap" } }
     ]
   },
@@ -309,11 +335,11 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 85, "mutable": false, "name": "$match4", "type": "astrings.AttrTypeFlag", "value": { "kind": "local", "name": "t" } },
+    { "op": "bind", "line": 85, "mutable": false, "name": "$match8", "type": "astrings.AttrTypeFlag", "value": { "kind": "local", "name": "t" } },
     {
       "op": "match",
       "line": 85,
-      "value": { "kind": "local", "name": "$match4" },
+      "value": { "kind": "local", "name": "$match8" },
       "cases": [
       {
         "line": 86,
@@ -422,11 +448,11 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 119, "mutable": false, "name": "$match5", "type": "astrings.AttrTypeNumber", "value": { "kind": "local", "name": "t" } },
+    { "op": "bind", "line": 119, "mutable": false, "name": "$match9", "type": "astrings.AttrTypeNumber", "value": { "kind": "local", "name": "t" } },
     {
       "op": "match",
       "line": 119,
-      "value": { "kind": "local", "name": "$match5" },
+      "value": { "kind": "local", "name": "$match9" },
       "cases": [
       {
         "line": 120,
@@ -502,18 +528,18 @@
     ],
     "returns": "astrings.AttrSpan",
     "body": [
-    { "op": "bind", "line": 140, "mutable": false, "name": "$match6", "type": "astrings.Attribute", "value": { "kind": "local", "name": "attr" } },
+    { "op": "bind", "line": 140, "mutable": false, "name": "$match10", "type": "astrings.Attribute", "value": { "kind": "local", "name": "attr" } },
     {
       "op": "match",
       "line": 140,
-      "value": { "kind": "local", "name": "$match6" },
+      "value": { "kind": "local", "name": "$match10" },
       "cases": [
       {
         "line": 141,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "astrings.AttrFlag" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 141, "mutable": false, "name": "f", "type": "astrings.AttrFlag", "value": { "kind": "unionExtract", "type": "astrings.AttrFlag", "value": { "kind": "local", "name": "$match6" } } },
+        { "op": "bind", "line": 141, "mutable": false, "name": "f", "type": "astrings.AttrFlag", "value": { "kind": "unionExtract", "type": "astrings.AttrFlag", "value": { "kind": "local", "name": "$match10" } } },
         { "op": "return", "line": 142, "value": { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "local", "name": "start" }, { "kind": "local", "name": "endIndex" }, { "kind": "local", "name": "seq" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "call", "type": "Integer", "target": "#astrings_flagMember", "args": [{ "kind": "memberAccess", "type": "astrings.AttrTypeFlag", "target": { "kind": "local", "name": "f" }, "member": "kind" }] }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
         ]
       },
@@ -522,7 +548,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "astrings.AttrText" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 143, "mutable": false, "name": "t", "type": "astrings.AttrText", "value": { "kind": "unionExtract", "type": "astrings.AttrText", "value": { "kind": "local", "name": "$match6" } } },
+        { "op": "bind", "line": 143, "mutable": false, "name": "t", "type": "astrings.AttrText", "value": { "kind": "unionExtract", "type": "astrings.AttrText", "value": { "kind": "local", "name": "$match10" } } },
         { "op": "return", "line": 144, "value": { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "local", "name": "start" }, { "kind": "local", "name": "endIndex" }, { "kind": "local", "name": "seq" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "t" }, "member": "value" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
         ]
       },
@@ -531,7 +557,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "astrings.AttrNumber" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 145, "mutable": false, "name": "n", "type": "astrings.AttrNumber", "value": { "kind": "unionExtract", "type": "astrings.AttrNumber", "value": { "kind": "local", "name": "$match6" } } },
+        { "op": "bind", "line": 145, "mutable": false, "name": "n", "type": "astrings.AttrNumber", "value": { "kind": "unionExtract", "type": "astrings.AttrNumber", "value": { "kind": "local", "name": "$match10" } } },
         { "op": "return", "line": 146, "value": { "kind": "constructor", "type": "astrings.AttrSpan", "args": [{ "kind": "local", "name": "start" }, { "kind": "local", "name": "endIndex" }, { "kind": "local", "name": "seq" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "call", "type": "Integer", "target": "#astrings_numberMember", "args": [{ "kind": "memberAccess", "type": "astrings.AttrTypeNumber", "target": { "kind": "local", "name": "n" }, "member": "kind" }] }, { "kind": "const", "type": "String", "value": "" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "n" }, "member": "value" }] } }
         ]
       }
@@ -1543,23 +1569,23 @@
       "type": "astrings.Attribute",
       "iterable": { "kind": "call", "type": "List OF astrings.Attribute", "target": "#astrings_getAttributes", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "i" }] },
       "body": [
-      { "op": "bind", "line": 540, "mutable": false, "name": "$match7", "type": "astrings.Attribute", "value": { "kind": "local", "name": "at" } },
+      { "op": "bind", "line": 540, "mutable": false, "name": "$match11", "type": "astrings.Attribute", "value": { "kind": "local", "name": "at" } },
       {
         "op": "match",
         "line": 540,
-        "value": { "kind": "local", "name": "$match7" },
+        "value": { "kind": "local", "name": "$match11" },
         "cases": [
         {
           "line": 541,
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "astrings.AttrFlag" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 541, "mutable": false, "name": "f", "type": "astrings.AttrFlag", "value": { "kind": "unionExtract", "type": "astrings.AttrFlag", "value": { "kind": "local", "name": "$match7" } } },
-          { "op": "bind", "line": 542, "mutable": false, "name": "$match8", "type": "astrings.AttrTypeFlag", "value": { "kind": "memberAccess", "type": "astrings.AttrTypeFlag", "target": { "kind": "local", "name": "f" }, "member": "kind" } },
+          { "op": "bind", "line": 541, "mutable": false, "name": "f", "type": "astrings.AttrFlag", "value": { "kind": "unionExtract", "type": "astrings.AttrFlag", "value": { "kind": "local", "name": "$match11" } } },
+          { "op": "bind", "line": 542, "mutable": false, "name": "$match12", "type": "astrings.AttrTypeFlag", "value": { "kind": "memberAccess", "type": "astrings.AttrTypeFlag", "target": { "kind": "local", "name": "f" }, "member": "kind" } },
           {
             "op": "match",
             "line": 542,
-            "value": { "kind": "local", "name": "$match8" },
+            "value": { "kind": "local", "name": "$match12" },
             "cases": [
             {
               "line": 543,
@@ -1610,7 +1636,7 @@
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "astrings.AttrText" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 554, "mutable": false, "name": "t", "type": "astrings.AttrText", "value": { "kind": "unionExtract", "type": "astrings.AttrText", "value": { "kind": "local", "name": "$match7" } } },
+          { "op": "bind", "line": 554, "mutable": false, "name": "t", "type": "astrings.AttrText", "value": { "kind": "unionExtract", "type": "astrings.AttrText", "value": { "kind": "local", "name": "$match11" } } },
           { "op": "assign", "line": 555, "name": "hasFont", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
           { "op": "assign", "line": 556, "name": "font", "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "t" }, "member": "value" } }
           ]
@@ -1620,7 +1646,7 @@
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "astrings.AttrNumber" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 557, "mutable": false, "name": "nm", "type": "astrings.AttrNumber", "value": { "kind": "unionExtract", "type": "astrings.AttrNumber", "value": { "kind": "local", "name": "$match7" } } },
+          { "op": "bind", "line": 557, "mutable": false, "name": "nm", "type": "astrings.AttrNumber", "value": { "kind": "unionExtract", "type": "astrings.AttrNumber", "value": { "kind": "local", "name": "$match11" } } },
           {
             "op": "if",
             "line": 560,
