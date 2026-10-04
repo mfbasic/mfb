@@ -1320,12 +1320,32 @@ impl<'a> AbiSerializer<'a> {
                 self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
                 self.serialize_type(checked_u32_at(&entry.payload, 4)?)
             }
-            // bug-277: a resource carrying `STATE T` (kind 11) is a composite of
-            // two type ids and must hash structurally like kinds 4/5/7. Under the
-            // opaque fallback it hashed its interned name `State#<baseId>#<stateId>`,
-            // which embeds table-position-dependent ids: an unrelated renumber
-            // changed the hash with no semantic change, and a change to the STATE
-            // record's own shape left the hash identical.
+            // bug-785: MapEntry (9), ThreadWorker (10) and Set (13) are composites
+            // too, and fell to the opaque fallback the same way kind 11 did before
+            // bug-277: their interned names (`Set#<elemId>`, ...) embed
+            // table-position ids, so an unrelated renumber changed the hash and a
+            // change to a component's shape did not.
+            9 => {
+                self.put_str("mapentry");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
+                self.serialize_type(checked_u32_at(&entry.payload, 4)?)
+            }
+            10 => {
+                self.put_str("threadworker");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
+                self.serialize_type(checked_u32_at(&entry.payload, 4)?)?;
+                // The resource plane (if present) is part of the signature hash.
+                if entry.payload.len() >= 12 {
+                    self.serialize_type(checked_u32_at(&entry.payload, 8)?)?;
+                }
+                Ok(())
+            }
+            13 => {
+                self.put_str("set");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)
+            }
+            // Every kind the table defines is hashed above; an unknown kind from a
+            // decoded table can only be named.
             _ => {
                 self.put_str("opaque");
                 self.put_str(string_at(self.strings, entry.name)?);

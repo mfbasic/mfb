@@ -79,7 +79,7 @@ Every op ends with its `loc` (trailing `u32` line + `u32` column — the source 
 
 ## Expressions stay nested
 
-`IrValue` is encoded as a tree, with one tag byte per kind and kind-specific fields. `Call` and `CallResult` carry a target and arguments; `Checked` carries a success type and a call-free value whose local errors it captures. `SetLiteral` uses tag `21`; `Checked` uses tag `22`. Unknown tags are rejected. Built-in calls use the same call nodes as other functions. [[src/ir/binary.rs:encode_value]] [[src/ir/binary.rs:decode_value_body]]
+`IrValue` is encoded as a tree, with one tag byte per kind and kind-specific fields. `Call` and `CallResult` carry a target and arguments; `Checked` carries a success type and a call-free value whose local errors it captures. `SetLiteral` uses tag `21`; an observing `Checked` uses tag `22` and a capture-only `Checked` (`observe` FALSE) uses tag `23`, so a package with no capture-only node encodes exactly as before that tag existed. Unknown tags are rejected. Built-in calls use the same call nodes as other functions. [[src/ir/binary.rs:encode_value]] [[src/ir/binary.rs:decode_value_body]]
 
 Computed IR nodes carry canonical type-name annotations: calls, checked expressions, arithmetic, member access, and extracted result values encode their result types. Locals and globals resolve through declarations. These annotations and declaration fields let the semantic checker validate decoded IR without source syntax, but they remain untrusted input and checks may skip types they cannot reconstruct. [[src/ir/binary.rs:encode_value]] [[src/ir/verify/compat.rs:check_call_result_type]]
 

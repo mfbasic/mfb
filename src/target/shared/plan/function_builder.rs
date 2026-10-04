@@ -547,8 +547,17 @@ pub(super) fn describe_value(value: &NirValue) -> String {
         NirValue::ResultError { value } => {
             format!("resultError ({})", describe_value(value))
         }
-        NirValue::Checked { type_, value } => {
-            format!("checked {type_} ({})", describe_value(value))
+        NirValue::Checked {
+            type_,
+            value,
+            observe,
+        } => {
+            let capture = if *observe {
+                "checked"
+            } else {
+                "checked-capture"
+            };
+            format!("{capture} {type_} ({})", describe_value(value))
         }
         NirValue::WithUpdate {
             type_,

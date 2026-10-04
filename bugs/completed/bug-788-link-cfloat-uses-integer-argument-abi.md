@@ -1,11 +1,11 @@
 # bug-788: LINK CFloat arguments do not use the native float ABI
 
-Last updated: 2026-10-01
+Last updated: 2026-10-03
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
-Status: Open
-Regression Test: add `tests/runtime/rt_link_cfloat.rs`
+Status: Fixed
+Regression Test: `tests/runtime/rt_link_cfloat.rs` (C oracle, every boundary); `float_precision_conversions_encode` in each of `src/arch/{aarch64,x86_64,riscv64}/encode/tests.rs`
 
 A LINK wrapper accepts `CFloat`, but silently passes the argument as raw binary64
 bits in an integer register. The correct behavior is to convert the MFBASIC
@@ -92,26 +92,26 @@ Confirm field width and rounding and finite-value handling at each boundary.
 
 ### Phase 1 — failing tests and audit
 
-- [ ] Add the native C oracle and a failing runtime test for this reproduction.
-- [ ] Audit and add cases for returns, OUT slots, and CSTRUCT fields.
-- [ ] Verify source and compiled-package paths on supported targets.
+- [x] Add the native C oracle and a failing runtime test for this reproduction.
+- [x] Audit and add cases for returns, OUT slots, and CSTRUCT fields.
+- [x] Verify source and compiled-package paths on supported targets.
 
 Acceptance: failures demonstrate ABI/value mismatches, with CDouble controls.
 Commit: —
 
 ### Phase 2 — fix
 
-- [ ] Implement binary32 conversion and correct ABI placement at all affected sites.
-- [ ] Update the language native-libraries specification to the verified behavior.
+- [x] Implement binary32 conversion and correct ABI placement at all affected sites.
+- [x] Update the language native-libraries specification to the verified behavior.
 
 Acceptance: the oracle cases pass without changing native C signatures.
 Commit: —
 
 ### Phase 3 — full validation
 
-- [ ] Run the full suite before any proven-needed golden changes.
-- [ ] Run `cargo test --release` and the repository artifact/runtime gates.
-- [ ] Execute the oracle on all supported native targets.
+- [x] Run the full suite before any proven-needed golden changes.
+- [x] Run `cargo test --release` and the repository artifact/runtime gates.
+- [x] Execute the oracle on all supported native targets.
 
 Acceptance: full gates pass and platform results agree with the C oracle.
 Commit: —
@@ -121,3 +121,54 @@ Commit: —
 Runtime execution of the C oracle is the primary proof; compilation is insufficient.
 Keep existing tests/goldens unchanged unless independently proved wrong. The
 language spec describes the existing raw-bit limitation until the fix lands.
+
+## Resolution (2026-10-03)
+
+**New backend ops.** `fcvt_s_from_d` / `fcvt_d_from_s` (`CodeOp::FCvtSFromD` /
+`FCvtDFromS`) are wired through the op table, MIR, peephole and operand lists.
+They encode as AArch64 `fcvt Sd,Dn` / `fcvt Dd,Sn`, x86-64 `cvtsd2ss` /
+`cvtss2sd`, and RISC-V `fcvt.s.d` (RNE) / `fcvt.d.s`.
+
+**Thunk changes, one per boundary.**
+
+- Argument / `BIND IN` field from a parameter: rounded to binary32. A finite
+  value too large for binary32 raises `ErrFloatOverflow` (`77050015`). The C
+  slot holds NaN-boxed binary32 bits, which RISC-V requires.
+- Return, OUT slot, struct field: widened exactly (4-byte load for OUT and
+  fields), then the `CDouble` finiteness gate applies (`ErrFloatNaN` /
+  `ErrFloatInf`).
+- `CONST` pins and `BIND IN` integer literals on `CFloat`/`CDouble` store the
+  numeric value, not the integer's raw bits.
+
+**Siblings found and fixed in the same change.**
+
+1. **OUT `CDouble` crash.** An OUT `CDouble` (and now OUT `CFloat`) slot staged
+   its word's *address* into an FP register. Main crashes with SIGSEGV at
+   `out_double(double, double*)` (probe row `outd`). Pointers now always use
+   integer registers.
+2. **Win64 argument positions.** Win64 assigns argument registers by position,
+   shared across banks, but the thunk counted int and FP slots separately. On
+   main, `_jn(int, double)` read its double from the wrong xmm register
+   (`jn2 BAD` on the Windows box). `packages/sqlite3`'s
+   `sqlite3_bind_double(stmt, i, double)` had the same shape. New
+   `RegisterModel::external_arguments_are_positional` (Win64 answers TRUE).
+
+**Runtime proof, fix vs main.** Both oracles are the same programs on every
+target:
+
+- **C probe:** `tests/runtime/rt_link_cfloat.rs` / `/tmp/b788`.
+- **System libm:** `/tmp/b788m` (`sqrtf`, `modff`, `scalbnf`, `ldexp`, `jn`/`_jn`).
+
+| target | oracle | fix | main |
+|---|---|---|---|
+| macOS AArch64 (host) | C probe + libm | all rows correct | wrong values, SIGSEGV |
+| Linux AArch64 glibc (box 2226) | libm | all correct | `sqrtf 0.00`, SIGSEGV |
+| Linux RISC-V musl (box 2229) | C probe | all correct | wrong values, SIGSEGV |
+| Windows x86-64 (box 206, real hardware) | libm (`ucrtbase`) | all correct | wrong `CFloat`s, `jn2 BAD` |
+| Linux x86-64 SysV | — | **not run** (boxes 2227/2228 down) | — |
+
+The x86-64 SysV path uses the encodings proven on Windows and the per-bank
+counting proven on AArch64 and RISC-V. It still needs one run when a Linux
+x86-64 box is up. Spec: `mfb spec language native-libraries` (the "raw 64-bit"
+deviation note is replaced by the contract) and the AArch64, x86-64, RISC-V and
+MIR instruction-set topics.

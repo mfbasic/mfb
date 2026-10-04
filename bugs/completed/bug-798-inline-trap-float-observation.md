@@ -4,8 +4,8 @@ Last updated: 2026-10-03
 Effort: medium (estimate; lowering design requires investigation)
 Severity: HIGH
 Class: Correctness
-Status: Open — reproduced; not fixed
-Regression Test: proposed `tests/runtime/rt_inline_trap_float_observation.rs`
+Status: Fixed
+Regression Test: `tests/runtime/rt_inline_trap_float_observation.rs` (parity matrix at -O0..-O3); `src/ir/variant_corpus_tests.rs` (capture-only `Checked` round-trip)
 
 Attaching inline TRAP changes the value of a successful Float expression into a
 failure. Correct behavior preserves the original expression's observation
@@ -114,11 +114,11 @@ do not smuggle a semantic flag into generated temporary names.
 
 ### Phase 1 — Reproduction and design
 
-- [ ] Rebuild at detached HEAD and repeat the minimal reproduction.
-- [ ] Add a RED runtime parity test for the reproduced case.
-- [ ] Probe comparisons, mandatory FMA, Float MOD/power domain errors, calls between
+- [x] Rebuild at detached HEAD and repeat the minimal reproduction.
+- [x] Add a RED runtime parity test for the reproduced case.
+- [x] Probe comparisons, mandatory FMA, Float MOD/power domain errors, calls between
       operators, and actual argument/assignment overflow boundaries.
-- [ ] Choose and document the capture/observation representation and format impact.
+- [x] Choose and document the capture/observation representation and format impact.
 
 Acceptance: exact wrong output above is reproduced by a freshly built HEAD
 compiler; tests distinguish original boundaries from synthetic intermediates.
@@ -126,9 +126,9 @@ Commit: —
 
 ### Phase 2 — Preserve observation semantics
 
-- [ ] Implement the selected representation without changing operator-only eligibility.
-- [ ] Add valid/error fixtures under `tests/rt-behavior/trap` and `tests/rt-error/trap`.
-- [ ] Update error-model, Float, IR and package-format specs wherever affected.
+- [x] Implement the selected representation without changing operator-only eligibility.
+- [x] Add valid/error fixtures under `tests/rt-behavior/trap` and `tests/rt-error/trap`.
+- [x] Update error-model, Float, IR and package-format specs wherever affected.
 
 Acceptance: ordinary/trapped parity and true-error tests pass across optimization
 levels, with side-effect ordering asserted. Run the dedicated runtime test target
@@ -137,11 +137,57 @@ Commit: —
 
 ### Phase 3 — Regression gates
 
-- [ ] Run `cargo test --no-fail-fast` and the full acceptance gate before any
+- [x] Run `cargo test --no-fail-fast` and the full acceptance gate before any
       existing-golden correction; investigate each unexpected diff.
-- [ ] Correct only disproved expectations with history/contract evidence, then
+- [x] Correct only disproved expectations with history/contract evidence, then
       rerun affected checks and required final gates.
 
 Acceptance: full test and artifact/acceptance gates pass; runtime output proves
 boundary preservation. Full gates may take hours (estimate).
 Commit: —
+
+## Resolution (2026-10-03)
+
+**Representation.** `IrValue::Checked` / `NirValue::Checked` carry
+`observe: bool`. It is TRUE where the capture meets an observation boundary.
+It is FALSE for a `Float` `MOD`/`^` lifted from inside an operator tree, which
+is captured for its domain error only. The flag is explicit in the node, not
+in temp names.
+
+- **Encoding:** tag 22 = observing (unchanged), new tag 23 = capture-only. Every
+  existing package re-encodes byte-identically.
+- **JSON:** prints `"observe": false` only for the new form, so no existing
+  `.ir` golden moved (the `*trap*`, `*float*` and `arithmetic*` acceptance
+  fixtures all match).
+
+**Desugar.** `trap_hoist_kind` / the scan and rewrite walks take an
+`under_operator` context. Operator operands (arithmetic or comparison) are not
+boundaries; call arguments, constructor fields, list and map elements and the
+bound root are.
+
+- A `Float` `+ - * / DIV` / negation is lifted only at a boundary
+  (`float_operator_raises_only_when_observed`), so each `Float` tree is captured
+  once, where the untrapped form observes it. That also keeps `a * b ± c` whole
+  for FMA contraction.
+- `MOD`/`^` stay lifted at their own position, so domain errors keep source order
+  relative to calls. Their capture observes only at a boundary.
+- Non-`Float` operators are unchanged.
+
+**Proof.** The matrix in `/tmp/b798m`, now the regression test, shows
+fix/main:
+
+| row | fix | main |
+|---|---|---|
+| transient recovers | 0.00 ✓ | trapped 77050015 ✗ |
+| boundary overflow | trapped 77050015 ✓ | ✓ |
+| comparison operand | TRUE ✓ | trapped ✗ |
+| FMA `big*2-big` | finite ✓ | trapped ✗ |
+| `MOD` domain before a later call | 77050012, side effect not run ✓ | ✓ |
+| `^` overflow inside a tree | 0.00 ✓ | trapped ✗ |
+| `^` overflow at boundary / `^` domain | trapped ✓ | ✓ |
+
+The fix gives identical output at -O0/1/2/3. The `ir::` unit tests pass (920),
+and so do the `rt_inline_trap_*` / `rt_callback_failure_reaches_trap` runtime
+tests. Specs: `mfb spec language error-model` rule 11, `architecture ir` /
+`native-ir` / `ir-json-artifact`, and `package ir-section`. This unblocks
+plan-165-C/D, which listed bug-798 as a prerequisite.

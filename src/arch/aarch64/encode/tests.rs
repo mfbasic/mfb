@@ -1431,3 +1431,18 @@ fn an_absurdly_wide_add_sub_immediate_is_rejected_rather_than_looped_over() {
         .emit_instruction(&ins)
         .expect("a real multi-chunk offset still encodes");
 }
+
+/// bug-788: the binary32 conversions a `LINK` `CFloat` crosses.
+#[test]
+fn float_precision_conversions_encode() {
+    // fcvt s0, d1
+    assert_eq!(
+        emit_words("fcvt_s_from_d", &[("dst", "d0"), ("src", "d1")]),
+        [0x1E62_4020]
+    );
+    // fcvt d0, s1
+    assert_eq!(
+        emit_words("fcvt_d_from_s", &[("dst", "d0"), ("src", "d1")]),
+        [0x1E22_C020]
+    );
+}

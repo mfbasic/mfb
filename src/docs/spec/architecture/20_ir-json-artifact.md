@@ -168,7 +168,7 @@ serialize inline (the `to_json` indent argument is ignored for values).
 | `capture` | `Capture` | `index`, `type`, and `byRef: true` **only** when captured by slot reference |
 | `call` | `Call` | `target`, `args` (value array) |
 | `callResult` | `CallResult` | `target`, `args` |
-| `checked` | `Checked` | `type` (the success type), `value` |
+| `checked` | `Checked` | `type` (the success type), `observe` (present, as `false`, only for a capture-only node), `value` |
 | `constructor` | `Constructor` | `type`, `args` |
 | `unionWrap` | `UnionWrap` | `union`, `member`, `value` |
 | `unionExtract` | `UnionExtract` | `type`, `value` |

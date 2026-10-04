@@ -280,6 +280,12 @@ impl RegisterModel for Win64RegisterModel {
     fn external_int_argument_registers(&self) -> usize {
         4
     }
+
+    /// Win64 hands argument i to `rcx`/`rdx`/`r8`/`r9` or `xmm0`–`xmm3` by its
+    /// position, whichever bank its type takes (bug-788).
+    fn external_arguments_are_positional(&self) -> bool {
+        true
+    }
 }
 
 /// The Win64 nonvolatile integer bank, in save-slot order: every register a

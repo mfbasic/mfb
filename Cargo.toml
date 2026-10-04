@@ -855,6 +855,14 @@ name = "rt_fs_set_buffered_drain_failure"
 path = "tests/runtime/rt_fs_set_buffered_drain_failure.rs"
 
 [[test]]
+name = "rt_inline_trap_float_observation"
+path = "tests/runtime/rt_inline_trap_float_observation.rs"
+
+[[test]]
+name = "rt_link_cfloat"
+path = "tests/runtime/rt_link_cfloat.rs"
+
+[[test]]
 name = "rt_io_set_buffered_drain_failure"
 path = "tests/runtime/rt_io_set_buffered_drain_failure.rs"
 
@@ -977,6 +985,10 @@ path = "tests/runtime/rt_field_map_fifo_removal_flat.rs"
 [[test]]
 name = "rt_fs_path_string_exact_size"
 path = "tests/runtime/rt_fs_path_string_exact_size.rs"
+
+[[test]]
+name = "rt_fs_realpath_posix_symbol"
+path = "tests/runtime/rt_fs_realpath_posix_symbol.rs"
 
 [[test]]
 name = "rt_map_list_value_grow_cost"

@@ -4906,6 +4906,96 @@ fn accepts_link_const_pin() {
 
 // --- trap ------------------------------------------------------------------
 
+// bug-797: a function-level handler may read only locals bound on every failure
+// edge into it. These run on the verifier alone, which is also the decoded-package
+// path, so a package cannot carry the invalid read past it.
+
+fn call_eval(target: &str) -> IrOp {
+    IrOp::Eval {
+        value: IrValue::Call {
+            target: target.to_string(),
+            args: vec![],
+            type_: crate::types::ParameterType::parse("Nothing"),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }
+}
+
+fn trap_returning_local(name: &str) -> IrOp {
+    IrOp::Trap {
+        name: "e".to_string(),
+        body: vec![ret(IrValue::Local(name.to_string()))],
+        loc: IrSourceLoc::default(),
+    }
+}
+
+#[test]
+fn rejects_a_handler_read_of_a_local_declared_after_a_failure() {
+    // `pkg.mightFail` is not a project function, so it is assumed to fail.
+    let body = vec![
+        call_eval("pkg.mightFail"),
+        bind("value", "Integer", Some(int_const("42")), false, false),
+        ret(IrValue::Local("value".to_string())),
+        trap_returning_local("value"),
+    ];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_TRAP_LOCAL_UNINITIALIZED");
+}
+
+#[test]
+fn accepts_a_handler_read_of_a_local_declared_before_any_failure() {
+    let body = vec![
+        bind("value", "Integer", Some(int_const("42")), false, false),
+        call_eval("pkg.mightFail"),
+        ret(IrValue::Local("value".to_string())),
+        trap_returning_local("value"),
+    ];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_TRAP_LOCAL_UNINITIALIZED");
+}
+
+#[test]
+fn a_call_to_a_total_project_function_is_not_a_failure_edge() {
+    // `quiet` cannot fail, so `value` is bound on every edge into the handler.
+    let quiet = func_returns("quiet", "Nothing", vec![], vec![ret_none()]);
+    let body = vec![
+        call_eval("quiet"),
+        bind("value", "Integer", Some(int_const("42")), false, false),
+        call_eval("pkg.mightFail"),
+        ret(IrValue::Local("value".to_string())),
+        trap_returning_local("value"),
+    ];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_no_rule(
+        &project(vec![quiet, f], vec![]),
+        "TYPE_TRAP_LOCAL_UNINITIALIZED",
+    );
+}
+
+#[test]
+fn a_failed_reassignment_keeps_the_mutable_local_readable() {
+    // `m` is declared before anything can fail; a later failing `m = …` leaves
+    // the earlier value in place (§14.2), so the handler may read it.
+    let body = vec![
+        bind("m", "Integer", Some(int_const("5")), false, true),
+        IrOp::Assign {
+            name: "m".to_string(),
+            value: IrValue::Call {
+                target: "pkg.risky".to_string(),
+                args: vec![],
+                type_: crate::types::ParameterType::parse("Integer"),
+                loc: IrSourceLoc::default(),
+            },
+            loc: IrSourceLoc::default(),
+        },
+        ret(IrValue::Local("m".to_string())),
+        trap_returning_local("m"),
+    ];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_TRAP_LOCAL_UNINITIALIZED");
+}
+
 #[test]
 fn rejects_trap_fallthrough() {
     let body = vec![IrOp::Trap {

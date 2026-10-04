@@ -785,6 +785,13 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a ThreadWorker cannot cross to another thread",
     },
+    // bug-797. 2-203-0141 and 2-203-0142 are reserved by plan-167-B.
+    Rule {
+        code: "2-203-0143",
+        name: "TYPE_TRAP_LOCAL_UNINITIALIZED",
+        severity: Severity::Error,
+        message: "a TRAP handler reads a local that an error can reach before it is declared",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for

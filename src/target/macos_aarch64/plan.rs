@@ -828,7 +828,8 @@ impl plan::NativePlanPlatform for Platform {
                     // (macOS uses O_NOFOLLOW_ANY on the join, already in the flag set).
                     imports.push(PlatformImport {
                         library: "libSystem".to_string(),
-                        symbol: "_realpath".to_string(),
+                        symbol: crate::target::macos_aarch64::code::DARWIN_REALPATH_SYMBOL
+                            .to_string(),
                         required_by: required_by.clone(),
                     });
                 }
@@ -858,7 +859,7 @@ impl plan::NativePlanPlatform for Platform {
             "fs.canonicalPath" | "fs.isWithin" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
-                    symbol: "_realpath".to_string(),
+                    symbol: crate::target::macos_aarch64::code::DARWIN_REALPATH_SYMBOL.to_string(),
                     required_by: required_by.clone(),
                 },
                 PlatformImport {

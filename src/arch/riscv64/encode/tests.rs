@@ -1306,3 +1306,17 @@ fn rvv_encoder_rejects_unknown_vop_and_bad_registers() {
             .contains("missing field")
     );
 }
+
+/// bug-788: the binary32 conversions a `LINK` `CFloat` crosses.
+#[test]
+fn float_precision_conversions_encode() {
+    let w = words(&encode_text(vec![
+        ci("fcvt_s_from_d", &[("dst", "fa0"), ("src", "fa1")]),
+        ci("fcvt_d_from_s", &[("dst", "fa0"), ("src", "fa1")]),
+        ci("ret", &[]),
+    ]));
+    // fcvt.s.d fa0, fa1, rne
+    assert_eq!(w[0], 0x4015_8553);
+    // fcvt.d.s fa0, fa1
+    assert_eq!(w[1], 0x4205_8553);
+}

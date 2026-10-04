@@ -1626,6 +1626,25 @@ pub(crate) fn float_sqrt_d(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInst
         .field("src", reg(src))
 }
 
+/// `fcvt Sd, Dn` — round the double in `src` to binary32 (nearest, ties to even)
+/// and leave it in `dst`'s single-precision view. On RISC-V the result is
+/// NaN-boxed, as a single in an FP register must be.
+#[track_caller]
+pub(crate) fn float_convert_s_from_d(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
+    CodeInstruction::new("fcvt_s_from_d")
+        .field("dst", reg(dst))
+        .field("src", reg(src))
+}
+
+/// `fcvt Dd, Sn` — widen the binary32 in `src`'s single-precision view to a
+/// double in `dst` (exact). On RISC-V `src` must hold a NaN-boxed single.
+#[track_caller]
+pub(crate) fn float_convert_d_from_s(dst: impl Into<Reg>, src: impl Into<Reg>) -> CodeInstruction {
+    CodeInstruction::new("fcvt_d_from_s")
+        .field("dst", reg(dst))
+        .field("src", reg(src))
+}
+
 /// `fabs Dd, Dn` — scalar double absolute value (clears the sign bit), so the
 /// FP-domain finiteness check can fold ±Inf onto a single `fcmp` against +Inf.
 #[track_caller]

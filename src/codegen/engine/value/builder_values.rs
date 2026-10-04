@@ -3235,7 +3235,11 @@ impl CodeBuilder<'_> {
                     text: "resultError".to_string(),
                 })
             }
-            NirValue::Checked { type_, value } => self.lower_checked_value(&type_, &value),
+            NirValue::Checked {
+                type_,
+                value,
+                observe,
+            } => self.lower_checked_value(&type_, &value, *observe),
             NirValue::WithUpdate {
                 type_,
                 target,
@@ -3406,6 +3410,7 @@ impl CodeBuilder<'_> {
         &mut self,
         success_type: &ParameterType,
         value: &NirValue,
+        observe: bool,
     ) -> Result<ValueResult, String> {
         let capture = self.label("raw_checked_done");
         let previous = self.raw_result_capture.take();
@@ -3417,9 +3422,17 @@ impl CodeBuilder<'_> {
         // observed it (it flows into `ResultValue`, which is not an arithmetic
         // node), so without this an overflow to infinity would be delivered as a
         // finite-looking `Ok` instead of running the handler.
-        let lowered = self
-            .lower_value(value)
-            .and_then(|success| self.observe_float(value, &success).map(|()| success));
+        //
+        // bug-798: only where the capture sits at such a boundary. A `MOD`/`^`
+        // lifted from inside an operator tree (`observe` FALSE) is captured for
+        // its domain error alone; its result flows on into the tree, and the
+        // tree's own boundary observes it exactly as the untrapped form does.
+        let lowered = self.lower_value(value).and_then(|success| {
+            if observe {
+                self.observe_float(value, &success)?;
+            }
+            Ok(success)
+        });
         self.raw_result_capture = previous;
         let success = lowered?;
         // Success fall-through: tag the produced value as the `Ok` result. A

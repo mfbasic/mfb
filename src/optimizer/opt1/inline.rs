@@ -622,6 +622,7 @@ mod tests {
         let captured = NirValue::Checked {
             type_: ParameterType::Integer,
             value: Box::new(call("gi", vec![local("i"), local("j")])),
+            observe: true,
         };
         let mut module = test_module(vec![gi("grid.mfb"), caller("grid.mfb", captured)]);
         run(&mut module, 1);

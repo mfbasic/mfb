@@ -154,7 +154,9 @@ R-type arithmetic; `fmin.d`/`fmax.d` back `fminnm_d`/`fmaxnm_d` and implement th
 IEEE-number semantics (a finite operand wins over a NaN), matching AArch64's
 `fminnm`/`fmaxnm`. The sign-manipulation trio maps to the `fsgnj` family: register
 move (`fmov_d_from_d` → `fmv.d`), negate (`fneg_d` → `fsgnjn.d`), and absolute
-value (`fabs_d` → `fsgnjx.d`). `fsqrt.d` computes the square root. Bit reinterprets
+value (`fabs_d` → `fsgnjx.d`). `fsqrt.d` computes the square root.
+`fcvt_s_from_d`/`fcvt_d_from_s` are `fcvt.s.d` (rm=RNE) and `fcvt.d.s`; a single
+in an FP register is NaN-boxed, which `fcvt.s.d` produces and `fcvt.d.s` requires. Bit reinterprets
 between a GPR and an FP register are `fmv.x.d`/`fmv.d.x`; the integer↔double
 conversions are `fcvt.d.l` (signed i64 → double) and `fcvt.l.d` (double → i64)
 with the rounding mode selecting toward-zero, toward −∞, toward +∞, or

@@ -1,0 +1,32 @@
+' bug-797 positive guard: a handler may read every local bound before the first
+' statement that can fail — including the result of a total user function and
+' of a total built-in — and a MUT whose later reassignment failed keeps its old
+' value (§14.2). Prints 42 + 3 + 3 + 5.
+IMPORT io
+FUNC total() AS Integer
+  RETURN 3
+END FUNC
+FUNC early() AS Integer
+  LET value = 42
+  LET t = total()
+  LET n = len("abc")
+  MUT m = 5
+  mightFail()
+  m = risky()
+  RETURN value
+  TRAP(e)
+    RETURN value + t + n + m
+  END TRAP
+END FUNC
+FUNC risky() AS Integer
+  FAIL error(90000002, "risky")
+END FUNC
+FUNC mightFail() AS Nothing
+  IF len("x") = 2 THEN
+    FAIL error(90000001, "probe")
+  END IF
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(early()))
+  RETURN 0
+END FUNC

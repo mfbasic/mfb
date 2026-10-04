@@ -133,6 +133,20 @@ fn every_value() -> Vec<IrValue> {
                 loc: loc(),
                 type_: crate::types::ParameterType::parse("Integer"),
             }),
+            observe: true,
+        },
+        // bug-798: the capture-only form (a `Float` `MOD` lifted from inside an
+        // operator tree for its domain error), which encodes as its own tag.
+        IrValue::Checked {
+            type_: crate::types::ParameterType::parse("Float"),
+            value: Box::new(IrValue::Binary {
+                op: BinaryOp::Mod,
+                left: Box::new(IrValue::Local("a".to_string())),
+                right: Box::new(IrValue::Global("g".to_string())),
+                loc: loc(),
+                type_: crate::types::ParameterType::parse("Float"),
+            }),
+            observe: false,
         },
         IrValue::WithUpdate {
             type_: crate::types::ParameterType::parse("Point"),

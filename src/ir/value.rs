@@ -93,6 +93,11 @@ pub(crate) enum IrValue {
     Checked {
         type_: ParameterType,
         value: Box<IrValue>,
+        /// Whether the capture also checks a `Float` result's finiteness: TRUE
+        /// where the captured value meets an observation boundary, FALSE for a
+        /// `MOD`/`^` lifted from inside an operator tree for its domain error
+        /// only (bug-798). Meaningless for a non-`Float` value.
+        observe: bool,
     },
     Constructor {
         type_: ParameterType,

@@ -109,12 +109,12 @@ IMPORT tcp
 IMPORT io
 
 FUNC probe AS String
+  MUT n = 0
   RES server = tcp::listen(\"127.0.0.1\", 0)
   LET bound = tcp::localAddress(server)
   RES client = tcp::connect(\"127.0.0.1\", bound.port)
   RES conn = tcp::accept(server)
   tcp::close(client)
-  MUT n = 0
   FOR i = 1 TO 200
     tcp::write(conn, \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\")
     n = n + 1

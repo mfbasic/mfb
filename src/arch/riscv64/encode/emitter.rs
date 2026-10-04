@@ -303,6 +303,17 @@ impl Encoder {
                 // fsqrt.d: funct7=0101101, rs2=0, rm=000 (RNE).
                 self.emit_word(r_type(0b0101101, 0, rs as u32, 0b000, rd as u32, OP_FP))
             }
+            "fcvt_s_from_d" => {
+                // fcvt.s.d: funct7=0100000, rs2=00001 (D), rm=000 (RNE). The
+                // result is NaN-boxed.
+                let (rd, rs) = (f("dst")?, f("src")?);
+                self.emit_word(r_type(0b0100000, 0b00001, rs as u32, 0b000, rd as u32, OP_FP))
+            }
+            "fcvt_d_from_s" => {
+                // fcvt.d.s: funct7=0100001, rs2=00000 (S), rm=000 (exact).
+                let (rd, rs) = (f("dst")?, f("src")?);
+                self.emit_word(r_type(0b0100001, 0, rs as u32, 0b000, rd as u32, OP_FP))
+            }
             "fmov_x_from_d" => {
                 // fmv.x.d rd(gpr), rs(fp): funct7=1110001, rs2=0, funct3=000.
                 let (rd, rs) = (r("dst")?, f("src")?);

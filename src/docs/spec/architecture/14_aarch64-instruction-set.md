@@ -122,6 +122,8 @@ encoder. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
 | `FNegD` | `fneg_d` | `dst`,`src` | `0x1E614000` | double negate |
 | `FAbsD` | `fabs_d` | `dst`,`src` | `0x1E60C000` | double absolute value (clears sign bit) |
 | `FSqrtD` | `fsqrt_d` | `dst`,`src` | `0x1E61C000` | double sqrt |
+| `FCvtSFromD` | `fcvt_s_from_d` | `dst`,`src` | `0x1E624000` | `fcvt Sd, Dn`: double → binary32 (RNE) |
+| `FCvtDFromS` | `fcvt_d_from_s` | `dst`,`src` | `0x1E22C000` | `fcvt Dd, Sn`: binary32 → double |
 | `FCmpD` | `fcmp_d` | `lhs`,`rhs` | `0x1E602000` | `Dm=bits[20:16]`, `Dn=bits[9:5]` |
 | `FCmpZeroD` | `fcmp_zero_d` | `src` | `0x1E602000`+`0x8` | `fcmp Dn,#0.0` |
 | `SCvtfDFromX` | `scvtf_d_from_x` | `dst`,`src` | `0x9E620000` | signed int → double |
@@ -137,7 +139,8 @@ side is a D-register and the other an X-register.
 [[src/arch/aarch64/encode/emitter.rs:emit_scvtf_d_from_x]] The double-precision set is:
 `fadd_d`, `fsub_d`, `fmul_d`, `fdiv_d`, `fneg_d`, `fabs_d`, `fsqrt_d`, `fcmp_d`,
 `fcmp_zero_d`, `fmov_x_from_d`, `fmov_d_from_x`, `fmov_d_from_d`, `scvtf_d_from_x`,
-`fcvtzs_x_from_d`, `fcvtms_x_from_d`, `fcvtps_x_from_d`, `fcvtas_x_from_d` —
+`fcvtzs_x_from_d`, `fcvtms_x_from_d`, `fcvtps_x_from_d`, `fcvtas_x_from_d`, and the
+binary32 pair `fcvt_s_from_d`/`fcvt_d_from_s` (used only by `LINK` `CFloat` marshaling) —
 note `fneg_d`, `fabs_d`, `fsqrt_d`, `fcmp_d`, `fcmp_zero_d`, and the register-to-register
 `fmov_d_from_d` are present in addition to the four arithmetic and five conversion ops.
 

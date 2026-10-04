@@ -1388,8 +1388,15 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
         // bug-471: append-only tag, exactly as `SetLiteral` (21) was added — a
         // decoder that has never seen a `Checked` node simply rejects the tag,
         // and every already-committed `.mfp` re-encodes byte-identically.
-        IrValue::Checked { type_, value } => {
-            put_u8(out, 22);
+        // bug-798: a capture-only `Checked` (no finiteness observation) is its
+        // own append-only tag, so every observing one keeps tag 22 and every
+        // already-committed `.mfp` still re-encodes byte-identically.
+        IrValue::Checked {
+            type_,
+            value,
+            observe,
+        } => {
+            put_u8(out, if *observe { 22 } else { 23 });
             put_str(out, &type_.name());
             encode_value(out, value);
         }
@@ -1549,9 +1556,10 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
             type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
         },
-        22 => IrValue::Checked {
+        tag @ (22 | 23) => IrValue::Checked {
             type_: crate::types::ParameterType::parse(&r.string()?),
             value: Box::new(decode_value(r)?),
+            observe: tag == 22,
         },
         8 => IrValue::Constructor {
             type_: crate::types::ParameterType::parse(&r.string()?),

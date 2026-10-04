@@ -1,11 +1,11 @@
 # bug-785: Set, MapEntry, and ThreadWorker ABI hashes ignore component shapes
 
-Last updated: 2026-10-01
+Last updated: 2026-10-03
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (ABI compatibility)
-Status: Open
-Regression Test: to add in `src/binary_repr/tests/sections_tests.rs`
+Status: Fixed
+Regression Test: `src/binary_repr/tests/reader_tests.rs:abi_serializer_hashes_set_mapentry_and_threadworker_structurally` (beside bug-277's STATE test)
 
 The correct behavior is that composite signature hashes change when a component's
 structure changes and remain stable under unrelated type-table renumbering.
@@ -142,3 +142,21 @@ Use `cargo test --bin mfb binary_repr`, the full project suite, and
 `scripts/test-accept.sh target/debug/mfb target/accept-actual` during the fix.
 The emitted-package reproduction is the end-to-end evidence. Update
 `src/docs/spec/package/03_metadata-encoding.md` when the implementation changes.
+
+## Resolution (2026-10-03)
+
+`serialize_type_inner` has structural arms for kind 9 (`"mapentry"`: key and
+value), kind 10 (`"threadworker"`: message, output, and the optional resource
+plane, mirroring `"thread"`) and kind 13 (`"set"`: element). Every defined kind
+is now structural, so the `"opaque"` fallback is reachable only for an unknown
+kind in a decoded table.
+
+Compatibility policy (the spec's existing rule, now stated for this case):
+`abiFormatVersion` gates the ABI_INDEX wire encoding, not what the hash covers. A
+package built before this fix with one of these composites in an exported
+signature carries hashes `validate_abi_index` no longer reproduces, so it is
+refused until rebuilt. Neither hash is silently accepted. The committed `.mfp`
+fixtures are regenerated at the bug-staging batch gate.
+
+Proof: the new test fails on main ("Set sig hash must not track type-table
+position") and passes with the fix, as do the 5 other `abi_serializer` tests.

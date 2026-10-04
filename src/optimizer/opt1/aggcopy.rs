@@ -425,6 +425,7 @@ mod tests {
                 value: Some(NirValue::Checked {
                     type_: ParameterType::String,
                     value: Box::new(local("b")),
+                    observe: true,
                 }),
             },
         ])]);

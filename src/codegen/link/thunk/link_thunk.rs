@@ -711,7 +711,9 @@ fn lower_link_thunk(
             && matches!(function.return_type, crate::types::ParameterType::String));
     // `needs_float` gates the `d0`-stash below (a `double` ABI *return* arrives
     // in `d0`, not `x0`), so it must stay narrow to the direct-return case.
-    let needs_float = returns_value && function.abi_return_ctype.is_c_abi(CAbiType::Double);
+    let returns_cfloat = returns_value && function.abi_return_ctype.is_c_abi(CAbiType::Float);
+    let needs_float =
+        returns_cfloat || returns_value && function.abi_return_ctype.is_c_abi(CAbiType::Double);
     // bug-409: two other marshalling paths branch to the same `nan_fail` /
     // `inf_fail` labels without the ABI return being a `CDouble`, so gating the
     // labels on `needs_float` alone left a dangling branch — a hard build failure
@@ -731,17 +733,18 @@ fn lower_link_thunk(
         .is_some_and(|(_, _, _, decl)| {
             decl.fields
                 .iter()
-                .any(|f| f.ctype.is_c_abi(CAbiType::Double))
+                .any(|f| f.ctype.is_c_abi(CAbiType::Double) || f.ctype.is_c_abi(CAbiType::Float))
         });
     // (2) a `CDouble` OUT-slot result (bug-238) runs the same finiteness gate in
     //     the OUT-slot marshalling arm (`RETURN dblOut`, ABI return a status).
     let out_result_is_cdouble = function.abi_slots.iter().any(|slot| {
         result_var == Some(slot.name.as_str())
             && slot.direction.writes_back()
-            && slot.ctype.is_c_abi(CAbiType::Double)
+            && (slot.ctype.is_c_abi(CAbiType::Double) || slot.ctype.is_c_abi(CAbiType::Float))
     });
     let needs_float_labels =
         needs_float || struct_result_has_cdouble_field || out_result_is_cdouble;
+    let needs_float_narrow = function_narrows_cfloat(function, link_cstructs);
 
     let alloc_fail = format!("{symbol}_alloc_fail");
     let call_fail = format!("{symbol}_call_fail");
@@ -749,6 +752,8 @@ fn lower_link_thunk(
     let encoding_fail = format!("{symbol}_encoding_fail");
     let nan_fail = format!("{symbol}_nan_fail");
     let inf_fail = format!("{symbol}_inf_fail");
+    // bug-788: narrowing a finite Float to a C `float` can overflow binary32.
+    let float_overflow_fail = format!("{symbol}_float_overflow_fail");
     // plan-58-B: the runtime size gate for `BUFFER … SIZE`.
     let buffer_size_fail = format!("{symbol}_buffer_size_fail");
     // sec-02: the post-call canary-mismatch trap target (only emitted when the
@@ -1063,6 +1068,7 @@ fn lower_link_thunk(
                 param_base,
                 &param_index,
                 &range_fail,
+                &float_overflow_fail,
                 &alloc_fail,
                 &scratch,
                 &mut instructions,
@@ -1102,7 +1108,11 @@ fn lower_link_thunk(
                 ));
             }
             instructions.extend([
-                abi::move_immediate(t0, "Integer", &(*value as u64).to_string()),
+                abi::move_immediate(
+                    t0,
+                    "Integer",
+                    &c_literal_bits(slot.ctype.c_abi(), *value).to_string(),
+                ),
                 abi::store_u64(t0, abi::stack_pointer(), cslot_off),
             ]);
         } else if let Some(&pidx) = param_index.get(slot.name.as_str()) {
@@ -1128,6 +1138,12 @@ fn lower_link_thunk(
                     abi::branch_ne(&range_fail),
                     abi::store_u64(t0, abi::stack_pointer(), cslot_off),
                 ]);
+            } else if slot.ctype.is_c_abi(CAbiType::Float) {
+                // bug-788: a C `float` is binary32; the cslot holds its NaN-boxed
+                // bits, ready for an FP argument register.
+                instructions.push(abi::load_u64(t0, abi::stack_pointer(), param_off));
+                emit_narrow_to_cfloat(t0, t1, t2, &float_overflow_fail, &mut instructions);
+                instructions.push(abi::store_u64(t0, abi::stack_pointer(), cslot_off));
             } else if slot.ctype.is_c_abi(CAbiType::Ptr)
                 && function
                     .params
@@ -1174,11 +1190,29 @@ fn lower_link_thunk(
     let external_int_registers = crate::codegen::engine::mir::active_backend()
         .register_model()
         .external_int_argument_registers();
-    let int_slot_count = function
-        .abi_slots
-        .iter()
-        .filter(|slot| !slot.ctype.is_c_abi(CAbiType::Double))
-        .count();
+    // An OUT slot passes the ADDRESS of its word, a pointer, whatever its ctype:
+    // only a by-value floating slot travels in an FP register.
+    let is_fp_slot = |slot: &crate::ir::IrAbiSlot| {
+        !slot.direction.writes_back()
+            && (slot.ctype.is_c_abi(CAbiType::Double) || slot.ctype.is_c_abi(CAbiType::Float))
+    };
+    // bug-788: Win64 assigns argument registers by POSITION — slot i goes in the
+    // i-th integer register or the i-th xmm register, whichever its type takes —
+    // where SysV, AAPCS64 and RISC-V count the two banks separately. Win64's four
+    // register positions are shared by both banks, so every slot counts against
+    // them.
+    let positional = crate::codegen::engine::mir::active_backend()
+        .register_model()
+        .external_arguments_are_positional();
+    let int_slot_count = if positional {
+        function.abi_slots.len()
+    } else {
+        function
+            .abi_slots
+            .iter()
+            .filter(|slot| !is_fp_slot(slot))
+            .count()
+    };
     if int_slot_count > external_int_registers {
         return Err(format!(
             "native function `{}` declares {int_slot_count} integer ABI slots, but this \
@@ -1192,7 +1226,13 @@ fn lower_link_thunk(
     let mut flt_idx = 0usize;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
-        if slot.ctype.is_c_abi(CAbiType::Double) {
+        if positional {
+            int_idx = slot_idx;
+            flt_idx = slot_idx;
+        }
+        // A `CFloat` cslot already holds NaN-boxed binary32 bits, so moving all
+        // 64 bits leaves the single exactly where the callee reads it.
+        if is_fp_slot(slot) {
             instructions.extend([
                 abi::load_u64(t0, abi::stack_pointer(), cslot_off),
                 abi::float_move_d_from_x(abi::fp_argument_register(flt_idx)?, t0),
@@ -1273,6 +1313,13 @@ fn lower_link_thunk(
                 abi::store_u64(t1, t0, FILE_OFFSET_CLOSED),
             ]);
         }
+    }
+    if returns_cfloat {
+        // bug-788: a `float` return arrives in `s0`; widen it in place first.
+        instructions.push(abi::float_convert_d_from_s(
+            abi::FP_SCRATCH[0],
+            abi::FP_SCRATCH[0],
+        ));
     }
     if needs_float {
         // A `double` return arrives in `d0`, not `x0`; stash its bits.
@@ -1396,12 +1443,18 @@ fn lower_link_thunk(
                     abi::and_registers(RESULT_VALUE_REGISTER, t0, t1),
                 ]);
             }
-            Some(CAbiType::Double) => {
+            Some(ctype @ (CAbiType::Double | CAbiType::Float)) => {
                 // Mirrors the direct-return finiteness gate: a non-finite double has
                 // all exponent bits set; the mantissa distinguishes Inf from NaN.
+                // bug-788: a C `float` OUT word holds 4 bytes; widen it first.
                 let finite = format!("{symbol}_out_float_finite");
+                if ctype == CAbiType::Float {
+                    instructions.push(abi::load_u32(t0, abi::stack_pointer(), out_off));
+                    emit_widen_from_cfloat(t0, t1, &mut instructions);
+                } else {
+                    instructions.push(abi::load_u64(t0, abi::stack_pointer(), out_off));
+                }
                 instructions.extend([
-                    abi::load_u64(t0, abi::stack_pointer(), out_off),
                     abi::move_immediate(t1, "Integer", F64_POSITIVE_INF_BITS),
                     abi::and_registers(t2, t0, t1),
                     abi::compare_registers(t2, t1),
@@ -1503,7 +1556,6 @@ fn lower_link_thunk(
                 | CAbiType::UInt16
                 | CAbiType::UInt32
                 | CAbiType::UInt64
-                | CAbiType::Float
                 | CAbiType::Void,
             )
             | None => {
@@ -1755,6 +1807,7 @@ fn lower_link_thunk(
         (needs_encoding, &encoding_fail, "ErrEncoding"),
         (needs_float_labels, &nan_fail, "ErrFloatNaN"),
         (needs_float_labels, &inf_fail, "ErrFloatInf"),
+        (needs_float_narrow, &float_overflow_fail, "ErrFloatOverflow"),
         (needs_buffer_size, &buffer_size_fail, "ErrInvalidArgument"),
     ] {
         if !needed {
@@ -1856,7 +1909,8 @@ fn emit_return_passthrough(
                 relocations,
             );
         }
-        CAbiType::Double => {
+        // bug-788: a `float` return was widened into the same stash before here.
+        CAbiType::Double | CAbiType::Float => {
             // §12.3: a C `double` may be NaN/Inf, but an MFBASIC `Float` is always
             // finite (04_types.md — an MFBASIC Float is always finite), so reject non-finite results at the boundary.
             // A non-finite double has all exponent bits set (`0x7FF0…`); the
@@ -1921,8 +1975,7 @@ fn emit_return_passthrough(
         | CAbiType::UInt8
         | CAbiType::UInt16
         | CAbiType::UInt32
-        | CAbiType::UInt64
-        | CAbiType::Float => {
+        | CAbiType::UInt64 => {
             instructions.push(abi::load_u64(
                 RESULT_VALUE_REGISTER,
                 abi::stack_pointer(),
@@ -2118,6 +2171,110 @@ fn emit_copy_cstring_to_string(
 /// alias whatever the `Vregs` counter minted N-th (bug-721). Minted in field
 /// order, which is the order of the literals `%v9`..`%v16` they replaced, so the
 /// allocator's `(start, vreg)` tie-break sees the same relative order.
+/// bug-788: narrow the MFBASIC `Float` whose binary64 bits are in `value` to a C
+/// `float`. It is rounded to binary32 (nearest, ties to even). A finite value too
+/// large for binary32 fails with `ErrFloatOverflow` rather than reaching C as an
+/// infinity. The binary32 bits are left NaN-boxed in `value` (upper 32 bits set):
+/// that is the form a single must take in a RISC-V FP register, and it is
+/// harmless elsewhere, where only the low 32 bits are read. A 4-byte store of
+/// `value` writes exactly the C `float`.
+fn emit_narrow_to_cfloat(
+    value: &VirtualRegister,
+    tmp1: &VirtualRegister,
+    tmp2: &VirtualRegister,
+    overflow_fail: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    instructions.extend([
+        abi::float_move_d_from_x(abi::FP_SCRATCH[0], value),
+        abi::float_convert_s_from_d(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]),
+        abi::float_move_x_from_d(value, abi::FP_SCRATCH[0]),
+        abi::move_immediate(tmp1, "Integer", F32_POSITIVE_INF_BITS),
+        abi::and_registers(tmp2, value, tmp1),
+        abi::compare_registers(tmp2, tmp1),
+        abi::branch_eq(overflow_fail),
+    ]);
+    emit_nan_box_cfloat(value, tmp1, instructions);
+}
+
+/// Keep the low 32 bits of `value` (a C `float`) and set the upper 32, the
+/// NaN-boxed form `fcvt_d_from_s` requires on RISC-V.
+fn emit_nan_box_cfloat(
+    value: &VirtualRegister,
+    tmp: &VirtualRegister,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    instructions.extend([
+        abi::shift_left_immediate(value, value, 32),
+        abi::shift_right_immediate(value, value, 32),
+        abi::move_immediate(tmp, "Integer", "18446744069414584320"), // 0xFFFF_FFFF_0000_0000
+        abi::or_registers(value, value, tmp),
+    ]);
+}
+
+/// bug-788: widen the C `float` in the low 32 bits of `value` to the binary64
+/// bits of an MFBASIC `Float` (exact). The caller still applies the finiteness
+/// gate, since a C `float` may be NaN or an infinity.
+fn emit_widen_from_cfloat(
+    value: &VirtualRegister,
+    tmp: &VirtualRegister,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    emit_nan_box_cfloat(value, tmp, instructions);
+    instructions.extend([
+        abi::float_move_d_from_x(abi::FP_SCRATCH[0], value),
+        abi::float_convert_d_from_s(abi::FP_SCRATCH[0], abi::FP_SCRATCH[0]),
+        abi::float_move_x_from_d(value, abi::FP_SCRATCH[0]),
+    ]);
+}
+
+/// Whether `function` narrows a wrapper `Float` parameter to a C `float` — a
+/// `CFloat` argument slot or a `CFloat` `BIND IN` field fed by a parameter — and
+/// so needs the `ErrFloatOverflow` exit (bug-788).
+fn function_narrows_cfloat(
+    function: &IrLinkFunction,
+    link_cstructs: &[crate::ir::IrCStruct],
+) -> bool {
+    let fed_by_param = |name: &str| function.params.iter().any(|(param, _)| param == name);
+    let slot_narrows = function.abi_slots.iter().any(|slot| {
+        !slot.direction.writes_back()
+            && slot.ctype.is_c_abi(CAbiType::Float)
+            && fed_by_param(&slot.name)
+    });
+    let field_narrows = function.bind_in.iter().any(|bind| {
+        let Some(slot) = function.abi_slots.iter().find(|s| s.name == bind.slot) else {
+            return false;
+        };
+        let Some(decl) = link_cstructs
+            .iter()
+            .find(|c| c.alias == function.alias && slot.ctype.is_named(&c.name))
+        else {
+            return false;
+        };
+        bind.fields.iter().any(|field| {
+            field.param.is_some()
+                && decl
+                    .fields
+                    .iter()
+                    .find(|f| f.name == field.name)
+                    .is_some_and(|f| f.ctype.is_c_abi(CAbiType::Float))
+        })
+    });
+    slot_narrows || field_narrows
+}
+
+/// The 64-bit pattern a `CONST` pin or `BIND IN` integer literal stores for a C
+/// slot or field of `ctype`. An integer literal names a numeric value, so a
+/// floating C type receives that value converted, not the integer's raw bits
+/// (bug-788).
+fn c_literal_bits(ctype: Option<CAbiType>, value: i64) -> u64 {
+    match ctype {
+        Some(CAbiType::Double) => (value as f64).to_bits(),
+        Some(CAbiType::Float) => 0xFFFF_FFFF_0000_0000 | u64::from((value as f32).to_bits()),
+        _ => value as u64,
+    }
+}
+
 struct ThunkScratch {
     t0: VirtualRegister,
     t1: VirtualRegister,
@@ -2382,12 +2539,13 @@ fn marshal_struct_in(
     param_base: usize,
     param_index: &HashMap<&str, usize>,
     range_fail: &str,
+    float_overflow_fail: &str,
     alloc_fail: &str,
     scratch: &ThunkScratch,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    let ThunkScratch { t1, t2, .. } = scratch;
+    let ThunkScratch { t1, t2, t3, .. } = scratch;
     let Some(bind) = function.bind_in.iter().find(|b| b.slot == slot_name) else {
         return Ok(());
     };
@@ -2447,7 +2605,7 @@ fn marshal_struct_in(
             instructions.push(abi::move_immediate(
                 t1,
                 "Integer",
-                &(literal as u64).to_string(),
+                &c_literal_bits(Some(ctype), literal).to_string(),
             ));
         } else if let Some(param) = &field.param {
             let Some(&pidx) = param_index.get(param.as_str()) else {
@@ -2461,6 +2619,9 @@ fn marshal_struct_in(
                 abi::stack_pointer(),
                 param_base + pidx * 8,
             ));
+            if ctype == CAbiType::Float {
+                emit_narrow_to_cfloat(t1, t2, t3, float_overflow_fail, instructions);
+            }
         } else {
             return Err(format!(
                 "LINK function '{}.{}' BIND IN field '{}' binds neither a parameter nor a literal",
@@ -2753,9 +2914,13 @@ fn marshal_struct_out(
                     abi::label(&end),
                 ]);
             }
-            CAbiType::Double => {
+            CAbiType::Double | CAbiType::Float => {
                 // An MFBASIC Float is always finite (§3), so reject NaN/Inf at the
-                // boundary exactly as the CDouble return path does.
+                // boundary exactly as the CDouble return path does. bug-788: a
+                // `CFloat` field was loaded as 4 bytes; widen it first.
+                if *ctype == CAbiType::Float {
+                    emit_widen_from_cfloat(t0, t1, instructions);
+                }
                 let finite = format!("{symbol}_sf{rec_idx}_finite");
                 instructions.extend([
                     abi::move_immediate(t1, "Integer", F64_POSITIVE_INF_BITS),
@@ -2772,8 +2937,7 @@ fn marshal_struct_out(
             }
             // No post-load normalization. The unsigned narrows and `CByte` are
             // already correct zero-extended; `CInt64`/`CUInt64`/`CPtr` fill the
-            // register; `CFloat` is not converted (it rides as raw bits, as it
-            // always has); `CString` was handled by the `continue` above; and
+            // register; `CString` was handled by the `continue` above; and
             // `CVoid`/`CBuffer` can never be struct fields (`ctype_size_align`
             // answers `None`, so `check_cstruct` rejects them). Enumerated
             // rather than `_ => {}` (plan-113): this is the exact match where a
@@ -2784,7 +2948,6 @@ fn marshal_struct_out(
             | CAbiType::UInt64
             | CAbiType::Int64
             | CAbiType::Byte
-            | CAbiType::Float
             | CAbiType::Ptr
             | CAbiType::Str
             | CAbiType::Void
