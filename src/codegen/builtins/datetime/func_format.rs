@@ -14,7 +14,8 @@ A token is a run of one or more of the same ASCII letter (`A`–`Z` or `a`–`z`
 the run length selects the width or style of the field. Any character that is
 not an ASCII letter is copied to the output verbatim, so separators such as
 spaces, dashes, colons, and slashes appear literally. A run of a letter that is
-not one of the recognized tokens below is an error, not literal text: to emit a
+not one of the recognized tokens below raises `ErrInvalidFormat` rather than being
+copied as literal text: to emit a
 letter literally, wrap it in single quotes (`'T'` produces a literal `T`); to
 emit a literal apostrophe, write two single quotes (`''`) outside a quoted run. Inside
 a quoted run the next apostrophe closes it, so `'it''s'` renders `its`.
@@ -57,9 +58,12 @@ Inside single quotes every character, including formatting letters, is copied
 literally until the closing quote; an opening quote with no matching close runs
 to the end of `pattern`. `datetime::format` is pure: it reads no host state and
 has no side effects. An offset token on a `datetime::DateTime` record built directly
-with the most negative `Integer` as its offset raises `ErrOverflow`. A month-name
+with the most negative `Integer` as its offset raises `ErrOverflow`, and so does a
+weekday token (`E` and longer) on one whose `year` is so far from the epoch that
+its count of days does not fit an `Integer`. A month-name
 token (`MMM` and longer) on a `datetime::DateTime` built directly with a `month`
-outside `1 .. 12` raises `ErrIndexOutOfRange`. `ErrOutOfMemory`
+outside `1 .. 12` raises `ErrInvalidArgument`; the numeric month tokens render
+such a `month` as it is. `ErrOutOfMemory`
 means the program ran out of memory."#;
 const EX: &str = r#"Render a `datetime::DateTime` with a full date, time, and offset:
 
@@ -144,7 +148,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: super::ParameterType::String,
-            errors: vec!["ErrIndexOutOfRange", "ErrInvalidFormat", "ErrOutOfMemory", "ErrOverflow"],
+            errors: vec!["ErrInvalidArgument", "ErrInvalidFormat", "ErrOutOfMemory", "ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_format"),
         }],
     });

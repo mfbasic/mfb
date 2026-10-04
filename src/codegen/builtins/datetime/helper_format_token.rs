@@ -18,6 +18,9 @@ r#"FUNC __datetime_formatToken(dt AS DateTime, ch AS String, runLen AS Integer) 
   IF ch = "M" THEN
     IF runLen = 1 THEN RETURN toString(dt.date.month)
     IF runLen = 2 THEN RETURN __datetime_pad2(dt.date.month)
+    IF dt.date.month < 1 OR dt.date.month > 12 THEN
+      FAIL error(77050002, "datetime: the month field of the date is outside 1 .. 12")
+    END IF
     IF runLen = 3 THEN RETURN __datetime_monthName(dt.date.month, FALSE)
     RETURN __datetime_monthName(dt.date.month, TRUE)
   END IF

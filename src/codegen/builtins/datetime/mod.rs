@@ -158,7 +158,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Date",
         export: true,
-        description: "A proleptic-Gregorian calendar date, without any time or zone. `datetime::date` checks the month and the day against that month's length; a `Date` record built directly is not checked.",
+        description: "A proleptic-Gregorian calendar date, without any time or zone. `datetime::date` checks the month and the day against that month's length; a `Date` record built directly is not checked, except that a month-name token of `datetime::format` raises `ErrInvalidArgument` for a `month` outside 1..12.",
         props: vec![
             RecordProp {
                 name: "year",

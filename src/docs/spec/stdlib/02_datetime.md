@@ -269,6 +269,15 @@ An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
 | `E` | weekday name | `EEEE`+ = full, shorter = abbreviated |
 | `Z` | zone offset | `Z` = `Z` if offset 0 else `±HH:MM`; `ZZ` = always `±HH:MM`; `ZZZ`+ = `±HHMM` (compact). An offset that is not whole minutes appends seconds: `±HH:MM:SS` / `±HHMMSS` |
 
+The month-name tokens are the one place `format` depends on a field being in
+range: `MMM`/`MMMM` index a 12-entry name table, so a `month` outside `1 .. 12`
+(reachable only through a `Date` record built directly — `datetime::date` checks
+it) fails `ErrInvalidArgument` (`77050002`) before the lookup, rather than leaking
+the table read's `ErrIndexOutOfRange`. Every other token renders its field as
+stored (`MM` of month 13 is `13`); the weekday name's table index is
+`floorMod(days + 3, 7)` and is always in range.
+[[src/codegen/builtins/datetime/helper_format_token.rs:__datetime_formatToken]]
+
 `toIso(dt)` is `format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`. It is arity-split: the
 two-argument `toIso(dt, digits)` selects the fractional width from `{0, 3, 6, 9}`
 (`0` omits the fractional field; any other value is `ErrInvalidArgument`,

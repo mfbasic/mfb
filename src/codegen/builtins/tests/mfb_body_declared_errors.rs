@@ -685,7 +685,13 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("datetime", "parseIso", "ErrOverflow"),
     ("datetime", "toUtc", "ErrInvalidArgument"),
     ("datetime", "toUtc", "ErrOverflow"),
-    ("datetime", "format", "ErrInvalidArgument"),
+    // format's only collections::get is `__datetime_monthName`'s
+    // `names[month - 1]`, reached solely from `__datetime_formatToken`'s
+    // month-name arm, which first FAILs ErrInvalidArgument for a `month`
+    // outside 1 .. 12 -- so the index is always 0 .. 11 of a 12-element list.
+    // (`__datetime_weekdayName`'s index is `__datetime_floorMod(_, 7)`, always
+    // 0 .. 6 of a 7-element list.)
+    ("datetime", "format", "ErrIndexOutOfRange"),
     ("datetime", "format", "ErrNotFound"),
     ("datetime", "parse", "ErrIndexOutOfRange"),
     ("datetime", "parse", "ErrNotFound"),
