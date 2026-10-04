@@ -1,0 +1,36 @@
+IMPORT io
+
+' An unsuffixed numeric literal CASE pattern takes a Fixed or Money scrutinee's
+' type, as it does in a LET of that type. It stayed an Integer/Float constant,
+' and the arm compared that constant's bits with the scrutinee's raw carrier,
+' so `MATCH 1.5F` never reached `CASE 1.5` (found with bug-816).
+FUNC fixedArm(f AS Fixed) AS String
+  MATCH f
+    CASE 1.5
+      RETURN "one and a half"
+    CASE 2
+      RETURN "two"
+    CASE -3, 0.25
+      RETURN "minus three or a quarter"
+    CASE ELSE
+      RETURN "other"
+  END MATCH
+END FUNC
+
+FUNC moneyArm(m AS Money) AS String
+  MATCH m
+    CASE 5
+      RETURN "five"
+    CASE 0.01
+      RETURN "a cent"
+    CASE -2.5, 7
+      RETURN "minus two fifty or seven"
+    CASE ELSE
+      RETURN "other"
+  END MATCH
+END FUNC
+
+FUNC main() AS Nothing
+  io::print(fixedArm(1.5F) & " / " & fixedArm(2F) & " / " & fixedArm(-3F) & " / " & fixedArm(0.25F) & " / " & fixedArm(1F))
+  io::print(moneyArm(5m) & " / " & moneyArm(0.01m) & " / " & moneyArm(-2.5m) & " / " & moneyArm(7m) & " / " & moneyArm(5.01m))
+END FUNC

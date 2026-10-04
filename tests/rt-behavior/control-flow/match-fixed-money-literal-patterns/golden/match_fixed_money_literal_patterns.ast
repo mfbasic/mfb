@@ -1,0 +1,131 @@
+{
+  "project": "match_fixed_money_literal_patterns",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fixedArm",
+      "line": 7,
+      "params": [
+      { "name": "f", "type": "Fixed", "default": null, "line": 7 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "f" },
+        "line": 8,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "number", "value": "1.5" } },
+          "guard": null,
+          "line": 9,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "one and a half" }, "line": 10 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "number", "value": "2" } },
+          "guard": null,
+          "line": 11,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "two" }, "line": 12 }
+          ]
+        },
+        {
+          "pattern": { "kind": "oneOf", "patterns": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3" } }, { "kind": "number", "value": "0.25" }] },
+          "guard": null,
+          "line": 13,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "minus three or a quarter" }, "line": 14 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 15,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "other" }, "line": 16 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "moneyArm",
+      "line": 20,
+      "params": [
+      { "name": "m", "type": "Money", "default": null, "line": 20 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "m" },
+        "line": 21,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "number", "value": "5" } },
+          "guard": null,
+          "line": 22,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "five" }, "line": 23 }
+          ]
+        },
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "number", "value": "0.01" } },
+          "guard": null,
+          "line": 24,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "a cent" }, "line": 25 }
+          ]
+        },
+        {
+          "pattern": { "kind": "oneOf", "patterns": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2.5" } }, { "kind": "number", "value": "7" }] },
+          "guard": null,
+          "line": 26,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "minus two fifty or seven" }, "line": 27 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 28,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "other" }, "line": 29 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 33,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "fixedArm", "arguments": [{ "kind": "number", "value": "1.5F" }] }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "fixedArm", "arguments": [{ "kind": "number", "value": "2F" }] } }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "fixedArm", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3F" } }] } }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "fixedArm", "arguments": [{ "kind": "number", "value": "0.25F" }] } }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "fixedArm", "arguments": [{ "kind": "number", "value": "1F" }] } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "moneyArm", "arguments": [{ "kind": "number", "value": "5m" }] }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "moneyArm", "arguments": [{ "kind": "number", "value": "0.01m" }] } }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "moneyArm", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2.5m" } }] } }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "moneyArm", "arguments": [{ "kind": "number", "value": "7m" }] } }, "right": { "kind": "string", "value": " / " } }, "right": { "kind": "call", "callee": "moneyArm", "arguments": [{ "kind": "number", "value": "5.01m" }] } }] }, "line": 35 }
+      ]
+    }
+    ]
+  }
+  ]
+}

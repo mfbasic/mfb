@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/control-flow/match-fixed-money-literal-patterns
+Wrote AST to tests/rt-behavior/control-flow/match-fixed-money-literal-patterns/match_fixed_money_literal_patterns.ast
+Wrote IR to tests/rt-behavior/control-flow/match-fixed-money-literal-patterns/match_fixed_money_literal_patterns.ir
+[exit 0]
+$ mfb build tests/rt-behavior/control-flow/match-fixed-money-literal-patterns
+Wrote executable to tests/rt-behavior/control-flow/match-fixed-money-literal-patterns/build/match_fixed_money_literal_patterns.out
+[exit 0]
+$ tests/rt-behavior/control-flow/match-fixed-money-literal-patterns/build/match_fixed_money_literal_patterns.out
+one and a half / two / minus three or a quarter / minus three or a quarter / other
+five / a cent / minus two fifty or seven / minus two fifty or seven / other
+[exit 0]

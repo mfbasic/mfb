@@ -1,0 +1,193 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "match_fixed_money_literal_patterns",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "fixedArm",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 7, "type": "Fixed", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "$match0", "type": "Fixed", "value": { "kind": "local", "name": "f" } },
+    {
+      "op": "match",
+      "line": 8,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 9,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Fixed", "value": "1.5" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 10, "value": { "kind": "const", "type": "String", "value": "one and a half" } }
+        ]
+      },
+      {
+        "line": 11,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Fixed", "value": "2" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 12, "value": { "kind": "const", "type": "String", "value": "two" } }
+        ]
+      },
+      {
+        "line": 13,
+        "pattern": { "kind": "oneOf", "values": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "3" } }, { "kind": "const", "type": "Fixed", "value": "0.25" }] },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 14, "value": { "kind": "const", "type": "String", "value": "minus three or a quarter" } }
+        ]
+      },
+      {
+        "line": 15,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 16, "value": { "kind": "const", "type": "String", "value": "other" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "moneyArm",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "m", "line": 20, "type": "Money", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": false, "name": "$match1", "type": "Money", "value": { "kind": "local", "name": "m" } },
+    {
+      "op": "match",
+      "line": 21,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 22,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Money", "value": "5" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 23, "value": { "kind": "const", "type": "String", "value": "five" } }
+        ]
+      },
+      {
+        "line": 24,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Money", "value": "0.01" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 25, "value": { "kind": "const", "type": "String", "value": "a cent" } }
+        ]
+      },
+      {
+        "line": 26,
+        "pattern": { "kind": "oneOf", "values": [{ "kind": "unary", "type": "Money", "op": "-", "operand": { "kind": "const", "type": "Money", "value": "2.5" } }, { "kind": "const", "type": "Money", "value": "7" }] },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 27, "value": { "kind": "const", "type": "String", "value": "minus two fifty or seven" } }
+        ]
+      },
+      {
+        "line": 28,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 29, "value": { "kind": "const", "type": "String", "value": "other" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 33,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "fixedArm", "args": [{ "kind": "const", "type": "Fixed", "value": "1.5" }] }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "fixedArm", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "fixedArm", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "3" } }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "fixedArm", "args": [{ "kind": "const", "type": "Fixed", "value": "0.25" }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "fixedArm", "args": [{ "kind": "const", "type": "Fixed", "value": "1" }] } }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "moneyArm", "args": [{ "kind": "const", "type": "Money", "value": "5" }] }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "moneyArm", "args": [{ "kind": "const", "type": "Money", "value": "0.01" }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "moneyArm", "args": [{ "kind": "unary", "type": "Money", "op": "-", "operand": { "kind": "const", "type": "Money", "value": "2.5" } }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "moneyArm", "args": [{ "kind": "const", "type": "Money", "value": "7" }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "moneyArm", "args": [{ "kind": "const", "type": "Money", "value": "5.01" }] } }] } }
+    ]
+  }
+  ]
+}
