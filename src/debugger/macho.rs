@@ -31,6 +31,7 @@ const N_SECT: u8 = 0xe;
 const SECTION_TYPE: u32 = 0xff;
 const S_NON_LAZY_SYMBOL_POINTERS: u32 = 0x6;
 const S_LAZY_SYMBOL_POINTERS: u32 = 0x7;
+const S_SYMBOL_STUBS: u32 = 0x8;
 const S_ATTR_PURE_INSTRUCTIONS: u32 = 0x8000_0000;
 const S_ATTR_SOME_INSTRUCTIONS: u32 = 0x400;
 /// Indirect-symbol entries that name no symbol.
@@ -49,6 +50,9 @@ pub(crate) struct Image {
     pub(crate) data: Vec<(String, u64)>,
     /// The unslid address `LC_MAIN` names as the entry point.
     pub(crate) entry: Option<u64>,
+    /// Each import stub (`__stubs`): the import's symbol, the stub's unslid
+    /// address, and its size.
+    pub(crate) stubs: Vec<(String, u64, u64)>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -81,6 +85,7 @@ struct Section {
     offset: u32,
     flags: u32,
     reserved1: u32,
+    reserved2: u32,
 }
 
 /// Read the function symbols of the 64-bit Mach-O `bytes`, or `None` when its
@@ -119,6 +124,7 @@ pub(crate) fn read(bytes: &[u8]) -> Option<Image> {
                         offset: u32_at(record, 48)?,
                         flags: u32_at(record, 64)?,
                         reserved1: u32_at(record, 68)?,
+                        reserved2: u32_at(record, 72)?,
                     });
                 }
             }
@@ -149,6 +155,7 @@ pub(crate) fn read(bytes: &[u8]) -> Option<Image> {
             functions: Vec::new(),
             data: Vec::new(),
             entry,
+            stubs: Vec::new(),
         });
     };
     let symbols = range(
@@ -205,12 +212,55 @@ pub(crate) fn read(bytes: &[u8]) -> Option<Image> {
             size: end.saturating_sub(address),
         };
     }
+    let stubs = import_stubs(bytes, &sections, indirect, symbols, strings)?;
     Some(Image {
         text_address,
         functions,
         data,
         entry,
+        stubs,
     })
+}
+
+/// Each stub in a `S_SYMBOL_STUBS` section (`reserved2` bytes long), named by
+/// the symbol its indirect-symbol entry selects.
+fn import_stubs(
+    bytes: &[u8],
+    sections: &[Section],
+    indirect: Option<(u32, u32)>,
+    symbols: &[u8],
+    strings: &[u8],
+) -> Option<Vec<(String, u64, u64)>> {
+    let Some((indirectoff, nindirect)) = indirect else {
+        return Some(Vec::new());
+    };
+    let table = range(
+        bytes,
+        u64::from(indirectoff),
+        u64::from(nindirect).checked_mul(4)?,
+    )?;
+    let mut stubs = Vec::new();
+    for section in sections {
+        if section.flags & SECTION_TYPE != S_SYMBOL_STUBS || section.reserved2 == 0 {
+            continue;
+        }
+        let size = u64::from(section.reserved2);
+        for stub in 0..section.size / size {
+            let entry_index = u64::from(section.reserved1).checked_add(stub)?;
+            let entry = u32_at(table, usize::try_from(entry_index.checked_mul(4)?).ok()?)?;
+            if entry & (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS) != 0 {
+                continue;
+            }
+            let nlist = symbols.get(usize::try_from(entry).ok()?.checked_mul(NLIST_SIZE)?..)?;
+            let name = strings.get(usize::try_from(u32_at(nlist, 0)?).ok()?..)?;
+            stubs.push((
+                String::from_utf8_lossy(c_bytes(name)).into_owned(),
+                section.address.checked_add(stub.checked_mul(size)?)?,
+                size,
+            ));
+        }
+    }
+    Some(stubs)
 }
 
 /// Each symbol-pointer slot, as `(symbol index, slot)`, from the pointer
@@ -371,6 +421,15 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(slots.len(), 3);
+        // One 12-byte stub per import record, in order.
+        assert_eq!(
+            image
+                .stubs
+                .iter()
+                .map(|(name, _, size)| (name.as_str(), *size))
+                .collect::<Vec<_>>(),
+            [("_malloc", 12), ("_free", 12), ("_malloc", 12)]
+        );
         assert!(slots
             .windows(2)
             .all(|pair| pair[0].address != pair[1].address));

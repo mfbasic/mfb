@@ -804,6 +804,48 @@ mod macos {
             "{first:?}"
         );
 
+        // Stopped in isPrime: the current function, a few instructions, and a
+        // system function by name.
+        session.send("dis\n");
+        let function = body(&session.until_prompt());
+        assert_eq!(function[0], "debug.out`isPrime:", "{function:?}");
+        assert!(function[1].starts_with("->  0x"), "{function:?}");
+        assert!(
+            function[1].ends_with("sub    sp, sp, #0xf0"),
+            "{function:?}"
+        );
+        assert!(function.last().unwrap().ends_with("ret") || function.len() > 10);
+        session.send("dis 3\n");
+        let three = body(&session.until_prompt());
+        assert_eq!(three.len(), 4, "{three:?}");
+        session.send("dis exit\n");
+        let exit = body(&session.until_prompt());
+        assert_eq!(exit[0], "libsystem_c.dylib`exit:", "{exit:?}");
+
+        // The registers isPrime starts with, and the function's return.
+        session.send("list reg x0 sp\n");
+        let registers = body(&session.until_prompt());
+        assert!(
+            registers.len() == 2
+                && registers[0].starts_with("x0 0x")
+                && registers[0].ends_with(')')
+                && registers[1].starts_with("sp 0x"),
+            "{registers:?}"
+        );
+        session.send("show mem sp 16\n");
+        let memory = body(&session.until_prompt());
+        assert!(memory[0].starts_with("Memory at 0x") && memory[0].ends_with("(sp of thread 0):"));
+        assert_eq!(memory.len(), 2, "{memory:?}");
+        session.send("finish\n");
+        let returned = body(&session.until_prompt());
+        assert!(
+            returned.len() == 1
+                && returned[0].starts_with("Thread 0 returned from isPrime to 0x")
+                && returned[0].contains(" in countPrimes+0x")
+                && returned[0].contains(": x0 = 0x0000000000000000 (0), x1 = 0x"),
+            "{returned:?}"
+        );
+
         session.send("list breakpoint\n");
         let listed = body(&session.until_prompt());
         assert_eq!(listed.len(), 2, "{listed:?}");
@@ -833,9 +875,29 @@ mod macos {
             body(&session.until_prompt()),
             ["The program exited with status 0."]
         );
-        session.send("step\nq\n");
+        // After the end, restart: a new process, the breakpoint on exit
+        // pending again until the libraries load.
+        session.send("restart\n");
+        let restarted = body(&session.until_prompt());
+        assert!(
+            restarted[0].starts_with("Restarted the program as process ")
+                && restarted[0].ends_with("; paused before its first instruction."),
+            "{restarted:?}"
+        );
+        session.send("list breakpoint\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["-                  _exit exit"]
+        );
+        session.send("run\n");
+        let again = body(&session.until_prompt());
+        assert!(
+            again.last().is_some_and(|line| line.ends_with(" in exit.")),
+            "{again:?}"
+        );
+        session.send("q\n");
         let (code, rest) = session.finish();
         assert_eq!(code, Some(0));
-        assert!(rest.ends_with("had already exited.\n"), "{rest}");
+        assert!(rest.contains("Killed process "), "{rest}");
     }
 }

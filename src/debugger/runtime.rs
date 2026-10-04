@@ -145,7 +145,7 @@ pub(crate) fn blocks(inferior: &mut dyn Inferior, state: u64) -> Result<Vec<Bloc
     while address != 0 {
         if blocks.len() == MAX_BLOCKS {
             return Err(format!(
-                "the block chain of the arena at {state:#x} does not end; it cannot be read"
+                "the block chain of the arena at 0x{state:016x} does not end; it cannot be read"
             ));
         }
         let block = Block {
@@ -410,7 +410,7 @@ fn mapped_bytes(inferior: &mut dyn Inferior, state: u64) -> Result<u64, String> 
         block = inferior.read_u64(block + BLOCK_PREV)?;
     }
     Err(format!(
-        "the block chain of the arena at {state:#x} does not end; it cannot be read"
+        "the block chain of the arena at 0x{state:016x} does not end; it cannot be read"
     ))
 }
 
@@ -444,7 +444,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::debugger::{Ending, FunctionSymbol, Register, RunStop, Step};
+    use crate::debugger::{Ending, FunctionRange, FunctionSymbol, Register, RunStop, Step};
 
     /// A process made of a word map and a symbol map.
     #[derive(Default)]
@@ -472,6 +472,18 @@ mod tests {
         fn data_symbol(&mut self, name: &str) -> Result<Option<u64>, String> {
             Ok(self.symbols.get(name).copied())
         }
+        fn read_code(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
+            Err(format!("unmapped {address:#x}"))
+        }
+        fn function_at(&mut self, _: u64) -> Result<Option<FunctionRange>, String> {
+            Ok(None)
+        }
+        fn data_symbol_at(&mut self, _: u64) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn library_functions(&mut self, _: &str) -> Result<Vec<FunctionRange>, String> {
+            Ok(Vec::new())
+        }
         fn read_bytes(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
             Err(format!("unmapped {address:#x}"))
         }
@@ -489,6 +501,9 @@ mod tests {
         }
         fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
             Err("not stepped".to_string())
+        }
+        fn restart(&mut self) -> Result<u32, String> {
+            Err("restart needs a program the debugger launched".to_string())
         }
         fn entry(&mut self) -> Result<Option<u64>, String> {
             Ok(None)

@@ -7,8 +7,8 @@ use crate::cli::CommandError;
 use crate::debugger::prompt::PROMPT;
 use crate::debugger::tests::{linked_probes, native_probe};
 use crate::debugger::{
-    check_debuggable, Backend, Ending, FunctionSymbol, Inferior, Register, RunStop, Step,
-    ThreadFacts,
+    check_debuggable, Backend, Ending, FunctionRange, FunctionSymbol, Inferior, Register, RunStop,
+    Step, ThreadFacts,
 };
 
 fn args(values: &[&str]) -> Vec<String> {
@@ -123,6 +123,18 @@ impl Inferior for Paused {
     fn data_symbol(&mut self, _: &str) -> Result<Option<u64>, String> {
         Ok(None)
     }
+    fn read_code(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
+        Err(format!("unmapped {address:#x}"))
+    }
+    fn function_at(&mut self, _: u64) -> Result<Option<FunctionRange>, String> {
+        Ok(None)
+    }
+    fn data_symbol_at(&mut self, _: u64) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+    fn library_functions(&mut self, _: &str) -> Result<Vec<FunctionRange>, String> {
+        Ok(Vec::new())
+    }
     fn read_bytes(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
         Err(format!("unmapped {address:#x}"))
     }
@@ -137,6 +149,9 @@ impl Inferior for Paused {
     }
     fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
         Err("not stepped".to_string())
+    }
+    fn restart(&mut self) -> Result<u32, String> {
+        Err("restart needs a program the debugger launched".to_string())
     }
     fn entry(&mut self) -> Result<Option<u64>, String> {
         Ok(None)

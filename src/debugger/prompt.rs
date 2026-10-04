@@ -10,7 +10,8 @@
 
 use std::io::{BufRead, Write};
 
-use super::breakpoints::{Breakpoints, Target};
+use super::breakpoints::{Breakpoints, Finish, Target};
+use super::disassemble::{self, Request};
 use super::names::{classify_defined, linked_name, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::{
@@ -25,11 +26,17 @@ pub(crate) const HELP: &str = "\
 Commands:
   help, h         Show this list of commands
   list, l         Show what can be listed
-  show            Show an arena's state and blocks: show arena [<id>]
+  show            Show memory: show mem <address|register[+offset]> [<size>]
+                  An arena's state and blocks: show arena [<id>]
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
   breakpoint, bp  Set a breakpoint: breakpoint <address|function>
                   Remove one: breakpoint r <address|function>
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
+  finish, f       Run until the current function returns
+  restart, rs     Start the program again (a program the debugger launched)
+  disassemble, dis
+                  Disassemble the current function, dis <count> instructions
+                  from the current one, or dis <function>
   step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa    Run every thread together: step-all [<count>] (default 1)
   quit, q         End the session: kill the program if the debugger launched
@@ -48,8 +55,9 @@ Usage: list <what>
                 name.
   thread        The program's threads: <id> <name> <pc> <task>
                 <task> is App, MFB Main, User Thread or Other.
-  reg [<id>]    The registers of thread <id> (default 0, the main thread):
-                  <register> <value>
+  reg [<id>] [<register>...]
+                The registers of thread <id> (default 0, the main thread), or
+                just the ones named: <register> <hex value> (<decimal>)
   arena         The program's MFBASIC memory arenas (debug builds):
                   <id> <thread id> <address> <size in KB>
   breakpoint    The breakpoints: <address> <name> <written name>
@@ -70,6 +78,10 @@ enum Command {
     SetBreakpoint(Target),
     RemoveBreakpoint(Target),
     Run,
+    Disassemble(Request),
+    Finish,
+    Restart,
+    ShowMemory { location: Location, size: u64 },
     Quit,
     Empty,
 }
@@ -82,6 +94,50 @@ struct Dump {
     size: u64,
 }
 
+/// Where `show mem` reads: an address, or a register of the current thread
+/// plus an offset.
+#[derive(Debug, PartialEq, Eq)]
+enum Location {
+    Address(u64),
+    Register { name: String, offset: i64 },
+}
+
+impl Location {
+    /// `0x…`, or `<register>`, `<register>+<n>`, `<register>-<n>` (`n` decimal
+    /// or `0x` hex).
+    fn parse(word: &str) -> Result<Location, String> {
+        if word.starts_with("0x") || word.starts_with("0X") {
+            return number(word).map(Location::Address);
+        }
+        let (name, offset) = match word.find(['+', '-']) {
+            Some(at) => {
+                let amount = number(&word[at + 1..])?;
+                let amount = i64::try_from(amount).map_err(|_| format!("'{word}' is too far"))?;
+                (
+                    &word[..at],
+                    if &word[at..at + 1] == "-" {
+                        -amount
+                    } else {
+                        amount
+                    },
+                )
+            }
+            None => (word, 0),
+        };
+        if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+            return Err(format!("'{word}' is not an address or a register"));
+        }
+        Ok(Location::Register {
+            name: name.to_string(),
+            offset,
+        })
+    }
+}
+
+/// How much `show mem` shows when no size is given, and the most it shows.
+const MEMORY_SIZE: u64 = 64;
+const MAX_MEMORY: u64 = 64 << 10;
+
 /// The arena a bare `show arena` shows: the main arena's registry slot.
 const MAIN_ARENA: usize = 0;
 /// How much of a block a dump shows when no size is given.
@@ -91,7 +147,7 @@ const DUMP_SIZE: u64 = 1024;
 enum Listing {
     Functions,
     Threads,
-    Registers(usize),
+    Registers { thread: usize, names: Vec<String> },
     Arenas,
     Breakpoints,
 }
@@ -110,9 +166,19 @@ fn parse(line: &str) -> Result<Command, String> {
         ("list" | "l", ["thread"]) => Ok(Command::List(Some(Listing::Threads))),
         ("list" | "l", ["arena"]) => Ok(Command::List(Some(Listing::Arenas))),
         ("list" | "l", ["breakpoint"]) => Ok(Command::List(Some(Listing::Breakpoints))),
-        ("list" | "l", ["reg"]) => Ok(Command::List(Some(Listing::Registers(MAIN_THREAD)))),
-        ("list" | "l", ["reg", id]) => Ok(Command::List(Some(Listing::Registers(thread_id(id)?)))),
-        ("list" | "l", ["func" | "thread" | "arena" | "reg" | "breakpoint", ..]) => {
+        ("list" | "l", ["reg", rest @ ..]) => {
+            let (thread, names) = match rest.first() {
+                Some(first) if first.bytes().all(|byte| byte.is_ascii_digit()) => {
+                    (thread_id(first)?, &rest[1..])
+                }
+                _ => (MAIN_THREAD, rest),
+            };
+            Ok(Command::List(Some(Listing::Registers {
+                thread,
+                names: names.iter().map(|name| name.to_string()).collect(),
+            })))
+        }
+        ("list" | "l", ["func" | "thread" | "arena" | "breakpoint", ..]) => {
             Err(format!("too many arguments to '{name} {}'", arguments[0]))
         }
         ("list" | "l", [other, ..]) => Err(format!(
@@ -161,10 +227,40 @@ fn parse(line: &str) -> Result<Command, String> {
             }),
         }),
         ("show", ["arena", ..]) => Err("too many arguments to 'show arena'".to_string()),
-        ("show", []) => Err("'show' needs what to show: show arena [<id>]".to_string()),
+        ("show", ["mem"]) => {
+            Err("'show mem' needs an address or a register: show mem <where> [<size>]".to_string())
+        }
+        ("show", ["mem", location]) => Ok(Command::ShowMemory {
+            location: Location::parse(location)?,
+            size: MEMORY_SIZE,
+        }),
+        ("show", ["mem", location, size]) => Ok(Command::ShowMemory {
+            location: Location::parse(location)?,
+            size: number(size)?,
+        }),
+        ("show", ["mem", ..]) => Err("too many arguments to 'show mem'".to_string()),
+        ("show", []) => Err(
+            "'show' needs what to show: show mem <where> [<size>], or show arena [<id>]"
+                .to_string(),
+        ),
         ("show", [other, ..]) => Err(format!(
-            "cannot show '{other}'; 'show arena' is what can be shown"
+            "cannot show '{other}'; 'show mem' and 'show arena' are what can be shown"
         )),
+        ("disassemble" | "dis", []) => Ok(Command::Disassemble(Request::Current)),
+        ("disassemble" | "dis", [word]) if word.bytes().all(|byte| byte.is_ascii_digit()) => {
+            match word.parse::<u64>() {
+                Ok(0) | Err(_) => Err(format!("cannot show {word} instructions; give 1 or more")),
+                Ok(count) => Ok(Command::Disassemble(Request::Count(count))),
+            }
+        }
+        ("disassemble" | "dis", [name]) => {
+            Ok(Command::Disassemble(Request::Named(name.to_string())))
+        }
+        ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most one argument")),
+        ("finish" | "f", []) => Ok(Command::Finish),
+        ("finish" | "f", _) => Err(format!("'{name}' takes no arguments")),
+        ("restart" | "rs", []) => Ok(Command::Restart),
+        ("restart" | "rs", _) => Err(format!("'{name}' takes no arguments")),
         ("run" | "r", []) => Ok(Command::Run),
         ("run" | "r", _) => Err(format!("'{name}' takes no arguments")),
         _ => Err(format!(
@@ -204,7 +300,8 @@ fn thread_id(word: &str) -> Result<usize, String> {
 
 /// The `list func` lines: the program's own functions, then the runtime's, then
 /// linked ones, each group in address order (a linked function not yet bound
-/// last), and symbols that tie in symbol-table order.
+/// last), symbols that tie in symbol-table order, and a name repeated at the
+/// same address once.
 pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
     let mut rows = symbols
         .iter()
@@ -218,6 +315,10 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
         })
         .collect::<Vec<_>>();
     rows.sort_by_key(|(origin, address, _, _)| (*origin, address.is_none(), *address));
+    // The same function named again at the same address (an import's repeated
+    // records) is shown once; one name at two addresses is shown twice.
+    let mut seen = std::collections::HashSet::new();
+    rows.retain(|(_, address, name, _)| seen.insert((*address, name.to_string())));
     let width = rows
         .iter()
         .map(|(_, _, name, _)| name.len())
@@ -235,7 +336,8 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
         .collect()
 }
 
-/// The `list reg` lines: one register per line, values in full-width hex.
+/// The `list reg` lines: one register per line, the value in full-width hex and
+/// then in decimal — signed for a 64-bit register, as MFBASIC's `Integer` is.
 pub(crate) fn register_lines(registers: &[Register]) -> Vec<String> {
     let width = registers
         .iter()
@@ -246,8 +348,8 @@ pub(crate) fn register_lines(registers: &[Register]) -> Vec<String> {
         .iter()
         .map(|register| {
             let value = match register.value {
-                RegisterValue::Bits64(value) => format!("0x{value:016x}"),
-                RegisterValue::Bits128(value) => format!("0x{value:032x}"),
+                RegisterValue::Bits64(value) => format!("0x{value:016x} ({})", value as i64),
+                RegisterValue::Bits128(value) => format!("0x{value:032x} ({value})"),
             };
             format!("{:<width$} {value}", register.name)
         })
@@ -336,12 +438,24 @@ fn list(
             let functions = inferior.functions().unwrap_or_default();
             Ok(thread_lines(&threads, &roles, &functions))
         }
-        Some(Listing::Registers(id)) => {
+        Some(Listing::Registers { thread, names }) => {
             let count = inferior.threads()?.len();
-            if id >= count {
-                return Err(no_thread(id, count));
+            if thread >= count {
+                return Err(no_thread(thread, count));
             }
-            Ok(register_lines(&inferior.registers(id)?))
+            let registers = inferior.registers(thread)?;
+            if names.is_empty() {
+                return Ok(register_lines(&registers));
+            }
+            let mut chosen = Vec::new();
+            for name in &names {
+                let register = registers
+                    .iter()
+                    .find(|register| &register.name == name)
+                    .ok_or_else(|| format!("no register '{name}'; type 'list reg' for them all"))?;
+                chosen.push(register.clone());
+            }
+            Ok(register_lines(&chosen))
         }
         Some(Listing::Arenas) => {
             let threads = inferior.threads()?;
@@ -607,19 +721,32 @@ pub(crate) fn block_lines(blocks: &[Block]) -> Vec<String> {
 /// Hex-dump lines of 16 bytes: the offset in the block (hex digits in groups
 /// of four), the bytes, and the printable ones.
 pub(crate) fn dump_lines(offset: u64, bytes: &[u8]) -> Vec<String> {
+    hex_dump(offset, bytes, |at| {
+        let digits = format!("{at:08x}");
+        let grouped = digits
+            .as_bytes()
+            .rchunks(4)
+            .rev()
+            .map(|group| std::str::from_utf8(group).expect("hex digits"))
+            .collect::<Vec<_>>()
+            .join("_");
+        format!("0x{grouped}")
+    })
+}
+
+/// Hex-dump lines of memory, each led by its full address.
+pub(crate) fn memory_lines(address: u64, bytes: &[u8]) -> Vec<String> {
+    hex_dump(address, bytes, |at| format!("0x{at:016x}"))
+}
+
+/// Lines of 16 bytes from `start`, each led by `label` of its first byte's
+/// position, then the bytes in hex and the printable ones.
+fn hex_dump(start: u64, bytes: &[u8], label: impl Fn(u64) -> String) -> Vec<String> {
     bytes
         .chunks(16)
         .enumerate()
         .map(|(row, chunk)| {
-            let at = offset + row as u64 * 16;
-            let digits = format!("{at:08x}");
-            let grouped = digits
-                .as_bytes()
-                .rchunks(4)
-                .rev()
-                .map(|group| std::str::from_utf8(group).expect("hex digits"))
-                .collect::<Vec<_>>()
-                .join("_");
+            let label = label(start + row as u64 * 16);
             let hex = (0..16)
                 .map(|index| {
                     chunk
@@ -640,17 +767,39 @@ pub(crate) fn dump_lines(offset: u64, bytes: &[u8]) -> Vec<String> {
                 .map(String::from)
                 .collect::<Vec<_>>()
                 .join(" ");
-            format!("0x{grouped} {hex} | {text}")
+            format!("{label} {hex} | {text}")
         })
         .collect()
 }
 
-/// Run the program and describe why it stopped.
+/// Run the program and describe why it stopped; the flag is set when it ended.
 fn run_program(
     inferior: &mut dyn Inferior,
     breakpoints: &mut Breakpoints,
+    current: &mut usize,
 ) -> Result<(Vec<String>, bool), String> {
     let (mut lines, stop) = breakpoints.run(inferior)?;
+    let exited = describe_stop(inferior, stop, current, &mut lines)?;
+    Ok((lines, exited))
+}
+
+/// Describe a stop, and make the thread it names current; `true` when the
+/// program ended.
+fn describe_stop(
+    inferior: &mut dyn Inferior,
+    stop: RunStop,
+    current: &mut usize,
+    lines: &mut Vec<String>,
+) -> Result<bool, String> {
+    match &stop {
+        RunStop::Breakpoints(hits) => {
+            if let Some((thread, _)) = hits.first() {
+                *current = *thread;
+            }
+        }
+        RunStop::Exception { thread, .. } => *current = *thread,
+        _ => {}
+    }
     let place = |inferior: &mut dyn Inferior, thread: usize| -> Result<String, String> {
         Ok(places(inferior)?
             .get(thread)
@@ -681,7 +830,121 @@ fn run_program(
         }
         RunStop::Exited(Exit::Unknown) => lines.push("The program exited.".to_string()),
     }
-    Ok((lines, exited))
+    Ok(exited)
+}
+
+/// `finish`: run the current thread until its function returns, then say
+/// where it returned to and what it returned (MFBASIC returns an error code in
+/// `x0` and the value in `x1`).
+fn finish(
+    inferior: &mut dyn Inferior,
+    breakpoints: &mut Breakpoints,
+    current: &mut usize,
+) -> Result<(Vec<String>, bool), String> {
+    let thread = *current;
+    let (mut lines, outcome) = breakpoints.finish(inferior, thread)?;
+    match outcome {
+        Finish::Returned { from } => {
+            let at = places(inferior)?
+                .get(thread)
+                .cloned()
+                .unwrap_or_else(|| "an unknown place".to_string());
+            let registers = inferior.registers(thread)?;
+            let value = |name: &str| {
+                registers
+                    .iter()
+                    .find(|register| register.name == name)
+                    .map(|register| register_lines(std::slice::from_ref(register)).remove(0))
+                    .map(|line| {
+                        line.split_whitespace()
+                            .skip(1)
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default()
+            };
+            let from = from
+                .as_deref()
+                .map(disassemble::display_name)
+                .unwrap_or_else(|| "the function".to_string());
+            lines.push(format!(
+                "Thread {thread} returned from {from} to {at}: x0 = {}, x1 = {}.",
+                value("x0"),
+                value("x1")
+            ));
+            Ok((lines, false))
+        }
+        Finish::Stopped(stop) => {
+            let exited = describe_stop(inferior, stop, current, &mut lines)?;
+            Ok((lines, exited))
+        }
+    }
+}
+
+/// `restart`: the program again, as the debugger first launched it, with the
+/// breakpoints placed anew.
+fn restart(
+    inferior: &mut dyn Inferior,
+    breakpoints: &mut Breakpoints,
+) -> Result<Vec<String>, String> {
+    let pid = inferior.restart()?;
+    let mut lines = vec![format!(
+        "Restarted the program as process {pid}; paused before its first instruction."
+    )];
+    lines.extend(breakpoints.restarted(inferior)?);
+    Ok(lines)
+}
+
+/// `show mem`: `size` bytes at an address or at a register of the current
+/// thread plus an offset.
+fn show_memory(
+    inferior: &mut dyn Inferior,
+    current: usize,
+    location: &Location,
+    size: u64,
+) -> Result<Vec<String>, String> {
+    if size == 0 || size > MAX_MEMORY {
+        return Err(format!("cannot show {size} bytes; give 1 to {MAX_MEMORY}"));
+    }
+    let (address, described) = match location {
+        Location::Address(address) => (*address, String::new()),
+        Location::Register { name, offset } => {
+            let registers = inferior.registers(current)?;
+            let register = registers
+                .iter()
+                .find(|register| &register.name == name)
+                .ok_or_else(|| format!("no register '{name}'; type 'list reg' for them all"))?;
+            let RegisterValue::Bits64(base) = register.value else {
+                return Err(format!("'{name}' is a vector register, not an address"));
+            };
+            let address = base.wrapping_add(*offset as u64);
+            let shown = match offset {
+                0 => name.clone(),
+                offset if *offset < 0 => format!("{name}-{:#x}", offset.unsigned_abs()),
+                offset => format!("{name}+{offset:#x}"),
+            };
+            (address, format!(" ({shown} of thread {current})"))
+        }
+    };
+    let bytes = inferior.read_bytes(address, size as usize)?;
+    let mut lines = vec![format!("Memory at 0x{address:016x}{described}:")];
+    lines.extend(memory_lines(address, &bytes));
+    Ok(lines)
+}
+
+/// `dis` for the current thread: its `pc` is where `dis` starts and what it
+/// marks. A current thread that has since ended falls back to thread 0.
+fn disassemble_at(
+    inferior: &mut dyn Inferior,
+    current: usize,
+    request: &Request,
+) -> Result<Vec<String>, String> {
+    let threads = inferior.threads()?;
+    let thread = threads
+        .get(current)
+        .or_else(|| threads.first())
+        .ok_or_else(|| no_thread(current, threads.len()))?;
+    disassemble::disassemble(inferior, thread.pc, request)
 }
 
 /// Where each thread is: its pc, and the function holding it when the
@@ -713,6 +976,8 @@ pub(crate) fn run(
     let written = |result: std::io::Result<()>| result.map_err(|e| format!("cannot write: {e}"));
     let mut line = String::new();
     let mut breakpoints = Breakpoints::default();
+    // The thread `dis` shows: the last one a `run` or `step` stopped.
+    let mut current = MAIN_THREAD;
     // Once the program has ended only `help`, `list`, `list breakpoint` and
     // `quit` mean anything.
     let mut exited = false;
@@ -741,6 +1006,10 @@ pub(crate) fn run(
             Ok(Command::List(listing @ (None | Some(Listing::Breakpoints)))) => {
                 list(inferior, program, &breakpoints, listing)
             }
+            Ok(Command::Restart) => restart(inferior, &mut breakpoints).inspect(|_| {
+                exited = false;
+                current = MAIN_THREAD;
+            }),
             Ok(_) if exited => {
                 Err("the program has exited; type 'quit' to end the session".to_string())
             }
@@ -748,6 +1017,7 @@ pub(crate) fn run(
             Ok(Command::Step { count, thread }) => {
                 step(inferior, thread, count).map(|(lines, ended)| {
                     exited = ended;
+                    current = thread;
                     lines
                 })
             }
@@ -758,10 +1028,22 @@ pub(crate) fn run(
             Ok(Command::ShowArena { id, dump }) => show_arena(inferior, program, id, dump),
             Ok(Command::SetBreakpoint(target)) => breakpoints.set(inferior, &target),
             Ok(Command::RemoveBreakpoint(target)) => breakpoints.remove(inferior, &target),
-            Ok(Command::Run) => run_program(inferior, &mut breakpoints).map(|(lines, ended)| {
-                exited = ended;
-                lines
-            }),
+            Ok(Command::Run) => {
+                run_program(inferior, &mut breakpoints, &mut current).map(|(lines, ended)| {
+                    exited = ended;
+                    lines
+                })
+            }
+            Ok(Command::Disassemble(request)) => disassemble_at(inferior, current, &request),
+            Ok(Command::Finish) => {
+                finish(inferior, &mut breakpoints, &mut current).map(|(lines, ended)| {
+                    exited = ended;
+                    lines
+                })
+            }
+            Ok(Command::ShowMemory { location, size }) => {
+                show_memory(inferior, current, &location, size)
+            }
             Err(message) => Err(message),
         };
         match result {
@@ -788,7 +1070,7 @@ pub(crate) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debugger::Step;
+    use crate::debugger::{FunctionRange, Step};
 
     /// An [`Inferior`] answering from fixed tables: two threads, a few
     /// functions, three registers. It records how often it was ended and every
@@ -856,6 +1138,18 @@ mod tests {
         fn read_u64(&mut self, address: u64) -> Result<u64, String> {
             Err(format!("unmapped {address:#x}"))
         }
+        fn read_code(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
+            Err(format!("unmapped {address:#x}"))
+        }
+        fn function_at(&mut self, _: u64) -> Result<Option<FunctionRange>, String> {
+            Ok(None)
+        }
+        fn data_symbol_at(&mut self, _: u64) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn library_functions(&mut self, _: &str) -> Result<Vec<FunctionRange>, String> {
+            Ok(Vec::new())
+        }
         fn read_bytes(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
             Err(format!("unmapped {address:#x}"))
         }
@@ -915,6 +1209,9 @@ mod tests {
                     },
                 })
                 .collect())
+        }
+        fn restart(&mut self) -> Result<u32, String> {
+            Err("restart needs a program the debugger launched".to_string())
         }
         fn entry(&mut self) -> Result<Option<u64>, String> {
             Ok(Some(0x1000))
@@ -1047,7 +1344,6 @@ MR 0x0000000000001000 _main               -
 MR 0x0000000000001008 _mfb_rt_print       -
 LN 0x0000000000009000 _free               free
 LN -                  _malloc             malloc
-LN -                  _malloc             malloc
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -1076,30 +1372,115 @@ LN -                  _malloc             malloc
             out,
             format!(
                 "{PROMPT}\
-x0   0x000000000000002a
-nzcv 0x0000000060000000
-v31  0x00000000000000010000000000000000
+x0   0x000000000000002a (42)
+nzcv 0x0000000060000000 (1610612736)
+v31  0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}\
-x0   0x000000000000002c
-nzcv 0x0000000060000000
-v31  0x00000000000000010000000000000000
+x0   0x000000000000002c (44)
+nzcv 0x0000000060000000 (1610612736)
+v31  0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}Killed process 42.\n"
             )
         );
     }
 
     #[test]
-    fn list_reg_refuses_a_thread_that_does_not_exist() {
+    fn list_reg_refuses_a_thread_or_register_that_does_not_exist() {
         let (_, err, _) = session(
-            "list reg 3\nlist reg x\nlist reg 1 2\nq\n",
+            "list reg 3\nlist reg x9\nlist reg 1 x0 w5\nq\n",
             Ending::Killed,
             false,
         );
         assert_eq!(
             err,
             "error: no thread 3: the program has 3 threads; type 'list thread' for them\n\
-             error: 'x' is not a thread id; type 'list thread' for the threads\n\
-             error: too many arguments to 'list reg'\n"
+             error: no register 'x9'; type 'list reg' for them all\n\
+             error: no register 'w5'; type 'list reg' for them all\n"
+        );
+    }
+
+    #[test]
+    fn list_reg_shows_just_the_registers_named() {
+        let (out, err, _) = session("list reg 2 nzcv x0\nq\n", Ending::Killed, false);
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}\
+nzcv 0x0000000060000000 (1610612736)
+x0   0x000000000000002c (44)
+{PROMPT}Killed process 42.\n"
+            )
+        );
+    }
+
+    #[test]
+    fn a_negative_64_bit_value_shows_as_a_signed_decimal() {
+        let register = Register {
+            name: "x8".to_string(),
+            value: RegisterValue::Bits64(u64::MAX),
+        };
+        assert_eq!(register_lines(&[register]), ["x8 0xffffffffffffffff (-1)"]);
+    }
+
+    #[test]
+    fn show_mem_parses_an_address_or_a_register_and_offset() {
+        assert_eq!(
+            parse("show mem 0x1000"),
+            Ok(Command::ShowMemory {
+                location: Location::Address(0x1000),
+                size: MEMORY_SIZE
+            })
+        );
+        assert_eq!(
+            parse("show mem sp+0x18 8"),
+            Ok(Command::ShowMemory {
+                location: Location::Register {
+                    name: "sp".to_string(),
+                    offset: 0x18
+                },
+                size: 8
+            })
+        );
+        assert_eq!(
+            parse("show mem x19-16"),
+            Ok(Command::ShowMemory {
+                location: Location::Register {
+                    name: "x19".to_string(),
+                    offset: -16
+                },
+                size: MEMORY_SIZE
+            })
+        );
+        for (line, message) in [
+            (
+                "show mem",
+                "'show mem' needs an address or a register: show mem <where> [<size>]",
+            ),
+            ("show mem sp+zz", "'zz' is not a number"),
+            ("show mem $x", "'$x' is not an address or a register"),
+            ("show mem sp 8 9", "too many arguments to 'show mem'"),
+            ("finish now", "'finish' takes no arguments"),
+            ("rs again", "'rs' takes no arguments"),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
+    }
+
+    #[test]
+    fn memory_lines_lead_with_full_addresses() {
+        assert_eq!(
+            memory_lines(0x16f0_0010, b"MFB!"),
+            ["0x000000016f000010 4d 46 42 21                                     | M F B !"]
+        );
+    }
+
+    #[test]
+    fn restart_needs_a_launched_program() {
+        let (_, err, _) = session("restart\nq\n", Ending::Killed, false);
+        assert_eq!(
+            err,
+            "error: restart needs a program the debugger launched\n"
         );
     }
 
@@ -1487,10 +1868,13 @@ Thread 1 hit a breakpoint at 0x0000000000007000.
             })
         );
         for (line, message) in [
-            ("show", "'show' needs what to show: show arena [<id>]"),
+            (
+                "show",
+                "'show' needs what to show: show mem <where> [<size>], or show arena [<id>]",
+            ),
             (
                 "show it",
-                "cannot show 'it'; 'show arena' is what can be shown",
+                "cannot show 'it'; 'show mem' and 'show arena' are what can be shown",
             ),
             (
                 "show arena x",

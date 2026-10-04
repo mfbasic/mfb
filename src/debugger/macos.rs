@@ -42,6 +42,12 @@
 //! of its own, so a Ctrl-C at the terminal reaches only the debugger, whose
 //! handler asks `run` to pause the program.
 //!
+//! Functions in the loaded libraries are found the way lldb finds them: the
+//! loader's image list (`TASK_DYLD_INFO`) gives each library's Mach-O header in
+//! memory, and that header's `LC_FUNCTION_STARTS` (every function's first
+//! address) and `LC_SYMTAB` (the names the library exports) are read from the
+//! library's `__LINKEDIT`, which the shared cache keeps mapped.
+//!
 //! Everything here is in libSystem, which every macOS binary already links.
 
 use std::collections::BTreeMap;
@@ -55,8 +61,8 @@ use std::time::{Duration, Instant};
 
 use super::macho::{self, Location};
 use super::{
-    Backend, Ending, Exit, FunctionSymbol, Inferior, Register, RegisterValue, RunStop, Step,
-    StepStop, ThreadFacts,
+    Backend, Ending, Exit, FunctionRange, FunctionSymbol, Inferior, Register, RegisterValue,
+    RunStop, Step, StepStop, ThreadFacts,
 };
 
 type MachPort = u32;
@@ -78,6 +84,28 @@ const VM_PROT_EXECUTE: c_int = 4;
 const VM_PROT_COPY: c_int = 0x10;
 /// `brk #0`, the instruction a breakpoint writes.
 const BREAKPOINT_INSTRUCTION: [u8; 4] = 0xd420_0000_u32.to_le_bytes();
+/// `<mach/task_info.h>`: the loader's image list, and its size in `int`s.
+const TASK_DYLD_INFO: c_int = 17;
+const TASK_DYLD_INFO_COUNT: u32 = 5;
+/// `<mach-o/dyld_images.h>`: `infoArrayCount` and `infoArray` in
+/// `dyld_all_image_infos`, and the size of one `dyld_image_info`.
+const ALL_IMAGES_COUNT: u64 = 4;
+const ALL_IMAGES_ARRAY: u64 = 8;
+const IMAGE_INFO_SIZE: u64 = 24;
+/// `<mach-o/loader.h>`.
+const LC_SEGMENT_64: u32 = 0x19;
+const LC_SYMTAB: u32 = 0x2;
+const LC_FUNCTION_STARTS: u32 = 0x26;
+const LC_DYSYMTAB: u32 = 0xb;
+/// `<mach-o/loader.h>`: a section of symbol stubs, `reserved2` bytes each.
+const S_SYMBOL_STUBS: u32 = 0x8;
+/// Reading a library's names: offsets closer than `STRING_GAP` share one read
+/// of at most `STRING_RUN` bytes, plus `MAX_NAME` for the last name.
+const STRING_GAP: u32 = 4096;
+const STRING_RUN: u32 = 256 << 10;
+const MAX_NAME: usize = 512;
+/// The longest image path read.
+const MAX_PATH: usize = 1024;
 /// How often a `run` that is waiting looks for Ctrl-C and for the program's
 /// end.
 const RUN_POLL_MS: u32 = 100;
@@ -184,6 +212,7 @@ extern "C" {
         protection: c_int,
     ) -> KernReturn;
     fn mach_vm_write(task: MachPort, address: u64, data: *const u8, count: u32) -> KernReturn;
+    fn task_info(task: MachPort, flavor: c_int, info: *mut i32, count: *mut u32) -> KernReturn;
     fn mach_vm_region(
         task: MachPort,
         address: *mut u64,
@@ -286,71 +315,8 @@ impl Backend for MacOs {
     }
 
     fn launch(&self, program: &Path, args: &[OsString]) -> Result<Box<dyn Inferior>, String> {
-        let c_string = |value: &[u8]| {
-            CString::new(value).map_err(|_| {
-                format!(
-                    "cannot launch '{}': an argument contains a NUL byte",
-                    super::shown(program)
-                )
-            })
-        };
-        let path = c_string(program.as_os_str().as_bytes())?;
-        let mut owned = vec![path.clone()];
-        for arg in args {
-            owned.push(c_string(arg.as_bytes())?);
-        }
-        let mut argv = owned.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
-        argv.push(ptr::null());
-
-        let mut attr: SpawnAttr = ptr::null_mut();
-        let mut pid: c_int = 0;
-        // SAFETY: `attr` is initialized before use and destroyed after;
-        // `path`, `argv` (NUL-terminated) and the strings it points at outlive
-        // the call; `_NSGetEnviron` returns the live, NUL-terminated
-        // environment of this process.
-        let status = unsafe {
-            let init = posix_spawnattr_init(&mut attr);
-            if init != 0 {
-                init
-            } else {
-                let flags = posix_spawnattr_setflags(
-                    &mut attr,
-                    POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_SETPGROUP,
-                );
-                let group = posix_spawnattr_setpgroup(&mut attr, 0);
-                let status = if flags != 0 {
-                    flags
-                } else if group != 0 {
-                    group
-                } else {
-                    posix_spawn(
-                        &mut pid,
-                        path.as_ptr(),
-                        ptr::null(),
-                        &attr,
-                        argv.as_ptr(),
-                        *_NSGetEnviron(),
-                    )
-                };
-                posix_spawnattr_destroy(&mut attr);
-                status
-            }
-        };
-        if status != 0 {
-            return Err(format!(
-                "cannot launch '{}': {}",
-                super::shown(program),
-                io::Error::from_raw_os_error(status)
-            ));
-        }
-        let pid = pid as u32;
-        match task_port(pid) {
-            Ok(task) => Ok(Box::new(Task::new(pid, task, true, program))),
-            Err(message) => {
-                kill_and_reap(pid);
-                Err(message)
-            }
-        }
+        let (pid, task) = spawn(program, args)?;
+        Ok(Box::new(Task::new(pid, task, Some(args.to_vec()), program)))
     }
 
     fn attach(&self, pid: u32, program: &Path) -> Result<Box<dyn Inferior>, String> {
@@ -364,7 +330,77 @@ impl Backend for MacOs {
                 mach_error(status)
             ));
         }
-        Ok(Box::new(Task::new(pid, task, false, program)))
+        Ok(Box::new(Task::new(pid, task, None, program)))
+    }
+}
+
+/// Start `program` with `args`, suspended before its first instruction, in a
+/// process group of its own, and take its task port.
+fn spawn(program: &Path, args: &[OsString]) -> Result<(u32, MachPort), String> {
+    let c_string = |value: &[u8]| {
+        CString::new(value).map_err(|_| {
+            format!(
+                "cannot launch '{}': an argument contains a NUL byte",
+                super::shown(program)
+            )
+        })
+    };
+    let path = c_string(program.as_os_str().as_bytes())?;
+    let mut owned = vec![path.clone()];
+    for arg in args {
+        owned.push(c_string(arg.as_bytes())?);
+    }
+    let mut argv = owned.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
+    argv.push(ptr::null());
+
+    let mut attr: SpawnAttr = ptr::null_mut();
+    let mut pid: c_int = 0;
+    // SAFETY: `attr` is initialized before use and destroyed after; `path`,
+    // `argv` (NUL-terminated) and the strings it points at outlive the call;
+    // `_NSGetEnviron` returns the live, NUL-terminated environment of this
+    // process.
+    let status = unsafe {
+        let init = posix_spawnattr_init(&mut attr);
+        if init != 0 {
+            init
+        } else {
+            let flags = posix_spawnattr_setflags(
+                &mut attr,
+                POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_SETPGROUP,
+            );
+            let group = posix_spawnattr_setpgroup(&mut attr, 0);
+            let status = if flags != 0 {
+                flags
+            } else if group != 0 {
+                group
+            } else {
+                posix_spawn(
+                    &mut pid,
+                    path.as_ptr(),
+                    ptr::null(),
+                    &attr,
+                    argv.as_ptr(),
+                    *_NSGetEnviron(),
+                )
+            };
+            posix_spawnattr_destroy(&mut attr);
+            status
+        }
+    };
+    if status != 0 {
+        return Err(format!(
+            "cannot launch '{}': {}",
+            super::shown(program),
+            io::Error::from_raw_os_error(status)
+        ));
+    }
+    let pid = pid as u32;
+    match task_port(pid) {
+        Ok(task) => Ok((pid, task)),
+        Err(message) => {
+            kill_and_reap(pid);
+            Err(message)
+        }
     }
 }
 
@@ -375,6 +411,8 @@ struct Task {
     pid: u32,
     task: MachPort,
     launched: bool,
+    /// The arguments a launched program was started with, for `restart`.
+    args: Vec<OsString>,
     ended: bool,
     program: PathBuf,
     /// The executable's symbol table, read on first use.
@@ -390,6 +428,33 @@ struct Task {
     /// The SIGINT handler this process had before the session installed its
     /// own.
     previous_interrupt: usize,
+    /// The libraries the loader has mapped, read when first needed and again
+    /// whenever the loader's list has grown.
+    libraries: Vec<Library>,
+    library_count: u32,
+}
+
+/// One library the loader has mapped, as its own headers in memory describe it.
+struct Library {
+    name: String,
+    /// Its `__TEXT` segment, live.
+    text: (u64, u64),
+    /// The live address of `__LINKEDIT` file offset 0, against which its
+    /// tables' offsets are taken.
+    linkedit: u64,
+    slide: u64,
+    symtab: Option<(u32, u32, u32, u32)>,
+    function_starts: Option<(u32, u32)>,
+    /// `LC_DYSYMTAB`'s indirect symbol table (offset, count).
+    indirect: Option<(u32, u32)>,
+    /// `__TEXT`'s sections, live: `[start, end)`, flags, `reserved1`,
+    /// `reserved2`.
+    sections: Vec<(u64, u64, u32, u32, u32)>,
+    /// Read when first needed: every function's live start, ascending.
+    starts: Option<Vec<u64>>,
+    /// Read when first needed: each defined symbol's live address and name,
+    /// by address.
+    symbols: Option<Vec<(u64, String)>>,
 }
 
 /// Set by the SIGINT handler; a `run` that sees it pauses the program.
@@ -400,14 +465,15 @@ extern "C" fn on_interrupt(_: c_int) {
 }
 
 impl Task {
-    fn new(pid: u32, task: MachPort, launched: bool, program: &Path) -> Self {
+    fn new(pid: u32, task: MachPort, args: Option<Vec<OsString>>, program: &Path) -> Self {
         // SAFETY: `on_interrupt` only stores to an atomic, which is
         // async-signal-safe; the previous handler is put back in `end`.
         let previous_interrupt = unsafe { signal(SIGINT, on_interrupt as *const () as usize) };
         Self {
             pid,
             task,
-            launched,
+            launched: args.is_some(),
+            args: args.unwrap_or_default(),
             ended: false,
             program: program.to_path_buf(),
             image: None,
@@ -415,6 +481,319 @@ impl Task {
             breakpoints: BTreeMap::new(),
             exited: None,
             previous_interrupt,
+            libraries: Vec::new(),
+            library_count: 0,
+        }
+    }
+
+    /// Refresh the list of loaded libraries when the loader's has changed.
+    fn refresh_libraries(&mut self) -> Result<(), String> {
+        let mut info = [0i32; 8];
+        let mut count = TASK_DYLD_INFO_COUNT;
+        // SAFETY: `info` holds more than `count` ints.
+        let status = unsafe { task_info(self.task, TASK_DYLD_INFO, info.as_mut_ptr(), &mut count) };
+        if status != KERN_SUCCESS {
+            return Err(format!(
+                "cannot read the loaded libraries of process {}: task_info: {}",
+                self.pid,
+                mach_error(status)
+            ));
+        }
+        let all_images = u64::from(info[0] as u32) | (u64::from(info[1] as u32) << 32);
+        if all_images == 0 {
+            return Ok(());
+        }
+        let count = self.read(all_images + ALL_IMAGES_COUNT, 4)?;
+        let count = u32::from_le_bytes(count[..].try_into().expect("4 bytes"));
+        if count == self.library_count {
+            return Ok(());
+        }
+        let array = self.read_u64(all_images + ALL_IMAGES_ARRAY)?;
+        if array == 0 {
+            return Ok(());
+        }
+        let executable = self.slide()?.wrapping_add(self.image()?.text_address);
+        let mut libraries = Vec::new();
+        for index in 0..u64::from(count) {
+            let entry = array + index * IMAGE_INFO_SIZE;
+            let header = self.read_u64(entry)?;
+            if header == 0 || header == executable {
+                continue;
+            }
+            let path = self.read_u64(entry + 8)?;
+            let name = self.read_c_string(path).unwrap_or_default();
+            let name = name.rsplit('/').next().unwrap_or(&name).to_string();
+            if let Ok(library) = self.read_library(header, name) {
+                libraries.push(library);
+            }
+        }
+        self.libraries = libraries;
+        self.library_count = count;
+        Ok(())
+    }
+
+    /// The NUL-terminated string at `address`, read a page at a time.
+    fn read_c_string(&self, address: u64) -> Result<String, String> {
+        let mut bytes = Vec::new();
+        let mut at = address;
+        while bytes.len() < MAX_PATH {
+            let chunk = 64 - (at % 64) as usize;
+            let read = self.read(at, chunk)?;
+            if let Some(end) = read.iter().position(|byte| *byte == 0) {
+                bytes.extend_from_slice(&read[..end]);
+                return Ok(String::from_utf8_lossy(&bytes).into_owned());
+            }
+            bytes.extend_from_slice(&read);
+            at += chunk as u64;
+        }
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// A library's segments and table locations, from its header in memory.
+    fn read_library(&self, header: u64, name: String) -> Result<Library, String> {
+        let fixed = self.read(header, 32)?;
+        let word = |bytes: &[u8], at: usize| {
+            u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"))
+        };
+        let wide = |bytes: &[u8], at: usize| {
+            u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8 bytes"))
+        };
+        if word(&fixed, 0) != crate::os::inspect::MH_MAGIC_64 {
+            return Err(format!("no Mach-O header at 0x{header:016x}"));
+        }
+        let commands = self.read(header + 32, word(&fixed, 20) as usize)?;
+        let (mut text, mut linkedit, mut symtab, mut function_starts) = (None, None, None, None);
+        let mut indirect = None;
+        let mut sections = Vec::new();
+        let mut at = 0usize;
+        for _ in 0..word(&fixed, 16) {
+            if at + 8 > commands.len() {
+                break;
+            }
+            let size = word(&commands, at + 4) as usize;
+            if size < 8 || at + size > commands.len() {
+                break;
+            }
+            let command = &commands[at..at + size];
+            match word(command, 0) {
+                LC_SEGMENT_64 if size >= 72 => {
+                    let segment = crate::os::inspect::c_bytes(&command[8..24]);
+                    if segment == b"__TEXT" {
+                        text = Some((wide(command, 24), wide(command, 32)));
+                        let count = word(command, 64) as usize;
+                        for record in command[72..].chunks_exact(80).take(count) {
+                            sections.push((
+                                wide(record, 32),
+                                wide(record, 40),
+                                word(record, 64),
+                                word(record, 68),
+                                word(record, 72),
+                            ));
+                        }
+                    } else if segment == b"__LINKEDIT" {
+                        linkedit = Some((wide(command, 24), wide(command, 40)));
+                    }
+                }
+                LC_SYMTAB if size >= 24 => {
+                    symtab = Some((
+                        word(command, 8),
+                        word(command, 12),
+                        word(command, 16),
+                        word(command, 20),
+                    ))
+                }
+                LC_FUNCTION_STARTS if size >= 16 => {
+                    function_starts = Some((word(command, 8), word(command, 12)))
+                }
+                LC_DYSYMTAB if size >= 64 => {
+                    indirect = Some((word(command, 56), word(command, 60)))
+                }
+                _ => {}
+            }
+            at += size;
+        }
+        let (text_address, text_size) = text.ok_or("a library without __TEXT")?;
+        let slide = header.wrapping_sub(text_address);
+        let linkedit = linkedit
+            .map(|(address, offset)| address.wrapping_add(slide).wrapping_sub(offset))
+            .unwrap_or(0);
+        Ok(Library {
+            name,
+            text: (header, header.wrapping_add(text_size)),
+            linkedit,
+            slide,
+            symtab: if linkedit == 0 { None } else { symtab },
+            function_starts: if linkedit == 0 { None } else { function_starts },
+            indirect: if linkedit == 0 { None } else { indirect },
+            sections: sections
+                .into_iter()
+                .map(|(address, size, flags, reserved1, reserved2)| {
+                    let start = address.wrapping_add(slide);
+                    (start, start.wrapping_add(size), flags, reserved1, reserved2)
+                })
+                .collect(),
+            starts: None,
+            symbols: None,
+        })
+    }
+
+    /// Library `index`'s function starts, read on first use.
+    fn library_starts(&mut self, index: usize) -> Vec<u64> {
+        if let Some(starts) = &self.libraries[index].starts {
+            return starts.clone();
+        }
+        let library = &self.libraries[index];
+        let mut starts = Vec::new();
+        if let Some((offset, size)) = library.function_starts {
+            if let Ok(bytes) = self.read(library.linkedit + u64::from(offset), size as usize) {
+                let mut address = library.text.0;
+                let mut at = 0;
+                while at < bytes.len() {
+                    let (delta, length) = uleb128(&bytes[at..]);
+                    if delta == 0 || length == 0 {
+                        break;
+                    }
+                    at += length;
+                    address = address.wrapping_add(delta);
+                    starts.push(address);
+                }
+            }
+        }
+        self.libraries[index].starts = Some(starts.clone());
+        starts
+    }
+
+    /// Library `index`'s defined symbols, read on first use.
+    fn library_symbols(&mut self, index: usize) -> Vec<(u64, String)> {
+        if let Some(symbols) = &self.libraries[index].symbols {
+            return symbols.clone();
+        }
+        let library = &self.libraries[index];
+        let mut symbols = Vec::new();
+        if let Some((symoff, nsyms, stroff, _)) = library.symtab {
+            if let Ok(table) = self.read(library.linkedit + u64::from(symoff), nsyms as usize * 16)
+            {
+                let entries = table
+                    .chunks_exact(16)
+                    .filter(|entry| entry[4] & 0xe0 == 0 && entry[4] & 0x0e == 0x0e)
+                    .map(|entry| {
+                        (
+                            u32::from_le_bytes(entry[0..4].try_into().expect("4 bytes")),
+                            u64::from_le_bytes(entry[8..16].try_into().expect("8 bytes")),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                // A shared-cache library's names lie scattered through one
+                // string pool shared by every library, so the names are read
+                // in runs of nearby offsets rather than as one span.
+                let mut offsets = entries.iter().map(|(strx, _)| *strx).collect::<Vec<_>>();
+                offsets.sort_unstable();
+                offsets.dedup();
+                let mut names = std::collections::HashMap::new();
+                let mut at = 0;
+                while at < offsets.len() {
+                    let first = offsets[at];
+                    let mut last = first;
+                    let mut next = at + 1;
+                    while next < offsets.len()
+                        && offsets[next] - last < STRING_GAP
+                        && offsets[next] - first < STRING_RUN
+                    {
+                        last = offsets[next];
+                        next += 1;
+                    }
+                    let base = library.linkedit + u64::from(stroff) + u64::from(first);
+                    let length = (last - first) as usize + MAX_NAME;
+                    if let Ok(strings) = self.read(base, length) {
+                        for offset in &offsets[at..next] {
+                            let name =
+                                crate::os::inspect::c_bytes(&strings[(offset - first) as usize..]);
+                            names.insert(*offset, String::from_utf8_lossy(name).into_owned());
+                        }
+                    }
+                    at = next;
+                }
+                for (strx, value) in entries {
+                    if let Some(name) = names.get(&strx).filter(|name| !name.is_empty()) {
+                        symbols.push((value.wrapping_add(library.slide), name.clone()));
+                    }
+                }
+            }
+        }
+        symbols.sort();
+        self.libraries[index].symbols = Some(symbols.clone());
+        symbols
+    }
+
+    /// The stub holding `address` in library `index`, named by the symbol its
+    /// indirect-symbol entry selects (`symbol stub for: <symbol>`).
+    fn library_stub(&self, index: usize, address: u64) -> Option<FunctionRange> {
+        let library = &self.libraries[index];
+        let &(begin, _, _, first, size) =
+            library.sections.iter().find(|(begin, end, flags, ..)| {
+                flags & 0xff == S_SYMBOL_STUBS && *begin <= address && address < *end
+            })?;
+        if size == 0 {
+            return None;
+        }
+        let stub = (address - begin) / u64::from(size);
+        let start = begin + stub * u64::from(size);
+        let (indirect, _) = library.indirect?;
+        let (symoff, _, stroff, _) = library.symtab?;
+        let entry = self
+            .read(
+                library.linkedit + u64::from(indirect) + (u64::from(first) + stub) * 4,
+                4,
+            )
+            .ok()?;
+        let entry = u32::from_le_bytes(entry[..].try_into().ok()?);
+        let name = if entry & 0xc000_0000 == 0 {
+            let nlist = self
+                .read(
+                    library.linkedit + u64::from(symoff) + u64::from(entry) * 16,
+                    4,
+                )
+                .ok()?;
+            let strx = u32::from_le_bytes(nlist[..].try_into().ok()?);
+            self.read_c_string(library.linkedit + u64::from(stroff) + u64::from(strx))
+                .ok()
+                .map(|symbol| format!("symbol stub for: {symbol}"))
+        } else {
+            None
+        };
+        Some(FunctionRange {
+            image: library.name.clone(),
+            name,
+            start,
+            size: Some(u64::from(size)),
+        })
+    }
+
+    /// The range of the function at `start` in library `index`: up to the next
+    /// function's start, and never past the end of its section.
+    fn library_function(&mut self, index: usize, start: u64) -> FunctionRange {
+        let starts = self.library_starts(index);
+        let section_end = self.libraries[index]
+            .sections
+            .iter()
+            .find(|(begin, end, ..)| *begin <= start && start < *end)
+            .map_or(self.libraries[index].text.1, |(_, end, ..)| *end);
+        let end = starts
+            .iter()
+            .copied()
+            .find(|next| *next > start)
+            .unwrap_or(section_end)
+            .min(section_end);
+        let symbols = self.library_symbols(index);
+        let name = symbols
+            .iter()
+            .find(|(address, _)| *address == start)
+            .map(|(_, name)| name.clone());
+        FunctionRange {
+            image: self.libraries[index].name.clone(),
+            name,
+            start,
+            size: starts.contains(&start).then(|| end - start),
         }
     }
 
@@ -454,7 +833,7 @@ impl Task {
         };
         if status != KERN_SUCCESS {
             return Err(format!(
-                "cannot change the instruction at {address:#x}: {}",
+                "cannot change the instruction at 0x{address:016x}: {}",
                 mach_error(status)
             ));
         }
@@ -603,7 +982,7 @@ impl Task {
         };
         if status != KERN_SUCCESS || read != length as u64 {
             return Err(format!(
-                "cannot read process {}'s memory at {address:#x}: {}",
+                "cannot read process {}'s memory at 0x{address:016x}: {}",
                 self.pid,
                 mach_error(status)
             ));
@@ -863,6 +1242,18 @@ impl Task {
     }
 }
 
+/// A ULEB128 value and how many bytes it took.
+fn uleb128(bytes: &[u8]) -> (u64, usize) {
+    let mut value = 0u64;
+    for (index, byte) in bytes.iter().enumerate().take(10) {
+        value |= u64::from(byte & 0x7f) << (7 * index);
+        if byte & 0x80 == 0 {
+            return (value, index + 1);
+        }
+    }
+    (value, 0)
+}
+
 /// File `exception` under the thread that raised it; one from a thread not
 /// being stepped, or a second from the same thread, is answered at once.
 fn place(threads: &[MachPort], raised: &mut [Option<Exception>], exception: Exception) {
@@ -1087,7 +1478,7 @@ impl Exception {
 
     fn describe(&self) -> String {
         match self.kind {
-            EXC_BAD_ACCESS => format!("a bad memory access at {:#x}", self.codes[1]),
+            EXC_BAD_ACCESS => format!("a bad memory access at 0x{:016x}", self.codes[1]),
             EXC_BAD_INSTRUCTION => "an illegal instruction".to_string(),
             EXC_ARITHMETIC => "an arithmetic exception".to_string(),
             EXC_BREAKPOINT => "a breakpoint instruction".to_string(),
@@ -1233,6 +1624,109 @@ impl Inferior for Task {
         self.read(address, length)
     }
 
+    fn read_code(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+        let mut code = self.read(address, length)?;
+        let end = address.saturating_add(length as u64);
+        for (at, original) in self.breakpoints.range(address.saturating_sub(3)..end) {
+            for (index, byte) in original.iter().enumerate() {
+                let position = at + index as u64;
+                if position >= address && position < end {
+                    code[(position - address) as usize] = *byte;
+                }
+            }
+        }
+        Ok(code)
+    }
+
+    fn function_at(&mut self, address: u64) -> Result<Option<FunctionRange>, String> {
+        let slide = self.slide()?;
+        let executable = self
+            .program
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let image = self.image()?;
+        let defined = image
+            .functions
+            .iter()
+            .find_map(|function| match function.location {
+                Location::Defined {
+                    address: start,
+                    size,
+                } if start.wrapping_add(slide) <= address
+                    && address < start.wrapping_add(slide).wrapping_add(size) =>
+                {
+                    Some((function.name.clone(), start.wrapping_add(slide), size))
+                }
+                _ => None,
+            });
+        let stub = image.stubs.iter().find_map(|(name, start, size)| {
+            let start = start.wrapping_add(slide);
+            (start <= address && address < start + size)
+                .then(|| (format!("symbol stub for: {name}"), start, *size))
+        });
+        if let Some((name, start, size)) = defined.or(stub) {
+            return Ok(Some(FunctionRange {
+                image: executable,
+                name: Some(name),
+                start,
+                size: Some(size),
+            }));
+        }
+        self.refresh_libraries()?;
+        let Some(index) = self
+            .libraries
+            .iter()
+            .position(|library| library.text.0 <= address && address < library.text.1)
+        else {
+            return Ok(None);
+        };
+        if let Some(stub) = self.library_stub(index, address) {
+            return Ok(Some(stub));
+        }
+        let starts = self.library_starts(index);
+        let Some(start) = starts
+            .iter()
+            .copied()
+            .filter(|start| *start <= address)
+            .max()
+        else {
+            return Ok(None);
+        };
+        let function = self.library_function(index, start);
+        if function.size.is_some_and(|size| address >= start + size) {
+            return Ok(None);
+        }
+        Ok(Some(function))
+    }
+
+    fn data_symbol_at(&mut self, address: u64) -> Result<Option<String>, String> {
+        let slide = self.slide()?;
+        Ok(self
+            .image()?
+            .data
+            .iter()
+            .find(|(_, start)| start.wrapping_add(slide) == address)
+            .map(|(name, _)| name.clone()))
+    }
+
+    fn library_functions(&mut self, name: &str) -> Result<Vec<FunctionRange>, String> {
+        self.refresh_libraries()?;
+        let mut found = Vec::new();
+        for index in 0..self.libraries.len() {
+            let starts = self
+                .library_symbols(index)
+                .into_iter()
+                .filter(|(_, symbol)| symbol == name)
+                .map(|(address, _)| address)
+                .collect::<Vec<_>>();
+            for start in starts {
+                found.push(self.library_function(index, start));
+            }
+        }
+        Ok(found)
+    }
+
     fn threads(&mut self) -> Result<Vec<ThreadFacts>, String> {
         let threads = self.thread_ports()?;
         threads.0.iter().map(|thread| self.facts(*thread)).collect()
@@ -1291,6 +1785,31 @@ impl Inferior for Task {
         Ok(steps)
     }
 
+    fn restart(&mut self) -> Result<u32, String> {
+        if !self.launched {
+            return Err(
+                "restart needs a program the debugger launched; this one was attached to"
+                    .to_string(),
+            );
+        }
+        if self.exited.is_none() {
+            kill_and_reap(self.pid);
+        }
+        release(self.task);
+        let (pid, task) = spawn(&self.program, &self.args)?;
+        self.pid = pid;
+        self.task = task;
+        // A new process: nothing of the old one carries over, and the file is
+        // read again in case it was rebuilt.
+        self.image = None;
+        self.slide = None;
+        self.breakpoints.clear();
+        self.exited = None;
+        self.libraries.clear();
+        self.library_count = 0;
+        Ok(pid)
+    }
+
     fn entry(&mut self) -> Result<Option<u64>, String> {
         let slide = self.slide()?;
         Ok(self.image()?.entry.map(|entry| entry.wrapping_add(slide)))
@@ -1298,7 +1817,7 @@ impl Inferior for Task {
 
     fn insert_breakpoint(&mut self, address: u64) -> Result<(), String> {
         if self.breakpoints.contains_key(&address) {
-            return Err(format!("there is already a breakpoint at {address:#x}"));
+            return Err(format!("there is already a breakpoint at 0x{address:016x}"));
         }
         let original: [u8; 4] = self.read(address, 4)?[..].try_into().expect("4 bytes");
         self.patch(address, &BREAKPOINT_INSTRUCTION)?;
@@ -1308,7 +1827,7 @@ impl Inferior for Task {
 
     fn remove_breakpoint(&mut self, address: u64) -> Result<(), String> {
         let Some(original) = self.breakpoints.get(&address).copied() else {
-            return Err(format!("there is no breakpoint at {address:#x}"));
+            return Err(format!("there is no breakpoint at 0x{address:016x}"));
         };
         self.patch(address, &original)?;
         self.breakpoints.remove(&address);

@@ -9,6 +9,7 @@
 //! answering it from [`host_backend`]; the prompt and the CLI need no change.
 
 pub(crate) mod breakpoints;
+pub(crate) mod disassemble;
 pub(crate) mod names;
 pub(crate) mod prompt;
 pub(crate) mod runtime;
@@ -57,6 +58,16 @@ pub(crate) trait Inferior {
     fn read_u64(&mut self, address: u64) -> Result<u64, String>;
     /// `length` bytes of the process's memory at `address`.
     fn read_bytes(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String>;
+    /// `length` bytes of code at `address`, with the instruction each of the
+    /// debugger's breakpoints replaced put back.
+    fn read_code(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String>;
+    /// The function holding `address`: in the executable (from its symbols or
+    /// import stubs), or in a loaded library (from its function starts).
+    fn function_at(&mut self, address: u64) -> Result<Option<FunctionRange>, String>;
+    /// The functions the loaded libraries define under the symbol `name`.
+    fn library_functions(&mut self, name: &str) -> Result<Vec<FunctionRange>, String>;
+    /// The data symbol the executable defines at exactly `address`.
+    fn data_symbol_at(&mut self, address: u64) -> Result<Option<String>, String>;
     /// Every thread, in the system's order; index 0 is the initial thread.
     fn threads(&mut self) -> Result<Vec<ThreadFacts>, String>;
     /// The registers of thread `thread` (an index into [`Inferior::threads`]),
@@ -67,6 +78,10 @@ pub(crate) trait Inferior {
     /// process is paused again afterwards. A thread that stops early sits out
     /// the remaining rounds. Answers one [`Step`] per thread, in order.
     fn step(&mut self, threads: &[usize], count: u64) -> Result<Vec<Step>, String>;
+    /// Kill a program the debugger launched and start it again, the same
+    /// way, paused before its first instruction; every breakpoint is gone.
+    /// Answers the new process id. A program attached to cannot restart.
+    fn restart(&mut self) -> Result<u32, String>;
     /// The live address of the program's entry point (where the loader hands
     /// over once every library is loaded and bound), when the file names one.
     fn entry(&mut self) -> Result<Option<u64>, String>;
@@ -158,6 +173,19 @@ pub(crate) struct FunctionSymbol {
     /// yet.
     pub(crate) address: Option<u64>,
     /// The bytes the function spans, for one the executable defines.
+    pub(crate) size: Option<u64>,
+}
+
+/// Where a function's code is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FunctionRange {
+    /// The file the code is in: the executable's or a library's name.
+    pub(crate) image: String,
+    /// The function's symbol, when the image names it; an import stub is
+    /// `symbol stub for: <import>`.
+    pub(crate) name: Option<String>,
+    pub(crate) start: u64,
+    /// The bytes it spans, when known.
     pub(crate) size: Option<u64>,
 }
 

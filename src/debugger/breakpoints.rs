@@ -7,9 +7,15 @@
 //! address: its breakpoint is pending, and `run` places it once the program
 //! reaches its entry point, by which time every library is loaded — stopping
 //! there on a breakpoint of its own when no other is in the way.
+//!
+//! Each breakpoint remembers the function and offset it is at, so a `restart`
+//! (a new process, loaded at a new address) places it again. `finish` runs the
+//! current thread to the end of its function with breakpoints of its own on the
+//! function's `ret`s, then steps the `ret`.
 
+use super::disassemble::returns;
 use super::names::{classify_defined, linked_name};
-use super::{FunctionSymbol, Inferior, RunStop};
+use super::{FunctionSymbol, Inferior, RunStop, StepStop};
 
 /// One breakpoint the session holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +26,9 @@ pub(crate) struct Breakpoint {
     pub(crate) symbol: String,
     /// The name the developer wrote (likewise), or `-`.
     pub(crate) written: String,
+    /// The function symbol it is in and its offset there, by which a restart
+    /// finds it again; `None` for an address no function holds.
+    pub(crate) anchor: Option<(String, u64)>,
 }
 
 /// What a `breakpoint` command names.
@@ -87,15 +96,16 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
                 address: function.address,
                 symbol: function.name.clone(),
                 written: written(function),
+                anchor: Some((function.name.clone(), 0)),
             });
         }
     }
     found
 }
 
-/// The symbol and written name at `address`: the function that holds it (with
-/// the offset into it), a linked function bound there, or neither.
-fn describe(functions: &[FunctionSymbol], address: u64) -> (String, String) {
+/// The breakpoint for `address`: named by the function that holds it (with the
+/// offset into it), a linked function bound there, or neither.
+fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
     let offset = |name: String, start: u64| {
         if name == "-" || address == start {
             name
@@ -111,17 +121,29 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> (String, String) {
     });
     if let Some(function) = holder {
         let start = function.address.unwrap_or(address);
-        return (
-            offset(function.name.clone(), start),
-            offset(written(function), start),
-        );
+        return Breakpoint {
+            address: Some(address),
+            symbol: offset(function.name.clone(), start),
+            written: offset(written(function), start),
+            anchor: Some((function.name.clone(), address - start)),
+        };
     }
     match functions
         .iter()
         .find(|function| function.linked && function.address == Some(address))
     {
-        Some(function) => (function.name.clone(), written(function)),
-        None => ("-".to_string(), "-".to_string()),
+        Some(function) => Breakpoint {
+            address: Some(address),
+            symbol: function.name.clone(),
+            written: written(function),
+            anchor: Some((function.name.clone(), 0)),
+        },
+        None => Breakpoint {
+            address: Some(address),
+            symbol: "-".to_string(),
+            written: "-".to_string(),
+            anchor: None,
+        },
     }
 }
 
@@ -147,14 +169,7 @@ impl Breakpoints {
     ) -> Result<Vec<String>, String> {
         let functions = inferior.functions().unwrap_or_default();
         let wanted = match target {
-            Target::Address(address) => {
-                let (symbol, written) = describe(&functions, *address);
-                vec![Breakpoint {
-                    address: Some(*address),
-                    symbol,
-                    written,
-                }]
-            }
+            Target::Address(address) => vec![describe(&functions, *address)],
             Target::Name(name) => {
                 let found = find(&functions, name);
                 if found.is_empty() {
@@ -190,7 +205,7 @@ impl Breakpoints {
         if lines.is_empty() {
             return Err(match target {
                 Target::Address(address) => {
-                    format!("there is already a breakpoint at {address:#x}")
+                    format!("there is already a breakpoint at 0x{address:016x}")
                 }
                 Target::Name(name) => format!("there is already a breakpoint on '{name}'"),
             });
@@ -230,7 +245,7 @@ impl Breakpoints {
         };
         if chosen.is_empty() {
             return Err(match target {
-                Target::Address(address) => format!("there is no breakpoint at {address:#x}"),
+                Target::Address(address) => format!("there is no breakpoint at 0x{address:016x}"),
                 Target::Name(name) => format!("there is no breakpoint on '{name}'"),
             });
         }
@@ -323,6 +338,132 @@ impl Breakpoints {
         }
     }
 
+    /// After a restart: place every breakpoint again by its function and
+    /// offset in the new process (a linked function's is pending until its
+    /// library loads); one no function held is dropped.
+    pub(crate) fn restarted(&mut self, inferior: &mut dyn Inferior) -> Result<Vec<String>, String> {
+        self.entry_passed = false;
+        let functions = inferior.functions().unwrap_or_default();
+        let mut notes = Vec::new();
+        let mut kept = Vec::new();
+        for mut breakpoint in std::mem::take(&mut self.list) {
+            let Some((symbol, offset)) = breakpoint.anchor.clone() else {
+                notes.push(format!(
+                    "Dropped the breakpoint at {}: no function holds it.",
+                    place(&breakpoint)
+                ));
+                continue;
+            };
+            let function = functions.iter().find(|function| function.name == symbol);
+            breakpoint.address = match function {
+                Some(function) if !function.linked => function.address.map(|start| start + offset),
+                Some(_) => None,
+                None => {
+                    notes.push(format!(
+                        "Dropped the breakpoint on {symbol}: the program no longer has it."
+                    ));
+                    continue;
+                }
+            };
+            if let Some(address) = breakpoint.address {
+                inferior.insert_breakpoint(address)?;
+            }
+            kept.push(breakpoint);
+        }
+        self.list = kept;
+        Ok(notes)
+    }
+
+    /// Run `thread` until the function it is in returns: breakpoints on every
+    /// `ret` of the function, a stop there by `thread` with its frame popped
+    /// (stack pointer at or above where it is now, so a recursive call's return
+    /// does not count), then one step over the `ret`. Any other stop ends the
+    /// finish early and is answered as it is.
+    pub(crate) fn finish(
+        &mut self,
+        inferior: &mut dyn Inferior,
+        thread: usize,
+    ) -> Result<(Vec<String>, Finish), String> {
+        let threads = inferior.threads()?;
+        let facts = threads
+            .get(thread)
+            .ok_or_else(|| format!("no thread {thread}"))?
+            .clone();
+        let range = inferior
+            .function_at(facts.pc)?
+            .ok_or_else(|| format!("cannot finish: no known function holds 0x{:016x}", facts.pc))?;
+        let ends = returns(inferior, &range)?;
+        if ends.is_empty() {
+            return Err(format!(
+                "cannot finish: no ret instruction found in the function at 0x{:016x}",
+                range.start
+            ));
+        }
+        let ours = ends
+            .iter()
+            .copied()
+            .filter(|address| {
+                !self
+                    .list
+                    .iter()
+                    .any(|other| other.address == Some(*address))
+            })
+            .collect::<Vec<_>>();
+        for address in &ours {
+            inferior.insert_breakpoint(*address)?;
+        }
+        let mut notes = Vec::new();
+        let outcome = loop {
+            let (mut more, stop) = self.run(inferior)?;
+            notes.append(&mut more);
+            let RunStop::Breakpoints(hits) = &stop else {
+                break Some(stop);
+            };
+            let user = hits
+                .iter()
+                .filter(|(_, address)| !ours.contains(address))
+                .copied()
+                .collect::<Vec<_>>();
+            if !user.is_empty() {
+                break Some(RunStop::Breakpoints(user));
+            }
+            let popped = hits.iter().any(|(hit, _)| {
+                *hit == thread
+                    && inferior
+                        .threads()
+                        .ok()
+                        .and_then(|threads| threads.get(thread).map(|now| now.sp >= facts.sp))
+                        .unwrap_or(false)
+            });
+            if popped {
+                break None;
+            }
+        };
+        if !matches!(outcome, Some(RunStop::Exited(_))) {
+            for address in &ours {
+                inferior.remove_breakpoint(*address)?;
+            }
+        }
+        if let Some(stop) = outcome {
+            return Ok((notes, Finish::Stopped(stop)));
+        }
+        let step = inferior
+            .step(&[thread], 1)?
+            .pop()
+            .ok_or("the step answered for no thread")?;
+        Ok((
+            notes,
+            match step.stop {
+                StepStop::Finished => Finish::Returned {
+                    from: range.name.clone(),
+                },
+                StepStop::Exited => Finish::Stopped(RunStop::Exited(super::Exit::Unknown)),
+                StepStop::Exception(what) => Finish::Stopped(RunStop::Exception { thread, what }),
+                StepStop::Waiting => Finish::Stopped(RunStop::Interrupted),
+            },
+        ))
+    }
+
     /// Place every pending breakpoint whose function is now bound.
     fn place_pending(
         &mut self,
@@ -363,6 +504,7 @@ impl Breakpoints {
             }
             inferior.insert_breakpoint(address)?;
             self.list[index].address = Some(address);
+            self.list[index].anchor = Some((self.list[index].symbol.clone(), 0));
             notes.push(format!(
                 "Placed the pending breakpoint on {} at 0x{address:016x}.",
                 self.list[index].symbol
@@ -373,10 +515,19 @@ impl Breakpoints {
     }
 }
 
+/// How a `finish` ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Finish {
+    /// The thread returned from the function named here.
+    Returned { from: Option<String> },
+    /// Something else stopped the program first.
+    Stopped(RunStop),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::debugger::{Ending, Exit, Register, Step, ThreadFacts};
+    use crate::debugger::{Ending, Exit, FunctionRange, Register, Step, ThreadFacts};
 
     /// A program whose `_exit` binds when it reaches its entry point, and
     /// which then stops at whatever breakpoints `stops` lists, in turn.
@@ -437,6 +588,18 @@ mod tests {
         fn data_symbol(&mut self, _: &str) -> Result<Option<u64>, String> {
             Ok(None)
         }
+        fn read_code(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
+            Err(format!("unmapped {address:#x}"))
+        }
+        fn function_at(&mut self, _: u64) -> Result<Option<FunctionRange>, String> {
+            Ok(None)
+        }
+        fn data_symbol_at(&mut self, _: u64) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn library_functions(&mut self, _: &str) -> Result<Vec<FunctionRange>, String> {
+            Ok(Vec::new())
+        }
         fn read_bytes(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
             Err(format!("unmapped {address:#x}"))
         }
@@ -451,6 +614,9 @@ mod tests {
         }
         fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
             Ok(Vec::new())
+        }
+        fn restart(&mut self) -> Result<u32, String> {
+            Err("restart needs a program the debugger launched".to_string())
         }
         fn entry(&mut self) -> Result<Option<u64>, String> {
             Ok(Some(ENTRY))
@@ -548,7 +714,7 @@ mod tests {
         );
         assert_eq!(
             breakpoints.set(&mut program, &Target::Address(0x1124)),
-            Err("there is already a breakpoint at 0x1124".to_string())
+            Err("there is already a breakpoint at 0x0000000000001124".to_string())
         );
     }
 
@@ -608,7 +774,7 @@ mod tests {
         assert!(program.inserted.is_empty());
         assert_eq!(
             breakpoints.remove(&mut program, &Target::Address(0x1100)),
-            Err("there is no breakpoint at 0x1100".to_string())
+            Err("there is no breakpoint at 0x0000000000001100".to_string())
         );
         assert_eq!(
             breakpoints.remove(&mut program, &name("isPrime")),

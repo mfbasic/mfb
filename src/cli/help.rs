@@ -86,12 +86,18 @@ runs on macOS only, where macOS requires this mfb to be signed for debugging
 Commands at the DBG> prompt:
   help, h     Show the list of commands
   list, l     Show what can be listed
-  show        Show an arena's state and blocks: show arena [<id>]
+  show        Show memory: show mem <address|register[+offset]> [<size>]
+              An arena's state and blocks: show arena [<id>]
               Dump a block: show arena <id> <block> [<offset>] [<size>]
   breakpoint, bp
               Set a breakpoint: breakpoint <address|function>
               Remove one: breakpoint r <address|function>
   run, r      Run the program until a breakpoint or its end (Ctrl-C pauses)
+  finish, f   Run until the current function returns
+  restart, rs Start the program again (a program the debugger launched)
+  disassemble, dis
+              Disassemble the current function, dis <count> instructions from
+              the current one, or dis <function>
   step, s     Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa
               Run every thread together: step-all [<count>] (default 1)
