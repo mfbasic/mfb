@@ -40,6 +40,9 @@
   { "library": "libSystem", "symbol": "_getentropy" },
   { "library": "libSystem", "symbol": "_clock_gettime" },
   { "library": "libSystem", "symbol": "_signal" },
+  { "library": "libSystem", "symbol": "_pthread_self" },
+  { "library": "libSystem", "symbol": "_pthread_get_stackaddr_np" },
+  { "library": "libSystem", "symbol": "_pthread_get_stacksize_np" },
   { "library": "libSystem", "symbol": "_write" }
   ],
   "externalSymbols": [],
@@ -50,10 +53,13 @@
   { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 26 },
   { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 38 },
   { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 53 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 61 }
+  { "name": "_pthread_self", "kind": "imported", "section": null, "value": null, "stringTableOffset": 61 },
+  { "name": "_pthread_get_stackaddr_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 75 },
+  { "name": "_pthread_get_stacksize_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 101 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 127 }
   ],
   "stringTable": {
-    "size": 68,
+    "size": 134,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
@@ -61,7 +67,10 @@
     { "value": "_getentropy", "offset": 26 },
     { "value": "_clock_gettime", "offset": 38 },
     { "value": "_signal", "offset": 53 },
-    { "value": "_write", "offset": 61 }
+    { "value": "_pthread_self", "offset": 61 },
+    { "value": "_pthread_get_stackaddr_np", "offset": 75 },
+    { "value": "_pthread_get_stacksize_np", "offset": 101 },
+    { "value": "_write", "offset": 127 }
     ]
   },
   "relocations": [
@@ -70,6 +79,9 @@
   { "from": "_main", "to": "_getentropy", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_self", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_get_stackaddr_np", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_get_stacksize_np", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }
