@@ -8,8 +8,8 @@ Severity: LOW
 
 Class: Correctness
 
-Status: Open
-Regression Test: proposed `src/audit/collect/source.rs:tests::tostring_byte_list_is_fallible`
+Status: Fixed
+Regression Test: `src/audit/collect/source.rs:tests::tostring_is_fallible_on_every_overload`, `tests::census_builtins_are_fallible_exactly_when_they_declare_an_error`, `tests::every_declaring_builtin_is_fallible`
 
 `toString` applied to a `List OF Byte` decodes UTF-8 and raises `ErrEncoding`
 for invalid bytes (fixed to actually declare this in bug-807's codegen-side
@@ -159,3 +159,71 @@ re-run the reproduction above and confirm `"fallible": true` with a
 `toString` call row; any `tests/syntax/packages/audit-capabilities` golden
 touching `toString(<List OF Byte>)` regenerated and diffed to confirm the
 delta is exactly this fallibility flip.
+
+## Resolution (2026-10-04)
+
+**Goal superseded by the owner decision.** The Goal above (only the `List OF Byte`
+overload fallible, every other `toString` total) predates the owner's 2026-10-04
+decision recorded in bug-807: every `toString` overload is fallible, because each
+builds a `String` and can raise `ErrOutOfMemory`. The inline-`TRAP` census made that
+change in `c97efac0d`; audit now matches it, so no per-argument type inference was
+needed.
+
+**Census alignment (`24448584f`).** For a built-in the inline-`TRAP` census answers
+for (`in_inline_census`: a bare `general` name or an inline-lowered member), audit
+answers from the registry — fallible iff some overload declares an error
+(`builtin_declares_error`), the fact the census reads (spec 8 rule 11). The bug-679
+`toInt(<enum>)` exception still runs first. A throwaway registry sweep comparing
+`is_fallible_call` with `inline_builtin_is_infallible` found 93 disagreements in that
+domain before the fix: `toString`, `error`, `math.*` (incl. `rand`), `bits.sl/sr/sra`,
+22 `collections` members, 27 `strings` members, `money.round`, the internal `canvas`
+scene natives — all declaring, all reported total — and `json.sciParts` the other way
+(declares nothing, reported fallible by the whole-`json` rule). The general
+predicates `isEven`/`isOdd`/... declare nothing and stay total in audit; the census
+over-approximates them (no dead-handler warning), which is its safe side and was
+left alone.
+
+**Wider drift (`e03eaa47f`).** Outside the census domain the hand lists had drifted
+from the descriptors they were derived from (bug-278): 208 registry members declared
+an error but were reported total — all of `process` and `term`, most of `canvas`,
+`big`, `datetime`, `vector`, `compress`, `app.setTitle`, and the allocating members
+bug-698 gave `ErrOutOfMemory`. Every declaring built-in is now fallible. The hand
+lists stay as a floor: `Body::Rewrite` members are checked against their bodies by
+no guard, and `crypto::hmac`/`crypto::convert` raise while declaring nothing (see
+"Found, not fixed" below), so dropping the lists would have turned those calls total.
+
+**Spec (`86b2e48e3`).** `tooling/audit-format`'s Fallible-call table states the rule.
+`ir/fallible.rs`'s module doc no longer calls `toString` infallible.
+
+**Test changed, with proof.** `toint_over_an_enum_is_not_fallible` asserted
+`toString(<enum>)` total (bug-679). The owner decision, toString's descriptor
+(`ErrOutOfMemory` on every overload, bug-807) and the census change `c97efac0d`
+disprove that one line; it now asserts fallible. The `toInt` halves are unchanged.
+
+**Verification.**
+
+- Reproduction: `decode` now `"fallible": true` with a `toString` call row (was
+  `false`, `calls: []`).
+- New tests RED before each fix (`astrings.readSpans`, `app.setTitle` mismatches),
+  green after; `cargo test --release --bin mfb audit::`: 90 passed;
+  `cli_audit_audio_surface`, `cli_audit_malformed_lock`: pass; `--bin mfb spec`: 46
+  passed.
+- `scripts/test-accept.sh` over the 13 fixtures with an `.audit` golden: 4
+  mismatches, call rows only, no function's `fallible` verdict flips.
+
+**Expected golden moves (not regenerated here).** `.audit` of
+`syntax/packages/audit-capabilities` (`math.rand`, `toString` ×2, `datetime.now`,
+`datetime.toMillis` rows), `syntax/packages/audit-overloads` (`toString` ×2),
+`syntax/packages/audit-trap-recovery` (`error` ×2, inside `FAIL error(...)`),
+`syntax/security/bug96_audit_tls_http_crypto` (`toString`).
+
+**Found, not fixed (too large for this ticket).** No guard checks a `Body::Rewrite`
+member's declared errors against its body: `declared_errors_all.rs` covers
+`AbiFunction`/`AbiInline` and `mfb_body_declared_errors.rs` covers `Body::Mfb`.
+Pointing the `Body::Mfb` sweep at each `Rewrite` target's helper block (a temporary
+patch, reverted) measured 19 of the 29 `Rewrite` members out of step — e.g.
+`crypto::hmac` declares nothing but its body reaches `ErrOutOfMemory`,
+`ErrInvalidArgument`, `ErrOverflow`, `ErrIndexOutOfRange`, `ErrNotFound`; every
+`compress` codec and most of `crypto` lack `ErrOutOfMemory`. Each needs bug-698-style
+per-code reachability proof; it should be its own bug. Once it lands, audit's hand
+lists can be deleted.
