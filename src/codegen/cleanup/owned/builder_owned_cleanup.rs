@@ -124,29 +124,24 @@ impl CodeBuilder<'_> {
         self.owned_value_slots.push(stack_offset);
     }
 
-    /// Transfer a returned resource collection's owned-list to the caller: drop
-    /// its drain obligation from this scope so the resources are not closed here
-    /// (the caller's scope adopts and closes them). Other scopes' owned-lists are
-    /// untouched (§15.6).
+    /// A consuming call took over the resources container `name` owns: drop its
+    /// owned-list drains so this scope does not close them too (§15.6). Other scopes'
+    /// owned-lists are untouched.
     ///
-    /// bug-645: the block free `setup_owned_list` paired with the drain goes with it.
-    /// `plan_returned_move` usually gets there first (it retires the same cleanup by
-    /// slot), but it declines for several shapes — an address-taken local, a `FOR EACH`
-    /// iterable — and the container is still transferred on every one of them. Left
-    /// registered, this scope would free the block the caller is about to adopt.
+    /// The container's BLOCK stays this scope's to free. A consuming callee
+    /// (`canvas::setGroup`) copies the items and adopts the resources they name, never
+    /// the caller's block — so the `OwnedValue` free at `name`'s slot must survive.
+    /// Removing it here was right only while this also served `RETURN` (bug-645), whose
+    /// block really is the caller's; `RETURN` now goes through
+    /// [`Self::retire_returned_owner_block`]. Once bug-805 widened
+    /// [`Self::is_resource_owning_container`] to every aggregate reaching a resource,
+    /// `List OF canvas::DrawItem` qualified, and removing the free leaked the whole
+    /// items block on every `setGroup` (33,328 B per call for 40 rectangles).
     pub(crate) fn deactivate_owned_list(&mut self, name: &str) {
         // bug-805: a container reaching several resource kinds registered one list
         // per kind, all under its name.
         self.active_cleanups
             .retain(|cleanup| !matches!(cleanup, ActiveCleanup::OwnedList(o) if o.name == name));
-        let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) else {
-            return;
-        };
-        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
-            matches!(cleanup, ActiveCleanup::OwnedValue(o) if o.stack_offset == stack_offset)
-        }) {
-            self.active_cleanups.remove(index);
-        }
     }
 
     /// Whether a type is a `RES`-marked resource collection
