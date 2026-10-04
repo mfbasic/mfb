@@ -1183,6 +1183,10 @@ name = "rt_scalar_seam_alloc"
 path = "tests/runtime/rt_scalar_seam_alloc.rs"
 
 [[test]]
+name = "rt_inplace_field_varwidth_set"
+path = "tests/runtime/rt_inplace_field_varwidth_set.rs"
+
+[[test]]
 name = "rt_res_list_from_call_leak"
 path = "tests/runtime/rt_res_list_from_call_leak.rs"
 

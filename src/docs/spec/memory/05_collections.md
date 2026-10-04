@@ -829,7 +829,15 @@ lies in its owner's block; the owner is not rebuilt.
   place only when the field — and every record on a nested path — is its owner's
   last inlined field; elsewhere the statement is rebuilt. An operation that only
   shrinks or rewrites at the same width runs at any field.
-  [[src/codegen/collection/assign/inplace_dest.rs:field_realloc_admitted]]
+  [[src/codegen/collection/assign/inplace_dest.rs:field_realloc_admitted]] A
+  `set` of a variable-width list element (`List OF String`) changes length in the
+  list's own block — overwrite, tail extend, or a write at the data tail — and
+  grows the owner only on the overflow repack, so it runs in place at the last
+  inlined field. Its item may read the owner only through an operation that builds
+  a new value (`set(r.xs, j, get(r.xs, j) & "!")`); an item that could still point
+  into the owner (`get(r.xs, k)` itself) rebuilds, because the repack frees the
+  old owner before the item is copied.
+  [[src/codegen/collection/assign/builder_inplace_assign.rs:lower_field_set]]
 - **A variable-size last field keeps the block when its granule does.** A `WITH`
   that replaces a `String` or variable-size record field — alone or beside
   scalar and fixed-size fields — that is the last inlined field of a flat,

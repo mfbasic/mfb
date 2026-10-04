@@ -1177,11 +1177,12 @@ impl CodeBuilder<'_> {
     }
 
     /// `set` at a field. It splits by element width, not collection kind: a
-    /// fixed-width `List` element is replaced where it lies (the sub-block route —
-    /// `lower_list_set_in_place`'s rebuild branch is unreachable for it), a
-    /// variable-width one declines (a longer replacement makes that branch
-    /// reachable, and it installs a fresh block no sub-block can receive), and a
-    /// `Map` takes `InlineGrow`, because a new key grows the map.
+    /// fixed-width `List` element is replaced where it lies, at any field (the
+    /// sub-block route — it never changes length). A variable-width element stays in
+    /// the list's own block for every length change except the overflow repack,
+    /// which grows the owner, so it runs at the owner's last inlined field with
+    /// `InlineGrow` (bug-759), and only when its item is not a value that could still
+    /// point into the owner. A `Map` takes `InlineGrow`, because a new key grows it.
     fn lower_field_set(
         &mut self,
         site: &SelfUpdateSite<'_>,
@@ -1191,8 +1192,28 @@ impl CodeBuilder<'_> {
         if let Some(element_type) =
             crate::codegen::engine::types::typed_list_element_type(collection_type).cloned()
         {
-            if crate::codegen::collection::layout::list_element_is_fixed_width(&element_type)
-                .is_none()
+            // bug-759: a variable-width element can change the data region's length.
+            // Every length change stays in the list's own block except the overflow
+            // repack, which grows the owner (`InlineGrow`) — so, like any growing
+            // field arm (`G17`), only the owner's last inlined field qualifies.
+            let variable_width =
+                crate::codegen::collection::layout::list_element_is_fixed_width(&element_type)
+                    .is_none();
+            if variable_width && !self.field_is_last_inlined(site) {
+                return Ok(false);
+            }
+            // The overflow repack frees the old record, so an item that still points
+            // into it would be copied from freed memory. `lower_value_stored` does not
+            // copy a flat value, so an item reading the owner is admitted only when
+            // its top node always builds a new value (`rec.xs` element `& "!"`);
+            // anything else declines, as `field_realloc_admitted` would. The index is
+            // an `Integer` and cannot alias.
+            if variable_width
+                && site.read_by(&target.args[2])
+                && !matches!(
+                    target.args[2],
+                    NirValue::Binary { .. } | NirValue::Unary { .. }
+                )
             {
                 return Ok(false);
             }
@@ -1242,16 +1263,28 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 item_slot,
             ));
+            // `O-order-4`: both addresses are taken after the operands are lowered.
+            let inline = if variable_width {
+                let field_off_slot = self.open_inplace_inlined_field_offset(&dest)?;
+                Some(crate::codegen::collection::map::map_mutate::InlineGrow {
+                    block_slot: dest.block_slot(),
+                    field_off_slot,
+                })
+            } else {
+                None
+            };
             let buffer_slot = self.open_inplace_inlined_subblock(&dest)?;
-            self.lower_list_set_in_place(
+            self.lower_list_set_in_place_with(
                 buffer_slot,
                 index_slot,
                 item_slot,
                 collection_type,
                 &element_type,
+                true,
+                inline,
             )?;
-            // `O4`. Nothing moved on this route, so a STATE write-back republishes
-            // the pointer it read.
+            // `O4`. A grow repointed the block slot; a STATE write-back republishes
+            // whichever pointer it now holds.
             self.close_inplace_dest(&dest)?;
             self.forget_field_owner_constant(site, &target.dest);
             return Ok(true);

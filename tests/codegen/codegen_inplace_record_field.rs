@@ -320,16 +320,18 @@ fn set_on_a_fixed_width_record_list_writes_in_place() {
     );
 }
 
-/// The decline that keeps the fixed-width route sound: a **variable-width**
-/// element can outgrow the slot it replaces, which makes
-/// `lower_list_set_in_place`'s rebuild branch reachable — and that branch installs
-/// a fresh block, which a sub-block address must never receive.
+/// A **variable-width** element can outgrow the data region, and the repack that
+/// then makes room must never hand a fresh block to a bare sub-block address — the
+/// result would be a freed record. plan-121-C declined the route for that reason.
+/// bug-759 showed the only such path left is the overflow repack (since bug-627 the
+/// rebuild branch is reachable only by fixed-width lists), and the field route now
+/// passes it `InlineGrow`, which grows the RECORD. So the route runs, and must carry
+/// the record-grow machinery: the field offset read before any grow.
+/// `rt_inplace_field_varwidth_set` drives the overflow and checks the owner.
 ///
-/// This is `list (Record-Dynamic) set`, which the plan assigns to plan-121-F.
-/// Without this case the fixed-width test above would still pass if the arm were
-/// widened to every list, and the result would be a freed record.
+/// This is `list (Record-Dynamic) set`.
 #[test]
-fn set_on_a_variable_width_record_list_declines() {
+fn set_on_a_variable_width_record_list_grows_the_record() {
     let plan = ncode(
         "inplace_recfield_set_var",
         "IMPORT collections\n\
@@ -348,11 +350,14 @@ fn set_on_a_variable_width_record_list_declines() {
         \x20 RETURN poke(3)\n\
          END FUNC\n",
     );
-    assert_eq!(
-        stack_slot_count(&plan, "_mfb_fn_poke", "inplace_inlined_subblock"),
-        0,
-        "a variable-width element may not fit the slot it replaces, so the rebuild \
-         branch is reachable and the sub-block route is unsound — decline"
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_poke", "inplace_inlined_subblock") >= 1,
+        "a variable-width set at the last inlined field runs in the list's sub-block"
+    );
+    assert!(
+        stack_slot_count(&plan, "_mfb_fn_poke", "inplace_inlined_field_off") >= 1,
+        "and carries InlineGrow: its overflow repack grows the record, never a bare \
+         sub-block"
     );
 }
 

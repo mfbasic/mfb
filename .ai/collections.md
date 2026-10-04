@@ -303,7 +303,7 @@ easy to get wrong:
   | class | arms | how the mutation reaches the field |
   |---|---|---|
   | `NoRealloc` | `filter take drop mid distinct math replace transform sort sortBy intersection difference mapValues` (and, of `Existing`, `removeKey removeAt` Set `remove`, fixed-width `set`) | the inlined **sub-block address** (`inplace_collection_slot`) — the plain-local lowering, unchanged — at ANY inlined field, last or not (a shrink keeps the collection's capacity, and the owner's size reads stored offsets) |
-  | `Realloc` / a growing route | `union symmetricDifference merge`; `append insert prepend add`, Map `set`, `splice`; the variable-width kinds of the `NoRealloc` list/map arms (their repack or reserve) | grow the **record** block and repoint it (`InlineGrow`), only at the owner's **last** inlined field and with no pointer operand read from the owner (`field_realloc_admitted`) |
+  | `Realloc` / a growing route | `union symmetricDifference merge`; `append insert prepend add`, Map `set`, `splice`; the variable-width kinds of the `NoRealloc` list/map arms (their repack or reserve) | grow the **record** block and repoint it (`InlineGrow`), only at the owner's **last** inlined field and with no pointer operand read from the owner (`field_realloc_admitted`; the variable-width list `set` admits an item that reads the owner only through a `Binary`/`Unary` node, which always builds a new value — bug-759) |
   | `None` | the `String` concat (plan-145-A Open Decision 1) | no field site; `FIELD_NEVER` and a `deferred:` line say so |
 
   Read the lowering, do not assume: `lower_map_remove_key_in_place` touches its

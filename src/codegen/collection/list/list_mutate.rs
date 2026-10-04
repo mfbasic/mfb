@@ -3820,6 +3820,7 @@ impl CodeBuilder<'_> {
             list_type,
             element_type,
             true,
+            None,
         )
     }
 
@@ -3838,6 +3839,7 @@ impl CodeBuilder<'_> {
         list_type: &ParameterType,
         element_type: &ParameterType,
         drop_replaced: bool,
+        inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<ValueResult, String> {
         // Zero for a kind-2 list: the sizing arithmetic below then reserves no
         // entry array, and the formulas keep their shape (plan-57-D).
@@ -4104,13 +4106,15 @@ impl CodeBuilder<'_> {
                 &scratch12,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
+            // bug-759: a list inlined in a record or `STATE` field grows the RECORD
+            // (`InlineGrow`); `buffer_slot` then holds the moved sub-block.
             self.emit_repack_list_data(
                 buffer_slot,
                 need_slot,
                 list_type,
                 element_type,
                 entry_stride,
-                None,
+                inline,
             )?;
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(
