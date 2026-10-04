@@ -907,8 +907,10 @@ new bytes are written over the old sub-block only when the new value's size
 equals the old one's: no offset and no length changes. Otherwise the statement
 is that same `set` of a `WITH`, built from the values already computed — none is
 evaluated twice. So `xs = set(xs, i, WITH p { inner := WITH p.inner { n := … } })`
-allocates nothing, and `inner := step(p.inner, …)` allocates only what `step`
-itself returns while `inner`'s size is unchanged.
+allocates nothing, and neither does `inner := step(p.inner, …)` while `inner`'s
+size is unchanged: `step`'s destination variant writes the result into
+`p.inner`'s bytes (`./mfb spec memory native-calling-convention`, *Destination
+variants*).
 [[src/codegen/engine/control/builder_control.rs:element_replace_admitted]]
 [[src/codegen/engine/control/builder_control.rs:emit_element_replace_or_write_back]]
 

@@ -104,6 +104,35 @@ internal symbol reached only from a direct call the analysis approved.
 Function values, `LINK`/export boundaries, thread entries and `.mfp` packages
 use the base contract.
 
+### Destination variants
+
+A function whose parameter `j` has the function's own return type — a flat
+record: scalars, `String`s and such records, no pointer, collection or resource —
+and which returns `WITH <parameter j> { … }` somewhere, and is never assigned and
+never has its address taken, may be lowered once more under `<base>$into<j>` when
+a list-element update calls it as `inner := f(…, p.inner, …)` (`p` an
+element-bound `get` binding, see `./mfb spec memory collections`). Parameter `j`
+is still lent: it points at the bytes of `p.inner` inside the list's data region.
+At `RETURN WITH <parameter j> { … }` the variant evaluates every update value
+first, then — when the result's exact size equals the parameter's — stores them
+into the parameter's bytes and returns the parameter's own address; otherwise it
+writes nothing and returns a fresh block, exactly as the base would. Every other
+`RETURN` returns a fresh block. [[src/codegen/engine/analysis/into_dest.rs:into_param_eligible]]
+[[src/codegen/engine/control/builder_exits.rs:try_into_return]]
+
+The caller compares the result with the destination's address: equal means the
+element is already updated and nothing is freed; different means a fresh block,
+which the update copies or writes back and then frees. Because the variant
+writes during the evaluation of the caller's `WITH`, the caller uses it only
+when that is unobservable: every earlier update is a scalar value, every later
+update reads neither the destination field, the owner whole, the container nor
+any binding that may alias the element, and calls only infallible built-ins; and
+if a later update can fail, there is no `TRAP` to observe the half-done update
+and the container is an owned local of the calling function.
+[[src/codegen/engine/control/builder_control.rs:element_into_call]]
+Like an owned variant, a destination variant is an additional internal symbol
+reached only from such a direct call; the base contract is unchanged.
+
 ### Float and Fixed arguments go in `x` registers
 
 This is the **critical divergence from AAPCS64**. AAPCS64 passes `double` /
