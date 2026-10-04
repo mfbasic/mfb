@@ -816,6 +816,14 @@ lies in its owner's block; the owner is not rebuilt.
   value first, in source order, then writes each into its slot or over its
   sub-block. A failing value therefore leaves the owner unchanged.
   [[src/codegen/engine/control/builder_control.rs:try_inplace_scalar_fields]]
+- **A nested `WITH` of scalars is stored too.** An update
+  `inner := WITH r.inner { … }` of an inlined record field whose every update is
+  a scalar field of `inner`, beside any of the fields above, stores those
+  scalars into `inner`'s sub-block. A scalar slot is 8 bytes whatever its value,
+  so the sub-block keeps its size and no other field moves; this holds at any
+  inlined position and over any owner. Its values are evaluated with the others,
+  in source order, before the first store.
+  [[src/codegen/engine/control/builder_control.rs:nested_scalar_with]]
 - **One collection field beside scalars.** A `WITH` updating one collection field
   with a self-update and other fields with scalars runs the collection's
   operation in place and stores the scalars. `WITH` evaluates its updates in source
@@ -847,9 +855,9 @@ lies in its owner's block; the owner is not rebuilt.
   the same 16-byte arena granule, the new bytes are written over the old
   sub-block and the chunk `arena_alloc` handed out is still exactly the one every
   later walk frees. Otherwise the owner is rebuilt: a fresh block of the new
-  walked size, the old one freed at its own walked size. An element-bound owner, a
-  `RES … STATE` payload, a nested path, an `Error`, and an owner a live `FOR EACH`
-  walks are always rebuilt.
+  walked size, the old one freed at its own walked size. A `RES … STATE`
+  payload, a nested path, an `Error`, and an owner a live `FOR EACH` walks are
+  always rebuilt; an element-bound owner follows the list-element rule below.
   [[src/codegen/engine/control/builder_control.rs:replace_field_admitted]]
   [[src/codegen/engine/control/builder_control.rs:emit_field_replace_or_rebuild]]
 - **Rebuilt by design.** Any other field whose size depends on its value — a
@@ -893,11 +901,23 @@ update leaves `xs` unchanged. [[src/codegen/engine/analysis/borrow_get.rs:Elemen
 No route may grow the element: its block is a span of the list's data region,
 not an allocation. Every growing field route asks
 `field_is_last_inlined`, which answers no for an element owner. An update no
-route serves — a growing field, a `String` field, a second collection field —
-is lowered as `xs = collections::set(xs, i, WITH p { … })`: the `WITH` builds a
-new record from the element and `set` replaces it, resizing the payload when it
-must. [[src/codegen/engine/control/builder_control.rs:lower_element_update]]
+route serves — a growing field, a second collection field — is lowered as
+`xs = collections::set(xs, i, WITH p { … })`: the `WITH` builds a new record
+from the element and `set` replaces it, resizing the payload when it must.
+[[src/codegen/engine/control/builder_control.rs:lower_element_update]]
 [[src/codegen/collection/assign/inplace_dest.rs:field_is_last_inlined]]
+
+A `WITH` that replaces one `String` or variable-size record field of the element
+— at any inlined position, beside scalar fields and nested `WITH`s of scalars —
+decides at run time. The element's entry records its exact byte length, so the
+new bytes are written over the old sub-block only when the new value's size
+equals the old one's: no offset and no length changes. Otherwise the statement
+is that same `set` of a `WITH`, built from the values already computed — none is
+evaluated twice. So `xs = set(xs, i, WITH p { inner := WITH p.inner { n := … } })`
+allocates nothing, and `inner := step(p.inner, …)` allocates only what `step`
+itself returns while `inner`'s size is unchanged.
+[[src/codegen/engine/control/builder_control.rs:element_replace_admitted]]
+[[src/codegen/engine/control/builder_control.rs:emit_element_replace_or_write_back]]
 
 ### `append`
 
