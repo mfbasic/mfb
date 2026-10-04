@@ -28,8 +28,8 @@ places exactly. Conversion of more precise inputs can still round.
 Use `toFixed` for values computed at runtime. For constants, write a literal with uppercase `F` (`1.5F`) or an annotated
 binding (`LET x AS Fixed = 1.5`).
 
-Current limitation: conversion from Money truncates toward zero rather than
-applying the Money rounding mode. Other numeric inputs round to the nearest
+Conversion from Money rounds to the nearest Fixed value under the Money rounding
+mode set by `money::setRounding`. Other numeric inputs round to the nearest
 Fixed value, with ties away from zero for Float input."#;
 
 const EX: &str = r#"Parse a decimal into a `Fixed`:

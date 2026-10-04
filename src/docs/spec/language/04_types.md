@@ -72,10 +72,12 @@ Three framing points:
 
 `Money` rounding state is per-thread: the main thread starts in `Commercial`
 (round half away from zero); workers inherit their parent's mode at spawn and
-subsequently change independently. `Banker` rounds ties to even. The operation
-formulas, overflow checks, and current Fixed-scaling rounding limitations are
-specified in `./mfb spec stdlib money`. In particular, the current Fixed paths
-must not be assumed to obey `money::setRounding`. Exact representation of a
+subsequently change independently. `Banker` rounds ties to even. `M / k`,
+`M * Fixed`, `M / Fixed`, `toMoney(Fixed)`, and `toFixed(Money)` compute the
+exact ratio of the carriers and round it once under the mode before checking the
+destination range; `M * Float` and `M / Float` round a binary64 result. The
+operation formulas, overflow checks, and the remaining minimum-Integer-divisor
+exception are specified in `./mfb spec stdlib money`. Exact representation of a
 stored amount does not imply exact representation of a `Float` or `Fixed` rate.
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_multiply]]

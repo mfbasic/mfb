@@ -62,12 +62,83 @@ impl CodeBuilder<'_> {
         // half = |div| - |rem|  (in [1, |div|]); tie when |rem| == half.
         let half = self.allocate_register();
         self.emit(abi::subtract_registers(&half, abs_divisor, &abs_rem));
+        self.emit_round_half_by_mode(
+            dst,
+            quotient,
+            abs_rem.into(),
+            half.into(),
+            Some((sign_neg, &round_down)),
+            (&round_up, &keep),
+            false,
+        )
+    }
 
+    /// Round an unsigned magnitude quotient by the mode's half rule:
+    /// `dst = quotient` or `quotient + 1`, for the exact value
+    /// `quotient + remainder / divisor`.
+    ///
+    /// All three inputs are unsigned magnitudes with `remainder < divisor` and
+    /// `1 <= divisor <= 2^63`; the comparisons are unsigned, so a divisor of
+    /// `2^63` (the magnitude of `i64::MIN`, which `emit_abs_i64` leaves as that
+    /// bit pattern) is handled exactly — the case bug-230 had to route around in
+    /// the signed form. The caller applies the result sign and range-checks the
+    /// rounded magnitude, which may be one more than `quotient`.
+    pub(crate) fn emit_apply_rounding_magnitude(
+        &mut self,
+        dst: impl Into<Reg>,
+        quotient: impl Into<Reg>,
+        remainder: impl Into<Reg>,
+        divisor: impl Into<Reg>,
+    ) -> Result<(), String> {
+        let (dst, quotient, remainder, divisor): (Reg, Reg, Reg, Reg) = (
+            dst.into(),
+            quotient.into(),
+            remainder.into(),
+            divisor.into(),
+        );
+        let round_up = self.label("money_round_up");
+        let keep = self.label("money_round_keep");
+        let half = self.allocate_register();
+        self.emit(abi::subtract_registers(&half, divisor, remainder));
+        self.emit_round_half_by_mode(
+            dst,
+            quotient,
+            remainder,
+            half.into(),
+            None,
+            (&round_up, &keep),
+            true,
+        )
+    }
+
+    /// The single statement of both modes' half rule, shared by
+    /// `emit_apply_rounding` (signed operands) and `emit_apply_rounding_magnitude`
+    /// (unsigned magnitudes). `abs_rem` and `half = |div| - |rem|` are already
+    /// formed; `unsigned` selects the comparison family. The labels are created by
+    /// the callers, before any helper they call mints one, so the signed form's
+    /// label numbering is unchanged. With `sign` present the
+    /// rounded step moves away from zero (`-1` when the result is negative);
+    /// without it the quotient is a magnitude and the step is always `+1`.
+    fn emit_round_half_by_mode(
+        &mut self,
+        dst: Reg,
+        quotient: Reg,
+        abs_rem: Reg,
+        half: Reg,
+        sign: Option<(Reg, &str)>,
+        (round_up, keep): (&str, &str),
+        unsigned: bool,
+    ) -> Result<(), String> {
         // Default: keep the truncated quotient.
         self.emit(abi::move_register(dst, quotient));
-        self.emit(abi::compare_registers(&abs_rem, &half));
-        self.emit(abi::branch_lt(&keep)); // |rem| < half  -> below the half, keep
-        self.emit(abi::branch_gt(&round_up)); // |rem| > half  -> past the half, round away
+        self.emit(abi::compare_registers(abs_rem, half));
+        if unsigned {
+            self.emit(abi::branch_lo(keep)); // |rem| < half  -> below the half, keep
+            self.emit(abi::branch_hi(round_up)); // |rem| > half  -> past the half, round away
+        } else {
+            self.emit(abi::branch_lt(keep)); // |rem| < half  -> below the half, keep
+            self.emit(abi::branch_gt(round_up)); // |rem| > half  -> past the half, round away
+        }
 
         // Exact tie (|rem| == half): Commercial rounds away, Banker rounds to even.
         let mode = self.allocate_register();
@@ -77,24 +148,230 @@ impl CodeBuilder<'_> {
             ARENA_ROUNDING_MODE_OFFSET,
         ));
         self.emit(abi::compare_immediate(&mode, "0"));
-        self.emit(abi::branch_eq(&round_up)); // Commercial -> away
-                                              // Banker: round only when the truncated quotient is odd (to reach even).
+        self.emit(abi::branch_eq(round_up)); // Commercial -> away
+                                             // Banker: round only when the truncated quotient is odd (to reach even).
         let one = self.allocate_register();
         self.emit(abi::move_immediate(&one, "Integer", "1"));
         let parity = self.allocate_register();
         self.emit(abi::and_registers(&parity, quotient, &one));
         self.emit(abi::compare_immediate(&parity, "0"));
-        self.emit(abi::branch_eq(&keep)); // even quotient -> keep, already even
+        self.emit(abi::branch_eq(keep)); // even quotient -> keep, already even
 
         // Round the magnitude away from zero: +1 when positive, -1 when negative.
-        self.emit(abi::label(&round_up));
-        self.emit(abi::compare_immediate(sign_neg, "0"));
-        self.emit(abi::branch_ne(&round_down));
-        self.emit(abi::add_immediate(dst, quotient, 1));
-        self.emit(abi::branch(&keep));
-        self.emit(abi::label(&round_down));
-        self.emit(abi::subtract_immediate(dst, quotient, 1));
-        self.emit(abi::label(&keep));
+        self.emit(abi::label(round_up));
+        match sign {
+            Some((sign_neg, round_down)) => {
+                self.emit(abi::compare_immediate(sign_neg, "0"));
+                self.emit(abi::branch_ne(round_down));
+                self.emit(abi::add_immediate(dst, quotient, 1));
+                self.emit(abi::branch(keep));
+                self.emit(abi::label(round_down));
+                self.emit(abi::subtract_immediate(dst, quotient, 1));
+            }
+            None => self.emit(abi::add_immediate(dst, quotient, 1)),
+        }
+        self.emit(abi::label(keep));
+        Ok(())
+    }
+
+    /// Money/Fixed rescale by a product (bug-812): `dst = round(left * right /
+    /// 2^32)` under the Money rounding mode. Serves `Money * Fixed` (a Money raw
+    /// and a Q32.32 raw, in either order) and `toMoney(Fixed)` (a Q32.32 raw and
+    /// the constant 100000).
+    ///
+    /// The full 128-bit product magnitude `|left| * |right|` is formed unsigned,
+    /// so the low 32 bits it drops are the exact remainder over `2^32` for either
+    /// sign; the magnitude is rounded once, then signed and range-checked. The
+    /// pure-Fixed `emit_fixed_multiply` instead floors a signed product, which is
+    /// Fixed's own contract and not Money's.
+    ///
+    /// `checked == false` omits the range check, for a caller that proves the
+    /// result fits: `toMoney(Fixed)`, whose magnitude is at most
+    /// `2^63 * 100000 / 2^32 < 2^48`.
+    pub(crate) fn emit_money_fixed_multiply(
+        &mut self,
+        dst: impl Into<Reg>,
+        left: impl Into<Reg>,
+        right: impl Into<Reg>,
+        checked: bool,
+    ) -> Result<(), String> {
+        let (dst, left, right): (Reg, Reg, Reg) = (dst.into(), left.into(), right.into());
+        // The working registers are dead once the result lands in `dst`.
+        let saved_registers = self.next_register;
+        let overflow = checked.then(|| self.label("money_fixed_mul_overflow"));
+        // Every input is read before `dst` is written, so `dst` may alias either.
+        let sign = self.allocate_register();
+        self.emit(abi::exclusive_or_registers(&sign, left, right));
+        // `emit_abs_i64` leaves i64::MIN as its own bit pattern, which is exactly
+        // its unsigned magnitude 2^63.
+        let lhs = self.allocate_register();
+        self.emit(abi::move_register(&lhs, left));
+        self.emit_abs_i64(&lhs)?;
+        let rhs = self.allocate_register();
+        self.emit(abi::move_register(&rhs, right));
+        self.emit_abs_i64(&rhs)?;
+        let high = self.allocate_register();
+        self.emit(abi::unsigned_multiply_high_registers(&high, &lhs, &rhs));
+        let low = self.allocate_register();
+        self.emit(abi::multiply_registers(&low, &lhs, &rhs));
+        if let Some(overflow) = &overflow {
+            // A quotient of 2^64 or more cannot fit; test before forming it.
+            let top = self.allocate_register();
+            self.emit(abi::shift_right_immediate(&top, &high, 32));
+            self.emit(abi::compare_immediate(&top, "0"));
+            self.emit(abi::branch_ne(overflow));
+        }
+        // quotient = (high:low) >> 32; remainder = low & (2^32 - 1).
+        let quotient = self.allocate_register();
+        self.emit(abi::shift_right_immediate(&quotient, &low, 32));
+        let shifted_high = self.allocate_register();
+        self.emit(abi::shift_left_immediate(&shifted_high, &high, 32));
+        self.emit(abi::or_registers(&quotient, &shifted_high, &quotient));
+        let remainder = self.allocate_register();
+        self.emit(abi::shift_left_immediate(&remainder, &low, 32));
+        self.emit(abi::shift_right_immediate(&remainder, &remainder, 32));
+        let range = match &overflow {
+            Some(overflow) => {
+                // Above 2^63 no sign fits; at most 2^63 the rounding step cannot
+                // wrap.
+                let limit = self.allocate_register();
+                self.emit(abi::move_immediate(
+                    &limit,
+                    "Integer",
+                    &(i64::MIN as u64).to_string(),
+                ));
+                self.emit(abi::compare_registers(&quotient, &limit));
+                self.emit(abi::branch_hi(overflow));
+                Some((Reg::from(limit), overflow.as_str()))
+            }
+            None => None,
+        };
+        let divisor = self.allocate_register();
+        self.emit(abi::move_immediate(
+            &divisor,
+            "Integer",
+            &(1_u64 << 32).to_string(),
+        ));
+        let magnitude = self.allocate_register();
+        self.emit_apply_rounding_magnitude(&magnitude, &quotient, &remainder, &divisor)?;
+        self.emit_signed_money_magnitude(dst, magnitude.into(), sign.into(), range)?;
+        self.next_register = saved_registers;
+        Ok(())
+    }
+
+    /// Money/Fixed rescale by a quotient (bug-812): `dst = round(dividend * 2^32 /
+    /// divisor)` under the Money rounding mode. Serves `Money / Fixed` (a Money
+    /// raw over a Q32.32 raw) and `toFixed(Money)` (a Money raw over the constant
+    /// 100000).
+    ///
+    /// The quotient magnitude is produced by the same restoring long division as
+    /// `emit_fixed_divide`, but the division's final remainder is kept and the
+    /// magnitude rounded once before the sign is applied; the pure-Fixed helper
+    /// truncates toward zero, which is Fixed's own contract and not Money's.
+    ///
+    /// `divisor_nonzero` skips the zero guard for a caller whose divisor is a
+    /// nonzero constant; otherwise a zero divisor fails with ErrInvalidArgument.
+    /// A rounded result outside the signed carrier fails with ErrOverflow.
+    pub(crate) fn emit_money_fixed_divide(
+        &mut self,
+        dst: impl Into<Reg>,
+        dividend: impl Into<Reg>,
+        divisor: impl Into<Reg>,
+        divisor_nonzero: bool,
+    ) -> Result<(), String> {
+        let (dst, dividend, divisor): (Reg, Reg, Reg) =
+            (dst.into(), dividend.into(), divisor.into());
+        // The working registers are dead once the result lands in `dst`.
+        let saved_registers = self.next_register;
+        if !divisor_nonzero {
+            self.emit_nonzero_or_invalid(divisor)?;
+        }
+        let overflow = self.label("money_fixed_div_overflow");
+        // Every input is read before `dst` is written, so `dst` may alias either.
+        let sign = self.allocate_register();
+        self.emit(abi::exclusive_or_registers(&sign, dividend, divisor));
+        // Unsigned magnitudes; i64::MIN's bit pattern is its magnitude 2^63.
+        let lhs = self.allocate_register();
+        self.emit(abi::move_register(&lhs, dividend));
+        self.emit_abs_i64(&lhs)?;
+        let rhs = self.allocate_register();
+        self.emit(abi::move_register(&rhs, divisor));
+        self.emit_abs_i64(&rhs)?;
+        let integer = self.allocate_register();
+        self.emit(abi::unsigned_divide_registers(&integer, &lhs, &rhs));
+        let remainder = self.allocate_register();
+        self.emit(abi::multiply_subtract_registers(
+            &remainder, &integer, &rhs, &lhs,
+        ));
+        // An integer part above 2^31 is a magnitude of at least (2^31 + 1) * 2^32,
+        // which no sign fits. At most 2^31 the magnitude stays below 2^63 + 2^32,
+        // so neither `integer << 32` nor the rounding step can wrap.
+        let limit = self.allocate_register();
+        self.emit(abi::move_immediate(&limit, "Integer", "2147483648"));
+        self.emit(abi::compare_registers(&integer, &limit));
+        self.emit(abi::branch_hi(&overflow));
+        let quotient = self.allocate_register();
+        self.emit(abi::shift_left_immediate(&quotient, &integer, 32));
+        let fraction = self.allocate_register();
+        self.emit(abi::move_immediate(&fraction, "Integer", "0"));
+        let counter = self.allocate_register();
+        self.emit(abi::move_immediate(&counter, "Integer", "32"));
+        let bit = self.allocate_register();
+        self.emit_q32_fraction_bits(&remainder, &fraction, &rhs, &counter, &bit);
+        self.emit(abi::or_registers(&quotient, &quotient, &fraction));
+        let magnitude = self.allocate_register();
+        self.emit_apply_rounding_magnitude(&magnitude, &quotient, &remainder, &rhs)?;
+        self.emit(abi::move_immediate(
+            &limit,
+            "Integer",
+            &(i64::MIN as u64).to_string(),
+        ));
+        self.emit_signed_money_magnitude(
+            dst,
+            magnitude.into(),
+            sign.into(),
+            Some((limit.into(), &overflow)),
+        )?;
+        self.next_register = saved_registers;
+        Ok(())
+    }
+
+    /// Apply the result sign to a rounded unsigned `magnitude` (the sign bit of
+    /// `sign` set means negative) and write the signed carrier to `dst`. With a
+    /// `range` of `(limit, overflow)` the carrier range is enforced: a positive
+    /// result needs a magnitude below 2^63, a negative one at most 2^63 (the
+    /// minimum, whose negation is itself); `limit` holds 2^63. The failure path
+    /// raises ErrOverflow at the `overflow` label, which the caller's earlier
+    /// checks also target.
+    fn emit_signed_money_magnitude(
+        &mut self,
+        dst: Reg,
+        magnitude: Reg,
+        sign: Reg,
+        range: Option<(Reg, &str)>,
+    ) -> Result<(), String> {
+        let negative = self.label("money_fixed_negative");
+        let done = self.label("money_fixed_signed");
+        self.emit(abi::compare_immediate(sign, "0"));
+        self.emit(abi::branch_lt(&negative));
+        if let Some((_, overflow)) = range {
+            self.emit(abi::compare_immediate(magnitude, "0"));
+            self.emit(abi::branch_lt(overflow));
+        }
+        self.emit(abi::move_register(dst, magnitude));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&negative));
+        if let Some((limit, overflow)) = range {
+            self.emit(abi::compare_registers(magnitude, &limit));
+            self.emit(abi::branch_hi(overflow));
+        }
+        self.emit(abi::subtract_registers(dst, abi::ZERO, magnitude));
+        if let Some((_, overflow)) = range {
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(overflow));
+            self.raise_error_bare("ErrOverflow")?;
+        }
+        self.emit(abi::label(&done));
         Ok(())
     }
 
@@ -167,11 +444,11 @@ impl CodeBuilder<'_> {
                 self.emit_checked_integer_multiply(dst, &money.location, &scalar.location)?;
                 Ok(dst)
             }
-            // Exact binary fixed-point scaling: `raw * fixed_raw / 2^32` is exactly
-            // what `emit_fixed_multiply` computes when fed the Money raw as the
-            // left operand and the Q32.32 raw as the right (plan-29-F §4.1).
+            // Exact binary fixed-point scaling: the Money raw of the result is
+            // `raw * fixed_raw / 2^32`, rounded once under the mode (plan-29-F
+            // §4.1, bug-812).
             ParameterType::Fixed => {
-                self.emit_fixed_multiply(dst, &money.location, &scalar.location)?;
+                self.emit_money_fixed_multiply(dst, &money.location, &scalar.location, true)?;
                 Ok(dst)
             }
             // Inexact floating scaling (plan-29-F §4.3).
@@ -246,10 +523,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&div_done));
                 Ok(dst)
             }
-            // `raw * 2^32 / fixed_raw` is exactly `emit_fixed_divide(raw, fixed_raw)`
-            // (plan-29-F §4.2); it guards `fixed_raw == 0` → ErrInvalidArgument.
+            // `raw * 2^32 / fixed_raw`, rounded once under the mode (plan-29-F
+            // §4.2, bug-812); `fixed_raw == 0` → ErrInvalidArgument.
             ParameterType::Fixed => {
-                self.emit_fixed_divide(dst, &money.location, &scalar.location)?;
+                self.emit_money_fixed_divide(dst, &money.location, &scalar.location, false)?;
                 Ok(dst)
             }
             ParameterType::Float => self.emit_money_scale_float(&money.location, scalar, dst, true),

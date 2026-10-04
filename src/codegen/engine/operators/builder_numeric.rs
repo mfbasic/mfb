@@ -1570,24 +1570,7 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOverflow")?;
         self.emit(abi::label(&integer_ok));
 
-        let loop_start = self.label("fixed_div_loop");
-        let skip_subtract = self.label("fixed_div_skip_subtract");
-        let done = self.label("fixed_div_done");
-        self.emit(abi::label(&loop_start));
-        self.emit(abi::compare_immediate(&counter, "0"));
-        self.emit(abi::branch_eq(&done));
-        self.emit(abi::shift_left_immediate(&remainder, &remainder, 1));
-        self.emit(abi::shift_left_immediate(&fraction, &fraction, 1));
-        self.emit(abi::compare_registers(&remainder, &rhs_abs));
-        self.emit(abi::branch_lo(&skip_subtract));
-        self.emit(abi::subtract_registers(&remainder, &remainder, &rhs_abs));
-        self.emit(abi::move_immediate(&bit, "Integer", "1"));
-        self.emit(abi::or_registers(&fraction, &fraction, &bit));
-        self.emit(abi::label(&skip_subtract));
-        self.emit(abi::subtract_immediate(&counter, &counter, 1));
-        self.emit(abi::branch(&loop_start));
-
-        self.emit(abi::label(&done));
+        self.emit_q32_fraction_bits(&remainder, &fraction, &rhs_abs, &counter, &bit);
         self.emit(abi::or_registers(dst, dst, &fraction));
         // `dst` now holds the unsigned magnitude of the quotient in Q32.32. Apply
         // the sign and range-check the signed result the way `emit_fixed_multiply`
@@ -1630,6 +1613,54 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&quotient_done));
         self.next_register = saved_registers;
         Ok(())
+    }
+
+    /// Restoring long division for the 32 fractional bits of a Q32.32 quotient:
+    /// on entry `remainder < divisor` is the remainder of the integer-part
+    /// division, `fraction` is 0 and `counter` is 32; on exit `fraction` holds
+    /// `floor(remainder * 2^32 / divisor)` and `remainder` what is left of it.
+    /// All three are unsigned magnitudes (`divisor <= 2^63`, so the doubled
+    /// remainder stays below 2^64). `bit` is a scratch register. Shared by the
+    /// truncating `emit_fixed_divide` and the mode-rounded Money/Fixed rescale
+    /// (`emit_money_fixed_divide`), which reads the final remainder.
+    pub(crate) fn emit_q32_fraction_bits(
+        &mut self,
+        remainder: impl Into<abi::Reg>,
+        fraction: impl Into<abi::Reg>,
+        divisor: impl Into<abi::Reg>,
+        counter: impl Into<abi::Reg>,
+        bit: impl Into<abi::Reg>,
+    ) {
+        let (remainder, fraction, divisor, counter, bit): (
+            abi::Reg,
+            abi::Reg,
+            abi::Reg,
+            abi::Reg,
+            abi::Reg,
+        ) = (
+            remainder.into(),
+            fraction.into(),
+            divisor.into(),
+            counter.into(),
+            bit.into(),
+        );
+        let loop_start = self.label("fixed_div_loop");
+        let skip_subtract = self.label("fixed_div_skip_subtract");
+        let done = self.label("fixed_div_done");
+        self.emit(abi::label(&loop_start));
+        self.emit(abi::compare_immediate(counter, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::shift_left_immediate(remainder, remainder, 1));
+        self.emit(abi::shift_left_immediate(fraction, fraction, 1));
+        self.emit(abi::compare_registers(remainder, divisor));
+        self.emit(abi::branch_lo(&skip_subtract));
+        self.emit(abi::subtract_registers(remainder, remainder, divisor));
+        self.emit(abi::move_immediate(bit, "Integer", "1"));
+        self.emit(abi::or_registers(fraction, fraction, bit));
+        self.emit(abi::label(&skip_subtract));
+        self.emit(abi::subtract_immediate(counter, counter, 1));
+        self.emit(abi::branch(&loop_start));
+        self.emit(abi::label(&done));
     }
 
     /// `Fixed ^ Integer-valued Fixed` for the `^` operator: rejects a negative or

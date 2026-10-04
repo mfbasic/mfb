@@ -950,13 +950,14 @@ impl CodeBuilder<'_> {
             ParameterType::Float => {
                 self.emit_float_bits_to_fixed_value(&source, &result)?;
             }
-            // `toFixed(Money)` = `raw * 2^32 / 100000` — exactly `emit_fixed_divide`
-            // fed the Money raw and the base-10 scale; its range check traps a
-            // Money too large for Fixed's 32-bit integer part (plan-29-G §4.3).
+            // `toFixed(Money)` = `raw * 2^32 / 100000`, rounded once under the
+            // Money mode (plan-29-G §4.3, bug-812); the range check traps a Money
+            // too large for Fixed's 32-bit integer part. The divisor is the
+            // nonzero constant scale, so there is no zero guard.
             ParameterType::Money => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
-                self.emit_fixed_divide(&result, &source, &scale)?;
+                self.emit_money_fixed_divide(&result, &source, &scale, true)?;
             }
             ParameterType::String => {
                 let invalid = self.label("to_fixed_invalid");
@@ -990,9 +991,9 @@ impl CodeBuilder<'_> {
     }
 
     /// `toMoney(value)` — the explicit crossing *into* Money from every type
-    /// (plan-29-G §4.2). Integer/Byte scale by 100000; Fixed rescales exactly via
-    /// the 128-bit `emit_fixed_multiply`; Float and String go through f64 and the
-    /// mode-aware round, guarding finiteness and range.
+    /// (plan-29-G §4.2). Integer/Byte scale by 100000; Fixed rescales through the
+    /// 128-bit, mode-rounded `emit_money_fixed_multiply`; Float and String go
+    /// through f64 and the mode-aware round, guarding finiteness and range.
     pub(crate) fn lower_to_money(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
         // A `Float` argument is an observation boundary (spec `04_types.md`:
@@ -1026,13 +1027,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
                 self.emit(abi::multiply_registers(&result, &source, &scale));
             }
-            // `fixed_raw * 100000 / 2^32` is exactly `emit_fixed_multiply(fixed_raw,
-            // 100000)`. Its overflow check never fires here: a Fixed is below 2^31
-            // in magnitude, so the Money raw is below 2^48 (bug-807).
+            // `fixed_raw * 100000 / 2^32`, rounded once under the Money mode
+            // (bug-812). Unchecked: a Fixed is at most 2^31 in magnitude, so the
+            // Money raw is below 2^48 and always fits (bug-807).
             ParameterType::Fixed => {
                 let scale = self.allocate_register();
                 self.emit(abi::move_immediate(&scale, "Integer", "100000"));
-                self.emit_fixed_multiply(&result, &source, &scale)?;
+                self.emit_money_fixed_multiply(&result, &source, &scale, false)?;
             }
             // Inexact: finiteness → ErrInvalidFormat, `value * 100000.0` rounded
             // under the mode, range → ErrOverflow.
