@@ -66,7 +66,8 @@ seconds); an offset of exactly `+/-24h` or more raises `ErrInvalidArgument`, as
 does `mins` outside `0 .. 59`. In the two-argument form an `hours` so large that
 `hours * 3600` does not fit an `Integer` raises `ErrOverflow`. The label is
 `+HH:MM`, or `+HH:MM:SS` when the offset is not a whole number of minutes. The
-function is pure: it reads no host state and has no side effects."#;
+function is pure: it reads no host state and has no side effects. Building the
+label needs memory; `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Build a zone five and a half hours behind UTC:
 
 ```
@@ -116,7 +117,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 }],
                 return_type: super::ParameterType::named("Zone"),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
                 body: super::Body::mfb(BODY_1, "__datetime_fixedOffset1"),
             },
             super::Implementation {
@@ -137,7 +138,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("Zone"),
-                errors: vec!["ErrInvalidArgument", "ErrOverflow"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_fixedOffset2"),
             },
         ],

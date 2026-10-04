@@ -32,8 +32,17 @@
 //!    sweep INLINES it: scans the helper's own `FUNC __name … END FUNC`
 //!    block for further `FAIL`s and calls, recursively, memoized and guarded
 //!    against a cycle.
-//! 5. The member's expected `errors` is the union of 1 and the propagated sets
-//!    from 3/4; a mismatch against the descriptor's actual `errors` is
+//! 5. A bare call to a `general` member (`toString(`, `toInt(`, `toByte(`, …,
+//!    bug-807) counts the codes of the OVERLOAD it reaches, read off
+//!    `general_declared_errors.rs`'s measured per-overload rows: the argument's
+//!    type comes from what the text fixes (a literal, a declared name or field,
+//!    a conversion, a call with one concrete return type — [`infer_type`]), and
+//!    an argument the text does not type counts every overload. Without this the
+//!    guard either missed those calls entirely (before bug-807) or charged a
+//!    `toInt(<Byte>)` with the `String` parse's errors. A call no row can raise
+//!    for, from its arguments' ranges, is proven in [`UNREACHABLE_GENERAL_CALL`].
+//! 6. The member's expected `errors` is the union of 1 and the propagated sets
+//!    from 3/4/5; a mismatch against the descriptor's actual `errors` is
 //!    reported by name, the same shape as `declared_errors_sweep.rs`'s
 //!    `mismatched` list.
 //!
@@ -63,9 +72,22 @@
 //! [`scan_calls_and_fails`] for the three-layer implementation.
 
 use crate::codegen::registry::{registry, Body};
+use crate::types::ParameterType;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::declared_errors_sweep::codes_by_value;
+use super::general_declared_errors::OVERLOADS;
+
+/// The `general` package's member names (`toString`, `toInt`, `len`, …).
+fn general_names() -> BTreeSet<String> {
+    registry()
+        .resolve_package("general")
+        .expect("general package")
+        .functions()
+        .iter()
+        .map(|function| function.name.to_string())
+        .collect()
+}
 
 fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
@@ -167,6 +189,730 @@ fn internal_calls(text: &str) -> Vec<String> {
         i += 1;
     }
     out
+}
+
+/// Every bare call to a `general` member (`toString(`, `toInt(`, `toByte(`, …)
+/// in `text`, with its top-level argument texts — the unqualified globals a
+/// body writes with no package prefix, which [`qualified_calls`]/
+/// [`internal_calls`] cannot see (bug-807). A name counts only as a call: not
+/// part of a longer identifier, not qualified (`x.len`/`pkg::len`), not inside
+/// a string literal, and not the `error(` of a `FAIL error(` statement, which is
+/// the raise itself and is already read by [`fail_codes`].
+fn general_calls(text: &str, general: &BTreeSet<String>) -> Vec<(String, Vec<String>)> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut in_string = false;
+    let mut i = 0usize;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' {
+            in_string = !in_string;
+            i += 1;
+            continue;
+        }
+        if c == '\n' {
+            in_string = false;
+        }
+        if in_string || !c.is_ascii_alphabetic() || (i > 0 && is_ident_char(chars[i - 1])) {
+            i += 1;
+            continue;
+        }
+        let mut end = i;
+        while end < chars.len() && is_ident_char(chars[end]) {
+            end += 1;
+        }
+        let name: String = chars[i..end].iter().collect();
+        let qualified = i > 0 && matches!(chars[i - 1], ':' | '.');
+        let fail_error = name == "error" && {
+            let line_start = chars[..i]
+                .iter()
+                .rposition(|c| *c == '\n')
+                .map_or(0, |p| p + 1);
+            let before: String = chars[line_start..i].iter().collect();
+            before.trim_end().ends_with("FAIL")
+        };
+        if end < chars.len()
+            && chars[end] == '('
+            && !qualified
+            && !fail_error
+            && general.contains(&name)
+            && !preceded_by_case(&chars, i)
+        {
+            if let Some(args) = call_arguments(&chars, end) {
+                out.push((name, args));
+            }
+        }
+        i = end;
+    }
+    out
+}
+
+/// The top-level, comma-separated argument texts of the call whose `(` is at
+/// `open`, or `None` when the parenthesis never closes in `chars`.
+fn call_arguments(chars: &[char], open: usize) -> Option<Vec<String>> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut args = Vec::new();
+    let mut current = String::new();
+    for &c in &chars[open..] {
+        if in_string {
+            current.push(c);
+            if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_string = true;
+                current.push(c);
+            }
+            '(' | '[' => {
+                depth += 1;
+                if depth > 1 {
+                    current.push(c);
+                }
+            }
+            ')' | ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    if !current.trim().is_empty() {
+                        args.push(current.trim().to_string());
+                    }
+                    return Some(args);
+                }
+                current.push(c);
+            }
+            ',' if depth == 1 => {
+                args.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(c),
+        }
+    }
+    None
+}
+
+/// What a body's text says about the static type of its names: every `FUNC`
+/// parameter, `LET`/`MUT` binding and `FOR` counter declared `name AS Type`
+/// anywhere in the chunk being resolved, plus the package the chunk belongs to
+/// (for its record field types). Every declaration of a name is kept; a name
+/// is typed only when all of them resolve to the same type (two `FUNC`s in one
+/// `Body::Mfb` string, or two `FOR EACH` loops, can reuse a name).
+struct Scope {
+    package: String,
+    func: String,
+    names: HashMap<String, Vec<String>>,
+}
+
+impl Scope {
+    fn of(text: &str) -> Scope {
+        let mut names: HashMap<String, Vec<String>> = HashMap::new();
+        let mut declare = |name: &str, ty: &str| {
+            let ty = ty.trim().to_string();
+            if name.is_empty() || ty.is_empty() || !name.chars().all(is_ident_char) {
+                return;
+            }
+            let seen = names.entry(name.to_string()).or_default();
+            if !seen.contains(&ty) {
+                seen.push(ty);
+            }
+        };
+        let mut package = String::new();
+        let mut func = String::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("FUNC ") {
+                let name_len = rest.find(|c: char| !is_ident_char(c)).unwrap_or(rest.len());
+                if package.is_empty() {
+                    package = package_of_symbol(&rest[..name_len]).unwrap_or_default();
+                    func = rest[..name_len].to_string();
+                }
+                if let (Some(open), Some(close)) = (rest.find('('), rest.rfind(')')) {
+                    let chars: Vec<char> = rest.chars().collect();
+                    let open_chars = rest[..open].chars().count();
+                    let close_chars = rest[..close].chars().count();
+                    if open_chars < close_chars {
+                        if let Some(params) = call_arguments(&chars, open_chars) {
+                            for param in params {
+                                let param =
+                                    param.trim_start_matches("RES ").trim_start_matches("MUT ");
+                                if let Some((name, ty)) = param.split_once(" AS ") {
+                                    let ty = ty.split(" STATE ").next().unwrap_or(ty);
+                                    declare(name.trim(), ty);
+                                }
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            // `CASE Variant(binding)`: a union arm binds the variant's record.
+            if let Some(rest) = trimmed.strip_prefix("CASE ") {
+                if let (Some(open), true) = (rest.find('('), rest.ends_with(')')) {
+                    let variant = rest[..open].trim();
+                    let binding = rest[open + 1..rest.len() - 1].trim();
+                    if variant.chars().all(|c| is_ident_char(c) || c == ':') {
+                        declare(binding, variant);
+                    }
+                }
+            }
+            for keyword in ["LET ", "MUT "] {
+                if let Some(rest) = trimmed.strip_prefix(keyword) {
+                    if let Some((name, rest)) = rest.split_once(" AS ") {
+                        let ty = rest.split(" = ").next().unwrap_or(rest);
+                        declare(name.trim(), ty);
+                    }
+                }
+            }
+            if let Some(rest) = trimmed.strip_prefix("FOR ") {
+                if let Some(each) = rest.strip_prefix("EACH ") {
+                    // The element type of the iterable, resolved on use
+                    // (`infer_type`), since it needs the helper table.
+                    if let Some((name, iterable)) = each.split_once(" IN ") {
+                        declare(name.trim(), &format!("{EACH_PREFIX}{}", iterable.trim()));
+                    }
+                } else if let Some((name, _)) = rest.split_once(" = ") {
+                    declare(name.trim(), "Integer");
+                }
+            }
+        }
+        Scope {
+            package,
+            func,
+            names,
+        }
+    }
+}
+
+/// Every package-level `LET`/`MUT __NAME AS Type` a built-in's injected source
+/// declares (`__CANVAS_GROUP_MAX_DEPTH AS Integer`), by name. A name declared
+/// twice with different types is left out.
+fn package_globals() -> &'static HashMap<String, String> {
+    static GLOBALS: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+    GLOBALS.get_or_init(|| {
+        let mut seen: HashMap<String, Option<String>> = HashMap::new();
+        let mut texts: Vec<&'static str> = Vec::new();
+        for package in registry().packages() {
+            texts.extend(package.helpers().iter().filter_map(|h| h.body));
+            for function in package.functions() {
+                for implementation in function.implementations() {
+                    if let Body::Mfb { body, .. } = &implementation.body {
+                        texts.push(body);
+                    }
+                }
+            }
+        }
+        for text in texts {
+            for line in text.lines() {
+                let Some(rest) = line
+                    .strip_prefix("LET __")
+                    .or_else(|| line.strip_prefix("MUT __"))
+                else {
+                    continue;
+                };
+                let Some((name, rest)) = rest.split_once(" AS ") else {
+                    continue;
+                };
+                let ty = rest.split(" = ").next().unwrap_or(rest).trim().to_string();
+                seen.entry(format!("__{name}"))
+                    .and_modify(|t| {
+                        if t.as_deref() != Some(ty.as_str()) {
+                            *t = None;
+                        }
+                    })
+                    .or_insert(Some(ty));
+            }
+        }
+        seen.into_iter()
+            .filter_map(|(k, v)| Some((k, v?)))
+            .collect()
+    })
+}
+
+/// A [`Scope`] entry for a `FOR EACH name IN <iterable>` binding: the
+/// iterable's text after this prefix, typed on use.
+const EACH_PREFIX: &str = "@each ";
+
+/// A registry type name in the `pkg::Type` spelling a body writes
+/// (`ParameterType::name` renders an imported type as `color.Color`).
+fn source_spelling(ty: &str) -> String {
+    match ty.split_once('.') {
+        Some((package, name)) if !ty.contains(' ') => format!("{package}::{name}"),
+        _ => ty.to_string(),
+    }
+}
+
+/// `__datetime_format` -> `datetime`: the package a rewrite symbol or private
+/// helper belongs to, by the `__<package>_<name>` convention every body uses.
+fn package_of_symbol(symbol: &str) -> Option<String> {
+    let rest = symbol.strip_prefix("__")?;
+    let (package, _) = rest.split_once('_')?;
+    Some(package.to_string())
+}
+
+/// Strip one pair of parentheses that wraps all of `expr`.
+fn strip_outer_parens(expr: &str) -> &str {
+    let expr = expr.trim();
+    if expr.starts_with('(') && expr.ends_with(')') {
+        let chars: Vec<char> = expr.chars().collect();
+        if let Some(args) = call_arguments(&chars, 0) {
+            if args.len() == 1 && args[0].chars().count() + 2 == chars.len() {
+                return &expr[1..expr.len() - 1];
+            }
+        }
+    }
+    expr
+}
+
+/// Whether `expr` has a binary operator at its top level (outside every
+/// parenthesis, bracket and string), so it is an operator expression rather
+/// than one name, literal, field read or call.
+fn has_top_level_operator(expr: &str) -> bool {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let chars: Vec<char> = expr.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        if in_string {
+            if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            '+' | '*' | '/' | '&' | '<' | '>' | '=' | '^' if depth == 0 => return true,
+            '-' if depth == 0 && i > 0 => return true,
+            ' ' if depth == 0 => {
+                let rest: String = chars[i + 1..].iter().collect();
+                for word in ["MOD ", "DIV ", "AND ", "OR ", "XOR "] {
+                    if rest.starts_with(word) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Whether `expr`'s top-level operators are all arithmetic (`+ - * / ^ MOD
+/// DIV`) and there is at least one — its value is a number, never a String,
+/// Boolean or list (`&` concatenates, comparisons and `AND`/`OR` are Boolean).
+fn is_arithmetic(expr: &str) -> bool {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut seen = false;
+    let chars: Vec<char> = expr.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        if in_string {
+            if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            '&' | '<' | '>' | '=' if depth == 0 => return false,
+            '+' | '*' | '/' | '^' if depth == 0 => seen = true,
+            '-' if depth == 0 && i > 0 => seen = true,
+            ' ' if depth == 0 => {
+                let rest: String = chars[i + 1..].iter().collect();
+                if ["AND ", "OR ", "XOR ", "NOT "]
+                    .iter()
+                    .any(|w| rest.starts_with(w))
+                {
+                    return false;
+                }
+                if ["MOD ", "DIV "].iter().any(|w| rest.starts_with(w)) {
+                    seen = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    seen
+}
+
+/// The static type `expr` provably has, from the body text alone, or `None`.
+///
+/// Only shapes whose type the text fixes are answered: a literal; a declared
+/// name ([`Scope`]); a field read off a declared record of the body's own
+/// package; a `general` conversion (its result type is its name); a
+/// `collections::get`/`getOr` off a declared `List OF T`; a qualified member,
+/// private helper or rewrite symbol whose every implementation returns the one
+/// concrete type; and a record constructor `T[...]`. Anything else — an
+/// operator expression, a generic call — is `None`, and its general call then
+/// counts every overload's codes. The direction matters: an unknown type
+/// over-reports, which a human then resolves; a wrong type would hide a code.
+fn infer_type(
+    expr: &str,
+    scope: &Scope,
+    helper_blocks: &HashMap<String, &'static str>,
+) -> Option<String> {
+    thread_local! {
+        static DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    // Two `FOR EACH` bindings typed through each other would recurse forever;
+    // no real expression nests this deep.
+    if DEPTH.get() > 16 {
+        return None;
+    }
+    DEPTH.set(DEPTH.get() + 1);
+    let ty = infer_type_inner(expr, scope, helper_blocks);
+    DEPTH.set(DEPTH.get() - 1);
+    ty
+}
+
+fn infer_type_inner(
+    expr: &str,
+    scope: &Scope,
+    helper_blocks: &HashMap<String, &'static str>,
+) -> Option<String> {
+    let expr = strip_outer_parens(expr);
+    if expr.is_empty() || has_top_level_operator(expr) {
+        return None;
+    }
+    if expr.starts_with('"') && expr.ends_with('"') && expr.len() >= 2 {
+        return Some("String".to_string());
+    }
+    if expr == "TRUE" || expr == "FALSE" {
+        return Some("Boolean".to_string());
+    }
+    let numeric = expr.strip_prefix('-').unwrap_or(expr);
+    if !numeric.is_empty() && numeric.chars().all(|c| c.is_ascii_digit() || c == '_') {
+        return Some("Integer".to_string());
+    }
+    if numeric.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && numeric
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '_' | '.' | 'e' | 'E' | '-' | '+'))
+        && numeric.contains(['.', 'e', 'E'])
+    {
+        return Some("Float".to_string());
+    }
+    // A call: `name(...)`, `pkg::name(...)`, or a constructor `T[...]`.
+    let head_len = expr
+        .find(|c: char| !(is_ident_char(c) || c == ':'))
+        .unwrap_or(expr.len());
+    let head = &expr[..head_len];
+    let tail = &expr[head_len..];
+    if !head.is_empty() && tail.starts_with('[') && tail.ends_with(']') {
+        let chars: Vec<char> = tail.chars().collect();
+        if call_arguments(&chars, 0).is_some_and(|_| true) {
+            return Some(head.to_string());
+        }
+    }
+    if !head.is_empty() && tail.starts_with('(') && tail.ends_with(')') {
+        let chars: Vec<char> = tail.chars().collect();
+        let args = call_arguments(&chars, 0)?;
+        // The call must span the whole expression (`f(x).y` is a field read).
+        let consumed: usize = 2 + args.iter().map(|a| a.chars().count()).sum::<usize>();
+        if consumed > chars.len() {
+            return None;
+        }
+        if let Some((package, member)) = head.split_once("::") {
+            if package == "collections" && matches!(member, "get" | "getOr") {
+                let list = infer_type(args.first()?, scope, helper_blocks)?;
+                return list.strip_prefix("List OF ").map(str::to_string);
+            }
+            return single_return_type(package, member, &args, scope, helper_blocks);
+        }
+        let general_result = match head {
+            "len" => Some("Integer"),
+            "toString" | "typeName" => Some("String"),
+            "toInt" => Some("Integer"),
+            "toFloat" => Some("Float"),
+            "toFixed" => Some("Fixed"),
+            "toMoney" => Some("Money"),
+            "toByte" => Some("Byte"),
+            "toScalar" => Some("Scalar"),
+            "isNumeric" | "isEven" | "isOdd" | "isPositive" | "isNegative" | "isZero"
+            | "isEmpty" | "isNotEmpty" => Some("Boolean"),
+            _ => None,
+        };
+        if let Some(result) = general_result {
+            return Some(result.to_string());
+        }
+        if head.starts_with("__") {
+            if let Some(block) = helper_blocks.get(head) {
+                let header = block.lines().next()?;
+                let close = header.rfind(')')?;
+                let ty = header[close + 1..].trim().strip_prefix("AS ")?.trim();
+                return Some(ty.to_string());
+            }
+        }
+        return None;
+    }
+    // A name, or a field read `name.field.field`.
+    let mut parts = expr.split('.');
+    let base = parts.next()?;
+    if !base.chars().all(is_ident_char) {
+        return None;
+    }
+    if !scope.names.contains_key(base) {
+        let mut ty = package_globals().get(base)?.clone();
+        for field in parts {
+            ty = record_field_type(&scope.package, &ty, field)?;
+        }
+        return Some(ty);
+    }
+    let mut ty: Option<String> = None;
+    for declared in scope.names.get(base)? {
+        let resolved = match declared.strip_prefix(EACH_PREFIX) {
+            Some(iterable) => {
+                // A `FOR EACH` over its own binding's field would recurse
+                // forever; one level of iterable is all a body ever needs.
+                if iterable.split('.').next() == Some(base) {
+                    return None;
+                }
+                let collection = infer_type(iterable, scope, helper_blocks)?;
+                collection
+                    .strip_prefix("List OF ")
+                    .or_else(|| collection.strip_prefix("Set OF "))?
+                    .to_string()
+            }
+            None => declared.clone(),
+        };
+        match &ty {
+            Some(seen) if *seen != resolved => return None,
+            _ => ty = Some(resolved),
+        }
+    }
+    let mut ty = ty?;
+    for field in parts {
+        if !field.chars().all(is_ident_char) {
+            return None;
+        }
+        ty = record_field_type(&scope.package, &ty, field)?;
+    }
+    Some(ty)
+}
+
+/// The type of `field` on the record `record` declared by `package` (a bare
+/// record name inside its own package's source), or `None`.
+fn record_field_type(package: &str, record: &str, field: &str) -> Option<String> {
+    let record = source_spelling(record);
+    let (package, record) = match record.split_once("::") {
+        Some((p, r)) => (p, r),
+        None => (package, record.as_str()),
+    };
+    let package = registry().resolve_package(package)?;
+    let record = package.records().iter().find(|r| r.name == record)?;
+    let prop = record.props.iter().find(|p| p.name == field)?;
+    Some(source_spelling(&prop.ty.name()))
+}
+
+/// The one concrete return type every implementation of `package::member`
+/// shares for this call, or `None` (unregistered, overloaded on return type, or
+/// generic). An implementation that returns `Arg(n)` ("argument `n`'s type",
+/// `math::sqrt`) answers with that argument's inferred type.
+fn single_return_type(
+    package: &str,
+    member: &str,
+    args: &[String],
+    scope: &Scope,
+    helper_blocks: &HashMap<String, &'static str>,
+) -> Option<String> {
+    let function = registry()
+        .resolve_package(package)?
+        .functions()
+        .iter()
+        .find(|f| f.name == member)?;
+    let mut found: Option<String> = None;
+    for implementation in function.implementations() {
+        let ty = match &implementation.return_type {
+            ParameterType::Arg(n) => infer_type(args.get(*n)?, scope, helper_blocks)?,
+            other => {
+                let name = other.name().to_string();
+                if name.len() == 1 || name.contains(" OF T") || name.contains("Arg") {
+                    return None;
+                }
+                source_spelling(&name)
+            }
+        };
+        match &found {
+            Some(seen) if *seen != ty => return None,
+            _ => found = Some(ty),
+        }
+    }
+    found
+}
+
+/// Every concrete return type of the qualified member `expr` calls, when it is
+/// a whole `pkg::name(...)` call and none of its implementations is generic.
+fn overloaded_return_types(expr: &str) -> Option<BTreeSet<String>> {
+    let expr = strip_outer_parens(expr);
+    if has_top_level_operator(expr) || !expr.ends_with(')') {
+        return None;
+    }
+    let head = &expr[..expr.find('(')?];
+    let (package, member) = head.split_once("::")?;
+    let function = registry()
+        .resolve_package(package)?
+        .functions()
+        .iter()
+        .find(|f| f.name == member)?;
+    let mut types = BTreeSet::new();
+    for implementation in function.implementations() {
+        let name = implementation.return_type.name().to_string();
+        if name.len() == 1 || name.contains(" OF T") || name.contains("Arg") {
+            return None;
+        }
+        types.insert(source_spelling(&name));
+    }
+    Some(types)
+}
+
+/// The private helper a package registers as its override of the general
+/// `name` for the argument's (inferred) type — `toString(c)` on a
+/// `color::Color` is `__color_toString(c)` — or `None`.
+fn general_override_helper(
+    name: &str,
+    args: &[String],
+    scope: &Scope,
+    helper_blocks: &HashMap<String, &'static str>,
+) -> Option<&'static str> {
+    let ty = infer_type(args.first()?, scope, helper_blocks)?;
+    let (package, bare) = match ty.split_once("::") {
+        Some((p, t)) => (p.to_string(), t.to_string()),
+        None => (scope.package.clone(), ty),
+    };
+    registry()
+        .resolve_package(&package)?
+        .overrides()
+        .iter()
+        .find(|o| o.builtin == name && o.arg_type == bare)
+        .map(|o| o.helper)
+}
+
+/// The codes one bare `general` call can raise: the matching per-overload row
+/// of `general_declared_errors.rs`'s [`OVERLOADS`] when every argument's type is
+/// known ([`infer_type`]), narrowed further for an in-range literal; otherwise
+/// the member's whole declared set. `None` if `name` is not a general member.
+fn general_call_codes(
+    name: &str,
+    args: &[String],
+    scope: &Scope,
+    member_declared: &HashMap<(String, String), BTreeSet<&'static str>>,
+    helper_blocks: &HashMap<String, &'static str>,
+) -> Option<BTreeSet<&'static str>> {
+    let declared = member_declared
+        .get(&("general".to_string(), name.to_string()))?
+        .clone();
+    // `toByte(bits::band(x, mask))` with a literal mask in 0 .. 255 is in
+    // 0 .. mask, so it always fits a Byte.
+    if name == "toByte" && args.len() == 1 {
+        if let Some(inner) = args[0].strip_prefix("bits::band(") {
+            let chars: Vec<char> = args[0].chars().collect();
+            let open = "bits::band".chars().count();
+            if let Some(band_args) = call_arguments(&chars, open) {
+                // The band call must be the whole argument, not an operand.
+                let whole = inner.ends_with(')') && !has_top_level_operator(&args[0]);
+                if whole
+                    && band_args.len() == 2
+                    && band_args[1]
+                        .parse::<i64>()
+                        .is_ok_and(|m| (0..=255).contains(&m))
+                {
+                    return Some(BTreeSet::new());
+                }
+            }
+        }
+    }
+    // A literal argument in the target's range converts at compile time and
+    // cannot fail: `toByte(255)`, `toFixed(1.0)`, `toMoney(0)`.
+    if args.len() == 1 {
+        let literal = args[0].replace('_', "");
+        let value = literal.parse::<f64>().ok();
+        let fits = match name {
+            "toByte" => literal.parse::<i64>().is_ok_and(|v| (0..=255).contains(&v)),
+            "toFixed" => value.is_some_and(|v| v.abs() < 2_147_483_648.0),
+            "toMoney" => value.is_some_and(|v| v.abs() < 92_233_720_368_547.0),
+            "toFloat" => value.is_some(),
+            _ => false,
+        };
+        if fits {
+            return Some(BTreeSet::new());
+        }
+    }
+    // A one-argument call whose argument is a qualified member overloaded on
+    // its return type (`math::floor` over Float/Fixed/…) can only be one of
+    // those return types: union the rows for each.
+    if args.len() == 1 && infer_type(&args[0], scope, helper_blocks).is_none() {
+        if let Some(candidates) = overloaded_return_types(&args[0]) {
+            let mut raised = BTreeSet::new();
+            for candidate in &candidates {
+                let row = OVERLOADS.iter().find(|(member, row_args, _, _)| {
+                    *member == name && row_args == &[candidate.as_str()]
+                });
+                match row {
+                    Some((_, _, _, codes)) => raised.extend(codes.iter().copied()),
+                    None => return Some(declared),
+                }
+            }
+            return Some(raised);
+        }
+    }
+    let types: Option<Vec<String>> = args
+        .iter()
+        .map(|arg| infer_type(arg, scope, helper_blocks))
+        .collect();
+    // An arithmetic expression (`+ - * / ^ MOD DIV` at its top level, nothing
+    // else) is a number: the call is one of the numeric overloads, so it can
+    // raise what any of them can, and nothing only a String or list form can.
+    if args.len() == 1 && is_arithmetic(strip_outer_parens(&args[0])) {
+        let numeric = ["Integer", "Float", "Fixed", "Money", "Byte"];
+        return Some(
+            OVERLOADS
+                .iter()
+                .filter(|(member, row_args, _, _)| {
+                    *member == name && row_args.len() == 1 && numeric.contains(&row_args[0])
+                })
+                .flat_map(|(_, _, _, codes)| codes.iter().copied())
+                .collect(),
+        );
+    }
+    let Some(types) = types else {
+        // `toString` raises ErrEncoding only for `List OF Byte`; an operator
+        // expression's value is a number, a Boolean or a String, never a list.
+        if name == "toString"
+            && args
+                .first()
+                .is_some_and(|a| has_top_level_operator(strip_outer_parens(a)))
+        {
+            return Some(BTreeSet::from(["ErrOutOfMemory"]));
+        }
+        return Some(declared);
+    };
+    let is_enum = |ty: &str| {
+        registry()
+            .resolve_package(&scope.package)
+            .is_some_and(|p| p.enums().iter().any(|e| e.name == ty))
+    };
+    for (member, row_args, _, codes) in OVERLOADS {
+        if *member != name || row_args.len() != types.len() {
+            continue;
+        }
+        let matches = row_args
+            .iter()
+            .zip(&types)
+            .all(|(row, ty)| *row == ty.as_str() || (*row == "Color" && is_enum(ty)));
+        if matches {
+            return Some(codes.iter().copied().collect());
+        }
+    }
+    if name == "toString" && types.first().is_some_and(|t| t != "List OF Byte") {
+        // A type no row names (a record with a package `toString` override is
+        // never a general call's argument here; any other renders like a scalar).
+        return Some(BTreeSet::from(["ErrOutOfMemory"]));
+    }
+    Some(declared)
 }
 
 /// Split a `RegistryHelper`/`Body::Mfb` source chunk (which may declare more
@@ -329,6 +1075,7 @@ fn find_inline_trap_regions(lines: &[&str]) -> Vec<(usize, usize, String, String
 #[allow(clippy::too_many_arguments)]
 fn scan_calls_and_fails(
     text: &str,
+    scope: &Scope,
     codes: &BTreeMap<&'static str, &'static str>,
     rewrite_to_owner: &HashMap<String, (String, String)>,
     member_declared: &HashMap<(String, String), BTreeSet<&'static str>>,
@@ -356,7 +1103,29 @@ fn scan_calls_and_fails(
             )),
         }
     }
-    for sym in internal_calls(text) {
+    let mut overrides = Vec::new();
+    for (name, args) in general_calls(text, &general_names()) {
+        // A package's own `toString(<its type>)` override is a call to that
+        // package's private helper, resolved like any other below.
+        if let Some(helper) = general_override_helper(&name, &args, scope, helper_blocks) {
+            overrides.push(helper.to_string());
+            continue;
+        }
+        match general_call_codes(&name, &args, scope, member_declared, helper_blocks) {
+            Some(mut raised) => {
+                raised.retain(|code| {
+                    !UNREACHABLE_GENERAL_CALL
+                        .iter()
+                        .any(|(func, member, unreachable)| {
+                            *func == scope.func && *member == name && unreachable == code
+                        })
+                });
+                out.extend(raised)
+            }
+            None => failures.push(format!("bare call `{name}` is not a general member")),
+        }
+    }
+    for sym in internal_calls(text).into_iter().chain(overrides) {
         if let Some(owner) = rewrite_to_owner.get(&sym) {
             if let Some(declared) = member_declared.get(owner) {
                 out.extend(declared.iter().copied());
@@ -412,6 +1181,7 @@ fn scan_calls_and_fails(
 #[allow(clippy::too_many_arguments)]
 fn resolve_inline_traps(
     text: &str,
+    scope: &Scope,
     codes: &BTreeMap<&'static str, &'static str>,
     rewrite_to_owner: &HashMap<String, (String, String)>,
     member_declared: &HashMap<(String, String), BTreeSet<&'static str>>,
@@ -425,6 +1195,7 @@ fn resolve_inline_traps(
     if regions.is_empty() {
         return scan_calls_and_fails(
             text,
+            scope,
             codes,
             rewrite_to_owner,
             member_declared,
@@ -442,6 +1213,7 @@ fn resolve_inline_traps(
         }
         let trapped_set = scan_calls_and_fails(
             trapped_expr,
+            scope,
             codes,
             rewrite_to_owner,
             member_declared,
@@ -452,6 +1224,7 @@ fn resolve_inline_traps(
         );
         let handler_set = scan_calls_and_fails(
             handler,
+            scope,
             codes,
             rewrite_to_owner,
             member_declared,
@@ -474,6 +1247,7 @@ fn resolve_inline_traps(
         .join("\n");
     out.extend(scan_calls_and_fails(
         &remaining,
+        scope,
         codes,
         rewrite_to_owner,
         member_declared,
@@ -505,6 +1279,8 @@ fn resolve(
     memo: &mut HashMap<String, BTreeSet<&'static str>>,
     failures: &mut Vec<String>,
 ) -> BTreeSet<&'static str> {
+    let scope = Scope::of(text);
+    let scope = &scope;
     let stripped = strip_func_header_and_footer(&strip_comment_lines(text));
     let lines: Vec<&str> = stripped.lines().collect();
     if let Some((trap_idx, end_idx)) = find_function_level_trap(&lines) {
@@ -512,6 +1288,7 @@ fn resolve(
         let handler_part = lines[trap_idx + 1..end_idx].join("\n");
         let trapped_set = resolve_inline_traps(
             &normal_part,
+            scope,
             codes,
             rewrite_to_owner,
             member_declared,
@@ -522,6 +1299,7 @@ fn resolve(
         );
         let handler_set = resolve_inline_traps(
             &handler_part,
+            scope,
             codes,
             rewrite_to_owner,
             member_declared,
@@ -538,6 +1316,7 @@ fn resolve(
     }
     resolve_inline_traps(
         &stripped,
+        scope,
         codes,
         rewrite_to_owner,
         member_declared,
@@ -671,6 +1450,16 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("regex", "match", "ErrIndexOutOfRange"),
     ("regex", "replace", "ErrIndexOutOfRange"),
     ("regex", "split", "ErrIndexOutOfRange"),
+    // `__encoding_fromCodepoint` encodes a surrogate (55296 .. 57343) as three
+    // bytes `toString` rejects with ErrEncoding (bug-807); these callers never
+    // pass one. csv's `__csv_decodeRange` and `utf32Decode` FAIL on a surrogate
+    // first; `utf16Decode` passes either a paired scalar (>= 65536) or a unit it
+    // has checked is not a surrogate; `codepageDecode` passes only `n < 128`.
+    ("csv", "parse", "ErrEncoding"),
+    ("csv", "readRow", "ErrEncoding"),
+    ("encoding", "utf16Decode", "ErrEncoding"),
+    ("encoding", "utf32Decode", "ErrEncoding"),
+    ("encoding", "codepageDecode", "ErrEncoding"),
     // datetime
     // parseIso's own `__datetime_readOffset` reads every field through
     // `__datetime_peek`, which range-checks `start + count <= len(value)`
@@ -785,7 +1574,6 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("encoding", "varintDecode", "ErrInvalidArgument"),
     ("encoding", "codepageDecode", "ErrIndexOutOfRange"),
     ("encoding", "codepageDecode", "ErrNotFound"),
-    ("encoding", "codepageDecode", "ErrOutOfMemory"),
     ("encoding", "codepageEncode", "ErrIndexOutOfRange"),
     ("encoding", "codepageEncode", "ErrNotFound"),
     // collections (subset A)
@@ -830,30 +1618,107 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("http", "respondPath", "ErrNotFound"),
 ];
 
+/// A code a bare `general` call's overload can raise that no call of that
+/// member in that one `FUNC` (a member body or a private helper) can actually
+/// raise, keyed `(FUNC, general member, code)` and applied where the call is,
+/// so every member that reaches the `FUNC` inherits the proof (bug-807). The
+/// proof must cover every call of that member in the `FUNC`, from its
+/// arguments' ranges; a proof that depends on the caller names the callers.
+const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
+    // Every toByte argument is in 0 .. 255: `value` after the `< 0` / `> 255`
+    // guards above it, and the literals 0 and 255.
+    ("__color_clampByte", "toByte", "ErrOverflow"),
+    // `255 - toInt(<Byte channel>)` is in 0 .. 255.
+    ("__color_invert", "toByte", "ErrOverflow"),
+    // `lo` starts at 0 and `hi` at 255; `lo = mid + 1` runs only while `lo < hi`
+    // with `mid < hi`, so `lo` ends in 0 .. 255.
+    ("__color_fromLinear", "toByte", "ErrOverflow"),
+    // Every `digits` entry is a `__color_hexValue` result checked `>= 0`, so
+    // 0 .. 15: `d * 17` and `d * 16 + e` are at most 255.
+    ("__color_fromHex", "toByte", "ErrOverflow"),
+    // `math::floor` of a Float is an Integer, and toFloat of an Integer cannot
+    // fail.
+    ("__color_hslToColor", "toFloat", "ErrInvalidFormat"),
+    ("__color_hslToColor", "toFloat", "ErrOverflow"),
+    ("__audio_mmlSynth", "toFloat", "ErrInvalidFormat"),
+    ("__audio_mmlSynth", "toFloat", "ErrOverflow"),
+    // `t` is `__color_clampFraction(amount)`, so 0.0 .. 1.0: `aa + toInt((ba -
+    // aa) * t)` lies between the two Byte alphas, and the product fits an
+    // Integer.
+    ("__color_mix", "toByte", "ErrOverflow"),
+    ("__color_mix", "toInt", "ErrOverflow"),
+    // The channel helpers' only callers (`__color_brighten`, `__color_darken`,
+    // `__color_mix`) pass `amount` through `__color_clampFraction` (0.0 .. 1.0),
+    // and `color::toLinear` is in 0 .. 65535, so each product is at most 65535.
+    ("__color_brightenChannel", "toInt", "ErrOverflow"),
+    ("__color_darkenChannel", "toInt", "ErrOverflow"),
+    ("__color_mixChannel", "toInt", "ErrOverflow"),
+    // `c` is a `color::Color` from a PolyLine's `colors`: toInt of a Byte channel.
+    ("__canvas_hashItem", "toInt", "ErrInvalidFormat"),
+    ("__canvas_hashItem", "toInt", "ErrOverflow"),
+    // Every `rgba` channel from `__canvas_pngPixel` is in 0 .. 255: an 8-bit
+    // sample, the high byte of a 16-bit one, a sub-byte sample `MOD 2^depth`
+    // scaled by `255 / (2^depth - 1)`, or a palette/tRNS byte — the depth is one
+    // `__canvas_pngHeader` accepts (1, 2, 4, 8, 16), and the sole caller,
+    // `__canvas_pngDecode`, passes that checked header.
+    ("__canvas_pngPass", "toByte", "ErrOverflow"),
+    // `x`, `a`, `b`, `c` are bytes and Paeth picks one of `a`/`b`/`c`, so `value`
+    // is in 0 .. 510 and `value MOD 256` in 0 .. 255.
+    ("__canvas_pngUnfilter", "toByte", "ErrOverflow"),
+    // The sole caller, `__canvas_extractFace`, passes `cursor` (12 plus padded
+    // table sizes) and `size` (`__canvas_beU32`, two unsigned 16-bit halves):
+    // both are non-negative, so each `(v / k) MOD 256` is in 0 .. 255.
+    ("__canvas_beBytes32", "toByte", "ErrOverflow"),
+    // `token` is 1 .. 18 ASCII digits with no leading zero (checked above it):
+    // a well-formed Integer below 10^18.
+    ("__json_arrayIndex", "toInt", "ErrInvalidFormat"),
+    ("__json_arrayIndex", "toInt", "ErrOverflow"),
+    // The exponent text is the digits after `json::sciParts`'s `e` for a finite,
+    // non-zero magnitude (`__json_requireFiniteNumberText` runs first): an
+    // optional sign and at most three digits.
+    ("__json_stringifyNumber", "toInt", "ErrInvalidFormat"),
+    ("__json_stringifyNumber", "toInt", "ErrOverflow"),
+    // `n > 0` (the `n <= 0` early return), so `math::sqrt(toFloat(n))` is below
+    // 3.1e9 and fits an Integer.
+    ("__vector_isqrtFloor", "toInt", "ErrOverflow"),
+    // `value` is checked `>= 0` first and each branch bounds it, so every toByte
+    // argument is in 0 .. 244 (a lead byte) or 128 .. 191 (a continuation).
+    ("__encoding_fromCodepoint", "toByte", "ErrOverflow"),
+    // The `List OF Integer` overload checks each `unit` is in 0 .. 255 before
+    // its toByte, and both overloads call toString only after
+    // `__encoding_utf8Valid` accepted the bytes.
+    ("__encoding_utf8Decode", "toByte", "ErrOverflow"),
+    ("__encoding_utf8Decode", "toString", "ErrEncoding"),
+    // Every caller passes ASCII: `__encoding_formUrlEncode`/`percentEncode` an
+    // `__encoding_isAlphaNum`/`isUnreserved` byte, `__encoding_punyEncodeLabel` a
+    // code point `< 128` or `__encoding_punyDigit` of a digit in 0 .. 35 (97 ..
+    // 122 or 48 .. 57). One ASCII byte fits a Byte and is valid UTF-8.
+    ("__encoding_byteChar", "toByte", "ErrOverflow"),
+    ("__encoding_byteChar", "toString", "ErrEncoding"),
+    // `c` is a byte, `hi`/`lo` are `__encoding_hexValue` results checked `>= 0`
+    // (0 .. 15), and the bytes are decoded only after `__encoding_utf8Valid`.
+    ("__encoding_percentDecodeBytes", "toByte", "ErrOverflow"),
+    ("__encoding_percentDecodeBytes", "toString", "ErrEncoding"),
+    // `bits::band(_, 255)`.
+    ("__encoding_baseDecodeBits", "toByte", "ErrOverflow"),
+    // `hi`/`lo` are `__encoding_hexValue` results checked `>= 0` (0 .. 15).
+    ("__encoding_hexDecode", "toByte", "ErrOverflow"),
+    // `chunk = bits::band(_, 127)`, so `chunk` and `chunk + 128` fit a Byte.
+    ("__encoding_leb128Emit", "toByte", "ErrOverflow"),
+    ("__encoding_sleb128Encode", "toByte", "ErrOverflow"),
+    // `point` is a code point below 128 (checked), and `strings::find` in a
+    // 128-scalar codepage table returns a scalar index 0 .. 127.
+    ("__encoding_codepageEncode", "toByte", "ErrOverflow"),
+];
+
 /// The mirror image of [`UNREACHABLE_VIA_CALLEE`]: a code this sweep's model
 /// CANNOT see as reachable, but that really is — the `Body::Mfb` counterpart
 /// of `declared_errors_all.rs`'s `IO_DECLARED_EXTRA`/`TERM_DECLARED_EXTRA`
 /// ("a code this sweep's harness configuration cannot make reachable, but
-/// that a real build does raise").
-///
-/// `general::toString`'s descriptor declares `errors: vec![]` (its own DESC:
-/// "toString never fails"), but its `List OF Byte` overload decodes UTF-8 and
-/// genuinely raises `ErrEncoding` on an ill-formed sequence (`.ai/compiler.md`
-/// §11's `toInt`/`toString` census makes the same point for the native-sweep
-/// side). Every `Mfb` body's `toString(<expr>)` call reaches whichever
-/// overload the argument's static type selects, which this guard's qualified-
-/// call scan cannot see — so `toString`'s own (wrong) `errors: vec![]` is what
-/// propagates. Fixing `toString`'s descriptor directly is out of scope here
-/// (it is a `general`-package, not `Mfb`-body, member, and correcting it
-/// ripples into every OTHER caller across the whole registry, native and
-/// `Mfb` alike — a separate, larger bug). `encoding::htmlUnescape`/
-/// `punycodeDecode` measured the real raise directly: a compiled program
-/// running `encoding::htmlUnescape("&#55296;")` (an unpaired UTF-16 surrogate
-/// codepoint, which `toString(List OF Byte)` rejects) traps `77020004`
-/// (`ErrEncoding`); same for `punycodeDecode("xn--ib9b")`.
+/// that a real build does raise"). `encoding::htmlUnescape`/`punycodeDecode`'s
+/// ErrEncoding used to be carried here; since bug-807 this guard sees the bare
+/// `toString(<List OF Byte>)` call in `__encoding_fromCodepoint` that raises it.
 const DECLARED_EXTRA: &[(&str, &str, &str)] = &[
-    ("encoding", "htmlUnescape", "ErrEncoding"),
-    ("encoding", "punycodeDecode", "ErrEncoding"),
     // `http::finish`'s `FAIL error(s.state.err, "http stream transport
     // failed")` (func_finish.rs) re-raises a CODE VALUE stored in a field —
     // `s.state.err`, not a digit literal — so `fail_codes`' `FAIL error(`
@@ -976,16 +1841,21 @@ pub(crate) fn sweep() -> MfbSweepResult {
             measured_members += 1;
             let mut expected = BTreeSet::new();
             for body in bodies {
-                expected.extend(resolve(
-                    body,
-                    &codes,
-                    &rewrite_to_owner,
-                    &member_declared,
-                    &helper_blocks,
-                    &mut visiting,
-                    &mut memo,
-                    &mut failures,
-                ));
+                // One `FUNC` at a time: a `Body::Mfb` string can hold the rewrite
+                // target plus private helper FUNCs, and each has its own
+                // parameter names (`Scope`) and its own function-level `TRAP`.
+                for (_, block) in extract_func_blocks(body) {
+                    expected.extend(resolve(
+                        block,
+                        &codes,
+                        &rewrite_to_owner,
+                        &member_declared,
+                        &helper_blocks,
+                        &mut visiting,
+                        &mut memo,
+                        &mut failures,
+                    ));
+                }
             }
             expected.retain(|code| {
                 !UNREACHABLE_VIA_CALLEE

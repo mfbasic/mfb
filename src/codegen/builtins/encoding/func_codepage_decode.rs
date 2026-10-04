@@ -31,7 +31,8 @@ The tables are the WHATWG Encoding Standard's legacy single-byte indexes, so a
 defined byte decodes to the character a browser would show for the same label. A
 browser substitutes a replacement character for an undefined byte; this function
 raises `ErrInvalidFormat` instead (`codepageDecode(Codepage.Windows874, [0xDB])`).
-`encoding::codepageEncode` is the inverse."#;
+`encoding::codepageEncode` is the inverse. Building the result needs memory;
+`ErrOutOfMemory` means the program ran out of memory."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_codepageDecode(codepage AS Codepage, bytes AS List OF Byte) AS String
@@ -128,7 +129,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_codepageDecode"),
         }],
     });

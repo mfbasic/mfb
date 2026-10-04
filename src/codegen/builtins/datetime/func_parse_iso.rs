@@ -47,7 +47,8 @@ is under 24 hours; an offset outside that, such as `+05:75` or `+24:00`, also
 raises `ErrInvalidFormat`. Seconds in the offset are what `datetime::toIso`
 writes for a zone whose offset is not a whole number of minutes, so
 `parseIso(toIso(dt, 9))` names the same instant as `dt` for every offset. `parseIso` is pure: it reads no host state and
-has no side effects."#;
+has no side effects. Building the zone's label needs memory; `ErrOutOfMemory`
+means the program ran out of memory."#;
 const EX: &str = r#"Parse a UTC timestamp:
 
 ```
@@ -168,7 +169,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::named("DateTime"),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: super::Body::mfb(BODY, "__datetime_parseIso"),
         }],
     });

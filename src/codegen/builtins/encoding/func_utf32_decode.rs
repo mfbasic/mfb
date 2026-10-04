@@ -26,7 +26,8 @@ a byte serialization, so no byte order (endianness) or byte-order mark applies.
 
 `utf32Decode` is the inverse of `encoding::utf32Encode`: decoding the code points
 that `utf32Encode` produced reconstructs the original string, and any string
-round-trips losslessly through the two functions."#;
+round-trips losslessly through the two functions. Building the result needs
+memory; `ErrOutOfMemory` means the program ran out of memory."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __encoding_utf32Decode(value AS List OF Integer) AS String
@@ -82,7 +83,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_utf32Decode"),
         }],
     });
