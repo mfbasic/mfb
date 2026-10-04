@@ -1,6 +1,7 @@
 ' plan-77 C3: csv dialect (custom delimiter / quote / newline) round trip.
 IMPORT collections
 IMPORT csv
+IMPORT fs
 IMPORT io
 
 FUNC main() AS Integer
@@ -22,13 +23,14 @@ FUNC main() AS Integer
   ' The one-argument default is still RFC-4180 (comma, double quote).
   io::print("default=" & csv::stringify([["p,q", "r"]]))
 
-  ' plan-77 C4: streaming read yields the same rows as csv::parse, incl. dialect.
+  ' plan-77 C4 / bug-809: streaming read (csv::readRow over a File) yields the
+  ' same rows as csv::parse, incl. dialect.
   MUT streamed AS Integer = 0
-  MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("x;'y;z';w", ";", "'"))
-  WHILE row.done = FALSE
-    io::print("stream row " & toString(streamed) & " ncols=" & toString(len(row.fields)) & " f1=" & collections::get(row.fields, 1))
+  RES source = fs::openData("x;'y;z';w", "r")
+  WHILE NOT fs::eof(source)
+    LET row AS List OF String = csv::readRow(source, ";", "'")
+    io::print("stream row " & toString(streamed) & " ncols=" & toString(len(row)) & " f1=" & collections::get(row, 1))
     streamed = streamed + 1
-    row = csv::readRow(row.reader)
   END WHILE
   io::print("streamed=" & toString(streamed))
   RETURN 0

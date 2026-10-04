@@ -1,0 +1,56 @@
+$ mfb build -ast -ir tests/syntax/csv/func_csv_readRow_invalid
+   4 | FUNC main AS Integer
+   5 |   RES f = fs::openData("a,b", "r")
+   6 |   LET missing AS List OF String = csv::readRow()
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `csv.readRow` has 0 argument(s), expected 1 to 3.
+   4 | FUNC main AS Integer
+   5 |   RES f = fs::openData("a,b", "r")
+   6 |   LET missing AS List OF String = csv::readRow()
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   5 |   RES f = fs::openData("a,b", "r")
+   6 |   LET missing AS List OF String = csv::readRow()
+   7 |   LET text AS List OF String = csv::readRow("a,b")
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `csv.readRow` has argument type(s) (String), expected File[, String, String].
+   5 |   RES f = fs::openData("a,b", "r")
+   6 |   LET missing AS List OF String = csv::readRow()
+   7 |   LET text AS List OF String = csv::readRow("a,b")
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `text` does not have a known type.
+   6 |   LET missing AS List OF String = csv::readRow()
+   7 |   LET text AS List OF String = csv::readRow("a,b")
+   8 |   LET wrongDelimiter AS List OF String = csv::readRow(f, 59)
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `csv.readRow` has argument type(s) (fs.File, Integer), expected File[, String, String].
+   6 |   LET missing AS List OF String = csv::readRow()
+   7 |   LET text AS List OF String = csv::readRow("a,b")
+   8 |   LET wrongDelimiter AS List OF String = csv::readRow(f, 59)
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongDelimiter` does not have a known type.
+   7 |   LET text AS List OF String = csv::readRow("a,b")
+   8 |   LET wrongDelimiter AS List OF String = csv::readRow(f, 59)
+   9 |   LET tooMany AS List OF String = csv::readRow(f, ",", "\"", "\n")
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:9 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `csv.readRow` has 4 argument(s), expected 1 to 3.
+   7 |   LET text AS List OF String = csv::readRow("a,b")
+   8 |   LET wrongDelimiter AS List OF String = csv::readRow(f, 59)
+   9 |   LET tooMany AS List OF String = csv::readRow(f, ",", "\"", "\n")
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+   8 |   LET wrongDelimiter AS List OF String = csv::readRow(f, 59)
+   9 |   LET tooMany AS List OF String = csv::readRow(f, ",", "\"", "\n")
+  10 |   LET badName AS List OF String = csv::readRow(f, separator := ";")
+     | ^
+tests/syntax/csv/func_csv_readRow_invalid/src/main.mfb:10 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `csv.readRow` does not have a parameter named `separator`.
+[exit 1]

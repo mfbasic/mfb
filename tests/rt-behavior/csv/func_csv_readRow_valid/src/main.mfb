@@ -1,0 +1,46 @@
+IMPORT collections
+IMPORT csv
+IMPORT fs
+IMPORT io
+IMPORT strings
+
+' csv::readRow reads one record from a File and leaves the file just past it:
+' quoted fields spanning lines (CRLF kept), a dialect, a final record with no
+' line break, ErrEndOfFile at the end and ErrInvalidFormat for a quote left open.
+FUNC show(row AS List OF String) AS String
+  MUT out AS String = ""
+  FOR EACH cell IN row
+    out = out & "[" & strings::replace(strings::replace(cell, "\r", "<CR>"), "\n", "<LF>") & "]"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  RES f = fs::openData("h1,h2\r\n\"multi\r\nline\",x\n\"q\"\"t\",\n\nlast,end", "r")
+  MUT n AS Integer = 0
+  WHILE NOT fs::eof(f)
+    io::print(toString(n) & " " & show(csv::readRow(f)))
+    n = n + 1
+  END WHILE
+  LET more AS List OF String = csv::readRow(f) TRAP(e)
+    io::print("at end raised " & toString(e.code))
+    RECOVER []
+  END TRAP
+
+  RES d = fs::openData("x;'y;z';w\n'a''b';c\n", "r")
+  io::print("dialect " & show(csv::readRow(d, ";", "'")))
+  io::print("dialect " & show(csv::readRow(d, delimiter := ";", quote := "'")))
+
+  RES open = fs::openData("a,\"never\nclosed", "r")
+  LET bad AS List OF String = csv::readRow(open) TRAP(e2)
+    io::print("open quote raised " & toString(e2.code))
+    RECOVER []
+  END TRAP
+
+  ' readLine and readRow share the file's read buffer.
+  RES mixed = fs::openData("# preamble\nk,v\n1,2\n", "r")
+  io::print("preamble " & fs::readLine(mixed))
+  io::print("record " & show(csv::readRow(mixed)))
+  io::print("rest rows=" & toString(len(csv::parse(mixed))))
+  RETURN 0
+END FUNC

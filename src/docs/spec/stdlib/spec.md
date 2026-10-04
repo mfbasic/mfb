@@ -22,7 +22,8 @@ built-in injection chain.
   preference order, supported syntax, flags, and scalar-based matching.
 - `datetime` — the Instant/Duration/Date/Time model, civil-calendar math, the OS
   clock/zone seam, and parse/format rules.
-- `csv` — the RFC-4180-aligned dialect (delimiters, quoting, record separators).
+- `csv` — the RFC-4180-aligned dialect (delimiters, quoting, record separators),
+  the one tokenizer behind `parse` and `readRow`, and streaming from an `fs::File`.
 - `json` — the `Json` union data model and parse/stringify behavior.
 - `http` — the HTTP/1.1 client model (the `Response` record, header handling,
   caps, transport selection).
