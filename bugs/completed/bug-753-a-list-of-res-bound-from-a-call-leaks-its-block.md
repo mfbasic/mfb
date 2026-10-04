@@ -5,7 +5,7 @@ Effort: medium
 Severity: MEDIUM
 Class: Memory (unbounded leak in a loop)
 
-Status: Partially fixed — every flat `List OF RES` result is fixed; the nested `List OF List OF RES` results of `chunks`/`window` remain (below).
+Status: Fixed (2026-10-03, bug-staging-7)
 Regression Test: `tests/runtime/rt_res_list_from_call_leak.rs` (`--debug` peak live bytes flat across N/2N, allocs = frees, list and handle intact)
 
 Found by the bug-643 lane. A `List OF RES T` bound from a call is never freed, so
@@ -145,3 +145,37 @@ Regression tests: `rt_res_list_from_call_leak`
 (`a_res_list_bound_from_a_user_function_frees_its_block`,
 `a_res_list_bound_from_a_native_member_frees_its_block`; the member test fails on
 main: peak 952 864 vs 1 888 864).
+
+## Resolution (2026-10-03, bug-staging-7)
+
+The nested remainder. A `List OF List OF RES T` holds its inner lists BY POINTER
+(bug-801's reproduction shows a freed piece corrupting the outer list), so the
+outer block and each inner block are separate allocations. Measured on main
+(`--debug` counters, 300 iterations of `chunks(xs, 2)` + `window(xs, 2)` over 4
+handles): 2724 allocations, 621 frees, i.e. 7 blocks per iteration (two outer
+blocks, the outer blocks the bodies' `result = append(result, piece)` replaced, and
+the five pieces).
+
+- `CodeBuilder::is_res_collection_block` extends the sole-holder block free to a
+  list of `RES`-marked collections (the outer block).
+- `record_ownership::block_collections`:
+  - reassign-free: a copying reassignment frees the replaced block when the
+    collection is fresh, unkept, unread, and named outside an argument only by
+    `RETURN`. This is what the `chunks`/`window` bodies need: their `result` is
+    returned.
+  - inner-owning: a sole-holder nested binding whose every store is
+    `chunks`/`window` (audited: each fresh slice is appended once) frees each inner
+    block first (`emit_inner_block_frees`).
+
+After: 2724 allocations, 2721 frees. The 3 left over come from a one-off temporary
+in the program's last statement, so 0 blocks leak per iteration and
+`double_free_skips` is 0.
+
+Residue, by design (fail-safe): a nested list the program builds itself frees its
+outer block only, since its inner pieces may have another holder; and a nested
+result an element is read back from (`collections::get(parts, i)`) is not a sole
+holder, so it keeps leaking.
+
+Regression test: `rt_res_list_from_call_leak::a_nested_res_list_from_chunks_or_window_frees_every_block`.
+With main's compiler it fails (peak live bytes 377 296 -> 737 296 from 300 to 600
+iterations); it passes here.

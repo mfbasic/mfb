@@ -930,6 +930,9 @@ pub(crate) fn lower_function(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        reassign_free_collections: HashSet::new(),
+        inner_owning_collections: HashSet::new(),
+        inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
         live_resource_aliases: HashMap::new(),
@@ -1175,6 +1178,8 @@ pub(crate) fn lower_function(
     builder.record_owning_locals = ownership.owning_locals;
     builder.resource_alias_sources = ownership.alias_sources;
     builder.owned_list_owning_collections = ownership.owning_collections;
+    builder.reassign_free_collections = ownership.reassign_free_collections;
+    builder.inner_owning_collections = ownership.inner_owning_collections;
     // bug-648: which inline-`TRAP` temps are handed borrowed values.
     builder.trap_ownership =
         crate::codegen::resource::cleanup::trap_ownership::collect_trap_ownership(&function.body);
@@ -1545,6 +1550,9 @@ pub(crate) fn lower_abi_function_helper(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        reassign_free_collections: HashSet::new(),
+        inner_owning_collections: HashSet::new(),
+        inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
         live_resource_aliases: HashMap::new(),
@@ -1737,6 +1745,9 @@ pub(crate) fn lower_thread_copy_function(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        reassign_free_collections: HashSet::new(),
+        inner_owning_collections: HashSet::new(),
+        inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
         live_resource_aliases: HashMap::new(),

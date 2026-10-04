@@ -81,10 +81,13 @@ impl CodeBuilder<'_> {
     /// store really can leave two holders and only that pass rules it out.
     pub(crate) fn register_res_collection_block_free(
         &mut self,
-        _name: &str,
+        name: &str,
         type_: &ParameterType,
         stack_offset: usize,
     ) {
+        if self.inner_owning_collections.contains(name) {
+            self.inner_block_slots.insert(stack_offset);
+        }
         self.active_cleanups
             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                 type_: type_.clone(),
@@ -131,6 +134,16 @@ impl CodeBuilder<'_> {
     ///
     /// plan-106-E: the `RES` marker is a [`ParameterType::Res`] variant, so this is
     /// the element/value shape, not a prefix on its spelling.
+    /// bug-753: a collection whose BLOCK a sole-holder binding may free without
+    /// closing anything: a `RES`-marked collection, or a list of such collections
+    /// (`collections::chunks`/`window` over a `List OF RES T`). A nested list holds
+    /// its inner lists inline in its own data region, so freeing the outer block
+    /// releases them all; their elements are references with their own owners.
+    pub(crate) fn is_res_collection_block(type_: &ParameterType) -> bool {
+        Self::is_res_marked_resource_collection(type_)
+            || matches!(type_, ParameterType::ListOf(element) if Self::is_res_collection_block(element))
+    }
+
     pub(crate) fn is_res_marked_resource_collection(type_: &ParameterType) -> bool {
         let marked = |type_: &ParameterType| matches!(type_, ParameterType::Res(_));
         match type_ {
@@ -449,6 +462,57 @@ impl CodeBuilder<'_> {
     /// `arena_free(ptr, size)`. `arena_free` scrubs the bytes (entropy poison),
     /// so a later use-after-free reads garbage and traps loudly. Clobbers
     /// caller-saved scratch; the caller reloads anything it needs afterward.
+    /// bug-753: free each inner block of the nested collection in `slot` (an
+    /// inner-owning binding, `record_ownership::block_collections`), before the
+    /// caller frees the outer block. The inner lists are held by pointer, so each is
+    /// its own block; their elements are references with their own owners.
+    fn emit_inner_block_frees(
+        &mut self,
+        slot: usize,
+        inner_type: &ParameterType,
+    ) -> Result<(), String> {
+        let done = self.label("inner_block_free_done");
+        let null_check = self.temporary_vreg();
+        self.emit(abi::load_u64(&null_check, abi::stack_pointer(), slot));
+        self.emit(abi::compare_immediate(&null_check, "0"));
+        self.emit(abi::branch_eq(&done));
+        let cursor_slot = self.allocate_stack_object("inner_free_cursor", 8);
+        let remaining_slot = self.allocate_stack_object("inner_free_remaining", 8);
+        let inner_slot = self.allocate_stack_object("inner_free_block", 8);
+        self.initialize_collection_loop_slots(slot, cursor_slot, remaining_slot, inner_type);
+        let top = self.label("inner_block_free_loop");
+        self.emit(abi::label(&top));
+        let remaining = self.temporary_vreg();
+        self.emit(abi::load_u64(
+            &remaining,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
+        self.emit(abi::compare_immediate(&remaining, "0"));
+        self.emit(abi::branch_eq(&done));
+        let inner = self.load_collection_loop_item(slot, cursor_slot, inner_type)?;
+        self.emit(abi::store_u64(&inner, abi::stack_pointer(), inner_slot));
+        let leaf = typed_list_element_type(inner_type)
+            .cloned()
+            .unwrap_or_else(|| ParameterType::named(""));
+        self.emit(abi::add_immediate(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            inner_slot,
+        ));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            &list_entry_stride(&leaf).to_string(),
+        ));
+        self.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+        self.emit(abi::branch_link(DROP_OWNED_COLLECTION_SYMBOL));
+        self.push_internal_call_relocation(DROP_OWNED_COLLECTION_SYMBOL);
+        self.advance_collection_loop(cursor_slot, remaining_slot, &top, inner_type);
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
     pub(crate) fn emit_owned_value_drop(
         &mut self,
         cleanup: &OwnedValueCleanup,
@@ -493,6 +557,9 @@ impl CodeBuilder<'_> {
             let element = typed_list_element_type(&cleanup.type_)
                 .cloned()
                 .unwrap_or_else(|| ParameterType::named(""));
+            if self.inner_block_slots.contains(&cleanup.stack_offset) {
+                self.emit_inner_block_frees(cleanup.stack_offset, &element)?;
+            }
             let stride = list_entry_stride(&element);
             let buckets = matches!(
                 cleanup.type_,

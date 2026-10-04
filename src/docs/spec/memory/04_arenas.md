@@ -446,6 +446,19 @@ those blocks rather than risking a double free.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
 
+The same rules cover a list of such collections (`List OF List OF RES T`), which
+holds each inner list by pointer, in its own block. Two further verdicts apply to
+every `RES`-block collection. A copying reassignment frees the block it replaces
+whenever the collection's every store is fresh, no call keeps it, no element is read
+back out of it, and it is named outside a call argument only by `RETURN`: a
+`RETURN` hands on the current block, never one already replaced. A nested binding
+that is its block's sole holder and whose every store is `collections::chunks` or
+`collections::window` frees each inner block before the outer one: those bodies
+append each fresh slice exactly once. Any other nested binding frees its outer block
+only; its inner blocks may have another holder, so they leak rather than risk a
+double free. [[src/codegen/resource/cleanup/record_ownership.rs:block_collections]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_inner_block_frees]]
+
 Raw thread-helper results belong to the thread runtime's block arena and
 must not be freed through the caller's arena. However, `thread::waitFor`,
 `receive`/`read`, and `acceptResource`/`readResource` copy their returned values

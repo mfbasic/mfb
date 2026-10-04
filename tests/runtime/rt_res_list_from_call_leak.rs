@@ -286,3 +286,91 @@ fn a_res_list_bound_from_a_native_member_frees_its_block() {
         );
     }
 }
+
+/// `chunks` and `window` over a `List OF RES` return a `List OF List OF RES`, which
+/// holds its inner lists by pointer. A binding of one that nothing else holds frees
+/// each inner block and then the outer one; inside the bodies, the copying
+/// `result = collections::append(result, piece)` frees the block it replaces even
+/// though `result` is returned. On main every iteration leaked seven blocks.
+const NESTED_SOURCE: &str = r#"IMPORT io
+IMPORT fs
+IMPORT os
+IMPORT collections
+
+FUNC main AS Integer
+  LET path AS String = os::getEnv("PROBE")
+  fs::writeText(path, "abc\n")
+  MUT xs AS List OF RES fs::File = []
+  FOR i = 1 TO 4
+    RES f AS fs::File = fs::open(path, "read")
+    xs = collections::append(xs, f)
+  NEXT
+  LET n AS Integer = toInt(os::getEnv("N"))
+  MUT total AS Integer = 0
+  FOR i = 1 TO n
+    LET parts = collections::chunks(xs, 2)
+    LET wins = collections::window(xs, 2)
+    total = total + len(parts) + len(wins)
+  NEXT
+  io::print(toString(total))
+  RES g AS fs::File = collections::get(xs, 3)
+  io::print(fs::readLine(g))
+  RETURN 0
+END FUNC
+"#;
+
+#[test]
+fn a_nested_res_list_from_chunks_or_window_frees_every_block() {
+    let project = common::temp_project("bug753_res_list_nested", NESTED_SOURCE);
+    let built = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("--debug")
+        .arg(&project)
+        .output()
+        .expect("run mfb build --debug");
+    assert!(
+        built.status.success(),
+        "build failed:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let executable = project.join("build").join(format!(
+        "bug753_res_list_nested{}",
+        if cfg!(windows) { ".exe" } else { ".out" }
+    ));
+    let probe = project.join("probe.txt");
+    let run = |n: u64| {
+        let output = Command::new(&executable)
+            .env("N", n.to_string())
+            .env("PROBE", &probe)
+            .output()
+            .expect("run the probe");
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stats = format!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
+        assert!(output.status.success(), "probe failed:\n{stats}");
+        assert_eq!(
+            stdout.lines().take(2).collect::<Vec<_>>(),
+            vec![(n * 5).to_string(), "abc".to_string()],
+            "the lists and the handles are still intact"
+        );
+        stats
+    };
+    let small = run(300);
+    let large = run(600);
+    assert_eq!(
+        counter(&small, "peak_live_bytes"),
+        counter(&large, "peak_live_bytes"),
+        "peak live bytes grew with the iteration count"
+    );
+    for stats in [&small, &large] {
+        assert_eq!(
+            counter(stats, "double_free_skips"),
+            0,
+            "no block is freed twice"
+        );
+    }
+    assert_eq!(
+        counter(&large, "alloc_calls") - counter(&large, "free_calls"),
+        counter(&small, "alloc_calls") - counter(&small, "free_calls"),
+        "the unfreed count does not grow with the iteration count"
+    );
+}

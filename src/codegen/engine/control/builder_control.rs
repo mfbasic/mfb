@@ -2175,7 +2175,7 @@ impl CodeBuilder<'_> {
                                     &element_type,
                                 )?;
                             }
-                        } else if Self::is_res_marked_resource_collection(&type_)
+                        } else if Self::is_res_collection_block(&type_)
                             && self.owned_list_owning_collections.contains(name)
                         {
                             // bug-651: a `RES`-marked collection neither floated into nor
@@ -2779,8 +2779,9 @@ impl CodeBuilder<'_> {
                                     // `out = collections::append(out, collections::get(xs, 0))`
                                     // leaked every replaced block. Shallow: its elements
                                     // are references with their own owners.
-                                    || (Self::is_res_marked_resource_collection(&result.type_)
-                                        && self.owned_list_owning_collections.contains(name)))
+                                    || (Self::is_res_collection_block(&result.type_)
+                                        && (self.owned_list_owning_collections.contains(name)
+                                            || self.reassign_free_collections.contains(name))))
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block
