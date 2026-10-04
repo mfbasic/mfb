@@ -3206,11 +3206,19 @@ fn lower_match_case(
         .get(matched_local)
         .cloned()
         .unwrap_or(ParameterType::Unknown);
+    // An unsuffixed numeric literal pattern coerces to a `Fixed` or `Money`
+    // scrutinee exactly as it does to a `LET` of that type, so the arm compares
+    // two values of the scrutinee's representation. Lowered without the expected
+    // type it stayed an `Integer`/`Float` constant, and the match compared its
+    // bits with the scrutinee's raw carrier: `MATCH 1F / CASE 1` never matched.
+    // `Byte` is left alone: its literal range check is the verifier's.
+    let pattern_expected = matches!(matched_type, ParameterType::Fixed | ParameterType::Money)
+        .then_some(&matched_type);
     let pattern = match &case.pattern {
         HirMatchPattern::Else => IrMatchPattern::Else,
-        HirMatchPattern::Literal(expression) => {
-            IrMatchPattern::Value(lower_expression(expression, locals, context))
-        }
+        HirMatchPattern::Literal(expression) => IrMatchPattern::Value(
+            lower_expression_with_expected(expression, pattern_expected, locals, context),
+        ),
         // coverage:off -- reachable only for a `Result OF ...` scrutinee, which is
         // rejected before lowering (TYPE_RESULT_NOT_MATCHABLE); kept for plan-20
         // total lowering when the AST checker is bypassed.
@@ -3237,7 +3245,9 @@ fn lower_match_case(
         HirMatchPattern::OneOf(expressions) => IrMatchPattern::OneOf(
             expressions
                 .iter()
-                .map(|expression| lower_expression(expression, locals, context))
+                .map(|expression| {
+                    lower_expression_with_expected(expression, pattern_expected, locals, context)
+                })
                 .collect(),
         ),
     };
