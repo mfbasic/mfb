@@ -33,6 +33,18 @@
 ' While the forecast plays, the follower goes the way the wind blows half a life
 ' later, which is close enough to read as the same streamline.
 '
+' There are three swarms, riding the wind at three heights. 10 metres is the
+' wind at the surface. 850 millibars, about one and a half kilometres up, is
+' just above the layer of air the ground drags on: faster, crossing coasts and
+' hills without turning, and often blowing a different way from the surface
+' wind beneath it. 250 millibars, about ten kilometres up, is where airliners
+' cruise and the jet streams run, several times faster again, in long bands
+' that meander round the world with no regard for the weather below. Each
+' height has colours of its own and is drawn under the one below it, fainter
+' the higher it is, so the surface wind reads on top. The jet streams get a
+' third as many streamlines as the other two: they are long, smooth and fast,
+' and a few of them say all there is to say.
+'
 ' The swarm is module-level state rather than a value threaded through the
 ' frame. Every one of its lists is updated with the self-assigning shape -
 ' `xs = collections::set(xs, i, v)` - which changes the list where it stands
@@ -46,12 +58,21 @@ IMPORT math
 ' The wind, surface temperature and precipitation fields from one forecast
 ' hour, and what to call the run on screen.
 TYPE Winds
-  east AS Field          ' UGRD: metres per second towards the east
-  north AS Field         ' VGRD: metres per second towards the north
+  east AS Field          ' UGRD: metres per second towards the east, 10 m up
+  north AS Field         ' VGRD: metres per second towards the north, 10 m up
+  east850 AS Field       ' UGRD at 850 millibars, about 1.5 km up
+  north850 AS Field      ' VGRD at 850 millibars
+  east250 AS Field       ' UGRD at 250 millibars, about 10 km up
+  north250 AS Field      ' VGRD at 250 millibars
   temperature AS Field   ' TMP: kelvin, two metres above the ground
   precipitation AS Field ' PRATE: kilograms of water per square metre per second
   label AS String
 END TYPE
+
+' The three heights the tracers ride at.
+ENUM Height
+  Surface, Mid, Jet
+END ENUM
 
 ' A wind, in the two directions it has.
 TYPE Vector
@@ -77,17 +98,25 @@ LET TRAIL_LENGTH AS Integer = 34
 ' else.
 LET PARTICLE_LIFE AS Integer = 190
 
-' One streamline - a leader and its follower - per this many square pixels of
-' window, within the bounds. The bounds count streamlines too, so the swarm
-' holds twice as many particles.
-LET PIXELS_PER_PARTICLE AS Float = 1100.0
+' One streamline - a leader and its follower - at the surface and at 850
+' millibars per this many square pixels of window, within the bounds, and a
+' third as many at 250 millibars. The bounds count streamlines at one height
+' too. With one height, a streamline per 1100 square pixels, between 250 and
+' 1600, was right; more heights at that density crowd the picture, so the two
+' lower ones get two thirds of it each.
+LET PIXELS_PER_PARTICLE AS Float = 1650.0
 
-LET MIN_PARTICLES AS Integer = 250
+LET MIN_PARTICLES AS Integer = 167
 
-LET MAX_PARTICLES AS Integer = 1600
+LET MAX_PARTICLES AS Integer = 1067
 
 ' Metres in a degree of latitude, and in a degree of longitude at the equator.
 LET METRES_PER_DEGREE AS Float = 111320.0
+
+' The jet stream's top colour speed: it routinely blows two or three times as
+' fast as FAST_WIND, so it gets a ramp of its own rather than going one flat
+' colour along its whole length.
+LET FAST_JET AS Float = 80.0
 
 ' The wind speed, in metres per second, that the colour ramp treats as its top.
 LET FAST_WIND AS Float = 32.0
@@ -131,8 +160,13 @@ FUNC sampleField(f AS Field, g AS Geo) AS Float
   RETURN top + (bottom - top) * fy
 END FUNC
 
-FUNC windAt(w AS Winds, g AS Geo) AS Vector
-  RETURN Vector[east := sampleField(w.east, g), north := sampleField(w.north, g)]
+' The wind at a place and height.
+FUNC windAt(w AS Winds, g AS Geo, h AS Height) AS Vector
+  MATCH h
+    CASE Height.Surface : RETURN Vector[east := sampleField(w.east, g), north := sampleField(w.north, g)]
+    CASE Height.Mid : RETURN Vector[east := sampleField(w.east850, g), north := sampleField(w.north850, g)]
+    CASE Height.Jet : RETURN Vector[east := sampleField(w.east250, g), north := sampleField(w.north250, g)]
+  END MATCH
 END FUNC
 
 ' The wind at a moment `mix` of the way from one forecast hour to the next, 0
@@ -140,10 +174,10 @@ END FUNC
 ' anything between two model outputs has to be guessed. At 0 the later hour is
 ' not read at all, which is every frame while the forecast is still stopped on
 ' a whole hour.
-FUNC windBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo) AS Vector
-  LET a AS Vector = windAt(earlier, g)
+FUNC windBetween(earlier AS Winds, later AS Winds, mix AS Float, g AS Geo, h AS Height) AS Vector
+  LET a AS Vector = windAt(earlier, g, h)
   IF mix <= 0.0 THEN RETURN a
-  LET b AS Vector = windAt(later, g)
+  LET b AS Vector = windAt(later, g, h)
   RETURN Vector[east := a.east + (b.east - a.east) * mix, north := a.north + (b.north - a.north) * mix]
 END FUNC
 
@@ -163,7 +197,10 @@ END FUNC
 ' nothing between them can touch the swarm.
 '
 ' Particles are stored in pairs: an even index is a leader, the odd index after
-' it is that leader's follower.
+' it is that leader's follower. The swarm is in three runs, one per height:
+' the surface from 0, 850 millibars from midStart and 250 millibars from
+' jetStart to the end. Each run is a whole number of pairs, so a pair never
+' straddles two heights.
 
 TYPE Particle
   lon AS Float
@@ -176,6 +213,13 @@ TYPE Particle
 END TYPE
 
 MUT swarm AS List OF Particle = []
+MUT midStart AS Integer = 0
+MUT jetStart AS Integer = 0
+
+' Which heights are on, surface first. Keys 1, 2 and 3 turn them on and off;
+' the program opens on the surface alone. A height that is off is neither moved
+' nor drawn.
+MUT shownHeights AS List OF Boolean = [TRUE, FALSE, FALSE]
 
 ' Trails, TRAIL_LENGTH points per particle, used as a ring buffer. They stay out
 ' of the Particle record: every particle advances on the same frame, so one
@@ -184,22 +228,26 @@ MUT swarm AS List OF Particle = []
 ' after another.
 '
 ' Each point is kept twice: as a place (trailLon/trailLat), and projected onto
-' the plane of a map centred on trailLon0 (trailX/trailY), which is what a frame
-' draws. Spinning the world re-projects the places once (reprojectTrails), so a
-' frame that did not spin costs no projection at all.
+' the plane of a map centred on trailLon0 and tilted to trailTilt
+' (trailX/trailY), which is what a frame draws. Spinning or tilting the world
+' re-projects the places once (reprojectTrails), so a frame that did neither
+' costs no projection at all.
 MUT trailLon AS List OF Float = []
 MUT trailLat AS List OF Float = []
 MUT trailX AS List OF Float = []
 MUT trailY AS List OF Float = []
 MUT trailHead AS Integer = 0
 MUT trailLon0 AS Float = 0.0
+MUT trailTilt AS Float = 0.0
 
-' Re-project every trail point for a map centred on lon0, when that has changed.
-FUNC reprojectTrails(lon0 AS Float) AS Nothing
-  IF lon0 = trailLon0 THEN RETURN
-  trailLon0 = lon0
+' Re-project every trail point for the view's spin and tilt, when either has
+' changed.
+FUNC reprojectTrails(v AS View) AS Nothing
+  IF v.lon0 = trailLon0 AND v.tilt = trailTilt THEN RETURN
+  trailLon0 = v.lon0
+  trailTilt = v.tilt
   FOR k = 0 TO len(trailLon) - 1
-    LET p AS Plane = project(Geo[lon := collections::get(trailLon, k), lat := collections::get(trailLat, k)], lon0)
+    LET p AS Plane = project(Geo[lon := collections::get(trailLon, k), lat := collections::get(trailLat, k)], trailLon0, trailTilt)
     trailX = collections::set(trailX, k, p.x)
     trailY = collections::set(trailY, k, p.y)
   NEXT
@@ -207,7 +255,7 @@ END FUNC
 
 ' Record point k of the trails: the place, and where it lands on today's map.
 FUNC setTrailPoint(k AS Integer, g AS Geo) AS Nothing
-  LET p AS Plane = project(g, trailLon0)
+  LET p AS Plane = project(g, trailLon0, trailTilt)
   trailLon = collections::set(trailLon, k, g.lon)
   trailLat = collections::set(trailLat, k, g.lat)
   trailX = collections::set(trailX, k, p.x)
@@ -218,10 +266,73 @@ FUNC particleCount AS Integer
   RETURN len(swarm)
 END FUNC
 
-' How many particles a window of this size should carry: two per streamline.
-FUNC countFor(v AS View) AS Integer
+' The height particle i rides at.
+FUNC heightOf(i AS Integer) AS Height
+  IF i >= jetStart THEN RETURN Height.Jet
+  IF i >= midStart THEN RETURN Height.Mid
+  RETURN Height.Surface
+END FUNC
+
+' The first particle of a height's run, and the one after its last.
+FUNC runStart(h AS Height) AS Integer
+  MATCH h
+    CASE Height.Surface : RETURN 0
+    CASE Height.Mid : RETURN midStart
+    CASE Height.Jet : RETURN jetStart
+  END MATCH
+END FUNC
+
+FUNC runEnd(h AS Height) AS Integer
+  MATCH h
+    CASE Height.Surface : RETURN midStart
+    CASE Height.Mid : RETURN jetStart
+    CASE Height.Jet : RETURN len(swarm)
+  END MATCH
+END FUNC
+
+' A height's place in shownHeights, and its number on the key.
+FUNC heightIndex(h AS Height) AS Integer
+  MATCH h
+    CASE Height.Surface : RETURN 0
+    CASE Height.Mid : RETURN 1
+    CASE Height.Jet : RETURN 2
+  END MATCH
+END FUNC
+
+FUNC isShown(h AS Height) AS Boolean
+  RETURN collections::get(shownHeights, heightIndex(h))
+END FUNC
+
+' Turn a height on or off. A height that comes back on has to start over: its
+' particles stood still while it was off, but the trails' shared write position
+' kept going round, so their rings no longer run in order. Each one is set at
+' the end of its life, and the next stepSwarm drops it somewhere new with a
+' fresh trail.
+FUNC toggleHeight(h AS Height) AS Nothing
+  LET on AS Boolean = NOT isShown(h)
+  shownHeights = collections::set(shownHeights, heightIndex(h), on)
+  IF NOT on THEN RETURN
+  FOR i = runStart(h) TO runEnd(h) - 1
+    swarm = collections::set(swarm, i, WITH collections::get(swarm, i) { age := collections::get(swarm, i).life })
+  NEXT
+END FUNC
+
+' How many streamlines a window of this size should carry at the surface, and
+' at 850 millibars.
+FUNC streamlinesFor(v AS View) AS Integer
   LET area AS Float = v.width * v.height
-  RETURN 2 * math::clamp(math::floor(area / PIXELS_PER_PARTICLE), MIN_PARTICLES, MAX_PARTICLES)
+  RETURN math::clamp(math::floor(area / PIXELS_PER_PARTICLE), MIN_PARTICLES, MAX_PARTICLES)
+END FUNC
+
+' How many at 250 millibars: a third as many.
+FUNC jetStreamlinesFor(v AS View) AS Integer
+  RETURN math::max(streamlinesFor(v) / 3, 1)
+END FUNC
+
+' How many particles a window of this size should carry: two per streamline, at
+' every height.
+FUNC countFor(v AS View) AS Integer
+  RETURN 2 * (2 * streamlinesFor(v) + jetStreamlinesFor(v))
 END FUNC
 
 ' A random Float in [0, 1).
@@ -235,10 +346,10 @@ END FUNC
 ' enough tries the middle of the view is used so that this always terminates.
 FUNC birthplace(v AS View) AS Geo
   FOR attempt = 1 TO 24
-    LET candidate AS Unprojected = unproject(toPlane(v, unitRandom() * v.width, unitRandom() * v.height), v.lon0)
+    LET candidate AS Unprojected = unproject(toPlane(v, unitRandom() * v.width, unitRandom() * v.height), v.lon0, v.tilt)
     IF candidate.inside AND math::abs(candidate.place.lat) < 88.0 THEN RETURN candidate.place
   NEXT
-  RETURN unproject(Plane[x := v.cx, y := v.cy], v.lon0).place
+  RETURN unproject(Plane[x := v.cx, y := v.cy], v.lon0, v.tilt).place
 END FUNC
 
 ' Put particle i at a place, with its whole trail collapsed onto that one point
@@ -249,7 +360,7 @@ FUNC placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer) AS N
 
   ' Every point of the trail starts where the particle does.
   LET base AS Integer = i * TRAIL_LENGTH
-  LET p AS Plane = project(g, trailLon0)
+  LET p AS Plane = project(g, trailLon0, trailTilt)
   trailLon = collections::repeat(trailLon, g.lon, TRAIL_LENGTH, base)
   trailLat = collections::repeat(trailLat, g.lat, TRAIL_LENGTH, base)
   trailX = collections::repeat(trailX, p.x, TRAIL_LENGTH, base)
@@ -295,16 +406,20 @@ FUNC respawnParticle(i AS Integer, v AS View) AS Nothing
   END IF
 END FUNC
 
-' Build a swarm of `count` particles - count / 2 leader and follower pairs -
-' scattered over the view. Called at startup and again whenever the window
-' changes size enough to want a different number.
-FUNC seedSwarm(count AS Integer, v AS View) AS Nothing
+' Build the swarm a view should carry (countFor) - leader and follower pairs,
+' in a run per height - scattered over it. Called at startup and again whenever
+' the window changes size enough to want a different number.
+FUNC seedSwarm(v AS View) AS Nothing
+  LET count AS Integer = countFor(v)
+  midStart = 2 * streamlinesFor(v)
+  jetStart = 4 * streamlinesFor(v)
   swarm = []
   trailLon = []
   trailLat = []
   trailX = []
   trailY = []
   trailLon0 = v.lon0
+  trailTilt = v.tilt
   trailHead = 0
 
   LET unplaced AS Particle = Particle[lon := 0.0, lat := 0.0, age := 0, life := 0, speed := 0.0, startLon := 0.0, startLat := 0.0]
@@ -345,6 +460,7 @@ FUNC stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, zoom A
   LET baseDrift AS Float = DRIFT_RATE * dt / safeZoom
 
   FOR i = 0 TO count - 1
+    IF NOT isShown(heightOf(i)) THEN CONTINUE FOR
     LET age AS Integer = collections::get(swarm, i).age + 1
     IF age <= 0 THEN
       ' A follower still waiting for its leader to get half a life ahead.
@@ -360,7 +476,7 @@ FUNC stepSwarm(earlier AS Winds, later AS Winds, mix AS Float, v AS View, zoom A
     ' Get, update, set back: nothing in between writes the swarm, so the
     ' particle is changed where it stands rather than copied out and back.
     MUT p AS Particle = collections::get(swarm, i)
-    LET wind AS Vector = windBetween(earlier, later, mix, Geo[lon := p.lon, lat := p.lat])
+    LET wind AS Vector = windBetween(earlier, later, mix, Geo[lon := p.lon, lat := p.lat], heightOf(i))
     LET speed AS Float = speedOf(wind)
     LET windProgress AS Float = math::clamp((speed - 10.0) / (MAX_BOOST_WIND - 10.0), 0.0, 1.0)
     LET drift AS Float = baseDrift * (1.0 + 7.0 * zoomProgress * windProgress)
@@ -381,18 +497,101 @@ END FUNC
 ' The colour of a particle moving at `speed`, from a cool slow blue through to a
 ' warm fast cream. The ramp is square-rooted because most of the atmosphere is
 ' slow: on a linear ramp almost every particle on the map would be the same
-' blue, and only the jet streams would carry any colour at all.
-FUNC speedColor(speed AS Float) AS color::Color
+' blue, and only the jet streams would carry any colour at all. Each height
+' above the surface has a ramp of its own, so the heights can be told apart
+' where their trails cross: 850 millibars a dusky violet through to a bright
+' pink, and the jet streams a pale grey-blue through to white, over FAST_JET.
+FUNC speedColor(speed AS Float, h AS Height) AS color::Color
+  IF h = Height.Jet THEN
+    LET j AS Float = math::sqrt(math::clamp(speed / FAST_JET, 0.0, 1.0))
+    RETURN color::rgb(200 + math::floor(j * 55.0), 210 + math::floor(j * 45.0), 225 + math::floor(j * 30.0))
+  END IF
   LET t AS Float = math::sqrt(math::clamp(speed / FAST_WIND, 0.0, 1.0))
+  IF h = Height.Mid THEN RETURN color::rgb(170 + math::floor(t * 85.0), 110 + math::floor(t * 50.0), 200 + math::floor(t * 30.0))
   RETURN color::rgb(120 + math::floor(t * 135.0), 170 + math::floor(t * 70.0), 215 - math::floor(t * 55.0))
+END FUNC
+
+' How strongly a height's trails are drawn: the surface in full, and fainter
+' the higher up.
+FUNC heightOpacity(h AS Height) AS Float
+  MATCH h
+    CASE Height.Surface : RETURN 1.0
+    CASE Height.Mid : RETURN 0.4
+    CASE Height.Jet : RETURN 0.25
+  END MATCH
+END FUNC
+
+' What the wind key calls each height, numbered from the ground up.
+FUNC heightName(h AS Height) AS String
+  MATCH h
+    CASE Height.Surface : RETURN "Ground \u{00B7} 10 m"
+    CASE Height.Mid : RETURN "Mid range \u{00B7} 1.5 km"
+    CASE Height.Jet : RETURN "Jet stream \u{00B7} 10 km"
+  END MATCH
+END FUNC
+
+' The wind key, in a panel whose top left corner is at (left, top), drawn at a
+' text size of `size`, like the temperature and precipitation keys: a title
+' over one numbered row per height, from the ground up, the number being the key
+' that turns that height on and off. Each row's colour block runs from that
+' height's still-air colour to its fastest, so it is the speed scale for that
+' height's trails too. A height that is off has its row dimmed.
+FUNC windKey(face AS canvas::Font, size AS Float, left AS Float, top AS Float) AS List OF canvas::DrawItem
+  LET heights AS List OF Height = [Height.Surface, Height.Mid, Height.Jet]
+  LET title AS String = "Wind"
+  LET titleSize AS Float = size * 1.05
+  LET labelSize AS Float = size * 0.95
+  LET pad AS Float = size * 0.9
+  LET gap AS Float = size * 0.6
+  LET blockWidth AS Float = size * 2.2
+  LET blockHeight AS Float = size * 0.8
+  LET rowSpacing AS Float = size * 2.0
+
+  LET numberWidth AS Float = canvas::measureText(face, labelSize, "3").width
+  MUT widest AS Float = 0.0
+  FOR EACH h IN heights
+    widest = math::max(widest, canvas::measureText(face, labelSize, heightName(h)).width)
+  NEXT
+  LET titleWidth AS Float = canvas::measureText(face, titleSize, title).width
+  LET width AS Float = math::max(titleWidth, numberWidth + gap + blockWidth + gap + widest) + pad * 2.0
+
+  LET dividerY AS Float = top + pad + titleSize * 1.15
+  LET firstRow AS Float = dividerY + pad + rowSpacing * 0.5
+  LET height AS Float = firstRow + rowSpacing * (toFloat(len(heights)) - 0.5) + pad - top
+
+  MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
+  LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
+  items = collections::append(items, [heading, divider])
+
+  LET numberX AS Float = left + pad
+  LET blockX AS Float = numberX + numberWidth + gap
+  LET nameX AS Float = blockX + blockWidth + gap
+  FOR k = 0 TO len(heights) - 1
+    LET h AS Height = collections::get(heights, k)
+    LET middle AS Float = firstRow + rowSpacing * toFloat(k)
+    LET textY AS Float = middle + labelSize * 0.35
+    MUT alpha AS Integer = 255
+    IF NOT isShown(h) THEN alpha = 70
+    LET slow AS color::Color = color::withAlpha(speedColor(0.0, h), alpha)
+    LET fast AS color::Color = color::withAlpha(speedColor(FAST_JET, h), alpha)
+    LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := blockX, y := 0.0], endPoint := canvas::Point[x := blockX + blockWidth, y := 0.0], stops := [canvas::GradientStop[offset := 0.0, color := slow], canvas::GradientStop[offset := 1.0, color := fast]]]
+    LET number AS canvas::DrawItem = canvas::Text[x := numberX, y := textY, text := toString(heightIndex(h) + 1), font := face, size := labelSize, paint := canvas::fill(color::withAlpha(KEY_TITLE_COLOR, alpha))]
+    LET block AS canvas::DrawItem = canvas::RoundedRect[x := blockX, y := middle - blockHeight / 2.0, w := blockWidth, h := blockHeight, cornerRadius := blockHeight / 2.0, paint := WITH canvas::fill(slow) { fillGradient := ramp }]
+    LET name AS canvas::DrawItem = canvas::Text[x := nameX, y := textY, text := heightName(h), font := face, size := labelSize, paint := canvas::fill(color::withAlpha(KEY_LABEL_COLOR, alpha))]
+    items = collections::append(items, [number, block, name])
+  NEXT
+
+  RETURN items
 END FUNC
 
 ' The colour of a trail's k-th newest point: the particle's tint, fading from
 ' nearly opaque at the head towards faint at the tail, so a particle reads as
 ' having a head and a direction rather than as a worm of even brightness.
-FUNC trailPointColor(tint AS color::Color, k AS Integer, segments AS Integer) AS color::Color
+' `strength` scales the whole fade, 1.0 for a surface trail.
+FUNC trailPointColor(tint AS color::Color, k AS Integer, segments AS Integer, strength AS Float) AS color::Color
   LET fade AS Float = 1.0 - toFloat(k) / toFloat(segments)
-  RETURN color::withAlpha(tint, 2 + math::floor(fade * fade * fade * 233.0))
+  RETURN color::withAlpha(tint, 2 + math::floor(fade * fade * fade * 233.0 * strength))
 END FUNC
 
 ' One run of a trail, as the PolyLine that draws it.
@@ -412,6 +611,9 @@ END FUNC
 ' off screen, and one that spans more than half the map, which is what the
 ' antimeridian looks like when a particle crosses it and its longitude wraps.
 ' A particle younger than its trail has only that much history to draw.
+'
+' The heights are drawn from the top down, each at its heightOpacity, so the
+' surface trails lie over the rest.
 FUNC trailItems(v AS View) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = []
   LET count AS Integer = particleCount()
@@ -422,42 +624,47 @@ FUNC trailItems(v AS View) AS List OF canvas::DrawItem
   LET box AS Box = viewBox(v, 0.02)
   LET wrapLimit AS Float = PLANE_HALF_WIDTH
 
-  FOR i = 0 TO count - 1
-    LET age AS Integer = collections::get(swarm, i).age
-    IF age < 1 THEN CONTINUE FOR
-    LET base AS Integer = i * trail
-    LET drawable AS Integer = math::min(segments, age)
-    LET tint AS color::Color = speedColor(collections::get(swarm, i).speed)
-    MUT run AS List OF canvas::Point = []
-    MUT colors AS List OF color::Color = []
+  FOR EACH h IN [Height.Jet, Height.Mid, Height.Surface]
+    IF NOT isShown(h) THEN CONTINUE FOR
+    LET strength AS Float = heightOpacity(h)
 
-    FOR k = 0 TO drawable - 1
-      ' Slot (trailHead - k) is the k-th most recent point; the + trail keeps
-      ' the subtraction positive before it is folded back into the ring.
-      LET newer AS Integer = base + ((trailHead - k + trail) MOD trail)
-      LET older AS Integer = base + ((trailHead - k - 1 + trail) MOD trail)
-      LET ax AS Float = collections::get(trailX, newer)
-      LET ay AS Float = collections::get(trailY, newer)
-      LET bx AS Float = collections::get(trailX, older)
-      LET by AS Float = collections::get(trailY, older)
+    FOR i = runStart(h) TO runEnd(h) - 1
+      LET age AS Integer = collections::get(swarm, i).age
+      IF age < 1 THEN CONTINUE FOR
+      LET base AS Integer = i * trail
+      LET drawable AS Integer = math::min(segments, age)
+      LET tint AS color::Color = speedColor(collections::get(swarm, i).speed, h)
+      MUT run AS List OF canvas::Point = []
+      MUT colors AS List OF color::Color = []
 
-      MUT skip AS Boolean = math::abs(ax - bx) > wrapLimit
-      IF NOT skip THEN skip = NOT overlaps(Box[minX := math::min(ax, bx), minY := math::min(ay, by), maxX := math::max(ax, bx), maxY := math::max(ay, by)], box)
-      IF skip THEN
-        IF len(run) >= 2 THEN items = collections::append(items, trailPath(run, colors, tint))
-        run = []
-        colors = []
-        CONTINUE FOR
-      END IF
+      FOR k = 0 TO drawable - 1
+        ' Slot (trailHead - k) is the k-th most recent point; the + trail keeps
+        ' the subtraction positive before it is folded back into the ring.
+        LET newer AS Integer = base + ((trailHead - k + trail) MOD trail)
+        LET older AS Integer = base + ((trailHead - k - 1 + trail) MOD trail)
+        LET ax AS Float = collections::get(trailX, newer)
+        LET ay AS Float = collections::get(trailY, newer)
+        LET bx AS Float = collections::get(trailX, older)
+        LET by AS Float = collections::get(trailY, older)
 
-      IF len(run) = 0 THEN
-        run = collections::append(run, toScreen(v, Plane[x := ax, y := ay]))
-        colors = collections::append(colors, trailPointColor(tint, k, segments))
-      END IF
-      run = collections::append(run, toScreen(v, Plane[x := bx, y := by]))
-      colors = collections::append(colors, trailPointColor(tint, k + 1, segments))
+        MUT skip AS Boolean = math::abs(ax - bx) > wrapLimit
+        IF NOT skip THEN skip = NOT overlaps(Box[minX := math::min(ax, bx), minY := math::min(ay, by), maxX := math::max(ax, bx), maxY := math::max(ay, by)], box)
+        IF skip THEN
+          IF len(run) >= 2 THEN items = collections::append(items, trailPath(run, colors, tint))
+          run = []
+          colors = []
+          CONTINUE FOR
+        END IF
+
+        IF len(run) = 0 THEN
+          run = collections::append(run, toScreen(v, Plane[x := ax, y := ay]))
+          colors = collections::append(colors, trailPointColor(tint, k, segments, strength))
+        END IF
+        run = collections::append(run, toScreen(v, Plane[x := bx, y := by]))
+        colors = collections::append(colors, trailPointColor(tint, k + 1, segments, strength))
+      NEXT
+      IF len(run) >= 2 THEN items = collections::append(items, trailPath(run, colors, tint))
     NEXT
-    IF len(run) >= 2 THEN items = collections::append(items, trailPath(run, colors, tint))
   NEXT
 
   RETURN items

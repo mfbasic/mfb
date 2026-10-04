@@ -5,7 +5,7 @@
 //! its own size. A block whose size never recurred stayed parked until the arena was
 //! destroyed, so a program whose large sizes vary mapped memory in proportion to the
 //! sum of the sizes it had freed, not to its live data — `canvas::present` of a scene
-//! whose item count changed every frame reached 13 GB (`examples/wind`).
+//! whose item count changed every frame reached 13 GB (`examples/weather`).
 //!
 //! **What these tests measure.** `mapped_bytes` and `peak_live_bytes` from the
 //! `--debug` report (plan-130-C): exact counts of the bytes the arena mapped and the

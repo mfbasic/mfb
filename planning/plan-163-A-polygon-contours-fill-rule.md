@@ -213,7 +213,7 @@ computation. The reflex word is exactly the word this plan overrides for polygon
 | of which `tests/canvas/scenes/*.mfb` | 32 in 15 files | same grep, `\| cut -d: -f1 \| sort \| uniq -c` |
 | of which Rust tests (`rt_canvas_rasteriser` 6, `rt_canvas_metal` 5, `rt_canvas_golden` 3, `cli_canvas_package` 1, `rt_canvas_present_deep_copy` 1) | 16 | same |
 | of which scripts/tools (`scripts/test-canvas-vulkan.sh` 3, `scripts/test-macapp.sh` 1, `tools/canvas-bench/gen/{worker,stress,poly}.sh` 3, `tests/runtime/inplace_self_update/field_kinds.tsv` 1, `field_kinds_gen.py` 1) | 9 | same |
-| of which examples (`examples/water/src/shapes.mfb` 2, `examples/wind/src/{timeline,main,land}.mfb` 3, `examples/swat/canvas/src/main.mfb` 1) | 6 | same |
+| of which examples (`examples/water/src/shapes.mfb` 2, `examples/weather/src/{timeline,main,land}.mfb` 3, `examples/swat/canvas/src/main.mfb` 1) | 6 | same |
 | of which planning/bug docs (historical — **not migrated**) | 6 | same |
 | of which `src/` | 0 | `grep -rn "canvas::Polygon\[" src/ \| wc -l` |
 | Polygon `p.points` reads in MFBASIC helpers | 9 (all `helper_geometry.rs`: 607, 612, 619, 1083, 1084, 1298, 1299, 1408, 1409) | `grep -rn "p\.points" src/codegen/builtins/canvas` → 16, minus 7 PolyLine |

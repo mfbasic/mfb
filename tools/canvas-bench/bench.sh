@@ -11,7 +11,7 @@
 #   poly N [tag]
 #   pics TILES TILE_PX BG_W BG_H
 #   text LINES COLS SIZE
-#   wind [window_secs]
+#   weather [window_secs]
 #   worker
 #   compare stress|poly|pics|text ARGS...
 #
@@ -537,31 +537,31 @@ cmd_text() {
 }
 
 # ---------------------------------------------------------------------------
-# wind
+# weather
 # ---------------------------------------------------------------------------
-# wind quits at the end of its input (`readKey` turns EOF into Quit), and a background
+# weather quits at the end of its input (`readKey` turns EOF into Quit), and a background
 # job's stdin is /dev/null, so launched plainly it draws one frame and exits. Its stdin
 # is therefore a FIFO this side holds open for writing: reads block, never EOF.
-cmd_wind() {
+cmd_weather() {
   local window=${1:-20}
-  local dir="$WORK/wind"
-  cp -R "$REPO_ROOT/examples/wind" "$dir"
+  local dir="$WORK/weather"
+  cp -R "$REPO_ROOT/examples/weather" "$dir"
   rm -rf "$dir/build"
   if [ -n "$LINUX_TARGET" ]; then
     build_app "$dir" --debug
     local rdir; rdir=$(remote_dir_of "$dir")
     local rstats="$rdir/stats"
     # `;`, not `&&`, before `setsid`: a `&` after an AND-list backgrounds the whole list,
-    # whose shell keeps this ssh session's stdout open until wind exits.
-    ssh_box "cd '$rdir' && rm -f stdin.fifo; mkfifo stdin.fifo; setsid sh -c 'exec 3<>stdin.fifo; exec env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$rstats ./squashfs-root/usr/bin/wind <&3' >run.log 2>&1 </dev/null & disown; true"
+    # whose shell keeps this ssh session's stdout open until weather exits.
+    ssh_box "cd '$rdir' && rm -f stdin.fifo; mkfifo stdin.fifo; setsid sh -c 'exec 3<>stdin.fifo; exec env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$rstats ./squashfs-root/usr/bin/weather <&3' >run.log 2>&1 </dev/null & disown; true"
     local waited=0
     local rlines
     rlines=$(ssh_box "wc -l < '$rstats' 2>/dev/null || echo 0" | tr -d ' ')
     until [ "${rlines:-0}" -ge 2 ] 2>/dev/null; do
       sleep 1; waited=$((waited + 1))
       if [ "$waited" -ge 150 ]; then
-        ssh_box "pkill -f squashfs-root/usr/bin/wind" >/dev/null 2>&1 || true
-        die "wind: no second (first map) frame after 150s"
+        ssh_box "pkill -f squashfs-root/usr/bin/weather" >/dev/null 2>&1 || true
+        die "weather: no second (first map) frame after 150s"
       fi
       rlines=$(ssh_box "wc -l < '$rstats' 2>/dev/null || echo 0" | tr -d ' ')
     done
@@ -570,7 +570,7 @@ cmd_wind() {
     sleep "$window"
     local b; b=$(ssh_box "wc -l < '$rstats' 2>/dev/null || echo 0" | tr -d ' ')
     local lb; lb=$(ssh_box "sed -n '${b}p' '$rstats'")
-    ssh_box "pkill -f squashfs-root/usr/bin/wind" >/dev/null 2>&1 || true
+    ssh_box "pkill -f squashfs-root/usr/bin/weather" >/dev/null 2>&1 || true
     local frames=$((b - a))
     local fps; fps=$(awk -v f="$frames" -v w="$window" 'BEGIN{printf "%.2f", f/w}')
     echo "waited ${waited}s for first map frame; frames in ${window}s window = $frames (fps=$fps)"
@@ -578,7 +578,7 @@ cmd_wind() {
     echo "  end:   $(echo "$lb" | grep -oE '(gpuFrames|blocks|generations|spike[A-Za-z]+|phase[A-Za-z]+)=[0-9.]+' | tr '\n' ' ')"
   else
     build_app "$dir" --debug
-    local bin; bin=$(bin_path "$dir" wind)
+    local bin; bin=$(bin_path "$dir" weather)
     local stats="$dir/stats"
     mkfifo "$dir/stdin.fifo"
     exec 3<>"$dir/stdin.fifo"
@@ -589,7 +589,7 @@ cmd_wind() {
       sleep 1; waited=$((waited + 1))
       if [ "$waited" -ge 150 ]; then
         kill "$pid" 2>/dev/null || true
-        die "wind: no second (first map) frame after 150s"
+        die "weather: no second (first map) frame after 150s"
       fi
     done
     local a; a=$(wc -l < "$stats" | tr -d ' ')
@@ -711,7 +711,7 @@ case "$CMD" in
   poly) cmd_poly "$@" ;;
   pics) cmd_pics "$@" ;;
   text) cmd_text "$@" ;;
-  wind) cmd_wind "$@" ;;
+  weather) cmd_weather "$@" ;;
   worker) cmd_worker "$@" ;;
   compare) cmd_compare "$@" ;;
   *) usage ;;

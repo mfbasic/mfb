@@ -177,9 +177,9 @@ compare shows only antialiasing noise (max delta ≤ a couple of levels). At
 HEAD, a terminal-sized screen (say 120×36 at 16 px, 4,320 glyphs) exceeds the
 4,096-quad frame cap and falls to software.
 
-### `wind [window_secs]`
+### `weather [window_secs]`
 
-Builds `examples/wind` unmodified into a temp copy, runs it headless, waits
+Builds `examples/weather` unmodified into a temp copy, runs it headless, waits
 (up to 150 s) for its second stats line — the first frame after the map
 appears, since the fetch screen can take ~30 s on a cold cache — then counts
 frames over the next `window_secs` (default 20). Prints `gpuFrames`/`blocks`
@@ -224,11 +224,11 @@ or a max delta near 255 means one renderer drew something the other didn't
 ## 60 fps target rows (bug-686's Goal)
 
 These are what bug-686 is judged on. None hold at HEAD; they're listed here
-so a later `sweep`/`wind` run can be checked against them directly.
+so a later `sweep`/`weather` run can be checked against them directly.
 
 | target | row | status at HEAD |
 | --- | --- | --- |
-| **G3** | `wind` unmodified, `gpuFrames = frames`, 60 fps | not met: ~0.05 fps, software (section A) |
+| **G3** | `weather` unmodified, `gpuFrames = frames`, 60 fps | not met: ~0.05 fps, software (section A) |
 | **G5** | `sweep`, ~10,000 moving items, 60 fps on Metal | not met: 10,000×4 is declined to software (section B) |
 | **G1/G5** | `compare stress 1 8 R=300 CX=450 CY=320` (or `poly` at 64,000 edges), Metal render ≤16 ms | not met: a 64k-edge polygon costs ~252 ms of GPU time alone (section E); `bench.sh` reports pixel agreement, not GPU time — cross-reference section E/G's numbers in the bug doc for the ms figure until a GPU-time field lands in the stats line |
 | **G1b** | `pics`, thousands of tiles from a handful of images, 60 fps | not met: >1,024 tiles or a ~1 Mpx background is declined (section H) |
