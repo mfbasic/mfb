@@ -177,7 +177,6 @@ impl CodeBuilder<'_> {
             .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
                 type_,
                 stack_offset: slot,
-                closure_captures: None,
                 capacity_slot: None,
                 loop_alias_slot: None,
                 result_wrapper: None,
