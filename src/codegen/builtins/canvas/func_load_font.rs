@@ -40,7 +40,14 @@ would exceed 8192 pixels a side or 16,777,216 pixels draws nothing.
 on every platform, so a program that ships its font file looks the same everywhere.
 To use a font already installed on the machine instead, pick a name from
 `canvas::listSystemFonts` and load it with `canvas::loadSystemFont` — convenient,
-but the result depends on the fonts that machine has."#;
+but the result depends on the fonts that machine has.
+
+**Reading the file.** A `path` that does not exist raises `ErrPathNotFound`; one
+whose directory component does not exist, or that is otherwise malformed, raises
+`ErrInvalidPath`; one the program lacks permission to read raises
+`ErrAccessDenied`; a `path` that is empty or carries an embedded NUL byte raises
+`ErrInvalidArgument`; and a read that fails for any other reason raises
+`ErrReadFailed`. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT app
@@ -389,7 +396,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::named(super::FONT_TYPE_ID),
-                errors: vec!["ErrBadFontFile", "ErrPathNotFound", "ErrOutOfMemory"],
+                errors: vec![
+                    "ErrAccessDenied",
+                    "ErrBadFontFile",
+                    "ErrInvalidArgument",
+                    "ErrInvalidPath",
+                    "ErrOutOfMemory",
+                    "ErrPathNotFound",
+                    "ErrReadFailed",
+                ],
                 body: Body::mfb(LOAD_FONT, "__canvas_loadFont"),
             },
             Implementation {
@@ -412,10 +427,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::named(super::FONT_TYPE_ID),
                 errors: vec![
+                    "ErrAccessDenied",
                     "ErrBadFontFile",
+                    "ErrInvalidArgument",
+                    "ErrInvalidPath",
                     "ErrNotFound",
-                    "ErrPathNotFound",
                     "ErrOutOfMemory",
+                    "ErrPathNotFound",
+                    "ErrReadFailed",
                 ],
                 body: Body::mfb(LOAD_FONT_NAMED, "__canvas_loadFontNamed"),
             },

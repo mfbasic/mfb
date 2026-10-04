@@ -32,7 +32,9 @@ property that matters more than absolute typographic fidelity.
 A font with no `head` table measures as all zeroes rather than failing. A closed
 font is different: measuring it raises `ErrResourceClosed`. Text already in a
 presented scene still draws (as nothing) after its font is closed; only
-measurement needs the font open."#;
+measurement needs the font open.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT app
@@ -192,7 +194,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named("TextMetrics"),
-            errors: vec!["ErrResourceClosed"],
+            errors: vec!["ErrResourceClosed", "ErrOutOfMemory"],
             body: Body::mfb(MEASURE_TEXT, "__canvas_measureText"),
         }],
     });

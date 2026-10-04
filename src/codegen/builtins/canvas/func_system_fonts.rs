@@ -67,6 +67,14 @@ The installed fonts are read once, the first time a program asks, as
 `canvas::listSystemFonts` describes; loading a second font does not ask the
 operating system again.
 
+**Reading the file.** Loading proceeds exactly as `canvas::loadFont` does once
+the installed path is known, so the same read failures apply: a path the
+program lacks permission to read raises `ErrAccessDenied`; one whose directory
+component does not exist, or that is otherwise malformed, raises
+`ErrInvalidPath`; a path that is empty or carries an embedded NUL byte raises
+`ErrInvalidArgument`; and a read that fails for any other reason raises
+`ErrReadFailed`.
+
 Text drawn in a system font depends on the machine: the same name can be a different
 file, or a different version of the same file, somewhere else. When the text must
 look identical everywhere, ship the font file with the program and use
@@ -320,10 +328,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::named(super::FONT_TYPE_ID),
             errors: vec![
-                "ErrNotFound",
+                "ErrAccessDenied",
                 "ErrBadFontFile",
-                "ErrPathNotFound",
+                "ErrInvalidArgument",
+                "ErrInvalidPath",
+                "ErrNotFound",
                 "ErrOutOfMemory",
+                "ErrPathNotFound",
+                "ErrReadFailed",
             ],
             body: Body::mfb(LOAD_SYSTEM_FONT, "__canvas_loadSystemFont"),
         }],

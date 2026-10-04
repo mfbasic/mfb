@@ -35,7 +35,10 @@ scene still names is safe: that item draws nothing, and the frame is unaffected.
 installed scene does not keep an image open — closing it is still yours to do, and
 still takes effect immediately.
 
-Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`.
+
+A reading of the clock `present` times itself against whose nanosecond count does
+not fit an `Integer` raises `ErrOverflow`."#;
 
 const EX: &str = r#"A yellow face with green eyes and a smile. Note that each item is bound first —
 a list literal does not span source lines:
@@ -180,7 +183,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             // descend" — describes a group cycle exactly, and the caller's response is
             // the same one it names: raise the limit or fix the structure. A
             // canvas-specific twin would be a second code for one mistake.
-            errors: vec!["ErrWrongMode", "ErrDepthExceeded", "ErrOutOfMemory"],
+            errors: vec![
+                "ErrWrongMode",
+                "ErrDepthExceeded",
+                "ErrOutOfMemory",
+                "ErrOverflow",
+            ],
             body: Body::mfb(BODY, "__canvas_present"),
         }],
     });

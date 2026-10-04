@@ -37,7 +37,10 @@ is still below `pps`, you are presenting faster than frames are drawn, and the
 presents in between are never shown.
 
 Calling `getFrameStats` never causes a frame, and it works in any presentation
-mode. Before the first `present` every count is `0`."#;
+mode. Before the first `present` every count is `0`.
+
+A reading of the clock `getFrameStats` times itself against whose nanosecond
+count does not fit an `Integer` raises `ErrOverflow`."#;
 
 const EX: &str = r#"An animation loop that moves a square by the time that has actually passed, so it
 travels at the same speed whatever the frame rate, and reports its rates at the end:
@@ -150,7 +153,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::named("FrameStats"),
-            errors: vec!["ErrOutOfMemory"],
+            errors: vec!["ErrOutOfMemory", "ErrOverflow"],
             body: Body::mfb(BODY.as_str(), "__canvas_getFrameStats"),
         }],
     });

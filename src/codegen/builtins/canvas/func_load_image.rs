@@ -32,7 +32,14 @@ past, and the pixels arrive as the file stores them.
 A program that already has pixels — generated, or decoded by itself — wants
 `canvas::createImage` instead; `loadImage` is that call with a decoder in front of it.
 
-Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`.
+
+**Reading the file.** A `path` that does not exist raises `ErrPathNotFound`; one
+whose directory component does not exist, or that is otherwise malformed, raises
+`ErrInvalidPath`; one the program lacks permission to read raises
+`ErrAccessDenied`; a `path` that is empty or carries an embedded NUL byte raises
+`ErrInvalidArgument`; and a read that fails for any other reason raises
+`ErrReadFailed`. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT app
@@ -94,9 +101,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::named(super::IMAGE_TYPE_ID),
             errors: vec![
+                "ErrAccessDenied",
                 "ErrBadImageFile",
                 "ErrBadPixelCount",
+                "ErrInvalidArgument",
+                "ErrInvalidPath",
                 "ErrOutOfMemory",
+                "ErrPathNotFound",
+                "ErrReadFailed",
                 "ErrWrongMode",
             ],
             body: Body::mfb(LOAD_IMAGE, "__canvas_loadImage"),

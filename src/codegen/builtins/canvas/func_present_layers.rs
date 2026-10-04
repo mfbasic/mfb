@@ -28,7 +28,11 @@ A scene is either flat or layered, never both — installing one shape replaces 
 other. Use `canvas::present` when there is nothing to separate; a single-layer
 `presentLayers` is the same picture, and the flat form says so more directly.
 
-Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`.
+
+A reading of the clock `presentLayers` times itself against whose nanosecond
+count does not fit an `Integer` raises `ErrOverflow`. `ErrOutOfMemory` means the
+program ran out of memory."#;
 
 const EX: &str = r#"A static backdrop under a moving marker, so redrawing the marker leaves the
 backdrop's geometry untouched:
@@ -87,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrWrongMode"],
+            errors: vec!["ErrWrongMode", "ErrOutOfMemory", "ErrOverflow"],
             body: Body::mfb(BODY, "__canvas_presentLayers"),
         }],
     });

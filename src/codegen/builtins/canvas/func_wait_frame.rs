@@ -30,7 +30,9 @@ interval. Read the step to advance your animation by from `canvas::getFrameStats
 which is the actual time between your last two presents — do not assume one interval
 passed, because a slow frame takes longer.
 
-Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"A square sliding across the window at 100 pixels a second, whatever the display's
 refresh rate. The step is clamped so that one long pause does not make it jump:
@@ -84,7 +86,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrWrongMode"],
+            errors: vec!["ErrWrongMode", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__canvas_waitFrame"),
         }],
     });
