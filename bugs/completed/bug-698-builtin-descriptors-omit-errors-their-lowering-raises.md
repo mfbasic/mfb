@@ -5,10 +5,8 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (documentation correctness)
 
-Status: Open — native-body sweep DONE (2026-09-27): every package's native lowering is guarded (`declared_errors_all.rs`, 53 guards green; full suite 251/0, artifact gate 0 diffs; siblings 641/722/724/727/731 fixed and archived). bug-645's `sum` row: DONE — already landed at this HEAD (`f6f1cb561`, an ancestor; `errors: vec!["ErrFloatOverflow", "ErrFloatNaN"]` on the `Float` overload, `src/codegen/builtins/collections/func_sum.rs:115`). Phase 1's `Body::Mfb` guard: DONE (2026-10-03) — `src/codegen/builtins/tests/mfb_body_declared_errors.rs` scans every `Body::Mfb` member's source for its own `FAIL error(<code>, …)` sites plus every call it makes (a qualified `pkg::name(` call trusts that member's own declared `errors`; a bare `__name(` call to a package-private `RegistryHelper` is inlined and scanned recursively). It runs clean of classification failures (every call across the whole registry resolves) and measures 211 `Body::Mfb` members total; it currently **fails** as Phase 1's acceptance requires, listing the 136 of those 211 whose declared `errors` differ from what the scan finds (the other 75 already declare exactly what the scan finds — mostly members with no `FAIL` and no error-bearing callee at all). The 136 are recorded below. **REMAINING: Phase 2** — fill `errors` and align prose for those 136 members across 15 packages (`astrings`, `audio`, `canvas`, `color`, `csv`, `json`, `regex`, `datetime`, `encoding`, `collections`, `crypto`, `net`, `http`, `vector`). This is its own large effort: the guard's propagation is function-level (not per-overload — the same coarseness bug-645 already flagged for the native sweep), so several of the 136 findings are an overload mismatch rather than a real gap (e.g. `collections::sort`'s reported `ErrNotFound` comes only from `collections::get`'s unrelated map overload; `sort`'s own calls are the list overload, which cannot raise it) and need the same `unreachable_via_callee`-style evidence `declared_errors_all.rs` uses before touching a descriptor, not a mechanical copy of the scan's output. Owner decision 2026-09-25 stands: every function must list every error it can
-produce.** That includes `ErrOutOfMemory` on every member that can raise it, and the
-`Body::Mfb` members' `FAIL` codes. Land after bug-702 and bug-701, which change raise sets (both landed; see `bugs/completed/`).
-Regression Test: extend `src/codegen/builtins/tests/fs_declared_errors.rs` from `fs` to every package (Phase 1); `src/codegen/builtins/tests/mfb_body_declared_errors.rs` (Phase 1, `Body::Mfb`)
+Status: FIXED (2026-10-03). Native-body sweep DONE (2026-09-27): every package's native lowering is guarded (`declared_errors_all.rs`, 53 guards green). bug-645's `sum` row: DONE — landed at an ancestor HEAD (`f6f1cb561`). `Body::Mfb` guard (`src/codegen/builtins/tests/mfb_body_declared_errors.rs`): DONE — added, made `TRAP`-aware (spec `08_error-model.md` §8.3/§8.4: a function-level or inline `TRAP` absorbs what it catches; only the handler's own raise, or the trapped set again under `PROPAGATE`, escapes), and every one of the 136 `Body::Mfb` members it originally flagged now has its descriptor `errors` filled from its real source (one genuine body bug fixed along the way — see Resolution) or its guard-visible false-positive recorded in `UNREACHABLE_VIA_CALLEE`/`DECLARED_EXTRA`, both keyed by `(package, member, code)` so a bare name can never collide across packages that share one (`datetime::parse`/`csv::parse`/`json::parse`). The guard now asserts a plain `is_empty()`, the same bar `declared_errors_all.rs` holds every native member to — no ratchet, no baseline.
+Regression Test: extend `src/codegen/builtins/tests/fs_declared_errors.rs` from `fs` to every package (Phase 1, native); `src/codegen/builtins/tests/mfb_body_declared_errors.rs` (Phase 1, `Body::Mfb`)
 
 bug-694 found that every `fs` descriptor declared `errors: vec![]`, so no `fs`
 man page had an Errors table. Its Phase 1 audit ran the same measurement on every
@@ -343,25 +341,35 @@ from zero on every one of these 136 members, not a partial list.
 
 ### Phase 2: descriptors and prose, package by package
 
-- [ ] Fill `errors` and align prose; `scripts/man-census.sh --memory-scope`,
-      `--scope`, and `scripts/man-run-examples.sh <pkg> --run` per package.
-      Also covers the native-sweep `errors:` vectors; the `Body::Mfb` half is
-      the 136-member list Phase 1 recorded above, in
-      `src/codegen/builtins/tests/mfb_body_declared_errors.rs`'s
-      `PHASE_1_BASELINE` — remove each member's entry there as its descriptor
-      and prose are fixed (never edit an entry in place; see that const's own
-      doc comment on re-deriving each one from the source rather than copying
-      the recorded list verbatim, since the guard's function-level, not
-      per-overload, propagation overstates some of them).
+- [x] Fill `errors` and align prose. Done per package, with the per-member
+      reachability evidence in each commit (see Resolution). `PHASE_1_BASELINE`
+      no longer exists — every entry was either resolved (true `errors` filled)
+      or reclassified as `UNREACHABLE_VIA_CALLEE`/`DECLARED_EXTRA`, both now
+      keyed by `(package, member, code)`.
+      `scripts/man-census.sh --memory-scope`/`--scope` (whole surface, no
+      package args): 0 unclassified hits on both. `man-run-examples.sh` was
+      NOT run (no prose example text changed — only `DESC` additions
+      describing new error conditions, per the house `ErrOutOfMemory` phrase
+      and similar one-sentence additions for each other code).
 
-Acceptance: the guard passes (`PHASE_1_BASELINE` is empty and the assertion is
-tightened to the plain `is_empty()` form).
-Commit: —
+Acceptance: the guard passes — **met**, `cargo test --release --bin mfb
+every_body_mfb_member_declares_exactly_the_errors_its_source_can_raise` is
+`ok` with the plain `is_empty()` assertion (no baseline).
+Commit: see the per-package commits on `bug-staging-7`/this worktree
+(`astrings`, `audio`, `canvas`, `color`, `crypto`, `csv`, `datetime`,
+`encoding`, `collections`, `json`, `net`, `regex`, `vector`, `http`, plus the
+guard's own `TRAP`-modeling commit).
 
 ### Phase 3: validation
 
 - [ ] Full `cargo test`; `scripts/artifact-gate.sh target/release/mfb all`
-      (a description change can move goldens, `.ai/testing-gates.md`).
+      (a description change can move goldens, `.ai/testing-gates.md`). **Not
+      run here** — out of this task's scope rules (the coordinator runs the
+      full gate once for the whole batch across all parallel bug worktrees).
+      Expected to move: `mfb man --all`/registry-dump goldens and any
+      `.audit`/help-output golden for every touched member (136 members
+      across 15 packages gained/changed declared `errors`, all code-only
+      descriptor + prose changes, no codegen/runtime change).
 
 Commit: —
 
@@ -377,6 +385,92 @@ Commit: —
 - ~~`ErrOutOfMemory` on every allocating member vs. a documented "any call may run
   out of memory" convention?~~ **Decided 2026-09-25 (owner): every function lists
   every error it can produce**, `ErrOutOfMemory` included.
+
+## Resolution
+
+Phase 1's `Body::Mfb` guard (`src/codegen/builtins/tests/mfb_body_declared_errors.rs`)
+measured 211 `Body::Mfb` members; 136 had a descriptor `errors` that did not match
+what their source could raise. All 136 are now fixed, package by package (one
+commit per package on this worktree), plus the guard itself gained two
+capabilities the original design did not anticipate:
+
+1. **`TRAP` modeling.** The guard originally treated a trapped call's codes as
+   unconditionally reachable. Two independent findings during Phase 2 — the
+   coordinator's own read of `net::percentDecode`/`net::parseQuery`, and the
+   `canvas` agent's read of `loadImage`/`loadFont` — showed this double-counted
+   through every function-level and inline `TRAP`/`RECOVER`/`PROPAGATE` in the
+   registry. Fixed per spec `08_error-model.md` §8.3/§8.4: a function-level
+   `TRAP` absorbs every error the normal body raises, escaping only what the
+   handler itself raises (or the trapped set again, if the handler
+   `PROPAGATE`s); an inline `TRAP` does the same for just its one expression,
+   with `RECOVER` as the no-propagate case. A second bug surfaced while testing
+   the fix — the first version required the `TRAP` line at column 0, but a
+   function-level `TRAP` is indented like any other statement — found and fixed
+   by direct instrumentation (`debug_percent_decode_and_parse_iso`, removed
+   before the final commit).
+2. **`(package, member, code)` keys.** `UNREACHABLE_VIA_CALLEE` was originally
+   keyed by bare member name; the coordinator flagged that this collides across
+   packages sharing a name (`datetime::parse`/`csv::parse`/`json::parse`), so a
+   proof for one could silently hide a real gap on another. Fixed, and extended
+   with a mirror-image table, `DECLARED_EXTRA`, for a code the guard's text scan
+   cannot see as reachable (a dynamic `FAIL error(<field>, ...)` re-raise, or an
+   implicit checked-arithmetic operator raise) but that really is.
+
+**One real body bug found and fixed, not just declared:**
+`src/codegen/builtins/datetime/func_parse_iso.rs`'s `__datetime_parseIso` read
+the date/time separator with an unguarded `strings::mid(value, pos, 1)`, so a
+short input (e.g. `"2026-06-26"`) leaked `ErrIndexOutOfRange` (`77050001`)
+instead of the `ErrInvalidFormat` (`77050003`) its own `DESC` promises for every
+malformed-input case. Fixed by adding the same `IF pos >= n THEN FAIL
+error(77050003, ...) END IF` guard the sibling `__datetime_expect` helper
+already uses. Repro before/after: `parseIso("2026-06-26")` raised `77050001`
+before this fix, `77050003` after.
+
+**Two cross-cutting design questions found, deliberately left open** (per the
+coordinator's instruction not to silently enshrine a leaked error as "the
+contract" when a body could instead be tightened, nor to silently paper over a
+real gap in an unrelated package):
+
+- `http`/`csv`/`datetime` each construct a domain value (`CsvReader`,
+  `datetime::Date`/`DateTime`) as a plain `EXPORT`ed record, which user code can
+  build directly with an inconsistent/out-of-range field, bypassing the
+  package's own validating constructor (`csv::parseStream`, `datetime::date`).
+  `csv::readRow`'s `ErrIndexOutOfRange` (a hand-built `CsvReader` with a
+  mismatched `count`/`index`) and `datetime::format`'s `ErrIndexOutOfRange` (a
+  hand-built `DateTime` with `month` outside `1 .. 12`) are both now declared as
+  real, matching measured behavior (confirmed with compiled probes) — but
+  whether these types should instead validate defensively (raise
+  `ErrInvalidArgument` up front) is a wider policy question across every
+  record-represented "valid by convention" type in the registry, not a
+  bug-698-sized fix. Left to the owner.
+- `general::toString`'s descriptor declares `errors: vec![]` ("toString never
+  fails"), but its `List OF Byte` overload decodes UTF-8 and genuinely raises
+  `ErrEncoding` on an ill-formed sequence (confirmed with compiled probes
+  through `encoding::htmlUnescape`/`punycodeDecode`). Fixing `toString`'s own
+  descriptor ripples into every other caller across the whole registry, native
+  and `Mfb` alike — out of scope here; the two measured-but-guard-invisible
+  `ErrEncoding` declarations are carried via `DECLARED_EXTRA` instead.
+  `general::toInt` has the same shape (declares `errors: vec![]`, its own `DESC`
+  says `ErrInvalidFormat`/`ErrOverflow`) — found, not touched.
+
+**Verification:**
+
+```
+CARGO_TARGET_DIR=/tmp/b698-target cargo test --release --bin mfb declared_errors
+# 23 passed; 0 failed (includes every_body_mfb_member_declares_exactly_the_errors_its_source_can_raise)
+
+MFB=/tmp/b698-target/release/mfb ./scripts/man-census.sh --memory-scope
+# unclassified memory-vocabulary hits: 0
+
+MFB=/tmp/b698-target/release/mfb ./scripts/man-census.sh --scope
+# internals-vocabulary hits: 1 (pre-existing, unrelated: errorcode/mod.rs's
+# ErrStackOverflow constant description, last touched by bug-789 -- confirmed
+# via git log, not part of this change, left to its own bug)
+```
+
+Not run here (coordinator's full-batch gate): `cargo test` (whole suite),
+`scripts/artifact-gate.sh`. Expected to move: `mfb man`/registry-dump goldens
+and any `.audit`/help-output golden for the 136 touched members' pages.
 
 ## Summary
 
