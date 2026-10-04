@@ -1005,6 +1005,18 @@ pub(crate) fn lower_function(
         string_app_resource_base_env: None,
         module_name: module_name.to_string(),
     };
+    // bug-789: a function that can recurse checks the stack at entry, before its
+    // parameters are spilled: the check's two temporaries then never share a
+    // register with a parameter it would have to reload. The raise is a cold block
+    // after the body.
+    let stack_overflow =
+        if crate::codegen::runtime::stack_limit::function_needs_stack_check(function) {
+            let label = builder.label("stack_overflow");
+            builder.emit_stack_check(&label);
+            Some(label)
+        } else {
+            None
+        };
     for (index, param) in params.iter().enumerate() {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
         builder.locals.insert(
@@ -1187,16 +1199,6 @@ pub(crate) fn lower_function(
         // per-function costs, and separating it from allocation is what says
         // whether a slow function is slow to *lower* or slow to *color*.
         let _span = crate::trace::span("emit ops");
-        // bug-789: a function that can recurse checks the stack at entry; the raise
-        // is a cold block after the body.
-        let stack_overflow =
-            if crate::codegen::runtime::stack_limit::function_needs_stack_check(function) {
-                let label = builder.label("stack_overflow");
-                builder.emit_stack_check(&label);
-                Some(label)
-            } else {
-                None
-            };
         // plan-156-E: a parameter that declares a thread view's STATE default-builds it
         // when the view has none yet — the worker entry's own view arrives without one
         // (the runtime builds the view, not its STATE); a view that already carries
