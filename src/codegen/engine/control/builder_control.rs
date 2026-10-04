@@ -80,7 +80,32 @@ enum FieldStoreKind {
     /// LAST inlined sub-block (`replace_field_admitted`). Its new bytes go over
     /// the old span when the owner's walked size rounds to the same 16-byte
     /// granule as before; otherwise the owner is rebuilt at its new walked size.
+    /// bug-784: over an element-bound owner, any variable-width inlined field
+    /// (`element_replace_admitted`), in place only when its exact size is
+    /// unchanged; otherwise the element's write-back runs as written.
     Replace(ParameterType),
+    /// bug-784: `inner := WITH <owner>.inner { <scalars> }` on an inlined record
+    /// field — each scalar is stored into the field's sub-block, which keeps its
+    /// size, so no field moves and no record is built.
+    Nested(Vec<(usize, NirValue)>),
+}
+
+/// bug-784: where one update's new value was spilled, for an element's
+/// size-change branch to read back.
+enum SpilledValue {
+    /// The field's value, in one slot.
+    One(usize),
+    /// A [`FieldStoreKind::Nested`] update's scalars, one slot each in the inner
+    /// `WITH`'s order.
+    Nested(Vec<usize>),
+}
+
+/// bug-784: a [`FieldStoreKind::Nested`] update's spilled values.
+struct FieldNested {
+    /// The inlined record field's index in the owner record.
+    index: usize,
+    /// `(sub-field index, value slot)`, in source order.
+    stores: Vec<(usize, usize)>,
 }
 
 /// bug-766 D: the replaced last sub-block's new value, spilled before any store.
@@ -200,6 +225,19 @@ impl CodeBuilder<'_> {
     ///   every later walk frees); otherwise the owner is rebuilt — a fresh block of
     ///   the new walked size, the old one freed at its own walked size.
     ///
+    /// * (bug-784) over an ELEMENT-BOUND owner (a span of a list's data region,
+    ///   whose entry records its exact byte length), one `String` or variable-size
+    ///   record field anywhere in the record (`element_replace_admitted`): the new
+    ///   bytes go over the old ones when the sizes are exactly equal — no offset
+    ///   and no length changes — and otherwise the element's write-back
+    ///   (`xs = set(xs, i, WITH p { … })`) runs with the values already computed
+    ///   (`emit_element_replace_or_write_back`).
+    ///
+    /// * (bug-784) an inlined record field updated by a `WITH` of that same field
+    ///   whose every update is a scalar (`inner := WITH r.inner { count := … }`):
+    ///   the scalars are stored into the field's sub-block, whose size cannot
+    ///   change, so this works at any inlined position and over any owner.
+    ///
     /// Any other inlined field (a collection, a variable-width field that is not
     /// the last) declines to the field seam or the rebuild.
     ///
@@ -216,16 +254,22 @@ impl CodeBuilder<'_> {
     ) -> Result<bool, String> {
         // `G13` — the update must rebuild THIS owner's current value, not install
         // some other record. plan-145-F: through a nested path, each level's.
-        let Some((path, type_, updates)) = self.peel_field_path(owner, value, true) else {
+        let Some((levels, type_, updates)) = self.peel_field_path(owner, value, true) else {
             return Ok(false);
         };
-        let path: Vec<(usize, bool)> = path
+        let path: Vec<(usize, bool)> = levels
             .iter()
             .map(|level| (level.field_index, level.pointer))
             .collect();
         let Some(fields) = self.type_model.record_fields.get(&type_).cloned() else {
             return Ok(false);
         };
+        // bug-784: the owner is a span of a list's data region (`lower_element_update`).
+        let element = matches!(
+            owner,
+            FieldContainer::Record { local }
+                if self.element_updates.field_owner.as_deref() == Some(local)
+        );
         // Every updated field must live in its own slot — a scalar, or (plan-145-C)
         // a pointer field — or be (plan-145-F) a fixed-size inlined record.
         let mut indices = Vec::with_capacity(updates.len());
@@ -240,8 +284,18 @@ impl CodeBuilder<'_> {
             let kind = if self.record_field_is_inlined(field_type) {
                 if self.record_field_is_inlined_fixed(field_type) {
                     FieldStoreKind::Overwrite(field_type.clone())
-                } else if path.is_empty()
-                    && self.replace_field_admitted(owner, &type_, &fields, index)
+                } else if let Some(nested) = self.nested_scalar_with(
+                    owner,
+                    &levels,
+                    &type_,
+                    &update.field,
+                    field_type,
+                    &update.value,
+                ) {
+                    FieldStoreKind::Nested(nested)
+                } else if (element && self.element_replace_admitted(&type_, field_type))
+                    || (path.is_empty()
+                        && self.replace_field_admitted(owner, &type_, &fields, index))
                 {
                     FieldStoreKind::Replace(field_type.clone())
                 } else {
@@ -255,6 +309,26 @@ impl CodeBuilder<'_> {
             indices.push((index, kind));
         }
         if indices.is_empty() {
+            return Ok(false);
+        }
+        // bug-784: an element's size-change branch re-runs its write-back over the
+        // values computed here, so every value must be one a local can stand for —
+        // a fixed-size overwrite may be spilled as lanes — and one field at most
+        // may change size.
+        let replaces = indices
+            .iter()
+            .filter(|(_, kind)| matches!(kind, FieldStoreKind::Replace(_)))
+            .count();
+        if element
+            && replaces > 0
+            && (replaces > 1
+                || indices.iter().any(|(_, kind)| {
+                    matches!(
+                        kind,
+                        FieldStoreKind::Overwrite(_) | FieldStoreKind::Pointer(_)
+                    )
+                }))
+        {
             return Ok(false);
         }
         match owner {
@@ -300,6 +374,11 @@ impl CodeBuilder<'_> {
         let mut stores = Vec::with_capacity(updates.len());
         let mut overwrites = Vec::new();
         let mut replace: Option<FieldReplace> = None;
+        let mut nested: Vec<FieldNested> = Vec::new();
+        // bug-784: per update in source order, the slot(s) its value was spilled
+        // to — what an element's size-change branch reads instead of re-running
+        // the value.
+        let mut spilled_values: Vec<SpilledValue> = Vec::with_capacity(updates.len());
         // plan-145-F: a borrowed overwrite source must be snapshotted only when
         // another store of this `WITH` could change it first.
         let snapshot = indices
@@ -343,6 +422,28 @@ impl CodeBuilder<'_> {
                         slot,
                         size_slot,
                     });
+                    spilled_values.push(SpilledValue::One(slot));
+                    continue;
+                }
+                FieldStoreKind::Nested(sub_updates) => {
+                    // The inner `WITH`'s values, in its source order — its target is
+                    // a field read, which runs nothing.
+                    let mut sub_stores = Vec::with_capacity(sub_updates.len());
+                    for (sub_index, sub_value) in &sub_updates {
+                        let value = self.lower_value(sub_value)?;
+                        self.observe_float(sub_value, &value)?;
+                        let value = self.materialize_value(value)?;
+                        let slot = self.allocate_stack_object("record_nested_inplace", 8);
+                        self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+                        sub_stores.push((*sub_index, slot));
+                    }
+                    spilled_values.push(SpilledValue::Nested(
+                        sub_stores.iter().map(|(_, slot)| *slot).collect(),
+                    ));
+                    nested.push(FieldNested {
+                        index,
+                        stores: sub_stores,
+                    });
                     continue;
                 }
             };
@@ -367,6 +468,7 @@ impl CodeBuilder<'_> {
             );
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             stores.push((index, slot, pointer));
+            spilled_values.push(SpilledValue::One(slot));
         }
         // Drop the pointees the stores displace. Each drop calls the arena, which
         // clobbers the caller-saved registers, so the block pointer is loaded only
@@ -398,12 +500,29 @@ impl CodeBuilder<'_> {
                 // One load of the block pointer serves every store: nothing below
                 // moves it.
                 let block = self.emit_field_record_block(owner, &path)?;
-                self.emit_field_stores(&block, &stores, &overwrites, None);
+                self.emit_field_stores(&block, &stores, &overwrites, &nested, None);
             }
+            // bug-784: an element-bound owner — same size in place, else the
+            // write-back over the spilled values.
+            Some(replace) if element => self.emit_element_replace_or_write_back(
+                owner,
+                value,
+                &type_,
+                &path,
+                &stores,
+                &nested,
+                replace,
+                &spilled_values,
+            )?,
             // bug-766 D (`path` is empty: `replace_field_admitted` asked).
-            Some(replace) => {
-                self.emit_field_replace_or_rebuild(owner, &type_, &stores, &overwrites, replace)?
-            }
+            Some(replace) => self.emit_field_replace_or_rebuild(
+                owner,
+                &type_,
+                &stores,
+                &overwrites,
+                &nested,
+                replace,
+            )?,
         }
         // Each owned overwrite source is freed only after every copy (a later one
         // may not read it, but the frees call the arena, which clobbers the block
@@ -433,13 +552,19 @@ impl CodeBuilder<'_> {
 
     /// The stores of [`Self::try_inplace_scalar_fields`] into the record at
     /// `block`: every scalar slot, then (plan-145-F) every fixed-size overwrite,
-    /// then (bug-766 D) the replaced last sub-block at the offset in `replace`'s
-    /// second member. Nothing here calls out, so `block` stays live throughout.
+    /// then (bug-766 D) the replaced sub-block at the offset in `replace`'s
+    /// second member, then (bug-784) every nested scalar into its field's
+    /// sub-block. The nested stores come last because an overwrite or replace
+    /// source may be a view into a nested field's sub-block, and every one of
+    /// those copies must read it before it changes; a nested store reads nothing
+    /// but its own spilled value. Nothing here calls out, so `block` stays live
+    /// throughout.
     fn emit_field_stores(
         &mut self,
         block: &abi::Reg,
         stores: &[(usize, usize)],
         overwrites: &[(usize, ParameterType, FieldOverwrite)],
+        nested: &[FieldNested],
         replace: Option<(&FieldReplace, usize)>,
     ) {
         for (index, slot) in stores {
@@ -483,6 +608,17 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&src, abi::stack_pointer(), replace.slot));
             self.emit(abi::load_u64(&len, abi::stack_pointer(), replace.size_slot));
             self.emit_block_copy_advance(&dst, &src, &len, &scratch, "field_replace");
+        }
+        // bug-784: the nested scalar stores, at the sub-block's stored offset.
+        for field in nested {
+            let sub = self.allocate_register();
+            self.emit(abi::load_u64(&sub, block, 8 * field.index));
+            self.emit(abi::add_registers(&sub, block, &sub));
+            for (sub_index, slot) in &field.stores {
+                let value = self.allocate_register();
+                self.emit(abi::load_u64(&value, abi::stack_pointer(), *slot));
+                self.emit(abi::store_u64(&value, &sub, 8 * sub_index));
+            }
         }
     }
 
@@ -665,7 +801,7 @@ impl CodeBuilder<'_> {
         let source = self.allocate_register();
         self.emit(abi::load_u64(&source, abi::stack_pointer(), target_slot));
         self.emit_copy_record_words(&region, &source, size);
-        self.emit_field_stores(&abi::Reg::from(&region), &stores, &overwrites, None);
+        self.emit_field_stores(&abi::Reg::from(&region), &stores, &overwrites, &[], None);
         // An owned overwrite source (a fresh block) is freed after every copy.
         for (_, field_type, spilled) in overwrites {
             if let FieldOverwrite::Block {
@@ -752,6 +888,303 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// bug-784: when `value` — the new value of the inlined record field `field`
+    /// (of type `field_type`) of `<owner>.<levels…>` — is `WITH <that field> { … }`
+    /// whose every update is a scalar slot of `field_type`, those updates as
+    /// `(sub-field index, value)`. Storing them into the field's sub-block is the
+    /// whole update: a scalar slot is 8 bytes whatever its value, so the
+    /// sub-block keeps its size and nothing after it moves. Never in an `Error`
+    /// (`record_type`), whose `source` sub-block may be absent — offset 0
+    /// (bug-371) — where a store would land in the owner's own slots.
+    fn nested_scalar_with(
+        &self,
+        owner: FieldContainer<'_>,
+        levels: &[FieldLevel<'_>],
+        record_type: &ParameterType,
+        field: &str,
+        field_type: &ParameterType,
+        value: &NirValue,
+    ) -> Option<Vec<(usize, NirValue)>> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return None;
+        };
+        if type_ != field_type
+            || record_type.is_named("Error")
+            || typed_is_collection_type(field_type)
+            || updates.is_empty()
+            || !field_place_is(target, owner, levels, field)
+        {
+            return None;
+        }
+        let fields = self.type_model.record_fields.get(field_type)?;
+        updates
+            .iter()
+            .map(|update| {
+                let index = fields.iter().position(|(name, _)| *name == update.field)?;
+                let sub_type = &fields[index].1;
+                (!self.record_field_is_inlined(sub_type) && !self.record_field_is_pointer(sub_type))
+                    .then(|| (index, update.value.clone()))
+            })
+            .collect()
+    }
+
+    /// bug-784: whether a field of type `field_type` of the element-bound record
+    /// type `record_type` may take the [`FieldStoreKind::Replace`] store over the
+    /// element (`emit_element_replace_or_write_back`). It is a `String` or a
+    /// variable-size record — at ANY inlined position: the in-place branch runs
+    /// only when the new value's size equals the old one's exactly, so no offset
+    /// moves and the list entry's recorded length stays true — in a flat record
+    /// that is not `Error` (whose last inlined field may be absent, bug-371).
+    fn element_replace_admitted(
+        &self,
+        record_type: &ParameterType,
+        field_type: &ParameterType,
+    ) -> bool {
+        (*field_type == ParameterType::String
+            || (self.type_model.record_fields.contains_key(field_type)
+                && !typed_is_collection_type(field_type)))
+            && self.is_freeable_flat_value(record_type)
+            && !record_type.is_named("Error")
+    }
+
+    /// bug-784: the stores of a `WITH` over an element-bound owner that replaces
+    /// one variable-width field, every new value already spilled.
+    ///
+    /// The owner's block is a span of a list's data region whose entry records
+    /// its exact byte length (`lower_list_set_in_place` overwrites a payload where
+    /// it lies only at that exact length), so the in-place branch runs when the
+    /// new value's size equals the old sub-block's: the bytes go over the old
+    /// ones, and neither any later sub-block's offset nor the element's length
+    /// changes. Otherwise the element's write-back runs as the source wrote it,
+    /// `xs = set(xs, i, WITH p { … })` — the `set` resizes the payload — with
+    /// every update value replaced by a hidden local holding the value this
+    /// statement already computed, so nothing is evaluated twice. `p` still
+    /// aliases the unchanged element there (no store has run), exactly as in
+    /// `lower_element_update`'s own fallback.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_element_replace_or_write_back(
+        &mut self,
+        owner: FieldContainer<'_>,
+        value: &NirValue,
+        record_type: &ParameterType,
+        path: &[(usize, bool)],
+        stores: &[(usize, usize)],
+        nested: &[FieldNested],
+        replace: &FieldReplace,
+        spilled_values: &[SpilledValue],
+    ) -> Result<(), String> {
+        let FieldContainer::Record { local } = owner else {
+            return Err("native element replace: the owner is not a record local".into());
+        };
+        let fields = self
+            .type_model
+            .record_fields
+            .get(record_type)
+            .cloned()
+            .ok_or_else(|| format!("native element replace: '{record_type}' is not a record"))?;
+        let field_type = fields
+            .get(replace.index)
+            .map(|(_, field_type)| field_type.clone())
+            .ok_or_else(|| format!("native element replace: no field {}", replace.index))?;
+        let offset_slot = self.allocate_stack_object("element_replace_offset", 8);
+        let old_sub_slot = self.allocate_stack_object("element_replace_old_sub", 8);
+        let old_size_slot = self.allocate_stack_object("element_replace_old_size", 8);
+        let block = self.emit_field_record_block(owner, path)?;
+        let offset = self.allocate_register();
+        self.emit(abi::load_u64(&offset, &block, 8 * replace.index));
+        self.emit(abi::store_u64(&offset, abi::stack_pointer(), offset_slot));
+        let sub = self.allocate_register();
+        self.emit(abi::add_registers(&sub, &block, &offset));
+        self.emit(abi::store_u64(&sub, abi::stack_pointer(), old_sub_slot));
+        self.emit_inlined_block_size_from_ptr_slot(&field_type, old_sub_slot, old_size_slot)?;
+        let old_size = self.allocate_register();
+        let new_size = self.allocate_register();
+        self.emit(abi::load_u64(
+            &old_size,
+            abi::stack_pointer(),
+            old_size_slot,
+        ));
+        self.emit(abi::load_u64(
+            &new_size,
+            abi::stack_pointer(),
+            replace.size_slot,
+        ));
+        let write_back = self.label("element_replace_write_back");
+        let done = self.label("element_replace_done");
+        self.emit(abi::compare_registers(&old_size, &new_size));
+        self.emit(abi::branch_ne(&write_back));
+        // Same size: in place. The size helper called nothing that moves the
+        // element, but it may have used the block register; load it again.
+        let block = self.emit_field_record_block(owner, path)?;
+        self.emit_field_stores(&block, stores, &[], nested, Some((replace, offset_slot)));
+        self.emit(abi::branch(&done));
+        // A different size: the write-back, over hidden locals.
+        self.emit(abi::label(&write_back));
+        let binding = self
+            .element_updates
+            .bindings
+            .get(local)
+            .cloned()
+            .ok_or_else(|| format!("native element replace: '{local}' is not element-bound"))?;
+        let mut hidden = Vec::new();
+        let item = self.element_write_back_item(value, path.len(), spilled_values, &mut hidden)?;
+        let op = binding.write_back_op(self.element_updates.field_site, item);
+        // The write-back is the copying form `lower_element_update` falls back to:
+        // it runs with no element owner installed, as that fallback does.
+        let owner_name = self.element_updates.field_owner.take();
+        let lowered = self.lower_ops(std::slice::from_ref(&op));
+        self.element_updates.field_owner = owner_name;
+        for name in hidden {
+            self.locals.remove(&name);
+        }
+        lowered?;
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// bug-784: `value` (an element update's `WITH`) with each update value at the
+    /// end of its `depth`-level field path replaced by a hidden local bound to the
+    /// slot it was spilled to (`spilled`, in update order) — a nested scalar
+    /// `WITH` keeps its target and has each of its own values replaced. The
+    /// hidden locals' names are pushed to `hidden` for the caller to unbind.
+    fn element_write_back_item(
+        &mut self,
+        value: &NirValue,
+        depth: usize,
+        spilled: &[SpilledValue],
+        hidden: &mut Vec<String>,
+    ) -> Result<NirValue, String> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Err("native element replace: the update is not a WITH".into());
+        };
+        let fields = self
+            .type_model
+            .record_fields
+            .get(type_)
+            .cloned()
+            .ok_or_else(|| format!("native element replace: '{type_}' is not a record"))?;
+        let field_type = |field: &str| -> Result<ParameterType, String> {
+            fields
+                .iter()
+                .find(|(name, _)| name == field)
+                .map(|(_, field_type)| field_type.clone())
+                .ok_or_else(|| format!("native element replace: no field '{field}'"))
+        };
+        let new_updates = if depth > 0 {
+            let [update] = updates.as_slice() else {
+                return Err("native element replace: a path level has one update".into());
+            };
+            vec![NirRecordUpdate {
+                field: update.field.clone(),
+                value: self.element_write_back_item(&update.value, depth - 1, spilled, hidden)?,
+            }]
+        } else {
+            if updates.len() != spilled.len() {
+                return Err("native element replace: one spilled value per update".into());
+            }
+            let mut new_updates = Vec::with_capacity(updates.len());
+            for (update, spilled) in updates.iter().zip(spilled) {
+                let field_type = field_type(&update.field)?;
+                let value = match spilled {
+                    SpilledValue::One(slot) => self.bind_hidden_value(field_type, *slot, hidden),
+                    SpilledValue::Nested(slots) => {
+                        self.element_nested_write_back_value(&update.value, slots, hidden)?
+                    }
+                };
+                new_updates.push(NirRecordUpdate {
+                    field: update.field.clone(),
+                    value,
+                });
+            }
+            new_updates
+        };
+        Ok(NirValue::WithUpdate {
+            type_: type_.clone(),
+            target: target.clone(),
+            updates: new_updates,
+        })
+    }
+
+    /// bug-784: a [`FieldStoreKind::Nested`] update's `WITH r.inner { … }` with
+    /// each of its values replaced by a hidden local bound to its slot (`slots`,
+    /// in the inner `WITH`'s order); its target is kept.
+    fn element_nested_write_back_value(
+        &mut self,
+        value: &NirValue,
+        slots: &[usize],
+        hidden: &mut Vec<String>,
+    ) -> Result<NirValue, String> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Err("native element replace: a nested update is a WITH".into());
+        };
+        let fields = self
+            .type_model
+            .record_fields
+            .get(type_)
+            .cloned()
+            .ok_or_else(|| format!("native element replace: '{type_}' is not a record"))?;
+        if updates.len() != slots.len() {
+            return Err("native element replace: one slot per nested update".into());
+        }
+        let mut rewritten = Vec::with_capacity(slots.len());
+        for (update, slot) in updates.iter().zip(slots) {
+            let sub_type = fields
+                .iter()
+                .find(|(name, _)| *name == update.field)
+                .map(|(_, sub_type)| sub_type.clone())
+                .ok_or_else(|| format!("native element replace: no field '{}'", update.field))?;
+            rewritten.push(NirRecordUpdate {
+                field: update.field.clone(),
+                value: self.bind_hidden_value(sub_type, *slot, hidden),
+            });
+        }
+        Ok(NirValue::WithUpdate {
+            type_: type_.clone(),
+            target: target.clone(),
+            updates: rewritten,
+        })
+    }
+
+    /// bug-784: a hidden local of `type_` whose slot is `slot` (a value already
+    /// spilled there), and a read of it. It owns nothing: no cleanup is
+    /// registered, and the value's own owner (the statement's temp, or the place
+    /// it was borrowed from) still frees it.
+    fn bind_hidden_value(
+        &mut self,
+        type_: ParameterType,
+        slot: usize,
+        hidden: &mut Vec<String>,
+    ) -> NirValue {
+        let name = format!("$elementvalue{}", self.element_updates.hidden);
+        self.element_updates.hidden += 1;
+        self.locals.insert(
+            name.clone(),
+            LocalValue {
+                type_,
+                stack_offset: slot,
+                constant: None,
+                by_ref: false,
+            },
+        );
+        hidden.push(name.clone());
+        NirValue::Local(name)
+    }
+
     /// bug-766 D: the stores of a `WITH` that replaces its owner's last inlined
     /// sub-block, every new value already spilled.
     ///
@@ -773,6 +1206,7 @@ impl CodeBuilder<'_> {
         record_type: &ParameterType,
         stores: &[(usize, usize)],
         overwrites: &[(usize, ParameterType, FieldOverwrite)],
+        nested: &[FieldNested],
         replace: &FieldReplace,
     ) -> Result<(), String> {
         let field_type = self
@@ -832,6 +1266,7 @@ impl CodeBuilder<'_> {
             &abi::Reg::from(&block),
             stores,
             overwrites,
+            nested,
             Some((replace, offset_slot)),
         );
         self.emit(abi::branch(&done));
@@ -867,6 +1302,7 @@ impl CodeBuilder<'_> {
             &abi::Reg::from(&block),
             stores,
             overwrites,
+            nested,
             Some((replace, offset_slot)),
         );
         // Every source has been read; free the displaced block at its walked size
@@ -1346,6 +1782,7 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native element update: unknown local '{name}'"))?;
         let owner = FieldContainer::Record { local: name };
         self.element_updates.field_owner = Some(name.to_string());
+        self.element_updates.field_site = site;
         let in_place = (|| -> Result<bool, String> {
             if self.try_inplace_scalar_fields(owner, value)? {
                 return Ok(true);
@@ -1377,6 +1814,7 @@ impl CodeBuilder<'_> {
             self.try_inplace_mixed_with(owner, value, Some(slot), false)
         })();
         self.element_updates.field_owner = None;
+        self.element_updates.field_site = None;
         if in_place? {
             return Ok(());
         }

@@ -632,6 +632,10 @@ name = "rt_record_update_forms"
 path = "tests/runtime/rt_record_update_forms.rs"
 
 [[test]]
+name = "rt_record_nested_update"
+path = "tests/runtime/rt_record_nested_update.rs"
+
+[[test]]
 name = "rt_transform_block_result_frees"
 path = "tests/runtime/rt_transform_block_result_frees.rs"
 

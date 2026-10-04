@@ -820,7 +820,12 @@ pub(crate) struct ElementUpdates {
     /// an element inside a list's data region. No route may grow it
     /// (`field_is_last_inlined`).
     pub(crate) field_owner: Option<String>,
-    /// Counter for the hidden bindings of single-expression updates.
+    /// bug-784: beside `field_owner`, the update statement's `op_key` (`None` for
+    /// a single-expression update) — the site whose write-back an in-place route
+    /// that cannot finish in place runs instead.
+    pub(crate) field_site: Option<usize>,
+    /// Counter for the hidden bindings of single-expression updates (and of
+    /// bug-784's spilled element-update values).
     pub(crate) hidden: usize,
 }
 
