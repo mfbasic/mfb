@@ -97,12 +97,16 @@ Output: `Trusted { key, publisher, crossed_transfer: bool }` or `Err(detail)`.
 
 **Owners and links.** `O_0 = index.owner`, and link `k` moves `O_k → O_{k+1}`.
 
-**Link checks.** For each link `k`:
+**Link checks.** For each link `k`, in this order:
 
-1. `sequence == k`, and `fold(fromOwner) == fold(O_k)`.
-2. A legacy link (null signatures) ends the walk: `n_trusted = k`, and every
-   later link is ignored.
-3. The `toBinding` name binding verifies under the server key.
+1. `sequence == k`.
+2. A legacy link (null signatures) ends the walk: `n_trusted = k`. Neither its
+   owner fields nor any later link is checked. This comes before the owner check
+   so that legacy data the client cannot authenticate never fails an index whose
+   pre-transfer releases verify today. With no legacy link, `n_trusted` = the
+   number of links.
+3. `fold(fromOwner) == fold(O_k)`, and the `toBinding` name binding verifies
+   under the server key.
 4. `fp(toIdentKey)` lies on `toOwner`'s chain at or before the bound key
    (follow from `toIdentKey` reaches the bound key).
 5. The offer verifies under `fromIdentKey`, and the accept under `toIdentKey`,
@@ -112,7 +116,18 @@ Output: `Trusted { key, publisher, crossed_transfer: bool }` or `Err(detail)`.
 
 **Key trust per owner.**
 
-- `Pinned(P)`: P must be on some `O_j`'s chain.
+- `Pinned(P)`: P must lie in some owner's **tenure**, and `j` is the first such
+  tenure.
+  - Tenure `k` is owner `O_k`'s run of keys while holding the package:
+    forward-reachable from the accept key `A_{k-1}` of link `k-1` (no lower
+    bound for `k = 0`), and forward-reaching the offer key `F_k` of link `k`
+    (for the last trusted owner, the bound current key: the last link's
+    `toBinding`, or the index binding when there are no links).
+  - The tenure rule matters when an owner appears twice (alice→bob→alice): P
+    can be on alice's chain in tenure 0 and tenure 2, or in both when she never
+    rotated. The first match gives the most verification through signed links.
+    Any match is sound, but a fixed rule keeps the result deterministic.
+  - If P is in no tenure, verification fails.
   - Owner `O_j` trusts the keys forward-reachable from P (`chain_path`, a new
     helper next to `client.rs:follow_ident_chain` returning every key on the path).
   - Owners after `O_j` trust the keys forward from their accept key `A_k`.
@@ -124,10 +139,17 @@ Output: `Trusted { key, publisher, crossed_transfer: bool }` or `Err(detail)`.
 
 **Release check (epoch e).**
 
-- `publisher.owner` fold-equals `O_e` and the header `author`.
-- `e <= n_trusted` (no release past a legacy terminator; no epoch past the chain).
-- Either the header key is trusted for `O_e`, or `e < j` and the release is in
-  `D_{j-1}`.
+- `publisher.owner` fold-equals the header `author`.
+- When `e <= n_trusted`: `publisher.owner` fold-equals `O_e`, and either the
+  header key is trusted for `O_e`, or `e < j` and the release is in `D_{j-1}`.
+- When `e > n_trusted` (past a legacy terminator), the **origin-owner fallback**
+  applies: accept only if `publisher.owner` fold-equals `O_0`, and the header key
+  is trusted for `O_0` by the anchor alone. That means forward from P when P is
+  in `O_0`'s tenure 0, or the bound key and its ancestors for `FirstUse`. This is
+  exactly today's prefix-owner rule, so legacy alice→bob→alice packages keep
+  shipping. Any other publisher past the terminator is refused
+  (plan-168-B refuses to publish one).
+- An epoch past the number of served links is refused.
 
 **New pin** := the header key.
 
@@ -154,6 +176,11 @@ Output: `Trusted { key, publisher, crossed_transfer: bool }` or `Err(detail)`.
 That is equal to today's TOFU, since the registry chooses the bound key. In
 `Pinned` mode trust is forward-only. A compromised old key of bob could forge an
 accept only for what alice actually offered to bob.
+
+The origin-owner fallback is no weaker than today. A registry that injects a fake
+legacy link can only make later owners' releases fail (a denial, not a forgery).
+The releases it still accepts are the origin owner's, under the trust every
+client applies today.
 
 **Rejected alternatives.**
 - Pin the origin owner forever and verify every release by a chain walk at build
@@ -192,12 +219,19 @@ Commit: —
   - `withheld_release_breaks_the_digest`;
   - `rotation_before_and_after_transfer_verifies` (alice rotates before
     offering, bob rotates after accepting; releases signed by each key);
-  - `legacy_link_terminates_the_chain`;
+  - `legacy_link_terminates_the_chain` (a later owner's release past it is
+    refused);
+  - `a_legacy_link_with_a_foreign_from_owner_does_not_fail_pre_transfer_releases`;
+  - `legacy_round_trip_origin_owner_release_verifies` (unsigned alice→bob→alice
+    links, alice's epoch-2 release under her pin);
+  - `round_trip_owner_pin_selects_its_first_tenure` (signed alice→bob→alice;
+    alice never rotates, so her pin is in tenures 0 and 2; tenure 0 is chosen,
+    and releases of all three epochs verify);
   - `a_pin_on_bob_verifies_alice_release_by_digest`;
   - `first_use_trusts_bound_key_ancestors_only_for_the_origin`;
   - `index_from_an_older_server_is_a_single_owner_chain`.
 
-Acceptance: `cargo test -p mfb_repository --lib -- trust::` → `test result: ok`, 0 failed, with all twelve tests listed (est. 3 min; guess).
+Acceptance: `cargo test -p mfb_repository --lib -- trust::` → `test result: ok`, 0 failed, with all fifteen tests listed (est. 3 min; guess).
 Commit: —
 
 ### Phase 3: Wire every consumer
@@ -252,6 +286,11 @@ Commit: —
   installed release, which may move backward across a transfer through the
   digest. Alternative: a monotone "newest owner" pin. Rejected, because it breaks
   `@<old version>` installs and offline builds of them.
+- **C-D3, releases past a legacy link.** Recommended: the origin-owner
+  fallback (§3). It keeps today's behavior for pre-fix round trips and refuses
+  everything else. Alternative: refuse every release past the terminator.
+  Rejected: it would break alice→bob→alice packages that publish and install
+  today.
 
 ## Corrections
 
