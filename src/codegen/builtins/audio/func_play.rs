@@ -45,7 +45,8 @@ tokens (notes `A`..`G` with accidentals/length/dots, `R`/`P` rests, `O`/`<`/`>`
 octave, `L` length, `T` tempo, `V` volume, `I <name>` instrument, `( )` legato,
 `[ ]` staccato, `{ }<count>` repeat). A track is refused with `ErrInvalidArgument`
 when its repeats expand past 65,536 tokens or it would play for longer than ten
-minutes. `play` is deterministic."#;
+minutes. `play` is deterministic. `ErrOutOfMemory` means the program ran out of
+memory."#;
 const EX: &str = r#"Play a bass line and a lead together on the same stream:
 
 ```
@@ -76,6 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             "ErrInvalidArgument",
             "ErrAudioDevice",
             "ErrAudioUnavailable",
+            "ErrOutOfMemory",
         ]
     };
     pkg.add_function(RegistryFunction {

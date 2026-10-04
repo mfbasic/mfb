@@ -59,7 +59,9 @@ single-channel `s16le` PCM at a fixed 48 kHz sample rate and returns it as a
 a sine oscillator shaped by the note's `audio::AudioEnvelope` (linear attack, decay to
 `sustainLevel`, held sustain, linear release), scaled by `gainOverall`, converted to
 an `Integer`, then clamped to the s16 range and encoded little-endian. `render` is
-deterministic and platform-independent."#;
+deterministic and platform-independent. A `note.frequencyHz` of `NaN` reaches the
+sine calculation as `NaN` and raises `ErrFloatNaN`. `ErrOutOfMemory` means the
+program ran out of memory."#;
 const EX: &str = r#"Render one second of A4 (440 Hz) and play it on the default output:
 
 ```
@@ -92,7 +94,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ParameterType::named(AUDIO_NOTE_TYPE),
             )],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrInvalidFormat", "ErrOverflow"],
+            errors: vec!["ErrInvalidFormat", "ErrOverflow", "ErrFloatNaN", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__audio_render"),
         }],
     });
