@@ -926,7 +926,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             instructions,
             relocations,
         )?;
-        // low = top - size; the scratch word is free again.
+        // low = top - size. The scratch word is transient: nothing reads it later.
         instructions.extend([
             abi::move_register(abi::c_arg(1), abi::c_return(0)),
             abi::load_u64(
@@ -935,11 +935,6 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
                 ARENA_STACK_LIMIT_OFFSET,
             ),
             abi::subtract_registers(abi::c_arg(0), abi::c_arg(0), abi::c_arg(1)),
-            abi::store_u64(
-                abi::ZERO,
-                ARENA_STATE_REGISTER,
-                ARENA_STACK_LIMIT_SCRATCH_OFFSET,
-            ),
         ]);
         crate::codegen::runtime::stack_limit::emit_limit_from_bounds(
             instructions,

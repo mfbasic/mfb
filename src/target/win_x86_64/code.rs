@@ -2235,11 +2235,6 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
                 ARENA_STACK_LIMIT_SCRATCH_OFFSET,
             ),
             abi::subtract_registers(abi::c_arg(1), abi::c_arg(1), abi::c_arg(0)),
-            abi::store_u64(
-                abi::ZERO,
-                ARENA_STATE_REGISTER,
-                ARENA_STACK_LIMIT_SCRATCH_OFFSET,
-            ),
         ]);
         crate::codegen::runtime::stack_limit::emit_limit_from_bounds(
             instructions,
