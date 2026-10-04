@@ -132,9 +132,10 @@ fn preceded_by_case(chars: &[char], start: usize) -> bool {
     word == "CASE"
 }
 
-/// Every `pkg::name(` call in `text` (package, member name) that is not a
+/// Every `pkg::name(` call in `text` (package, member name, top-level argument
+/// texts — empty when the parenthesis never closes in `text`) that is not a
 /// `CASE pkg::Variant(binding)` pattern match (see [`preceded_by_case`]).
-fn qualified_calls(text: &str) -> Vec<(String, String)> {
+fn qualified_calls_with_arguments(text: &str) -> Vec<(String, String, Vec<String>)> {
     let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -156,7 +157,8 @@ fn qualified_calls(text: &str) -> Vec<(String, String)> {
                 && chars[end] == '('
                 && !preceded_by_case(&chars, start)
             {
-                out.push((pkg, name));
+                let args = call_arguments(&chars, end).unwrap_or_default();
+                out.push((pkg, name, args));
             }
             i = end.max(i + 2);
             continue;
@@ -193,7 +195,7 @@ fn internal_calls(text: &str) -> Vec<String> {
 
 /// Every bare call to a `general` member (`toString(`, `toInt(`, `toByte(`, …)
 /// in `text`, with its top-level argument texts — the unqualified globals a
-/// body writes with no package prefix, which [`qualified_calls`]/
+/// body writes with no package prefix, which [`qualified_calls_with_arguments`]/
 /// [`internal_calls`] cannot see (bug-807). A name counts only as a call: not
 /// part of a longer identifier, not qualified (`x.len`/`pkg::len`), not inside
 /// a string literal, and not the `error(` of a `FAIL error(` statement, which is
@@ -791,6 +793,86 @@ fn general_override_helper(
         .map(|o| o.helper)
 }
 
+/// The codes one qualified `pkg::name(args)` call can raise, given the member's
+/// whole declared set (bug-814). Two shapes the text fixes are narrowed, both
+/// in the direction that can only drop a code the call provably cannot raise:
+///
+/// - **A literal shift count.** `bits::sl`/`sr`/`sra` raise ErrInvalidArgument
+///   only for a count outside 0 .. 63, so a literal count inside it cannot.
+/// - **Overload selection by the collection argument.** A member whose
+///   implementations differ in the kind of their first parameter (`List`,
+///   `Map`, `Set`, `String`) — `collections::get` raises ErrIndexOutOfRange for
+///   a List index and ErrNotFound for a missing Map key — raises only what the
+///   implementations of the first argument's inferred kind declare. An argument
+///   [`infer_type`] cannot type counts every implementation.
+fn qualified_call_codes(
+    pkg: &str,
+    name: &str,
+    args: &[String],
+    declared: &BTreeSet<&'static str>,
+    scope: &Scope,
+    helper_blocks: &HashMap<String, &'static str>,
+) -> BTreeSet<&'static str> {
+    if pkg == "bits"
+        && matches!(name, "sl" | "sr" | "sra")
+        && args.len() == 2
+        && args[1]
+            .replace('_', "")
+            .parse::<i64>()
+            .is_ok_and(|count| (0..=63).contains(&count))
+    {
+        let mut raised = declared.clone();
+        raised.remove("ErrInvalidArgument");
+        return raised;
+    }
+    let Some(function) = registry()
+        .resolve_package(pkg)
+        .and_then(|package| package.functions().iter().find(|f| f.name == name))
+    else {
+        return declared.clone();
+    };
+    let kind = |ty: &str| -> Option<&'static str> {
+        ["List OF ", "Map OF ", "Set OF "]
+            .into_iter()
+            .find(|prefix| ty.starts_with(prefix))
+            .or((ty == "String").then_some("String"))
+    };
+    let kinds: Vec<Option<&'static str>> = function
+        .implementations()
+        .iter()
+        .map(|implementation| {
+            implementation
+                .params
+                .first()
+                .and_then(|param| kind(&param.ty.name()))
+        })
+        .collect();
+    let distinct: BTreeSet<_> = kinds.iter().flatten().collect();
+    if kinds.iter().any(Option::is_none) || distinct.len() < 2 {
+        return declared.clone();
+    }
+    let Some(arg_kind) = args
+        .first()
+        .and_then(|arg| infer_type(arg, scope, helper_blocks))
+        .and_then(|ty| kind(&ty))
+    else {
+        return declared.clone();
+    };
+    let selected: Vec<_> = function
+        .implementations()
+        .iter()
+        .zip(&kinds)
+        .filter(|(_, k)| **k == Some(arg_kind))
+        .collect();
+    if selected.is_empty() {
+        return declared.clone();
+    }
+    selected
+        .into_iter()
+        .flat_map(|(implementation, _)| implementation.errors.iter().copied())
+        .collect()
+}
+
 /// The codes one bare `general` call can raise: the matching per-overload row
 /// of `general_declared_errors.rs`'s [`OVERLOADS`] when every argument's type is
 /// known ([`infer_type`]), narrowed further for an in-range literal; otherwise
@@ -1095,9 +1177,21 @@ fn scan_calls_and_fails(
             )),
         }
     }
-    for (pkg, name) in qualified_calls(text) {
+    for (pkg, name, args) in qualified_calls_with_arguments(text) {
         match member_declared.get(&(pkg.clone(), name.clone())) {
-            Some(declared) => out.extend(declared.iter().copied()),
+            Some(declared) => {
+                let mut raised =
+                    qualified_call_codes(&pkg, &name, &args, declared, scope, helper_blocks);
+                let callee = format!("{pkg}::{name}");
+                raised.retain(|code| {
+                    !UNREACHABLE_QUALIFIED_CALL
+                        .iter()
+                        .any(|(func, member, unreachable)| {
+                            *func == scope.func && *member == callee && unreachable == code
+                        })
+                });
+                out.extend(raised)
+            }
             None => failures.push(format!(
                 "call `{pkg}::{name}` does not resolve to a registered member"
             )),
@@ -1711,6 +1805,16 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
     ("__encoding_codepageEncode", "toByte", "ErrOverflow"),
 ];
 
+/// A code a qualified `pkg::member(` call can raise that no call of that member
+/// in that one `FUNC` (a private helper or a rewrite target) can actually raise,
+/// keyed `(FUNC, "pkg::member", code)` and applied where the call is, so every
+/// member that reaches the `FUNC` inherits the proof — the qualified-call
+/// counterpart of [`UNREACHABLE_GENERAL_CALL`] (bug-814), with the same bar: the
+/// proof covers every call of that member in the `FUNC`, from its arguments'
+/// ranges, and a proof that depends on the callers names them. One entry per
+/// line (`rustfmt::skip`), so a FUNC's entries read as one block under its proof.
+const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[];
+
 /// The mirror image of [`UNREACHABLE_VIA_CALLEE`]: a code this sweep's model
 /// CANNOT see as reachable, but that really is — the `Body::Mfb` counterpart
 /// of `declared_errors_all.rs`'s `IO_DECLARED_EXTRA`/`TERM_DECLARED_EXTRA`
@@ -1753,16 +1857,20 @@ const DECLARED_EXTRA: &[(&str, &str, &str)] = &[
     ("datetime", "formatDuration", "ErrOverflow"),
 ];
 
-/// Sweep every `Body::Mfb` member across the whole registry (unlike
-/// `declared_errors_sweep.rs`'s per-package entry points, one `Mfb` body can
-/// call a sibling member in ANOTHER package — `collections::sort` calling
-/// `collections::get`/`set` is same-package, but nothing in the source shape
-/// guarantees that in general — so this guard is whole-registry, not
-/// parameterized per package).
-pub(crate) fn sweep() -> MfbSweepResult {
-    let codes = codes_by_value();
-    let reg = registry();
+/// The whole-registry lookup tables both sweeps resolve calls against.
+struct SweepTables {
+    /// Every member's declared `errors`, unioned across its implementations.
+    member_declared: HashMap<(String, String), BTreeSet<&'static str>>,
+    /// A `Body::Mfb` rewrite symbol -> the `(package, member)` that owns it.
+    rewrite_to_owner: HashMap<String, (String, String)>,
+    /// Every `Body::Mfb` member's body strings.
+    mfb_bodies: HashMap<(String, String), Vec<&'static str>>,
+    /// Every `FUNC` block in a `RegistryHelper` or `Body::Mfb` string, by name.
+    helper_blocks: HashMap<String, &'static str>,
+}
 
+fn sweep_tables() -> SweepTables {
+    let reg = registry();
     let mut member_declared: HashMap<(String, String), BTreeSet<&'static str>> = HashMap::new();
     let mut rewrite_to_owner: HashMap<String, (String, String)> = HashMap::new();
     let mut mfb_bodies: HashMap<(String, String), Vec<&'static str>> = HashMap::new();
@@ -1807,6 +1915,29 @@ pub(crate) fn sweep() -> MfbSweepResult {
             member_declared.insert((pkg_name.to_string(), function.name.to_string()), errs);
         }
     }
+    SweepTables {
+        member_declared,
+        rewrite_to_owner,
+        mfb_bodies,
+        helper_blocks,
+    }
+}
+
+/// Sweep every `Body::Mfb` member across the whole registry (unlike
+/// `declared_errors_sweep.rs`'s per-package entry points, one `Mfb` body can
+/// call a sibling member in ANOTHER package — `collections::sort` calling
+/// `collections::get`/`set` is same-package, but nothing in the source shape
+/// guarantees that in general — so this guard is whole-registry, not
+/// parameterized per package).
+pub(crate) fn sweep() -> MfbSweepResult {
+    let codes = codes_by_value();
+    let reg = registry();
+    let SweepTables {
+        member_declared,
+        rewrite_to_owner,
+        mfb_bodies,
+        helper_blocks,
+    } = sweep_tables();
 
     let mut failures = Vec::new();
     let mut mismatched = Vec::new();
@@ -1889,5 +2020,182 @@ fn every_body_mfb_member_declares_exactly_the_errors_its_source_can_raise() {
          (fix the descriptor `errors` in src/codegen/builtins/<pkg>/func_*.rs):\n  {}",
         result.mismatched.len(),
         result.mismatched.join("\n  ")
+    );
+}
+
+/// A `Body::Rewrite` implementation's call becomes a call to a fixed `__`-symbol
+/// whose MFBASIC body is a package `RegistryHelper` `FUNC` block (bug-814). The
+/// block is resolved exactly as a `Body::Mfb` body is ([`resolve`]: its own
+/// `FAIL`s, its calls, `TRAP` modeled), and compared with that one
+/// implementation's own `errors` — not the member's union, because a member can
+/// mix a `Rewrite` overload with a native one (`crypto::hash`'s `String` form
+/// next to its `List OF Byte` `AbiFunction`), and `declared_errors_all.rs`
+/// answers for the native overloads.
+///
+/// A call back into the member itself (`__crypto_hashText` re-entering
+/// `crypto::hash` over the encoded bytes) counts the member's OTHER
+/// implementations only: counting the implementation under test would let any
+/// code it declares justify itself.
+pub(crate) struct RewriteSweepResult {
+    pub(crate) failures: Vec<String>,
+    pub(crate) mismatched: Vec<String>,
+    pub(crate) measured_implementations: usize,
+}
+
+/// A code a `Body::Rewrite` member's resolved body reaches that a human reading
+/// the source has proven can never fire, keyed `(package, member, code)` and
+/// applied to every `Rewrite` implementation of that member — the `Rewrite`
+/// counterpart of [`UNREACHABLE_VIA_CALLEE`], with the same evidentiary bar.
+const REWRITE_UNREACHABLE: &[(&str, &str, &str)] = &[];
+
+/// The mirror image of [`REWRITE_UNREACHABLE`], the `Rewrite` counterpart of
+/// [`DECLARED_EXTRA`]: a code the text scan cannot see (an implicit
+/// checked-arithmetic raise) but that the member really raises.
+const REWRITE_DECLARED_EXTRA: &[(&str, &str, &str)] = &[];
+
+/// bug-814 Phase 1: the `Body::Rewrite` implementations whose declared `errors`
+/// differ from what their target can raise, as measured when this guard was
+/// added (`cargo test --release --bin mfb
+/// every_body_rewrite_implementation_declares_exactly_the_errors_its_target_can_raise`).
+/// A ratchet, not a pass: a mismatch outside this list fails, and so does an
+/// entry that no longer mismatches. Phase 2 removes entries as it fixes them, and
+/// then this list.
+const REWRITE_PHASE_1_BASELINE: &[&str] = &[
+    "compress::crc32 (__compress_crc32): undeclared [\"ErrIndexOutOfRange\"], declared but never raised []",
+    "compress::inflate (__compress_inflate): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "compress::zlibDecode (__compress_zlibDecode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "compress::gzipDecode (__compress_gzipDecode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "compress::deflate (__compress_deflate): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "compress::zlibEncode (__compress_zlibEncode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "compress::gzipEncode (__compress_gzipEncode): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::hmac (__crypto_hmac): undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::hmac (__crypto_hmacText): undeclared [\"ErrOutOfMemory\"], declared but never raised []",
+    "crypto::hkdf (__crypto_hkdf): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::pbkdf2 (__crypto_pbkdf2): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::argon2id (__crypto_argon2id): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\"], declared but never raised []",
+    "crypto::argon2id (__crypto_argon2idProfile): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\"], declared but never raised []",
+    "crypto::shake256 (__crypto_shake256): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::shake256 (__crypto_shake256Text): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::randomInt (__crypto_randomInt): undeclared [\"ErrIndexOutOfRange\"], declared but never raised []",
+    "crypto::randomInt (__crypto_randomIntBig): undeclared [\"ErrIndexOutOfRange\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::uuid4 (__crypto_uuid4): undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::convert (__crypto_convert): undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::exchange (__crypto_exchange): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::encrypt (__crypto_encrypt): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\", \"ErrUnknown\"], declared but never raised []",
+    "crypto::encrypt (__crypto_encryptText): undeclared [\"ErrOutOfMemory\"], declared but never raised []",
+    "crypto::decrypt (__crypto_decrypt): undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
+    "crypto::constantTimeEqual (__crypto_constantTimeEqual): undeclared [\"ErrIndexOutOfRange\"], declared but never raised []",
+];
+
+pub(crate) fn rewrite_sweep() -> RewriteSweepResult {
+    let codes = codes_by_value();
+    let reg = registry();
+    let tables = sweep_tables();
+    let mut failures = Vec::new();
+    let mut mismatched = Vec::new();
+    let mut measured_implementations = 0usize;
+
+    for package in reg.packages() {
+        let pkg_name = package.import_name();
+        for function in package.functions() {
+            for (index, implementation) in function.implementations().iter().enumerate() {
+                let Body::Rewrite(target) = implementation.body else {
+                    continue;
+                };
+                measured_implementations += 1;
+                let Some(block) = tables.helper_blocks.get(target).copied() else {
+                    failures.push(format!(
+                        "{pkg_name}::{}: rewrite target `{target}` is not a registered helper FUNC",
+                        function.name
+                    ));
+                    continue;
+                };
+                let key = (pkg_name.to_string(), function.name.to_string());
+                let others: BTreeSet<&'static str> = function
+                    .implementations()
+                    .iter()
+                    .enumerate()
+                    .filter(|(other, _)| *other != index)
+                    .flat_map(|(_, other)| other.errors.iter().copied())
+                    .collect();
+                let mut member_declared = tables.member_declared.clone();
+                member_declared.insert(key, others);
+                let mut expected = resolve(
+                    block,
+                    &codes,
+                    &tables.rewrite_to_owner,
+                    &member_declared,
+                    &tables.helper_blocks,
+                    &mut BTreeSet::new(),
+                    &mut HashMap::new(),
+                    &mut failures,
+                );
+                expected.retain(|code| {
+                    !REWRITE_UNREACHABLE
+                        .iter()
+                        .any(|(pkg, member, unreachable)| {
+                            *pkg == pkg_name && *member == function.name && unreachable == code
+                        })
+                });
+                for (pkg, member, extra) in REWRITE_DECLARED_EXTRA {
+                    if *pkg == pkg_name && *member == function.name {
+                        expected.insert(extra);
+                    }
+                }
+                let declared: BTreeSet<&'static str> =
+                    implementation.errors.iter().copied().collect();
+                if declared != expected {
+                    let missing: Vec<_> = expected.difference(&declared).collect();
+                    let extra: Vec<_> = declared.difference(&expected).collect();
+                    mismatched.push(format!(
+                        "{pkg_name}::{} ({target}): undeclared {missing:?}, declared but never \
+                         raised {extra:?}",
+                        function.name
+                    ));
+                }
+            }
+        }
+    }
+
+    RewriteSweepResult {
+        failures,
+        mismatched,
+        measured_implementations,
+    }
+}
+
+#[test]
+fn every_body_rewrite_implementation_declares_exactly_the_errors_its_target_can_raise() {
+    let result = rewrite_sweep();
+    assert!(
+        result.failures.is_empty(),
+        "the Body::Rewrite sweep could not classify every call:\n  {}",
+        result.failures.join("\n  ")
+    );
+    assert!(
+        result.measured_implementations >= 1,
+        "the sweep found no Body::Rewrite implementations"
+    );
+    let unexpected: Vec<&str> = result
+        .mismatched
+        .iter()
+        .map(String::as_str)
+        .filter(|m| !REWRITE_PHASE_1_BASELINE.contains(m))
+        .collect();
+    let stale: Vec<&str> = REWRITE_PHASE_1_BASELINE
+        .iter()
+        .copied()
+        .filter(|b| !result.mismatched.iter().any(|m| m == b))
+        .collect();
+    assert!(
+        unexpected.is_empty() && stale.is_empty(),
+        "{} of {} Body::Rewrite implementation(s) declare errors that differ from what their \
+         target can raise outside the Phase 1 baseline (fix the implementation's `errors` in \
+         src/codegen/builtins/<pkg>/func_*.rs):\n  {}\nbaseline entries that no longer \
+         mismatch (remove them):\n  {}",
+        unexpected.len(),
+        result.measured_implementations,
+        unexpected.join("\n  "),
+        stale.join("\n  ")
     );
 }
