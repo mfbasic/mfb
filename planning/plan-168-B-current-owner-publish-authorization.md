@@ -180,22 +180,23 @@ publish test changed.
   Check: `cargo test -p mfb_repository --lib -- spec_probe_transfer the_former_owner first_publish a_legacy_recipient the_origin_owner proof_owner a_case_differing a_recipient_token the_publish_records publish_chain a_transferred_package` → `test result: ok`, 0 failed (est. 3–5 min; guess).
   Measured: `test result: ok. 11 passed; 0 failed`. One pre-existing publish
   test did change (see Corrections): `publish_aborts_the_staged_blob_when_the_ident_moved_owner`.
-Commit: (this commit — recorded in the next)
+Commit: ed3f34ab2
 
 ### Phase 3: Spec sync
 
-- [ ] `01_repository-protocol.md` §`/validate`:
+- [x] `01_repository-protocol.md` §`/validate`:
   - step 1 becomes stored-owner authorization (first publish uses the prefix),
     plus the legacy-transfer refusal;
   - step 5 checks the session owner's current ident;
   - step 6 binds the proof owner to `author`;
   - remove the `validate_package_request` clause from the deviation paragraph.
-- [ ] `04_owner-names.md`: the paragraph citing `require_package_owner` states
+- [x] `04_owner-names.md`: the paragraph citing `require_package_owner` states
       that `/validate` / `/publish` also use the stored owner.
-- [ ] Token-scope prose in §Accounts.
+- [x] Token-scope prose in §Accounts.
 
 Acceptance: `cargo test --bin mfb spec` → `test result: ok` (est. 3–6 min; guess).
-Commit: —
+  Measured: `test result: ok. 46 passed; 0 failed` (includes `spec_citations_resolve`).
+Commit: (this commit — recorded on archive)
 
 ## Validation Plan
 
@@ -203,7 +204,9 @@ Commit: —
   owner, a foreign token scope).
 - Runtime proof: the probe drives the real `/signing` and `/validate` handlers
   end to end in-process. The CLI path waits on D (`signing_ident`).
-- Final gate (once): `cargo test -p mfb_repository --no-fail-fast > /tmp/168B.log 2>&1; echo EXIT=$?` → `EXIT=0`, then `cargo test --test cli_repo_publish > /tmp/168B-pub.log 2>&1; echo EXIT=$?` → `EXIT=0` (est. 15–20 min; guess). The second command covers the CLI publish/install path that calls `verify_proof`.
+- Final gate — measured after Phase 2's code was final (Phase 3 is prose):
+  `EXIT=0` (434 lib tests passed) and `EXIT=0` (`cli_repo_publish`, 6 passed).
+- Final gate as planned (once): `cargo test -p mfb_repository --no-fail-fast > /tmp/168B.log 2>&1; echo EXIT=$?` → `EXIT=0`, then `cargo test --test cli_repo_publish > /tmp/168B-pub.log 2>&1; echo EXIT=$?` → `EXIT=0` (est. 15–20 min; guess). The second command covers the CLI publish/install path that calls `verify_proof`.
 
 ## Open Decisions
 

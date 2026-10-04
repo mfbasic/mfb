@@ -1060,7 +1060,14 @@ logged.[[repository/src/server.rs:org_members]]
 linked machine whose auth key is scoped and short-lived. `POST /tokens` issues
 one (owner-ident-signed), registering an auth key plus a `scope`
 (`<owner>#<package>` or `<owner>#*`) and TTL. At `/signing` the token may request
-attestations **only within its scope and only until it expires**; it can never
+attestations **only within its scope and only until it expires**. A wildcard
+scope `<owner>#*` covers every package that owner governs — its stored owner,
+so after a transfer the recipient's wildcard covers the transferred package and
+the former owner's no longer does — and, for a not-yet-published ident, the
+`owner#` prefix. An exact scope names one ident, and only that package's stored
+owner (or, before its first publish, its prefix owner) may issue it.
+[[repository/src/server.rs:scope_permits]][[repository/src/server.rs:governing_owner]]
+A token can never
 bypass the ident-proof requirement (the CI box still needs the org/owner ident
 to sign the package proof). `POST /tokens/revoke` revokes it and closes its
 sessions. Issue, use (via the log), and revoke are all
@@ -1117,14 +1124,13 @@ The transfer contract requires the recipient to be able to publish subsequent
 versions under the unchanged package ident, while pre-transfer releases remain
 verifiable under their original publisher keys.
 
-**Current implementation deviation:** `/signing` and `/release-state` authorize
-the stored new owner, and `/index` serves the signed transfer chain, but the
-publish and consumer paths are not transfer-complete: `validate_package_request`
-still requires the ident prefix's owner and auth key, `signing_ident` rejects a
-different prefix at build time, and clients do not yet verify the transfer
-chain. A recipient therefore cannot publish a new version under the transferred
-ident through the current CLI and validation path. Existing package bytes and
-signatures are unchanged.
+**Current implementation deviation:** `/signing`, `/release-state`,
+`/validate` and `/publish` authorize the stored new owner, and `/index` serves
+the signed transfer chain, but the build and consumer paths are not
+transfer-complete: `signing_ident` rejects a different prefix at build time, and
+clients do not yet verify the transfer chain. A recipient therefore cannot
+build and publish a new version under the transferred ident through the current
+CLI. Existing package bytes and signatures are unchanged.
 [[repository/src/server.rs:require_package_owner]][[repository/src/server.rs:validate_package_request]][[repository/src/server.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store.rs:accept_transfer]]
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`
@@ -1247,11 +1253,20 @@ The checks run in the order, each with a distinct diagnostic:
 0. Wire integrity — request `contentHash`/`ident`/`version` match the parsed
    package, and request `identFingerprint`/`signingFingerprint` match the
    fingerprints derived from the header keys.
-1. Session/owner — the ident is `<owner>#<package>`; the session owner
-   (case-folded) matches the ident owner; the session's
-   `owner_id`/`auth_fingerprint` still match the owner's current auth key;
-   `author` matches the registered display name; the package is
-   Ed25519-signed (unsigned packages can never be published).
+1. Session/owner — the ident is `<owner>#<package>`. When the package already
+   exists, the session owner must be its **stored** owner (`session owner is not
+   the package's current owner`), which after a transfer is no longer the ident
+   prefix; for a first publish the session owner (case-folded) must match the
+   ident's `owner#` prefix (`session owner does not match package ident owner`),
+   and an unregistered prefix owner stops validation (`package ident owner is
+   not registered`). A package that moved through an unsigned legacy transfer
+   (see Ownership transfer) accepts a release only from its origin (prefix)
+   owner, because clients can verify no one else past that link (`package
+   ownership moved before signed transfers, so clients cannot verify a release
+   by a later owner`). The session's `owner_id`/`auth_fingerprint` still match
+   one of the session owner's current auth keys; `author` matches the session
+   owner's registered display name; the package is Ed25519-signed (unsigned
+   packages can never be published).
 2. The attestation verifies under the **server's own key** and its
    `repoFingerprint` is ours.
 3. `attestation.ident`/`version` pin this exact package (an attestation cannot
@@ -1260,11 +1275,15 @@ The checks run in the order, each with a distinct diagnostic:
    `signingKey` — the package is signed by the key the server was told about.
 5. `attestation.identFingerprint` equals the fingerprint of the header
    `identKey`, and that fingerprint matches the server's **current**
-   name↔ident binding (a stale attestation from before an ident rotation is
-   refused; the client refetches and rebuilds).
+   name↔ident binding of the publishing (session) owner (a stale attestation
+   from before an ident rotation is refused; the client refetches and
+   rebuilds).
 6. The proof verifies under the header `identKey` and its
-   `owner`/`ident`/`version`/`identFingerprint`/`signingFingerprint` all match
-   the header.
+   `ident`/`version`/`identFingerprint`/`signingFingerprint` all match the
+   header. Its `owner` — and the attestation's — must case-fold-equal the
+   header `author`, the release's publisher, rather than the ident prefix, so a
+   transferred package's recipient signs a verifiable release; the ident keeps
+   its `<owner>#<package>` shape check.[[repository/src/package.rs:verify_proof]]
 7. `packageBinaryHash` recomputes over the payload, and the package signature
    verifies under the header `signingKey` over the signed prefix.
 
