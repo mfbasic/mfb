@@ -374,6 +374,142 @@ fn trap_discard_error_results(ops: &[NirOp]) -> HashSet<String> {
         .collect()
 }
 
+/// bug-778: the `Result`-locals that may live in frame slots instead of a heap
+/// `{tag, size, payload}` block ([`UnboxedTrapResult`]).
+///
+/// The inline-`TRAP` desugar (`ir::lower::lower_inline_trap`, both the one-check
+/// and the check-chain shape) binds each fallible node to a temporary
+/// `Bind $trap_resN = CallResult(..) | Checked(..)` and reads it only through
+/// `ResultIsOk` / `ResultValue` / `ResultError`. That is the property the frame
+/// form needs, and it is VERIFIED here on the final NIR rather than assumed from
+/// the name, so an optimizer rewrite or a decoded package that breaks it falls
+/// back to the heap form. A local qualifies when:
+///
+/// * it is bound exactly once, by a `Bind` whose value is a `CallResult` or a
+///   `Checked`, and never assigned, `STATE`-assigned or address-taken;
+/// * every read of it is the direct operand of one of the three readers;
+/// * `ResultValue` and `ResultError` each occur at most once, and each as the
+///   whole value of a `Bind` or an `Assign` — an owning store, which is what
+///   lets the reader MOVE an owned block out instead of copying it.
+fn unboxed_trap_result_candidates(ops: &[NirOp]) -> HashMap<String, UnboxedTrapUses> {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    #[derive(Default)]
+    struct Collector {
+        bound: HashMap<String, usize>,
+        candidates: HashSet<String>,
+        disqualified: HashSet<String>,
+        // (`ResultValue`, `ResultError`) reads per local in store position ...
+        stored_reads: HashMap<String, (usize, usize)>,
+        // ... and anywhere at all. A qualifying local has the two equal.
+        all_reads: HashMap<String, (usize, usize)>,
+    }
+    impl NirVisitor for Collector {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind {
+                    name,
+                    value: Some(value),
+                    ..
+                } => {
+                    *self.bound.entry(name.clone()).or_default() += 1;
+                    if matches!(
+                        value,
+                        NirValue::CallResult { .. } | NirValue::Checked { .. }
+                    ) {
+                        self.candidates.insert(name.clone());
+                    }
+                }
+                NirOp::Bind { name, .. } => {
+                    *self.bound.entry(name.clone()).or_default() += 1;
+                }
+                NirOp::Assign { name, .. } => {
+                    self.disqualified.insert(name.clone());
+                }
+                NirOp::StateAssign { resource, .. } => {
+                    self.disqualified.insert(resource.clone());
+                }
+                _ => {}
+            }
+            // A value reader in store position: the one place it may move.
+            let stored = match op {
+                NirOp::Bind {
+                    value: Some(value), ..
+                } => Some(value),
+                NirOp::Assign { value, .. } => Some(value),
+                _ => None,
+            };
+            if let Some(
+                NirValue::ResultValue { value: inner } | NirValue::ResultError { value: inner },
+            ) = stored
+            {
+                if let NirValue::Local(name) = inner.as_ref() {
+                    let counts = self.stored_reads.entry(name.clone()).or_default();
+                    if matches!(stored, Some(NirValue::ResultValue { .. })) {
+                        counts.0 += 1;
+                    } else {
+                        counts.1 += 1;
+                    }
+                }
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::ResultIsOk { value: inner }
+                | NirValue::ResultValue { value: inner }
+                | NirValue::ResultError { value: inner } => {
+                    if let NirValue::Local(name) = inner.as_ref() {
+                        // Every value read; `visit_op` counts the store-position
+                        // ones, so a read anywhere else makes the two differ.
+                        if !matches!(value, NirValue::ResultIsOk { .. }) {
+                            let counts = self.all_reads.entry(name.clone()).or_default();
+                            if matches!(value, NirValue::ResultValue { .. }) {
+                                counts.0 += 1;
+                            } else {
+                                counts.1 += 1;
+                            }
+                        }
+                        return;
+                    }
+                    walk_value(self, value);
+                }
+                NirValue::Local(name) | NirValue::LocalRef { name, .. } => {
+                    self.disqualified.insert(name.clone());
+                }
+                _ => walk_value(self, value),
+            }
+        }
+    }
+    let mut collector = Collector::default();
+    collector.visit_ops(ops);
+    let Collector {
+        bound,
+        candidates,
+        disqualified,
+        stored_reads,
+        all_reads,
+    } = collector;
+    candidates
+        .into_iter()
+        .filter_map(|name| {
+            let stored = stored_reads.get(&name).copied().unwrap_or_default();
+            let all = all_reads.get(&name).copied().unwrap_or_default();
+            let qualifies = bound.get(&name) == Some(&1)
+                && !disqualified.contains(&name)
+                && stored == all
+                && stored.0 <= 1
+                && stored.1 <= 1;
+            qualifies.then_some((
+                name,
+                UnboxedTrapUses {
+                    reads_value: stored.0 == 1,
+                    reads_error: stored.1 == 1,
+                },
+            ))
+        })
+        .collect()
+}
+
 /// Small-vector locals safe to keep in registers (their lanes) for their whole
 /// lifetime, with no arena block (plan-01-vector). A candidate is a binding of a
 /// vector type (`Float2/3/4`, `Fixed*`, `Integer*`) whose initializer produces a
@@ -939,6 +1075,11 @@ pub(crate) fn lower_function(
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
+        unboxed_trap_candidates: HashMap::new(),
+        unboxed_trap_locals: HashMap::new(),
+        unboxed_trap_pending: None,
+        unboxed_trap_active: None,
+        unboxed_trap_filled: false,
         suppress_resource_source_flag: false,
         emitting_error_route: false,
         building_error_block: false,
@@ -1193,6 +1334,8 @@ pub(crate) fn lower_function(
     // plan-64-I: inline-conversion `CallResult` Result-locals whose trapped error
     // is provably unused, so the error path builds only a tag (no ErrorLoc/Error).
     builder.trap_discard_error_results = trap_discard_error_results(&function.body);
+    // bug-778: the inline-`TRAP` temporaries that need no heap `Result` block.
+    builder.unboxed_trap_candidates = unboxed_trap_result_candidates(&function.body);
     // plan-86 K1: a pure parameter-passthrough function returns its argument uncopied;
     // the caller copies at its ownership boundary. Only the user-function path sets
     // this — builtin/thread-copy wrappers default false (never param-borrow, and no
@@ -1584,6 +1727,11 @@ pub(crate) fn lower_abi_function_helper(
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
+        unboxed_trap_candidates: HashMap::new(),
+        unboxed_trap_locals: HashMap::new(),
+        unboxed_trap_pending: None,
+        unboxed_trap_active: None,
+        unboxed_trap_filled: false,
         suppress_resource_source_flag: false,
         emitting_error_route: false,
         building_error_block: false,
@@ -1829,6 +1977,11 @@ pub(crate) fn helper_code_builder<'a>(
         raw_result_capture: None,
         trap_discard_error_results: HashSet::new(),
         raw_result_discard_error: false,
+        unboxed_trap_candidates: HashMap::new(),
+        unboxed_trap_locals: HashMap::new(),
+        unboxed_trap_pending: None,
+        unboxed_trap_active: None,
+        unboxed_trap_filled: false,
         suppress_resource_source_flag: false,
         emitting_error_route: false,
         building_error_block: false,

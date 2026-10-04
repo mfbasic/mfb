@@ -341,6 +341,30 @@ pub(crate) struct CodeBuilder<'a> {
     /// is in [`trap_discard_error_results`]: it makes `emit_error_register_return`
     /// and `materialize_current_result` emit only a bare tag on the error path.
     pub(crate) raw_result_discard_error: bool,
+    /// bug-778: `Result`-locals whose every use is `ResultIsOk` / `ResultValue` /
+    /// `ResultError` of the local itself, each value read the direct value of a
+    /// `Bind`/`Assign` — the inline-`TRAP` desugar's `$trap_resN` temporaries.
+    /// Such a local never needs the heap `{tag, size, payload}` block: it lives
+    /// in frame slots ([`UnboxedTrapResult`]). Populated once per function before
+    /// lowering the body (`unboxed_trap_result_candidates`); a bind still checks
+    /// the payload type before taking the unboxed form.
+    pub(crate) unboxed_trap_candidates: HashMap<String, UnboxedTrapUses>,
+    /// bug-778: the unboxed trap results bound so far, by local name — what the
+    /// three readers consult instead of dereferencing a `Result` block.
+    pub(crate) unboxed_trap_locals: HashMap<String, UnboxedTrapResult>,
+    /// bug-778: ARMED by the unboxed `Bind` for exactly its own initializer.
+    /// `lower_value` moves it into [`Self::unboxed_trap_active`] for the one frame
+    /// it enters next — the initializer's own node — the way `borrow_get_armed`
+    /// is scoped, so an operand frame below can never see it.
+    pub(crate) unboxed_trap_pending: Option<UnboxedTrapResult>,
+    /// bug-778: the unboxed trap result the CURRENT `lower_value` frame's trapped
+    /// producer (`CallResult`/`Checked`) must fill instead of allocating a
+    /// `Result` block. Taken by `finish_unboxed_trap_result`.
+    pub(crate) unboxed_trap_active: Option<UnboxedTrapResult>,
+    /// bug-778: set by `finish_unboxed_trap_result`, so the unboxed `Bind` can
+    /// prove its producer filled the slots rather than building a heap `Result`
+    /// the readers would then misread.
+    pub(crate) unboxed_trap_filled: bool,
     /// bug-425: set transiently by the thread-send lowering while it copies a
     /// thread-sendable resource for hand-over. `copy_resource_to_current_arena`
     /// otherwise flags the *source* record `moved|closed` at copy time — before the
@@ -739,6 +763,11 @@ impl<'a> CodeBuilder<'a> {
             raw_result_capture: None,
             trap_discard_error_results: HashSet::new(),
             raw_result_discard_error: false,
+            unboxed_trap_candidates: HashMap::new(),
+            unboxed_trap_locals: HashMap::new(),
+            unboxed_trap_pending: None,
+            unboxed_trap_active: None,
+            unboxed_trap_filled: false,
             suppress_resource_source_flag: false,
             emitting_error_route: false,
             building_error_block: false,
@@ -1043,6 +1072,45 @@ pub(crate) struct OwnedListCleanup {
     /// bug-805: the resource leaf type (`RES` stripped, `STATE` kept) this list
     /// holds; `drop` is that leaf's descriptor.
     pub(crate) leaf: ParameterType,
+}
+
+/// bug-778: the frame representation of an inline-`TRAP` desugar temporary
+/// (`$trap_resN : Result OF T`) whose uses are only the three `Result` readers.
+///
+/// The heap form is a `{tag, size, payload}` block allocated on every evaluation,
+/// success included. This form keeps the same three facts in frame slots:
+///
+/// * `tag_slot` — the binding's own slot; `RESULT_OK_TAG` or an error tag.
+/// * `payload_slot` — on `Ok`, the success value: the scalar itself, or the
+///   pointer to a block this temporary OWNS. Zero on the error path. A block is
+///   MOVED out by `ResultValue` (the slot is zeroed), so it is never copied in
+///   or out; the slot's own drop frees one that was never read.
+/// * `error_slot` — on the error path, the flat `Error` block this temporary
+///   owns (adopted from the raiser or rebuilt from the registers, exactly what
+///   the heap form copied inline). Moved out by `ResultError`; zero otherwise.
+/// bug-778: which `Result` readers a [`UnboxedTrapResult`] candidate has —
+/// at most one value read and one error read, each in store position
+/// (`unboxed_trap_result_candidates`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UnboxedTrapUses {
+    pub(crate) reads_value: bool,
+    pub(crate) reads_error: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct UnboxedTrapResult {
+    pub(crate) tag_slot: usize,
+    pub(crate) payload_slot: usize,
+    pub(crate) error_slot: usize,
+    /// The success type `T`.
+    pub(crate) payload: ParameterType,
+    /// Whether `T` is a block (`result_payload_is_block`), i.e. `payload_slot`
+    /// holds an owned pointer rather than a scalar.
+    pub(crate) block: bool,
+    /// Whether a `ResultError` reads the error. When none does, the error path
+    /// frees the `Error` block at once (the heap form's guarded free) and
+    /// `error_slot` is unused.
+    pub(crate) error_read: bool,
 }
 
 /// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /

@@ -6,6 +6,7 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::error::result::UnboxedPayloadSource;
 use crate::codegen::memory::arena::builder_arena_transfer::{PayloadEdgeShape, RawSuccessBlock};
 use crate::codegen::memory::arena::graph_drop::StoreShape;
 use crate::codegen::memory::arena::TrappedErrorSource;
@@ -102,6 +103,13 @@ impl CodeBuilder<'_> {
         let headroom_saved = std::mem::replace(
             &mut self.headroom_copy_result,
             std::mem::take(&mut self.headroom_copy_armed),
+        );
+        // bug-778: the unboxed trap result belongs to exactly one frame — the
+        // trapped producer the unboxed `Bind` armed it for. Every operand frame
+        // below sees `None`, so only that producer can fill the slots.
+        let unboxed_saved = std::mem::replace(
+            &mut self.unboxed_trap_active,
+            self.unboxed_trap_pending.take(),
         );
         // bug-744: whether THIS frame's value is discarded (an `Eval` statement, a
         // `Nothing` function's `RETURN`). Taken here so every operand frame below is
@@ -228,6 +236,7 @@ impl CodeBuilder<'_> {
         }
         self.borrow_get_result = borrow_saved;
         self.headroom_copy_result = headroom_saved;
+        self.unboxed_trap_active = unboxed_saved;
         result
     }
 
@@ -773,6 +782,13 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_value_owned(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let result = self.lower_value(value)?;
+        // bug-778: a reader of an unboxed inline-`TRAP` temporary hands over a
+        // block the temporary owned and has just given up (its slot is nulled) —
+        // this frame's own block, with no other owner. Copying it would be the
+        // copy-out the heap `Result` forced; taking it is the move.
+        if self.unboxed_trap_read_moves(value) {
+            return Ok(result);
+        }
         // A register-native vector reaching an owner boundary (a binding, global,
         // return, closure env) materializes to its block here — the block is
         // registered as a temp by `vector_value_as_block` and claimed just below,
@@ -2360,10 +2376,7 @@ impl CodeBuilder<'_> {
                         let value_slot = self.allocate_stack_object("raw_result_value", 8);
                         let message_slot = self.allocate_stack_object("raw_result_message", 8);
                         let source_slot = self.allocate_stack_object("raw_result_source", 8);
-                        let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
-                        let wrap_error_label = self.label("result_wrap_error");
-                        let have_payload_label = self.label("result_have_payload");
-                        let result_slot = self.allocate_stack_object("raw_result", 8);
+                        let unboxed = self.unboxed_trap_active.take();
                         self.emit_function_value_call_raw(&callable, args)?;
                         self.emit(abi::store_u64(
                             RESULT_TAG_REGISTER,
@@ -2385,6 +2398,25 @@ impl CodeBuilder<'_> {
                             abi::stack_pointer(),
                             source_slot,
                         ));
+                        // bug-778: an unboxed temporary keeps the callee's block —
+                        // an owning `Bind` of the untrapped call owns it too (a
+                        // `FUNC` value is never a param borrow, bug-569).
+                        if let Some(unboxed) = unboxed {
+                            return self.finish_unboxed_trap_result(
+                                unboxed,
+                                tag_slot,
+                                value_slot,
+                                message_slot,
+                                source_slot,
+                                UnboxedPayloadSource::Owned,
+                                TrappedErrorSource::CalleeRegister,
+                                format!("callResult {target}"),
+                            );
+                        }
+                        let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
+                        let wrap_error_label = self.label("result_wrap_error");
+                        let have_payload_label = self.label("result_have_payload");
+                        let result_slot = self.allocate_stack_object("raw_result", 8);
                         self.emit(abi::load_u64(scratch9, abi::stack_pointer(), tag_slot));
                         self.emit(abi::compare_immediate(scratch9, RESULT_OK_TAG));
                         self.emit(abi::branch_ne(&wrap_error_label));
@@ -2529,10 +2561,7 @@ impl CodeBuilder<'_> {
                 let value_slot = self.allocate_stack_object("raw_result_value", 8);
                 let message_slot = self.allocate_stack_object("raw_result_message", 8);
                 let source_slot = self.allocate_stack_object("raw_result_source", 8);
-                let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
-                let wrap_error_label = self.label("result_wrap_error");
-                let have_payload_label = self.label("result_have_payload");
-                let result_slot = self.allocate_stack_object("raw_result", 8);
+                let unboxed = self.unboxed_trap_active.take();
                 // plan-147-D: the trapped call form is an approved site like any other.
                 let previous_call = self
                     .current_call_key
@@ -2562,6 +2591,32 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     source_slot,
                 ));
+                // bug-778: an unboxed temporary owns the callee's block exactly when
+                // an owning `Bind` of the untrapped call would (`lower_value_owned`):
+                // a param borrow or a rodata `String` is copied, anything else is
+                // taken. Nothing is registered for the statement-scope free — the
+                // temporary, then its reader's binding, is the owner.
+                if let Some(unboxed) = unboxed {
+                    let owner = if self.value_needs_owning_copy(value) {
+                        UnboxedPayloadSource::Copy
+                    } else {
+                        UnboxedPayloadSource::Owned
+                    };
+                    return self.finish_unboxed_trap_result(
+                        unboxed,
+                        tag_slot,
+                        value_slot,
+                        message_slot,
+                        source_slot,
+                        owner,
+                        TrappedErrorSource::CalleeRegister,
+                        format!("callResult {target}"),
+                    );
+                }
+                let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
+                let wrap_error_label = self.label("result_wrap_error");
+                let have_payload_label = self.label("result_have_payload");
+                let result_slot = self.allocate_stack_object("raw_result", 8);
                 self.emit(abi::load_u64(scratch9, abi::stack_pointer(), tag_slot));
                 self.emit(abi::compare_immediate(scratch9, RESULT_OK_TAG));
                 self.emit(abi::branch_ne(&wrap_error_label));
@@ -2908,6 +2963,9 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::ResultIsOk { value } => {
+                if let Some(result) = self.lower_unboxed_result_is_ok(value) {
+                    return result;
+                }
                 let result = self.lower_value(value)?;
                 let register = self.allocate_register();
                 let ok_label = self.label("result_is_ok_true");
@@ -2928,6 +2986,9 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::ResultValue { value } => {
+                if let Some(result) = self.lower_unboxed_result_value(value) {
+                    return result;
+                }
                 let result = self.lower_value(value)?;
                 let crate::types::ParameterType::ResultOf(payload) = &result.type_ else {
                     return Err(format!(
@@ -2959,6 +3020,9 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::ResultError { value } => {
+                if let Some(result) = self.lower_unboxed_result_error(value) {
+                    return result;
+                }
                 let result = self.lower_value(value)?;
                 // The error payload (a flat Error block) is inlined at +16.
                 let register = self.allocate_register();
@@ -3478,6 +3542,8 @@ impl CodeBuilder<'_> {
         let success_type = success.type_.clone();
         let raw_success = if self.raw_result_is_borrowed_resource(target, &success_type) {
             RawSuccessBlock::BorrowedResource
+        } else if self.claim_raw_member_result_for_unboxed_trap(&success) {
+            RawSuccessBlock::OwnedByThisFrame
         } else {
             RawSuccessBlock::OwnedElsewhere
         };
@@ -3516,6 +3582,8 @@ impl CodeBuilder<'_> {
         ));
         let raw_success = if self.raw_result_is_borrowed_resource(target, &success_type) {
             RawSuccessBlock::BorrowedResource
+        } else if self.claim_raw_member_result_for_unboxed_trap(&success) {
+            RawSuccessBlock::OwnedByThisFrame
         } else {
             RawSuccessBlock::OwnedElsewhere
         };
@@ -3525,6 +3593,21 @@ impl CodeBuilder<'_> {
             false,
             raw_success,
         )
+    }
+
+    /// bug-778: an unboxed inline-`TRAP` temporary OWNS its payload. When the raw
+    /// member's block is the statement-scope temp `register_raw_member_result_temp`
+    /// just registered — a fresh block of this frame's — the temporary takes it
+    /// over instead of copying it and letting the statement free the original,
+    /// exactly as an owning `Bind` of the untrapped member claims it
+    /// (`lower_value_owned`). Only on the unboxed path: the heap `Result`'s own
+    /// copy-and-free answer for `OwnedByThisFrame` is a different contract.
+    fn claim_raw_member_result_for_unboxed_trap(&mut self, success: &ValueResult) -> bool {
+        if self.unboxed_trap_active.is_none() || !self.pending_temp_would_be_claimed(success) {
+            return false;
+        }
+        self.claim_pending_temp(success);
+        true
     }
 
     /// Dispatch a provably-infallible inline built-in to its normal lowering. The

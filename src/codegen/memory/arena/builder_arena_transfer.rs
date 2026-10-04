@@ -4,6 +4,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::codegen::error::result::UnboxedPayloadSource;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 use std::collections::HashMap;
@@ -214,14 +215,84 @@ impl CodeBuilder<'_> {
         // [`RawSuccessBlock`] — every call site answers explicitly.
         raw_success: RawSuccessBlock,
     ) -> Result<ValueResult, String> {
-        // The single parse this function already performed for its result
-        // type, hoisted so the block-free above shares it (plan-111-D). Letter F
-        // types `success_type` itself and deletes it.
-        let success = success_type.clone();
         let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
         let value_slot = self.allocate_stack_object("raw_result_value", 8);
         let message_slot = self.allocate_stack_object("raw_result_message", 8);
         let source_raw_slot = self.allocate_stack_object("raw_result_source_raw", 8);
+        let unboxed = self.unboxed_trap_active.take();
+        if unboxed.is_none() {
+            return self.materialize_current_result_boxed(
+                success_type,
+                text,
+                worker_error_source,
+                raw_success,
+                [tag_slot, value_slot, message_slot, source_raw_slot],
+            );
+        }
+        // bug-778: the unboxed form. Its eligibility (`unboxed_trap_shape`) keeps
+        // a resource payload and `thread::waitFor`'s worker-arena error out.
+        let unboxed = unboxed.expect("checked above");
+        if worker_error_source || raw_success == RawSuccessBlock::BorrowedResource {
+            return Err(format!(
+                "internal: {text} reached the unboxed inline-TRAP form with a \
+                 worker-arena error or a borrowed resource"
+            ));
+        }
+        self.emit(abi::store_u64(
+            RESULT_TAG_REGISTER,
+            abi::stack_pointer(),
+            tag_slot,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            message_slot,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_SOURCE_REGISTER,
+            abi::stack_pointer(),
+            source_raw_slot,
+        ));
+        // `OwnedByThisFrame`: the producer handed back the only pointer to a block
+        // in this arena — the temporary takes it, where the heap form copied it
+        // and freed the original. `OwnedElsewhere`: another owner frees it (a
+        // statement-scope temp, an operator's own registration), so the temporary
+        // owns a copy, as the heap form's `Result` did.
+        let owner = match raw_success {
+            RawSuccessBlock::OwnedByThisFrame => UnboxedPayloadSource::Owned,
+            _ => UnboxedPayloadSource::Copy,
+        };
+        self.finish_unboxed_trap_result(
+            unboxed,
+            tag_slot,
+            value_slot,
+            message_slot,
+            source_raw_slot,
+            owner,
+            TrappedErrorSource::CurrentLocation,
+            text,
+        )
+    }
+
+    /// The heap-`Result` form of [`Self::materialize_current_result`], for every
+    /// trapped value that is not a bug-778 unboxed temporary.
+    fn materialize_current_result_boxed(
+        &mut self,
+        success_type: &ParameterType,
+        text: String,
+        worker_error_source: bool,
+        raw_success: RawSuccessBlock,
+        [tag_slot, value_slot, message_slot, source_raw_slot]: [usize; 4],
+    ) -> Result<ValueResult, String> {
+        // The single parse this function already performed for its result
+        // type, hoisted so the block-free above shares it (plan-111-D). Letter F
+        // types `success_type` itself and deletes it.
+        let success = success_type.clone();
         let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
         let result_slot = self.allocate_stack_object("raw_result", 8);
         let wrap_error_label = self.label("result_wrap_error");
@@ -473,6 +544,49 @@ impl CodeBuilder<'_> {
         result_slot: usize,
         source: TrappedErrorSource,
     ) -> Result<(), String> {
+        self.emit_trapped_error_block(
+            scratch9,
+            tag_slot,
+            value_slot,
+            message_slot,
+            source_raw_slot,
+            payload_slot,
+            source,
+        )?;
+        // One wrap for both branches: `emit_build_result_inline` deep-copies the
+        // block at `payload_slot` into the fresh `Result`, so from here the
+        // payload block — adopted or rebuilt — has no other owner.
+        let err_result =
+            self.emit_build_result_inline(tag_slot, &ParameterType::named("Error"), payload_slot)?;
+        self.emit(abi::store_u64(
+            &err_result,
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        self.emit_free_trapped_error_payload(payload_slot)?;
+        Ok(())
+    }
+
+    /// The first half of [`Self::emit_trapped_error_result`]: leave the trapped
+    /// flat `Error` block in `payload_slot` — ADOPTED when the raiser parked one
+    /// (the tag in `tag_slot` is then rewritten to the canonical `RESULT_ERR_TAG`),
+    /// otherwise REBUILT from the registers with the `ErrorLoc` `source` names —
+    /// and free whatever the rebuild allocated that the block inlined.
+    ///
+    /// The block is this frame's from here on (an adoption zeroes the parked slot
+    /// as it hands it over). The heap `Result` path wraps and frees it; bug-778's
+    /// unboxed trap result keeps it as is, or frees it with
+    /// [`Self::emit_free_trapped_error_payload`] when nothing reads the error.
+    pub(crate) fn emit_trapped_error_block(
+        &mut self,
+        scratch9: impl Into<abi::Reg>,
+        tag_slot: usize,
+        value_slot: usize,
+        message_slot: usize,
+        source_raw_slot: usize,
+        payload_slot: usize,
+        source: TrappedErrorSource,
+    ) -> Result<(), String> {
         let scratch9 = scratch9.into();
         // Design "b": an `ERR_BLOCK` error already carries its single owned flat
         // Error block, parked in the current-error slot. ADOPT it as the payload
@@ -588,18 +702,6 @@ impl CodeBuilder<'_> {
             )?;
         }
         self.emit(abi::label(&err_built_label));
-
-        // One wrap for both branches: `emit_build_result_inline` deep-copies the
-        // block at `payload_slot` into the fresh `Result`, so from here the
-        // payload block — adopted or rebuilt — has no other owner.
-        let err_result =
-            self.emit_build_result_inline(tag_slot, &ParameterType::named("Error"), payload_slot)?;
-        self.emit(abi::store_u64(
-            &err_result,
-            abi::stack_pointer(),
-            result_slot,
-        ));
-        self.emit_free_trapped_error_payload(payload_slot)?;
         Ok(())
     }
 
@@ -655,7 +757,10 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    fn emit_free_trapped_error_payload(&mut self, payload_slot: usize) -> Result<(), String> {
+    pub(crate) fn emit_free_trapped_error_payload(
+        &mut self,
+        payload_slot: usize,
+    ) -> Result<(), String> {
         let parked_label = self.label("trapped_error_still_parked");
         let payload = self.temporary_vreg();
         let parked = self.temporary_vreg();

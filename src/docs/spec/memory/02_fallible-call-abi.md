@@ -50,11 +50,17 @@ an owned flat `Error` block in the current arena's `ARENA_CURRENT_ERROR_OFFSET`
 slot. Register pointers can point into that block. The catcher distinguishes
 this tag: it adopts the block and clears the slot rather than reconstructing
 an error from the loose registers. A function-level trap uses the adopted
-block as its error local; an inline trap embeds it in its `Result` and reclaims
+block as its error local. An inline trap whose `Result` temporary lives in frame
+slots (`./mfb spec memory heap-values`, *`Result`*) keeps the adopted block as the
+`Error` its handler binds, and frees it at once when the handler does not read
+the error. An inline trap with a heap `Result` embeds the block in it and reclaims
 the adopted outer block after copying. Other tags must not adopt the slot.
+The `Error` is built only on the error path, so in the frame-slot form a
+successful trapped call allocates nothing for its outcome.
 [[src/codegen/error/emission/builder_error_emission.rs:emit_adopt_current_error_block]]
 [[src/codegen/engine/control/builder_exits.rs:route_current_result_to_trap]]
 [[src/codegen/memory/arena/builder_arena_transfer.rs:emit_trapped_error_result]]
+[[src/codegen/error/result/unboxed_trap.rs:finish_unboxed_trap_result]]
 
 Error propagation preserves the parked ownership until a catcher takes it.
 A runtime helper's parked error is restamped with the call-site origin by

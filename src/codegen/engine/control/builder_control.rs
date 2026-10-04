@@ -2689,6 +2689,23 @@ impl CodeBuilder<'_> {
                         // another); it is re-established below only if this binding
                         // promotes (plan-01-vector).
                         self.promoted_vector_locals.remove(name);
+                        // bug-778: an inline-`TRAP` temporary read only by the three
+                        // `Result` readers lives in frame slots, not a heap block.
+                        self.unboxed_trap_locals.remove(name);
+                        if let Some(value) = value {
+                            if let Some((uses, payload, block)) =
+                                self.unboxed_trap_shape(name, type_, value)
+                            {
+                                return self.lower_unboxed_trap_bind(
+                                    name,
+                                    value,
+                                    stack_offset,
+                                    uses,
+                                    payload,
+                                    block,
+                                );
+                            }
+                        }
                         // plan-86 G1: track `LET n = len(L)` (both locals) so a loop
                         // bound `n - k` can resolve to `len(L) - k`. A rebind of `n`
                         // drops its fact; a rebind of any list drops facts naming it

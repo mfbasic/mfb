@@ -147,6 +147,19 @@ ownership and transfer rules.
 [[src/codegen/memory/value/builder_value_semantics.rs:result_payload_is_block]]
 [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]]
 
+An inline `TRAP`'s own `Result` temporaries usually have no block at all. A
+temporary whose every use is a tag test, a value read, or an error read in an
+owning store — the shape the inline-`TRAP` desugar produces — lives in frame
+slots: the tag in its own slot, the success value in a second slot, and, when
+the handler reads the error, the flat `Error` in a third. A block success value
+is the producer's own block, or a copy when the producer does not hand over
+ownership (a parameter borrow, a static string), and the value read moves it out
+rather than copying it. A scalar, `Nothing` or flat-block success type qualifies.
+A resource, recursive, nested-`Result` or callable success type keeps the block
+form, and so does an inline-trapped `thread::waitFor`.
+[[src/codegen/engine/function/function_lowering.rs:unboxed_trap_result_candidates]]
+[[src/codegen/error/result/unboxed_trap.rs:unboxed_trap_shape]]
+
 ## Union
 
 A **data** union (all variants are data records) is a self-describing
