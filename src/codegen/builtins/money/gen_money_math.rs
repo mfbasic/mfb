@@ -502,12 +502,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::arithmetic_shift_right_immediate(
                     &sign_neg, &sign_neg, 63,
                 ));
-                // Guard k == i64::MIN: `emit_abs_i64` leaves it negative (its
-                // magnitude is unrepresentable), which would make the signed
-                // half-compare in `emit_apply_rounding` take the wrong branch
-                // (bug-230). Because |raw| < 2^63 = |i64::MIN|, the remainder
-                // magnitude is always below the half, so the result is exactly the
-                // truncated quotient — skip rounding entirely for this divisor.
+                // Route k == i64::MIN apart: `emit_abs_i64` leaves it negative (its
+                // magnitude 2^63 is unrepresentable as a signed value), so the
+                // signed half-compare in `emit_apply_rounding` would take the
+                // wrong branch (bug-230). Round it on unsigned magnitudes instead
+                // (bug-817: bug-230 returned the bare truncated quotient, but a
+                // remainder below the divisor can still reach half of it — raw
+                // 5e18 / i64::MIN is -0.54, which rounds to -1).
                 let min_divisor = self.allocate_register();
                 // i64::MIN as its unsigned bit pattern (2^63); `move_immediate`
                 // takes the u64 pattern, not the signed "-9223372036854775808".
@@ -516,7 +517,35 @@ impl CodeBuilder<'_> {
                 let div_done = self.label("money_div_scalar_done");
                 self.emit(abi::compare_registers(&scalar.location, &min_divisor));
                 self.emit(abi::branch_ne(&not_min));
-                self.emit(abi::move_register(dst, &quotient));
+                // |raw| as an unsigned magnitude (i64::MIN's bit pattern is 2^63);
+                // the quotient magnitude is 0, or 1 only for |raw| == 2^63.
+                let magnitude = self.allocate_register();
+                self.emit(abi::move_register(&magnitude, &money.location));
+                self.emit_abs_i64(&magnitude)?;
+                let min_quotient = self.allocate_register();
+                self.emit(abi::unsigned_divide_registers(
+                    &min_quotient,
+                    &magnitude,
+                    &min_divisor,
+                ));
+                let min_remainder = self.allocate_register();
+                self.emit(abi::multiply_subtract_registers(
+                    &min_remainder,
+                    &min_quotient,
+                    &min_divisor,
+                    &magnitude,
+                ));
+                let rounded = self.allocate_register();
+                self.emit_apply_rounding_magnitude(
+                    &rounded,
+                    &min_quotient,
+                    &min_remainder,
+                    &min_divisor,
+                )?;
+                // Apply the sign (`sign_neg` is -1 or 0): `(x ^ s) - s`. The
+                // rounded magnitude is at most 1, so it always fits.
+                self.emit(abi::exclusive_or_registers(dst, &rounded, &sign_neg));
+                self.emit(abi::subtract_registers(dst, dst, &sign_neg));
                 self.emit(abi::branch(&div_done));
                 self.emit(abi::label(&not_min));
                 self.emit_apply_rounding(dst, &quotient, &remainder, &abs_div, &sign_neg)?;

@@ -29,7 +29,7 @@ accounting drifts. With `Money`, the only rounding that ever occurs is the
 integer scaling, and comparison are exact integer operations on the raw i64 and
 never round.
 
-## Operation formulas and current rounding limits
+## Operation formulas
 
 Let `m` and `n` be signed Money raw carriers, `S = 100000`, `Q = 2^32`,
 `f` a signed Fixed raw carrier, and `k` an Integer/Byte value. `trunc` means
@@ -41,7 +41,7 @@ rational value. The following describes the current implementation.
 | --- | --- |
 | Money add/subtract | checked `m + n` / `m - n` |
 | Money times Integer/Byte | checked `m * k` |
-| Money divided by Integer/Byte | `R(m / k)` except the minimum-Integer special case below |
+| Money divided by Integer/Byte | `R(m / k)` |
 | Money MOD Money | `m - trunc(m / n) * n`, exact signed remainder |
 | Money times Fixed (either order) | `R(m * f / Q)` |
 | Money divided by Fixed | `R(m * Q / f)` |
@@ -65,9 +65,12 @@ either mode, and `0.00005m * 0.5F` is `0.00003m` under `Commercial` and
 `toMoney(Fixed)` cannot overflow (its magnitude is below `2^48` raw units).
 These rows round under the Money mode because a Money operand or result is
 involved; ordinary `Fixed * Fixed` and `Fixed / Fixed` do not read the mode and
-are unchanged by it. Money divided by the minimum Integer takes a special
-path that returns the truncated quotient without applying `R`; that exception
-must not be generalized into a nearest-rounding promise.
+are unchanged by it. Money divided by Integer/Byte rounds the signed
+quotient/remainder through the rule below; the one divisor whose magnitude a
+signed register cannot hold, the minimum Integer (`2^63`), is rounded on
+unsigned magnitudes instead, so `50000000000000m / -9223372036854775808` is
+`-0.00001m` and raw `2^62` divided by it is the tie (`-0.00001m` under
+`Commercial`, `0m` under `Banker`).
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_multiply]]
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_divide_scalar]]
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_fixed_multiply]]
@@ -160,7 +163,7 @@ if |rem| == half:               ; exact tie
 `|rem|` avoids overflow near `i64::MAX`. The result carries the true sign, which is
 tracked separately because a truncated quotient of `0` has no sign of its own.
 This is the shared integer quotient/remainder implementation of both modes.
-The Money/Fixed rows apply the same rule to unsigned magnitudes — `q`, `|rem|`
+The Money/Fixed rows and a minimum-Integer divisor apply the same rule to unsigned magnitudes — `q`, `|rem|`
 and `|div|` with the sign applied afterward — comparing unsigned, so a divisor
 magnitude of `2^63` (the Fixed or Integer minimum) is decided exactly.
 [[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding]]

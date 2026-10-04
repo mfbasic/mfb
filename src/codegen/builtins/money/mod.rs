@@ -34,8 +34,7 @@ provides an explicit settling function. `Money` itself is a built-in scalar type
 (see `mfb man types numeric`): an exact base-10 fixed-point value scaled to five
 decimal places. This package reads and writes a per-thread rounding mode used
 by `money::round`, Integer/Byte division, Float and Fixed scaling, conversion
-between Money and Fixed, and conversion from Float or String. One current
-exception is listed below. `money` is a built-in
+between Money and Fixed, and conversion from Float or String. `money` is a built-in
 package: `IMPORT money` needs no manifest dependency.
 
 The mode is one of the `money::Rounding` enum members: `Commercial` rounds half away from
@@ -54,9 +53,6 @@ another.
 Scaling by Fixed rounds the exact result once: `0.00003m * 0.5F` is `0.00002m`
 under either mode, and `0.00005m * 0.5F` is `0.00003m` under `Commercial` and
 `0.00002m` under `Banker`.
-
-Current limitation: division by the minimum Integer truncates without applying
-the mode. Do not rely on that path for mode-sensitive settlement.
 
 `money::round(value, decimals)` explicitly settles an amount to `decimals` places
 under the current mode ("compute at five places, book at two"). It stays a

@@ -27,8 +27,7 @@ back.
 
 The mode applies to `money::round`, Integer/Byte division, Float and Fixed
 scaling, conversion between Money and Fixed, and conversion from Float or
-String. Current exception: division by the minimum Integer ignores the mode;
-see `mfb man money`. It has no bearing on ordinary Fixed/Float
+String. It has no bearing on ordinary Fixed/Float
 rounding, and it does not change how `toString(Money)` renders a value (presentation rounding is a fixed
 half-away-from-zero rule, deliberately independent of the mode).
 
