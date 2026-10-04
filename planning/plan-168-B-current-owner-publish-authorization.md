@@ -1,6 +1,6 @@
 # plan-168-B: Publish, validate and token scope follow the stored package owner
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Effort: medium (1h–2h)
 Depends on: plan-168-A
 
@@ -25,7 +25,7 @@ See plan-168-A §Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-168-A complete | `grep -c '^Commit: —' planning/plan-168-A-*.md` → `0` (or A archived under `planning/completed/`) | NOT MET |
+| plan-168-A complete | `grep -c '^Commit: —' planning/plan-168-A-*.md` → `0` (or A archived under `planning/completed/`) | MET (`ls planning/completed/plan-168-A-*` → archived in `4bd5cdeeb`) |
 
 ## 1. Goal
 
@@ -129,13 +129,13 @@ See plan-168-A §Prerequisites, plus:
 
 ### Phase 1: RED regression and contrast tests
 
-- [ ] `repository/src/server.rs` tests: land the bug's probe as
+- [x] `repository/src/server.rs` tests: land the bug's probe as
       `spec_probe_transfer_recipient_can_publish`. Replace its two
       `h.store.create_transfer_offer` / `accept_transfer` lines with
       `transfer_through_handlers(&h.state, "alice#toolbox", &alice, &alice_token, &bob, &bob_token)`
       (plan-168-A Phase 2, `server.rs` tests). All assertions stay as written in
       the bug doc.
-- [ ] Add the contrast tests:
+- [x] Add the contrast tests:
   - `the_former_owner_cannot_publish_after_transfer`: alice validates
     `alice#toolbox@2.0.0` and is refused with
     `session owner is not the package's current owner`;
@@ -145,11 +145,19 @@ See plan-168-A §Prerequisites, plus:
     legacy-transfer diagnostic);
   - `the_origin_owner_publishes_after_a_legacy_round_trip` (unsigned
     alice→bob→alice rows; alice's validate passes).
-- [ ] Confirm RED: the probe fails with the bug's documented diagnostics.
+- [x] Confirm RED: the probe fails with the bug's documented diagnostics.
 
 Acceptance: the regression is RED for the documented mechanism.
   Check: `cargo test -p mfb_repository --lib -- spec_probe_transfer_recipient_can_publish` → FAILED with `recipient validation failed: ["session owner does not match package ident owner", "session key does not match current owner key"]` (est. 3 min; guess).
-Commit: —
+  Measured: `cargo test -p mfb_repository --lib -- spec_probe_transfer the_former_owner first_publish a_legacy_recipient the_origin_owner`
+  → `2 passed; 3 failed`. The probe panics with exactly
+  `recipient validation failed: ["session owner does not match package ident owner", "session key does not match current owner key"]`;
+  `the_former_owner_cannot_publish_after_transfer` gets `[]` (alice still
+  validates); `a_legacy_recipient_cannot_publish_an_unverifiable_release` gets
+  the same two prefix diagnostics. `first_publish_is_still_prefix_bound` and
+  `the_origin_owner_publishes_after_a_legacy_round_trip` pass, as contrast
+  cases should.
+Commit: (this commit; see the Phase 2 line)
 
 ### Phase 2: Authorization and proof binding
 

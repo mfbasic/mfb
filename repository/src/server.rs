@@ -11197,6 +11197,329 @@ mod tests {
         );
     }
 
+    /// bug-792's reproduction, landed as written in the bug document except that
+    /// the transfer goes through the real signed handlers (plan-168-B Phase 1):
+    /// the recipient of a transferred package attests and validates a new
+    /// release under the unchanged ident.
+    #[tokio::test]
+    async fn spec_probe_transfer_recipient_can_publish() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
+        )
+        .await;
+        assert_eq!(
+            h.store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "bob"
+        );
+        let (pubkey, private) = crypto::generate_keypair();
+        let idfp = crypto::fingerprint(&bob.ident_public);
+        let signfp = crypto::fingerprint(&pubkey);
+        let attestation = signing(
+            State(h.state.clone()),
+            peer("127.0.0.1"),
+            Json(SigningRequest {
+                owner: "bob".into(),
+                ident: "alice#toolbox".into(),
+                version: "2.0.0".into(),
+                signing_fingerprint: signfp.clone(),
+                session_token: bob_token.clone(),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        let proof = serde_json::json!({"owner":"bob", "ident":"alice#toolbox", "version":"2.0.0",
+            "identFingerprint":idfp, "signingFingerprint":signfp, "issued":now_unix()})
+        .to_string();
+        let proof_sig = crypto::sign(
+            &bob.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".into(),
+                ident: "alice#toolbox".into(),
+                version: "2.0.0".into(),
+                author: "bob".into(),
+                url: String::new(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&bob.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&pubkey)),
+                proof,
+                proof_sig,
+                attestation: attestation.attestation,
+                attestation_sig: crypto::decode_bytes(&attestation.attestation_signature, "sig")
+                    .unwrap(),
+            },
+            &private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).unwrap();
+        let report = validate_package(
+            State(h.state.clone()),
+            Json(PackageArtifactRequest {
+                ident: parsed.ident.clone(),
+                version: parsed.version.clone(),
+                artifact: crypto::encode_bytes(&artifact),
+                content_hash: parsed.content_hash_hex(),
+                ident_fingerprint: idfp,
+                signing_fingerprint: signfp,
+                session_token: bob_token,
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert!(
+            report.valid,
+            "recipient validation failed: {:?}",
+            report.diagnostics
+        );
+    }
+
+    /// A `/validate` request for `version` of `ident`, built the way the CLI
+    /// builds one for `owner`: a registry attestation for `owner`, a proof and
+    /// header naming `owner` as owner and author, signed under `owner`'s ident.
+    async fn owner_signed_request(
+        state: &AppState,
+        owner: &str,
+        keys: &TestOwnerKeys,
+        token: &str,
+        ident: &str,
+        version: &str,
+    ) -> PackageArtifactRequest {
+        owner_signed_request_attested_for(state, owner, keys, token, ident, ident, version).await
+    }
+
+    /// `owner_signed_request`, but with the registry attestation requested
+    /// for `attest_ident`, so a test can build a package for an ident the
+    /// registry would never attest for this owner.
+    async fn owner_signed_request_attested_for(
+        state: &AppState,
+        owner: &str,
+        keys: &TestOwnerKeys,
+        token: &str,
+        ident: &str,
+        attest_ident: &str,
+        version: &str,
+    ) -> PackageArtifactRequest {
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let attestation = signing(
+            State(state.clone()),
+            peer("127.0.0.1"),
+            Json(SigningRequest {
+                owner: owner.to_string(),
+                ident: attest_ident.to_string(),
+                version: version.to_string(),
+                signing_fingerprint: signing_fingerprint.clone(),
+                session_token: token.to_string(),
+            }),
+        )
+        .await
+        .expect("attestation issued")
+        .0;
+        let proof = serde_json::json!({"owner": owner, "ident": ident, "version": version,
+            "identFingerprint": ident_fingerprint, "signingFingerprint": signing_fingerprint})
+        .to_string();
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+        let package_name = ident.split_once('#').unwrap().1;
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: package_name.to_string(),
+                ident: ident.to_string(),
+                version: version.to_string(),
+                author: owner.to_string(),
+                url: String::new(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation: attestation.attestation,
+                attestation_sig: crypto::decode_bytes(&attestation.attestation_signature, "sig")
+                    .unwrap(),
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).unwrap();
+        PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: token.to_string(),
+        }
+    }
+
+    async fn validation_diagnostics(
+        state: &AppState,
+        request: PackageArtifactRequest,
+    ) -> Vec<String> {
+        validate_package(State(state.clone()), Json(request))
+            .await
+            .expect("validation report")
+            .0
+            .diagnostics
+    }
+
+    /// plan-168-B contrast: after the transfer the former owner — still the
+    /// ident prefix, holding a genuine attestation issued before she gave the
+    /// package away — is refused by `/validate` itself.
+    #[tokio::test]
+    async fn the_former_owner_cannot_publish_after_transfer() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        let stale = owner_signed_request(
+            &h.state,
+            "alice",
+            &alice,
+            &alice_token,
+            "alice#toolbox",
+            "2.0.0",
+        )
+        .await;
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
+        )
+        .await;
+        let diagnostics = validation_diagnostics(&h.state, stale).await;
+        assert!(
+            diagnostics.contains(&"session owner is not the package's current owner".to_string()),
+            "{diagnostics:?}"
+        );
+    }
+
+    /// plan-168-B contrast: with no package row yet, the ident prefix still
+    /// decides who may publish, with the existing diagnostic.
+    #[tokio::test]
+    async fn first_publish_is_still_prefix_bound() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        // bob cannot even be attested for alice's new ident, so his package
+        // carries the attestation he got for his own ident.
+        let request = owner_signed_request_attested_for(
+            &h.state,
+            "bob",
+            &bob,
+            &bob_token,
+            "alice#newpkg",
+            "bob#newpkg",
+            "1.0.0",
+        )
+        .await;
+        let diagnostics = validation_diagnostics(&h.state, request).await;
+        assert!(
+            diagnostics.contains(&"session owner does not match package ident owner".to_string()),
+            "{diagnostics:?}"
+        );
+        let own = owner_signed_request(
+            &h.state,
+            "alice",
+            &alice,
+            &alice_token,
+            "alice#newpkg",
+            "1.0.0",
+        )
+        .await;
+        assert_eq!(
+            validation_diagnostics(&h.state, own).await,
+            Vec::<String>::new()
+        );
+    }
+
+    /// plan-168-B contrast (B-D3): past an unsigned legacy transfer no client
+    /// can verify a later owner's release, so the registry refuses to publish
+    /// one rather than list a release nobody can install.
+    #[tokio::test]
+    async fn a_legacy_recipient_cannot_publish_an_unverifiable_release() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        crate::store::tests::legacy_transfer(&h.store, "alice#toolbox", "alice", "bob");
+        h.store.migrate().unwrap();
+        let request =
+            owner_signed_request(&h.state, "bob", &bob, &bob_token, "alice#toolbox", "2.0.0").await;
+        let diagnostics = validation_diagnostics(&h.state, request).await;
+        assert_eq!(
+            diagnostics,
+            vec![
+                "package ownership moved before signed transfers, so clients cannot verify a \
+                 release by a later owner"
+                    .to_string()
+            ],
+        );
+    }
+
+    /// plan-168-B contrast (B-D3): after an unsigned alice -> bob -> alice round
+    /// trip, the origin owner publishes exactly as she did before plan-168 —
+    /// clients verify her under the prefix-owner fallback.
+    #[tokio::test]
+    async fn the_origin_owner_publishes_after_a_legacy_round_trip() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        crate::store::tests::legacy_transfer(&h.store, "alice#toolbox", "alice", "bob");
+        crate::store::tests::legacy_transfer(&h.store, "alice#toolbox", "bob", "alice");
+        h.store.migrate().unwrap();
+        let request = owner_signed_request(
+            &h.state,
+            "alice",
+            &alice,
+            &alice_token,
+            "alice#toolbox",
+            "2.0.0",
+        )
+        .await;
+        assert_eq!(
+            validation_diagnostics(&h.state, request).await,
+            Vec::<String>::new()
+        );
+    }
+
     /// bug-494 (audit-3 REPO-03): `/release-state` and `/signing` authorized
     /// on the ident's `owner#` prefix, which never moves when ownership does.
     /// After a correctly guarded transfer the former owner could still yank the
