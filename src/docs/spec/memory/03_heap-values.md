@@ -326,6 +326,30 @@ Tokens need no per-thread state: each thread runs on its own stack, and a record
 changes thread only through `thread::transfer`/`thread::accept`, whose copy starts
 unowned. [[src/codegen/resource/owner.rs:SCOPE_TOKEN_DEPTH_BITS]]
 
+**The module instance owner.** A record stored into a module-level binding is owned
+by the module instance: its owner word is `MODULE_OWNER_TOKEN`, all ones. No frame
+token equals it — `(addr << 12) - depth` is all ones only for `depth == 1` at a
+stack address of `0` modulo `2^52` — it is above every frame token, so a float
+never lowers it into a frame scope, and the frame-membership test reads `2^52`, no
+stack address, so a `RETURN` never releases it. Every scope-exit close, owned-list
+drain, discarded-result close and binding claim therefore leaves it alone.
+[[src/codegen/resource/module_owner.rs:MODULE_OWNER_TOKEN]]
+
+The instance lists each such record once, on taking it, in a singly linked list of
+32-byte arena nodes `{record@0, next@8, kind@16, tag@24}` headed by the
+`$module_resources` global slot (`./mfb spec memory program-startup`). The slot is
+in the per-arena globals region, so each instance — the main program and every
+worker — has its own list. `kind` indexes the resource leaf types the program's
+globals can reach, in global order; `tag` is a resource union's active variant,
+read from the union box when the record is listed, because the box belongs to the
+binding that wrapped it and is freed at that binding's scope exit. The teardown
+`_mfb_module_resource_drain` pops each node and closes its record when the owner
+word is still the module token (a re-close of a closed or moved handle is the
+defined no-op); it reclaims no record or buffer, which go with the instance's
+arena. The program entry calls it on its one exit path, the worker trampoline after
+the worker body returns, and the canvas graphics thread after its render loop.
+[[src/codegen/resource/module_owner.rs:emit_module_float]] [[src/codegen/resource/module_owner.rs:lower_module_resource_drain]]
+
 ## See Also
 
 * ./mfb spec threading isolation — re-materializing a heap value across a thread boundary

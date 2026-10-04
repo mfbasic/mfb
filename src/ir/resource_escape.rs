@@ -129,8 +129,13 @@ struct Analyzer {
     /// still applies to them — but always resolve `Local`: they hold no close
     /// obligation to float.
     borrowed: HashSet<String>,
-    /// Declaration depth (block nesting) of every local binding, by name.
-    decl_depth: HashMap<String, usize>,
+    /// Declaration depth (block nesting) of every binding, by name. A local's
+    /// depth is its block nesting, from 0; a module-level binding assigned in this
+    /// function is at [`MODULE_DEPTH`] (bug-806).
+    decl_depth: HashMap<String, isize>,
+    /// bug-806: the module-level bindings (globals) this function can assign. An
+    /// assignment to one is a routing edge into the outermost scope there is.
+    module_globals: HashSet<String>,
     /// Declaration order index of every local binding, for deterministic ties.
     decl_order: HashMap<String, usize>,
     /// Declared type of each binding, when it carried one. Used only to tell a
@@ -165,7 +170,7 @@ struct Analyzer {
 /// truth, not a shortcut.
 #[cfg(test)]
 pub fn analyze_function(function: &HirFunction) -> FunctionEscape {
-    analyze_function_with(function, &HashSet::new())
+    analyze_function_with(function, &HashSet::new(), &HashSet::new())
 }
 
 /// [`analyze_function`], plus the set of record types that carry a `RES` field.
@@ -182,14 +187,23 @@ pub fn analyze_function(function: &HirFunction) -> FunctionEscape {
 ///
 /// Empty is the safe default: it means "no record can own a resource", which is
 /// what the `#[cfg(test)]` callers and the pre-record world both assume.
+///
+/// bug-806: `module_globals` names the module-level bindings the function may
+/// assign. A module-level binding outlives every scope of every function, so an
+/// assignment to one is placed at [`MODULE_DEPTH`], outside every local scope: a
+/// resource routed into a global floats to it exactly as it floats into an outer
+/// collection, and codegen hands it to the module instance (`ResOwner::Float`
+/// naming the global). Empty means "this function assigns no global".
 pub fn analyze_function_with(
     function: &HirFunction,
     res_field_records: &HashSet<crate::types::ParameterType>,
+    module_globals: &HashSet<String>,
 ) -> FunctionEscape {
     let mut analyzer = Analyzer {
         res_names: HashSet::new(),
         borrowed: HashSet::new(),
         decl_depth: HashMap::new(),
+        module_globals: module_globals.clone(),
         decl_order: HashMap::new(),
         decl_type: HashMap::new(),
         res_field_records: res_field_records.clone(),
@@ -217,8 +231,17 @@ pub fn analyze_function_with(
     analyzer.solve()
 }
 
+/// bug-806: the depth of a module-level binding — outside the function body
+/// (depth 0) and so outside every scope a function can open. A global is the
+/// outermost scope there is, and per instance it lives until instance teardown.
+pub const MODULE_DEPTH: isize = -1;
+
 impl Analyzer {
     fn declare(&mut self, name: &str, depth: usize) {
+        self.declare_at(name, depth as isize);
+    }
+
+    fn declare_at(&mut self, name: &str, depth: isize) {
         self.decl_depth.entry(name.to_string()).or_insert(depth);
         self.decl_order.entry(name.to_string()).or_insert_with(|| {
             let order = self.next_order;
@@ -295,7 +318,18 @@ impl Analyzer {
                 }
             }
             HirStatement::Assign { name, value, .. } => {
-                self.declare(name, depth);
+                // bug-806: an assignment to a name this function never declared is
+                // a store into a module-level binding (a local is always declared
+                // by its `LET`/`MUT`/`RES` or is a parameter before it can be
+                // assigned). It lives at `MODULE_DEPTH`, not at this statement's
+                // depth — placing it here made the storing function's own scope
+                // its owner, which closed (and reclaimed) the resource while the
+                // global still pointed at it.
+                if !self.decl_depth.contains_key(name) && self.module_globals.contains(name) {
+                    self.declare_at(name, MODULE_DEPTH);
+                } else {
+                    self.declare(name, depth);
+                }
                 self.record_routing(Target::Var(name.clone()), value);
             }
             HirStatement::Return {
@@ -499,13 +533,13 @@ impl Analyzer {
             // that collection's scope (so it is closed on error exits); the
             // `RETURN` of the collection transfers its owned-list to the caller
             // (§15.6).
-            let res_depth = *self.res_depth.get(resource).unwrap_or(&0);
+            let res_depth = *self.res_depth.get(resource).unwrap_or(&0) as isize;
             let res_order = *self.decl_order.get(resource).unwrap_or(&0);
             // 1) A returned collection declared before the resource forces a
             //    float to it — even at the same scope depth — so the resource's
             //    close obligation rides the collection's owned-list and transfers
             //    to the caller on `RETURN`, instead of closing here.
-            let mut best: Option<(usize, usize, String)> = None;
+            let mut best: Option<(isize, usize, String)> = None;
             for collection in &returned_collections {
                 let Some(members) = membership.get(collection) else {
                     continue;
@@ -579,6 +613,13 @@ impl Analyzer {
                     };
                     if depth >= res_depth {
                         // Same-or-inner scope: ownership does not float.
+                        continue;
+                    }
+                    // bug-806: a parameter's owner is in a caller's frame, which
+                    // this analysis cannot name; storing it into a global raises it
+                    // to the module instance at run time, at the store
+                    // (`emit_module_float_stored_operands`).
+                    if depth == MODULE_DEPTH && self.res_params.contains(resource) {
                         continue;
                     }
                     let order = *self.decl_order.get(collection).unwrap_or(&usize::MAX);
@@ -986,6 +1027,7 @@ mod tests {
                 },
             ]),
             &records,
+            &HashSet::new(),
         );
         assert_eq!(
             result.owner("f"),
@@ -1032,7 +1074,7 @@ mod tests {
             default: None,
             line: 1,
         }];
-        let result = analyze_function_with(&f, &records);
+        let result = analyze_function_with(&f, &records, &HashSet::new());
         assert_ne!(
             result.owner("p"),
             ResOwner::FloatBlocked("h".to_string()),
@@ -1054,7 +1096,7 @@ mod tests {
         let mut records = HashSet::new();
         records.insert(ParameterType::declared("Holder"));
 
-        let blocked = analyze_function_with(&func(body.clone()), &records);
+        let blocked = analyze_function_with(&func(body.clone()), &records, &HashSet::new());
         assert_eq!(
             blocked.owner("f"),
             ResOwner::FloatBlocked("h".to_string()),
@@ -1066,7 +1108,7 @@ mod tests {
         // knowledge the very same program degrades to `Local`, which is the
         // bug-291 double close. This half is what makes the test prove the
         // threading, not just the gate.
-        let unaware = analyze_function_with(&func(body), &HashSet::new());
+        let unaware = analyze_function_with(&func(body), &HashSet::new(), &HashSet::new());
         assert_eq!(
             unaware.owner("f"),
             ResOwner::Local,
@@ -1090,6 +1132,7 @@ mod tests {
                     line: 1,
                 },
             ]),
+            &HashSet::new(),
             &HashSet::new(),
         );
         assert_eq!(result.owner("f"), ResOwner::Local);
@@ -1116,6 +1159,7 @@ mod tests {
                 },
             ]),
             &records,
+            &HashSet::new(),
         );
         assert_eq!(result.owner("f"), ResOwner::Float("h".to_string()));
     }
@@ -1254,5 +1298,93 @@ mod tests {
         ]));
         // ys is the outermost referencing collection.
         assert_eq!(result.owner("f"), ResOwner::Float("ys".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // bug-806 — a module-level binding is the outermost scope.
+    // -----------------------------------------------------------------------
+
+    fn assign(name: &str, value: HirExpression) -> HirStatement {
+        HirStatement::Assign {
+            name: name.to_string(),
+            value,
+            line: 1,
+        }
+    }
+
+    fn globals(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    /// `saved = append(saved, f)` in a function body: `saved` is no local of the
+    /// function, so it is placed at `MODULE_DEPTH` and `f` floats to it — the
+    /// storing function's own scope must not close it.
+    #[test]
+    fn a_resource_stored_into_a_global_floats_to_the_global() {
+        let result = analyze_function_with(
+            &func(vec![
+                res("f", open()),
+                assign("saved", append("saved", "f")),
+            ]),
+            &HashSet::new(),
+            &globals(&["saved"]),
+        );
+        assert_eq!(result.owner("f"), ResOwner::Float("saved".to_string()));
+    }
+
+    /// A global outranks an outer local collection that also holds the resource:
+    /// the outermost scope wins.
+    #[test]
+    fn a_global_outranks_an_outer_local_collection() {
+        let result = analyze_function_with(
+            &func(vec![
+                list("xs", HirExpression::ListLiteral(Vec::new())),
+                HirStatement::If {
+                    condition: HirExpression::Boolean(true),
+                    then_body: vec![
+                        res("f", open()),
+                        assign("xs", append("xs", "f")),
+                        assign("saved", ident("xs")),
+                    ],
+                    else_body: Vec::new(),
+                    line: 1,
+                },
+            ]),
+            &HashSet::new(),
+            &globals(&["saved"]),
+        );
+        assert_eq!(result.owner("f"), ResOwner::Float("saved".to_string()));
+    }
+
+    /// A `RES` parameter's owner is in a caller's frame: storing it into a global
+    /// is raised to the module at run time, at the store, not by this analysis.
+    #[test]
+    fn a_parameter_stored_into_a_global_does_not_float_statically() {
+        let mut function = func(vec![assign("saved", append("saved", "p"))]);
+        function.params.push(crate::hir::HirParam {
+            name: "p".to_string(),
+            type_: ParameterType::parse("fs.File"),
+            resource: true,
+            state_type: None,
+            default: None,
+            line: 1,
+        });
+        let result = analyze_function_with(&function, &HashSet::new(), &globals(&["saved"]));
+        assert_eq!(result.owner("p"), ResOwner::Local);
+    }
+
+    /// Without the module's global set the old placement stands — the same
+    /// statement in a function the lowering says assigns no global.
+    #[test]
+    fn an_assignment_to_an_unknown_name_is_not_a_global() {
+        let result = analyze_function_with(
+            &func(vec![
+                res("f", open()),
+                assign("saved", append("saved", "f")),
+            ]),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert_eq!(result.owner("f"), ResOwner::Local);
     }
 }

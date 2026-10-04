@@ -101,6 +101,14 @@ member values drop according to the active member's record layout. List elements
 drop from highest index to lowest. Map entries drop in implementation-defined
 storage order; programs must not depend on map drop order.
 
+Module-level bindings belong to no function scope: they live as long as their
+module instance. A resource stored into one is closed at **instance teardown** —
+after every scope of the entry point has dropped, on every program exit (normal
+return, `EXIT PROGRAM`, or an untrapped error), or when a worker thread's entry
+function returns for that worker's own instance — and not when the storing
+function's scope exits (§15.6, "A module-level binding is the outermost scope").
+[[src/codegen/resource/module_owner.rs:lower_module_resource_drain]]
+
 An ordinary value whose ownership moved out is not dropped by its former owner.
 For resources, static invalidation of a name does **not** by itself cancel the
 resource's scheduled memory reclamation. An explicit close can invalidate a name

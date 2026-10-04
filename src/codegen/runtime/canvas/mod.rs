@@ -1583,6 +1583,12 @@ pub(crate) fn emit_graphics_trampoline(
     let render_loop = render_loop_symbol();
     instructions.push(abi::branch_link(&render_loop));
     relocations.push(internal_branch(from, &render_loop));
+    // bug-806: this thread ran the module's global initializer into its own
+    // instance; close what that instance's module-level bindings own.
+    if let Some(symbol) = arena_init.teardown {
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(internal_branch(from, symbol));
+    }
 
     // Return, which is how a pthread entry exits. It used to park here on the
     // theory that a render loop returning was a bug — but shutdown asks it to

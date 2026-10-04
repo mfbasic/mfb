@@ -62,19 +62,26 @@ top of the frame — the slots must not overlap the globals (they are written
 after global initialization, while the globals are live) and must not spill
 past the frame (at a raw Linux ELF entry the words above the frame are the OS
 `argc`/`argv` vector itself). `entry_stack_size` is `ENTRY_STACK_SIZE + (globals +
-LINK + term:: state + presentation-mode + mouse-state + input-buffer slots) * 8`, rounded up to
+module-resource head + LINK + term:: state + presentation-mode + mouse-state + input-buffer slots) * 8`, rounded up to
 16, plus `ENTRY_ARGS_REGION_SIZE` (`48`) when the entry accepts args.
 Shadow space and call-parity padding are additional to this size.
 [[src/codegen/error/constants/error_constants.rs:ENTRY_ARGS_REGION_SIZE]]
 
 ### The conditionally-reserved region chain
 
+Directly after the program's own globals, a program one of whose globals can
+reach a resource (a `RES` field or element at any depth) reserves one more word:
+the head of its instance's module-owned resource list (`$module_resources`,
+`./mfb spec memory heap-values`, "The owner word"). Every other program reserves
+nothing there, so its `LINK` slots and later regions keep their offsets.
+[[src/codegen/resource/module_owner.rs:MODULE_RESOURCES_GLOBAL]]
+
 Past the program globals and `LINK` slots the frame carries four conditional
 regions, each reserved only when the program actually uses the feature, and each
 **appended** after the last — never inserted:
 
 ```
-globals | LINK | term:: state (uses_term) | presentation mode (uses_app) | mouse state (uses_mouse) | input buffer (uses_input_buffer)
+globals | module-resource head (a global reaches a resource) | LINK | term:: state (uses_term) | presentation mode (uses_app) | mouse state (uses_mouse) | input buffer (uses_input_buffer)
 ```
 
 Each region's offset is computed from the sizes of the preceding enabled

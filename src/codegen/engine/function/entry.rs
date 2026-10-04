@@ -18,6 +18,7 @@ pub(crate) fn lower_program_entry(
     global_initializer_symbol: Option<&str>,
     link_init_symbol: Option<&str>,
     closure_init_symbol: Option<&str>,
+    module_teardown_symbol: Option<&str>,
     entry_stack_size: usize,
     global_slot_count: usize,
     platform_imports: &HashMap<String, String>,
@@ -729,6 +730,15 @@ pub(crate) fn lower_program_entry(
         ARENA_STATE_REGISTER,
         32,
     ));
+    // bug-806: close the resources the module-level bindings own. Every exit —
+    // `main` returning, `EXIT PROGRAM`, an untrapped error (whose banner is already
+    // written) and a failed initializer — converges on this label, so this is the
+    // instance's one teardown point. The exit code is parked in the scratch slot
+    // above, which the teardown does not touch; it preserves `x19`.
+    if let Some(symbol) = module_teardown_symbol {
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(internal_branch(entry_symbol, symbol));
+    }
     // Tear down the network stack (WSACleanup on Windows; no-op on POSIX) after the
     // exit code is safely parked in the arena scratch slot — WSACleanup clobbers the
     // return register but preserves the callee-saved arena register.

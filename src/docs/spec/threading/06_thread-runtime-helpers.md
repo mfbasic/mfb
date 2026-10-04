@@ -168,8 +168,12 @@ x1 = input value
 ```
 
 - Captures the returned `Result OF Out` — tag, value, error message, and error
-  source `ErrorLoc` pointer — and hands it to `_mfb_rt_thread_finish`, then
-  returns zero to the OS start-routine caller. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
+  source `ErrorLoc` pointer — parks it on its frame, and, when the program reserves
+  a module-resource list, calls the instance teardown `_mfb_module_resource_drain`,
+  which closes the resources the worker's own module-level bindings own, before the
+  result is published (so a parent that waits observes them closed). It then hands
+  the result to `_mfb_rt_thread_finish` and returns zero to the OS start-routine
+  caller. [[src/codegen/resource/module_owner.rs:lower_module_resource_drain]] [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
 `_mfb_rt_thread_finish` first drains the worker's buffered standard output, then
 does, under the block lock: unless the parent already

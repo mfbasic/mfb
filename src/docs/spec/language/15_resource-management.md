@@ -366,7 +366,7 @@ exit even if the collection no longer contains that resource.
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
 
-### Aggregate routing examples and current boundaries
+### Aggregate routing examples
 
 These fragments assume `TYPE Holder { handle AS RES fs::File }`, ordinary file
 producers `openFile`, and no explicit close or transfer unless shown.
@@ -385,21 +385,26 @@ carries both the target's existing resource membership and its updates.
 [[src/ir/resource_escape.rs:scan_collection_expr]]
 [[src/codegen/resource/owner.rs:emit_resource_float]]
 
-**Module-level resource-bearing stores do not currently extend cleanup safely.**
-For example, `put()` producing `RES f` and appending `Holder[f]` to module-level
-`MUT saved AS List OF Holder = []` compiles, but the resource is cleaned up at
-`put`'s exit; the global view can outlive its record. The per-function routing
-facts and `StoreGlobal` path do not establish a module-lifetime resource owner.
-A later access is not guaranteed to produce a defined closed/moved error: it can
-read reclaimed storage. Storing a view whose existing owner is still live does
-not demonstrate safety after that owner exits. This is a lifetime implementation
-gap, not an additional valid way to invalidate a resource.
-[[src/ir/resource_escape.rs:walk_statement]]
-[[src/codegen/engine/control/builder_control.rs:lower_ops_inner]]
-[[src/codegen/resource/owner.rs:emit_scope_token]]
+**A module-level binding is the outermost scope.** A resource stored into a
+module-level `MUT` — directly, inside a record, at any depth of a list or map —
+is owned by the **module instance** from that store on: the main program's
+instance, or the fresh instance a worker thread runs (§16). It stays valid after
+the storing function returns, and closes exactly once at **instance teardown**:
+when the program ends — `main` returning, `EXIT PROGRAM`, or an untrapped error —
+or when the worker's entry function returns. This holds whether the resource was
+produced by the storing function (it floats to the global like any outer
+collection, `./mfb spec architecture escape-analysis`) or arrived through a
+parameter from a caller scope that exits first (the store itself raises it). An
+explicit close or a `thread::transfer` through any view still applies, and the
+teardown close is then the defined no-op. Removing the last global view —
+`removeAt`, replacement, assigning an empty collection — does not close the
+resource or move its cleanup inward. A resource stored into a worker's copy of a
+global is that worker's; the parent's copy never holds it.
+[[src/codegen/resource/module_owner.rs:emit_module_float]]
+[[src/codegen/resource/module_owner.rs:emit_module_store_float]]
+[[src/codegen/resource/module_owner.rs:lower_module_resource_drain]]
 
-Subject to those current implementation boundaries, the float rules above are
-the source-level contract. The compiler implements them with a purely syntactic per-function **decision procedure** — which collection a binding floats to (outermost referencing scope, the special case that a returned collection declared before the resource forces a float at the same depth, fixpoint propagation along collection copy/append/nesting edges, the insertion-builtin set, and the declaration-order tiebreak) — that is specified in full by `./mfb spec architecture escape-analysis`. Programs depend only on the contract here, not on the procedure's mechanics.
+The float rules above are the source-level contract. The compiler implements them with a purely syntactic per-function **decision procedure** — which collection a binding floats to (outermost referencing scope, the special case that a returned collection declared before the resource forces a float at the same depth, fixpoint propagation along collection copy/append/nesting edges, the insertion-builtin set, and the declaration-order tiebreak) — that is specified in full by `./mfb spec architecture escape-analysis`. Programs depend only on the contract here, not on the procedure's mechanics.
 
 ## See Also
 

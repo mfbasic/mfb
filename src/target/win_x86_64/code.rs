@@ -1142,6 +1142,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             spec.global_initializer_symbol,
             spec.link_init_symbol,
             spec.closure_init_symbol,
+            spec.module_teardown_symbol,
             spec.entry_stack_size,
             spec.global_slot_count,
             platform_imports,

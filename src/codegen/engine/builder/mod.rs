@@ -1325,6 +1325,8 @@ pub(crate) fn lower_module_for_platform(
     // plan-156-A: the per-type thread value functions this module's call sites
     // request are collected while its functions lower; start from none.
     crate::codegen::runtime::thread::value_functions::reset();
+    // bug-806: likewise the module-owned resource kinds its stores list.
+    crate::codegen::resource::module_owner::reset_requested_kinds();
     // Imported packages are now decoded and merged into the project IR upstream
     // (see `lower::lower_project`) and lowered as ordinary functions through this
     // same codegen. The legacy flat binary_repr -> native package bridge is no
@@ -1343,7 +1345,7 @@ pub(crate) fn lower_module_for_platform(
     for import in &module.imports {
         function_symbols.insert(import.name.clone(), import.symbol.clone());
     }
-    let globals = module
+    let mut globals = module
         .globals
         .iter()
         .enumerate()
@@ -1412,6 +1414,27 @@ pub(crate) fn lower_module_for_platform(
     let type_model = crate::trace::timed("type model", || {
         TypeModel::from_module_and_packages(module, packages)
     })?;
+    // bug-806: a module whose globals can hold a resource reserves one more
+    // writable slot, just past its own globals, for the head of the instance's
+    // module-owned resource list (`resource::module_owner`), and emits the teardown
+    // that closes them. Every other program keeps its exact layout and code.
+    let module_resource_slots = usize::from(module.globals.iter().any(|global| {
+        crate::codegen::resource::module_owner::model_type_reaches_resource(
+            &type_model,
+            &global.type_,
+        )
+    }));
+    if module_resource_slots > 0 {
+        globals.insert(
+            crate::codegen::resource::module_owner::MODULE_RESOURCES_GLOBAL.to_string(),
+            GlobalValue {
+                type_: ParameterType::Integer,
+                offset: ENTRY_GLOBALS_OFFSET + module.globals.len() * 8,
+            },
+        );
+    }
+    let module_teardown_symbol = (module_resource_slots > 0)
+        .then_some(crate::codegen::resource::module_owner::MODULE_RESOURCE_DRAIN_SYMBOL);
     let string_symbols =
         crate::trace::timed("string symbols", || string_symbols(module, &type_model));
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
@@ -1736,7 +1759,7 @@ pub(crate) fn lower_module_for_platform(
     // Native `LINK` bindings reserve one writable global slot per function (just
     // past the program's own globals) for their dlopen/dlsym-resolved pointers
     // (plan-linker.md §12.1).
-    let globals_base = module.globals.len() + package_global_count;
+    let globals_base = module.globals.len() + package_global_count + module_resource_slots;
     let link_count = module.link_functions.len();
     // Each `FREE` block resolves its deallocator into an additional writable slot,
     // reserved just past the per-function slots (17_native-libraries.md).
@@ -2052,6 +2075,7 @@ pub(crate) fn lower_module_for_platform(
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
                     closure_init_symbol,
+                    module_teardown_symbol,
                     entry_stack_size,
                     global_slot_count: entry_global_slots,
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
@@ -2115,6 +2139,7 @@ pub(crate) fn lower_module_for_platform(
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
                     closure_init_symbol,
+                    module_teardown_symbol,
                     entry_stack_size,
                     global_slot_count: entry_global_slots,
                     emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
@@ -2934,6 +2959,33 @@ pub(crate) fn lower_module_for_platform(
             }
         }
     }
+    // bug-806: the module instance's teardown, lowered once every function has —
+    // it closes only the resource kinds some store listed. A built-in close it
+    // calls that no binding of the program named is emitted with the other
+    // runtime helpers below.
+    if module_teardown_symbol.is_some() {
+        let drain = crate::codegen::resource::module_owner::lower_module_resource_drain(
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            platform,
+            module.build_mode,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?;
+        for relocation in &drain.relocations {
+            if runtime::spec_for_symbol(&relocation.to).is_some()
+                && !runtime_symbols
+                    .iter()
+                    .any(|symbol| *symbol == relocation.to)
+            {
+                runtime_symbols.push(relocation.to.clone());
+            }
+        }
+        code_functions.push(drain);
+    }
     for symbol in &runtime_symbols {
         // `-vv`: the hand-written runtime helpers are the other half of the
         // emitted code, and they scale with the *builtins the program touches*
@@ -3039,6 +3091,7 @@ pub(crate) fn lower_module_for_platform(
             ArenaInitSymbols {
                 link_init: link_init_symbol,
                 global_init: global_initializer_symbol.as_deref(),
+                teardown: module_teardown_symbol,
             },
         )?);
         code_functions.push(crate::codegen::runtime::thread::lower_thread_finish(
@@ -3419,6 +3472,7 @@ pub(crate) fn lower_module_for_platform(
             ArenaInitSymbols {
                 link_init: link_init_symbol,
                 global_init: global_initializer_symbol.as_deref(),
+                teardown: module_teardown_symbol,
             },
         )?);
     }

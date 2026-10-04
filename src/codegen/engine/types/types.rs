@@ -1388,6 +1388,10 @@ pub(crate) struct ArenaInitSymbols<'a> {
     /// The module's global initializer. `None` when the module declares no
     /// globals.
     pub(crate) global_init: Option<&'a str>,
+    /// bug-806: the instance teardown that closes the resources this thread's
+    /// module-level bindings own, run when the thread's instance ends. `None` when
+    /// no global's type can reach a resource.
+    pub(crate) teardown: Option<&'a str>,
 }
 
 impl<'a> ArenaInitSymbols<'a> {
@@ -1502,6 +1506,10 @@ pub(crate) struct ProgramEntrySpec<'a> {
     /// each no-capture function value's descriptor `code` word with `&func`
     /// (bug-78). `None` when the module has no `FunctionRef`. Cannot fail.
     pub(crate) closure_init_symbol: Option<&'a str>,
+    /// bug-806: the module instance's teardown — closes the resources the
+    /// program's module-level bindings own — run once on the entry's exit path.
+    /// `None` when no global's type can reach a resource.
+    pub(crate) module_teardown_symbol: Option<&'a str>,
     pub(crate) entry_stack_size: usize,
     pub(crate) global_slot_count: usize,
     pub(crate) emit_cleanup_failure_audit: bool,

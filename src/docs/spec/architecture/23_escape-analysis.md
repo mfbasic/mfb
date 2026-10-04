@@ -17,7 +17,7 @@ The analysis produces, per `RES` binding name, one of three decisions
 | --- | --- |
 | `Local` | Closed at its own producing scope. The per-scope static cleanup is already correct; no float. |
 | `FloatBlocked(C)` | A returned owning container cannot accept the resource at its production point because of declaration order; IR verification reports `TYPE_RESOURCE_RETURN_ORDER`. |
-| `Float(C)` | Ownership floats to collection binding `C`'s scope. The obligation is drained from `C`'s scope's runtime owned-list, and transferred to the caller when `C` is `RETURN`ed. |
+| `Float(C)` | Ownership floats to container binding `C`'s scope. The obligation is drained from `C`'s scope's runtime owned-list, and transferred to the caller when `C` is `RETURN`ed. When `C` is a module-level binding, the module instance owns it instead and closes it at instance teardown. |
 
 A floated binding does not carry its own scope-close obligation. The owner
 table describes cleanup placement, not a prohibition on using a resource alias
@@ -97,7 +97,9 @@ layers:
    owner word"). A binding claims an unowned record, a float raises it to the outer
    container's scope, a `RETURN` releases what the returning function's scopes
    own — every resource the returned value reaches, at any depth — and every
-   scope-exit close runs only when the owner is that scope.
+   scope-exit close runs only when the owner is that scope. A store into a
+   module-level binding raises every resource it adds to the module instance,
+   whose token no frame scope holds.
    [[src/codegen/resource/walk.rs:emit_for_each_resource]]
    [[src/codegen/resource/owner.rs:emit_skip_unless_owned]]
 3. **A closed/moved flag making a second close a defined no-op.** Every resource
@@ -120,6 +122,11 @@ walks the body collecting *routing facts*. [[src/ir/resource_escape.rs:Analyzer]
 - The body is walked at depth 0; each nested block (`IF` then/else, `MATCH`
   case, `FOR`/`FOR EACH`/`WHILE`/`DO UNTIL` body) increments depth by 1.
 - **The trap body is walked at depth 1.** [[src/ir/resource_escape.rs:analyze_function]]
+
+**A module-level binding is at depth `-1`** (`MODULE_DEPTH`): an assignment to a
+name the function never declared that the lowering lists as a module-level binding
+is placed there, outside every scope the function can open, rather than at the
+statement's depth. [[src/ir/resource_escape.rs:MODULE_DEPTH]]
 
 `declare(name, depth)` records, on first sight only, the binding's
 `decl_depth` and a monotonically increasing `decl_order` index. Declaration
@@ -245,7 +252,10 @@ obligation rides the collection's owned-list and transfers to the caller on
 found nothing: among all collections containing the resource, keep only those
 declared at a **strictly outer** scope (`decl_depth(C) < res_depth`); same-or-
 inner scopes do not float. Pick the **outermost** — minimum `decl_depth`, then
-minimum `decl_order` as the deterministic tiebreak. [[src/ir/resource_escape.rs:solve]]
+minimum `decl_order` as the deterministic tiebreak — so a module-level binding
+(depth `-1`) outranks every local container. A `RES` parameter does not float to a
+module-level binding here: its owner is in a caller's frame, and the store raises
+it to the module instance at run time. [[src/ir/resource_escape.rs:solve]]
 
 If neither phase finds a target, a non-parameter resource reaching a returned
 resource-owning container is `FloatBlocked(C)`; otherwise it is `Local`.
@@ -268,6 +278,7 @@ choose_owner(r):
   # Phase 2: only if Phase 1 empty
   if best is none:
     for C where r ∈ membership[C] and depth(C) < depth(r):
+      if depth(C) == -1 and r is a RES parameter: continue
       best = min by (depth(C), order(C))
   if best exists: return Float(best)
   if r is not a RES parameter:
@@ -293,6 +304,8 @@ float to a later same-depth container merely because that container is returned.
 | `MUT xs=[]; RES f; xs=append(xs,f); RETURN xs` | `f → Float(xs)` | `xs` returned and declared before `f` (Phase 1, same depth) |
 | `RES f; RETURN f` | `f → Local` | bare resource return is a move, no routing |
 | outer `ys`; inner `{ RES f; xs=[f]; ys=xs }` | `f → Float(ys)` | membership reaches `ys`, the outermost (Phase 2) |
+| global `saved`; `RES f; saved=append(saved,Holder[f])` | `f → Float(saved)` | `saved` is at depth `-1`, outside the function (Phase 2) |
+| global `saved`; parameter `RES p`; `saved=append(saved,p)` | `p → Local` | a parameter is raised at the store, not floated |
 
 [[src/ir/resource_escape.rs:tests]]
 

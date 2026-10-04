@@ -1716,7 +1716,60 @@ pub(crate) fn lower_thread_copy_function(
         type_: type_.clone().name().into_owned(),
         location: abi::argument_register(0)?.into(),
     };
-    let mut builder = CodeBuilder {
+    let mut builder = helper_code_builder(
+        symbol,
+        function_symbols,
+        functions,
+        package_return_types,
+        platform_imports,
+        platform,
+        build_mode,
+        globals,
+        string_symbols,
+        type_model,
+    );
+
+    // Hand the source to the walker with this type's kind, and return its copy.
+    let source = builder.allocate_register();
+    builder.emit(abi::move_register(&source, &param.location));
+    builder.emit(abi::move_register(abi::c_arg(1), &source));
+    builder.emit(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        &kind.to_string(),
+    ));
+    builder.emit_symbol_call(crate::codegen::memory::arena::graph_copy::GRAPH_COPY_SYMBOL);
+    let result = builder.allocate_register();
+    builder.emit(abi::move_register(&result, abi::return_register()));
+    builder.emit(abi::move_register(abi::return_register(), &result));
+    builder.emit(abi::return_());
+    finish_helper_function(
+        builder,
+        &format!("thread_copy.{type_}"),
+        vec![param],
+        &type_.to_string(),
+    )
+}
+
+/// A [`CodeBuilder`] for a runtime helper the codegen synthesizes rather than
+/// lowers from NIR (bug-391's per-type copy entry, bug-806's module teardown):
+/// no locals, no cleanups, no trap — a body the caller emits instruction by
+/// instruction, with every builder service (register allocation, stack objects,
+/// calls, raises) available.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn helper_code_builder<'a>(
+    symbol: &str,
+    function_symbols: &'a HashMap<String, String>,
+    functions: &'a HashMap<String, &'a NirFunction>,
+    package_return_types: &'a HashMap<String, ParameterType>,
+    platform_imports: &'a HashMap<String, String>,
+    platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
+    build_mode: crate::target::NativeBuildMode,
+    globals: &'a HashMap<String, GlobalValue>,
+    string_symbols: &'a HashMap<String, String>,
+    type_model: TypeModel,
+) -> CodeBuilder<'a> {
+    CodeBuilder {
         current_symbol: symbol.to_string(),
         function_symbols,
         functions,
@@ -1820,23 +1873,17 @@ pub(crate) fn lower_thread_copy_function(
         string_shadow_env: std::collections::HashMap::new(),
         string_app_resource_base_env: None,
         module_name: String::new(),
-    };
+    }
+}
 
-    // Hand the source to the walker with this type's kind, and return its copy.
-    let source = builder.allocate_register();
-    builder.emit(abi::move_register(&source, &param.location));
-    builder.emit(abi::move_register(abi::c_arg(1), &source));
-    builder.emit(abi::move_immediate(
-        abi::c_arg(0),
-        "Integer",
-        &kind.to_string(),
-    ));
-    builder.emit_symbol_call(crate::codegen::memory::arena::graph_copy::GRAPH_COPY_SYMBOL);
-    let result = builder.allocate_register();
-    builder.emit(abi::move_register(&result, abi::return_register()));
-    builder.emit(abi::move_register(abi::return_register(), &result));
-    builder.emit(abi::return_());
-
+/// Allocate registers, run the helper peepholes and lay out the frame of a
+/// [`helper_code_builder`] body whose instructions end in a `return`.
+pub(crate) fn finish_helper_function(
+    mut builder: CodeBuilder<'_>,
+    name: &str,
+    params: Vec<CodeParam>,
+    returns: &str,
+) -> Result<CodeFunction, String> {
     builder.run_register_allocation()?;
     let mut instructions = builder.instructions;
     let is_x86 = mir::active_backend().register_model().arena_base()
@@ -1850,12 +1897,11 @@ pub(crate) fn lower_thread_copy_function(
         builder.stack_size,
         builder.used_callee_saved,
     );
-
     Ok(CodeFunction {
-        name: format!("thread_copy.{type_}"),
-        symbol: symbol.to_string(),
-        params: vec![param],
-        returns: type_.to_string(),
+        name: name.to_string(),
+        symbol: builder.current_symbol,
+        params,
+        returns: returns.to_string(),
         frame,
         instructions,
         relocations: builder.relocations,

@@ -696,9 +696,13 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
         // a `RES` field, because a record's type name alone cannot say. Without
         // it the bug-291 ordering gate cannot recognise a returned
         // resource-carrying record and degrades it to `Local` — a double close.
+        //
+        // bug-806: and which names are module-level bindings, so a store into one
+        // is routed to the module instance rather than to the storing scope.
         resource_owners: crate::ir::resource_escape::analyze_function_with(
             function,
             &context.type_index.res_field_record_types(),
+            &context.binding_types.keys().cloned().collect(),
         )
         .owners()
         .clone(),

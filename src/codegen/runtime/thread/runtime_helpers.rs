@@ -1209,6 +1209,14 @@ pub(crate) fn lower_thread_trampoline(
             STDIN_UNSUBSCRIBE_SYMBOL,
         ));
     }
+    // bug-806: the worker's own instance of the project ends here. Close the
+    // resources its module-level bindings own before the result is published, so
+    // a parent that waits for the worker observes them closed. The result is parked
+    // on the stack above; the teardown preserves the callee-saved arena register.
+    if let Some(symbol) = arena_init.teardown {
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(internal_branch(THREAD_TRAMPOLINE_SYMBOL, symbol));
+    }
     // plan-156-A: everything the exit does to the control block — publish the result
     // and `COMPLETED`, close the queues and wake every waiter, drop the worker's
     // reference and, when it was the last, free the block — is one vreg-allocated
