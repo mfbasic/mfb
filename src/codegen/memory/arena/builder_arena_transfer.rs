@@ -319,6 +319,24 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_raw_slot,
         ));
+        if worker_error_source {
+            // A worker's error reaches `waitFor` with the WORKER's tag: `3` when the
+            // worker parked an `Error` block — in its own arena, not in this
+            // thread's current-error slot, which is empty. Adopting that slot
+            // yielded a null `Error` and the wrap read through it (SIGSEGV on any
+            // inline-trapped `waitFor` of a failing worker). The worker's message and
+            // origin are in the loose registers, which the `WorkerArena` rebuild
+            // deep-copies — so, as the untrapped path's
+            // `emit_finalize_worker_error_source` does, every error tag here is the
+            // loose one.
+            let not_an_error = self.label("worker_result_ok");
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), tag_slot));
+            self.emit(abi::compare_immediate(&scratch9, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&not_an_error));
+            self.emit(abi::move_immediate(&scratch9, "Integer", RESULT_ERR_TAG));
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), tag_slot));
+            self.emit(abi::label(&not_an_error));
+        }
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), tag_slot));
         self.emit(abi::compare_immediate(&scratch9, RESULT_OK_TAG));
         self.emit(abi::branch_ne(&wrap_error_label));

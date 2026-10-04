@@ -345,3 +345,80 @@ fn a_trapped_bind_transfer_frees_the_senders_record() {
         "the sender's arena grew with the number of transfers ({small} -> {large})"
     );
 }
+
+/// An inline `TRAP` on `thread::waitFor` of a worker that FAILS reaches its handler.
+///
+/// The worker's error arrives with the worker's own tag — `3` when it parked an
+/// `Error` block, which lives in the worker's arena, not in this thread's
+/// current-error slot. The inline-`TRAP` assembly adopted that empty slot, built
+/// its `Result` around a null `Error`, and the program died on SIGSEGV whether the
+/// handler read `e`, ignored it, or returned. A function-level `TRAP` (whose
+/// `emit_finalize_worker_error_source` makes the error loose) was unaffected — it
+/// is the oracle here.
+#[test]
+fn an_inline_trapped_wait_for_of_a_failing_worker_reaches_its_handler() {
+    let source = r#"IMPORT io
+IMPORT thread
+
+ISOLATED FUNC worker(w AS ThreadWorker OF Integer TO Integer, seed AS Integer) AS Integer
+  IF seed < 0 THEN
+    FAIL error(77050002, "worker failed")
+  END IF
+  RETURN seed + 1
+END FUNC
+
+FUNC readsError(x AS Integer) AS String
+  RES t AS Thread OF Integer TO Integer = thread::start(worker, x)
+  LET r AS Integer = thread::waitFor(t) TRAP(e)
+    RETURN "inline " & toString(e.code) & " " & e.message
+  END TRAP
+  RETURN "ok " & toString(r)
+END FUNC
+
+FUNC ignoresError(x AS Integer) AS String
+  RES t AS Thread OF Integer TO Integer = thread::start(worker, x)
+  LET r AS Integer = thread::waitFor(t) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN "recovered " & toString(r)
+END FUNC
+
+FUNC functionLevel(x AS Integer) AS String
+  RES t AS Thread OF Integer TO Integer = thread::start(worker, x)
+  LET r AS Integer = thread::waitFor(t)
+  RETURN "ok " & toString(r)
+TRAP(e)
+  RETURN "inline " & toString(e.code) & " " & e.message
+END TRAP
+END FUNC
+
+FUNC main AS Integer
+  FOR i = 1 TO 20
+    MUT seed AS Integer = i
+    IF i MOD 2 = 1 THEN
+      seed = 0 - i
+    END IF
+    LET a AS String = readsError(seed)
+    LET b AS String = functionLevel(seed)
+    IF a <> b THEN
+      io::print("MISMATCH " & a & " / " & b)
+    END IF
+    io::print(a & " | " & ignoresError(seed))
+  NEXT
+  RETURN 0
+END FUNC
+"#;
+    let exe = build_debug("thread_inline_trap_failing_worker", source);
+    let (stdout, stderr) = run_ok("inline-trapped waitFor", &exe);
+    assert!(!stdout.contains("MISMATCH"), "{stdout}");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 20, "{stdout}");
+    assert_eq!(lines[0], "inline 77050002 worker failed | recovered -1");
+    assert_eq!(lines[1], "ok 3 | recovered 3");
+    let arena = arena_lines("inline-trapped waitFor", &stderr);
+    assert_eq!(
+        counter("inline-trapped waitFor", &arena, 0, "live_bytes"),
+        0,
+        "the trapped worker errors are freed:\n{stderr}"
+    );
+}

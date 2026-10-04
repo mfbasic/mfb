@@ -469,6 +469,50 @@ impl CodeBuilder<'_> {
         // the single owned Error block (in the caller arena) and park it so the
         // catcher ADOPTS it, matching every other propagated error.
         self.emit_park_error_call(ParkedErrorSource::WorkerArenaCopy);
+        // The park INLINES the message into the block it parks (and releases the
+        // `ErrorLoc` itself, bug-573), so the message copy made above has no owner
+        // once a block is parked: every failing `waitFor` under a function-level
+        // `TRAP` orphaned it (32 B for a 13-byte message). But the park hands `x2`
+        // back still naming that copy, and the top-level banner prints it, so `x2`
+        // is first re-pointed at the parked block's own inlined message, exactly
+        // as the park re-points `x3`. An out-of-memory park returns the loose tag
+        // with `x2` still naming the copy, which then stays. The free clobbers the
+        // caller-saved registers, so the four result registers ride across it in
+        // slots.
+        let parked_slots: Vec<usize> = (0..4)
+            .map(|_| self.allocate_stack_object("worker_error_parked", 8))
+            .collect();
+        let registers = [
+            RESULT_TAG_REGISTER,
+            RESULT_VALUE_REGISTER,
+            RESULT_ERROR_MESSAGE_REGISTER,
+            RESULT_ERROR_SOURCE_REGISTER,
+        ];
+        for (register, slot) in registers.iter().zip(&parked_slots) {
+            self.emit(abi::store_u64(*register, abi::stack_pointer(), *slot));
+        }
+        let kept = self.label("worker_error_message_kept");
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            parked_slots[0],
+        ));
+        self.emit(abi::compare_immediate(&scratch9, RESULT_ERR_BLOCK_TAG));
+        self.emit(abi::branch_ne(&kept));
+        // `x2` = the parked `Error`'s inlined message: `base + messageOffset`
+        // (field 1), `base` being the block the park left in the current-error slot.
+        let slot_address = self.current_error_slot_address();
+        let base = self.temporary_vreg();
+        let offset = self.temporary_vreg();
+        self.emit(abi::load_u64(&base, &slot_address, 0));
+        self.emit(abi::load_u64(&offset, &base, 8));
+        self.emit(abi::add_registers(&base, &base, &offset));
+        self.emit(abi::store_u64(&base, abi::stack_pointer(), parked_slots[2]));
+        self.emit_free_flat_block_from_slot(&ParameterType::String, message_slot)?;
+        self.emit(abi::label(&kept));
+        for (register, slot) in registers.iter().zip(&parked_slots) {
+            self.emit(abi::load_u64(*register, abi::stack_pointer(), *slot));
+        }
         Ok(())
     }
 
