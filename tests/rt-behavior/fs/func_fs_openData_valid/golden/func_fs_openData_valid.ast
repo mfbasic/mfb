@@ -1,0 +1,134 @@
+{
+  "project": "func_fs_openData_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryWrite",
+      "line": 8,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 8 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 9,
+        "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "!" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "write raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 10 }
+        ]
+      }, "line": 9 },
+      { "kind": "return", "value": { "kind": "string", "value": "write ok" }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryRead",
+      "line": 15,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 15 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 17,
+        "expression": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "f" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "read raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 18 }
+        ]
+      }, "line": 17 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "read [" }, "right": { "kind": "identifier", "value": "s" } }, "right": { "kind": "string", "value": "]" } }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "text", "type": "String", "value": { "kind": "string", "value": "one\r\ntwo\nthree" }, "line": 24 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "identifier", "value": "text" }, { "kind": "string", "value": "r" }] }, "line": 25 },
+      { "kind": "assignment", "name": "text", "value": { "kind": "string", "value": "changed" }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "r size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "r" }] }] } }] }, "line": 27 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "unary", "operator": "NOT", "operand": { "kind": "call", "callee": "fs.eof", "arguments": [{ "kind": "identifier", "value": "r" }] } },
+        "line": 28,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "r line [" }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "r" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 29 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "r " }, "right": { "kind": "call", "callee": "tryWrite", "arguments": [{ "kind": "identifier", "value": "r" }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "read", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "read mode" }, { "kind": "string", "value": "read" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "read " }, "right": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "read" }] } }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "w", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "ignored" }, { "kind": "string", "value": "w" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "w size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "w" }] }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "string", "value": "abc" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "w size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "w" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "tryRead", "arguments": [{ "kind": "identifier", "value": "w" }] } }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "write", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "ignored" }, { "kind": "string", "value": "write" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "write" }, { "kind": "string", "value": "x" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "write size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "write" }] }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "rw", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "abcdef" }, { "kind": "string", "value": "rw" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "rw" }, { "kind": "string", "value": "XY" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rw " }, "right": { "kind": "call", "callee": "tryRead", "arguments": [{ "kind": "identifier", "value": "rw" }] } }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "readWrite", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "" }, { "kind": "string", "value": "readWrite" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "readWrite" }, { "kind": "string", "value": "built\n" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "readWrite " }, "right": { "kind": "call", "callee": "tryRead", "arguments": [{ "kind": "identifier", "value": "readWrite" }] } }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "base" }, { "kind": "string", "value": "a" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "string", "value": "+1" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "a size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "a" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "tryRead", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "append", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "base" }, { "kind": "string", "value": "append" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "append" }, { "kind": "number", "value": "0" }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "append" }, { "kind": "string", "value": "+2" }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "append size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "append" }] }] } }] }, "line": 61 },
+      { "kind": "binding", "mutable": true, "name": "raw", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "104" }, { "kind": "number", "value": "105" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }] }, "line": 63 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "identifier", "value": "raw" }, { "kind": "string", "value": "rw" }] }, "line": 64 },
+      { "kind": "assignment", "name": "raw", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "List OF Byte", "value": { "kind": "call", "callee": "fs.readAllBytes", "arguments": [{ "kind": "identifier", "value": "b" }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bytes len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "back" }] }] } }, "right": { "kind": "string", "value": " last=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "back" }, { "kind": "number", "value": "4" }] }] } }, "right": { "kind": "string", "value": " source len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "raw" }] }] } }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "name": "bang", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "33" }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAllBytes", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "identifier", "value": "bang" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "number", "value": "0" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bytes after write len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readAllBytes", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] } }] }, "line": 71 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 73 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "e", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "identifier", "value": "empty" }, { "kind": "string", "value": "r" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty bytes eof=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.eof", "arguments": [{ "kind": "identifier", "value": "e" }] }] } }] }, "line": 75 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 77,
+        "expression": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "x" }, { "kind": "string", "value": "R" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mode R raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 78 },
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 79 }
+        ]
+      }, "line": 77 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 81 }
+      ]
+    }
+    ]
+  }
+  ]
+}

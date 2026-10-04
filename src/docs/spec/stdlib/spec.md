@@ -89,6 +89,10 @@ built-in injection chain.
   each reader takes and skips, the two ways a line is read, the kitty keyboard
   protocol `term::on` switches a terminal to, and the one key encoding every
   `--app` window writes.
+- `fs-memory-files` — `fs::openData`'s in-memory `File` (the per-OS backing, the
+  copy, and the mode enforced by a second open), `fs::seek`'s buffer settling, and
+  the line readers' read buffer, terminator rules and the raw reader the `csv`
+  package streams through.
 
 ## See Also
 

@@ -254,7 +254,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
     Ok((instructions, relocations, RANDOM_BUF_SIZE))
 }
 
-fn temp_file_open_flags(family: PlatformFamily) -> &'static str {
+pub(crate) fn temp_file_open_flags(family: PlatformFamily) -> &'static str {
     // Linux (any arch) vs macOS — the O_* bit values differ (Linux O_CREAT=0x40,
     // O_EXCL=0x80, O_CLOEXEC=0x80000; macOS O_CREAT=0x200, O_EXCL=0x800,
     // O_CLOEXEC=0x1000000). Matching only "linux-aarch64" gave linux-x86_64 the
@@ -282,7 +282,7 @@ fn temp_file_open_flags(family: PlatformFamily) -> &'static str {
     }
 }
 
-fn emit_uuid_v4_to_path(
+pub(crate) fn emit_uuid_v4_to_path(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     vregs: &mut Vregs,

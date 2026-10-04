@@ -6762,6 +6762,7 @@ mod raw_result_block_ownership {
         "fs.readBytes",             // List OF Byte
         "fs.readBytesAt",           // List OF Byte
         "fs.readLine",              // String
+        "fs.readLineRaw",           // String (bug-809; "" at end of input is a fresh block too)
         "fs.readText",              // String
         "fs.tempDirectory",         // String
         "io.input",                 // String
@@ -6996,6 +6997,7 @@ mod raw_result_block_ownership {
         "fs.currentDirectory",
         "fs.readAll",
         "fs.readLine",
+        "fs.readLineRaw",
         "fs.readText",
         "fs.tempDirectory",
         "io.input",

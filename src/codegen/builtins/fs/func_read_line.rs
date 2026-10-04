@@ -20,6 +20,7 @@ pub(crate) fn lower_fs_read_line(
         &symbol,
         ctx.platform_imports,
         ctx.platform,
+        false,
     )?;
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);

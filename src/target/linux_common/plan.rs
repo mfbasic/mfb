@@ -499,7 +499,11 @@ impl LinuxPlan<'_> {
             | "fs.flush"
             | "fs.eof"
             | "fs.size"
-            | "fs.readBytesAt" => {
+            | "fs.readBytesAt"
+            | "fs.seek"
+            | "fs.readLineRaw"
+            | "fs.openData"
+            | "fs.openDataBytes" => {
                 let mut imports = vec![
                     self.libc_import("open", required_by),
                     self.libc_import("read", required_by),
@@ -517,6 +521,11 @@ impl LinuxPlan<'_> {
                 // the import would be dead (bug-71).
                 if matches!(spec.call, "fs.createTempFile") && !self.abi.raw_getrandom {
                     imports.push(self.libc_import("getentropy", required_by));
+                }
+                if matches!(spec.call, "fs.openData" | "fs.openDataBytes") {
+                    // bug-809: openData's backing is `memfd_create`, issued through
+                    // the libc `syscall` wrapper (glibc and musl both export it).
+                    imports.push(self.libc_import("syscall", required_by));
                 }
                 if matches!(spec.call, "fs.openFileNoFollow" | "fs.openWithin") {
                     // bug-260/bug-259: openFileNoFollow/openWithin use openat2 via the libc

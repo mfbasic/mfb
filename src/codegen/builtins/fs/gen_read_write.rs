@@ -929,6 +929,118 @@ pub(crate) fn lower_fs_size_helper(
     Ok((instructions, relocations, 0))
 }
 
+/// `abi_function` body for `fs::seek(file, position)` (bug-809).
+///
+/// Moves the descriptor to the absolute byte offset `position` (`lseek(fd,
+/// position, SEEK_SET)` / `SetFilePointerEx(FILE_BEGIN)`). Both per-handle buffers
+/// are settled first so the move is exact for whatever comes next:
+///
+/// * pending buffered OUTPUT is drained through `_mfb_rt_fs_file_drain` — it was
+///   written at the old position and must land there, not after the move; a
+///   failing drain raises `ErrWriteFailed` and leaves the position untouched;
+/// * the READ cache (`fs::readLine`'s block read-ahead) is dropped. It held bytes
+///   from the old position; an absolute seek needs no rewind (unlike
+///   `emit_reconcile_read_buffer`'s relative one), only an empty cache, so the
+///   next read refills from `position`.
+///
+/// A negative `position` is a caller mistake (`ErrInvalidArgument`), checked
+/// before anything is touched. A host refusal to move — a pipe or other
+/// non-seekable handle — raises `ErrReadFailed`, as `fs::size`/`fs::eof` do on the
+/// same handles. Seeking past the end is allowed (POSIX and Win32 both permit it).
+pub(crate) fn lower_fs_seek_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<FsBodyParts, String> {
+    let closed = format!("{symbol}_closed");
+    let closed_moved = format!("{symbol}_closed_moved");
+    let invalid = format!("{symbol}_invalid");
+    let drain_error = format!("{symbol}_drain_error");
+    let seek_error = format!("{symbol}_seek_error");
+    let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let file = vregs.next();
+    let position = vregs.next();
+    let closed_flag = vregs.next();
+    let fd = vregs.next();
+    let mut instructions = vec![
+        abi::move_register(&file, abi::return_register()),
+        abi::move_register(&position, abi::mfb_return(1)),
+        abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
+    ];
+    instructions.extend(crate::codegen::resource::closed_or_moved_guard(
+        &closed_flag,
+        &closed,
+        &closed_moved,
+    ));
+    instructions.extend([
+        abi::compare_immediate(&position, "0"),
+        abi::branch_lt(&invalid),
+        // Drain pending buffered output at the OLD position (a no-op when the
+        // handle is unbuffered or nothing is pending). 0 = ok, 1 = write failure.
+        abi::move_register(abi::return_register(), &file),
+        abi::branch_link(FILE_DRAIN_SYMBOL),
+    ]);
+    let mut relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&drain_error),
+        abi::load_u64(&fd, &file, FILE_OFFSET_FD),
+        abi::move_register(abi::return_register(), &fd),
+        abi::move_register(abi::c_arg(1), &position),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"), // SEEK_SET / FILE_BEGIN
+    ]);
+    platform.emit_seek_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&seek_error),
+        // Drop the read cache: its bytes came from the old position. The next
+        // read refills from `position`.
+        abi::store_u64(abi::ZERO, &file, FILE_OFFSET_READ_POS),
+        abi::store_u64(abi::ZERO, &file, FILE_OFFSET_READ_FILL),
+        abi::store_u64(abi::ZERO, &file, FILE_OFFSET_READ_AT_EOF),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&closed),
+    ]);
+    raise_error_into(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&closed_moved)]);
+    raise_error_into(
+        symbol,
+        "ErrResourceMoved",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&invalid)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&drain_error)]);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&seek_error)]);
+    raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&done), abi::return_()]);
+    Ok((instructions, relocations, 0))
+}
+
 /// `abi_function` body for `fs::readBytesAt` (plan-139-E §4.2).
 ///
 /// `lower_fs_read_all_bytes_helper`'s allocation and read loop with the length
@@ -1314,13 +1426,15 @@ fn emit_append_to_line_accumulator(
         abi::branch(&grow_copy),
         abi::label(&grow_copy_done),
         // bug-574: the old accumulator has been drained into the new one and has
-        // no owner. `old_block` is non-null on every path that reaches here (this
-        // block is only entered from the grow branch, after `temp` was set), so
-        // the free is unconditional; `old_cap` is the size that allocation was
-        // given.
+        // no owner, so it is released; `old_cap` is the size that allocation was
+        // given. bug-809 made the accumulator lazy: the FIRST growth starts from
+        // no block at all (`temp_cap` 0, `temp` null), and there is nothing to
+        // release.
         abi::move_register(&old_cap, temp_cap),
         abi::move_register(temp, abi::mfb_return(1)),
         abi::move_register(temp_cap, &new_cap),
+        abi::compare_immediate(&old_cap, "0"),
+        abi::branch_eq(&fits),
         abi::move_register(abi::c_arg(0), &old_block),
         abi::move_register(abi::c_arg(1), &old_cap),
     ]);
@@ -1403,10 +1517,18 @@ fn emit_reconcile_read_buffer(
     Ok(())
 }
 
+/// `keep_terminator = false` is `fs::readLine`: the LF (and the CR of a CRLF) is
+/// stripped and end of input raises `ErrEndOfFile`. `keep_terminator = true` is
+/// the internal `fs::readLineRaw` (bug-809): the line is returned byte-exact WITH
+/// its terminator — `"a\n"`, `"a\r\n"`, or an unterminated final `"a"` — and end of
+/// input returns the empty `String` instead of raising. A non-final raw line is
+/// never empty (it holds at least its LF), so `""` is unambiguous; `csv::readRow`
+/// needs both facts to rebuild a quoted field that spans lines exactly.
 pub(crate) fn lower_fs_read_line_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    keep_terminator: bool,
 ) -> Result<FsBodyParts, String> {
     // Transparent block read buffer: serve lines from the per-`File`
     // read block (`READ_PTR[READ_POS..READ_FILL]`) and refill with one `read()` when
@@ -1453,8 +1575,12 @@ pub(crate) fn lower_fs_read_line_helper(
     let byte = vregs.next();
     let trim_ptr = vregs.next();
     let result = vregs.next();
+    // Where the finished line's bytes are: the read block (a line found whole)
+    // or the accumulator's `temp + 8`.
+    let src_base = vregs.next();
     let mut relocations = Vec::new();
     let mut instructions = vec![
+        abi::move_immediate(&src_base, "Integer", "0"),
         // bug-574: `temp` is this helper's growing line accumulator — its own
         // scratch, never handed back (the `String` it returns is `result`, a
         // separate allocation) — so it is released at `done`. Nulled FIRST: the
@@ -1488,17 +1614,10 @@ pub(crate) fn lower_fs_read_line_helper(
         abi::move_register(&read_ptr, abi::mfb_return(1)),
         // READ_POS/READ_FILL/READ_AT_EOF are already 0 from the open-time zeroing.
         abi::label(&have_read_buf),
-        // Allocate a small growing line accumulator (line bytes at temp+8).
-        abi::move_immediate(abi::return_register(), "Integer", "32"),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(&alloc_error),
-        abi::move_register(&temp, abi::mfb_return(1)),
-        abi::move_immediate(&temp_cap, "Integer", "32"),
+        // The growing line accumulator (`temp`, line bytes at temp+8) is created
+        // only when a line spans a refill: a line found whole in the read block is
+        // copied straight from the block into the result (bug-809 — the common
+        // case then costs one allocation, not three).
         abi::move_immediate(&line_len, "Integer", "0"),
         abi::label(&line_loop),
         abi::load_u64(&read_pos, &file, FILE_OFFSET_READ_POS),
@@ -1523,6 +1642,28 @@ pub(crate) fn lower_fs_read_line_helper(
         // so re-derive the start = read_ptr + read_pos.
         abi::add_registers(&win_ptr, &read_ptr, &read_pos),
     ]);
+    // The raw reader keeps the '\n' itself: take one byte more.
+    let take = if keep_terminator {
+        let take = vregs.next();
+        instructions.push(abi::add_immediate(&take, &scan_i, 1));
+        take
+    } else {
+        scan_i
+    };
+    let found_accumulated = format!("{symbol}_found_accumulated");
+    instructions.extend([
+        // Nothing accumulated from an earlier block: the whole line is in this
+        // window. Build the result straight from it.
+        abi::compare_immediate(&line_len, "0"),
+        abi::branch_ne(&found_accumulated),
+        abi::move_register(&src_base, &win_ptr),
+        abi::move_register(&line_len, &take),
+        abi::add_registers(&read_pos, &read_pos, &scan_i),
+        abi::add_immediate(&read_pos, &read_pos, 1),
+        abi::store_u64(&read_pos, &file, FILE_OFFSET_READ_POS),
+        abi::branch(&emit_line),
+        abi::label(&found_accumulated),
+    ]);
     emit_append_to_line_accumulator(
         symbol,
         &mut instructions,
@@ -1532,7 +1673,7 @@ pub(crate) fn lower_fs_read_line_helper(
         &temp_cap,
         &line_len,
         &win_ptr,
-        &scan_i,
+        &take,
         "found",
         &alloc_error,
     );
@@ -1541,6 +1682,7 @@ pub(crate) fn lower_fs_read_line_helper(
         abi::add_registers(&read_pos, &read_pos, &scan_i),
         abi::add_immediate(&read_pos, &read_pos, 1),
         abi::store_u64(&read_pos, &file, FILE_OFFSET_READ_POS),
+        abi::add_immediate(&src_base, &temp, 8),
         abi::branch(&emit_line),
         abi::label(&scan_no_nl),
         // No '\n' in the window: append the whole remaining window, mark it consumed,
@@ -1612,19 +1754,30 @@ pub(crate) fn lower_fs_read_line_helper(
         // terminator: it is an ordinary character and is kept (the trim below runs
         // only for a line that ended at an LF).
         abi::compare_immediate(&line_len, "0"),
-        abi::branch_eq(&eof_error),
+        // The raw reader reports end of input as the empty line instead.
+        abi::branch_eq(if keep_terminator {
+            &build_result
+        } else {
+            &eof_error
+        }),
+        abi::add_immediate(&src_base, &temp, 8),
         abi::branch(&build_result),
         abi::label(&emit_line),
-        // Trim a single trailing '\r' (CRLF): if temp[8 + line_len - 1] == 13, drop it.
-        abi::compare_immediate(&line_len, "0"),
-        abi::branch_eq(&build_result),
-        abi::add_immediate(&trim_ptr, &temp, 8),
-        abi::add_registers(&trim_ptr, &trim_ptr, &line_len),
-        abi::subtract_immediate(&trim_ptr, &trim_ptr, 1),
-        abi::load_u8(&byte, &trim_ptr, 0),
-        abi::compare_immediate(&byte, "13"),
-        abi::branch_ne(&build_result),
-        abi::subtract_immediate(&line_len, &line_len, 1),
+    ]);
+    if !keep_terminator {
+        instructions.extend([
+            // Trim a single trailing '\r' (CRLF): if temp[8 + line_len - 1] == 13, drop it.
+            abi::compare_immediate(&line_len, "0"),
+            abi::branch_eq(&build_result),
+            abi::add_registers(&trim_ptr, &src_base, &line_len),
+            abi::subtract_immediate(&trim_ptr, &trim_ptr, 1),
+            abi::load_u8(&byte, &trim_ptr, 0),
+            abi::compare_immediate(&byte, "13"),
+            abi::branch_ne(&build_result),
+            abi::subtract_immediate(&line_len, &line_len, 1),
+        ]);
+    }
+    instructions.extend([
         abi::label(&build_result),
         abi::add_immediate(abi::return_register(), &line_len, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
@@ -1642,7 +1795,7 @@ pub(crate) fn lower_fs_read_line_helper(
         abi::move_register(&result, abi::mfb_return(1)),
         abi::store_u64(&line_len, &result, 0),
         abi::add_immediate(&dst, &result, 8),
-        abi::add_immediate(&src, &temp, 8),
+        abi::move_register(&src, &src_base),
         abi::move_register(&remaining2, &line_len),
         abi::label(&copy_loop),
         abi::compare_immediate(&remaining2, "0"),
@@ -1681,8 +1834,10 @@ pub(crate) fn lower_fs_read_line_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::branch(&done), abi::label(&eof_error)]);
-    raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
+    if !keep_terminator {
+        instructions.extend([abi::branch(&done), abi::label(&eof_error)]);
+        raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
+    }
     instructions.extend([
         abi::branch(&done),
         abi::label(&seek_error),
