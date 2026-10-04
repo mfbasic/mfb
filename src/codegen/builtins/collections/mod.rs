@@ -168,6 +168,14 @@ prints:
 /// names. The suffix is a NAME the NIR carries in the call's symbol; the native
 /// fast paths that select on it parse it here, at that one symbol boundary,
 /// rather than each at its own site (plan-111 `declared_sites`).
+/// The members whose result is one element read out of a collection —
+/// `lower_get` / `lower_get_or` hand back `materialize_owned_element`'s independent
+/// copy, which already owns its graph — rather than a collection built out of
+/// other values' payloads (`own_collection_payload_edges`).
+pub(crate) fn element_read_member(target: &str) -> bool {
+    matches!(target, "collections.get" | "collections.getOr")
+}
+
 pub(crate) fn monomorph_suffix_type(suffix: &str) -> crate::types::ParameterType {
     crate::types::ParameterType::declared(suffix)
 }

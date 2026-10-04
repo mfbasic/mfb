@@ -251,7 +251,12 @@ impl CodeBuilder<'_> {
             return self.lower_field_append(site, &target, true, &list_type, &element_type);
         }
         let stack_offset = target.dest.block_slot();
-        let rhs = self.lower_value_stored(&args[1])?;
+        // The bulk append byte-copies the right-hand list's ENTRIES into the
+        // destination, so it takes their graphs (a recursive or function-holding
+        // element) but not the list's own block: that is an inline store, whose
+        // copied top block is freed at the statement's end. As a pointer store, a
+        // right-hand list moved at its last read left its block with no owner.
+        let rhs = self.lower_value_stored_inline(&args[1])?;
         if rhs.type_ != list_type {
             return Err(format!(
                 "native bulk append sublist must be {list_type}, got {}",
@@ -1093,7 +1098,12 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         let dest = self.open_inplace_dest(&target.dest)?;
-        let rhs = self.lower_value_stored(&target.args[1])?;
+        // A whole right-hand list is copied entry by entry (see `try_inplace_bulk_append_assign`).
+        let rhs = if bulk {
+            self.lower_value_stored_inline(&target.args[1])?
+        } else {
+            self.lower_value_stored(&target.args[1])?
+        };
         self.observe_float(&target.args[1], &rhs)?;
         let rhs = self.materialize_value(rhs)?;
         let rhs_slot = self.allocate_stack_object(
