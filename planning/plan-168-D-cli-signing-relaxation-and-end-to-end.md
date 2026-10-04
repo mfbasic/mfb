@@ -95,11 +95,11 @@ See plan-168-A, plus:
 
 Acceptance: `cargo test -p mfb --bin mfb -- signing_ident build_project_sign_rejects_a_malformed_manifest_ident` → `test result: ok`, 0 failed (est. 3–6 min; guess).
   Measured: `test result: ok. 4 passed; 0 failed`.
-Commit: (this commit — recorded in the next)
+Commit: bb166a318
 
 ### Phase 2: End-to-end CLI scenario
 
-- [ ] `tests/cli/cli_repo_governance.rs`: new test
+- [x] `tests/cli/cli_repo_governance.rs`: new test
       `repo_transfer_recipient_publishes_and_consumers_verify_both_owners`:
   1. alice publishes 0.1.0;
   2. a consumer adds it (pin = alice);
@@ -114,13 +114,17 @@ Commit: (this commit — recorded in the next)
      `[Verified]`;
   9. bob transfers to carol, carol publishes 0.4.0, and the consumer updates
      `[Verified]`.
-- [ ] Extend `repo_ownership_transfer_is_two_sided_and_rebinds_the_package` with
+- [x] Extend `repo_ownership_transfer_is_two_sided_and_rebinds_the_package` with
       one assertion: the `/index` transfer link exists. Additive, no assertion
       weakened.
 
 Acceptance: the scenario passes through shipped binaries.
   Check: `cargo test --test cli_repo_governance repo_transfer_recipient_publishes_and_consumers_verify_both_owners` → `1 passed` (est. 10–15 min: release build plus three accounts. This is the bug's own Validation Plan requirement and nothing smaller exercises build→publish→install).
-Commit: —
+  Measured: `1 passed` (and the whole binary `9 passed`). With `signing.rs`
+  restored to its pre-Phase-1 text the same test fails at step 4 with
+  `project ident `alice#xfer_pkg` does not belong to owner `bob`` — the bug's
+  documented build-side mechanism.
+Commit: (this commit — recorded in the next)
 
 ### Phase 3: Spec close-out and bug closure
 
