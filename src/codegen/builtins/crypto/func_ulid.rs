@@ -70,7 +70,12 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::String,
-            errors: vec!["ErrOverflow", "ErrUnknown", "ErrOutOfMemory", "ErrIndexOutOfRange"],
+            errors: vec![
+                "ErrOverflow",
+                "ErrUnknown",
+                "ErrOutOfMemory",
+                "ErrIndexOutOfRange",
+            ],
             body: Body::mfb(BODY, "__crypto_ulid"),
         }],
     });
