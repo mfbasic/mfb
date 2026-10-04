@@ -914,13 +914,17 @@ mod owned_list_ownership_tests {
         assert!(collection_store_is_fresh("chans", None));
     }
 
-    /// The guard, and the reason it is a *self*-receiving test: `a = append(b, x)`
-    /// leaves `a` holding a block grown from `b`'s, which `b` still names. Freeing
-    /// both at scope exit is the double free this module exists to refuse.
+    /// The guard, and the reason it is a *self*-receiving test: a mutator of another
+    /// collection that no audit covers may hand back a block that collection still
+    /// names. Freeing both at scope exit is the double free this module exists to
+    /// refuse. `a = append(b, x)` is not that shape: only a self-update writes an
+    /// existing block (`is_self_update_call`), so the value path allocates (bug-753).
     #[test]
     fn a_mutator_of_another_collection_is_not_a_fresh_block() {
+        let remove = call("collections.removeKey", vec![local("other"), local("c")]);
+        assert!(!collection_store_is_fresh("chans", Some(&remove)));
         let append = call("collections.append", vec![local("other"), local("c")]);
-        assert!(!collection_store_is_fresh("chans", Some(&append)));
+        assert!(collection_store_is_fresh("chans", Some(&append)));
     }
 
     /// Every other store shape answers "not fresh": an alias of another binding, a
