@@ -947,6 +947,10 @@ name = "rt_inline_trap_nested_call"
 path = "tests/runtime/rt_inline_trap_nested_call.rs"
 
 [[test]]
+name = "rt_inline_trap_success_alloc"
+path = "tests/runtime/rt_inline_trap_success_alloc.rs"
+
+[[test]]
 name = "rt_inline_trap_union_bind"
 path = "tests/runtime/rt_inline_trap_union_bind.rs"
 
