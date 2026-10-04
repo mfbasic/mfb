@@ -305,8 +305,9 @@ fn label_index(instructions: &[Value], name: &str) -> Option<usize> {
 
 /// Strip a walk's specialization tag (`term_` in `io::write`, `dt_` in `drawText`)
 /// from every label and branch target, so the two emissions compare instruction for
-/// instruction. Nothing else is normalised: registers, immediates and slot offsets
-/// must already be identical.
+/// instruction. Nothing else is normalised here: registers, immediates and slot
+/// offsets must already be identical, up to the per-function frame shift
+/// [`rebase_frame`] factors out.
 fn untag(instructions: &[Value]) -> Vec<Value> {
     instructions
         .iter()
@@ -335,6 +336,48 @@ fn cluster_window(instructions: &[Value], tag: &str, width_tag: &str) -> Option<
     (start < end).then(|| untag(&instructions[start..=end]))
 }
 
+/// The first `sp`-relative offset in `instructions` (a load, store or address).
+fn first_frame_offset(instructions: &[Value]) -> Option<i64> {
+    instructions.iter().find_map(|instruction| {
+        let base = instruction.get("base").or_else(|| instruction.get("src"))?;
+        if base != "rsp" {
+            return None;
+        }
+        let field = instruction
+            .get("offset")
+            .or_else(|| instruction.get("imm"))?;
+        field.as_str()?.parse().ok()
+    })
+}
+
+/// Move every `sp`-relative offset in `instructions` down by `delta`. The frame
+/// finalizer (`vreg_frame.rs:finalize_frame`) shifts a body's whole `sp`-relative
+/// scratch by that function's own outgoing-argument and callee-save area, so the
+/// same `WALK_*` slot lands at a different `rsp` offset in two functions whose save
+/// areas differ. Only that one per-function constant is factored out: every slot
+/// must still sit at the same distance from every other.
+fn rebase_frame(instructions: &[Value], delta: i64) -> Vec<Value> {
+    instructions
+        .iter()
+        .map(|instruction| {
+            let mut instruction = instruction.clone();
+            let base = instruction
+                .get("base")
+                .or_else(|| instruction.get("src"))
+                .cloned();
+            if base.as_ref().and_then(Value::as_str) == Some("rsp") {
+                for key in ["offset", "imm"] {
+                    if let Some(text) = instruction.get(key).and_then(Value::as_str) {
+                        let value: i64 = text.parse().expect("numeric frame offset");
+                        instruction[key] = Value::String((value - delta).to_string());
+                    }
+                }
+            }
+            instruction
+        })
+        .collect()
+}
+
 /// bug-540 WIN-04. `term::drawText` on Windows iterated UTF-16 units: a combining
 /// mark or a ZWJ-joined scalar took its own cell, where `mfb man term drawText`
 /// promises one position per grapheme cluster. The same file's `io::write` grid
@@ -361,8 +404,11 @@ fn windows_app_mode_draw_text_shares_the_io_write_cluster_walk() {
              ZWJ emoji take several cells on Windows and one everywhere else (bug-540 WIN-04)"
         )
     });
+    let delta = first_frame_offset(&write).expect("the io::write walk reads its slots")
+        - first_frame_offset(&shared).expect("the drawText walk reads its slots");
     assert_eq!(
-        shared, write,
+        shared,
+        rebase_frame(&write, delta),
         "term::drawText's cluster fold and width lookup must be the io::write walk emitted a \
          second time, not a second walk — two walks are how the two members come to disagree \
          about the same string (bug-540 WIN-04)"
