@@ -47,9 +47,13 @@ See plan-168-A, plus:
   `grep -rn 'signing_ident' src/cli` → 1 call site + 2 tests.
 - Tests asserting the rejection (`src/cli/build/mod.rs`):
   - `signing_ident_rejects_bad_idents` (the `bob#shape` assert);
-  - `build_project_sign_rejects_a_foreign_manifest_ident`. After relaxation it
-    still fails, but at `load_build_signing_info` (no local ident key for `zed`),
-    so only its doc comment's stated reason changes.
+  - `build_project_sign_rejects_a_foreign_manifest_ident` (manifest ident
+    `ada#app`, `--sign zed`). After relaxation it still fails, but for an
+    unrelated reason: `load_build_signing_info` reads zed's ident key from the
+    real `local_paths_for_repo(repo_url_from_env())`. The test would then depend
+    on the machine's key store and registry environment, and would no longer
+    reach the signing error arm "before any registry/key access", which is what
+    its doc comment says it covers.
 - CLI harness: `tests/cli/cli_repo_governance.rs:repo_ownership_transfer_is_two_sided_and_rebinds_the_package`
   (transfer) and `tests/cli/cli_repo_publish.rs:repo_registry_add_installs_and_verifies_from_index`
   (add/install).
@@ -59,13 +63,25 @@ See plan-168-A, plus:
 - `signing_ident` keeps the empty-ident default and the `<owner>#<package>`
   shape check, and drops the owner comparison.
 - Edits to the tests that asserted the old rule, each with its AGENTS.md proof:
-  - Remove the `bob#shape` assert. (1) Written with plan-23's build signing.
-    (2) It protects "you can only sign your own prefix". (3) Only the
-    `03_signing.md` step-1 text depends on it, updated here. (4) bug-792
+  - Remove the `bob#shape` assert. (1) Added by the plan-12 coverage wave
+    (`git log -S 'bob#shape' --oneline | tail -1` → `b20ab6b56`). (2) It
+    protects "you can only sign your own prefix". (3) Only the `03_signing.md`
+    step-1 text and the `01_repository-protocol.md` deviation paragraph depend
+    on it (`grep -rn 'signing_ident' src/docs`), both updated here. (4) bug-792
     plus `require_package_owner` show the rule wrongly blocks a stored owner.
   - Add `signing_ident_accepts_a_transferred_ident`.
-  - Correct the doc comment of `build_project_sign_rejects_a_foreign_manifest_ident`
-    to name the real failure point. Its assertion is unchanged.
+  - Repurpose `build_project_sign_rejects_a_foreign_manifest_ident` as
+    `build_project_sign_rejects_a_malformed_manifest_ident`. Change its manifest
+    ident from `ada#app` to `ada-app` (no `#`), so it again fails inside
+    `signing_ident` before any key or registry access. Update its doc comment;
+    `assert!(build_project(&options).is_err())` is unchanged. (1) Added by the
+    plan-68 residual coverage backfill
+    (`git log -S 'build_project_sign_rejects_a_foreign_manifest_ident' --oneline | tail -1`
+    → `e081c97cd`). (2) It protects "a bad `--sign` ident fails in
+    `build_project`'s signing error arm without touching keys or the registry".
+    (3) Nothing else references it (`grep -rn 'build_project_sign_rejects' src tests`
+    → only its definition). (4) bug-792: a foreign prefix is no longer an error,
+    so the old input no longer reaches the arm. The shape error still does.
 
 ## Phases
 
@@ -73,10 +89,11 @@ See plan-168-A, plus:
 
 ### Phase 1: Relax `signing_ident`
 
-- [ ] `src/cli/build/signing.rs:signing_ident` per §3; `src/cli/build/mod.rs`
-      tests per §3.
+- [ ] `src/cli/build/signing.rs:signing_ident` per §3 (also update its doc
+      comment, which says the ident "must belong to the signing owner");
+      `src/cli/build/mod.rs` tests per §3.
 
-Acceptance: `cargo test -p mfb --bin mfb -- signing_ident build_project_sign_rejects_a_foreign_manifest_ident` → `test result: ok`, 0 failed (est. 3–6 min; guess).
+Acceptance: `cargo test -p mfb --bin mfb -- signing_ident build_project_sign_rejects_a_malformed_manifest_ident` → `test result: ok`, 0 failed (est. 3–6 min; guess).
 Commit: —
 
 ### Phase 2: End-to-end CLI scenario
