@@ -988,6 +988,15 @@ fn is_fallible_call(
             return false;
         }
     }
+    // bug-811: a built-in the inline-`TRAP` census answers for is fallible exactly
+    // when it declares an error — the fact that census reads (spec 8 rule 11), so
+    // the two cannot disagree. Every `toString` overload declares `ErrOutOfMemory`
+    // (owner decision 2026-10-04: a call that can run out of memory is fallible).
+    if in_inline_census(callee) {
+        if let Some(declares) = builtin_declares_error(callee) {
+            return declares;
+        }
+    }
     // Whole-package fallible surfaces — every call raises a trappable host error.
     // `tls`/`http` join the original set: they are network I/O like `net`
     // (bug-96). `tcp`/`udp` are the same transports (bug-791): every member
@@ -1003,6 +1012,36 @@ fn is_fallible_call(
         return true;
     }
     fallible.contains(callee)
+}
+
+/// Whether `callee` is a built-in the inline-`TRAP` fallibility census
+/// (`builtins::inline_builtin_is_infallible`) answers for: a bare `general` name
+/// (`toString`, `len`, `toInt`, ...) or an inline-lowered member
+/// (`collections::get`, `strings::upper`, `bits::sl`, ...).
+fn in_inline_census(callee: &str) -> bool {
+    crate::codegen::builtins::general::is_general_call(callee)
+        || crate::codegen::builtins::native_builtin_target(callee).is_some()
+}
+
+/// Whether the built-in `callee` (`toString`, `collections.append`, ...) declares
+/// any error on any overload, or `None` when `callee` names no built-in.
+fn builtin_declares_error(callee: &str) -> Option<bool> {
+    let registry = crate::codegen::registry::registry();
+    let function = match registry.resolve_func(callee) {
+        Some(resolved) => resolved.function,
+        None if !callee.contains('.') => registry
+            .packages()
+            .iter()
+            .find(|package| package.import_name() == "general")?
+            .function(callee)?,
+        None => return None,
+    };
+    Some(
+        function
+            .implementations
+            .iter()
+            .any(|implementation| !implementation.errors.is_empty()),
+    )
 }
 
 /// The specific builtins in mixed pure/fallible packages (`crypto`, `datetime`)
@@ -1215,8 +1254,9 @@ mod tests {
     /// fail (plan-140-B), so a function whose only `toInt` is over an enum is
     /// total and must not be reported — nor must its callers, which is where the
     /// over-reporting actually hurt (one `toInt(f)` marked 29 further functions).
-    /// `toString(<enum>)` is already right, and the two halves of the same enum
-    /// bridge must agree.
+    /// `toString(<enum>)` was total then too; since the owner's 2026-10-04
+    /// decision every `toString` overload is fallible (it builds a `String` and
+    /// can raise `ErrOutOfMemory` — bug-811), so the two halves no longer agree.
     #[test]
     fn toint_over_an_enum_is_not_fallible() {
         let source = concat!(
@@ -1250,7 +1290,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("no function declared at line {line}"))
         };
         assert!(!at(4).fallible, "toInt of an enum parameter cannot fail");
-        assert!(!at(7).fallible, "toString of an enum already cannot fail");
+        assert!(
+            at(7).fallible,
+            "toString of an enum builds a String and can raise ErrOutOfMemory"
+        );
         assert!(
             !at(10).fallible,
             "toInt of an enum member literal cannot fail"
@@ -1262,6 +1305,106 @@ mod tests {
         assert!(at(17).fallible, "toInt of a String can fail on a bad parse");
         // The transitive half — the actual blast radius of the over-report.
         assert!(!at(20).fallible, "a caller of a total function is total");
+    }
+
+    /// bug-811: every `toString` overload is fallible — each builds a new `String`
+    /// and can raise `ErrOutOfMemory`, and the `List OF Byte` one also raises
+    /// `ErrEncoding` on ill-formed UTF-8 (owner decision 2026-10-04; the
+    /// inline-`TRAP` census made the same change). `mfb audit` reported all of them
+    /// total, because its name list never mentioned `toString`.
+    #[test]
+    fn tostring_is_fallible_on_every_overload() {
+        let source = concat!(
+            "ENUM Color\n",
+            "  Red, Green\n",
+            "END ENUM\n",
+            "FUNC decode(b AS List OF Byte) AS String\n",
+            "  RETURN toString(b)\n",
+            "END FUNC\n",
+            "FUNC show(n AS Integer) AS String\n",
+            "  RETURN toString(n)\n",
+            "END FUNC\n",
+            "FUNC name(c AS Color) AS String\n",
+            "  RETURN toString(c)\n",
+            "END FUNC\n",
+            "FUNC width(s AS String) AS Integer\n",
+            "  RETURN len(s)\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _, ..) = collect_source(&project(source));
+        let at = |line: usize| {
+            flow.iter()
+                .find(|entry| entry.line == line)
+                .unwrap_or_else(|| panic!("no function declared at line {line}"))
+        };
+        for (line, what) in [(4, "List OF Byte"), (7, "Integer"), (10, "enum")] {
+            assert!(at(line).fallible, "toString of a {what} is fallible");
+            assert_eq!(
+                at(line)
+                    .calls
+                    .iter()
+                    .map(|call| call.callee.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["toString"],
+                "toString of a {what} gets a call row",
+            );
+        }
+        // `len` builds nothing and declares no error: it stays total.
+        assert!(!at(13).fallible, "len cannot fail");
+    }
+
+    /// bug-811: for every built-in the inline-`TRAP` census answers — the bare
+    /// `general` names and the inline-lowered members — `mfb audit` and the census
+    /// read the same fact, the member's declared errors (`mfb spec language
+    /// error-model` rule 11: a member is infallible only if it declares no error).
+    /// Before, audit's hand list called `collections::append`, `strings::upper`,
+    /// `math::sqrt`, the variable `bits` shifts and `toString` total while the
+    /// census, correctly, kept their handlers live.
+    #[test]
+    fn census_builtins_are_fallible_exactly_when_they_declare_an_error() {
+        let no_names = HashSet::new();
+        let mut measured = 0;
+        for package in crate::codegen::registry::registry().packages() {
+            for function in package.functions() {
+                let callee = if package.import_name() == "general" {
+                    function.name.to_string()
+                } else {
+                    format!("{}.{}", package.import_name(), function.name)
+                };
+                if !in_inline_census(&callee) {
+                    continue;
+                }
+                measured += 1;
+                let declares = function
+                    .implementations
+                    .iter()
+                    .any(|implementation| !implementation.errors.is_empty());
+                assert_eq!(
+                    is_fallible_call(&callee, &no_names, &[], &no_names, &no_names),
+                    declares,
+                    "{callee}: audit must call it fallible exactly when it declares an error",
+                );
+            }
+        }
+        assert!(
+            measured > 100,
+            "the census domain shrank to {measured} members"
+        );
+        for (callee, fallible) in [
+            ("toString", true),
+            ("len", false),
+            ("typeName", false),
+            ("collections.append", true),
+            ("collections.contains", false),
+            ("bits.band", false),
+            ("bits.sl", true),
+        ] {
+            assert_eq!(
+                is_fallible_call(callee, &no_names, &[], &no_names, &no_names),
+                fallible,
+                "{callee}",
+            );
+        }
     }
 
     #[test]

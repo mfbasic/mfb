@@ -13,24 +13,23 @@
 //!
 //! * A built-in whose inline lowering can raise no domain error —
 //!   [`builtins::inline_builtin_is_infallible`], the same census that backs the
-//!   `TYPE_INLINE_TRAP_DEAD_HANDLER` warning (`len`, `typeName`, `toString`,
-//!   the total `bits::*` ops, and the pure-query / default-returning /
-//!   growth-only collection and string members). That census is keyed on the
-//!   callee name **and** the call site's argument types, in both directions:
+//!   `TYPE_INLINE_TRAP_DEAD_HANDLER` warning (`len`, `typeName`, the total
+//!   `bits::*` ops, and the non-allocating pure-query / default-returning
+//!   collection members). `toString` is not among them: every overload builds a
+//!   `String` and can raise `ErrOutOfMemory` (owner decision 2026-10-04). That
+//!   census is keyed on the callee name **and** the call site's argument types:
 //!
-//!   - `toString` is overloaded across every type and exactly one overload can
-//!     fail — `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding`
-//!     (bug-486). The name is infallible; that one overload is subtracted.
-//!   - `toInt` is the mirror (bug-679). The name is fallible — a bad parse, an
-//!     overflow — and exactly one overload is total: over an enum it is the
+//!   - `replace` is fallible on its `String` overload (an empty needle) and on
+//!     its `List` one (it allocates); an untyped site answers fallible.
+//!   - `toInt` runs the other way (bug-679). The name is fallible — a bad parse,
+//!     an overflow — and exactly one overload is total: over an enum it is the
 //!     ordinal the value already holds, a register move that declares no error
 //!     (plan-140-B). That one overload is granted.
 //!
 //!   Every question asked here therefore carries argument types, and the `toInt`
 //!   half additionally carries a `TypeKinds` oracle, since an enum is not its own
 //!   `ParameterType`. A site that cannot supply either falls back to the
-//!   name-keyed answer: for `toString` that is the *under*-approximating side and
-//!   must be fixed; for `toInt` it is the over-approximating one and is merely
+//!   name-keyed answer, which for both is the over-approximating side and merely
 //!   imprecise.
 //! * A function declared in this project whose body cannot let an error escape,
 //!   decided by the fixpoint in [`analyze`].
@@ -45,7 +44,9 @@
 //! answers a related question over the AST for `mfb audit`'s reporting, where a
 //! hand-curated per-package census is tuned to avoid over-reporting to a human.
 //! The two are deliberately separate: a report that over-reports is noisy, while
-//! a desugar that under-reports miscompiles.
+//! a desugar that under-reports miscompiles. For the built-ins this census
+//! answers, audit reads the same fact it does — the member's declared errors —
+//! so there they agree by construction (bug-811).
 //!
 //! Separate also means a rule about one overload has to be taught to BOTH, in
 //! each one's own terms. bug-679 is the worked example: fixing the census here
