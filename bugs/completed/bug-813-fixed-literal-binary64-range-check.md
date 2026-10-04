@@ -4,8 +4,8 @@ Last updated: 2026-10-04
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/rt-behavior/conversions/fixed_literal_maximum`
+Status: Fixed (461ce45d8)
+Regression Test: `tests/rt-behavior/conversions/fixed_literal_maximum`, `tests/syntax/lexical/fixed-literal-rounded-range-invalid`
 
 The verifier converts a Fixed decimal literal to binary64 before checking its range. A valid decimal at the Q32.32 maximum rounds upward to 2147483648.0 in binary64 and is rejected before the decimal-to-carrier converter can accept it.
 
@@ -143,3 +143,44 @@ This report proposes post-rounding range validity explicitly. The current §4.12
 ## Summary
 
 The defect is the validation/materialization disagreement. The risk is moving the disagreement to a different boundary; use one signed conversion decision and independent exact boundary tests.
+
+## Resolution
+
+Fixed in 461ce45d8 (RED tests 4068543b0). `ir::verify` now decides Fixed literal
+range with `numeric::fixed_conversion_from_decimal` on the signed text (sign
+first, exact decimal, nearest carrier with ties away from zero, range check on
+the rounded carrier), so validation and materialization share one decision.
+
+The converter was checked against Python `fractions.Fraction` at the boundaries
+before being made the authority, which found two defects, both fixed here:
+digits past the 28th were dropped, misrounding within 1e-28 of a half-quantum tie
+(rounding now uses 33 digits, exact because `2 * 5^33` is even); and an
+unexpandable negative exponent (`1e-1000000000`) was "out of range" — an uncoded
+lowering error, since the old f64 check passed it — instead of 0 (the same fix
+applies to Money, where `1e-1000000000m` was `TYPE_MONEY_LITERAL_OVERFLOW`). The
+`.mfp` writer's hand-copied converter, which rejected scientific notation (a
+package default `x AS Fixed = 2.5e2F` failed to build), now delegates.
+
+Audit of `check_negated_const_literal`: it accepted
+`-2147483648.000000000116415321826934814453125` (binary64 rounds the magnitude to
+2147483648.0) and lowering stored i64::MIN; it now reports
+`TYPE_FIXED_LITERAL_UNDERFLOW`.
+
+Evidence: the reproduction builds and prints `2147483647.99` at -O0 and -O1
+(macos-aarch64) — the default two-place presentation does not round up at the
+top of the range, see the note below. `fixed_literal_maximum` failed to build
+before (four `TYPE_FIXED_LITERAL_OVERFLOW`) and now matches at -O0/-O1 on
+macos-aarch64, linux-aarch64 (2226), linux-riscv64 musl (2229) and
+windows-x86_64 (206). Targeted `scripts/test-accept.sh` over 145 Money/Fixed and
+long-literal fixtures passes except the two `fs`/`resources` fixtures that also
+fail before the change (they write under `target/`, absent in a fresh worktree).
+`-ncode` of every byte-identity fixture is unchanged.
+
+Phase 3 (full `cargo test`, full acceptance, artifact gate) was not run here; no
+golden move is expected.
+
+Note, not fixed here: `toString(Fixed)` skips its half-away pre-round when the
+magnitude is within `ceil(2^31 / 10^p)` of i64::MAX
+(`builder_strings.rs:emit_fixed_to_string_value`, "truncating is the safe
+answer"), so the maximum prints `2147483647.99` rather than `2147483648.00`.
+
