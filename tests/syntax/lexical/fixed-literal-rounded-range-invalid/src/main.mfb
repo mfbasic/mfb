@@ -1,0 +1,10 @@
+' bug-813: a Fixed literal is range-checked on its exact rounded carrier. Each
+' literal below is the half-quantum tie just past one end of the Fixed range;
+' nearest rounding with ties away from zero carries it out of range. binary64
+' rounded the second one to -2147483648.0 and accepted it.
+FUNC main AS Integer
+  LET over AS Fixed = 2147483647.999999999883584678173065185546875F
+  LET under AS Fixed = -2147483648.000000000116415321826934814453125F
+  LET annotatedUnder AS Fixed = -2147483648.000000000116415321826934814453125
+  RETURN 0
+END FUNC

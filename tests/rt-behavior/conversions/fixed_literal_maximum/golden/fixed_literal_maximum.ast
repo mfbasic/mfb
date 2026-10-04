@@ -1,0 +1,93 @@
+{
+  "project": "fixed_literal_maximum",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "plusQuantum",
+      "line": 10,
+      "params": [
+      { "name": "x", "type": "Fixed", "default": null, "line": 10 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 11,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0.00000000023283064365386962890625F" } }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "12" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 12 }
+        ]
+      }, "line": 11 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "r" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "minusQuantum",
+      "line": 17,
+      "params": [
+      { "name": "x", "type": "Fixed", "default": null, "line": 17 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 18,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0.00000000023283064365386962890625F" } }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "12" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 19 }
+        ]
+      }, "line": 18 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "r" }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "maximum", "type": "Fixed", "value": { "kind": "number", "value": "2147483647.99999999976716935634613037109375F" }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "annotated", "type": "Fixed", "value": { "kind": "number", "value": "2147483647.99999999976716935634613037109375" }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "scientific", "type": "Fixed", "value": { "kind": "number", "value": "2.14748364799999999976716935634613037109375e9F" }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "belowTie", "type": "Fixed", "value": { "kind": "number", "value": "2147483647.999999999883584678173065185546874F" }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "minimum", "type": "Fixed", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648.0F" } }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "belowMinTie", "type": "Fixed", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648.000000000116415321826934814453124F" } }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "negMax", "type": "Fixed", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483647.99999999976716935634613037109375F" } }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "tie", "type": "Fixed", "value": { "kind": "number", "value": "0.000000000116415321826934814453125F" }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "tiny", "type": "Fixed", "value": { "kind": "number", "value": "1e-1000000000F" }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "maximum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "maximum" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "12" }] }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "maximum + quantum " }, "right": { "kind": "call", "callee": "plusQuantum", "arguments": [{ "kind": "identifier", "value": "maximum" }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "maximum - quantum < maximum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "maximum" }, "right": { "kind": "number", "value": "0.00000000023283064365386962890625F" } }, "right": { "kind": "identifier", "value": "maximum" } }] } }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "annotated = maximum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "annotated" }, "right": { "kind": "identifier", "value": "maximum" } }] } }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "scientific = maximum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "scientific" }, "right": { "kind": "identifier", "value": "maximum" } }] } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "belowTie = maximum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "belowTie" }, "right": { "kind": "identifier", "value": "maximum" } }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "minimum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "minimum" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "12" }] }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "minimum - quantum " }, "right": { "kind": "call", "callee": "minusQuantum", "arguments": [{ "kind": "identifier", "value": "minimum" }] } }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "belowMinTie = minimum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "belowMinTie" }, "right": { "kind": "identifier", "value": "minimum" } }] } }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "negMax = -maximum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "negMax" }, "right": { "kind": "unary", "operator": "-", "operand": { "kind": "identifier", "value": "maximum" } } }] } }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "negMax - quantum = minimum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "negMax" }, "right": { "kind": "number", "value": "0.00000000023283064365386962890625F" } }, "right": { "kind": "identifier", "value": "minimum" } }] } }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tie = quantum " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "tie" }, "right": { "kind": "number", "value": "0.00000000023283064365386962890625F" } }] } }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tiny = 0 " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "tiny" }, "right": { "kind": "number", "value": "0F" } }] } }] }, "line": 49 }
+      ]
+    }
+    ]
+  }
+  ]
+}

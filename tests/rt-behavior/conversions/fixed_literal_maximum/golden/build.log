@@ -1,0 +1,22 @@
+$ mfb build -ast -ir tests/rt-behavior/conversions/fixed_literal_maximum
+Wrote AST to tests/rt-behavior/conversions/fixed_literal_maximum/fixed_literal_maximum.ast
+Wrote IR to tests/rt-behavior/conversions/fixed_literal_maximum/fixed_literal_maximum.ir
+[exit 0]
+$ mfb build tests/rt-behavior/conversions/fixed_literal_maximum
+Wrote executable to tests/rt-behavior/conversions/fixed_literal_maximum/build/fixed_literal_maximum.out
+[exit 0]
+$ tests/rt-behavior/conversions/fixed_literal_maximum/build/fixed_literal_maximum.out
+maximum 2147483647.999999999767
+maximum + quantum ERR:77050010
+maximum - quantum < maximum TRUE
+annotated = maximum TRUE
+scientific = maximum TRUE
+belowTie = maximum TRUE
+minimum -2147483648.000000000000
+minimum - quantum ERR:77050010
+belowMinTie = minimum TRUE
+negMax = -maximum TRUE
+negMax - quantum = minimum TRUE
+tie = quantum TRUE
+tiny = 0 TRUE
+[exit 0]
