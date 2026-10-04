@@ -4,8 +4,8 @@ Last updated: 2026-10-04
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/rt-behavior/money/money_fixed_rounding`
+Status: Fixed (c694c7b99)
+Regression Test: `tests/rt-behavior/money/money_fixed_rounding`
 
 Money/Fixed scaling and conversions silently discard fractional raw units instead of applying the documented Money rounding rule. Positive multiplication and division can understate an amount; negative multiplication floors while negative division truncates toward zero. Changing the rounding mode does not repair those paths.
 
@@ -164,3 +164,31 @@ None for the reproduced failures: the existing spec requires mode-sensitive roun
 ## Summary
 
 The main risk is fixing shared arithmetic by changing pure Fixed behavior. Keep Money settlement explicit and verify the four consumers independently.
+
+## Resolution
+
+Fixed in c694c7b99 (RED fixture 9d1859fc3). The four Money/Fixed sites now call
+`gen_money_math.rs:emit_money_fixed_multiply` / `emit_money_fixed_divide`, which
+keep the exact remainder (the low 32 bits of the unsigned 128-bit magnitude
+product, or the long division's final remainder), round the magnitude once via
+`emit_apply_rounding_magnitude` (unsigned compares, so a 2^63 divisor magnitude
+is exact), apply the sign, and range-check the rounded carrier. Pure Fixed
+`*`/`/`/`^` and the existing signed `emit_apply_rounding` callers are
+byte-identical: `mfb build -ncode` of a probe exercising them matched
+a5c335947 on all five targets.
+
+Evidence: the reproduction now prints `0.00002 -0.00002 0.00002 -0.00002 0.00002
+0.000010000076 0.00002` under both modes (was `0.00001 -0.00002 0.00001 -0.00001
+0.00001 0.000009999843 0.00002`). `money_fixed_rounding` printed 33 FALSE lines on
+the unfixed compiler and none after; it and the reproduction match at -O0/-O1 on
+macos-aarch64, linux-aarch64 (2226), linux-riscv64 musl (2229) and
+windows-x86_64 (206). Targeted `scripts/test-accept.sh` over the 137 fixtures
+whose source mentions Money/Fixed passed except two `fs`/`resources` fixtures
+that also fail on the unfixed compiler (they write under `target/`, absent in a
+fresh worktree). `cargo test --release --bin mfb declared_errors` passes.
+
+Phase 3 (full `cargo test`, full acceptance, artifact gate) was not run here.
+Expected golden move: `tests/byte-identity/general` `*.ncodesum` on all five
+targets (`toFixed(mo)`); `-ncode` of every other byte-identity fixture and of
+the one Money-using native golden (`func_map_getor_hash_probe`) is unchanged.
+
