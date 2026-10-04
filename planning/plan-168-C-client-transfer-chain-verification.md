@@ -204,13 +204,13 @@ client applies today.
 Acceptance: the claim is resolved with output.
   Check: `cargo test --test cli_repo_governance repo_registry_add_of_a_pre_rotation_release_installs` → recorded pass/fail (est. 8–15 min cold release build; this is the only path that runs the registry add across a rotation).
   Measured: FAILED — `error: refusing to install `rot_pkg`@0.1.0: the package identKey does not match the identKey pinned in project.json`. Landed RED; Phase 3 must turn it green.
-Commit: (this commit — recorded in the next)
+Commit: 27cff5fe2
 
 ### Phase 2: The pure verifier
 
-- [ ] `repository/src/trust.rs` + `pub mod trust;` in `repository/src/lib.rs`;
+- [x] `repository/src/trust.rs` + `pub mod trust;` in `repository/src/lib.rs`;
       `chain_path` in `repository/src/client.rs`.
-- [ ] Unit tests (`trust.rs`, fake chains, no network):
+- [x] Unit tests (`trust.rs`, fake chains, no network):
   - `pre_transfer_release_still_verifies`;
   - `recipient_release_verifies_through_the_chain`;
   - `chain_of_two_transfers_verifies` (alice→bob→carol, carol's release);
@@ -233,7 +233,11 @@ Commit: (this commit — recorded in the next)
   - `index_from_an_older_server_is_a_single_owner_chain`.
 
 Acceptance: `cargo test -p mfb_repository --lib -- trust::` → `test result: ok`, 0 failed, with all fifteen tests listed (est. 3 min; guess).
-Commit: —
+  Measured: `test result: ok. 16 passed; 0 failed` — the fifteen named tests
+  plus `a_pin_off_every_chain_is_a_reanchor`. Mutations (dropping the digest
+  check, the accept-key chain check, or the per-owner key check) each turn
+  tests red (5 failed).
+Commit: (this commit — recorded in the next)
 
 ### Phase 3: Wire every consumer
 

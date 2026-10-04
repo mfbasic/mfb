@@ -10,6 +10,7 @@ pub mod package;
 pub mod server;
 pub mod store;
 pub mod terminal_safe;
+pub mod trust;
 pub mod validation;
 pub mod web;
 

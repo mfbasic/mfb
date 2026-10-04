@@ -277,7 +277,7 @@ pub struct IdentChainResponse {
     pub chain: Vec<IdentChainLink>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IdentChainLink {
     #[serde(rename = "oldKey")]
     pub old_key: String,

@@ -781,11 +781,25 @@ pub fn follow_ident_chain(
     pinned: &[u8],
     chain: &[crate::server::IdentChainLink],
 ) -> Result<Option<Vec<u8>>, String> {
-    let mut current = pinned.to_vec();
-    let mut advanced = false;
+    let mut path = chain_path(owner, pinned, chain)?;
+    Ok(if path.len() > 1 { path.pop() } else { None })
+}
+
+/// Every key on `owner`'s signed rotation chain from `start` forward, `start`
+/// first (plan-168-C): each successor is accepted only through a link signed by
+/// the key it retires, over the owner-bound rotation message. The chain is read
+/// once, oldest link first, so the walk is bounded by its length. A key `K` is
+/// "forward-reachable" from `start` exactly when it is on this path. A `start`
+/// the chain never names yields just `[start]`.
+pub fn chain_path(
+    owner: &str,
+    start: &[u8],
+    chain: &[crate::server::IdentChainLink],
+) -> Result<Vec<Vec<u8>>, String> {
+    let mut path = vec![start.to_vec()];
     for link in chain {
         let old_key = crypto::decode_bytes(&link.old_key, "oldKey")?;
-        if old_key != current {
+        if Some(&old_key) != path.last() {
             continue;
         }
         let new_key = crypto::decode_bytes(&link.new_key, "newKey")?;
@@ -794,10 +808,9 @@ pub fn follow_ident_chain(
             crypto::ident_rotation_message(owner, &crypto::fingerprint(&old_key), &new_key);
         crypto::verify(&old_key, &message, &signature)
             .map_err(|_| "invalid ident chain link signature".to_string())?;
-        current = new_key;
-        advanced = true;
+        path.push(new_key);
     }
-    Ok(if advanced { Some(current) } else { None })
+    Ok(path)
 }
 
 /// Revoke a (lost) machine's auth key. Authority is the ident key alone: the
