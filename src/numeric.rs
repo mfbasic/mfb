@@ -216,23 +216,76 @@ pub(crate) fn fixed_default_to_string_text(raw: i64) -> String {
     text
 }
 
+/// For a string [`expand_scientific_notation`] left unexpanded (its exponent
+/// does not fit an i32 or is beyond the digit budget; a zero mantissa was
+/// already folded): `Some(true)` when it is a well-formed nonzero mantissa with
+/// a negative exponent — a magnitude below 10^-8192, which every exact decimal
+/// converter rounds to zero — and `Some(false)` otherwise (a huge magnitude, or
+/// malformed text). `None` when `expanded` has no exponent marker. Deciding
+/// from the text is what keeps an adversarial exponent O(1) (bug-11).
+fn unexpanded_exponent_is_tiny(expanded: &str) -> Option<bool> {
+    let (mantissa, exponent) = expanded.split_once(['e', 'E'])?;
+    let mantissa = mantissa.strip_prefix('-').unwrap_or(mantissa);
+    let well_formed_mantissa = mantissa.bytes().filter(|byte| *byte == b'.').count() <= 1
+        && mantissa.bytes().any(|byte| byte.is_ascii_digit())
+        && mantissa
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.');
+    let negative_exponent = exponent.strip_prefix('-').is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    });
+    Some(well_formed_mantissa && negative_exponent)
+}
+
+/// Why a decimal string has no `Fixed` carrier: it is not a decimal number at
+/// all, or its rounded value lies outside the signed 32.32 range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FixedDecimalError {
+    Invalid,
+    OutOfRange,
+}
+
 /// Convert a decimal `Fixed` literal string into its 32.32 fixed-point `i64` raw
-/// value (round-half-up on the fractional part). Handles a leading `-` and
-/// scientific notation. `Err` when the value is malformed or out of the `i64`
-/// raw range. This is the single source of truth for `Fixed` constant lowering,
-/// shared by native codegen (`native_immediate_value`) and the fold in
-/// `ir::lower` (bug-07: the minimum `Fixed` has no positive-magnitude literal).
+/// value, rounding the exact decimal to the nearest carrier with ties away from
+/// zero, then range-checking the **signed, rounded** carrier. Handles a leading
+/// `-` and scientific notation. This is the single source of truth for `Fixed`
+/// constants: native codegen (`native_immediate_value`), the fold in `ir::lower`
+/// (bug-07: the minimum `Fixed` has no positive-magnitude literal), `.mfp`
+/// constant encoding, and the verifier's literal range check (bug-813), so the
+/// literal a program is allowed to write is exactly the literal that lowers.
 pub(crate) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
+    fixed_conversion_from_decimal(value).map_err(|error| match error {
+        FixedDecimalError::Invalid => format!("invalid Fixed constant `{value}`"),
+        FixedDecimalError::OutOfRange => format!("Fixed constant `{value}` is out of range"),
+    })
+}
+
+/// [`fixed_raw_from_decimal`] with a structured error, for callers that must
+/// tell a malformed spelling from an out-of-range value.
+pub(crate) fn fixed_conversion_from_decimal(value: &str) -> Result<i64, FixedDecimalError> {
     const SCALE: i128 = 1_i128 << 32;
+    // A half quantum, 2^-33, needs 33 fractional decimal digits, so 33 digits
+    // decide the rounding exactly: with `F` the first 33 digits as an integer,
+    // `F / 10^33 * 2^32 = F / (2 * 5^33)`, and since that divisor is even, the
+    // digits past the 33rd (a value below 1 in units of `F`) can never move the
+    // doubled remainder across it. Truncating earlier misrounds near a tie
+    // (bug-813: `0.000000000116415321826934814453125` is exactly half a quantum).
+    const DECIDING_DIGITS: usize = 33;
+    const DIVISOR: i128 = 2 * 5_i128.pow(DECIDING_DIGITS as u32);
 
     let expanded = expand_scientific_notation(value);
     // The expansion only leaves an exponent marker behind when the exponent does
-    // not fit an i32 or is too extreme to expand within the digit budget. Either
-    // way (the zero mantissa having been folded) the magnitude is far outside the
-    // 32.32 range — reject in O(1) rather than parse the exponential text
-    // (bug-11).
-    if expanded.contains(['e', 'E']) {
-        return Err(format!("Fixed constant `{value}` is out of range"));
+    // not fit an i32 or is too extreme to expand within the digit budget (the
+    // zero mantissa having been folded) — decide it in O(1) rather than parse
+    // the exponential text (bug-11). A positive exponent is far outside the
+    // 32.32 range; a negative one is a magnitude below 10^-8192, far under half
+    // a quantum, so it rounds to exactly 0 (bug-813), like `1e-39` (bug-91).
+    if let Some(tiny) = unexpanded_exponent_is_tiny(&expanded) {
+        return if tiny {
+            Ok(0)
+        } else {
+            Err(FixedDecimalError::OutOfRange)
+        };
     }
     let value = expanded.as_str();
     let (negative, digits) = value
@@ -241,53 +294,45 @@ pub(crate) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
         .unwrap_or((false, value));
     let (whole, fractional) = digits.split_once('.').unwrap_or((digits, ""));
     if whole.is_empty() && fractional.is_empty() {
-        return Err(format!("invalid Fixed constant `{value}`"));
+        return Err(FixedDecimalError::Invalid);
     }
     let mut whole_value = if whole.is_empty() {
         0_i128
     } else {
         whole
             .parse::<i128>()
-            .map_err(|_| format!("invalid Fixed constant `{value}`"))?
+            .map_err(|_| FixedDecimalError::Invalid)?
     };
-    let mut fractional_value = 0_i128;
-    if !fractional.is_empty() {
-        // The 32.32 layout resolves only 2^-32 (~2.3e-10), so fractional digits
-        // past ~28 places sit far below one ULP and cannot change the
-        // round-half-up result. Cap accumulation to keep `fractional_value * SCALE`
-        // inside i128 (10^28 * 2^32 ≈ 4.3e37 < i128::MAX) instead of rejecting a
-        // long literal outright (bug-91: `1e-39F` must round to 0, not error).
-        const MAX_FRACTIONAL_DIGITS: usize = 28;
-        let mut denominator = 1_i128;
-        for digit in fractional.bytes().take(MAX_FRACTIONAL_DIGITS) {
-            if !digit.is_ascii_digit() {
-                return Err(format!("invalid Fixed constant `{value}`"));
-            }
-            fractional_value = fractional_value * 10 + (digit - b'0') as i128;
-            denominator *= 10;
-        }
-        // The remaining digits are below ULP but must still be well-formed.
-        for digit in fractional.bytes().skip(MAX_FRACTIONAL_DIGITS) {
-            if !digit.is_ascii_digit() {
-                return Err(format!("invalid Fixed constant `{value}`"));
-            }
-        }
-        let scaled = fractional_value * SCALE;
-        fractional_value = scaled / denominator;
-        if (scaled % denominator) * 2 >= denominator {
-            fractional_value += 1;
-        }
-        if fractional_value == SCALE {
-            whole_value += 1;
-            fractional_value = 0;
-        }
+    // Every fractional digit must be a decimal digit, even past the deciding
+    // ones (bug-91: a long spelling rounds rather than being rejected).
+    if !fractional.bytes().all(|digit| digit.is_ascii_digit()) {
+        return Err(FixedDecimalError::Invalid);
+    }
+    // The first 33 fractional digits, zero-padded on the right (< 10^33, which
+    // fits i128 with room to spare).
+    let mut deciding = 0_i128;
+    for index in 0..DECIDING_DIGITS {
+        let digit = fractional
+            .as_bytes()
+            .get(index)
+            .map_or(0, |byte| byte - b'0');
+        deciding = deciding * 10 + i128::from(digit);
+    }
+    // Round the magnitude half away from zero; the sign is applied afterward.
+    let mut fractional_value = deciding / DIVISOR;
+    if (deciding % DIVISOR) * 2 >= DIVISOR {
+        fractional_value += 1;
+    }
+    if fractional_value == SCALE {
+        whole_value += 1;
+        fractional_value = 0;
     }
     let raw = whole_value
         .checked_mul(SCALE)
         .and_then(|current| current.checked_add(fractional_value))
-        .ok_or_else(|| format!("Fixed constant `{value}` is out of range"))?;
+        .ok_or(FixedDecimalError::OutOfRange)?;
     let raw = if negative { -raw } else { raw };
-    i64::try_from(raw).map_err(|_| format!("Fixed constant `{value}` is out of range"))
+    i64::try_from(raw).map_err(|_| FixedDecimalError::OutOfRange)
 }
 
 /// The outcome of converting a decimal `Money` literal to its raw i64: the raw
@@ -359,10 +404,19 @@ pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversi
     const FRAC_DIGITS: usize = 5;
 
     let expanded = expand_scientific_notation(value);
-    // An unexpanded exponent marker means the magnitude is far outside the Money
-    // range (the zero mantissa having been folded) — reject in O(1) (bug-11).
-    if expanded.contains(['e', 'E']) {
-        return Err(format!("Money constant `{value}` is out of range"));
+    // An unexpanded exponent marker is decided in O(1) (bug-11): a positive
+    // exponent is far outside the Money range; a negative one is a nonzero
+    // magnitude below 10^-8192, which rounds to 0 with lost precision, as
+    // `1e-400` does through the expansion.
+    if let Some(tiny) = unexpanded_exponent_is_tiny(&expanded) {
+        return if tiny {
+            Ok(MoneyConversion {
+                raw: 0,
+                lost_precision: true,
+            })
+        } else {
+            Err(format!("Money constant `{value}` is out of range"))
+        };
     }
     let value = expanded.as_str();
     let (negative, digits) = value
@@ -685,9 +739,10 @@ mod tests {
                 "Fixed {literal}"
             );
         }
-        // A literal the conversion rejects is not folded.
+        // A literal the conversion rejects is not folded. (`1e-1000000000` was the
+        // example until bug-813 made it round to 0, like `1e-400`.)
         assert_eq!(
-            default_to_string_text(&crate::types::ParameterType::Fixed, "1e-1000000000"),
+            default_to_string_text(&crate::types::ParameterType::Fixed, "1e9999999999"),
             None
         );
         assert_eq!(
@@ -743,14 +798,20 @@ mod tests {
 
     #[test]
     fn fixed_raw_from_decimal_rejects_extreme_exponents_in_o1() {
-        for literal in [
-            "1e-1000000000",
-            "1e2147483647",
-            "1e-2147483648",
-            "1e9999999999",
-        ] {
+        for literal in ["1e2147483647", "1e9999999999", "-1e9999999999"] {
             let error = fixed_raw_from_decimal(literal).expect_err("must be out of range");
             assert!(error.contains("is out of range"), "{literal}: {error}");
+        }
+        // bug-813: an extreme NEGATIVE exponent is a magnitude below 10^-8192,
+        // far under half a quantum (2^-33), so it rounds to exactly 0 — still in
+        // O(1), without expanding — like `1e-39` (bug-91) and `1e-400`.
+        for literal in [
+            "1e-1000000000",
+            "1e-2147483648",
+            "-1e-1000000000",
+            "1e-9999999999",
+        ] {
+            assert_eq!(fixed_raw_from_decimal(literal), Ok(0), "{literal}");
         }
         // A zero mantissa with an extreme exponent is still exactly zero.
         assert_eq!(fixed_raw_from_decimal("0e-1000000000").unwrap(), 0);
@@ -864,6 +925,74 @@ mod tests {
             fixed_raw_from_decimal("0.9999999999999999999").unwrap(),
             1_i64 << 32
         );
+    }
+
+    /// bug-813: the converter is the single range authority for Fixed
+    /// literals, so its rounding must be exact at every boundary, including
+    /// spellings longer than the 33 fractional digits a half quantum (2^-33)
+    /// needs. Every expected raw was computed independently with Python's
+    /// `fractions.Fraction`: `round_half_away(Fraction(s) * 2**32)`.
+    #[test]
+    fn fixed_raw_from_decimal_rounds_exactly_at_boundaries() {
+        for (literal, raw) in [
+            // The exact maximum and minimum carriers.
+            ("2147483647.99999999976716935634613037109375", i64::MAX),
+            ("-2147483648", i64::MIN),
+            ("-2147483647.99999999976716935634613037109375", -i64::MAX),
+            ("2.14748364799999999976716935634613037109375e9", i64::MAX),
+            // Just inside the rounding boundary beside each end.
+            ("2147483647.999999999883584678173065185546874", i64::MAX),
+            (
+                "2147483647.9999999998835846781730651855468749999999",
+                i64::MAX,
+            ),
+            ("-2147483648.000000000116415321826934814453124", i64::MIN),
+            // Exact half-quantum ties round away from zero, which needs the
+            // 29th..33rd fractional digits.
+            ("0.000000000116415321826934814453125", 1),
+            ("-0.000000000116415321826934814453125", -1),
+            ("0.000000000814907252788543701171875", 4),
+            // Just below a tie stays down, however long the spelling.
+            ("0.00000000011641532182693481445312499", 0),
+            ("0.0000000001164153218269348144531249999", 0),
+        ] {
+            assert_eq!(fixed_raw_from_decimal(literal), Ok(raw), "{literal}");
+        }
+        // Rounding past either end is out of range.
+        for literal in [
+            "2147483647.999999999883584678173065185546875",
+            "-2147483648.000000000116415321826934814453125",
+            "2147483648",
+            "-2147483648.0000000002",
+        ] {
+            let error = fixed_raw_from_decimal(literal).expect_err("must be out of range");
+            assert!(error.contains("is out of range"), "{literal}: {error}");
+        }
+    }
+
+    /// A Money literal with an extreme negative exponent is a nonzero magnitude
+    /// below 10^-8192: it rounds to 0 and reports the lost precision (the
+    /// `TYPE_MONEY_LITERAL_PRECISION` warning), exactly as `1e-400` does, rather
+    /// than being reported out of range. Still decided in O(1) (bug-11).
+    #[test]
+    fn money_conversion_rounds_extreme_negative_exponents_to_zero() {
+        let tiny = MoneyConversion {
+            raw: 0,
+            lost_precision: true,
+        };
+        assert_eq!(money_conversion_from_decimal("1e-400"), Ok(tiny));
+        for literal in ["1e-1000000000", "-1e-2147483648", "2.5e-9999999999"] {
+            assert_eq!(
+                money_conversion_from_decimal(literal),
+                Ok(tiny),
+                "{literal}"
+            );
+        }
+        for literal in ["1e2147483647", "1e9999999999"] {
+            assert!(money_conversion_from_decimal(literal)
+                .unwrap_err()
+                .contains("is out of range"));
+        }
     }
 
     #[test]
