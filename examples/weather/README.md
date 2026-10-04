@@ -36,6 +36,8 @@ instead of re-downloading. Only the land-and-lake map resource is bundled.
 - **Q / E** — zoom in / out
 - **A / D** — spin the world west / east (wraps all the way round)
 - **W / S** — pan up / down
+- **Shift+W / Shift+S** — tilt the world north / south, as far as putting
+  a pole in the middle of the map
 - **Arrow keys** — same as W A S D
 - **F** — toggle fullscreen
 - **R** — reset to the whole world

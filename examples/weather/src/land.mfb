@@ -16,11 +16,12 @@
 ' Hawaii's own detail, down to everything the data has. Shapes are cut at the
 ' edge of the window, so land running off screen costs nothing.
 '
-' The world can be spun under the map (View.lon0), so the coastline is kept as
-' places, not plane points, and projected when the view changes. The drawn map
-' is rebuilt only then; a frame that did not pan, zoom or spin reuses the last
-' one. What a rebuild costs follows what is drawn, not how much coastline there
-' is (see "Indexing" below).
+' The world can be spun and tilted under the map (View.lon0, View.tilt), so the
+' coastline is kept as places, not plane points, and projected when the view
+' changes. The drawn map is rebuilt only then; a frame that did not pan, zoom,
+' spin or tilt reuses the last one. What a rebuild costs follows what is drawn,
+' not how much coastline there is (see "Indexing" below). A tilted map is built
+' by a path of its own (see "A tilted world" below).
 '
 ' The coastline is kept as flat module-level lists rather than a List OF Ring,
 ' for the reason flow.mfb keeps its swarm that way: thousands of records each
@@ -408,9 +409,9 @@ FUNC inBox(p AS Plane, b AS Box) AS Boolean
   RETURN p.x >= b.minX AND p.x <= b.maxX AND p.y >= b.minY AND p.y <= b.maxY
 END FUNC
 
-' The latitude a plane y lies on, whatever the longitude.
+' The map-frame latitude a plane y lies on, whatever the longitude.
 FUNC latOfY(y AS Float) AS Float
-  RETURN unproject(Plane[x := 0.0, y := y], 0.0).place.lat
+  RETURN unprojectRel(Plane[x := 0.0, y := y]).place.lat
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -453,6 +454,12 @@ FUNC detailLevel(screen AS Box, lon0 AS Float) AS Integer
       END IF
     NEXT
   NEXT
+  RETURN thresholdFor(counts)
+END FUNC
+
+' Given how many on-screen points there are at each level, the lowest level that
+' keeps the total within the budget.
+FUNC thresholdFor(counts AS List OF Integer) AS Integer
   MUT total AS Integer = 0
   MUT threshold AS Integer = 256
   FOR lv = 255 TO 1 STEP -1
@@ -631,11 +638,22 @@ FUNC polarItems(r AS Integer, v AS View, clip AS Box, threshold AS Integer, pain
       kept = collections::append(kept, Plane[x := collections::get(coastLon, i), y := collections::get(coastLat, i)])
     END IF
   NEXT
-  LET n AS Integer = len(kept)
-  IF n < 2 THEN RETURN []
+  IF len(kept) < 2 THEN RETURN []
   ' The edge meridian, in the coast's own longitudes (which start at -180).
   MUT seam AS Float = wrapLon(v.lon0 + 180.0)
   IF seam < collections::get(kept, 0).x THEN seam = seam + 360.0
+  RETURN placesItems(cutAtEdges(polarPlaces(kept, seam, -90.0)), v, clip, paint)
+END FUNC
+
+' A coast that goes once all the way round a pole of the map, laid out as one
+' outline: `kept` runs west to east (x longitude, y latitude), never decreasing
+' overall, and `seam` is the edge meridian in its longitudes. The coast is cut
+' where it crosses the seam, laid out from the left edge to the right, and closed
+' down the right edge, along `pole` (-90 or 90) and back along the left edge.
+' The longitudes that come back are relative to the map's centre; cutAtEdges
+' still has to trim any that wander past an edge.
+FUNC polarPlaces(kept AS List OF Plane, seam AS Float, pole AS Float) AS List OF Plane
+  LET n AS Integer = len(kept)
   MUT cut AS Integer = n - 2
   FOR k = 0 TO n - 2
     IF collections::get(kept, k).x <= seam AND collections::get(kept, k + 1).x > seam THEN
@@ -659,11 +677,11 @@ FUNC polarItems(r AS Integer, v AS View, clip AS Box, threshold AS Integer, pain
     places = collections::append(places, Plane[x := p.x + after + 360.0, y := p.y])
   NEXT
   places = collections::append(places, Plane[x := 180.0, y := crossLat])
-  places = collections::append(places, edgeRun(180.0, crossLat, -90.0))
-  places = collections::append(places, Plane[x := 180.0, y := -90.0])
-  places = collections::append(places, Plane[x := -180.0, y := -90.0])
-  places = collections::append(places, edgeRun(-180.0, -90.0, crossLat))
-  RETURN placesItems(cutAtEdges(places), v, clip, paint)
+  places = collections::append(places, edgeRun(180.0, crossLat, pole))
+  places = collections::append(places, Plane[x := 180.0, y := pole])
+  places = collections::append(places, Plane[x := -180.0, y := pole])
+  places = collections::append(places, edgeRun(-180.0, pole, crossLat))
+  RETURN places
 END FUNC
 
 ' The last view the map was built for, and the single canvas::Group node that
@@ -673,7 +691,7 @@ END FUNC
 ' canvas::setGroup rather than spliced into the per-frame scene by value.
 ' Every frame then hands present two offsets and a name for the map, the same
 ' as it always has for one item.
-MUT drawnView AS View = View[scale := 0.0, cx := 0.0, cy := 0.0, width := 0.0, height := 0.0, lon0 := 0.0]
+MUT drawnView AS View = View[scale := 0.0, cx := 0.0, cy := 0.0, width := 0.0, height := 0.0, lon0 := 0.0, tilt := 0.0]
 MUT drawnMap AS List OF canvas::DrawItem = []
 
 ' The name the map is installed under. One constant, one group: the map is
@@ -681,7 +699,7 @@ MUT drawnMap AS List OF canvas::DrawItem = []
 LET LAND_GROUP AS String = "land"
 
 FUNC sameView(a AS View, b AS View) AS Boolean
-  RETURN a.scale = b.scale AND a.cx = b.cx AND a.cy = b.cy AND a.width = b.width AND a.height = b.height AND a.lon0 = b.lon0
+  RETURN a.scale = b.scale AND a.cx = b.cx AND a.cy = b.cy AND a.width = b.width AND a.height = b.height AND a.lon0 = b.lon0 AND a.tilt = b.tilt
 END FUNC
 
 ' The whole underlay: the backdrop, the sea, and the land on top of it. Built
@@ -694,7 +712,12 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
 
   ' Four pixels outside the window on every side.
   LET clip AS Box = viewBox(v, 4.0 / v.scale)
-  LET threshold AS Integer = detailLevel(viewBox(v, 0.0), v.lon0)
+  MUT threshold AS Integer = 0
+  IF v.tilt = 0.0 THEN
+    threshold = detailLevel(viewBox(v, 0.0), v.lon0)
+  ELSE
+    threshold = tiltedDetailLevel(viewBox(v, 0.0), v)
+  END IF
 
   MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(VOID_COLOR)]]
   IF overlaps(world.bounds, clip) THEN
@@ -708,10 +731,14 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
   LET north AS Float = latOfY(clip.maxY)
   FOR r = 0 TO coastRings() - 1
     IF collections::get(coastTop, r) < threshold THEN CONTINUE FOR
-    IF collections::get(coastNorth, r) < south OR collections::get(coastSouth, r) > north THEN CONTINUE FOR
     LET kind AS Integer = collections::get(coastKind, r)
     MUT paint AS canvas::Paint = canvas::fillStroke(LAND_COLOR, COAST_COLOR, 1.0)
     IF kind = 2 THEN paint = canvas::fillStroke(LAKE_COLOR, COAST_COLOR, 1.0)
+    IF v.tilt <> 0.0 THEN
+      items = collections::append(items, tiltedRingItems(r, v, clip, threshold, paint))
+      CONTINUE FOR
+    END IF
+    IF collections::get(coastNorth, r) < south OR collections::get(coastSouth, r) > north THEN CONTINUE FOR
     IF kind = 1 THEN
       items = collections::append(items, polarItems(r, v, clip, threshold, paint))
     ELSE
@@ -725,4 +752,183 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
   drawnView = v
   drawnMap = [canvas::Group[dx := 0.0, dy := 0.0, name := LAND_GROUP]]
   RETURN drawnMap
+END FUNC
+
+' ---------------------------------------------------------------------------
+' A tilted world
+' ---------------------------------------------------------------------------
+'
+' Everything above leans on the map's left and right edges being meridians and
+' its top and bottom being the poles: shapes are cut at the edges in plain
+' degrees, Antarctica is closed along the bottom, and the boxes the indexes keep
+' in degrees are boxes on the map too. Tilt the world and none of that holds -
+' the edges are some other great circle, a different coast may go round a pole
+' of the map, and a box in degrees lands on the map as a bent, rotated patch.
+'
+' So a tilted map is built in the map's own frame (earth.mfb, toMapFrame). Each
+' ring's kept points are carried into it one by one - only the points the detail
+' level keeps, so a rebuild still costs what is drawn - and laid end to end with
+' no jumps in longitude. A ring that then comes back round to where it started
+' is an ordinary shape, cut at the edges as before. One that comes round 360
+' degrees further on goes round a pole of the map, and is closed through it the
+' way Antarctica is closed when the map is not tilted.
+'
+' For deciding what is on screen, each box in degrees - a ring's, a chunk's, a
+' cell's - stands in as a cap: a circle on the globe around it. A circle turns
+' into a circle, so its place on the tilted map is easy to bound (capBox).
+
+' The answer when a cap reaches a pole of the map or across its edge, where its
+' shape on the plane has no simple bound: everywhere, so it is always looked at
+' point by point.
+LET UNBOUNDED AS Box = Box[minX := -1000000000.0, minY := -1000000000.0, maxX := 1000000000.0, maxY := 1000000000.0]
+
+' A radius, in degrees of arc, that no point of a box in degrees is farther than
+' from its middle. Going along the middle meridian to a point's latitude and
+' then along that parallel is a path no shorter than the true distance, and the
+' parallel nearest the equator is the longest of them.
+FUNC capRadius(west AS Float, east AS Float, south AS Float, north AS Float) AS Float
+  MUT nearest AS Float = math::min(math::abs(south), math::abs(north))
+  IF south <= 0.0 AND north >= 0.0 THEN nearest = 0.0
+  RETURN (north - south) / 2.0 + (east - west) / 2.0 * math::cos(radians(nearest))
+END FUNC
+
+' The plane box that everything in a box in degrees lands in on a tilted map.
+' A cap of radius r around a map-frame point at latitude lat spans r either way
+' in latitude, and asin(sin r / cos lat) either way in longitude.
+FUNC capBox(west AS Float, east AS Float, south AS Float, north AS Float, v AS View) AS Box
+  LET radius AS Float = capRadius(west, east, south, north)
+  IF radius >= 90.0 THEN RETURN UNBOUNDED
+  LET m AS Geo = toMapFrame(Geo[lon := (west + east) / 2.0, lat := (south + north) / 2.0], v.lon0, v.tilt)
+  IF math::abs(m.lat) + radius >= 90.0 THEN RETURN UNBOUNDED
+  LET half AS Float = degrees(math::asin(math::min(math::sin(radians(radius)) / math::cos(radians(m.lat)), 1.0)))
+  IF m.lon - half <= -180.0 OR m.lon + half >= 180.0 THEN RETURN UNBOUNDED
+  RETURN planeBoxRel(m.lon - half, m.lon + half, m.lat - radius, m.lat + radius)
+END FUNC
+
+' detailLevel on a tilted map: the same counting, with every cell placed by its
+' cap rather than by its box, and no rows skipped, since a row of cells is no
+' longer a band across the map.
+FUNC tiltedDetailLevel(screen AS Box, v AS View) AS Integer
+  MUT counts AS List OF Integer = zeros(256)
+  LET size AS Float = toFloat(GRID_DEGREES)
+  FOR c = 0 TO GRID_COLUMNS * GRID_ROWS - 1
+    LET first AS Integer = collections::get(cellStart, c)
+    LET stop AS Integer = collections::get(cellStart, c + 1)
+    IF first = stop THEN CONTINUE FOR
+    LET west AS Float = -180.0 + toFloat(c MOD GRID_COLUMNS) * size
+    LET south AS Float = -90.0 + toFloat(c / GRID_COLUMNS) * size
+    LET box AS Box = capBox(west, west + size, south, south + size, v)
+    IF NOT overlaps(box, screen) THEN CONTINUE FOR
+    IF within(box, screen) THEN
+      FOR k = collections::get(cellRunStart, c) TO collections::get(cellRunStart, c + 1) - 1
+        LET lv AS Integer = collections::get(runLevel, k)
+        counts = collections::set(counts, lv, collections::get(counts, lv) + collections::get(runCount, k))
+      NEXT
+      CONTINUE FOR
+    END IF
+    FOR k = first TO stop - 1
+      LET i AS Integer = collections::get(cellOrder, k)
+      IF inBox(project(Geo[lon := collections::get(coastLon, i), lat := collections::get(coastLat, i)], v.lon0, v.tilt), screen) THEN
+        LET lv AS Integer = collections::get(coastLevels, i)
+        counts = collections::set(counts, lv, collections::get(counts, lv) + 1)
+      END IF
+    NEXT
+  NEXT
+  RETURN thresholdFor(counts)
+END FUNC
+
+' Coast point i in the map frame, as x longitude and y latitude.
+FUNC framePoint(i AS Integer, v AS View) AS Plane
+  LET m AS Geo = toMapFrame(Geo[lon := collections::get(coastLon, i), lat := collections::get(coastLat, i)], v.lon0, v.tilt)
+  RETURN Plane[x := m.lon, y := m.lat]
+END FUNC
+
+' Map-frame points laid end to end: each longitude moved by whole turns to be
+' the short way from the one before (wrapLon of the difference), so a run across the edge meridian carries
+' on past 180 instead of jumping back to -180.
+FUNC unwrapped(points AS List OF Plane) AS List OF Plane
+  MUT out AS List OF Plane = []
+  FOR EACH p IN points
+    IF len(out) = 0 THEN
+      out = collections::append(out, p)
+    ELSE
+      LET last AS Plane = collections::get(out, len(out) - 1)
+      out = collections::append(out, Plane[x := last.x + wrapLon(p.x - last.x), y := p.y])
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The same points in the opposite order.
+FUNC reversed(points AS List OF Plane) AS List OF Plane
+  MUT out AS List OF Plane = []
+  FOR k = len(points) - 1 TO 0 STEP -1
+    out = collections::append(out, collections::get(points, k))
+  NEXT
+  RETURN out
+END FUNC
+
+' Ring r on a tilted map, at one level of detail. Chunks wholly off screen stand
+' in with their two end points, as in ringCopyItems.
+FUNC tiltedRingItems(r AS Integer, v AS View, clip AS Box, threshold AS Integer, paint AS canvas::Paint) AS List OF canvas::DrawItem
+  IF NOT overlaps(capBox(collections::get(coastWest, r), collections::get(coastEast, r), collections::get(coastSouth, r), collections::get(coastNorth, r), v), clip) THEN RETURN []
+
+  MUT frame AS List OF Plane = []
+  FOR c = collections::get(ringChunk, r) TO collections::get(ringChunk, r + 1) - 1
+    LET first AS Integer = collections::get(chunkStart, c)
+    LET last AS Integer = collections::get(chunkStart, c + 1) - 1
+    LET box AS Box = capBox(collections::get(chunkWest, c), collections::get(chunkEast, c), collections::get(chunkSouth, c), collections::get(chunkNorth, c), v)
+    IF NOT overlaps(box, clip) THEN
+      frame = collections::append(frame, framePoint(first, v))
+      frame = collections::append(frame, framePoint(last, v))
+    ELSE
+      FOR i = first TO last
+        IF collections::get(coastLevels, i) >= threshold THEN frame = collections::append(frame, framePoint(i, v))
+      NEXT
+    END IF
+  NEXT
+  IF len(frame) < 3 THEN RETURN []
+
+  MUT places AS List OF Plane = unwrapped(frame)
+  LET n AS Integer = len(places)
+  LET start AS Plane = collections::get(places, 0)
+  LET finish AS Plane = collections::get(places, n - 1)
+  ' How far round the ring goes, closing segment included: 0 for an ordinary
+  ' shape, a whole turn either way for one that goes round a pole of the map.
+  LET turn AS Float = finish.x - start.x + wrapLon(start.x - finish.x)
+
+  IF math::abs(turn) > 180.0 THEN
+    IF turn < 0.0 THEN places = reversed(places)
+    LET head AS Plane = collections::get(places, 0)
+    places = collections::append(places, Plane[x := head.x + 360.0, y := head.y])
+    ' The pole it goes round is the one its coast lies nearer: a coast round
+    ' the north pole of the map is, on the whole, in the northern half of it.
+    MUT latSum AS Float = 0.0
+    FOR EACH p IN places
+      latSum = latSum + p.y
+    NEXT
+    MUT pole AS Float = -90.0
+    IF latSum > 0.0 THEN pole = 90.0
+    LET seam AS Float = 180.0 + 360.0 * toFloat(math::ceil((head.x - 180.0) / 360.0))
+    RETURN placesItems(cutAtEdges(polarPlaces(places, seam, pole)), v, clip, paint)
+  END IF
+
+  MUT west AS Float = start.x
+  MUT east AS Float = start.x
+  FOR EACH p IN places
+    west = math::min(west, p.x)
+    east = math::max(east, p.x)
+  NEXT
+  MUT items AS List OF canvas::DrawItem = []
+  FOR k = -1 TO 1
+    LET shift AS Float = toFloat(k) * 360.0
+    IF east + shift <= -180.0 OR west + shift >= 180.0 THEN CONTINUE FOR
+    MUT copy AS List OF Plane = []
+    FOR EACH p IN places
+      copy = collections::append(copy, Plane[x := p.x + shift, y := p.y])
+    NEXT
+    IF west + shift < -180.0 OR east + shift > 180.0 THEN copy = cutAtEdges(copy)
+    items = collections::append(items, placesItems(copy, v, clip, paint))
+  NEXT
+  RETURN items
 END FUNC

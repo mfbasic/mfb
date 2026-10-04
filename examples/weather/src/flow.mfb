@@ -228,22 +228,26 @@ MUT shownHeights AS List OF Boolean = [TRUE, FALSE, FALSE]
 ' after another.
 '
 ' Each point is kept twice: as a place (trailLon/trailLat), and projected onto
-' the plane of a map centred on trailLon0 (trailX/trailY), which is what a frame
-' draws. Spinning the world re-projects the places once (reprojectTrails), so a
-' frame that did not spin costs no projection at all.
+' the plane of a map centred on trailLon0 and tilted to trailTilt
+' (trailX/trailY), which is what a frame draws. Spinning or tilting the world
+' re-projects the places once (reprojectTrails), so a frame that did neither
+' costs no projection at all.
 MUT trailLon AS List OF Float = []
 MUT trailLat AS List OF Float = []
 MUT trailX AS List OF Float = []
 MUT trailY AS List OF Float = []
 MUT trailHead AS Integer = 0
 MUT trailLon0 AS Float = 0.0
+MUT trailTilt AS Float = 0.0
 
-' Re-project every trail point for a map centred on lon0, when that has changed.
-FUNC reprojectTrails(lon0 AS Float) AS Nothing
-  IF lon0 = trailLon0 THEN RETURN
-  trailLon0 = lon0
+' Re-project every trail point for the view's spin and tilt, when either has
+' changed.
+FUNC reprojectTrails(v AS View) AS Nothing
+  IF v.lon0 = trailLon0 AND v.tilt = trailTilt THEN RETURN
+  trailLon0 = v.lon0
+  trailTilt = v.tilt
   FOR k = 0 TO len(trailLon) - 1
-    LET p AS Plane = project(Geo[lon := collections::get(trailLon, k), lat := collections::get(trailLat, k)], lon0)
+    LET p AS Plane = project(Geo[lon := collections::get(trailLon, k), lat := collections::get(trailLat, k)], trailLon0, trailTilt)
     trailX = collections::set(trailX, k, p.x)
     trailY = collections::set(trailY, k, p.y)
   NEXT
@@ -251,7 +255,7 @@ END FUNC
 
 ' Record point k of the trails: the place, and where it lands on today's map.
 FUNC setTrailPoint(k AS Integer, g AS Geo) AS Nothing
-  LET p AS Plane = project(g, trailLon0)
+  LET p AS Plane = project(g, trailLon0, trailTilt)
   trailLon = collections::set(trailLon, k, g.lon)
   trailLat = collections::set(trailLat, k, g.lat)
   trailX = collections::set(trailX, k, p.x)
@@ -342,10 +346,10 @@ END FUNC
 ' enough tries the middle of the view is used so that this always terminates.
 FUNC birthplace(v AS View) AS Geo
   FOR attempt = 1 TO 24
-    LET candidate AS Unprojected = unproject(toPlane(v, unitRandom() * v.width, unitRandom() * v.height), v.lon0)
+    LET candidate AS Unprojected = unproject(toPlane(v, unitRandom() * v.width, unitRandom() * v.height), v.lon0, v.tilt)
     IF candidate.inside AND math::abs(candidate.place.lat) < 88.0 THEN RETURN candidate.place
   NEXT
-  RETURN unproject(Plane[x := v.cx, y := v.cy], v.lon0).place
+  RETURN unproject(Plane[x := v.cx, y := v.cy], v.lon0, v.tilt).place
 END FUNC
 
 ' Put particle i at a place, with its whole trail collapsed onto that one point
@@ -356,7 +360,7 @@ FUNC placeParticle(i AS Integer, g AS Geo, life AS Integer, age AS Integer) AS N
 
   ' Every point of the trail starts where the particle does.
   LET base AS Integer = i * TRAIL_LENGTH
-  LET p AS Plane = project(g, trailLon0)
+  LET p AS Plane = project(g, trailLon0, trailTilt)
   trailLon = collections::repeat(trailLon, g.lon, TRAIL_LENGTH, base)
   trailLat = collections::repeat(trailLat, g.lat, TRAIL_LENGTH, base)
   trailX = collections::repeat(trailX, p.x, TRAIL_LENGTH, base)
@@ -415,6 +419,7 @@ FUNC seedSwarm(v AS View) AS Nothing
   trailX = []
   trailY = []
   trailLon0 = v.lon0
+  trailTilt = v.tilt
   trailHead = 0
 
   LET unplaced AS Particle = Particle[lon := 0.0, lat := 0.0, age := 0, life := 0, speed := 0.0, startLon := 0.0, startLat := 0.0]

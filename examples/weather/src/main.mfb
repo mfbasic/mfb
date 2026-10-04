@@ -21,6 +21,7 @@
 '   q e            zoom in, zoom out
 '   a d            spin the world west, east (it wraps all the way round)
 '   w s            pan up, down
+'   W S (shift)    tilt the world north, south, as far as a pole in the middle
 '   arrow keys     the same as w a s d
 '   f              fullscreen on or off
 '   r              back to the whole world
@@ -135,6 +136,10 @@ TYPE Spin
   fraction AS Float    ' of the window, east positive
 END TYPE
 
+TYPE Tilt
+  fraction AS Float    ' of the window, north positive
+END TYPE
+
 TYPE Reset
 END TYPE
 
@@ -160,6 +165,7 @@ END TYPE
 UNION Command
   Pan
   Spin
+  Tilt
   Zoom
   Reset
   ToggleCaptions
@@ -178,8 +184,10 @@ LET ZOOM_STEP AS Float = 1.18
 
 FUNC commandFor(key AS String) AS Command
   MATCH key
-    CASE "w", "W", "UP" : RETURN Pan[dx := 0.0, dy := PAN_STEP]
-    CASE "s", "S", "DOWN" : RETURN Pan[dx := 0.0, dy := -PAN_STEP]
+    CASE "w", "UP" : RETURN Pan[dx := 0.0, dy := PAN_STEP]
+    CASE "s", "DOWN" : RETURN Pan[dx := 0.0, dy := -PAN_STEP]
+    CASE "W" : RETURN Tilt[fraction := PAN_STEP]
+    CASE "S" : RETURN Tilt[fraction := -PAN_STEP]
     CASE "a", "A", "LEFT" : RETURN Spin[fraction := -PAN_STEP]
     CASE "d", "D", "RIGHT" : RETURN Spin[fraction := PAN_STEP]
     CASE "q", "Q" : RETURN Zoom[factor := ZOOM_STEP]
@@ -313,7 +321,7 @@ FUNC frameScene(world AS Ring, v AS View, rasterItems AS List OF canvas::DrawIte
     LET zoomText AS String = zoomCaption(v, size)
     LET zoomWidth AS Float = canvas::measureText(face, size1, zoomText).width
     items = collections::append(items, textItem(face, v.width - margin - zoomWidth, v.height - margin, size1, CAPTION_COLOR, zoomText))
-    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  space play/stop  \u{00B7}  1 2 3 wind heights  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
+    LET hint AS String = "q e zoom  \u{00B7}  a d spin  \u{00B7}  w s pan  \u{00B7}  W S tilt  \u{00B7}  space play/stop  \u{00B7}  1 2 3 wind heights  \u{00B7}  f fullscreen  \u{00B7}  r whole world  \u{00B7}  h captions  \u{00B7}  esc quits"
     ' Fit the hint into the space left by the right-aligned zoom caption.
     LET hintWidth AS Float = canvas::measureText(face, size1 * 0.85, hint).width
     LET hintSize AS Float = size1 * 0.85 * math::min(1.0, math::max(1.0, v.width - margin * 3.0 - zoomWidth) / hintWidth)
@@ -529,6 +537,7 @@ FUNC main AS Integer
       MATCH commandFor(key)
         CASE Pan(p) : view = panned(view, p.dx, p.dy)
         CASE Spin(t) : view = spun(view, t.fraction)
+        CASE Tilt(t) : view = tilted(view, t.fraction)
         CASE Zoom(z) : view = zoomed(view, z.factor, size)
         CASE Reset : view = wholeWorld(size)
         CASE ToggleCaptions : captions = NOT captions
@@ -576,7 +585,7 @@ FUNC main AS Integer
     END IF
     LET mix AS Float = windsFor(playback.hours)
 
-    reprojectTrails(view.lon0)
+    reprojectTrails(view)
     stepSwarm(earlierWinds, laterWinds, mix, view, zoom, elapsed)
     MUT rasterItems AS List OF canvas::DrawItem = []
     IF layer <> Layer.Wind THEN

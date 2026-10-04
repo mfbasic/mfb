@@ -28,7 +28,7 @@ FUNC main AS Integer
   LET wholeItems AS List OF canvas::DrawItem = mapItems(world, wholeView)
   io::print("whole-world frame items: " & toString(len(wholeItems)))
 
-  LET zoomedView AS View = View[scale := wholeView.scale * 10.0, cx := wholeView.cx, cy := wholeView.cy, width := wholeView.width, height := wholeView.height, lon0 := wholeView.lon0]
+  LET zoomedView AS View = WITH wholeView { scale := wholeView.scale * 10.0 }
   LET zoomedItems AS List OF canvas::DrawItem = mapItems(world, zoomedView)
   io::print("10x zoom frame items: " & toString(len(zoomedItems)))
 
