@@ -8,8 +8,8 @@ Severity: MEDIUM
 
 Class: Correctness
 
-Status: Open
-Regression Test: proposed `tests/runtime/rt_audio_render_huge_note_frames.rs`
+Status: Fixed
+Regression Test: `tests/runtime/rt_audio_render_huge_note_frames.rs`
 
 `audio::render`'s man page documents `ErrOverflow`, `ErrFloatNaN`,
 `ErrInvalidFormat` and `ErrOutOfMemory` as its only raisable errors, and states
@@ -129,3 +129,46 @@ ceiling) and raise `ErrOverflow` before the loop.
 The new test green and fast; re-run the reproduction above and confirm a
 prompt `ErrOverflow` instead of unbounded growth;
 `scripts/man-run-examples.sh audio --run`.
+
+## Resolution (2026-10-04)
+
+**Code chosen: `ErrInvalidArgument`, not `ErrOverflow`.** `ErrOverflow` would only
+be honest for `noteFrames * 2` overflowing `Integer` (`noteFrames > 2^62`), and that
+leaves every count between the reasonable and `2^62` still rendering until memory
+runs out — `10^12` frames is 2 TB with no overflow anywhere. The package already has
+the right limit: `audio::play`'s synthesiser refuses a track past ten minutes
+(28,800,000 frames at 48 kHz, bug-509 DEC-55) with `ErrInvalidArgument`.
+`__audio_render` now applies the same limit before rendering a frame, with the same
+code, and declares and documents it. Ten minutes is a 57.6 MB result; one note of
+that length renders in 1.22 s (`/usr/bin/time -l`, 177 MB peak RSS), measured.
+
+**Second defect, found by the new test.** `noteFrames = -9223372036854775808` raised
+`ErrOverflow` from the loop bound `n - 1`, contradicting "empty when
+`note.noteFrames <= 0`" (HEAD: `raised 77050010`). A non-positive count now returns
+the empty list before the loop.
+
+**Commit.** `b7d9ac710` — body, descriptor `errors` + prose, spec
+`stdlib/11_audio.md` (its "never raises" was false: render already raised
+`ErrFloatNaN`/`ErrOverflow`/`ErrOutOfMemory`), guard row, test.
+
+**Verification.**
+
+- `cargo test --release --test rt_audio_render_huge_note_frames`: with HEAD's binary
+  both tests FAILED (`still running after 10s`; `i64::MIN` → `ErrOverflow`); with the
+  fix 2 passed in 1.03 s.
+- Reproduction: `9223372036854775807` → `raised 77050002 … 10 minute limit` in
+  0.14 s, 2.4 MB peak RSS (was 2.2 GB and climbing at 15 s); `28800000` →
+  `len=57600000`; `28800001` → `raised 77050002`.
+- `cargo test --release --bin mfb declared_errors`: 24 passed, after removing
+  `UNREACHABLE_VIA_CALLEE`'s now-false `("audio", "render", "ErrInvalidArgument")`
+  (proof in the commit). `--bin mfb audio`: 25 passed; `--bin mfb spec`: 46 passed.
+- `mfb man audio render` rendered and read; `scripts/man-census.sh --memory-scope
+  audio` 0 unclassified, `--scope audio` 0; `scripts/man-run-examples.sh audio
+  render`: built 1, failed 0.
+- `scripts/test-accept.sh` over the 10 fixtures that `IMPORT audio`: 2 mismatches,
+  both `.ir`, both exactly the two new `IF` blocks in `__audio_render`.
+
+**Expected golden moves (not regenerated here).** `.ir` of
+`rt-error/audio/openInput_invalid_rt` and `rt-error/audio/openOutput_invalid_rt`;
+native artifacts of any program that links `__audio_render`
+(`tests/byte-identity/audio`).
