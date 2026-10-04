@@ -26,6 +26,11 @@ doubled quotes, CR/LF and CRLF record separators, and the suppression of a
 trailing empty row. The dialect is fixed when the reader is opened by
 `csv::parseStream`.
 
+A `csv::CsvReader` built directly with values that do not describe a real
+position — for example a `count` larger than the length of `chars`, or a
+negative `index` — raises `ErrIndexOutOfRange`. Building the returned row needs
+memory; `ErrOutOfMemory` means the program ran out of memory.
+
 `csv::readRow` has no side effects."#;
 
 const EX: &str = r#"Count the rows of a large CSV without materializing the grid:
@@ -118,13 +123,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "reader",
-                desc: "A reader from `csv::parseStream` or a previous `csv::readRow`.",
+                desc: "A reader from `csv::parseStream` or a previous `csv::readRow`. A reader built directly with a `count` larger than the length of `chars`, or a negative `index`, raises `ErrIndexOutOfRange`.",
                 aliases: &[],
                 ty: ParameterType::named("CsvReader"),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named("CsvRow"),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__csv_next"),
         }],
     });

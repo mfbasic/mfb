@@ -43,7 +43,8 @@ Empty input parses to zero rows. There is no header concept — every parsed lin
 is an ordinary row, and cells are read positionally with `collections::get`.
 
 The argument may also be supplied by the name `text`. `csv::parse` does not
-mutate `value` and has no side effects."#;
+mutate `value` and has no side effects. Building the returned grid needs
+memory; `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Parse a two-column document with a quoted cell:
 
@@ -179,7 +180,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::list_of(ParameterType::String)),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__csv_parse"),
         }],
     });

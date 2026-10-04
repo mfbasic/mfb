@@ -44,7 +44,7 @@ text is normalized to LF on output.
 
 The sole argument is named `value`, so it can be supplied positionally or as the
 keyword argument `value :=`. `csv::stringify` does not mutate `value` and has no
-side effects."#;
+side effects. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Serialize a grid, quoting only the cell that needs it:
 
@@ -133,7 +133,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__csv_stringify"),
         }],
     });

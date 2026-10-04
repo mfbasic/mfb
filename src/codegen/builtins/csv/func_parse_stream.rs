@@ -25,7 +25,8 @@ an empty `delimiter` or `quote` raises `ErrInvalidFormat` when the reader is
 opened. The output-only dialect option (`newline`) does not apply to reading.
 
 The argument may also be supplied by the name `text`. `csv::parseStream` does not
-mutate `value` and has no side effects."#;
+mutate `value` and has no side effects. `ErrOutOfMemory` means the program ran
+out of memory."#;
 
 const EX: &str = r#"Process a CSV document row by row without building the whole grid:
 
@@ -89,7 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::named("CsvReader"),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(FUNC_BODY, "__csv_parseStream"),
         }],
     });
