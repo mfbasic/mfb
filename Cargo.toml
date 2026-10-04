@@ -991,6 +991,10 @@ name = "rt_json_bounds"
 path = "tests/runtime/rt_json_bounds.rs"
 
 [[test]]
+name = "rt_json_parse_file"
+path = "tests/runtime/rt_json_parse_file.rs"
+
+[[test]]
 name = "rt_compress_bounds"
 path = "tests/runtime/rt_compress_bounds.rs"
 
@@ -1001,6 +1005,10 @@ path = "tests/runtime/rt_compress_deflate_o3.rs"
 [[test]]
 name = "rt_list_append_growth_bounds"
 path = "tests/runtime/rt_list_append_growth_bounds.rs"
+
+[[test]]
+name = "rt_csv_read_row_scaling"
+path = "tests/runtime/rt_csv_read_row_scaling.rs"
 
 [[test]]
 name = "rt_list_set_widening_linear"

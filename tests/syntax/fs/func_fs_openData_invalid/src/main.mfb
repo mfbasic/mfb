@@ -1,0 +1,10 @@
+IMPORT fs
+
+FUNC main AS Integer
+  RES missing = fs::openData("x")
+  RES wrongValue = fs::openData(42, "r")
+  RES wrongList = fs::openData([1, 2], "r")
+  RES wrongMode = fs::openData("x", 1)
+  RES tooMany = fs::openData("x", "r", "rw")
+  RETURN 0
+END FUNC

@@ -2742,6 +2742,8 @@ pub(crate) fn lower_module_for_platform(
                 | "_mfb_rt_fs_fs_writeAllBytes"
                 | "_mfb_rt_fs_fs_flush"
                 | "_mfb_rt_fs_fs_setBuffered"
+                // bug-809: a seek drains pending output at the old position first.
+                | "_mfb_rt_fs_fs_seek"
         )
     });
     if uses_file_buffer {
@@ -2927,6 +2929,8 @@ pub(crate) fn lower_module_for_platform(
             "_mfb_rt_tls_tls_localAddress",
             "_mfb_rt_tls_tls_localAddressListener",
         ),
+        // bug-809: `fs::openData`'s `List OF Byte` overload, on the same rule.
+        ("_mfb_rt_fs_fs_openData", "_mfb_rt_fs_fs_openDataBytes"),
     ] {
         if runtime_symbols.iter().any(|symbol| symbol == base)
             && !runtime_symbols.iter().any(|symbol| symbol == synthesized)
@@ -3132,6 +3136,8 @@ pub(crate) fn lower_module_for_platform(
                 "_mfb_rt_fs_fs_readText"
                     | "_mfb_rt_fs_fs_readAll"
                     | "_mfb_rt_fs_fs_readLine"
+                    // bug-809: the raw line reader validates its line the same way.
+                    | "_mfb_rt_fs_fs_readLineRaw"
                     | "_mfb_rt_net_net_readText"
                     | "_mfb_rt_net_net_receiveTextFrom"
                     | "_mfb_rt_process_process_receive"

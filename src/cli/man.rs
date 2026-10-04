@@ -1257,23 +1257,26 @@ mod tests {
 
     #[test]
     fn markdown_includes_summary_description_and_parameters() {
+        // `csv::stringify` (one form). `csv::parse` was the example until bug-809
+        // gave it a `File` overload; it still carries the alias checked below.
         let package = registry().resolve_package("csv").unwrap();
-        let function = package.function("parse").unwrap();
+        let function = package.function("stringify").unwrap();
         let md = render_function_markdown(package, function);
-        assert!(md.starts_with("# parse\n"));
+        assert!(md.starts_with("# stringify\n"));
         assert!(md.contains("## Package\n\ncsv"));
         assert!(md.contains("## Description"));
         // A single-overload member renders a Declaration section above Parameters.
         assert!(md.contains("## Declaration"));
-        assert!(md.contains("`csv::parse("));
-        assert!(md.contains(") AS List OF List OF String`"));
+        assert!(md.contains("`csv::stringify("));
+        assert!(md.contains(") AS String`"));
         assert!(!md.contains("## Overloads"));
         // The parameter table reflects the descriptor's params, aliases, and optionals.
         assert!(md.contains("## Parameters"));
         assert!(md.contains("`value`"));
-        assert!(md.contains("`text`")); // alias of `value`
         assert!(md.contains("`delimiter` (opt)")); // Fill-defaulted
-        assert!(md.contains("Returns `List OF List OF String`."));
+        assert!(md.contains("Returns `String`."));
+        let parse = render_function_markdown(package, package.function("parse").unwrap());
+        assert!(parse.contains("`text`")); // alias of `value`
         assert!(md.contains("## Examples"));
         // The Errors table is rendered from the descriptor's declared errors.
         assert!(md.contains("## Errors"));
@@ -1781,11 +1784,12 @@ mod tests {
 
     #[test]
     fn types_page_renders_a_record_only_package() {
-        let package = registry().resolve_package("csv").unwrap();
+        // `regex` (csv was the example until bug-809 removed its two records).
+        let package = registry().resolve_package("regex").unwrap();
         let md = render_types_markdown(package);
         assert!(md.contains("## Records"));
-        assert!(md.contains("#### csv::CsvReader"));
-        assert!(md.contains("#### csv::CsvRow"));
+        assert!(md.contains("#### regex::Group"));
+        assert!(md.contains("#### regex::MatchInfo"));
         // A record-only package excludes the other category headings.
         assert!(!md.contains("## Unions"));
         assert!(!md.contains("## Enums"));
@@ -1874,9 +1878,12 @@ mod tests {
         let read_row = md.find("| `csv::readRow` |").unwrap();
         let stringify = md.find("| `csv::stringify` |").unwrap();
         assert!(parse < read_row && read_row < stringify);
-        // csv exports records, so the overview points at its types page.
-        assert!(md.contains("## See also"));
-        assert!(md.contains("`mfb man csv types`"));
+        // A package that exports records points at its types page (`regex`;
+        // csv exported none after bug-809, and gets no pointer).
+        let regex = render_package_markdown(registry().resolve_package("regex").unwrap());
+        assert!(regex.contains("## See also"));
+        assert!(regex.contains("`mfb man regex types`"));
+        assert!(!md.contains("`mfb man csv types`"));
         // A package with no public types gets no such pointer. (`bits`, not
         // `encoding`: plan-123-A gave `encoding` a public `Codepage` enum.)
         let bits = registry().resolve_package("bits").unwrap();
@@ -2013,9 +2020,9 @@ mod tests {
     }
 
     /// The positive half of the bug-530 pin: the note is emitted for a
-    /// return-type overload set and for NOTHING else. `encoding::utf8Decode` is
-    /// the neighbouring two-form member selected by its PARAMETER type, and
-    /// `csv::parse` has one form; neither may grow the note.
+    /// return-type overload set and for NOTHING else. `encoding::utf8Decode` and
+    /// (since bug-809) `csv::parse` are two-form members selected by a PARAMETER
+    /// type, and `csv::stringify` has one form; none may grow the note.
     #[test]
     fn only_a_return_type_overload_gets_the_expected_type_note() {
         let encoding = registry().resolve_package("encoding").unwrap();
@@ -2028,8 +2035,11 @@ mod tests {
 
         let csv = registry().resolve_package("csv").unwrap();
         let parse = render_function_markdown(csv, csv.function("parse").unwrap());
-        assert!(parse.contains("## Declaration"));
+        assert!(parse.contains("## Overloads"));
         assert!(!parse.contains("differ only by what they return"));
+        let stringify = render_function_markdown(csv, csv.function("stringify").unwrap());
+        assert!(stringify.contains("## Declaration"));
+        assert!(!stringify.contains("differ only by what they return"));
     }
 
     /// The general pin bug-530 asks for: **every** registered form reaches the

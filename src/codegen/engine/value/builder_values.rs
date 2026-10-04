@@ -4055,6 +4055,15 @@ impl CodeBuilder<'_> {
             "tcp.write" => {
                 self.net_write_payload_form(args.get(1), "tcp.write", "tcp.writeText")?
             }
+            // bug-809: `fs::openData(String, mode)` and `(List OF Byte, mode)` read
+            // their bytes from different offsets, so the byte-list overload lowers
+            // through its own `fs.openDataBytes` code form, selected by the static
+            // type of the value — the same refusal-on-unknown rule as `tcp::write`.
+            "fs.openData" => self.net_write_payload_form(
+                args.first(),
+                crate::codegen::builtins::fs::func_open_data::OPEN_DATA_BYTES,
+                "fs.openData",
+            )?,
             // plan-110-C: udp's two code forms. `send`'s payload is argument 2
             // (socket, address, payload), not argument 1 as in `tcp::write`.
             "udp.poll" => {

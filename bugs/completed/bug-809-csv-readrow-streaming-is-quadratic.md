@@ -8,10 +8,9 @@ Severity: MEDIUM
 
 Class: Performance
 
-Status: Blocked — needs an owner decision (API/representation change or a compiler move feature); see Phase 1 findings
-Regression Test: proposed `tests/runtime/rt_csv_read_row_scaling.rs` (CPU-time
-scaling assertion, following the `rt_self_update_cost.rs` pattern noted in
-`.ai/collections.md`)
+Status: Fixed — owner chose option 1 (API change); see Resolution
+Regression Test: `tests/runtime/rt_csv_read_row_scaling.rs` (arena-byte
+scaling at N/2N/4N rows; increment ratio < 3, measured 2.03)
 
 `csv::readRow`'s whole purpose, per its own man page, is to let "a document ...
 processed one row at a time" without "the whole `List OF List OF String` grid"
@@ -233,3 +232,43 @@ O(len(chars)) per call under the current layout, whatever its body does. A
 No code was changed for this bug; no regression test was added (a scaling test
 committed red would break the suite). The reproduction above, with `ROWS` taken
 from the environment, is the RED check for whichever option is chosen.
+
+## Resolution
+
+Fixed by the owner's option 1, an API change (no backward compatibility), in
+commits `52aa47920` (fs) and `1292c3567` (csv), with `9e11807e3` fixing a
+`fs::readLine` bug found on the way. The Non-goals above (keep `CsvReader`'s
+fields and `readRow`'s shape) were overridden by that decision.
+
+- `csv::readRow(file AS fs::File, [delimiter], [quote]) AS List OF String`
+  reads one record from a `File` and advances it. The reader state is the
+  host's file position, so nothing is copied per call. `csv::parseStream`,
+  `readRow(CsvReader)`, `csv::CsvReader` and `csv::CsvRow` are removed;
+  `csv::parse` gained a `File` overload. All three run one tokenizer,
+  `__csv_scan`, through two input adapters (whole `String` / line-refilled
+  `File`); a single File-only path was 6–9% slower than the old `parse` on
+  50k/200k rows, the two-adapter shape is within noise of it.
+- New `fs::openData(String | List OF Byte, mode)` (a real `File` over a copy:
+  memfd on Linux, an unlinked temp file on macOS — `shm_open` cannot
+  read/write/seek there — and a delete-on-close temp file on Windows),
+  `fs::seek`, and the internal `fs::readLineRaw` the csv reader uses.
+
+Measured, macos-aarch64 release builds, the bug's reproduction loop:
+
+| rows | before (HEAD `26a7932fb`, parseStream/readRow) | after (openData + readRow) |
+| --- | --- | --- |
+| 5,000 | 1,184 ms | 10 ms |
+| 10,000 | 5,277 ms (×4.46) | 18 ms |
+| 20,000 | 23,656 ms (×4.48) | 45 ms |
+| 50,000 | 137,524 ms | 84 ms |
+| 200,000 | — | 306 ms |
+
+`--debug` `arena.0.alloc_bytes` (program total, setup included): before
+283,113,744 at 1,000 rows and 1,266,416,512 at 2,000 (×4.47); after 3,411,568 /
+7,200,512 / 15,062,736 at 1,000 / 2,000 / 4,000 (×2.11, ×2.09). The regression
+test's own program (both an `fs::openData` and a disk file) measures
+11,859,696 / 24,028,320 / 48,673,696 — increment ratio 2.03.
+
+Platform verification of the new `fs`/`csv` surface (identical probe output by
+md5 on each): macos-aarch64, linux-aarch64 glibc (2226), linux-riscv64 musl
+(2229), Windows 11 (206).

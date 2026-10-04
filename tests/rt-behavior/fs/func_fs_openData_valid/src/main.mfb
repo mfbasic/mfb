@@ -1,0 +1,82 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+' fs::openData: a real File over a copy of a String or a List OF Byte, in every
+' fs::open mode spelling. Each mode's access is enforced as for a disk file.
+
+FUNC tryWrite(RES f AS fs::File) AS String
+  fs::writeAll(f, "!") TRAP(e)
+    RETURN "write raised " & toString(e.code)
+  END TRAP
+  RETURN "write ok"
+END FUNC
+
+FUNC tryRead(RES f AS fs::File) AS String
+  fs::seek(f, 0)
+  LET s AS String = fs::readAll(f) TRAP(e)
+    RETURN "read raised " & toString(e.code)
+  END TRAP
+  RETURN "read [" & s & "]"
+END FUNC
+
+FUNC main AS Integer
+  MUT text AS String = "one\r\ntwo\nthree"
+  RES r = fs::openData(text, "r")
+  text = "changed"
+  io::print("r size=" & toString(fs::size(r)))
+  WHILE NOT fs::eof(r)
+    io::print("r line [" & fs::readLine(r) & "]")
+  END WHILE
+  io::print("r " & tryWrite(r))
+  fs::close(r)
+
+  RES read = fs::openData("read mode", "read")
+  io::print("read " & fs::readAll(read))
+
+  RES w = fs::openData("ignored", "w")
+  io::print("w size=" & toString(fs::size(w)))
+  fs::writeAll(w, "abc")
+  io::print("w size=" & toString(fs::size(w)) & " " & tryRead(w))
+
+  RES write = fs::openData("ignored", "write")
+  fs::writeAll(write, "x")
+  io::print("write size=" & toString(fs::size(write)))
+
+  RES rw = fs::openData("abcdef", "rw")
+  fs::writeAll(rw, "XY")
+  io::print("rw " & tryRead(rw))
+
+  RES readWrite = fs::openData("", "readWrite")
+  fs::writeAll(readWrite, "built\n")
+  io::print("readWrite " & tryRead(readWrite))
+
+  RES a = fs::openData("base", "a")
+  fs::writeAll(a, "+1")
+  io::print("a size=" & toString(fs::size(a)) & " " & tryRead(a))
+
+  RES append = fs::openData("base", "append")
+  fs::seek(append, 0)
+  fs::writeAll(append, "+2")
+  io::print("append size=" & toString(fs::size(append)))
+
+  MUT raw AS List OF Byte = [104, 105, 10, 0, 255]
+  RES b = fs::openData(raw, "rw")
+  raw = [1]
+  LET back AS List OF Byte = fs::readAllBytes(b)
+  io::print("bytes len=" & toString(len(back)) & " last=" & toString(collections::get(back, 4)) & " source len=" & toString(len(raw)))
+  LET bang AS List OF Byte = [33]
+  fs::writeAllBytes(b, bang)
+  fs::seek(b, 0)
+  io::print("bytes after write len=" & toString(len(fs::readAllBytes(b))))
+
+  LET empty AS List OF Byte = []
+  RES e = fs::openData(empty, "r")
+  io::print("empty bytes eof=" & toString(fs::eof(e)))
+
+  RES bad = fs::openData("x", "R") TRAP(err)
+    io::print("mode R raised " & toString(err.code))
+    RETURN 0
+  END TRAP
+  RETURN 1
+END FUNC

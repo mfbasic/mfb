@@ -1512,15 +1512,19 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("csv", "stringify", "ErrIndexOutOfRange"),
     ("csv", "stringify", "ErrNotFound"),
     ("csv", "stringify", "ErrInvalidArgument"),
-    ("csv", "parseStream", "ErrIndexOutOfRange"),
-    ("csv", "parseStream", "ErrNotFound"),
+    // bug-809: parse(String)'s only `fs::openData` call passes the literal mode
+    // "r", one of the four the mode check accepts, so its ErrInvalidArgument
+    // (an unknown mode) cannot fire.
+    ("csv", "parse", "ErrInvalidArgument"),
     ("csv", "readRow", "ErrNotFound"),
-    // readRow (`__csv_next`) first FAILs ErrInvalidArgument unless `count =
-    // len(chars)` and `0 <= index <= count`; every later read is
-    // `collections::get(chars, i)` with `i` in `index .. count - 1` (the `WHILE
-    // index < count` loop, `__csv_isDoubledQuote`/`__csv_separatorLength`'s own
-    // `index + 1 < count` guards) or `__csv_decodeRange` over `fieldStart ..
-    // index`, a sub-range of the same bounds.
+    // readRow's reads are `__csv_scan`'s: every `collections::get(chars, i)` has
+    // `i` in `0 .. count - 1` (the `WHILE index < count` loop,
+    // `__csv_isDoubledQuote`/`__csv_separatorLength`'s own `index + 1 < count`
+    // guards), `__csv_decodeRange` runs over `fieldStart .. index`, a sub-range of
+    // the same bounds, and `count` is re-read with every new `chars`. Its
+    // `collections::get(<rows>, 0)` reads a scan of a non-empty line, which yields
+    // a record (a separator ends one; otherwise the end of input flushes the
+    // started field) or FAILs first.
     ("csv", "readRow", "ErrIndexOutOfRange"),
     // crypto
     ("crypto", "uuid7", "ErrIndexOutOfRange"),
@@ -1555,11 +1559,11 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("regex", "split", "ErrIndexOutOfRange"),
     // `__encoding_fromCodepoint` encodes a surrogate (55296 .. 57343) as three
     // bytes `toString` rejects with ErrEncoding (bug-807); these callers never
-    // pass one. csv's `__csv_decodeRange` and `utf32Decode` FAIL on a surrogate
-    // first; `utf16Decode` passes either a paired scalar (>= 65536) or a unit it
-    // has checked is not a surrogate; `codepageDecode` passes only `n < 128`.
-    ("csv", "parse", "ErrEncoding"),
-    ("csv", "readRow", "ErrEncoding"),
+    // pass one. `utf16Decode` passes either a paired scalar (>= 65536) or a unit
+    // it has checked is not a surrogate; `codepageDecode` passes only `n < 128`.
+    // (csv's `parse`/`readRow` used to be listed here too; since bug-809 they read
+    // a `File` through `fs::readLineRaw`, which really raises ErrEncoding for a
+    // line that is not UTF-8, so they declare it.)
     ("encoding", "utf16Decode", "ErrEncoding"),
     ("encoding", "utf32Decode", "ErrEncoding"),
     ("encoding", "codepageDecode", "ErrEncoding"),

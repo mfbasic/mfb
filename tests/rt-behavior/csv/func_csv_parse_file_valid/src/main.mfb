@@ -1,0 +1,28 @@
+IMPORT collections
+IMPORT csv
+IMPORT fs
+IMPORT io
+
+' csv::parse(fs::File) reads from the file's position to its end and gives the
+' rows csv::parse(String) gives for the same text — on a disk file and on an
+' fs::openData file.
+FUNC main AS Integer
+  LET text AS String = "name,note\r\nAda,\"first\nprogrammer\"\nGrace,\"said \"\"hi\"\"\"\n"
+  LET fromText AS List OF List OF String = csv::parse(text)
+  LET path AS String = "target/func_csv_parse_file_valid.csv"
+  fs::writeText(path, text)
+  RES disk = fs::openFile(path)
+  LET fromDisk AS List OF List OF String = csv::parse(disk)
+  io::print("disk rows=" & toString(len(fromDisk)) & " eof=" & toString(fs::eof(disk)))
+  io::print("same as text: " & toString(csv::stringify(fromDisk) = csv::stringify(fromText)))
+  fs::close(disk)
+  fs::deleteFile(path)
+  RES memory = fs::openData(text, "r")
+  LET header AS List OF String = csv::readRow(memory)
+  LET rest AS List OF List OF String = csv::parse(memory, ",", "\"")
+  io::print("header=" & collections::get(header, 0) & " rest rows=" & toString(len(rest)))
+  io::print("quoted=" & collections::get(collections::get(rest, 1), 1))
+  RES empty = fs::openData("", "r")
+  io::print("empty rows=" & toString(len(csv::parse(empty))))
+  RETURN 0
+END FUNC

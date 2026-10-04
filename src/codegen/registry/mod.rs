@@ -202,8 +202,8 @@ pub(crate) struct Parameter {
 pub(crate) enum Body {
     /// An MFBASIC source body (`FUNC __pkg_name(...) ... END FUNC`) injected before
     /// monomorphization, plus the internal symbol a call to this member `rewrite`s to
-    /// (the `FUNC` the body declares — e.g. `csv.readRow` → `__csv_next`, which the
-    /// public name cannot derive) and an optional native `fast_path` that lowers a
+    /// (the `FUNC` the body declares — e.g. `csv.parse`'s `File` overload →
+    /// `__csv_parseFile`, which the public name cannot derive) and an optional native `fast_path` that lowers a
     /// qualifying monomorph instantiation directly instead of instantiating `body`.
     /// Build with [`Body::mfb`] / [`Body::mfb_with_fast_path`].
     Mfb {
@@ -1769,7 +1769,7 @@ impl Registry {
     }
 
     /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
-    /// migrated package (`CsvReader`/`CsvRow`), a source-declared/opaque type
+    /// migrated package (`json.JsonNull`/`regex.Group`), a source-declared/opaque type
     /// (`datetime.Instant`, thread's `Thread`/`ThreadWorker`), or a **parametric**
     /// spelling of an opaque type (`Thread OF Msg TO Out`) whose head token before the
     /// first ` OF ` names a source-declared type.
@@ -1916,7 +1916,7 @@ impl Registry {
             .collect();
     }
 
-    /// A `package.Type` reference (`"csv.CsvReader"`) resolved to the DECLARED type
+    /// A `package.Type` reference (`"net.Url"`) resolved to the DECLARED type
     /// id when the migrated package declares it, else `None`.
     ///
     /// bug-480 Phase 4b changed what "the declared id" means. It used to be the
@@ -5376,7 +5376,8 @@ mod tests {
     fn frozen_registry_exposes_the_csv_package() {
         let pkg = registry().resolve_package("csv").expect("csv registered");
         assert_eq!(pkg.import_name(), "csv");
-        assert_eq!(pkg.functions().len(), 4);
+        // parse, stringify, readRow (bug-809 removed parseStream).
+        assert_eq!(pkg.functions().len(), 3);
         assert!(registry().resolve_package("nope").is_none());
     }
 
@@ -6762,6 +6763,7 @@ mod raw_result_block_ownership {
         "fs.readBytes",             // List OF Byte
         "fs.readBytesAt",           // List OF Byte
         "fs.readLine",              // String
+        "fs.readLineRaw",           // String (bug-809; "" at end of input is a fresh block too)
         "fs.readText",              // String
         "fs.tempDirectory",         // String
         "io.input",                 // String
@@ -6996,6 +6998,7 @@ mod raw_result_block_ownership {
         "fs.currentDirectory",
         "fs.readAll",
         "fs.readLine",
+        "fs.readLineRaw",
         "fs.readText",
         "fs.tempDirectory",
         "io.input",

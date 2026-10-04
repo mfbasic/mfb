@@ -6,7 +6,7 @@
 //! package — the second native package (after `process`) migrated onto the
 //! clean-room registry (`crate::codegen::registry`).
 //!
-//! Every syscall member (36 of them) is `Body::abi_function` (crypto/io's
+//! Every syscall member (39 of them, internal `readLineRaw` included) is `Body::abi_function` (crypto/io's
 //! clean-room shape): each `func_*.rs` owns its `lower_<name>` body, which calls its
 //! own per-member `lower_fs_*_helper` emitter in the `gen_*` backends (each branching
 //! on `platform.family()` internally) and finalizes. The five `path*` string members are
@@ -30,6 +30,7 @@ pub(crate) mod gen_directory;
 pub(crate) mod gen_exists;
 pub(crate) mod gen_handle;
 pub(crate) mod gen_open;
+pub(crate) mod gen_open_data;
 pub(crate) mod gen_path_builder;
 pub(crate) mod gen_read_write;
 pub(crate) mod gen_shared;
@@ -54,6 +55,7 @@ mod func_is_buffered;
 mod func_is_within;
 mod func_list_directory;
 mod func_open;
+pub(crate) mod func_open_data;
 mod func_open_file;
 mod func_open_file_no_follow;
 mod func_open_within;
@@ -67,7 +69,9 @@ mod func_read_all_bytes;
 mod func_read_bytes;
 mod func_read_bytes_at;
 mod func_read_line;
+mod func_read_line_raw;
 mod func_read_text;
+mod func_seek;
 mod func_set_buffered;
 mod func_set_current_directory;
 mod func_size;
@@ -127,8 +131,10 @@ Handle functions work through the opaque `File` resource type. `fs::open`,
 `fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, and `fs::createTempFile`
 return a `File` (`fs::openWithin` opens a caller-supplied relative name that must
 stay beneath a trusted directory);
-`fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
-`fs::writeAllBytes`, and `fs::eof` act on one. Portable open modes are
+`fs::openData` returns a `File` over a copy of a `String` or `List OF Byte`
+held in memory, so code written against a `File` can read text the program
+already has; `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
+`fs::writeAllBytes`, `fs::eof`, and `fs::seek` act on any of them. Portable open modes are
 `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. A
 second `fs::close` raises `ErrResourceClosed`. A `File` that has been closed —
 explicitly or when its binding ends — cannot be used again: a use the compiler
@@ -204,8 +210,10 @@ pub(crate) fn register(r: &mut Registry) {
     func_open_file_no_follow::register(&mut pkg);
     func_open_within::register(&mut pkg);
     func_create_temp_file::register(&mut pkg);
+    func_open_data::register(&mut pkg);
     func_temp_directory::register(&mut pkg);
     func_read_line::register(&mut pkg);
+    func_read_line_raw::register(&mut pkg);
     func_read_all::register(&mut pkg);
     func_read_all_bytes::register(&mut pkg);
     func_write_all::register(&mut pkg);
@@ -216,6 +224,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_close::register(&mut pkg);
     func_eof::register(&mut pkg);
     func_size::register(&mut pkg);
+    func_seek::register(&mut pkg);
     func_read_bytes_at::register(&mut pkg);
     func_canonical_path::register(&mut pkg);
     func_is_within::register(&mut pkg);

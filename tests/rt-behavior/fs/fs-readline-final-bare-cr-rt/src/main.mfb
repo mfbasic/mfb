@@ -1,0 +1,18 @@
+IMPORT io
+IMPORT fs
+
+' fs::readLine strips a CR only as half of a CRLF terminator. A final line with
+' no LF keeps a trailing bare CR as an ordinary character -- it was stripped
+' there too, so "abc\r" at end of input came back as "abc".
+FUNC main AS Integer
+  LET path AS String = "target/fs_readline_final_bare_cr_rt.txt"
+  fs::writeText(path, "x\r\nabc\r")
+  RES f = fs::openFile(path)
+  LET first AS String = fs::readLine(f)
+  LET last AS String = fs::readLine(f)
+  io::print("first=" & toString(len(first)) & " last=" & toString(len(last)))
+  io::print("last ends with CR: " & toString(last = "abc\r"))
+  fs::close(f)
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC
