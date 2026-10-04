@@ -1718,27 +1718,10 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
 /// that a real build does raise"). `encoding::htmlUnescape`/`punycodeDecode`'s
 /// ErrEncoding used to be carried here; since bug-807 this guard sees the bare
 /// `toString(<List OF Byte>)` call in `__encoding_fromCodepoint` that raises it.
+/// `http::finish`'s eight transport codes used to be carried here too, because
+/// it re-raised the code VALUE in `s.state.err`; since bug-808 it raises each
+/// one from a literal `FAIL error(<code>, …)`, which this guard sees.
 const DECLARED_EXTRA: &[(&str, &str, &str)] = &[
-    // `http::finish`'s `FAIL error(s.state.err, "http stream transport
-    // failed")` (func_finish.rs) re-raises a CODE VALUE stored in a field —
-    // `s.state.err`, not a digit literal — so `fail_codes`' `FAIL error(`
-    // scan cannot see it (by design: it is a text scan, not an evaluator).
-    // That field is set only by `__http_pump` (via `__http_readNet`/
-    // `__http_readTls`'s TRAP handlers, which store `e.code` for every
-    // propagated code except `ErrConnectionClosed`, which they turn into the
-    // `closed` flag instead), by `__http_waitReadable` (`ErrTimeout`), or by
-    // `__http_pump`'s own hard-coded `77050010` (`ErrOverflow`) once the
-    // response exceeds `__HTTP_MAX_RESPONSE`. The real reachable set is
-    // `tcp::read`/`tls::read`'s own declared errors minus `ErrConnectionClosed`
-    // (diverted to `closed`), plus `ErrTimeout` and `ErrOverflow`.
-    ("http", "finish", "ErrInvalidArgument"),
-    ("http", "finish", "ErrNetworkFailed"),
-    ("http", "finish", "ErrOutOfMemory"),
-    ("http", "finish", "ErrOverflow"),
-    ("http", "finish", "ErrResourceClosed"),
-    ("http", "finish", "ErrResourceMoved"),
-    ("http", "finish", "ErrTimeout"),
-    ("http", "finish", "ErrTlsFailed"),
     // Pre-existing, correct `ErrOverflow`/`ErrOutOfMemory`/etc. declarations
     // on members whose only raise site is an IMPLICIT checked-arithmetic
     // operator (`+`/`-`/`*` on Integer, a MOD/divide) in their own Mfb

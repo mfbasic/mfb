@@ -25,7 +25,9 @@ If a transport failure was recorded into `stream`'s STATE by an earlier
 for a bad argument, `ErrNetworkFailed` for a socket-level failure, `ErrOverflow`
 for exceeding the 64 MiB response cap, `ErrResourceClosed`/`ErrResourceMoved` for
 a moved or already-closed resource, `ErrTimeout` for an expired deadline, or
-`ErrTlsFailed` for an HTTPS record failure. Parsing a malformed response raises
+`ErrTlsFailed` for an HTTPS record failure. A `state.err` holding any other
+non-zero value — one the program wrote itself — is not a recorded failure, and
+`finish` raises `ErrInvalidArgument` for it. Parsing a malformed response raises
 `ErrInvalidFormat`, and reading its status line or headers can also raise
 `ErrIndexOutOfRange`/`ErrNotFound`. `ErrOutOfMemory` means the program ran out
 of memory."#;
@@ -51,11 +53,44 @@ END FUNC
 const BODY: &str =
 r#"' Parse the accumulated bytes into a `Response`, or FAIL if a transport error was
 ' captured. The stream stays bound and is closed by the caller's drop.
+'
+' `state.err` is a plain field the program can write (bug-808), so a captured code
+' is re-raised only when it is one a drive records: `tcp::read`/`tls::read`'s
+' failures except `ErrConnectionClosed` (which `__http_readNet`/`__http_readTls`
+' turn into `closed`), `__http_waitReadable`'s `ErrTimeout`, and `__http_pump`'s
+' `ErrOverflow` past the response cap. Any other non-zero value is not a transport
+' failure and raises `ErrInvalidArgument`. Each code is a literal so the
+' declared-errors guard sees exactly what `finish` can raise.
 FUNC __http_finish(RES s AS Stream STATE PendingState) AS Response
-  IF s.state.err <> 0 THEN
-    FAIL error(s.state.err, "http stream transport failed")
+  LET code AS Integer = s.state.err
+  IF code = 0 THEN
+    RETURN __http_parseResponse(s.state.raw)
   END IF
-  RETURN __http_parseResponse(s.state.raw)
+  IF code = 77050002 THEN
+    FAIL error(77050002, "http stream transport failed")
+  END IF
+  IF code = 77070003 THEN
+    FAIL error(77070003, "http stream transport failed")
+  END IF
+  IF code = 77010001 THEN
+    FAIL error(77010001, "http stream transport failed")
+  END IF
+  IF code = 77050010 THEN
+    FAIL error(77050010, "http stream transport failed")
+  END IF
+  IF code = 77030004 THEN
+    FAIL error(77030004, "http stream transport failed")
+  END IF
+  IF code = 77030009 THEN
+    FAIL error(77030009, "http stream transport failed")
+  END IF
+  IF code = 77050008 THEN
+    FAIL error(77050008, "http stream transport failed")
+  END IF
+  IF code = 77070008 THEN
+    FAIL error(77070008, "http stream transport failed")
+  END IF
+  FAIL error(77050002, "http stream state.err holds " & toString(code) & ", which is not a transport failure code")
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
