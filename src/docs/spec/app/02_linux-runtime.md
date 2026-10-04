@@ -313,7 +313,9 @@ string in `x0` (`[x0]`=len, `x0+8`=UTF-8 bytes). Three paths, in order:
    `"[stderr] "` prefix for the error variants, plus a trailing `'\n'` for the
    newline variants) into a `malloc` chunk `[0]=len(u64), [16..]=bytes`, then
    `g_idle_add(_mfb_gtkapp_append_idle, chunk)`.
-3. else (headless / pre-window) fd fallback: `write(fd, bytes, len)` to fd 1/2.
+3. else (headless / pre-window, or a failed chunk `malloc`) fd fallback: the console
+   write loop to fd 1/2 (`emit_fd_write_all`): every byte or `ErrWriteFailed`,
+   `EINTR` retried, stdout `EPIPE` re-raising SIGPIPE.
 
 `_mfb_gtkapp_append_idle` (main thread) calls `_mfb_gtkapp_append` (insert at the
 end iter + auto-scroll via a temporary mark) and frees the chunk.

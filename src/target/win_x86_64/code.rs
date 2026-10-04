@@ -4076,19 +4076,20 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         stderr: bool,
         newline: bool,
         term_state_offset: Option<usize>,
-        _platform_imports: &HashMap<String, String>,
+        platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Option<Result<(), String>> {
-        app::emit_app_io_write(
+        Some(app::emit_app_io_write(
+            self,
             symbol,
             stderr,
             newline,
             term_state_offset,
+            platform_imports,
             instructions,
             relocations,
-        );
-        Some(Ok(()))
+        ))
     }
 
     fn emit_app_io_flush(

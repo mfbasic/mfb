@@ -257,7 +257,6 @@ const CP_UTF8: &str = "65001";
 const WS_OVERLAPPED_VISIBLE: &str = "282001408"; // 0x10CF0000
 const CW_USEDEFAULT: &str = "2147483648"; // 0x80000000
 const FILE_FLAG_STDOUT_FD: usize = 11; // -(-11) STD_OUTPUT_HANDLE
-const FILE_FLAG_STDERR_FD: usize = 12; // -(-12) STD_ERROR_HANDLE
 const STD_INPUT_FD: usize = 10; // -(-10) STD_INPUT_HANDLE
 const WM_DESTROY: &str = "2";
 /// `WM_SIZE`. `lParam` carries the new **client** size: width in the low word,
@@ -2205,14 +2204,17 @@ fn emit_finish() -> CodeFunction {
 /// &written, NULL)`. A GUI-subsystem `.exe` launched from a console inherits its
 /// standard handles, so the box run observes the output. Returns `RESULT_OK_TAG`.
 /// (J-3 routes this to the GDI transcript when a window is attached.)
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_app_io_write(
+    platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     symbol: &str,
     stderr: bool,
     newline: bool,
     term_state_offset: Option<usize>,
+    platform_imports: &std::collections::HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-) {
+) -> Result<(), String> {
     // Append shape (plan-101): no own frame. The `abi_function` vreg finalizer
     // builds the frame, reserves the Win64 shadow space + call padding, keeps the
     // stack 16-aligned at every call site, and reserves the local scratch the
@@ -2227,16 +2229,9 @@ pub(super) fn emit_app_io_write(
     // the TUI grid path hands this frame to `emit_win_term_cluster_walk`, which
     // `term::drawText` shares.
     const STR: usize = WALK_STR;
-    const WRITTEN: usize = 0x40;
-    const HANDLE: usize = 0x48;
     const EDITH: usize = 0x50; // transcript EDIT HWND
     const WBUF: usize = WALK_WBUF; // arena UTF-16 buffer
     const GMEMDC: usize = WALK_MEMDC; // cached memory DC
-    let std_fd = if stderr {
-        FILE_FLAG_STDERR_FD
-    } else {
-        FILE_FLAG_STDOUT_FD
-    };
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), STR));
@@ -2383,61 +2378,40 @@ pub(super) fn emit_app_io_write(
     ins.push(abi::return_());
 
     // --- headless / no-window path: write to the inherited standard handle ---
+    // bug-799: the console write loop (`WriteFile` through the platform's
+    // `emit_write`), not one unchecked `WriteFile` — every byte is written or the
+    // call raises `ErrWriteFailed`. The LF is staged at `NL_BYTE`.
     ins.push(abi::label("std_path"));
-    // GetStdHandle(std) — std handle = -(fd) built without a negative immediate.
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
-    ins.push(abi::subtract_immediate(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        std_fd,
-    ));
-    call_external(symbol, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        abi::c_return(0),
-        abi::stack_pointer(),
-        HANDLE,
-    ));
-    // WriteFile(handle, str+8, str[0], &written, NULL)
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
-    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 0)); // lpOverlapped = NULL (5th)
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), STR)); // str ptr
-    ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(1), 0)); // len = str[0]
-    ins.push(abi::add_immediate(abi::mfb_arg(1), abi::mfb_arg(1), 8)); // buf = str+8
-    ins.push(abi::add_immediate(
-        abi::mfb_arg(3),
-        abi::stack_pointer(),
-        WRITTEN,
-    ));
-    call_external(symbol, "WriteFile", KERNEL32, &mut ins, &mut rel);
-    if newline {
-        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "10"));
-        ins.push(abi::store_u8(
-            abi::mfb_arg(0),
-            abi::stack_pointer(),
+    let mut vregs = crate::codegen::engine::util::Vregs::new();
+    let v_str = vregs.next();
+    ins.push(abi::load_u64(&v_str, abi::stack_pointer(), STR));
+    {
+        let mut ctx = crate::codegen::engine::builder::EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut ins,
+            relocations: &mut rel,
+        };
+        crate::codegen::builtins::io::gen_write_family::emit_fd_write_all(
+            &mut ctx,
+            if stderr { "2" } else { "1" },
+            &v_str,
+            newline,
             NL_BYTE,
-        ));
-        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
-        ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 0)); // lpOverlapped = NULL (5th)
-        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE));
-        ins.push(abi::add_immediate(
-            abi::mfb_arg(1),
-            abi::stack_pointer(),
-            NL_BYTE,
-        ));
-        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1"));
-        ins.push(abi::add_immediate(
-            abi::mfb_arg(3),
-            abi::stack_pointer(),
-            WRITTEN,
-        ));
-        call_external(symbol, "WriteFile", KERNEL32, &mut ins, &mut rel);
+            None,
+            "std_write_error",
+            &mut vregs,
+        )?;
     }
     ins.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
+    ins.push(abi::return_());
+    ins.push(abi::label("std_write_error"));
+    crate::codegen::memory::data::raise_error_into(symbol, "ErrWriteFailed", &mut ins, &mut rel);
     ins.push(abi::return_());
 
     // --- plan-66-J-5 TUI grid path: draw the string cluster-by-cluster into the
@@ -2498,6 +2472,7 @@ pub(super) fn emit_app_io_write(
     }
     instructions.extend(ins);
     relocations.extend(rel);
+    Ok(())
 }
 
 /// bug-540 WIN-04: which member the GDI-grid cluster walk
@@ -5827,6 +5802,29 @@ mod tests {
     use super::*;
     use crate::arch::ops::CodeOp;
     use crate::codegen::engine::types::PresentationMode;
+
+    /// The write body as the Windows platform emits it (bug-799's fd loop resolves
+    /// `WriteFile`/`GetStdHandle` through the platform's own `emit_write`).
+    fn emit_app_io_write(
+        symbol: &str,
+        stderr: bool,
+        newline: bool,
+        term_state_offset: Option<usize>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) {
+        super::emit_app_io_write(
+            &crate::target::win_x86_64::code::Platform,
+            symbol,
+            stderr,
+            newline,
+            term_state_offset,
+            &std::collections::HashMap::new(),
+            instructions,
+            relocations,
+        )
+        .expect("Windows app write body");
+    }
 
     fn spec() -> AppEntrySpec {
         AppEntrySpec {

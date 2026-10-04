@@ -1357,6 +1357,35 @@ fn hex_cstring(text: &str) -> String {
 mod release_tests {
     use super::*;
 
+    /// The write body as the macOS platform emits it, with the imports the io
+    /// members carry (bug-799's fd loop resolves `_write`, its errno accessor and
+    /// the SIGPIPE pair through them).
+    fn emit_app_io_write(
+        symbol: &str,
+        stderr: bool,
+        newline: bool,
+        term_state_offset: Option<usize>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) {
+        let imports: std::collections::HashMap<String, String> =
+            ["_write", "___error", "_signal", "_raise"]
+                .into_iter()
+                .map(|symbol| (symbol.to_string(), "libSystem".to_string()))
+                .collect();
+        super::emit_app_io_write(
+            &crate::target::macos_aarch64::code::Platform,
+            symbol,
+            stderr,
+            newline,
+            term_state_offset,
+            &imports,
+            instructions,
+            relocations,
+        )
+        .expect("macOS app write body");
+    }
+
     /// A `-release` send is emitted by `load_selector(SEL_RELEASE)`, which lays
     /// down the `adrp/add` page pair for the selector C-string. That page pair
     /// contributes exactly one `DataAddrHi` relocation to `_mfb_macapp_sel_release`

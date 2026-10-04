@@ -591,14 +591,17 @@ fn emit_app_term_move_to(
 /// old standalone helper managed its own frame + raw x19-x21 spills, which cannot
 /// appear in a vreg-finalized body, plan-34-D). The fd-fallback newline byte lives
 /// in the member-reserved local scratch at `sp+0` (see `lower_write_family`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_app_io_write(
+    platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     symbol: &str,
     stderr: bool,
     newline: bool,
     _term_state_offset: Option<usize>,
+    platform_imports: &std::collections::HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-) {
+) -> Result<(), String> {
     let fd = if stderr { "2" } else { "1" };
     let mut asm = Asm::new(symbol);
     let mut vregs = Vregs::new();
@@ -676,27 +679,54 @@ pub(crate) fn emit_app_io_write(
     asm.push(abi::branch("done"));
 
     // --- fd fallback path ---
+    // bug-799: the console write loop, not a bare `write` — every byte or
+    // `ErrWriteFailed`, `EINTR` retried, stdout `EPIPE` re-raising SIGPIPE. The LF
+    // is staged in the member-reserved local scratch (sp+0).
     asm.push(abi::label("fd_path"));
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", fd));
-    asm.push(abi::add_immediate(abi::c_arg(1), &v_str, 8));
-    asm.push(abi::load_u64(abi::c_arg(2), &v_str, 0));
-    asm.call_external("write");
-    if newline {
-        // '\n' lives in the member-reserved local scratch (sp+0); the fd path needs
-        // no writable data object.
-        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "10"));
-        asm.push(abi::store_u8(abi::SCRATCH[1], abi::stack_pointer(), 0));
-        asm.push(abi::move_immediate(abi::c_arg(0), "Integer", fd));
-        asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 0));
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
-        asm.call_external("write");
+    let epipe = format!("{symbol}_fd_epipe");
+    let epipe = crate::codegen::io::stdout::io_stdout::stdout_epipe_label(
+        platform,
+        platform_imports,
+        &epipe,
+    );
+    {
+        let mut ctx = crate::codegen::engine::builder::EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut asm.ins,
+            relocations: &mut asm.rel,
+        };
+        crate::codegen::builtins::io::gen_write_family::emit_fd_write_all(
+            &mut ctx,
+            fd,
+            &v_str,
+            newline,
+            0,
+            epipe,
+            "fd_write_error",
+            &mut vregs,
+        )?;
+        ctx.instructions
+            .push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
+        ctx.instructions.push(abi::branch("done"));
+        if let Some(epipe) = epipe {
+            crate::codegen::os::syscall::emit_sigpipe_restore_and_raise(&mut ctx, epipe)?;
+        }
     }
-    asm.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::label("fd_write_error"));
+    crate::codegen::memory::data::raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut asm.ins,
+        &mut asm.rel,
+    );
 
     asm.push(abi::label("done"));
     asm.push(abi::return_());
     instructions.extend(asm.ins);
     relocations.extend(asm.rel);
+    Ok(())
 }
 
 /// App-mode `io.flush` (plan-35-E): while TUI mode is active, flushing drives the

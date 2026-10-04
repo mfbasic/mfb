@@ -623,7 +623,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         stderr: bool,
         newline: bool,
         term_state_offset: Option<usize>,
-        _platform_imports: &HashMap<String, String>,
+        platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Option<Result<(), String>> {
@@ -632,14 +632,18 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         // caller's `abi_function` body and the shared finalizer builds the frame
         // (plan-101 append shape).
         let _ = self.arch.app().require_gtk();
-        gtk::emit_app_io_write(
+        if let Err(error) = gtk::emit_app_io_write(
+            self,
             symbol,
             stderr,
             newline,
             term_state_offset,
+            platform_imports,
             instructions,
             relocations,
-        );
+        ) {
+            return Some(Err(error));
+        }
         Some(Ok(()))
     }
 

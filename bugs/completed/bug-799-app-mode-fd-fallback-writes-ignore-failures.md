@@ -5,8 +5,8 @@ Effort: medium (1h–2h, plus remote-box verification for GTK and Windows) (gues
 Severity: MEDIUM
 Class: Correctness (write failure swallowed; output silently lost)
 
-Status: Open
-Regression Test: none yet (Phase 1)
+Status: Fixed (2026-10-03, bug-staging-5)
+Regression Test: `tests/runtime/rt_app_fd_write_failure.rs` (macOS); Windows and Linux GTK verified on the boxes (below)
 
 In an `--app` build with no window attached, `io::write`, `io::print` and their
 stderr forms fall back to writing the bytes straight to fd 1/2. This happens on the
@@ -73,3 +73,30 @@ through it rather than adding a fourth copy.
   `mfb spec app console-io` (its fallback column says `write(1, bytes, len)`).
 - Phase 3: app-mode acceptance fixtures and the per-target `.ncode` goldens
   (expected to change only in the `io` app-write bodies).
+
+## Resolution (2026-10-03)
+
+The console write loop is now one emitter,
+`gen_write_family::emit_fd_write_all` (partial-write loop, `EINTR` retry,
+stdout `EPIPE` → SIGPIPE, else `ErrWriteFailed`), extracted verbatim from
+`lower_write_family`. The console path is byte-identical (`artifact-gate io`: 7
+goldens, 0 diffs). Each app backend's fd fallback calls it:
+
+- macOS: `app_io.rs:emit_app_io_write` `fd_path`; a failed write keeps its error
+  result across the autorelease-pool pop.
+- Linux GTK: `linux_gtk/app_io.rs:emit_app_io_write` `fd_path`.
+- Windows: `win_x86_64/app/mod.rs:emit_app_io_write` `std_path` (through the
+  platform's `WriteFile` `emit_write`; no `EPIPE` re-raise on Windows).
+
+Runs of the reproduction (stdout bound to a read-only descriptor):
+
+| target | main | fixed |
+| --- | --- | --- |
+| macos-aarch64 (`MFB_MACAPP_HEADLESS`) | `done` only | `write 77020002`, `done` |
+| windows-x86_64, box 206 (`MFB_WINAPP_HEADLESS`, `1<file`) | `done` only | `write 77020002`, `done` |
+| linux-aarch64 GTK, box 2226 (`MFB_GTKAPP_HEADLESS`, glibc AppImage) | `done` only | `write 77020002`, `done` |
+
+Normal output still arrives on all three. macOS headless stdout to a closed pipe
+now dies by SIGPIPE (exit -13), as the console build does. The app-mode `.ncode`
+goldens change in the io write bodies only (localized at the batch gate). Spec:
+`app/03_console-io.md`, `app/02_linux-runtime.md`.

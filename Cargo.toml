@@ -1175,6 +1175,10 @@ name = "rt_inplace_field_mixed"
 path = "tests/runtime/rt_inplace_field_mixed.rs"
 
 [[test]]
+name = "rt_app_fd_write_failure"
+path = "tests/runtime/rt_app_fd_write_failure.rs"
+
+[[test]]
 name = "rt_res_list_from_call_leak"
 path = "tests/runtime/rt_res_list_from_call_leak.rs"
 
