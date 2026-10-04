@@ -477,6 +477,14 @@ pub(crate) fn inline_builtin_is_infallible(
     // `toString` is not here: every overload builds a new `String` and can raise
     // `ErrOutOfMemory` (bug-807; owner decision 2026-10-04: a call that can run out
     // of memory is fallible), so an inline `TRAP` handler on it is live.
+    //
+    // The string-concatenation operator `&` makes the SAME allocation and can
+    // fail the SAME way, but is not a call this function ever sees (it is a
+    // `BinaryOp` node, routed through `src/ir/fallible.rs::operator_can_raise`
+    // instead) and is deliberately decided the other way from `toString`: see
+    // `ARITHMETIC_OPERATORS`'s doc comment there for the owner decision
+    // (2026-10-04, bug-814's open question) that keeps `&` out of the
+    // TRAP-liveness / declared-errors census.
     if matches!(target, "len" | "typeName") {
         return true;
     }

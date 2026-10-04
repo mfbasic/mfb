@@ -417,6 +417,17 @@ fn walk_expression(
             visit(callee, line, in_trap, arguments);
         }
         Expression::Binary { left, right, .. } => {
+            // The `op` field itself is never inspected: this walk only finds
+            // raise sites by recursing into nested *calls*. That is a
+            // deliberate blind spot for the string-concatenation operator
+            // `&`, which allocates a new `String` and can raise
+            // `ErrOutOfMemory` at runtime same as any other allocation, but
+            // is not counted as a raise site here, in the declared-errors
+            // guards, or in TRAP-handler-liveness (owner decision 2026-10-04,
+            // bug-814's open question — see `src/ir/fallible.rs`'s
+            // `ARITHMETIC_OPERATORS` doc comment for the full rationale). No
+            // other MFBASIC operator allocates, so `&` is this walk's entire
+            // blind spot here, not an example of a larger class.
             walk_expression(left, line, in_trap, visit);
             walk_expression(right, line, in_trap, visit);
         }

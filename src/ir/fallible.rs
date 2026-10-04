@@ -254,8 +254,29 @@ impl EscapeScope<'_, '_> {
 /// failures from operators are ordinary failures and therefore auto-propagate
 /// unless handled by a `TRAP`" — so each is a raise site the inline-`TRAP`
 /// desugar has to cover (bug-471). The logical (`AND`/`OR`/`XOR`/`NOT`),
-/// comparison and string-concatenation operators produce no domain error and are
-/// deliberately absent.
+/// comparison and string-concatenation operators produce no *domain* error and
+/// are deliberately absent.
+///
+/// `&` (string concatenation) is the one case worth spelling out: it allocates
+/// a new `String` and so CAN raise `ErrOutOfMemory` at runtime, same as any
+/// other allocation. It is excluded from this census anyway, on purpose, not
+/// by oversight — this is the operator twin of `toString`'s fallibility
+/// (`mfb spec language error-model` rule 11; `src/codegen/builtins/mod.rs`'s
+/// `inline_builtin_is_infallible`), except decided the OTHER way: owner
+/// decision 2026-10-04 (bug-814's open question) was that making every
+/// concatenation fallible would force an error path through nearly all
+/// text-building code, so `&` stays out of TRAP-handler-liveness,
+/// function-fallibility, and declared-errors accounting. A failed allocation
+/// inside `&` still raises `ErrOutOfMemory` at runtime — the exception is in
+/// what the compiler counts as a raise site, not in what the operator can
+/// actually do — so a `TRAP` on an expression whose only "fallible" node is a
+/// bare `&` is flagged `TYPE_INLINE_TRAP_DEAD_HANDLER` same as a provably-total
+/// call, and `mfb audit`'s source-level census does not walk into a `&` node
+/// looking for a raise site either (`src/audit/collect/source.rs`'s
+/// `Expression::Binary` handling recurses for nested *calls* only). No other
+/// operator allocates: MFBASIC has no infix operator on `List`/`Map`/`Set` (all
+/// collection construction goes through `collections::*` calls), so `&` is the
+/// entire exception, not an example of a larger class.
 const ARITHMETIC_OPERATORS: [BinaryOp; 7] = [
     BinaryOp::Add,
     BinaryOp::Subtract,
