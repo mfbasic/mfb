@@ -10,7 +10,7 @@ the program's entry. It answers "how did the program get here?"
 
 You get one in two ways:
 
-- **At a breakpoint.** Stop the program in a function (`mfb man debug
+- **At a breakpoint.** Stop the program in a function (`mfb man debug-external
   breakpoints`) and ask for the backtrace.
 - **By attaching to a running program.** Point the debugger at a program that
   is already running, for example one that seems stuck, and ask what every
@@ -27,10 +27,10 @@ You get one in two ways:
 | let it go and leave | `detach`, then `quit` | `detach`, then `quit` |
 
 Each line of a backtrace is a **frame**. Frame `#0` is where the program is,
-and each frame after it is a caller. A `+ 568` after a name (lldb) is how far
+and each frame after it is a caller. A `+ 584` after a name (lldb) is how far
 into that function the call was made, in bytes.
 
-Build with `--debug -O0` (`mfb man debug`). In a default build a function
+Build with `--debug -O0` (`mfb man debug-external`). In a default build a function
 merged into its caller has no frame of its own and is missing from the chain.
 
 ### Reading the end of the chain
@@ -58,17 +58,17 @@ Stop in `isPrime` and print the backtrace (macOS shown):
 (lldb) run
 (lldb) bt
 * thread #1, queue = 'com.apple.main-thread', stop reason = breakpoint 1.1
-  * frame #0: 0x0000000100000a5c debug.out`mfb_fn_isPrime
-    frame #1: 0x0000000100000f70 debug.out`mfb_fn_countPrimes + 568
-    frame #2: 0x00000001000011c0 debug.out`mfb_fn_runRound + 328
-    frame #3: 0x0000000100001dd8 debug.out`mfb_fn_runRounds + 1820
-    frame #4: 0x0000000100002b8c debug.out`mfb_fn_main + 2892
-    frame #5: 0x00000001000005ec debug.out`main + 276
+  * frame #0: 0x0000000100000aa4 debug.out`mfb_fn_isPrime
+    frame #1: 0x0000000100000fc8 debug.out`mfb_fn_countPrimes + 584
+    frame #2: 0x0000000100001260 debug.out`mfb_fn_runRound + 344
+    frame #3: 0x0000000100003678 debug.out`mfb_fn_runRounds + 5120
+    frame #4: 0x0000000100009040 debug.out`mfb_fn_main + 2912
+    frame #5: 0x0000000100000634 debug.out`main + 348
 ```
 
 Read it bottom up: the program's entry called `main`, which called `runRounds`,
 which called `runRound`, which called `countPrimes`, which called `isPrime`.
-That is the call chain drawn on `mfb man debug`.
+That is the call chain drawn on `mfb man debug-external`.
 
 Now attach to a program that is already running. Start a long run in one
 terminal:
@@ -135,14 +135,15 @@ kill "$pid"
 The attached half prints:
 
 ```
-Thread 1 (process 185226 "debug-glibc.out"):
-#0  0x0000aaaae64046d4 in _mfb_fn_isPrime ()
-#1  0x0000aaaae6404aa8 in _mfb_fn_countPrimes ()
-#2  0x0000aaaae6404cf8 in _mfb_fn_runRound ()
-#3  0x0000aaaae6405910 in _mfb_fn_runRounds ()
-#4  0x0000aaaae64066c4 in _mfb_fn_main ()
-#5  0x0000aaaae6404124 in _main ()
-[Inferior 1 (process 185226) detached]
+Thread 1 (process 205682 "debug-glibc.out"):
+#0  0x0000aaaae41946e8 in _mfb_fn_isPrime ()
+#1  0x0000aaaae4194b30 in _mfb_fn_countPrimes ()
+#2  0x0000aaaae4194dc8 in _mfb_fn_runRound ()
+#3  0x0000aaaae41971e0 in _mfb_fn_runRounds ()
+#4  0x0000aaaae419cba8 in _mfb_fn_main ()
+#5  0x0000aaaae419419c in _main ()
+Backtrace stopped: previous frame identical to this frame (corrupt stack?)
+[Inferior 1 (process 205682) detached]
 ```
 
 Windows (PowerShell). `Start-Process -PassThru` starts the long run in the
@@ -167,15 +168,13 @@ Stop-Process -Id $p.Id
 At the breakpoint gdb names `isPrime` and its caller:
 
 ```
-Thread 1 hit Breakpoint 1, 0x00007ff697e72387 in _mfb_fn_isPrime ()
-#0  0x00007ff697e72387 in _mfb_fn_isPrime ()
-#1  0x00007ff697e72c81 in _mfb_fn_countPrimes ()
-#2  0x0000000000000136 in ?? ()
-#3  0x0000000040000068 in ?? ()
-...
+Thread 1 hit Breakpoint 1, 0x00007ff715e123e8 in _mfb_fn_isPrime ()
+#0  0x00007ff715e123e8 in _mfb_fn_isPrime ()
+#1  0x00007ff715e12cfc in _mfb_fn_countPrimes ()
+#2  0x0000000000000000 in ?? ()
 ```
 
-Frames `#2` and beyond are noise: gdb is guessing.
+Frame `#2` and any after it are noise: gdb is guessing.
 
 The attached half asks for frame `#0` only (`bt 1`), the frame Windows reports
 reliably. Attaching starts an extra thread in the program for the debugger, so
@@ -183,6 +182,6 @@ the script names thread 1, the one running your program.
 
 ## See also
 
-- `mfb man debug breakpoints`
-- `mfb man debug profiler`
-- `mfb man debug`
+- `mfb man debug-external breakpoints`
+- `mfb man debug-external profiler`
+- `mfb man debug-external`
