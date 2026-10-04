@@ -358,6 +358,14 @@ easy to get wrong:
   (`gR = WITH gR { … }`, `StoreGlobal`) is the same site with its block pointer in
   the global (`G-global-operand` over every update value). A record captured by
   reference writes through `WriteBack::Ref`.
+  bug-784: an **element-bound** owner (a span of a list's data region) replaces a
+  variable-width field only at the EXACT old size — the list entry records the
+  payload's exact length, so the 16-byte granule rule does not transfer. On a size
+  mismatch the route has already evaluated every value, so it must not re-run the
+  `WITH`: it lowers the element's write-back with each value replaced by a hidden
+  local bound to its spill slot (`element_write_back_item`), with
+  `element_updates.field_owner` cleared for that nested lowering exactly as
+  `lower_element_update`'s own fallback runs.
 * **`LET cur = rec.xs` reaches the seam through the Level-1 "Place copy forwarding"
   row (plan-149), not through codegen.** Every arm matches only when the operand
   *is* the field expression; `LET cur = rec.xs; rec = WITH rec { xs := set(cur, …) }`
