@@ -1,9 +1,9 @@
 # plan-165-C: Preserve conditional evaluation under inline TRAP
 
 Last updated: 2026-10-03
-Effort: medium (estimate: 1h–2h, excluding bug-798)
-Depends on: plan-165-B; bug-798
-Status: Planning only; not authorized for implementation
+Effort: medium (estimate: 1h–2h)
+Depends on: plan-165-B; bug-798 (fixed)
+Status: Not started; implementation awaits the owner's go-ahead
 
 ## Goal
 
@@ -14,10 +14,12 @@ handler and skips the rest of the guarded expression.
 ## Prerequisites
 
 - Plan-165-B complete: inspect its task/commit ledger at its active or archived path.
-- Bug-798 fixed: execute its trapped/untrapped Float observation regressions.
-  This plan cannot absorb or bypass that fix; conditional lowering must preserve
-  the corrected observation model.
-- Explicit owner authorization to implement. Current instruction is documents only.
+- Bug-798 is fixed (commit 526600e93, `bugs/completed/bug-798-inline-trap-float-observation.md`).
+  Before starting, confirm its parity matrix still passes:
+  `cargo test --test rt_inline_trap_float_observation`. Conditional lowering must
+  preserve that observation model, not bypass it.
+- An explicit owner go-ahead to implement this plan (for example
+  `/follow-plan plan-165-C`). Reviewing or discussing the plan is not one.
 
 ## Current state and evidence
 
@@ -54,7 +56,17 @@ state assignment, bindings and discarded expressions.
 
 Do not hoist right-operand evaluation unconditionally. Do not treat an outer
 inline handler body as an eligible trap region. Preserve bug-798's corrected Float
-boundaries and contraction, and the decoded-package verifier's Checked invariants.
+model: a Float `+`, `-`, `*`, `/`, `DIV` or negation is lifted only at a boundary
+(not under another operator), so `a*b-c` contraction and transient nonfinite
+intermediates survive; `MOD`/`^` stay lifted in place as capture-only checks
+(`Checked.observe = false`, IR tag 23). A newly lifted right operand follows the
+same rule. Preserve the decoded-package verifier's Checked invariants.
+
+Bug-797's failure-edge census (`src/ir/verify/trap_init.rs`) treats a call or
+operator under an inline TRAP (`CallResult`, `Checked`) as captured, not as an edge
+into the function handler. Newly lifted right operands must lower to those same
+forms so a function handler's readable locals do not change; the inline handler's
+own `FAIL`/`PROPAGATE` stays an ordinary edge.
 
 ## Non-goals and compatibility
 
@@ -90,6 +102,10 @@ Newly accepted programs intentionally change output; byte identity is not the ga
       discard/state targets where valid. Preserve invalid recovery-type fixtures.
 - [ ] Include Float comparison/domain/boundary cases from bug-798 and both default
       and optimized builds.
+- [ ] Assert a function-level handler may still read a local declared after a
+      trapped conditional whose selected right operand can fail (bug-797 census).
+- [ ] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
+      existing `tests/runtime/rt_inline_trap_*` targets.
 
 Acceptance: proposed `cargo test --test rt_inline_trap_short_circuit` fails only
 because the currently rejected semantics are missing (estimate: minutes after build).
@@ -136,3 +152,9 @@ Verify specs with `cargo build`, `cargo test --bin mfb spec`, and rendered topic
 Planning only. An initial implementation attempt was removed at the owner's
 instruction; no compiler or test changes are retained. Any experimental success
 is not acceptance evidence for a future implementation.
+
+2026-10-03 review: bug-798 and bug-797 landed after this plan was written. Marked
+the bug-798 prerequisite met with its regression command, named the Float model it
+shipped, added the bug-797 census interaction and a test for it, added `[[test]]`
+registration, and replaced the session-specific authorization text with a reusable
+go-ahead condition.

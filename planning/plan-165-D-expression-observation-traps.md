@@ -2,8 +2,8 @@
 
 Last updated: 2026-10-03
 Effort: medium (estimate: 1h–2h, excluding prerequisites and full-suite latency)
-Depends on: plan-165-C; bug-798
-Status: Design proposal only; no implementation authorized
+Depends on: plan-165-C; bug-798 (fixed)
+Status: Design proposal; awaiting owner acceptance, then a go-ahead to implement
 
 ## Goal
 
@@ -18,10 +18,12 @@ operator, and attaching it must not create additional numeric observation points
 - The owner accepts the proposed expression/observation contract below. Their
   current position is leaning toward assignment observation, not final approval.
 - Plan-165-C is complete: inspect its active/archived task and commit ledger.
-- Bug-798 is fixed: its ordinary/trapped Float parity tests pass. This plan does
-  not absorb its work or implement a second observation mechanism.
-- A separate explicit instruction authorizes implementation. Current work is
-  authoring documents on main only; do not create a worktree or edit compiler code.
+- Bug-798 is fixed (commit 526600e93). Before starting, confirm its parity
+  matrix still passes: `cargo test --test rt_inline_trap_float_observation`. This
+  plan reuses that observation mechanism and must not add a second one.
+- A separate explicit owner go-ahead to implement (for example
+  `/follow-plan plan-165-D`), given after the contract is accepted. Accepting the
+  design or discussing the plan is not one.
 
 ## Current state and evidence
 
@@ -40,7 +42,15 @@ warnings (`sed -n '980,1085p' src/ir/verify/resources.rs`).
 `src/docs/spec/language/04_types.md` distinguishes eager integer failures from
 Float observation and permits transient nonfinite intermediates
 (`rg -n 'observation|intermediate' src/docs/spec/language/04_types.md`). Bug-798
-reproduces an existing violation of that distinction under inline TRAP.
+found inline TRAP violating that distinction; its fix (commit 526600e93) lifts a
+Float `+`, `-`, `*`, `/`, `DIV` or negation only at a boundary (not under another
+operator) as an observing `Checked`, and lifts `MOD`/`^` in place as a
+capture-only `Checked` (`observe = false`, IR tag 23) for their domain errors.
+
+Bug-797 (commit a5324104b) added a failure-edge census for function-level handler
+locals (`src/ir/verify/trap_init.rs`). It treats any `Checked` or `CallResult` as
+captured by its inline TRAP, so newly admitted operator-only traps must lower to
+those forms to keep handler-local readability unchanged.
 
 ## Proposed language contract
 
@@ -75,12 +85,15 @@ before implementation. Neither option permits missing required checks.
 1. Preserve the parser's complete-expression attachment; no precedence change.
 2. Replace the runtime-call requirement in `lower_inline_trap` with the accepted
    expression eligibility rule. Capture a raising root even when nothing is hoisted.
-3. Use the corrected observation representation from bug-798 for Float trees;
-   retain plan-165-C's selected-branch evaluation and shared handler.
+3. Use bug-798's representation for Float trees: an observing `Checked` at the
+   boundary, capture-only `Checked` for in-tree `MOD`/`^`. A Float root under the
+   new eligibility is a boundary. Retain plan-165-C's selected-branch evaluation
+   and shared handler.
 4. Produce a correctly typed success result for known-total expressions without
    evaluating the expression twice. Warning/removal requires plan-165-B proof.
-5. Update `check_inline_trap_scrutinee` for the new source contract without
-   weakening general Result typing or decoded-package safety checks.
+5. Update `check_inline_trap_scrutinee` for the new source contract, accepting both
+   observing and capture-only `Checked`, without weakening general Result typing or
+   decoded-package safety checks.
 6. Keep RECOVER assignability, handler divergence, resource/state assignment and
    existing syntactic placement restrictions. Do not broaden RETURN syntax.
 
@@ -123,6 +136,10 @@ for replacing those rejection assertions; until then they remain correct.
       failure skips later effects and leaves the target unchanged until recovery.
 - [ ] Preserve invalid RECOVER types, invalid handler fallthrough, forbidden trap
       positions and testing-assertion call requirements.
+- [ ] Assert a function-level handler may still read a local declared after an
+      operator-only trapped statement (bug-797 census).
+- [ ] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
+      existing `tests/runtime/rt_inline_trap_*` targets.
 
 Acceptance: proposed `cargo test --test rt_inline_trap_expression_boundary` has RED
 cases for newly admitted forms and passing controls for existing contracts
@@ -161,3 +178,10 @@ as implementation permission.
 
 Review 3.1 previously had only an open-decision paragraph in plan-165-A. This
 standalone proposal supplies the missing design, code changes and verification work.
+
+2026-10-03 review: bug-798 and bug-797 landed after this plan was written. Marked
+the bug-798 prerequisite met with its regression command, replaced the stale
+"reproduces an existing violation" evidence with the shipped Float representation,
+named it in compiler-design steps 3 and 5, added the bug-797 census interaction and
+a test for it, added `[[test]]` registration, and replaced the session-specific
+authorization text with a reusable go-ahead condition.
