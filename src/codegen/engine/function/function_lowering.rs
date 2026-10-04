@@ -1012,8 +1012,9 @@ pub(crate) fn lower_function(
     let stack_overflow =
         if crate::codegen::runtime::stack_limit::function_needs_stack_check(function) {
             let label = builder.label("stack_overflow");
+            let start = builder.instructions.len();
             builder.emit_stack_check(&label);
-            Some(label)
+            Some((label, start..builder.instructions.len()))
         } else {
             None
         };
@@ -1216,8 +1217,22 @@ pub(crate) fn lower_function(
         if !builder.current_block_returns() {
             builder.emit_return_exit(None, None)?;
         }
-        if let Some(label) = stack_overflow {
-            builder.emit_stack_overflow_block(&label)?;
+        if let Some((label, check)) = stack_overflow {
+            // A body that lowered to no call at all (its NIR calls were inlined
+            // builtins) cannot recurse: drop the check, which would otherwise cost
+            // a leaf its leaf frame through the cold block's call.
+            let calls = builder.instructions[check.end..].iter().any(|instruction| {
+                matches!(
+                    instruction.op,
+                    crate::arch::ops::CodeOp::BranchLink
+                        | crate::arch::ops::CodeOp::BranchLinkRegister
+                )
+            });
+            if calls {
+                builder.emit_stack_overflow_block(&label)?;
+            } else {
+                builder.instructions.drain(check);
+            }
         }
     }
     // Fuse single-use `a*b ± c` float chains into one single-rounded fused op

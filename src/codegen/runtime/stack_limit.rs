@@ -164,13 +164,19 @@ impl crate::codegen::engine::builder::CodeBuilder<'_> {
     }
 
     /// The cold block [`Self::emit_stack_check`] branches to: raise
-    /// `ErrStackOverflow` as an ordinary error return. It is reached only from the
-    /// entry, where nothing is bound, so no cleanup is active.
+    /// `ErrStackOverflow` as an ordinary error return to the caller. It is reached
+    /// only from the entry, where nothing is bound, so no cleanup is active, and the
+    /// function's own `TRAP` is not yet in force: the error belongs to the call
+    /// that could not be entered, so the caller's `TRAP` is the one that sees it.
     pub(crate) fn emit_stack_overflow_block(&mut self, overflow: &str) -> Result<(), String> {
         let cleanups = std::mem::take(&mut self.active_cleanups);
+        let trap = self.trap.take();
+        let capture = self.raw_result_capture.take();
         self.emit(abi::label(overflow));
         let raised = self.raise_error_bare("ErrStackOverflow");
         self.active_cleanups = cleanups;
+        self.trap = trap;
+        self.raw_result_capture = capture;
         raised
     }
 }

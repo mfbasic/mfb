@@ -153,3 +153,17 @@ io::print(toString(thread::waitFor(t)))\n  RETURN 0\nEND FUNC\n"
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(stdout.trim(), "77010002");
 }
+
+/// The raise belongs to the call that could not be entered: the overflowing
+/// function's own function-level `TRAP` is not yet in force at its entry, so the
+/// caller's frame (here the same function one level up) catches it and every frame
+/// above still returns normally.
+#[test]
+fn a_function_level_trap_catches_the_overflow_of_the_call_below() {
+    let source = "IMPORT io\n\
+FUNC deep(n AS Integer) AS Integer\n  RETURN deep(n + 1) + 1\n  TRAP(e)\n    RETURN e.code\n  END TRAP\nEND FUNC\n\
+FUNC main() AS Nothing\n  io::print(toString(deep(0) > 77010002))\nEND FUNC\n";
+    let (code, stdout, stderr) = run("b789_function_trap", source);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(stdout.trim(), "TRUE");
+}
