@@ -5,7 +5,7 @@ Effort: medium (guess)
 Severity: MEDIUM — a silent per-update allocation cost on a common record shape; output correct
 Class: Other (performance)
 
-Status: Fixed for the measured shapes (M2, M1 inline and call forms); the benchmark `record nested` row itself is blocked by a separate borrow-analysis limitation (see *Benchmark row*)
+Status: Fixed (M2, M1 inline and call forms, and the scope-aware borrow analysis the benchmark row needed)
 Regression Test: `tests/runtime/rt_record_nested_update.rs`
 
 Split out of bug-766, which removed the allocations for most record-update spellings
@@ -167,19 +167,63 @@ The last two were proved to guard something: with both gates disabled the
 overlap case printed `809377900` against the contrast's `120552185`, and the
 failure case left the element half updated.
 
-## Benchmark row
+## Benchmark row — scope-aware borrow analysis (2026-10-04)
 
-The benchmark's `test_record_nested` gets none of this — not M2 and not the
-destination variant (its `.ncode` still has `bl _mfb_fn_stepWide` then
-`record_build_alloc_ok`). The cause is not this bug's code: the function binds
-`LET h AS Holder = collections::get(holders, k)` a second time in its checksum
-loop, and `borrow_get::collect_borrow_gets` keys its facts by NIR local name
-across the whole function (`bind_counts`, `gets`), so a re-bound name is never
-element-bound. Renaming the second `h` to `hh` in a copy of
-`benchmark/mfb/src/recordbench.mfb` made the build emit and call
-`_mfb_fn_stepWide$into0`. Making the analysis scope-aware (or alpha-renaming
-re-bound block-local names before it) is a separate change to a shared analysis
-and is left as its own ticket; the benchmark source was not edited.
+The benchmark's `test_record_nested` got none of the above: it binds
+`LET h AS Holder = collections::get(holders, k)` again in its checksum loop, and
+`borrow_get::collect_borrow_gets` keyed every fact by NIR local name across the
+function (`bind_counts`, `gets`), so a re-bound name was never borrowed nor
+element-bound — 3 allocations per update (the `get` copy, `stepWide`'s result,
+the `WITH` rebuild).
+
+Fix: `collect_borrow_gets` classifies each binding on its own. A local is never
+redeclared while live (`mfb spec language bindings-and-scope`), so the
+classification runs on a copy of the body in which every binding of a re-bound
+name (`Bind`, `FOR`/`FOR EACH` variable, `TRAP` name) is renamed uniquely and
+every read resolves to the binding in scope (`rename_ops`, the resolver's
+scoping); keys and write-back templates are mapped back to the real ops
+(`pair_ops`); a re-bound name's per-binding verdicts go to `BorrowGets::rebound`
+and the builder applies them at each `Bind` (`apply_rebound`), skipping the name's
+scratch copy for a borrowing binding. A function with no re-bound name is
+classified exactly as before. `last_use` still sees a name in `names`/`pinned`
+when any of its bindings borrows — it only excludes, so that is conservative.
+
+Tests: `borrow_get` units — two sequential loops, sibling `IF` arms, a re-bind
+inside the same loop (nested block then after it), the benchmark's element +
+read-only pair, and the negative (a binding whose container is written while it
+is live, and one passed whole to a function, stay copies beside a borrowing one);
+`rt_record_nested_update::a_rebound_get_binding_keeps_its_element_update` (RED on
+the pre-bug-784 compiler: 8141 → 15821 allocations for 2560 → 5120 updates, 3 per
+update; now flat) and `an_unsafe_rebinding_beside_a_borrowing_one_reads_its_own_copy`
+(proved to bite: with every re-bound binding forced to borrow it printed the
+replaced elements, `99/replaced-label/wide-50`, instead of what it read).
+
+The unmodified benchmark source now emits and calls `_mfb_fn_stepWide$into0`.
+Measured on `test_record_nested` extracted verbatim into a standalone program
+(`/tmp/b784/row`, run = 1, 300 000 updates, `-O 1`): `arena.0.alloc_calls`
+900 472 → 536 under `--debug` (3 → 0 per update; same checksum `3543353`), and
+min time 45.6 ms → 7.1 ms over five runs each (≈ 152 → 24 ns/op).
+
+## Resolution
+
+Every row of the goal holds: `nested`, `nestedsame`, `nestedmut`, `nestedinner`
+and the benchmark's own `record nested` loop allocate 0 per update while
+`inner`'s size is unchanged; a size change takes the one rebuild. Output is
+unchanged everywhere measured. The three mechanisms:
+
+1. M2 — exact-size replacement of a variable-width field of an element-bound
+   record, with the element's write-back (over the already-computed values) on a
+   size change (`element_replace_admitted`, `emit_element_replace_or_write_back`).
+2. M1 — nested scalar `WITH` stores (`nested_scalar_with`) and destination
+   variants `<base>$into<j>` for a helper call (`analysis::into_dest`,
+   `try_into_return`, `element_into_call`).
+3. Scope-aware `collect_borrow_gets` (per-binding classification of re-bound
+   names).
+
+Verification left to the batch gate: the full suite and the golden regeneration
+(native `.ncode`/`.ncodesum` move for programs with element updates, helper calls
+of that shape — an extra `$into<j>` function — and any function that re-binds a
+`get` name).
 
 ## Goal / Non-goals
 
@@ -197,4 +241,5 @@ and is left as its own ticket; the benchmark source was not edited.
       element-bound record (the actual decline; see *Findings*).
 - [x] Phase 3 — M1: inline form (`nested_scalar_with`) and call form (destination
       variants, `analysis::into_dest`).
-- [ ] Phase 4 — goldens, full suite, benchmark `record nested` row (batch gate).
+- [x] Phase 4 — benchmark `record nested` row (scope-aware borrow analysis); goldens
+      and the full suite are the batch gate's.
