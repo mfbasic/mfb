@@ -54,7 +54,8 @@ produced or released) and leaves a resource that still has an owner alone.
 
 The owner is a word on the resource record (`./mfb spec memory heap-values`, "The
 owner word"): `0` while unowned, else the token of the owning scope. A binding
-**claims** an unowned resource; a float raises the owner to the outer collection
+**claims** an unowned resource, at its bind and at every assignment that stores a new
+one (for a resource union, the active variant's record); a float raises the owner to the outer collection
 scope; a `RETURN` writes `0` for every resource its value carries that a scope of
 the returning function owns; a scope-exit close runs only when the owner equals that
 scope's token. `thread::accept` produces an unowned copy that its binding claims.

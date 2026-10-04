@@ -2879,6 +2879,25 @@ impl CodeBuilder<'_> {
                                         self.emit_resource_claim_at(stack_offset, depth)?;
                                     }
                                 }
+                                // A resource-union binding whose drop closes its active
+                                // variant claims the new variant's record the same way:
+                                // the drop is owner-checked, so an unclaimed record (the
+                                // inline-`TRAP` desugar fills `$trap_valN` by assignment)
+                                // would never be closed.
+                                if let Some(depth) =
+                                    self.active_cleanups.iter().rev().find_map(|cleanup| {
+                                        match cleanup {
+                                            ActiveCleanup::ResourceUnion(union)
+                                                if union.name == *name && union.closes_variant =>
+                                            {
+                                                Some(union.scope_depth)
+                                            }
+                                            _ => None,
+                                        }
+                                    })
+                                {
+                                    self.emit_resource_union_claim_at(stack_offset, depth)?;
+                                }
                             }
                             // bug-648: record whether this store handed a `Mixed` temp
                             // an owned value — strictly after the old value's drop
