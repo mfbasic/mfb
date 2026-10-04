@@ -165,7 +165,8 @@ Options:
   --app-debug         Like --app, but keep the intermediate build/<name>.AppDir
                       beside the AppImage (Linux; inert on macOS)
   --debug             Build a program that prints a measurement report to stderr
-                      at exit
+                      at exit, and write its function and data names into the
+                      executable's symbol table for debuggers and profilers
   --unsigned          Allow unsigned dependencies from a non-local source
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage
@@ -199,7 +200,8 @@ Options:
   -O <level>          Optimization level: 0 off, 1 default, 2-3 enable more
                       passes (also -O0..-O3, --optimize <level>)
   --debug             Build test programs that print a measurement report to
-                      stderr at exit
+                      stderr at exit, with their function and data names in the
+                      executable's symbol table for debuggers and profilers
   -v, --verbose       Also print the build summary, a per-phase timing line for
                       each build stage, and a per-pass optimizer fire count
   -vv                 Also print the compile profiler: a nested span tree of

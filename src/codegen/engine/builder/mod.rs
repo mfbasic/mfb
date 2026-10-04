@@ -3270,7 +3270,25 @@ pub(crate) fn lower_module_for_platform(
             &close_op_symbols,
         )?;
         code_functions.extend(support.functions);
-        data_objects.extend(support.data_objects);
+        // The support set dedupes against itself only; a string it shares with
+        // the module set (the resource guard's `ErrResourceClosed` /
+        // `ErrResourceMoved`, which an `fs`/`thread` program already carries)
+        // must be defined once.
+        for object in support.data_objects {
+            match data_objects
+                .iter()
+                .find(|existing| existing.symbol == object.symbol)
+            {
+                Some(existing) if existing.value == object.value => {}
+                Some(_) => {
+                    return Err(format!(
+                        "LINK support data object '{}' conflicts with a module data object",
+                        object.symbol
+                    ))
+                }
+                None => data_objects.push(object),
+            }
+        }
         for (_, message, symbol) in native_link_error_messages() {
             if !data_objects.iter().any(|object| object.symbol == *symbol) {
                 data_objects.push(string_data_object(symbol, message.to_string()));

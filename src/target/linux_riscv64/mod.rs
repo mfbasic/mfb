@@ -230,6 +230,7 @@ fn write_executable(
         progress("encoding image");
         let mut image = arch::riscv64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.cloned();
+        image.debug_symbols = debug.enabled;
         // plan-46-D §4.2: point the loader at the `vendor/` directory beside the
         // executable, so a bare-filename `dlopen` of a vendored library resolves
         // and keeps resolving after the whole `build/` directory is moved. Emitted

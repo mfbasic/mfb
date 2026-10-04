@@ -481,6 +481,7 @@ fn write_executable(
     progress("encoding image");
     let mut image = arch::aarch64::encode::encode(&native_code)?;
     image.signing_metadata = signing_metadata.cloned();
+    image.debug_symbols = debug.enabled;
     // plan-46-D §4.4: point the loader at wherever this output shape puts its
     // vendored dylibs — `build/vendor/` beside a console `.out`, or the
     // platform-standard `Contents/Frameworks/` inside a `.app`. This one string is

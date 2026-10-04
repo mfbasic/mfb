@@ -102,6 +102,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         }
     }
 

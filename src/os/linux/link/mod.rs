@@ -160,10 +160,23 @@ fn encode_executable_bytes(
         // interpreter-less ELF; otherwise link libc dynamically (PLT/GOT +
         // interpreter). x86 uses raw syscalls for the primitives but pulls in
         // libc for what has no syscall (snprintf, signal, …).
-        if arch == "x86_64" {
-            encode_static_elf_x86(entry_offset, &text, &image.data, metadata)
+        // plan-166: a `--debug` build also lists its symbols in `.symtab`.
+        let debug = if image.debug_symbols {
+            Some(crate::os::debug_symbols::debug_symbols(image)?)
         } else {
-            encode_static_elf(arch, entry_offset, &text, &image.data, metadata)
+            None
+        };
+        if arch == "x86_64" {
+            encode_static_elf_x86(entry_offset, &text, &image.data, metadata, debug.as_deref())
+        } else {
+            encode_static_elf(
+                arch,
+                entry_offset,
+                &text,
+                &image.data,
+                metadata,
+                debug.as_deref(),
+            )
         }
     } else {
         encode_dynamic_elf(arch, flavor, entry_offset, &text, &image.data, image)?

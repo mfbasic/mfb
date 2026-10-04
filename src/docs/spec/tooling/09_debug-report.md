@@ -159,7 +159,35 @@ The switches tests use to drive a program — `MFB_MACAPP_HEADLESS`,
 `MFB_CANVAS_RESIZE_W`/`_H`, `MFB_WINAPP_INPUT` — are not reporting hooks and work in
 every build.
 
+## Symbol tables
+
+`--debug` has a second, independent effect: the linker writes every symbol the
+encoder defined — each function, runtime helper and data object — into the
+executable's native symbol table, so debuggers, profilers, `nm` and `atos` show
+names instead of raw addresses. Each target backend stamps the flag onto the
+encoded image (`EncodedImage::debug_symbols`), and every output shape of that
+target (console, `.app`, AppDir) shares the one writer that reads it.
+[[src/arch/image.rs:EncodedImage]] [[src/os/debug_symbols.rs:debug_symbols]]
+
+The table holds **names only**: no DWARF, no line tables, no variable locations,
+no dSYM and no PDB. The names are the native symbols verbatim (`_mfb_fn_main`,
+`_mfb_rt_io_io_print`, `_mfb_str_0`; see `./mfb spec linker symbols-and-relocations`).
+Linker-generated import stubs get no name. A build without `--debug` writes none of
+these names, on any target: its output is byte-identical to a compiler without the
+feature.
+
+| Format | Table | Status |
+| --- | --- | --- |
+| Mach-O (`macos-aarch64`) | local `LC_SYMTAB` entries, `LC_FUNCTION_STARTS`, and a content-derived `LC_UUID` (see `./mfb spec linker macos-aarch64`) | written |
+| ELF (`linux-*`) | `.symtab` / `.strtab` of local `STT_FUNC` / `STT_OBJECT` entries, in a section header table the build gains for it (see `./mfb spec linker static-and-dynamic-output`) | written |
+| PE (`windows-x86_64`) | a COFF symbol table and string table past the last section (see `./mfb spec linker windows-x86_64`) | written; Microsoft's debuggers and profilers read only a PDB, which is not written, so they still show no names |
+
+`mfb test --debug` builds its test programs through the same backend, so they carry
+the table too.
+
 ## See Also
 
 * ./mfb spec tooling cli-reference — the `build` and `test` flags
+* ./mfb spec linker symbols-and-relocations — the shared debug symbol model
+* ./mfb man debug — the developer guide: breakpoints, backtraces, profiling, address lookup and this report on each platform
 * ./mfb spec memory program-startup — `_mfb_shutdown` and the exit sequence

@@ -23,6 +23,7 @@ mod rsrc;
 mod spike;
 
 use crate::arch::image::{EncodedImage, EncodedSection, ImportKind};
+use crate::os::debug_symbols::DebugSymbolKind;
 // bug-433: the shared provenance marker every in-tree linker emits. PE has no
 // `PT_NOTE`/`LC_NOTE` equivalent, so it carries the same owner+descriptor bytes
 // in a dedicated read-only `.mfbnote` section.
@@ -545,12 +546,88 @@ pub(crate) fn write_executable(
         });
     }
 
-    let mut bytes = pe::write_image(&sections, text_rva + entry_offset as u32, dirs, gui);
+    // plan-166: a `--debug` build lists its symbols in a COFF symbol table.
+    let coff_symbols = if image.debug_symbols {
+        Some(coff_symbol_table(image, rodata_size, has_rdata, has_data)?)
+    } else {
+        None
+    };
+    let mut bytes = pe::write_image(
+        &sections,
+        text_rva + entry_offset as u32,
+        dirs,
+        gui,
+        coff_symbols.as_ref(),
+    );
     // The image is complete: seal the content signature over it.
     if let Some(signing) = &image.signing_metadata {
         crate::os::content_signature::seal(&mut bytes, signing)?;
     }
     Ok(bytes)
+}
+
+/// `IMAGE_SYM_CLASS_EXTERNAL`: what MinGW emits for a non-static function, and
+/// what `llvm-nm` shows as `T` / `D`.
+const IMAGE_SYM_CLASS_EXTERNAL: u8 = 2;
+/// `IMAGE_SYM_DTYPE_FUNCTION << 4`: the `Type` of a function symbol.
+const IMAGE_SYM_TYPE_FUNCTION: u16 = 0x20;
+
+/// The COFF symbol table a `--debug` `.exe` carries (plan-166): one 18-byte
+/// record per debug symbol, in the shared order. `Value` is the offset within
+/// the record's section (measured: `llvm-nm` adds `ImageBase` + the section RVA).
+/// `SectionNumber` is the 1-based index in the emitted order, which always opens
+/// `.text`, then `.rdata` and `.data` when present.
+fn coff_symbol_table(
+    image: &EncodedImage,
+    rodata_size: usize,
+    has_rdata: bool,
+    has_data: bool,
+) -> Result<pe::CoffSymbolTable, String> {
+    let rdata_number = 1 + has_rdata as i16;
+    let data_number = rdata_number + has_data as i16;
+    let symbols = crate::os::debug_symbols::debug_symbols(image)?;
+    let mut records = Vec::with_capacity(symbols.len() * 18);
+    let mut names = Vec::new();
+    for symbol in &symbols {
+        let (section_number, value, type_) = match symbol.kind {
+            DebugSymbolKind::Function => (1, symbol.offset, IMAGE_SYM_TYPE_FUNCTION),
+            DebugSymbolKind::Object if symbol.offset < rodata_size => {
+                (rdata_number, symbol.offset, 0)
+            }
+            DebugSymbolKind::Object if has_data => (data_number, symbol.offset - rodata_size, 0),
+            DebugSymbolKind::Object => {
+                return Err(format!(
+                    "debug symbols: data symbol '{}' at offset {} lands in no section",
+                    symbol.name, symbol.offset
+                ))
+            }
+        };
+        let name = symbol.name.as_bytes();
+        if name.len() <= 8 {
+            let mut inline = [0u8; 8];
+            inline[..name.len()].copy_from_slice(name);
+            records.extend_from_slice(&inline);
+        } else {
+            // A long name: zeroes, then its offset into the string table, which
+            // counts the table's own 4-byte length field.
+            records.extend_from_slice(&0u32.to_le_bytes());
+            records.extend_from_slice(&(4 + names.len() as u32).to_le_bytes());
+            names.extend_from_slice(name);
+            names.push(0);
+        }
+        records.extend_from_slice(&(value as u32).to_le_bytes());
+        records.extend_from_slice(&section_number.to_le_bytes());
+        records.extend_from_slice(&type_.to_le_bytes());
+        records.push(IMAGE_SYM_CLASS_EXTERNAL);
+        records.push(0); // NumberOfAuxSymbols
+    }
+    let mut strings = (4 + names.len() as u32).to_le_bytes().to_vec();
+    strings.extend_from_slice(&names);
+    Ok(pe::CoffSymbolTable {
+        records,
+        strings,
+        count: symbols.len() as u32,
+    })
 }
 
 fn write_u32(buf: &mut [u8], offset: usize, value: u32) {
@@ -602,6 +679,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         }
     }
 
@@ -645,6 +723,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         }
     }
 
@@ -964,6 +1043,7 @@ mod tests {
             initializers: Vec::new(),
             signing_metadata: None,
             rpaths: Vec::new(),
+            debug_symbols: false,
         }
     }
 
@@ -1219,5 +1299,192 @@ mod tests {
         let cui = write_executable(&image(vec![0xc3]), false, None, None).expect("cui");
         let opt = le_u32(&cui, 0x3C) as usize + 4 + 20;
         assert_eq!(le_u16(&cui, opt + 68), 3, "WINDOWS_CUI");
+    }
+
+    // ===== plan-166: `--debug` COFF symbol table =====
+
+    /// `(name, value, section_number, type, storage_class, aux)` for every COFF
+    /// symbol record, read the way `llvm-nm` does: from the COFF header's
+    /// `PointerToSymbolTable` / `NumberOfSymbols`, with long names through the
+    /// string table that follows the records.
+    fn coff_symbols(image: &[u8]) -> Vec<(String, u32, i16, u16, u8, u8)> {
+        let coff = le_u32(image, 0x3C) as usize + 4;
+        let pointer = le_u32(image, coff + 8) as usize;
+        let count = le_u32(image, coff + 12) as usize;
+        let strings = pointer + count * 18;
+        assert_eq!(
+            le_u32(image, strings) as usize,
+            image.len() - strings,
+            "the string table's size field covers it to the file end"
+        );
+        (0..count)
+            .map(|index| {
+                let at = pointer + index * 18;
+                let name = if le_u32(image, at) == 0 {
+                    let start = strings + le_u32(image, at + 4) as usize;
+                    let end = start + image[start..].iter().position(|b| *b == 0).unwrap();
+                    String::from_utf8(image[start..end].to_vec()).unwrap()
+                } else {
+                    let raw = &image[at..at + 8];
+                    let end = raw.iter().position(|b| *b == 0).unwrap_or(8);
+                    String::from_utf8(raw[..end].to_vec()).unwrap()
+                };
+                (
+                    name,
+                    le_u32(image, at + 8),
+                    le_u16(image, at + 12) as i16,
+                    le_u16(image, at + 14),
+                    image[at + 16],
+                    image[at + 17],
+                )
+            })
+            .collect()
+    }
+
+    /// The `(name, virtual address)` of the 1-based section `number`.
+    fn section_by_number(image: &[u8], number: i16) -> (String, u32) {
+        let e_lfanew = le_u32(image, 0x3C) as usize;
+        let s = e_lfanew + 4 + 20 + 240 + (number as usize - 1) * 40;
+        let raw = &image[s..s + 8];
+        let end = raw.iter().position(|b| *b == 0).unwrap_or(8);
+        (
+            String::from_utf8(raw[..end].to_vec()).unwrap(),
+            le_u32(image, s + 12),
+        )
+    }
+
+    /// A function with a long name, a constant with an inline (≤ 8 byte) name in
+    /// `.rdata`, and a writable global in `.data`, `--debug` on.
+    fn debug_image() -> EncodedImage {
+        let mut img = image(vec![0xc3, 0x90, 0x90, 0x90, 0xc3]);
+        img.symbols.push(EncodedSymbol {
+            name: "_mfb_fn_helper".to_string(),
+            section: EncodedSection::Text,
+            offset: 4,
+        });
+        img.data = vec![0; SECTION_ALIGNMENT as usize + 16];
+        img.rodata_size = SECTION_ALIGNMENT as usize;
+        img.symbols.push(EncodedSymbol {
+            name: "_c".to_string(),
+            section: EncodedSection::Data,
+            offset: 8,
+        });
+        img.symbols.push(EncodedSymbol {
+            name: "_mfb_rt_main_arena".to_string(),
+            section: EncodedSection::Data,
+            offset: SECTION_ALIGNMENT as usize + 8,
+        });
+        img.debug_symbols = true;
+        img
+    }
+
+    #[test]
+    fn debug_symbols_fill_coff_header_and_table() {
+        let img = debug_image();
+        let bytes = write_executable(&img, false, None, None).expect("link");
+        let coff = le_u32(&bytes, 0x3C) as usize + 4;
+        let pointer = le_u32(&bytes, coff + 8);
+        assert_eq!(
+            pointer % FILE_ALIGNMENT,
+            0,
+            "the table starts FileAlignment-aligned"
+        );
+        assert_eq!(le_u32(&bytes, coff + 12), 4, "NumberOfSymbols");
+        // The table is past every section's raw data.
+        let e_lfanew = le_u32(&bytes, 0x3C) as usize;
+        for index in 0..le_u16(&bytes, e_lfanew + 6) as usize {
+            let s = e_lfanew + 4 + 20 + 240 + index * 40;
+            assert!(le_u32(&bytes, s + 20) + le_u32(&bytes, s + 16) <= pointer);
+        }
+
+        let symbols = coff_symbols(&bytes);
+        let names: Vec<_> = symbols.iter().map(|symbol| symbol.0.as_str()).collect();
+        assert_eq!(
+            names,
+            ["_start", "_mfb_fn_helper", "_c", "_mfb_rt_main_arena"]
+        );
+        let (text_rva, data_base_rva) = (section_by_number(&bytes, 1).1, {
+            let (name, rva) = section_by_number(&bytes, 2);
+            assert_eq!(name, ".rdata");
+            rva
+        });
+        for (name, value, number, type_, class, aux) in &symbols {
+            let (section, section_rva) = section_by_number(&bytes, *number);
+            let expected_section = match name.as_str() {
+                "_start" | "_mfb_fn_helper" => ".text",
+                "_c" => ".rdata",
+                _ => ".data",
+            };
+            assert_eq!(section, expected_section, "{name}: SectionNumber");
+            // `llvm-nm` prints ImageBase + section RVA + Value: that must be the
+            // address relocations resolve the same name to.
+            assert_eq!(
+                section_rva + value,
+                symbol_rva(&img, name, text_rva, data_base_rva).unwrap(),
+                "{name}: Value"
+            );
+            let expected_type = if expected_section == ".text" { 0x20 } else { 0 };
+            assert_eq!(*type_, expected_type, "{name}: Type");
+            assert_eq!((*class, *aux), (2, 0), "{name}: EXTERNAL, no aux records");
+        }
+        // `_start` and `_c` fit the inline 8-byte field, NUL-padded; the longer
+        // names go through the string table, the first of them at offset 4 (past
+        // the size field).
+        let record = |index: usize| pointer as usize + index * 18;
+        assert_eq!(&bytes[record(0)..record(0) + 8], b"_start\0\0");
+        assert_eq!(le_u32(&bytes, record(1)), 0);
+        assert_eq!(le_u32(&bytes, record(1) + 4), 4);
+        assert_eq!(&bytes[record(2)..record(2) + 8], b"_c\0\0\0\0\0\0");
+    }
+
+    #[test]
+    fn debug_symbols_off_leaves_header_zero() {
+        let img = EncodedImage {
+            debug_symbols: false,
+            ..debug_image()
+        };
+        let bytes = write_executable(&img, false, None, None).expect("link");
+        let coff = le_u32(&bytes, 0x3C) as usize + 4;
+        assert_eq!(le_u32(&bytes, coff + 8), 0, "PointerToSymbolTable");
+        assert_eq!(le_u32(&bytes, coff + 12), 0, "NumberOfSymbols");
+        assert_eq!(
+            bytes.len() % FILE_ALIGNMENT as usize,
+            0,
+            "nothing past the last section"
+        );
+        assert!(!bytes.windows(14).any(|w| w == b"_mfb_fn_helper"));
+
+        // The table changes nothing else: the same image with `--debug` symbols
+        // is these bytes, plus the appended table, with only the two COFF symbol
+        // fields differing in the headers.
+        let with_table = write_executable(&debug_image(), false, None, None).expect("link");
+        assert!(with_table.len() > bytes.len());
+        let fields = coff + 8..coff + 16;
+        assert_eq!(with_table[..fields.start], bytes[..fields.start]);
+        assert_eq!(with_table[fields.end..bytes.len()], bytes[fields.end..]);
+    }
+
+    #[test]
+    fn signed_debug_build_keeps_mfbsign_and_seals() {
+        let mut img = debug_image();
+        img.signing_metadata = Some(crate::arch::image::ExecutableSigning {
+            metadata: format!(
+                "{{\"contentSignature\":\"{}\"}}",
+                crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER
+            )
+            .into_bytes(),
+            signing_private: Some(mfb_repository::crypto::generate_keypair().1),
+        });
+        // The seal runs after the table is appended, and succeeds.
+        let bytes = write_executable(&img, false, None, None).expect("link and seal");
+        let binary = crate::os::inspect::inspect(&bytes).expect("inspect reads it back");
+        let blob = binary.signing.expect(".mfbsign found by name");
+        let section = section_named(&bytes, b".mfbsign").unwrap();
+        assert_eq!(&bytes[blob.clone()], &section[..blob.len()]);
+        assert_eq!(binary.covered_end, bytes.len(), "the seal covers the table");
+        assert_eq!(coff_symbols(&bytes).len(), 4);
+        assert!(!bytes
+            .windows(crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER.len())
+            .any(|w| w == crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER.as_bytes()));
     }
 }
