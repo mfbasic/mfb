@@ -560,6 +560,10 @@ name = "rt_capturing_callback_failure_frees"
 path = "tests/runtime/rt_capturing_callback_failure_frees.rs"
 
 [[test]]
+name = "rt_nested_lambda_capture"
+path = "tests/runtime/rt_nested_lambda_capture.rs"
+
+[[test]]
 name = "rt_closure_single_owner"
 path = "tests/runtime/rt_closure_single_owner.rs"
 

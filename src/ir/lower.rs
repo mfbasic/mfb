@@ -5890,7 +5890,32 @@ fn collect_captured_locals(
                 );
             }
         }
-        HirExpression::Lambda { .. } => {}
+        // A nested lambda's free variables are free in this one too: lowering the
+        // nested lambda builds its environment from THIS lambda's locals, so every
+        // outer binding it reads must be captured here first. Skipping its body left
+        // `LAMBDA(i) -> LAMBDA(v) -> v * i + k` with no `k` in either environment
+        // ("NIR local reference 'k' does not resolve"). Its own parameters shadow.
+        HirExpression::Lambda {
+            params,
+            body,
+            assign_target,
+        } => {
+            let mut inner_names = local_names.clone();
+            inner_names.extend(params.iter().map(|param| param.name.clone()));
+            if let Some(target) = assign_target {
+                if !inner_names.contains(target) {
+                    if let Some(type_) = outer_locals.get(target) {
+                        if seen.insert(target.clone()) {
+                            captures.push(CapturedLocal {
+                                name: target.clone(),
+                                type_: type_.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+            collect_captured_locals(body, outer_locals, &inner_names, seen, captures);
+        }
         HirExpression::Binary { left, right, .. } => {
             collect_captured_locals(left, outer_locals, local_names, seen, captures);
             collect_captured_locals(right, outer_locals, local_names, seen, captures);
