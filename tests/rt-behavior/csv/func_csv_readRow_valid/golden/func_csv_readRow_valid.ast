@@ -1,0 +1,94 @@
+{
+  "project": "func_csv_readRow_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "csv", "line": 2 },
+    { "module": "fs", "line": 3 },
+    { "module": "io", "line": 4 },
+    { "module": "strings", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 10,
+      "params": [
+      { "name": "row", "type": "List OF String", "default": null, "line": 10 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 11 },
+      {
+        "kind": "forEach",
+        "name": "cell",
+        "iterable": { "kind": "identifier", "value": "row" },
+        "line": 12,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "[" } }, "right": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "cell" }, { "kind": "string", "value": "\r" }, { "kind": "string", "value": "<CR>" }] }, { "kind": "string", "value": "\n" }, { "kind": "string", "value": "<LF>" }] } }, "right": { "kind": "string", "value": "]" } }, "line": 13 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "h1,h2\r\n\"multi\r\nline\",x\n\"q\"\"t\",\n\nlast,end" }, { "kind": "string", "value": "r" }] }, "line": 19 },
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 20 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "unary", "operator": "NOT", "operand": { "kind": "call", "callee": "fs.eof", "arguments": [{ "kind": "identifier", "value": "f" }] } },
+        "line": 21,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "identifier", "value": "f" }] }] } }] }, "line": 22 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "line": 23 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "more", "type": "List OF String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 25,
+        "expression": { "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "identifier", "value": "f" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "at end raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 26 },
+        { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 27 }
+        ]
+      }, "line": 25 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "d", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "x;'y;z';w\n'a''b';c\n" }, { "kind": "string", "value": "r" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dialect " }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "identifier", "value": "d" }, { "kind": "string", "value": ";" }, { "kind": "string", "value": "'" }] }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dialect " }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "identifier", "value": "d" }, { "kind": "named", "name": "delimiter", "value": { "kind": "string", "value": ";" } }, { "kind": "named", "name": "quote", "value": { "kind": "string", "value": "'" } }] }] } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "open", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "a,\"never\nclosed" }, { "kind": "string", "value": "r" }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "bad", "type": "List OF String", "value": {
+        "kind": "trapped",
+        "binding": "e2",
+        "line": 35,
+        "expression": { "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "identifier", "value": "open" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "open quote raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e2" }, "member": "code" }] } }] }, "line": 36 },
+        { "kind": "recover", "value": { "kind": "list", "values": [] }, "line": 37 }
+        ]
+      }, "line": 35 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "mixed", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "# preamble\nk,v\n1,2\n" }, { "kind": "string", "value": "r" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "preamble " }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "mixed" }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "record " }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "csv.readRow", "arguments": [{ "kind": "identifier", "value": "mixed" }] }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rest rows=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "identifier", "value": "mixed" }] }] }] } }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 45 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -63,12 +63,13 @@ pub(crate) const JSON_TYPE_ID: &str = "json.Json";
 const INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `json::Json` tree"#;
 
 const DESC: &str = r#"The `json` package converts between JSON text and a `json::Json` value tree and reads
-members out of that tree. `json::parse` turns a UTF-8 `String` holding one
+members out of that tree. `json::parse` turns JSON text — a UTF-8 `String`, or an
+open `fs::File` read from its current position to its end — holding one
 complete JSON document into a `json::Json` value, `json::stringify` renders a `json::Json`
 value back into JSON text — compact by default, indented when given an indent —
 and `json::get` and `json::getOr` walk a path of object keys and array indexes to
 a nested member. `json` is a built-in package written in
-MFBASIC source over the `collections`, `strings`, and `encoding` packages, so
+MFBASIC source over the `collections`, `strings`, `encoding`, and `fs` packages, so
 `IMPORT json` needs no manifest dependency.
 
 The package defines the `json::Json` union and its six member types. `json::Json` is a
@@ -113,7 +114,8 @@ default value in those cases instead of failing."#;
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("json", INTRO, DESC);
 
-    pkg.add_imports(vec!["collections", "strings", "encoding"]);
+    // bug-815: `fs` for the `File` overloads of `parse` (`fs::readAll`).
+    pkg.add_imports(vec!["collections", "strings", "encoding", "fs"]);
 
     pkg.add_record(RegistryRecord {
         name: "JsonNull",

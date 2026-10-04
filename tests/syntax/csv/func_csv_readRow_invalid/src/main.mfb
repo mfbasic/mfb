@@ -1,0 +1,12 @@
+IMPORT csv
+IMPORT fs
+
+FUNC main AS Integer
+  RES f = fs::openData("a,b", "r")
+  LET missing AS List OF String = csv::readRow()
+  LET text AS List OF String = csv::readRow("a,b")
+  LET wrongDelimiter AS List OF String = csv::readRow(f, 59)
+  LET tooMany AS List OF String = csv::readRow(f, ",", "\"", "\n")
+  LET badName AS List OF String = csv::readRow(f, separator := ";")
+  RETURN 0
+END FUNC

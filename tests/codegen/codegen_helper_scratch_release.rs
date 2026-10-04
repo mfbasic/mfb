@@ -286,7 +286,8 @@ const FS_HELPERS: &[(&str, Counts)] = &[
     ("_mfb_rt_fs_fs_readAll", (1, 0, 0)),
     ("_mfb_rt_fs_fs_readAllBytes", (1, 0, 0)),
     ("_mfb_rt_fs_fs_readBytes", (2, 2, 2)),
-    ("_mfb_rt_fs_fs_readLine", (5, 3, 1)),
+    // bug-809: one allocation per line instead of three (4 allocs, frees unchanged).
+    ("_mfb_rt_fs_fs_readLine", (4, 3, 1)),
     ("_mfb_rt_fs_fs_readText", (1, 0, 0)),
     ("_mfb_rt_fs_fs_setBuffered", (0, 0, 0)),
     ("_mfb_rt_fs_fs_setCurrentDirectory", (1, 1, 1)),

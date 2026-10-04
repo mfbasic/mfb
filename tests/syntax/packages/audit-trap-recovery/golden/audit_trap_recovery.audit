@@ -12,12 +12,14 @@ Summary:
 
 Control flow:
   leaf at src/main.mfb:1 (fallible)
+    fallible call error at src/main.mfb:2 -> return
   propagates at src/main.mfb:5 (fallible)
     trap err -> propagates
     fallible call leaf at src/main.mfb:6 -> trap
   reraises at src/main.mfb:12 (fallible)
     trap err -> fails
     fallible call leaf at src/main.mfb:13 -> trap
+    fallible call error at src/main.mfb:15 -> trap
   recovers at src/main.mfb:19
     trap err -> returns value
     fallible call leaf at src/main.mfb:20 -> trap
@@ -61,7 +63,14 @@ $ mfb audit --format json tests/syntax/packages/audit-trap-recovery
       "line": 1,
       "fallible": true,
       "trap": null,
-      "calls": []
+      "calls": [
+        {
+          "callee": "error",
+          "line": 2,
+          "propagation": "return",
+          "capability": null
+        }
+      ]
     },
     {
       "function": "propagates",
@@ -96,6 +105,12 @@ $ mfb audit --format json tests/syntax/packages/audit-trap-recovery
         {
           "callee": "leaf",
           "line": 13,
+          "propagation": "trap",
+          "capability": null
+        },
+        {
+          "callee": "error",
+          "line": 15,
           "propagation": "trap",
           "capability": null
         }

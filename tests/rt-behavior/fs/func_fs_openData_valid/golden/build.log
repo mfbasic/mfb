@@ -1,0 +1,27 @@
+$ mfb build -ast -ir tests/rt-behavior/fs/func_fs_openData_valid
+Wrote AST to tests/rt-behavior/fs/func_fs_openData_valid/func_fs_openData_valid.ast
+Wrote IR to tests/rt-behavior/fs/func_fs_openData_valid/func_fs_openData_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/fs/func_fs_openData_valid
+Wrote executable to tests/rt-behavior/fs/func_fs_openData_valid/build/func_fs_openData_valid.out
+[exit 0]
+$ tests/rt-behavior/fs/func_fs_openData_valid/build/func_fs_openData_valid.out
+r size=14
+r line [one]
+r line [two]
+r line [three]
+r write raised 77020002
+read read mode
+w size=0
+w size=3 read raised 77020001
+write size=1
+rw read [XYcdef]
+readWrite read [built
+]
+a size=6 read raised 77020001
+append size=6
+bytes len=5 last=255 source len=1
+bytes after write len=6
+empty bytes eof=TRUE
+mode R raised 77050002
+[exit 0]

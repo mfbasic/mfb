@@ -4,6 +4,11 @@
 //! (`Implementation::Mfb`): the `__json_*` body lives here and replaces a
 //! `'@@MFB_BODY:parse@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
+//!
+//! bug-815: two more overloads take an `fs::File` in place of the `String`.
+//! Both read the file's remaining text with `fs::readAll` and hand it to the
+//! untouched `__json_parse`/`__json_parseRevive` bodies above — one parser,
+//! shared, never duplicated.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -17,6 +22,15 @@ it as a `json::Json` union value. Leading and trailing JSON whitespace is skippe
 anything other than whitespace after the first complete document is rejected — so
 a string holding two documents, or a document followed by stray text, fails
 rather than parsing the first and ignoring the rest.
+
+`value` is either the JSON text itself, as a `String`, or an open `File` to
+read it from. Given a `File`, `json::parse` reads from its current position to
+its end — exactly as `fs::readAll` does — and parses that text, so the file is
+left at end of input afterwards (`fs::eof` reports `TRUE`); it is not closed,
+and nothing about it other than its position is changed. Given a `String`, the
+result is exactly what parsing a `File` holding that same text would give: the
+same `json::Json` value, the same errors for the same malformed text, and the
+same reviver behaviour.
 
 Whitespace means exactly the four characters JSON allows: space, tab, carriage
 return, and line feed. No other character is skippable, anywhere.
@@ -121,7 +135,12 @@ nothing to ask for removal with and every return is stored. Returning
 `json::JsonNull[NOTHING]` therefore stores a JSON null instead of dropping the
 member.
 
-The argument may also be passed by the name `text`.
+A `String` argument may also be passed by the name `text`; a `File` argument
+has no alternate name. Reading a `File` can also fail the way `fs::readAll`
+does: `ErrEncoding` when the remaining bytes are not valid UTF-8,
+`ErrReadFailed` when the host could not measure or read the file,
+`ErrResourceClosed` for a closed file, and `ErrResourceMoved` for one handed to
+another thread with `thread::transfer`.
 
 `ErrOutOfMemory` means the program ran out of memory."#;
 
@@ -146,6 +165,22 @@ IMPORT io
 FUNC main AS Nothing
   LET empty AS json::Json = json::parse(text := "null")
   io::print(json::stringify(empty))
+END FUNC
+```
+
+Parse a document straight from an open file, left over its end afterwards:
+
+```
+IMPORT json
+IMPORT fs
+IMPORT io
+
+FUNC main AS Nothing
+  fs::writeText("doc.json", "{\"ok\":true}")
+  RES f = fs::openFile("doc.json")
+  LET doc AS json::Json = json::parse(f)
+  io::print(json::stringify(json::get(doc, ["ok"])))
+  io::print(toString(fs::eof(f)))
 END FUNC
 ```
 
@@ -238,14 +273,44 @@ r#"FUNC __json_parseRevive(value AS String, reviver AS FUNC(String, Json) AS Jso
   RETURN __json_revive("", parsed, reviver)
 END FUNC"#;
 
+/// bug-815: the `fs::File` overload. `fs::readAll` decodes every remaining byte
+/// of the file as UTF-8 text in one pass (its own "decode once" cost, measured
+/// as part of bug-809's `fs::openData`/`fs::seek` work), and the result is
+/// handed straight to the untouched `__json_parse` body — so there is exactly
+/// one JSON parser, and a `File`'s result, errors, and reviver walk are
+/// byte-for-byte what the `String` overloads give for the same text. Naming:
+/// bug-809 named its own File parameter `file`; here it is named `value` to
+/// match this overload's `String` sibling by the same function name
+/// (`csv::parse`'s File overload made the same call, for the same reason —
+/// keeping one parameter name across a function's own overloads rather than
+/// renaming per-type).
+#[rustfmt::skip]
+const FUNC_BODY_FILE: &str =
+r#"FUNC __json_parseFile(RES value AS fs::File) AS Json
+  LET text AS String = fs::readAll(value)
+  RETURN __json_parse(text)
+END FUNC"#;
+
+/// bug-815: the `fs::File` + reviver overload, same sharing as
+/// `FUNC_BODY_FILE` but delegating to `__json_parseRevive`.
+#[rustfmt::skip]
+const FUNC_BODY_FILE_REVIVE: &str =
+r#"FUNC __json_parseFileRevive(RES value AS fs::File, reviver AS FUNC(String, Json) AS Json) AS Json
+  LET text AS String = fs::readAll(value)
+  RETURN __json_parseRevive(text, reviver)
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "parse",
         intro: INTRO,
         desc: DESC,
         example: EX,
-        // plan-120-E: two overloads, arity-selected (`datetime::parse`'s shape).
-        expected_arguments: Some("String or String, FUNC(String, Json) AS Json"),
+        // plan-120-E/bug-815: four overloads, arity- and type-selected
+        // (`datetime::parse`'s shape for arity; `csv::parse`'s for String-or-File).
+        expected_arguments: Some(
+            "String or File or String, FUNC(String, Json) AS Json or File, FUNC(String, Json) AS Json",
+        ),
         internal_only: false,
         implementations: vec![
             Implementation {
@@ -266,24 +331,31 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 body: Body::mfb(FUNC_BODY, "__json_parse"),
             },
+            // bug-815: the File form. `fs::readAll` reaches four errors of its
+            // own beyond the String overload's set; the parse/reviver codes are
+            // identical because the body shares `__json_parse` unchanged.
+            Implementation {
+                params: vec![file_param()],
+                return_type: ParameterType::named("Json"),
+                errors: vec![
+                    "ErrInvalidFormat",
+                    "ErrInvalidSurrogate",
+                    "ErrDepthExceeded",
+                    "ErrOverflow",
+                    "ErrOutOfMemory",
+                    "ErrEncoding",
+                    "ErrReadFailed",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                ],
+                body: Body::mfb(FUNC_BODY_FILE, "__json_parseFile"),
+            },
             // plan-120-E: the reviver form. Parses with the body above, then
             // walks the finished tree — so it raises exactly the same codes for
             // exactly the same documents, and the reviver only ever sees a tree
             // that parsed. An error the reviver itself raises propagates.
             Implementation {
-                params: vec![
-                    text_param(),
-                    Parameter {
-                        name: "reviver",
-                        desc: "Called once for every parsed value, innermost first, with its key and the already-revived value; its return value is stored in place. The key is the member name inside an object, the index as a decimal string inside an array, and \"\" for the document root, which is called last.",
-                        aliases: &[],
-                        ty: ParameterType::func(
-                            vec![ParameterType::String, ParameterType::named("Json")],
-                            ParameterType::named("Json"),
-                        ),
-                        default: DefaultValue::None,
-                    },
-                ],
+                params: vec![text_param(), reviver_param()],
                 return_type: ParameterType::named("Json"),
                 errors: vec![
                     "ErrInvalidFormat",
@@ -294,17 +366,66 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 body: Body::mfb(FUNC_BODY_REVIVE, "__json_parseRevive"),
             },
+            // bug-815: the File + reviver form, same relationship to
+            // FUNC_BODY_FILE_REVIVE that the String + reviver form above has to
+            // FUNC_BODY_REVIVE.
+            Implementation {
+                params: vec![file_param(), reviver_param()],
+                return_type: ParameterType::named("Json"),
+                errors: vec![
+                    "ErrInvalidFormat",
+                    "ErrInvalidSurrogate",
+                    "ErrDepthExceeded",
+                    "ErrOverflow",
+                    "ErrOutOfMemory",
+                    "ErrEncoding",
+                    "ErrReadFailed",
+                    "ErrResourceClosed",
+                    "ErrResourceMoved",
+                ],
+                body: Body::mfb(FUNC_BODY_FILE_REVIVE, "__json_parseFileRevive"),
+            },
         ],
     });
 }
 
-/// The `value` parameter, identical in both overloads.
+/// The `value` parameter, identical in both `String` overloads.
 fn text_param() -> Parameter {
     Parameter {
         name: "value",
         desc: "The JSON text to parse. Must contain exactly one complete JSON document, optionally surrounded by JSON whitespace. An empty or whitespace-only string is rejected.",
         aliases: &["text"],
         ty: ParameterType::String,
+        default: DefaultValue::None,
+    }
+}
+
+/// The `value` parameter, identical in both `fs::File` overloads (bug-815).
+/// Named `value` rather than `file` to match the `String` overloads of this
+/// same function — see the comment on `FUNC_BODY_FILE`.
+fn file_param() -> Parameter {
+    Parameter {
+        name: "value",
+        desc: "An open `File` holding UTF-8 JSON text, opened in a mode that permits reading. \
+               Parsing starts at its current position and reads one complete document to the \
+               end; the file is left open, at end of input, and is not otherwise modified.",
+        aliases: &[],
+        ty: ParameterType::named(crate::codegen::builtins::fs::FILE_TYPE_ID),
+        default: DefaultValue::None,
+    }
+}
+
+/// The `reviver` parameter, identical across every overload that takes one
+/// (the `String` and `File` forms both call it the same way).
+fn reviver_param() -> Parameter {
+    Parameter {
+        name: "reviver",
+        desc: "Called once for every parsed value, innermost first, with its key and the already-revived value; its return value is stored in place. The key is the member name inside an object, the index as a decimal string inside an array, and \"\" for the document root, which is called last.",
+        aliases: &[],
+        ty: ParameterType::func(
+            vec![ParameterType::String, ParameterType::named("Json")],
+            ParameterType::named("Json"),
+        ),
         default: DefaultValue::None,
     }
 }

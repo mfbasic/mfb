@@ -2733,8 +2733,6 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("canvas.Ellipse", SIZE_VARIES),
     ("canvas.PolyLine", SIZE_VARIES),
     ("canvas.DrawLayer", SIZE_VARIES),
-    ("csv.CsvReader", SIZE_VARIES),
-    ("csv.CsvRow", SIZE_VARIES),
     ("json.JsonNull", FieldKindRow::Arm('F')),
     ("json.JsonBool", FieldKindRow::Arm('F')),
     ("json.JsonNum", FieldKindRow::Arm('F')),

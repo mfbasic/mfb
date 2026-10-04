@@ -665,6 +665,81 @@ fn emit_known_folder_into_query(
     ]);
 }
 
+/// `FILE_ATTRIBUTE_NORMAL` — every ordinary `fs::` open.
+const FILE_ATTRIBUTE_NORMAL: &str = "128";
+/// `FILE_ATTRIBUTE_TEMPORARY (0x100) | FILE_FLAG_DELETE_ON_CLOSE (0x04000000)`.
+const FILE_ATTRIBUTE_TEMPORARY_DELETE_ON_CLOSE: &str = "67109120";
+
+/// `CreateFileW` over the arena UTF-8 path in ARG[0] with the packed open flags
+/// in ARG[1] and the given `dwFlagsAndAttributes`; the HANDLE comes back in the
+/// return register (and in `c_return(0)`).
+fn emit_create_file_w(
+    from: &str,
+    attributes: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Contract (shared fs/io.rs openFile helper): the arena UTF-8 path is in
+    // ARG[0], the packed open flags (`open_flag_set`'s Windows arm:
+    // (disposition<<32)|access) in ARG[1], the POSIX mode in ARG[2] (ignored).
+    // Return the file HANDLE in the return register; the helper sign-extends
+    // its low 32 bits and treats < 0 as failure — CreateFileW returns small
+    // positive kernel handles and INVALID_HANDLE_VALUE (-1) on error, so that
+    // check is correct. CreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
+    // NULL, dwCreationDisposition, dwFlagsAndAttributes, NULL) — three of its
+    // seven args are on the stack (above the shadow), reusing the marshal
+    // frame's now-dead path slot at 0x30 for the last one.
+    const FRAME: usize = 0x50;
+    const PACKED_SLOT: usize = 0x48;
+    instructions.extend([
+        abi::subtract_stack(FRAME),
+        abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), PACKED_SLOT), // save packed flags
+    ]);
+    emit_marshal_path(from, 0, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MARSHAL_WBUF_SLOT), // lpFileName
+        abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), PACKED_SLOT),
+        // Stage the three stack args using ARG[2] as a caller-saved scratch,
+        // BEFORE it is set to its register value (dwShareMode=7). The SCRATCH
+        // pool must not be used — its Win64 realizations are callee-saved.
+        // dwCreationDisposition (5th, stack) = packed >> 32.
+        abi::shift_right_immediate(abi::mfb_arg(2), abi::mfb_arg(1), 32),
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
+        abi::move_immediate(abi::mfb_arg(2), "Integer", attributes), // dwFlagsAndAttributes
+        abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // 6th (stack)
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),       // 7th hTemplateFile = NULL
+        // dwDesiredAccess: CreateFileW reads it as the low 32 bits of rdx, so
+        // the packed value in ARG[1] goes straight in — the disposition in the
+        // high half is ignored by the DWORD parameter.
+        abi::move_immediate(abi::mfb_arg(2), "Integer", "7"), // FILE_SHARE_READ|WRITE|DELETE
+        abi::move_immediate(abi::mfb_arg(3), "Integer", "0"), // lpSecurityAttributes = NULL
+    ]);
+    call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
+    instructions.extend([
+        // plan-85: `CreateFileW` hands the HANDLE back as a **C** result (`rax` =
+        // `%retC`), and this seam's contract above promises it in the *aligned MFB*
+        // return register (`rcx` on Win64). Without this move the caller read
+        // whatever `rcx` happened to hold — the `lpFileName` pointer, which is
+        // positive, so the `< 0` open-failed check passed and the bogus value was
+        // handed to `WriteFile` as its handle.
+        //
+        // The symptom was `fs::writeText` raising `ErrWriteFailed` while leaving a
+        // **0-byte file behind**: the open genuinely worked, so the file was created
+        // and truncated, and only the write failed. Every `fs` write on Windows was
+        // affected. `emit_heap_alloc`, `emit_lib_open` and `emit_lib_get_sym` do
+        // this move; this one was missed when plan-85 split `%retC` from the
+        // aligned bank.
+        abi::move_register(abi::return_register(), abi::c_return(0)),
+        // The flags are spent; park the handle there across the free.
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), PACKED_SLOT),
+    ]);
+    emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), PACKED_SLOT),
+        abi::add_stack(FRAME),
+    ]);
+}
+
 /// Marshal the UTF-8 path in `ARG[0]` into a [`MARSHAL_FRAME`] the caller has
 /// already reserved with `subtract_stack`: the path is parked at
 /// `sp + MARSHAL_PATH_SLOT` and its UTF-16 marshalling buffer, sized to the path,
@@ -2687,65 +2762,30 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // Contract (shared fs/io.rs openFile helper): the arena UTF-8 path is in
-        // ARG[0], the packed open flags (`open_flag_set`'s Windows arm:
-        // (disposition<<32)|access) in ARG[1], the POSIX mode in ARG[2] (ignored).
-        // Return the file HANDLE in the return register; the helper sign-extends
-        // its low 32 bits and treats < 0 as failure — CreateFileW returns small
-        // positive kernel handles and INVALID_HANDLE_VALUE (-1) on error, so that
-        // check is correct. CreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
-        // NULL, dwCreationDisposition, dwFlagsAndAttributes, NULL) — three of its
-        // seven args are on the stack (above the shadow), reusing the marshal
-        // frame's now-dead path slot at 0x30 for the last one.
-        const FRAME: usize = 0x50;
-        const PACKED_SLOT: usize = 0x48;
-        instructions.extend([
-            abi::subtract_stack(FRAME),
-            abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), PACKED_SLOT), // save packed flags
-        ]);
-        emit_marshal_path(from, 0, instructions, relocations);
-        instructions.extend([
-            abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), MARSHAL_WBUF_SLOT), // lpFileName
-            abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), PACKED_SLOT),
-            // Stage the three stack args using ARG[2] as a caller-saved scratch,
-            // BEFORE it is set to its register value (dwShareMode=7). The SCRATCH
-            // pool must not be used — its Win64 realizations are callee-saved.
-            // dwCreationDisposition (5th, stack) = packed >> 32.
-            abi::shift_right_immediate(abi::mfb_arg(2), abi::mfb_arg(1), 32),
-            abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20),
-            abi::move_immediate(abi::mfb_arg(2), "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
-            abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28), // 6th (stack)
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),  // 7th hTemplateFile = NULL
-            // dwDesiredAccess: CreateFileW reads it as the low 32 bits of rdx, so
-            // the packed value in ARG[1] goes straight in — the disposition in the
-            // high half is ignored by the DWORD parameter.
-            abi::move_immediate(abi::mfb_arg(2), "Integer", "7"), // FILE_SHARE_READ|WRITE|DELETE
-            abi::move_immediate(abi::mfb_arg(3), "Integer", "0"), // lpSecurityAttributes = NULL
-        ]);
-        call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
-        instructions.extend([
-            // plan-85: `CreateFileW` hands the HANDLE back as a **C** result (`rax` =
-            // `%retC`), and this seam's contract above promises it in the *aligned MFB*
-            // return register (`rcx` on Win64). Without this move the caller read
-            // whatever `rcx` happened to hold — the `lpFileName` pointer, which is
-            // positive, so the `< 0` open-failed check passed and the bogus value was
-            // handed to `WriteFile` as its handle.
-            //
-            // The symptom was `fs::writeText` raising `ErrWriteFailed` while leaving a
-            // **0-byte file behind**: the open genuinely worked, so the file was created
-            // and truncated, and only the write failed. Every `fs` write on Windows was
-            // affected. `emit_heap_alloc`, `emit_lib_open` and `emit_lib_get_sym` do
-            // this move; this one was missed when plan-85 split `%retC` from the
-            // aligned bank.
-            abi::move_register(abi::return_register(), abi::c_return(0)),
-            // The flags are spent; park the handle there across the free.
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), PACKED_SLOT),
-        ]);
-        emit_free_marshal_slot(from, MARSHAL_WBUF_SLOT, instructions, relocations);
-        instructions.extend([
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), PACKED_SLOT),
-            abi::add_stack(FRAME),
-        ]);
+        emit_create_file_w(from, FILE_ATTRIBUTE_NORMAL, instructions, relocations);
+        Ok(())
+    }
+
+    fn emit_open_delete_on_close_file(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // fs::openData's scratch file (bug-809): the host deletes it once the last
+        // handle to it closes, crash included, and keeps it in the cache rather
+        // than writing it out. A second CreateFileW on the same path still opens
+        // while this handle is open (the shared share mode carries
+        // FILE_SHARE_DELETE); once this handle closes the file is delete-pending,
+        // and the surviving handle keeps working until it closes too — measured
+        // on box 206 (Windows 11 26200) with a P/Invoke probe.
+        emit_create_file_w(
+            from,
+            FILE_ATTRIBUTE_TEMPORARY_DELETE_ON_CLOSE,
+            instructions,
+            relocations,
+        );
         Ok(())
     }
 

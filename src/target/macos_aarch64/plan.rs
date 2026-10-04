@@ -792,7 +792,11 @@ impl plan::NativePlanPlatform for Platform {
             | "fs.flush"
             | "fs.eof"
             | "fs.size"
-            | "fs.readBytesAt" => {
+            | "fs.readBytesAt"
+            | "fs.seek"
+            | "fs.readLineRaw"
+            | "fs.openData"
+            | "fs.openDataBytes" => {
                 let mut imports = vec![
                     PlatformImport {
                         library: "libSystem".to_string(),
@@ -836,6 +840,18 @@ impl plan::NativePlanPlatform for Platform {
                         symbol: "_getentropy".to_string(),
                         required_by: required_by.clone(),
                     });
+                }
+                // bug-809: openData names its scratch file in the user temp
+                // directory (`confstr`) with a random suffix (`getentropy`) and
+                // unlinks it once the mode handle is open.
+                if matches!(spec.call, "fs.openData" | "fs.openDataBytes") {
+                    for symbol in ["_getentropy", "_confstr", "_unlink"] {
+                        imports.push(PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: symbol.to_string(),
+                            required_by: required_by.clone(),
+                        });
+                    }
                 }
                 if matches!(spec.call, "fs.openWithin") {
                     // bug-259: openWithin canonicalizes its trusted root via realpath

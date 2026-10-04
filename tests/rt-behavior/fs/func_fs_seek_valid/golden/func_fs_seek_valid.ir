@@ -1,0 +1,142 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_seek_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "trySeek",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 6, "type": "fs.File", "default": null },
+    { "name": "position", "line": 6, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "local", "name": "position" }] } },
+    {
+      "op": "if",
+      "line": 7,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 7, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "return", "line": 8, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "seek raised " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } } }
+      ]
+    },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "String", "value": "seek ok" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_seek_valid.txt" } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "header\nbody line\ntail\n" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "past end eof=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.eof", "args": [{ "kind": "local", "name": "f" }] }] } }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "trySeek", "args": [{ "kind": "local", "name": "f" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "12" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "after negative: [" }, "right": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "m", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openData", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "rw" }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "fs.setBuffered", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "first\nsecond\n" }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "buffered read back [" }, "right": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "m" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "X" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "overwrite at read position [" }, "right": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "m" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "m" }, { "kind": "const", "type": "String", "value": "Z" }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "buffered gap write size=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fs.size", "args": [{ "kind": "local", "name": "m" }] }] } }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "fs.flush", "args": [{ "kind": "local", "name": "m" }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "flushed gap write size=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fs.size", "args": [{ "kind": "local", "name": "m" }] }] } }] } },
+    { "op": "return", "line": 43, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
