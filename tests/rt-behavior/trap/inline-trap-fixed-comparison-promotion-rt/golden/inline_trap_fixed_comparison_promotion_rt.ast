@@ -1,0 +1,135 @@
+{
+  "project": "inline_trap_fixed_comparison_promotion_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pass",
+      "line": 9,
+      "params": [
+      { "name": "b", "type": "Boolean", "default": null, "line": 9 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "below",
+      "line": 13,
+      "params": [
+      { "name": "big", "type": "Integer", "default": null, "line": 13 },
+      { "name": "f", "type": "Fixed", "default": null, "line": 13 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "f" } }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "viaInt",
+      "line": 17,
+      "params": [
+      { "name": "big", "type": "Integer", "default": null, "line": 17 },
+      { "name": "f", "type": "Fixed", "default": null, "line": 17 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 18,
+        "expression": { "kind": "call", "callee": "pass", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "f" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 19 },
+        { "kind": "recover", "value": { "kind": "boolean", "value": false }, "line": 20 }
+        ]
+      }, "line": 18 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "viaFloat",
+      "line": 25,
+      "params": [
+      { "name": "big", "type": "Float", "default": null, "line": 25 },
+      { "name": "f", "type": "Fixed", "default": null, "line": 25 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 26,
+        "expression": { "kind": "call", "callee": "pass", "arguments": [{ "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "f" }, "right": { "kind": "identifier", "value": "big" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "float trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 27 },
+        { "kind": "recover", "value": { "kind": "boolean", "value": false }, "line": 28 }
+        ]
+      }, "line": 26 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "viaFunction",
+      "line": 33,
+      "params": [
+      { "name": "big", "type": "Integer", "default": null, "line": 33 },
+      { "name": "f", "type": "Fixed", "default": null, "line": 33 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 34,
+        "expression": { "kind": "call", "callee": "pass", "arguments": [{ "kind": "call", "callee": "below", "arguments": [{ "kind": "identifier", "value": "big" }, { "kind": "identifier", "value": "f" }] }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "function trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 35 },
+        { "kind": "recover", "value": { "kind": "boolean", "value": false }, "line": 36 }
+        ]
+      }, "line": 34 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 41,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "viaInt", "arguments": [{ "kind": "number", "value": "3000000000" }, { "kind": "number", "value": "1F" }] }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "viaInt", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3" } }, { "kind": "number", "value": "1F" }] }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "viaFloat", "arguments": [{ "kind": "number", "value": "3000000000.0" }, { "kind": "number", "value": "1F" }] }] }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "viaFloat", "arguments": [{ "kind": "number", "value": "0.5" }, { "kind": "number", "value": "1F" }] }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "viaFunction", "arguments": [{ "kind": "number", "value": "3000000000" }, { "kind": "number", "value": "1F" }] }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "viaFunction", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "1F" }] }] }] }, "line": 47 }
+      ]
+    }
+    ]
+  }
+  ]
+}

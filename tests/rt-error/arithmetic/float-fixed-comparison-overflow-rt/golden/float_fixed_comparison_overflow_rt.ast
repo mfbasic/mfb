@@ -1,0 +1,29 @@
+{
+  "project": "float_fixed_comparison_overflow_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Fixed", "value": { "kind": "number", "value": "1F" }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "huge", "type": "Float", "value": { "kind": "number", "value": "3000000000.0" }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "huge" }, "right": { "kind": "identifier", "value": "f" } }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

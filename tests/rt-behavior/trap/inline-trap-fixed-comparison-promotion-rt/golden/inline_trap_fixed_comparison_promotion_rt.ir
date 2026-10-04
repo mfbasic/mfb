@@ -1,0 +1,252 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "inline_trap_fixed_comparison_promotion_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "pass",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "b", "line": 9, "type": "Boolean", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "local", "name": "b" } }
+    ]
+  },
+  {
+    "name": "below",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "big", "line": 13, "type": "Integer", "default": null },
+    { "name": "f", "line": 13, "type": "Fixed", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 14, "value": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "f" } } }
+    ]
+  },
+  {
+    "name": "viaInt",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "big", "line": 17, "type": "Integer", "default": null },
+    { "name": "f", "line": 17, "type": "Fixed", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": true, "name": "$trap_failed4", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 18, "mutable": true, "name": "$trap_err5", "type": "Error", "value": null },
+    { "op": "bind", "line": 18, "mutable": true, "name": "$trap_val3", "type": "Boolean", "value": null },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res1", "type": "Result OF Boolean", "value": { "kind": "checked", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "f" } } } },
+    {
+      "op": "if",
+      "line": 18,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
+      "then": [
+      { "op": "bind", "line": 18, "mutable": false, "name": "$trap_arg0", "type": "Boolean", "value": { "kind": "resultValue", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "assign", "line": 18, "name": "$trap_val3", "value": { "kind": "call", "type": "Boolean", "target": "pass", "args": [{ "kind": "local", "name": "$trap_arg0" }] } }
+      ],
+      "else": [
+      { "op": "assign", "line": 18, "name": "$trap_failed4", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 18, "name": "$trap_err5", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 18,
+      "condition": { "kind": "local", "name": "$trap_failed4" },
+      "then": [
+      { "op": "bind", "line": 18, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "local", "name": "$trap_err5" } },
+      { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int trapped " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
+      { "op": "assign", "line": 20, "name": "$trap_val3", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 18, "mutable": false, "name": "b", "type": "Boolean", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "return", "line": 22, "value": { "kind": "local", "name": "b" } }
+    ]
+  },
+  {
+    "name": "viaFloat",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "big", "line": 25, "type": "Float", "default": null },
+    { "name": "f", "line": 25, "type": "Fixed", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 26, "mutable": true, "name": "$trap_failed10", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 26, "mutable": true, "name": "$trap_err11", "type": "Error", "value": null },
+    { "op": "bind", "line": 26, "mutable": true, "name": "$trap_val9", "type": "Boolean", "value": null },
+    { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res7", "type": "Result OF Boolean", "value": { "kind": "checked", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "f" }, "right": { "kind": "local", "name": "big" } } } },
+    {
+      "op": "if",
+      "line": 26,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res7" } },
+      "then": [
+      { "op": "bind", "line": 26, "mutable": false, "name": "$trap_arg6", "type": "Boolean", "value": { "kind": "resultValue", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res7" } } },
+      { "op": "assign", "line": 26, "name": "$trap_val9", "value": { "kind": "call", "type": "Boolean", "target": "pass", "args": [{ "kind": "local", "name": "$trap_arg6" }] } }
+      ],
+      "else": [
+      { "op": "assign", "line": 26, "name": "$trap_failed10", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 26, "name": "$trap_err11", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res7" } } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 26,
+      "condition": { "kind": "local", "name": "$trap_failed10" },
+      "then": [
+      { "op": "bind", "line": 26, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "local", "name": "$trap_err11" } },
+      { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "float trapped " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
+      { "op": "assign", "line": 28, "name": "$trap_val9", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 26, "mutable": false, "name": "b", "type": "Boolean", "value": { "kind": "local", "name": "$trap_val9" } },
+    { "op": "return", "line": 30, "value": { "kind": "local", "name": "b" } }
+    ]
+  },
+  {
+    "name": "viaFunction",
+    "line": 33,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "big", "line": 33, "type": "Integer", "default": null },
+    { "name": "f", "line": 33, "type": "Fixed", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 34, "mutable": true, "name": "$trap_failed16", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 34, "mutable": true, "name": "$trap_err17", "type": "Error", "value": null },
+    { "op": "bind", "line": 34, "mutable": true, "name": "$trap_val15", "type": "Boolean", "value": null },
+    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res13", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "below", "args": [{ "kind": "local", "name": "big" }, { "kind": "local", "name": "f" }] } },
+    {
+      "op": "if",
+      "line": 34,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res13" } },
+      "then": [
+      { "op": "bind", "line": 34, "mutable": false, "name": "$trap_arg12", "type": "Boolean", "value": { "kind": "resultValue", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res13" } } },
+      { "op": "assign", "line": 34, "name": "$trap_val15", "value": { "kind": "call", "type": "Boolean", "target": "pass", "args": [{ "kind": "local", "name": "$trap_arg12" }] } }
+      ],
+      "else": [
+      { "op": "assign", "line": 34, "name": "$trap_failed16", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 34, "name": "$trap_err17", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res13" } } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 34,
+      "condition": { "kind": "local", "name": "$trap_failed16" },
+      "then": [
+      { "op": "bind", "line": 34, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "local", "name": "$trap_err17" } },
+      { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "function trapped " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
+      { "op": "assign", "line": 36, "name": "$trap_val15", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 34, "mutable": false, "name": "b", "type": "Boolean", "value": { "kind": "local", "name": "$trap_val15" } },
+    { "op": "return", "line": 38, "value": { "kind": "local", "name": "b" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "viaInt", "args": [{ "kind": "const", "type": "Integer", "value": "3000000000" }, { "kind": "const", "type": "Fixed", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "viaInt", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "3" } }, { "kind": "const", "type": "Fixed", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "viaFloat", "args": [{ "kind": "const", "type": "Float", "value": "3000000000.0" }, { "kind": "const", "type": "Fixed", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "viaFloat", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Fixed", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "viaFunction", "args": [{ "kind": "const", "type": "Integer", "value": "3000000000" }, { "kind": "const", "type": "Fixed", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "viaFunction", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Fixed", "value": "1" }] }] }] } }
+    ]
+  }
+  ]
+}

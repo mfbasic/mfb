@@ -1,0 +1,40 @@
+' A mixed `WITH` may evaluate a scalar update ahead of the collection arm only
+' when that scalar cannot fail. A comparison promotes like arithmetic, and
+' promotion into Fixed is checked, so `big < f` with an Integer or Float
+' outside the Fixed range raises ErrOverflow. It was treated as infallible and
+' run before the failing `set`, raising ErrOverflow instead of the index error
+' that source order reaches first (found with bug-816).
+IMPORT collections
+IMPORT io
+
+TYPE Rec
+  xs AS List OF Integer
+  ok AS Boolean
+END TYPE
+
+FUNC tryInt(big AS Integer, f AS Fixed) AS Integer
+  MUT r AS Rec = Rec[xs := [1, 2], ok := FALSE]
+  r = WITH r { xs := collections::set(r.xs, 5, 9), ok := big < f }
+  io::print("no error " & toString(len(r.xs)))
+  RETURN 0
+  TRAP(e)
+    io::print("int ERR:" & toString(e.code))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC tryFloat(big AS Float, f AS Fixed) AS Integer
+  MUT r AS Rec = Rec[xs := [1, 2], ok := FALSE]
+  r = WITH r { xs := collections::set(r.xs, 5, 9), ok := big < f }
+  io::print("no error " & toString(len(r.xs)))
+  RETURN 0
+  TRAP(e)
+    io::print("float ERR:" & toString(e.code))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC main() AS Nothing
+  LET a = tryInt(3000000000, 1F)
+  LET b = tryFloat(3000000000.0, 1F)
+END FUNC

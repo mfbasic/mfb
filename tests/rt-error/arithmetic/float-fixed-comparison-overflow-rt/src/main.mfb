@@ -1,0 +1,11 @@
+IMPORT io
+
+' bug-816: comparing a Fixed with a Float outside the Fixed range promotes the
+' Float to Fixed, as arithmetic does, so it raises ErrOverflow instead of
+' answering from a Float comparison.
+FUNC main AS Integer
+  LET f AS Fixed = 1F
+  LET huge AS Float = 3000000000.0
+  io::print(toString(huge > f))
+  RETURN 0
+END FUNC

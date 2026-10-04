@@ -1,0 +1,18 @@
+$ mfb build -ast -ir tests/rt-behavior/trap/inline-trap-fixed-comparison-promotion-rt
+Wrote AST to tests/rt-behavior/trap/inline-trap-fixed-comparison-promotion-rt/inline_trap_fixed_comparison_promotion_rt.ast
+Wrote IR to tests/rt-behavior/trap/inline-trap-fixed-comparison-promotion-rt/inline_trap_fixed_comparison_promotion_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/trap/inline-trap-fixed-comparison-promotion-rt
+Wrote executable to tests/rt-behavior/trap/inline-trap-fixed-comparison-promotion-rt/build/inline_trap_fixed_comparison_promotion_rt.out
+[exit 0]
+$ tests/rt-behavior/trap/inline-trap-fixed-comparison-promotion-rt/build/inline_trap_fixed_comparison_promotion_rt.out
+int trapped 77050010
+FALSE
+TRUE
+float trapped 77050010
+FALSE
+TRUE
+function trapped 77050010
+FALSE
+TRUE
+[exit 0]

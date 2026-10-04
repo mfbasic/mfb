@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/rt-behavior/types/with-fallible-comparison-source-order
+Wrote AST to tests/rt-behavior/types/with-fallible-comparison-source-order/with_fallible_comparison_source_order.ast
+Wrote IR to tests/rt-behavior/types/with-fallible-comparison-source-order/with_fallible_comparison_source_order.ir
+[exit 0]
+$ mfb build tests/rt-behavior/types/with-fallible-comparison-source-order
+Wrote executable to tests/rt-behavior/types/with-fallible-comparison-source-order/build/with_fallible_comparison_source_order.out
+[exit 0]
+$ tests/rt-behavior/types/with-fallible-comparison-source-order/build/with_fallible_comparison_source_order.out
+int ERR:77050001
+float ERR:77050001
+[exit 0]

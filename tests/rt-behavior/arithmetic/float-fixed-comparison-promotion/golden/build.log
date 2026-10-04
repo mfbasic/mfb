@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/rt-behavior/arithmetic/float-fixed-comparison-promotion
+Wrote AST to tests/rt-behavior/arithmetic/float-fixed-comparison-promotion/float_fixed_comparison_promotion.ast
+Wrote IR to tests/rt-behavior/arithmetic/float-fixed-comparison-promotion/float_fixed_comparison_promotion.ir
+[exit 0]
+$ mfb build tests/rt-behavior/arithmetic/float-fixed-comparison-promotion
+Wrote executable to tests/rt-behavior/arithmetic/float-fixed-comparison-promotion/build/float_fixed_comparison_promotion.out
+[exit 0]
+$ tests/rt-behavior/arithmetic/float-fixed-comparison-promotion/build/float_fixed_comparison_promotion.out
+above F,f = TRUE <> FALSE < FALSE <= TRUE > FALSE >= TRUE
+above f,F = TRUE <> FALSE < FALSE <= TRUE > FALSE >= TRUE
+below F,f = TRUE <> FALSE < FALSE <= TRUE > FALSE >= TRUE
+below f,F = TRUE <> FALSE < FALSE <= TRUE > FALSE >= TRUE
+explicit TRUE
+half F,f = FALSE <> TRUE < TRUE <= TRUE > FALSE >= FALSE
+half f,F = FALSE <> TRUE < FALSE <= FALSE > TRUE >= TRUE
+neg F,f = FALSE <> TRUE < FALSE <= FALSE > TRUE >= TRUE
+neg f,F = FALSE <> TRUE < TRUE <= TRUE > FALSE >= FALSE
+literal TRUE TRUE
+max FALSE TRUE
+huge ERR:77050010 ERR:77050010
+tiny ERR:77050010 ERR:77050010
+sum ERR:77050010
+nonfinite inf ERR:77050003 ERR:77050003 ERR:77050003 nan ERR:77050003 ERR:77050003
+intfloat TRUE
+intfixed ERR:77050010
+[exit 0]

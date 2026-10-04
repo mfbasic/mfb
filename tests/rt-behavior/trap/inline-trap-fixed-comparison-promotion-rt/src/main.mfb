@@ -1,0 +1,48 @@
+IMPORT io
+
+' bug-816: a comparison promotes like arithmetic, and promotion into Fixed is
+' checked, so an Integer or Float operand outside the Fixed range raises
+' ErrOverflow. Comparisons were treated as unable to raise, so the error escaped
+' an inline TRAP when the comparison sat inside a trapped call's argument, or in
+' a function judged infallible because its body was only such a comparison.
+
+FUNC pass(b AS Boolean) AS Boolean
+  RETURN b
+END FUNC
+
+FUNC below(big AS Integer, f AS Fixed) AS Boolean
+  RETURN big < f
+END FUNC
+
+FUNC viaInt(big AS Integer, f AS Fixed) AS Boolean
+  LET b = pass(big < f) TRAP(e)
+    io::print("int trapped " & toString(e.code))
+    RECOVER FALSE
+  END TRAP
+  RETURN b
+END FUNC
+
+FUNC viaFloat(big AS Float, f AS Fixed) AS Boolean
+  LET b = pass(f >= big) TRAP(e)
+    io::print("float trapped " & toString(e.code))
+    RECOVER FALSE
+  END TRAP
+  RETURN b
+END FUNC
+
+FUNC viaFunction(big AS Integer, f AS Fixed) AS Boolean
+  LET b = pass(below(big, f)) TRAP(e)
+    io::print("function trapped " & toString(e.code))
+    RECOVER FALSE
+  END TRAP
+  RETURN b
+END FUNC
+
+FUNC main() AS Nothing
+  io::print(toString(viaInt(3000000000, 1F)))
+  io::print(toString(viaInt(-3, 1F)))
+  io::print(toString(viaFloat(3000000000.0, 1F)))
+  io::print(toString(viaFloat(0.5, 1F)))
+  io::print(toString(viaFunction(3000000000, 1F)))
+  io::print(toString(viaFunction(0, 1F)))
+END FUNC

@@ -1,0 +1,90 @@
+{
+  "project": "with_fallible_comparison_source_order",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 7 },
+    { "module": "io", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Rec",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "xs", "type": "List OF Integer", "line": 11 },
+      { "visibility": null, "name": "ok", "type": "Boolean", "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryInt",
+      "line": 15,
+      "params": [
+      { "name": "big", "type": "Integer", "default": null, "line": 15 },
+      { "name": "f", "type": "Fixed", "default": null, "line": 15 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "r", "type": "Rec", "value": { "kind": "constructor", "type": "Rec", "arguments": [{ "kind": "named", "name": "xs", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] } }, { "kind": "named", "name": "ok", "value": { "kind": "boolean", "value": false } }] }, "line": 16 },
+      { "kind": "assignment", "name": "r", "value": { "kind": "with", "target": { "kind": "identifier", "value": "r" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "xs" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "9" }] } }, { "field": "ok", "value": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "f" } } }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "no error " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "xs" }] }] } }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 20,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 22 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tryFloat",
+      "line": 26,
+      "params": [
+      { "name": "big", "type": "Float", "default": null, "line": 26 },
+      { "name": "f", "type": "Fixed", "default": null, "line": 26 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "r", "type": "Rec", "value": { "kind": "constructor", "type": "Rec", "arguments": [{ "kind": "named", "name": "xs", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] } }, { "kind": "named", "name": "ok", "value": { "kind": "boolean", "value": false } }] }, "line": 27 },
+      { "kind": "assignment", "name": "r", "value": { "kind": "with", "target": { "kind": "identifier", "value": "r" }, "updates": [{ "field": "xs", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "xs" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "9" }] } }, { "field": "ok", "value": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "f" } } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "no error " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "xs" }] }] } }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 30 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 31,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "float ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 33 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 37,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": { "kind": "call", "callee": "tryInt", "arguments": [{ "kind": "number", "value": "3000000000" }, { "kind": "number", "value": "1F" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": { "kind": "call", "callee": "tryFloat", "arguments": [{ "kind": "number", "value": "3000000000.0" }, { "kind": "number", "value": "1F" }] }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

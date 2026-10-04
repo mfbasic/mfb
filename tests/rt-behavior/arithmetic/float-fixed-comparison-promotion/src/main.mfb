@@ -1,0 +1,85 @@
+IMPORT io
+
+' bug-816: a Float/Fixed comparison promoted both operands to Float, unlike
+' arithmetic, which promotes Float to Fixed (Fixed > Float > Integer > Byte).
+' 1F = 1.00000000001 was FALSE although toFixed(1.00000000001) is 1F, and
+' comparing a Fixed with a Float outside the Fixed range answered instead of
+' raising ErrOverflow. Every comparison now converts the Float operand to Fixed
+' exactly as arithmetic does, in both operand orders.
+FUNC all6(label AS String, a AS Fixed, b AS Float) AS Nothing
+  io::print(label & " F,f = " & toString(a = b) & " <> " & toString(a <> b) & " < " & toString(a < b) & " <= " & toString(a <= b) & " > " & toString(a > b) & " >= " & toString(a >= b))
+  io::print(label & " f,F = " & toString(b = a) & " <> " & toString(b <> a) & " < " & toString(b < a) & " <= " & toString(b <= a) & " > " & toString(b > a) & " >= " & toString(b >= a))
+END FUNC
+
+FUNC lessF(a AS Fixed, b AS Float) AS String
+  LET r = toString(a < b) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC equalF(b AS Float, a AS Fixed) AS String
+  LET r = toString(b = a) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC sumF(a AS Fixed, b AS Float) AS String
+  LET r = toString(a + b) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC nonFinite(label AS String, a AS Fixed, big AS Float) AS Nothing
+  LET inf = toString(a < big * 10.0) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  LET infRev = toString(big * 10.0 >= a) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  LET infSum = toString(a + big * 10.0) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  LET nan = toString(a = big * 10.0 - big * 10.0) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  LET nanSum = toString(a + (big * 10.0 - big * 10.0)) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  io::print(label & " inf " & inf & " " & infRev & " " & infSum & " nan " & nan & " " & nanSum)
+END FUNC
+
+FUNC main() AS Nothing
+  LET one AS Fixed = 1F
+  ' Equal after rounding to the Fixed grid (2^-32), from above and below.
+  all6("above", one, 1.00000000001)
+  all6("below", one, 0.99999999999)
+  ' Agrees with explicit conversion.
+  io::print("explicit " & toString(one = toFixed(1.00000000001)))
+  ' Distinct on the Fixed grid.
+  all6("half", one, 1.5)
+  all6("neg", -1.25F, -1.5)
+  ' A Float literal operand takes the same path as a Float local.
+  io::print("literal " & toString(one = 1.00000000001) & " " & toString(1.00000000001 = one))
+  ' Range boundary: the largest Fixed and Float values that fit, and just past.
+  LET maxF AS Fixed = 2147483647.99F
+  io::print("max " & lessF(maxF, 2147483647.0) & " " & equalF(-2147483648.0, -2147483648F))
+  io::print("huge " & lessF(one, 3000000000.0) & " " & equalF(3000000000.0, one))
+  io::print("tiny " & lessF(one, -3000000000.0) & " " & equalF(-3000000000.0, one))
+  io::print("sum " & sumF(one, 3000000000.0))
+  ' A transient non-finite Float cannot become a Fixed: the same error as Fixed
+  ' arithmetic with that operand.
+  nonFinite("nonfinite", one, 1.0e308)
+  ' Sibling contracts that stay as they were: Integer/Float compares as Float,
+  ' Integer/Fixed checks the Fixed range.
+  LET i AS Integer = 9007199254740993
+  io::print("intfloat " & toString(i = 9007199254740992.0))
+  LET bigInt AS Integer = 3000000000
+  LET fx AS Fixed = 1F
+  LET r = toString(fx < bigInt) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  io::print("intfixed " & r)
+END FUNC

@@ -1,0 +1,38 @@
+' bug-816: a comparison promotes like arithmetic, and promotion into Fixed is
+' checked, so `big < limit` (Integer vs Fixed) and `ratio >= limit` (Float vs
+' Fixed) can raise ErrOverflow before `value` is declared. The census treated
+' every comparison as unable to fail, so these handlers' reads of `value`
+' compiled and returned unwritten frame data; they must be rejected
+' (TYPE_TRAP_LOCAL_UNINITIALIZED). The Byte/Fixed comparison cannot fail and
+' its handler read stays accepted.
+IMPORT io
+FUNC viaInteger(big AS Integer, limit AS Fixed) AS Integer
+  LET over = big < limit
+  LET value = 42
+  RETURN value
+  TRAP(e)
+    RETURN value
+  END TRAP
+END FUNC
+FUNC viaFloat(ratio AS Float, limit AS Fixed) AS Integer
+  LET over = limit <= ratio
+  LET value = 42
+  RETURN value
+  TRAP(e)
+    RETURN value
+  END TRAP
+END FUNC
+FUNC viaByte(small AS Byte, limit AS Fixed) AS Integer
+  LET over = small < limit
+  LET value = 42
+  RETURN value
+  TRAP(e)
+    RETURN value
+  END TRAP
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(viaInteger(3000000000, 1F)))
+  io::print(toString(viaFloat(3000000000.0, 1F)))
+  io::print(toString(viaByte(toByte(3), 1F)))
+  RETURN 0
+END FUNC

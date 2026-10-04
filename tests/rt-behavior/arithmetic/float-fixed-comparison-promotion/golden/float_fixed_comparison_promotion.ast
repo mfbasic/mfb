@@ -1,0 +1,202 @@
+{
+  "project": "float_fixed_comparison_promotion",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "all6",
+      "line": 9,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 9 },
+      { "name": "a", "type": "Fixed", "default": null, "line": 9 },
+      { "name": "b", "type": "Float", "default": null, "line": 9 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " F,f = " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] } }, "right": { "kind": "string", "value": " <> " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] } }, "right": { "kind": "string", "value": " < " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] } }, "right": { "kind": "string", "value": " <= " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<=", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] } }, "right": { "kind": "string", "value": " > " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] } }, "right": { "kind": "string", "value": " >= " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] } }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " f,F = " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "a" } }] } }, "right": { "kind": "string", "value": " <> " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "a" } }] } }, "right": { "kind": "string", "value": " < " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "a" } }] } }, "right": { "kind": "string", "value": " <= " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<=", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "a" } }] } }, "right": { "kind": "string", "value": " > " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "a" } }] } }, "right": { "kind": "string", "value": " >= " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "a" } }] } }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "lessF",
+      "line": 14,
+      "params": [
+      { "name": "a", "type": "Fixed", "default": null, "line": 14 },
+      { "name": "b", "type": "Float", "default": null, "line": 14 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 15,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 16 }
+        ]
+      }, "line": 15 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "r" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "equalF",
+      "line": 21,
+      "params": [
+      { "name": "b", "type": "Float", "default": null, "line": 21 },
+      { "name": "a", "type": "Fixed", "default": null, "line": 21 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 22,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "identifier", "value": "a" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 23 }
+        ]
+      }, "line": 22 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "r" }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "sumF",
+      "line": 28,
+      "params": [
+      { "name": "a", "type": "Fixed", "default": null, "line": 28 },
+      { "name": "b", "type": "Float", "default": null, "line": 28 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 29,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 30 }
+        ]
+      }, "line": 29 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "r" }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "nonFinite",
+      "line": 35,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 35 },
+      { "name": "a", "type": "Fixed", "default": null, "line": 35 },
+      { "name": "big", "type": "Float", "default": null, "line": 35 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "inf", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 36,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "number", "value": "10.0" } } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 37 }
+        ]
+      }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "infRev", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 39,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">=", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "number", "value": "10.0" } }, "right": { "kind": "identifier", "value": "a" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 40 }
+        ]
+      }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "infSum", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 42,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "number", "value": "10.0" } } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 43 }
+        ]
+      }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "nan", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 45,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "number", "value": "10.0" } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "number", "value": "10.0" } } } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 46 }
+        ]
+      }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "nanSum", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 48,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "number", "value": "10.0" } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "number", "value": "10.0" } } } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 49 }
+        ]
+      }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " inf " } }, "right": { "kind": "identifier", "value": "inf" } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "infRev" } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "infSum" } }, "right": { "kind": "string", "value": " nan " } }, "right": { "kind": "identifier", "value": "nan" } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "identifier", "value": "nanSum" } }] }, "line": 51 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 54,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "one", "type": "Fixed", "value": { "kind": "number", "value": "1F" }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "all6", "arguments": [{ "kind": "string", "value": "above" }, { "kind": "identifier", "value": "one" }, { "kind": "number", "value": "1.00000000001" }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "all6", "arguments": [{ "kind": "string", "value": "below" }, { "kind": "identifier", "value": "one" }, { "kind": "number", "value": "0.99999999999" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "explicit " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "one" }, "right": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "number", "value": "1.00000000001" }] } }] } }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "all6", "arguments": [{ "kind": "string", "value": "half" }, { "kind": "identifier", "value": "one" }, { "kind": "number", "value": "1.5" }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "all6", "arguments": [{ "kind": "string", "value": "neg" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.25F" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.5" } }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "literal " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "one" }, "right": { "kind": "number", "value": "1.00000000001" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "number", "value": "1.00000000001" }, "right": { "kind": "identifier", "value": "one" } }] } }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "maxF", "type": "Fixed", "value": { "kind": "number", "value": "2147483647.99F" }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "max " }, "right": { "kind": "call", "callee": "lessF", "arguments": [{ "kind": "identifier", "value": "maxF" }, { "kind": "number", "value": "2147483647.0" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "equalF", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648.0" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648F" } }] } }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "huge " }, "right": { "kind": "call", "callee": "lessF", "arguments": [{ "kind": "identifier", "value": "one" }, { "kind": "number", "value": "3000000000.0" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "equalF", "arguments": [{ "kind": "number", "value": "3000000000.0" }, { "kind": "identifier", "value": "one" }] } }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tiny " }, "right": { "kind": "call", "callee": "lessF", "arguments": [{ "kind": "identifier", "value": "one" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3000000000.0" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "equalF", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3000000000.0" } }, { "kind": "identifier", "value": "one" }] } }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sum " }, "right": { "kind": "call", "callee": "sumF", "arguments": [{ "kind": "identifier", "value": "one" }, { "kind": "number", "value": "3000000000.0" }] } }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "nonFinite", "arguments": [{ "kind": "string", "value": "nonfinite" }, { "kind": "identifier", "value": "one" }, { "kind": "number", "value": "1.0e308" }] }, "line": 74 },
+      { "kind": "binding", "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "9007199254740993" }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "intfloat " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "9007199254740992.0" } }] } }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "name": "bigInt", "type": "Integer", "value": { "kind": "number", "value": "3000000000" }, "line": 79 },
+      { "kind": "binding", "mutable": false, "name": "fx", "type": "Fixed", "value": { "kind": "number", "value": "1F" }, "line": 80 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 81,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "fx" }, "right": { "kind": "identifier", "value": "bigInt" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 82 }
+        ]
+      }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "intfixed " }, "right": { "kind": "identifier", "value": "r" } }] }, "line": 84 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,18 @@
+$ mfb build -ast -ir tests/rt-behavior/control-flow/for-mixed-numeric-operands
+Wrote AST to tests/rt-behavior/control-flow/for-mixed-numeric-operands/for_mixed_numeric_operands.ast
+Wrote IR to tests/rt-behavior/control-flow/for-mixed-numeric-operands/for_mixed_numeric_operands.ir
+[exit 0]
+$ mfb build tests/rt-behavior/control-flow/for-mixed-numeric-operands
+Wrote executable to tests/rt-behavior/control-flow/for-mixed-numeric-operands/build/for_mixed_numeric_operands.out
+[exit 0]
+$ tests/rt-behavior/control-flow/for-mixed-numeric-operands/build/for_mixed_numeric_operands.out
+int start float loop 2
+float start fixed loop 3
+float step fixed loop 5
+int end fixed loop 3
+float end fixed loop 3 2
+mixed float loop 4.50
+byte start int loop 51
+huge end ERR:77050010 line 44
+huge start ERR:77050010 line 20
+[exit 0]

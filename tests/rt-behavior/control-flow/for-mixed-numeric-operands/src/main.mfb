@@ -1,0 +1,90 @@
+' A counted FOR's counter takes the promoted type of its start, end and STEP,
+' and each operand of another numeric type is promoted into it as arithmetic
+' does (found with bug-816). The bound and step locals were declared the loop
+' type but bound unconverted, so their bits were read as the counter's: an
+' Integer start of a Float loop, a Float start, bound or STEP of a Fixed loop,
+' and an Integer bound of a Fixed loop all ran the wrong number of times. A
+' bound outside the Fixed range now raises ErrOverflow at the FOR line.
+IMPORT io
+
+FUNC a(k AS Integer) AS String
+  MUT n AS Integer = 0
+  FOR x = k TO 2.5
+    n = n + 1
+  NEXT
+  RETURN toString(n)
+END FUNC
+
+FUNC b(s AS Float) AS String
+  MUT n AS Integer = 0
+  FOR i = s TO 3F
+    n = n + 1
+  NEXT
+  RETURN toString(n)
+END FUNC
+
+FUNC c(st AS Float) AS String
+  MUT n AS Integer = 0
+  FOR i = 1F TO 3F STEP st
+    n = n + 1
+  NEXT
+  RETURN toString(n)
+END FUNC
+
+FUNC d(k AS Integer) AS String
+  MUT n AS Integer = 0
+  FOR i = 1F TO k
+    n = n + 1
+  NEXT
+  RETURN toString(n)
+END FUNC
+
+FUNC e(top AS Float) AS String
+  MUT n AS Integer = 0
+  FOR i = 1F TO top
+    n = n + 1
+  NEXT
+  RETURN toString(n)
+END FUNC
+
+FUNC g(k AS Integer, top AS Float) AS String
+  MUT acc AS Float = 0.0
+  FOR x = k TO top STEP 0.5
+    acc = acc + x
+  NEXT
+  RETURN toString(acc)
+END FUNC
+
+FUNC h(b AS Byte) AS String
+  MUT n AS Integer = 0
+  FOR i = b TO 300
+    n = n + 1
+  NEXT
+  RETURN toString(n)
+END FUNC
+
+FUNC tryE(top AS Float) AS String
+  LET r = e(top) TRAP(err)
+    RECOVER "ERR:" & toString(err.code) & " line " & toString(err.source.line)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC tryB(s AS Float) AS String
+  LET r = b(s) TRAP(err)
+    RECOVER "ERR:" & toString(err.code) & " line " & toString(err.source.line)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC main() AS Nothing
+  io::print("int start float loop " & a(1))
+  io::print("float start fixed loop " & b(1.0))
+  io::print("float step fixed loop " & c(0.5))
+  io::print("int end fixed loop " & d(3))
+  io::print("float end fixed loop " & e(3.00000000001) & " " & e(2.5))
+  io::print("mixed float loop " & g(1, 2.0))
+  io::print("byte start int loop " & h(toByte(250)))
+  io::print("huge end " & tryE(3000000000.0))
+  io::print("huge start " & tryB(-3000000000.0))
+END FUNC
