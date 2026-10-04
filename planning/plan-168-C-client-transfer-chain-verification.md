@@ -261,22 +261,25 @@ Acceptance: consumers compile against the verifier, and their unit tests pass.
   rotation test `repo_ident_rotation_follows_pins_and_reanchor_hard_errors`
   runs unchanged and passes (`cargo test --test cli_repo_install --test
   cli_repo_publish --test cli_repo_governance` → `EXIT=0`: 8 + 10 + 6 passed).
-Commit: (this commit — recorded in the next)
+Commit: 144cadc99
 
 ### Phase 4: Spec sync
 
-- [ ] `01_repository-protocol.md`:
+- [x] `01_repository-protocol.md`:
   - pin-follow paragraph (§Ident Rotation) covers transfers;
   - §Install Path: the client verifies `transfers` before pinning;
   - deviation paragraph drops "clients do not yet verify it".
-- [ ] `03_signing.md`: `mfb info` reads the proof ident's index and the
+- [x] `03_signing.md`: `mfb info` reads the proof ident's index and the
       publisher's chain.
-- [ ] `tooling/03_lockfile.md`: `identKey` = the verified key of the selected
+- [x] `tooling/03_lockfile.md`: `identKey` = the verified key of the selected
       release.
-- [ ] `tooling/01_project-manifest.md`: `identKey` pin semantics.
+- [x] `tooling/01_project-manifest.md`: `identKey` pin semantics.
 
 Acceptance: `cargo test --bin mfb spec` → `test result: ok` (est. 3–6 min; guess).
-Commit: —
+  Measured: `test result: ok. 46 passed; 0 failed`. The rename
+  `follow_rotated_pin` → `follow_identity_pin` had left the §Ident Rotation
+  citation dangling; it now cites `follow_identity_pin`.
+Commit: (this commit — recorded on archive)
 
 ## Validation Plan
 
@@ -284,7 +287,9 @@ Commit: —
   across rotation).
 - Runtime proof: D's end-to-end CLI test is the binding proof that real
   consumers accept bob's release and keep accepting alice's.
-- Final gate (once): `cargo test -p mfb_repository --no-fail-fast > /tmp/168C-repo.log 2>&1; echo EXIT=$?` → `EXIT=0`; `cargo test --test cli_repo_install --test cli_repo_publish --test cli_repo_governance > /tmp/168C-cli.log 2>&1; echo EXIT=$?` → `EXIT=0` (est. 25–40 min; guess). These three integration binaries are every consumer path C changes.
+- Final gate — measured after Phase 3's code was final (Phase 4 is prose):
+  `EXIT=0` (450 lib tests passed) and `EXIT=0` (8 + 10 + 6 passed).
+- Final gate as planned (once): `cargo test -p mfb_repository --no-fail-fast > /tmp/168C-repo.log 2>&1; echo EXIT=$?` → `EXIT=0`; `cargo test --test cli_repo_install --test cli_repo_publish --test cli_repo_governance > /tmp/168C-cli.log 2>&1; echo EXIT=$?` → `EXIT=0` (est. 25–40 min; guess). These three integration binaries are every consumer path C changes.
 
 ## Open Decisions
 

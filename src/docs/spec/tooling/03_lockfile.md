@@ -13,14 +13,18 @@ section and `AUDIT-LOCK-*` findings).
 `mfb pkg update` runs the resolver over the project's registry dependencies and
 writes `mfb.lock` with a byte-stable formatting, so re-resolving an unchanged
 project reproduces the file exactly. For each dependency it records the
-requested and selected versions, the content hash, the pinned owner `identKey`
-(metadata form) and its fingerprint, and the current release `state`; the file
+requested and selected versions, the content hash, the `identKey` (metadata
+form) of the selected release — its header key, verified for the release's
+publisher through the registry's signed transfer chain from the project's pin
+(`./mfb spec package-manager repository-protocol`), which after a rotation or
+an ownership transfer may differ from the index's current key — and its
+fingerprint, and the current release `state`; the file
 also carries the registry `repoFingerprint` and the pinned transparency-log
 `checkpoint` (size + root). Signing keys are one-off per package, so
 there is no key status/window to record. `mfb pkg install` reads this file,
 cross-checks `repoFingerprint` against the pinned `server.pub`, and installs
 each package by fetching `/blob/<hash>` and re-verifying the trust chain
-against the locked `identKey` — no `/index` lookups.[[src/cli/resolve.rs:write_lock]][[src/cli/resolve.rs:install]]
+against the locked `identKey` — no `/index` lookups.[[src/cli/resolve.rs:write_lock]][[src/cli/resolve.rs:install]][[src/cli/resolve.rs:resolve]]
 
 The resolver picks, for every dependency, the highest install-eligible version
 (`available`/`deprecated`; `yanked` only under an exact pin) whose exported

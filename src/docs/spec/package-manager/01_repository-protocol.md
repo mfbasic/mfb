@@ -577,16 +577,23 @@ first:[[repository/src/server.rs:ident_chain]]
 ```
 
 Consumer pin-follow (`mfb pkg verify`): when an installed package names an
-ident that differs from the pinned one, the client fetches the chain,
-verifies every link signature locally, and — only if the pinned key chains to
-the package's key — rewrites the `project.json` pin with a notice
-(`notice: owner <o> rotated their ident; updated the pinned identKey ...`).
-Packages published under the old ident still verify against the old pin
-offline (proofs and attestations are statements of fact at `issued`). An
-ident change with **no chain link** from the pin is the re-anchor (or
-impersonation) case: a hard `PACKAGE_IDENT_REANCHORED` error telling the user
-to verify out-of-band; the pin is never updated
-silently.[[src/cli/pkg.rs:follow_rotated_pin]][[repository/src/client.rs:follow_ident_chain]]
+ident that differs from the pinned one, the client asks whether the pin
+reaches it. For a release the registry's `/index` lists (matched by version
+and content hash) the client runs the transfer-chain verifier described under
+Install Path from the pin, so the pin follows both the owner's rotations and a
+signed ownership transfer; for a release the index does not list (a locally
+built package) it walks the pinned owner's rotation chain alone. Every link
+signature is verified locally, and only when the pin reaches the package's key
+is the `project.json` pin rewritten, with a notice (`notice: owner <o> rotated
+their ident; updated the pinned identKey ...`, or `notice: ownership of
+<ident> moved to <owner> through a signed transfer`). Packages published under
+the old ident still verify against the old pin offline (proofs and
+attestations are statements of fact at `issued`). A pin that is on **no**
+owner's chain — an ident change with no chain link from it — is the re-anchor
+(or impersonation) case: a hard `PACKAGE_IDENT_REANCHORED` error telling the
+user to verify out-of-band; any other refusal is
+`PACKAGE_IDENT_KEY_UNTRUSTED`. The pin is never updated
+silently.[[src/cli/pkg.rs:follow_identity_pin]][[repository/src/client.rs:chain_path]][[repository/src/trust.rs:verify_chain]]
 
 ### Re-anchor ceremony (operator action)
 
@@ -805,6 +812,42 @@ signing keys have no status.
 The client picks the requested version (any non-`blocked`/`legal-tombstoned`
 state) or, for a floating add, the newest version whose state is `available`
 or `deprecated`.[[src/cli/pkg.rs:select_index_version]]
+
+**Transfer-chain verification.** Before a client pins or locks a release's
+`identKey` it verifies that key for the release's publisher, from an anchor:
+the project's pinned key, or — on a first `pkg add` or for a newly declared
+indirect dependency — the index's own name binding (trust on first use).
+[[repository/src/trust.rs:verify_release]]
+
+- **Links.** Link `k` must say `sequence` `k`. A legacy link ends the walk
+  before anything about it is read. Otherwise its `fromOwner` is the package's
+  `k`-th owner, its `toBinding` verifies under the pinned server key and names
+  its `toOwner`, its `toIdentKey` reaches that bound key along the recipient's
+  signed rotation chain (`GET /idents/<owner>`), both signatures verify over the
+  v2 terms, and the served versions whose `epoch` is at most `k` hash to its
+  `releaseDigest` — so a release cannot be withheld, added or re-dated.
+- **Tenures.** Each owner's keys while holding the package run, along their
+  rotation chain, from the key they accepted it with (no lower bound for the
+  origin) to the key they offered it away with (for the last verified owner,
+  their bound current key); the accept key must reach the offer key.
+- **Anchor.** A pinned key must lie in some owner's tenure; the first such
+  tenure is chosen. That owner's keys forward from the pin are trusted, every
+  later owner's tenure is trusted through the signed links, and releases from
+  before the pinned tenure are trusted through the release digest the link into
+  it signs. On first use the origin owner's offer key must be an ancestor of
+  its bound key, and its tenure is trusted.
+- **Release.** `publisher.owner` must be the header `author` and the owner of
+  the release's `epoch`, and the header `identKey` must be trusted for that
+  owner (or covered by the digest). An `epoch` past the served links is
+  refused. Past a legacy link only the origin (prefix) owner's releases are
+  accepted, under the anchor alone — the prefix-owner trust every client applied
+  before transfers were signed.
+
+A refusal is `PACKAGE_IDENT_KEY_UNTRUSTED`, or `PACKAGE_IDENT_REANCHORED` for a
+pinned key on no owner's chain. The pin written by `pkg add` and the key locked
+by the resolver are the verified header key of the release they select; when it
+differs from the project's pin, the resolver rewrites the pin and prints the
+rotation or transfer notice.[[src/cli/pkg.rs:verify_registry_release]][[src/cli/resolve.rs:resolve]]
 
 ### Blob — `GET`/`HEAD`/`PUT /blob/<hash>`
 
@@ -1125,12 +1168,12 @@ versions under the unchanged package ident, while pre-transfer releases remain
 verifiable under their original publisher keys.
 
 **Current implementation deviation:** `/signing`, `/release-state`,
-`/validate` and `/publish` authorize the stored new owner, and `/index` serves
-the signed transfer chain, but the build and consumer paths are not
-transfer-complete: `signing_ident` rejects a different prefix at build time, and
-clients do not yet verify the transfer chain. A recipient therefore cannot
-build and publish a new version under the transferred ident through the current
-CLI. Existing package bytes and signatures are unchanged.
+`/validate` and `/publish` authorize the stored new owner, `/index` serves the
+signed transfer chain, and clients verify it, but the build path is not
+transfer-complete: `signing_ident` rejects a different prefix at build time. A
+recipient therefore cannot build and publish a new version under the
+transferred ident through the current CLI. Existing package bytes and
+signatures are unchanged.
 [[repository/src/server.rs:require_package_owner]][[repository/src/server.rs:validate_package_request]][[repository/src/server.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store.rs:accept_transfer]]
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`
