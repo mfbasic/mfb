@@ -338,10 +338,14 @@ fn wrap_root(src: &str, stores: &Stores) -> Option<String> {
 /// The record-ownership facts for `function`. `record_type` answers whether a binding
 /// of that type can have its record freed at drop (a `resource_record_freed_at_drop`
 /// kind, or a resource union with such a variant); only those bindings are resolved.
+///
+/// `res_collection_type` answers whether a collection binding of that type carries
+/// resources it may own (a `List OF RES T`, or any collection reaching one).
 pub(crate) fn record_ownership(
     function: &NirFunction,
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
+    res_collection_type: &dyn Fn(&ParameterType) -> bool,
 ) -> RecordOwnership {
     let stores = collect(function, functions);
     let params: HashSet<String> = function.params.iter().map(|p| p.name.clone()).collect();
@@ -390,7 +394,7 @@ pub(crate) fn record_ownership(
         function,
         functions,
         record_type,
-        &CodeBuilder::is_res_collection_block,
+        res_collection_type,
         &stores,
         &params,
     );

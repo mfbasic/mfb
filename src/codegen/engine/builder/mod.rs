@@ -390,8 +390,10 @@ pub(crate) struct CodeBuilder<'a> {
     /// container's representation, which is why a record binding needs no new
     /// runtime structure.
     pub(crate) owner_containers: HashSet<String>,
-    /// Live owned-lists: collection binding name -> head-pointer stack slot.
-    pub(crate) owned_list_heads: HashMap<String, usize>,
+    /// Live owned-lists: `(collection binding name, resource leaf type)` ->
+    /// head-pointer stack slot. A container whose values reach several resource
+    /// kinds (bug-805) keeps one list per kind, so each list has one drop.
+    pub(crate) owned_list_heads: HashMap<(String, ParameterType), usize>,
     /// Stack slots to zero at function entry: owned freeable-flat locals and
     /// resource (`RES`) locals, recorded as each is bound. In a function with a
     /// trap handler, an error can jump to the handler past a not-yet-run `LET`,
@@ -1038,6 +1040,9 @@ pub(crate) struct OwnedListCleanup {
     /// seeded record takes this scope's token, and the drain closes only the
     /// records that still hold it.
     pub(crate) scope_depth: usize,
+    /// bug-805: the resource leaf type (`RES` stripped, `STATE` kept) this list
+    /// holds; `drop` is that leaf's descriptor.
+    pub(crate) leaf: ParameterType,
 }
 
 /// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /

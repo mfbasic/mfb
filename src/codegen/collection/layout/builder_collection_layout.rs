@@ -12,6 +12,21 @@ impl CodeBuilder<'_> {
         if let Some(fields) = self.type_model.record_fields.get(type_) {
             return Some(8 * fields.len());
         }
+        // A concrete resource value IS its record pointer, never an inline payload —
+        // even when it is a variant of a declared resource union. The variant lookup
+        // below answered for it with the UNION's `{tag, ptr}` size, so declaring
+        // `UNION Stream { fs::File, … }` anywhere in a program made `RETURN f` of a
+        // plain `File` copy 16 bytes of the record into a fresh block and hand the
+        // caller that (a "moved"/"closed" read of a truncated record) — found while
+        // auditing bug-805's heterogeneous-record sibling.
+        if crate::codegen::builtins::is_resource_type(type_)
+            || self
+                .type_model
+                .resource_names
+                .contains(&type_.without_state())
+        {
+            return None;
+        }
         if let Some(union_name) = self.type_model.union_variants.get(type_) {
             return self.inline_collection_payload_size(union_name);
         }

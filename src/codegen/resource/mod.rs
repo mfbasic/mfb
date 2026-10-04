@@ -16,6 +16,7 @@
 
 pub(crate) mod cleanup;
 pub(crate) mod owner;
+pub(crate) mod walk;
 
 use crate::codegen::registry::{registry, ResolvedType};
 use crate::types::ParameterType;

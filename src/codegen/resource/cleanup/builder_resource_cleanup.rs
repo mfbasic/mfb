@@ -1,7 +1,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
@@ -1053,93 +1052,36 @@ impl CodeBuilder<'_> {
         ));
     }
 
-    /// The drop descriptor for an owned-list owner's payload type: a single
-    /// close-op symbol for a concrete resource, or a tag-dispatch table +
-    /// uniform STATE type for a resource union (bug-429).
+    /// The drop descriptor for one owned-list's resource leaf (bug-805): a single
+    /// close-op symbol for a concrete resource, or a tag-dispatch table + uniform
+    /// STATE type for a resource union (bug-429).
     ///
-    /// The owner is a **container**: a `List`/`Map` whose element/value carries
-    /// the resource, or (plan-114-C) a record with a `RES` field. Errors if
-    /// `type_` is neither, or if its payload is neither a known concrete
-    /// resource nor a resource union.
-    pub(crate) fn collection_resource_drop(
-        &self,
-        type_: &ParameterType,
-    ) -> Result<OwnedListDrop, String> {
-        let element = match typed_list_element_type(type_)
-            .or_else(|| typed_map_type_parts(type_).map(|(_, value)| value))
-        {
-            Some(element) => element.clone(),
-            None => self.record_resource_field_element(type_)?,
-        };
-        let element = &element;
-        // A resource-union element has no single close op; each floated node is
-        // dropped by dispatching on its active variant's tag, exactly as a lone
-        // `RES u AS Union STATE S` binding is (plan-74). Check the union path
-        // first — a union's variants are individually closable, so the concrete
-        // fallback below would otherwise never see them.
-        if let Some(variants) = self.resource_union_cleanup(&element) {
+    /// An owned-list node is always a leaf — a resource record, or a resource-union
+    /// box — whatever container it floated to, so the descriptor is the leaf's own
+    /// and never an aggregate's. A container reaching several leaf kinds gets one
+    /// list per kind ([`Self::setup_owned_list`]), so a record with a `File` field
+    /// and a `Stream` field is dropped correctly rather than refused.
+    pub(crate) fn resource_leaf_drop(&self, leaf: &ParameterType) -> Result<OwnedListDrop, String> {
+        // A resource-union leaf has no single close op; each node is dropped by
+        // dispatching on its active variant's tag, exactly as a lone
+        // `RES u AS Union STATE S` binding is (plan-74). Checked first — a union's
+        // variants are individually closable, so the concrete arm would otherwise
+        // never see them.
+        if let Some(variants) = self.resource_union_cleanup(leaf) {
             return Ok(OwnedListDrop::Union {
                 variants,
-                state_type: element.state(),
-                record_free_tags: self.resource_union_record_free_tags(element),
+                state_type: leaf.state(),
+                record_free_tags: self.resource_union_record_free_tags(leaf),
             });
         }
-        let symbol = self.resource_cleanup_symbol(element).ok_or_else(|| {
-            format!("owned-list element type '{element}' has no registered close op")
-        })?;
+        let symbol = self
+            .resource_cleanup_symbol(leaf)
+            .ok_or_else(|| format!("owned-list leaf type '{leaf}' has no registered close op"))?;
         Ok(OwnedListDrop::Concrete {
             close: symbol,
-            state_type: element.state(),
-            has_io_buffers: Self::resource_uses_io_buffers(element),
-            frees_record: Self::resource_record_freed_at_drop(element),
+            state_type: leaf.state(),
+            has_io_buffers: Self::resource_uses_io_buffers(leaf),
+            frees_record: Self::resource_record_freed_at_drop(leaf),
         })
-    }
-
-    /// The resource payload of a **record** owned-list owner: the type of its
-    /// `RES`-marked field (plan-114-C).
-    ///
-    /// Unlike a collection, a record has a *fixed* set of fields, so its
-    /// resource payloads are statically known. An owned-list still carries them
-    /// — the list is keyed by binding name and reads nothing about the
-    /// container's representation — but the list holds **one** `OwnedListDrop`,
-    /// so every resource pushed onto it must close the same way.
-    ///
-    /// That is why a record with two `RES` fields of *different* resource types
-    /// is refused here rather than compiled: one drop symbol cannot close both,
-    /// and picking either would close one handle with the other's op. Expressing
-    /// it would need `ResOwner::Float` to name a field as well as a binding,
-    /// which is an `.ir` format change this letter's non-goals exclude. The
-    /// single-resource-type case — every shape letters D and E actually enable —
-    /// is fully supported.
-    fn record_resource_field_element(
-        &self,
-        type_: &ParameterType,
-    ) -> Result<ParameterType, String> {
-        if !self.type_model.record_fields.contains_key(type_) {
-            return Err(format!("owned-list owner '{type_}' is not a container"));
-        }
-        let resource_fields =
-            crate::codegen::cleanup::owned::builder_owned_cleanup::record_res_field_types(
-                &self.type_model,
-                type_,
-            );
-        let Some((_, first)) = resource_fields.first().cloned() else {
-            return Err(format!(
-                "owned-list owner '{type_}' is a record with no RES field"
-            ));
-        };
-        if let Some((other_name, other)) = resource_fields
-            .iter()
-            .find(|(_, candidate)| *candidate != first)
-        {
-            let first_name = &resource_fields[0].0;
-            return Err(format!(
-                "record '{type_}' has RES fields of differing resource types \
-                 ('{first_name}' is '{first}', '{other_name}' is '{other}'); an \
-                 owned-list carries one close op, so this cannot be dropped \
-                 correctly"
-            ));
-        }
-        Ok(first)
     }
 }

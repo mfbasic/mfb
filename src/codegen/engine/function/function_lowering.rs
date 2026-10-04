@@ -1163,10 +1163,19 @@ pub(crate) fn lower_function(
     // returned union follows to its owner. A whole-function pre-pass, like the above.
     let ownership = {
         let record_type = |type_: &ParameterType| builder.record_freeable_type(type_);
+        // bug-805: a collection whose elements reach a resource at any depth (a
+        // `List OF Holder`, a `List OF List OF Holder`) owns its adopted resources
+        // exactly as a `List OF RES` does.
+        let res_collection_type = |type_: &ParameterType| {
+            CodeBuilder::is_res_collection_block(type_)
+                || (crate::codegen::engine::types::typed_is_collection_type(type_)
+                    && builder.is_resource_owning_container(type_))
+        };
         crate::codegen::resource::cleanup::record_ownership::record_ownership(
             function,
             functions,
             &record_type,
+            &res_collection_type,
         )
     };
     builder.record_owning_locals = ownership.owning_locals;
@@ -1174,6 +1183,10 @@ pub(crate) fn lower_function(
     builder.owned_list_owning_collections = ownership.owning_collections;
     builder.reassign_free_collections = ownership.reassign_free_collections;
     builder.inner_owning_collections = ownership.inner_owning_collections;
+    // bug-805: a container local later ASSIGNED a call result adopts what the call
+    // hands out, so it needs its owned-lists from its bind, like a float target.
+    let call_assigned = builder.call_assigned_owner_containers(&function.body);
+    builder.owner_containers.extend(call_assigned);
     // bug-648: which inline-`TRAP` temps are handed borrowed values.
     builder.trap_ownership =
         crate::codegen::resource::cleanup::trap_ownership::collect_trap_ownership(&function.body);

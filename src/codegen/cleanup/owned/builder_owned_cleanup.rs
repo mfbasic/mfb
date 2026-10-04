@@ -1,22 +1,42 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::layout::builder_collection_layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::{typed_is_collection_type, typed_list_element_type};
+use crate::codegen::engine::types::{
+    typed_is_collection_type, typed_list_element_type, typed_strip_res_marker,
+};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::visit::{walk_value, NirVisitor};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 impl CodeBuilder<'_> {
-    /// Allocate and register a runtime owned-list for an owner collection binding
-    /// (§15.6): a head-pointer stack slot (initialized empty) plus an
-    /// [`ActiveCleanup::OwnedList`] obligation drained on every exit path.
+    /// Allocate and register the runtime owned-lists for an owner container binding
+    /// (§15.6): one head-pointer stack slot (initialized empty) plus one
+    /// [`ActiveCleanup::OwnedList`] obligation per resource leaf kind the
+    /// container's values can reach, each drained on every exit path.
+    ///
+    /// bug-805: the container is any value that reaches a resource — a
+    /// `List OF RES File`, a record with a `RES` field, but equally a
+    /// `List OF List OF Holder` or a record holding a `Map OF K TO Holder`. A
+    /// pushed node is always a resource leaf (a record, or a resource-union box),
+    /// never an aggregate, so the drop is chosen by the leaf, not by the
+    /// container's immediate payload. A container reaching two kinds (a record with
+    /// a `File` field and a `Stream` field) gets two lists, one drop each.
     pub(crate) fn setup_owned_list(
         &mut self,
         name: &str,
         type_: &ParameterType,
     ) -> Result<(), String> {
-        let drop = self.collection_resource_drop(type_)?;
+        let leaves = self.resource_leaf_types(type_);
+        if leaves.is_empty() {
+            return Err(format!(
+                "owned-list owner '{name}' of type '{type_}' reaches no resource"
+            ));
+        }
+        let drops = leaves
+            .iter()
+            .map(|leaf| Ok((leaf.clone(), self.resource_leaf_drop(leaf)?)))
+            .collect::<Result<Vec<_>, String>>()?;
         let owns_elements = self.owned_list_owning_collections.contains(name);
         // bug-645: the collection BLOCK itself. A `List OF RES X` is not
         // `is_freeable_flat_value` — `collection_payload_types` strips the `RES`
@@ -37,28 +57,33 @@ impl CodeBuilder<'_> {
         // a list (it is not flat), so an aliasing store really can leave two holders,
         // and only `owning_collections` rules that out.
         //
-        // Restricted to a collection: the other owner-container kind is a record with a
-        // `RES` field (plan-114-C), which IS freeable-flat (its fields walk unstripped
-        // to the `Res(_)` arm) and so already has its own `OwnedValue` from the bind —
-        // adding a second here would be the double free this whole file guards against.
+        // Restricted to a collection that is not freeable-flat: a record with a `RES`
+        // field (plan-114-C), or a collection of such records, IS freeable-flat (its
+        // fields walk unstripped to the `Res(_)` arm) and so already has its own
+        // `OwnedValue` from the bind — adding a second here would be the double free
+        // this whole file guards against.
         if owns_elements && typed_is_collection_type(type_) && !self.is_freeable_flat_value(type_) {
             if let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) {
                 self.register_res_collection_block_free(name, type_, stack_offset);
             }
         }
-        let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
-        let scratch9 = self.temporary_vreg();
-        self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), head_slot));
-        self.owned_list_heads.insert(name.to_string(), head_slot);
-        self.active_cleanups
-            .push(ActiveCleanup::OwnedList(OwnedListCleanup {
-                name: name.to_string(),
-                head_slot,
-                drop,
-                owns_elements,
-                scope_depth: self.current_scope_depth(),
-            }));
+        for (leaf, drop) in drops {
+            let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
+            let scratch9 = self.temporary_vreg();
+            self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), head_slot));
+            self.owned_list_heads
+                .insert((name.to_string(), leaf.clone()), head_slot);
+            self.active_cleanups
+                .push(ActiveCleanup::OwnedList(OwnedListCleanup {
+                    name: name.to_string(),
+                    head_slot,
+                    drop,
+                    owns_elements,
+                    scope_depth: self.current_scope_depth(),
+                    leaf,
+                }));
+        }
         Ok(())
     }
 
@@ -110,13 +135,10 @@ impl CodeBuilder<'_> {
     /// iterable — and the container is still transferred on every one of them. Left
     /// registered, this scope would free the block the caller is about to adopt.
     pub(crate) fn deactivate_owned_list(&mut self, name: &str) {
-        if let Some(index) = self
-            .active_cleanups
-            .iter()
-            .rposition(|cleanup| matches!(cleanup, ActiveCleanup::OwnedList(o) if o.name == name))
-        {
-            self.active_cleanups.remove(index);
-        }
+        // bug-805: a container reaching several resource kinds registered one list
+        // per kind, all under its name.
+        self.active_cleanups
+            .retain(|cleanup| !matches!(cleanup, ActiveCleanup::OwnedList(o) if o.name == name));
         let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) else {
             return;
         };
@@ -152,29 +174,78 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// `RETURN` of owner container `name`: the returned block is the caller's now,
+    /// so retire the block free `setup_owned_list` registered — but keep its
+    /// owned-list drains. bug-805: removing them (as [`Self::deactivate_owned_list`]
+    /// does for a consuming call, whose callee takes the records over) leaked the
+    /// 16-byte node of every resource floated into a returned container, and left a
+    /// record the container no longer held owned by a dead frame, never closed. The
+    /// `RETURN` releases every record the returned value reaches before the
+    /// cleanups run, so the drains skip exactly those.
+    pub(crate) fn retire_returned_owner_block(&mut self, name: &str) {
+        let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) else {
+            return;
+        };
+        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(o) if o.stack_offset == stack_offset)
+        }) {
+            self.active_cleanups.remove(index);
+        }
+    }
+
     /// Whether a type is a container whose scope-ownership of resources
-    /// transfers across a function boundary (§15.6) — a `RES`-marked collection,
-    /// or (plan-114-C) a record with a `RES` field.
+    /// transfers across a function boundary (§15.6): any aggregate that reaches a
+    /// resource (bug-805) — a `RES`-marked collection, a record with a `RES` field
+    /// (plan-114-C), or any list, map, record or data union nesting one.
     ///
     /// This is what the `RETURN` transfer keys on. Getting it wrong for records
     /// is not a missing optimisation: a returned float-target record whose
     /// owned-list is *drained* instead of transferred closes the handle the
     /// caller is about to adopt, and the caller then closes it again.
     pub(crate) fn is_resource_owning_container(&self, type_: &ParameterType) -> bool {
-        is_resource_owning_container(&self.type_model, type_)
+        !self.is_resource_leaf(type_) && self.type_carries_resources(type_)
     }
 
-    /// Push the resource record at `resource_slot` onto `collection`'s owned-list
-    /// as a fresh `{record, next}` node (§15.6).
+    /// Push the resource record (or resource-union box) at `resource_slot` onto
+    /// `collection`'s owned-list for `leaf` as a fresh `{value, next}` node (§15.6).
+    ///
+    /// `leaf` is the pushed value's own resource type. A container with one list
+    /// takes every push on it, as before bug-805; one with several lists picks the
+    /// list whose leaf is `leaf`, or the one sharing its base resource when the
+    /// slot's `STATE` spelling differs from the pushed binding's.
     pub(crate) fn emit_owned_list_push(
         &mut self,
         collection: &str,
         resource_slot: usize,
+        leaf: &ParameterType,
     ) -> Result<(), String> {
-        let head_slot = *self
+        let leaf = typed_strip_res_marker(leaf).clone();
+        let lists: Vec<(ParameterType, usize)> = self
             .owned_list_heads
-            .get(collection)
-            .ok_or_else(|| format!("resource floats to '{collection}', which has no owned-list"))?;
+            .iter()
+            .filter(|((name, _), _)| name == collection)
+            .map(|((_, kind), slot)| (kind.clone(), *slot))
+            .collect();
+        let chosen = lists
+            .iter()
+            .find(|(kind, _)| *kind == leaf)
+            .or_else(|| {
+                let mut same_base = lists
+                    .iter()
+                    .filter(|(kind, _)| kind.without_state() == leaf.without_state());
+                match (same_base.next(), same_base.next()) {
+                    (Some(only), None) => Some(only),
+                    _ => None,
+                }
+            })
+            .or_else(|| (lists.len() == 1).then(|| &lists[0]))
+            .cloned();
+        let Some((kind, head_slot)) = chosen else {
+            return Err(format!(
+                "resource of type '{leaf}' floats to '{collection}', which has no owned-list \
+                 for it"
+            ));
+        };
         // bug-755: the record floats up to the collection's scope — unless it is
         // already owned there or further out, which a float never lowers.
         let list = self
@@ -182,10 +253,12 @@ impl CodeBuilder<'_> {
             .iter()
             .rev()
             .find_map(|cleanup| match cleanup {
-                ActiveCleanup::OwnedList(list) if list.name == collection => Some((
-                    list.scope_depth,
-                    matches!(list.drop, OwnedListDrop::Union { .. }),
-                )),
+                ActiveCleanup::OwnedList(list) if list.name == collection && list.leaf == kind => {
+                    Some((
+                        list.scope_depth,
+                        matches!(list.drop, OwnedListDrop::Union { .. }),
+                    ))
+                }
                 _ => None,
             });
         if let Some((depth, union)) = list {
@@ -232,44 +305,73 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// Adopt the resources of a `List OF RES File` value transferred in from a
-    /// call: walk the collection and push each element record onto this scope's
-    /// owned-list, so the scope closes each once at exit (§15.6).
+    /// bug-805: the container locals this body ASSIGNS a call result that can carry
+    /// resources the callee hands out (`xs = makeFiles()`). A `Bind` of a call result
+    /// adopts at the bind; an assignment has nowhere to register a drain except the
+    /// binding's own scope, so these locals get their owned-lists at their bind, like
+    /// a float target, and the assignment seeds them. Before this the resources such
+    /// an assignment received were owned by nobody and never closed — a buffered
+    /// write through them was lost.
+    pub(crate) fn call_assigned_owner_containers(
+        &self,
+        body: &[crate::target::shared::nir::NirOp],
+    ) -> std::collections::HashSet<String> {
+        use crate::target::shared::nir::visit::walk_op;
+        use crate::target::shared::nir::NirOp;
+        struct Scan {
+            types: std::collections::HashMap<String, ParameterType>,
+            assigned: Vec<String>,
+        }
+        impl NirVisitor for Scan {
+            fn visit_op(&mut self, op: &NirOp) {
+                match op {
+                    NirOp::Bind { name, type_, .. } => {
+                        self.types.insert(name.clone(), type_.clone());
+                    }
+                    NirOp::Assign { name, value } if adopts_from_call(value) => {
+                        self.assigned.push(name.clone());
+                    }
+                    _ => {}
+                }
+                walk_op(self, op);
+            }
+        }
+        let mut scan = Scan {
+            types: std::collections::HashMap::new(),
+            assigned: Vec::new(),
+        };
+        scan.visit_ops(body);
+        scan.assigned
+            .into_iter()
+            .filter(|name| {
+                scan.types
+                    .get(name)
+                    .is_some_and(|type_| self.is_resource_owning_container(type_))
+            })
+            .collect()
+    }
+
+    /// Adopt the resources a value transferred in from a call carries: walk every
+    /// resource the value of `collection_type` in `collection_slot` reaches (at any
+    /// depth, bug-805) and push each onto this scope's owned-list for its kind, so
+    /// the scope closes each once at exit (§15.6).
     pub(crate) fn emit_owned_list_seed_from_collection(
         &mut self,
         collection: &str,
         collection_slot: usize,
-        element_type: &ParameterType,
+        collection_type: &ParameterType,
     ) -> Result<(), String> {
-        let cursor_slot = self.allocate_stack_object("adopt_cursor", 8);
-        let remaining_slot = self.allocate_stack_object("adopt_remaining", 8);
-        let elem_slot = self.allocate_stack_object("adopt_elem", 8);
-        self.initialize_collection_loop_slots(
-            collection_slot,
-            cursor_slot,
-            remaining_slot,
-            element_type,
-        );
-        let loop_label = self.label("owned_list_seed_loop");
-        let done_label = self.label("owned_list_seed_done");
-        let scratch9 = self.temporary_vreg();
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::compare_immediate(&scratch9, "0"));
-        self.emit(abi::branch_eq(&done_label));
-        let item = self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?;
-        self.emit(abi::store_u64(&item, abi::stack_pointer(), elem_slot));
-        // bug-755: the push floats each element to this scope. An element the callee
+        let collection = collection.to_string();
+        // bug-755: the push floats each resource to this scope. One the callee
         // released (unowned) is taken; one still owned further out — a handle the
         // caller passed in and got back — keeps its owner, and the drain skips it.
-        self.emit_owned_list_push(collection, elem_slot)?;
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, element_type);
-        self.emit(abi::label(&done_label));
-        Ok(())
+        self.emit_for_each_resource(
+            collection_slot,
+            collection_type,
+            &mut |builder, leaf_slot, leaf| {
+                builder.emit_owned_list_push(&collection, leaf_slot, leaf)
+            },
+        )
     }
 
     /// Drain an owned-list: walk it head-first, closing each record once. The
@@ -774,6 +876,14 @@ pub(crate) fn call_result_holds_only_argument_resources(value: &NirValue) -> boo
     !collections_member_produces_elements(member) && args.iter().all(value_produces_no_resource)
 }
 
+/// Whether a binding or assignment of `value` adopts the resources it carries: a
+/// call, unless it is a `collections` member that only re-packages its arguments'
+/// handles (bug-643).
+pub(crate) fn adopts_from_call(value: &NirValue) -> bool {
+    matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. })
+        && !call_result_holds_only_argument_resources(value)
+}
+
 /// An argument subtree whose resources are all pointers already bound to a name:
 /// no call at all, or only calls [`call_result_holds_only_argument_resources`]
 /// accepts. A closure's body is a separate function, so its captures are what is
@@ -869,125 +979,6 @@ fn type_variables(type_: &ParameterType, out: &mut Vec<ParameterType>) {
             type_variables(ret, out);
         }
         _ => {}
-    }
-}
-
-/// The `RES`-marked field types of a record, in declaration order (plan-114-C).
-///
-/// Only a **direct** `RES` field counts. A resource inside a nested record
-/// floats to *that* record's binding, so the outer record is not the container
-/// holding it.
-pub(crate) fn record_res_field_types(
-    model: &TypeModel,
-    type_: &ParameterType,
-) -> Vec<(String, ParameterType)> {
-    model
-        .record_fields
-        .get(type_)
-        .map(|fields| {
-            fields
-                .iter()
-                .filter_map(|(name, field_type)| match field_type {
-                    ParameterType::Res(inner) => Some((name.clone(), (**inner).clone())),
-                    _ => None,
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Whether a type is a container whose scope-ownership of resources transfers
-/// across a function boundary (§15.6) — a `RES`-marked collection, or
-/// (plan-114-C) a record with a `RES` field.
-///
-/// This is what the `RETURN` transfer keys on. Getting it wrong for records is
-/// not a missing optimisation: a returned float-target record whose owned-list
-/// is *drained* instead of transferred closes the handle the caller is about to
-/// adopt, and the caller then closes it again.
-pub(crate) fn is_resource_owning_container(model: &TypeModel, type_: &ParameterType) -> bool {
-    CodeBuilder::is_res_marked_resource_collection(type_)
-        || !record_res_field_types(model, type_).is_empty()
-}
-
-#[cfg(test)]
-mod record_container_tests {
-    use super::*;
-
-    fn model_with(fields: &[(&str, &str)]) -> (TypeModel, ParameterType) {
-        let mut model = TypeModel::empty();
-        let holder = ParameterType::declared("Holder");
-        model.record_fields.insert(
-            holder.clone(),
-            fields
-                .iter()
-                .map(|(n, t)| ((*n).to_string(), ParameterType::parse(t)))
-                .collect(),
-        );
-        (model, holder)
-    }
-
-    /// The `RETURN` transfer must fire for a record with a `RES` field, or the
-    /// callee drains the list and closes the handle the caller then adopts.
-    #[test]
-    fn a_record_with_a_res_field_is_a_resource_owning_container() {
-        let (model, holder) = model_with(&[("name", "String"), ("handle", "RES fs.File")]);
-        assert!(is_resource_owning_container(&model, &holder));
-    }
-
-    /// The guard on that: an ordinary record must NOT be treated as one, or a
-    /// plain returned record would skip a drain it needs.
-    #[test]
-    fn a_plain_record_is_not_a_resource_owning_container() {
-        let (model, holder) = model_with(&[("name", "String"), ("count", "Integer")]);
-        assert!(!is_resource_owning_container(&model, &holder));
-    }
-
-    /// A collection keeps answering as before — the record arm is additive.
-    #[test]
-    fn a_res_collection_is_still_a_resource_owning_container() {
-        let model = TypeModel::empty();
-        assert!(is_resource_owning_container(
-            &model,
-            &ParameterType::parse("List OF RES fs.File")
-        ));
-        assert!(!is_resource_owning_container(
-            &model,
-            &ParameterType::parse("List OF Integer")
-        ));
-    }
-
-    /// Only a DIRECT `RES` field counts: a resource inside a nested record
-    /// floats to that record's binding, not to the outer one.
-    #[test]
-    fn a_nested_record_field_does_not_make_the_outer_record_a_container() {
-        let mut model = TypeModel::empty();
-        model.record_fields.insert(
-            ParameterType::declared("Inner"),
-            vec![("handle".to_string(), ParameterType::parse("RES fs.File"))],
-        );
-        model.record_fields.insert(
-            ParameterType::declared("Outer"),
-            vec![("inner".to_string(), ParameterType::declared("Inner"))],
-        );
-        assert!(is_resource_owning_container(
-            &model,
-            &ParameterType::declared("Inner")
-        ));
-        assert!(!is_resource_owning_container(
-            &model,
-            &ParameterType::declared("Outer")
-        ));
-    }
-
-    /// The drop derivation reads the field's inner resource type, with the
-    /// `RES` marker stripped — that is what `resource_cleanup_symbol` needs.
-    #[test]
-    fn the_res_field_types_are_reported_marker_stripped() {
-        let (model, holder) = model_with(&[("name", "String"), ("handle", "RES fs.File")]);
-        assert_eq!(
-            record_res_field_types(&model, &holder),
-            vec![("handle".to_string(), ParameterType::declared("fs.File"))]
-        );
     }
 }
 

@@ -203,89 +203,39 @@ impl CodeBuilder<'_> {
     }
 
     /// Whether a value of `type_` can carry a record a scope of this function owns:
-    /// a resource, a resource union, or a `List OF RES` (see
+    /// one that reaches a resource at any depth (bug-805) — a resource, a resource
+    /// union, or a list, map, record or data union holding one (see
     /// [`Self::emit_release_returned_value`]).
     pub(crate) fn value_may_carry_owned_resources(&self, type_: &ParameterType) -> bool {
-        let bare = match type_ {
-            ParameterType::Res(inner) => inner.as_ref(),
-            other => other,
-        };
-        self.resource_cleanup_symbol(bare).is_some()
-            || self.resource_union_cleanup(bare).is_some()
-            || (Self::is_res_marked_resource_collection(type_)
-                && crate::codegen::engine::types::typed_list_element_type(type_).is_some())
+        self.type_carries_resources(type_)
     }
 
     /// Release, before a `RETURN`'s cleanups run, every record the returned value
-    /// carries that a scope of this function owns: the record of a returned
-    /// resource, the active variant of a returned resource union, and each element of
-    /// a returned `List OF RES`. The caller's binding then claims them. A record
-    /// owned further out stays with its owner.
+    /// carries that a scope of this function owns — the record of a returned
+    /// resource, the active variant of a returned resource union, and every
+    /// resource a returned aggregate reaches at any depth (a `List OF RES` element,
+    /// a record's `RES` field, a `List OF List OF Holder`'s inner field, bug-805).
+    /// The caller's binding then claims them. A record owned further out stays
+    /// with its owner.
     ///
-    /// A record with a `RES` field needs no walk: `TYPE_RESOURCE_RETURN_ORDER` refuses
-    /// returning one around a resource the function produced, so its fields always
-    /// refer to resources owned further out.
+    /// The aggregate walk is not optional for a record: a returned container
+    /// declared before the resource it carries floats that resource to the
+    /// container's scope (`TYPE_RESOURCE_RETURN_ORDER` only refuses the opposite
+    /// order), so a returned record's field can be a resource this frame owns.
     pub(crate) fn emit_release_returned_value(
         &mut self,
         slot: usize,
         type_: &ParameterType,
     ) -> Result<(), String> {
-        let bare = match type_ {
-            ParameterType::Res(inner) => inner.as_ref(),
-            other => other,
-        };
-        if self.resource_cleanup_symbol(bare).is_some() {
-            let record = self.allocate_register();
-            self.emit(abi::load_u64(&record, abi::stack_pointer(), slot));
-            return self.emit_resource_release(&Reg::from(record));
-        }
-        if self.resource_union_cleanup(bare).is_some() {
-            let union_box = self.allocate_register();
-            self.emit(abi::load_u64(&union_box, abi::stack_pointer(), slot));
-            return self.emit_union_variant_release(&union_box);
-        }
-        if !Self::is_res_marked_resource_collection(type_) {
-            return Ok(());
-        }
-        let Some(element_type) =
-            crate::codegen::engine::types::typed_list_element_type(type_).cloned()
-        else {
-            return Ok(());
-        };
-        let element_is_union = {
-            let bare = match &element_type {
-                ParameterType::Res(inner) => inner.as_ref(),
-                other => other,
-            };
-            self.resource_union_cleanup(bare).is_some()
-        };
-        let cursor_slot = self.allocate_stack_object("release_cursor", 8);
-        let remaining_slot = self.allocate_stack_object("release_remaining", 8);
-        let null_list = self.label("release_list_null");
-        let list = self.allocate_register();
-        self.emit(abi::load_u64(&list, abi::stack_pointer(), slot));
-        self.emit(abi::compare_immediate(&list, "0"));
-        self.emit(abi::branch_eq(&null_list));
-        self.initialize_collection_loop_slots(slot, cursor_slot, remaining_slot, &element_type);
-        let loop_label = self.label("release_list_loop");
-        self.emit(abi::label(&loop_label));
-        let remaining = self.allocate_register();
-        self.emit(abi::load_u64(
-            &remaining,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::compare_immediate(&remaining, "0"));
-        self.emit(abi::branch_eq(&null_list));
-        let item = self.load_collection_loop_item(slot, cursor_slot, &element_type)?;
-        if element_is_union {
-            self.emit_union_variant_release(&item)?;
-        } else {
-            self.emit_resource_release(&Reg::from(item))?;
-        }
-        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
-        self.emit(abi::label(&null_list));
-        Ok(())
+        self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
+            let value = builder.allocate_register();
+            builder.emit(abi::load_u64(&value, abi::stack_pointer(), leaf_slot));
+            if builder.resource_union_cleanup(leaf).is_some() {
+                builder.emit_union_variant_release(&value)
+            } else {
+                builder.emit_resource_release(&Reg::from(value))
+            }
+        })
     }
 
     /// [`Self::emit_resource_release`] for the active variant of the (possibly null)
@@ -302,10 +252,11 @@ impl CodeBuilder<'_> {
     }
 
     /// Close what a call statement's discarded result carries that nobody owns: a
-    /// record the callee produced or released and the caller never bound. A record
-    /// with an owner — a handle the callee was passed and handed back — is left to
-    /// that owner. The record itself stays as the tombstone; its buffers and `STATE`
-    /// are reclaimed exactly as a binding's drop reclaims them.
+    /// record the callee produced or released and the caller never bound, at any
+    /// depth of the result (bug-805). A record with an owner — a handle the callee
+    /// was passed and handed back — is left to that owner. The record itself stays
+    /// as the tombstone; its buffers and `STATE` are reclaimed exactly as a
+    /// binding's drop reclaims them.
     pub(crate) fn emit_close_discarded_value(
         &mut self,
         location: &crate::codegen::engine::operand::Operand,
@@ -315,48 +266,9 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         let slot = self.spill_to_slot("discarded_resources", location);
-        let bare = match type_ {
-            ParameterType::Res(inner) => inner.as_ref(),
-            other => other,
-        };
-        if Self::is_res_marked_resource_collection(type_) {
-            let Some(element_type) =
-                crate::codegen::engine::types::typed_list_element_type(type_).cloned()
-            else {
-                return Ok(());
-            };
-            let element_slot = self.allocate_stack_object("discarded_element", 8);
-            let cursor_slot = self.allocate_stack_object("discarded_cursor", 8);
-            let remaining_slot = self.allocate_stack_object("discarded_remaining", 8);
-            let done = self.label("discarded_list_done");
-            let list = self.allocate_register();
-            self.emit(abi::load_u64(&list, abi::stack_pointer(), slot));
-            self.emit(abi::compare_immediate(&list, "0"));
-            self.emit(abi::branch_eq(&done));
-            self.initialize_collection_loop_slots(slot, cursor_slot, remaining_slot, &element_type);
-            let loop_label = self.label("discarded_list_loop");
-            self.emit(abi::label(&loop_label));
-            let remaining = self.allocate_register();
-            self.emit(abi::load_u64(
-                &remaining,
-                abi::stack_pointer(),
-                remaining_slot,
-            ));
-            self.emit(abi::compare_immediate(&remaining, "0"));
-            self.emit(abi::branch_eq(&done));
-            let item = self.load_collection_loop_item(slot, cursor_slot, &element_type)?;
-            self.emit(abi::store_u64(&item, abi::stack_pointer(), element_slot));
-            let element_bare = match &element_type {
-                ParameterType::Res(inner) => inner.as_ref().clone(),
-                other => other.clone(),
-            };
-            self.emit_close_unowned_at(element_slot, &element_bare)?;
-            self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
-            self.emit(abi::label(&done));
-            return Ok(());
-        }
-        let bare = bare.clone();
-        self.emit_close_unowned_at(slot, &bare)
+        self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
+            builder.emit_close_unowned_at(leaf_slot, leaf)
+        })
     }
 
     /// Close the resource (or resource-union box) a slot holds when it is non-null

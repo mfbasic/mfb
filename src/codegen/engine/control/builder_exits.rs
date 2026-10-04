@@ -1032,16 +1032,19 @@ impl CodeBuilder<'_> {
                 {
                     self.deactivate_resource_cleanup(name);
                 }
-                // Returning a `List OF RES File` — or, since plan-114-C, a record
-                // with a `RES` field — transfers its owned-list to the caller:
-                // drop this scope's drain so the resources are not closed here
-                // (§15.6). Draining instead would close the handle the caller is
-                // about to adopt, and the caller would close it again.
+                // Returning an owner container — a `List OF RES File`, a record
+                // with a `RES` field, any aggregate reaching a resource — hands its
+                // block to the caller, so this scope must not free it. Its
+                // owned-lists stay registered: the release above made every record
+                // the returned value reaches unowned, so their drains close none of
+                // those (the caller adopts them) and only free their nodes — and
+                // close a record the container no longer holds, which this scope
+                // still owns (§15.6: removal does not undo the float).
                 if result
                     .as_ref()
                     .is_some_and(|result| self.is_resource_owning_container(&result.type_))
                 {
-                    self.deactivate_owned_list(name);
+                    self.retire_returned_owner_block(name);
                 }
             }
         }

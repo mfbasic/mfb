@@ -2800,31 +2800,26 @@ impl CodeBuilder<'_> {
                         // A collection that owns resources floated up from inner
                         // blocks (§15.6) gets a runtime owned-list anchored at
                         // this scope; it is drained on every exit path.
-                        if self.owner_containers.contains(name) {
+                        //
+                        // A binding of a call result that reaches resources adopts
+                        // the ones the callee transferred out: this scope owns them
+                        // and closes each once at exit (§15.6). bug-805: at any
+                        // depth of the value — a `List OF List OF Holder`, a record
+                        // with a `RES` field, a map of such records — not only a
+                        // flat `List OF RES File`. Not for a `collections` helper
+                        // over the caller's own handles, which transfers nothing
+                        // (bug-643).
+                        let adopts_call_result = self.is_resource_owning_container(type_)
+                            && value.as_ref().is_some_and(|value| {
+                                crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
+                            });
+                        if self.owner_containers.contains(name) || adopts_call_result {
                             self.setup_owned_list(name, type_)?;
-                        } else if Self::is_res_marked_resource_collection(&type_)
-                            && matches!(
-                                value,
-                                Some(NirValue::Call { .. } | NirValue::CallResult { .. })
-                            )
-                            && !value.as_ref().is_some_and(|value| {
-                                crate::codegen::cleanup::owned::builder_owned_cleanup::call_result_holds_only_argument_resources(value)
-                            })
-                        {
-                            // A `List OF RES File` bound from a call adopts the
-                            // resources transferred out by the callee: this scope
-                            // owns them and closes each once at exit (§15.6). Not
-                            // for a `collections` helper over the caller's own
-                            // handles, which transfers nothing (bug-643).
-                            self.setup_owned_list(name, type_)?;
-                            if let Some(element_type) =
-                                crate::codegen::engine::types::typed_list_element_type(&type_)
-                                    .cloned()
-                            {
+                            if adopts_call_result {
                                 self.emit_owned_list_seed_from_collection(
                                     name,
                                     stack_offset,
-                                    &element_type,
+                                    type_,
                                 )?;
                             }
                         } else if Self::is_res_collection_block(&type_)
@@ -2856,7 +2851,7 @@ impl CodeBuilder<'_> {
                             // register the record in that owned-list. This binding
                             // is now an alias and registers no static cleanup.
                             let collection = collection.clone();
-                            self.emit_owned_list_push(&collection, stack_offset)?;
+                            self.emit_owned_list_push(&collection, stack_offset, type_)?;
                             // The floated record is aliased from a producer temp
                             // (`local $src`) when a fallible producer used an inline
                             // `TRAP` — the desugar's `$trap_valN` is not a `RES`
@@ -3251,7 +3246,7 @@ impl CodeBuilder<'_> {
                         };
                         let site = SelfUpdateSite {
                             name,
-                            type_: local_type,
+                            type_: local_type.clone(),
                             dest,
                             by_ref,
                             field: None,
@@ -3523,6 +3518,19 @@ impl CodeBuilder<'_> {
                                     })
                                 {
                                     self.emit_resource_union_claim_at(stack_offset, depth)?;
+                                }
+                                // bug-805: a container assigned a call result adopts the
+                                // resources the callee handed out, exactly as a bind of
+                                // one does (`call_assigned_owner_containers` gave it its
+                                // owned-lists at its bind).
+                                if crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
+                                    && self.owned_list_heads.keys().any(|(list, _)| list == name)
+                                {
+                                    self.emit_owned_list_seed_from_collection(
+                                        name,
+                                        stack_offset,
+                                        &local_type,
+                                    )?;
                                 }
                             }
                             // bug-648: record whether this store handed a `Mixed` temp

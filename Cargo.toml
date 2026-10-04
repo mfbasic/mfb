@@ -1235,6 +1235,10 @@ name = "rt_resource_owner_scope"
 path = "tests/runtime/rt_resource_owner_scope.rs"
 
 [[test]]
+name = "rt_resource_review_805"
+path = "tests/runtime/rt_resource_review_805.rs"
+
+[[test]]
 name = "rt_scope_drop_leaks"
 path = "tests/runtime/rt_scope_drop_leaks.rs"
 

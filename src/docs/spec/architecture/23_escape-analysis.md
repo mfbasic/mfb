@@ -79,9 +79,15 @@ account of where a resource can go — it is per-function, and cannot see that a
 callee returns its parameter. The single-close guarantee is carried by three
 layers:
 
-1. **Static hand-off, an optimization.** Returning a `RES` binding, a resource
-   union, or a `List OF RES` deactivates that scope's cleanup, so the escaping
-   scope emits no close at all; a `RETURN` of a value whose record pointer equals a
+1. **Static hand-off, an optimization.** Returning a `RES` binding or a resource
+   union deactivates that scope's cleanup, so the escaping scope emits no close at
+   all. Returning a container — any value that reaches a resource (a `List OF RES`,
+   a record with a `RES` field, a list or map of such records, at any depth) —
+   retires the free of its block, which the caller now holds, and keeps its
+   owned-list drains: they skip every record the return released, free their
+   nodes, and close a record the container no longer holds
+   ([[src/codegen/cleanup/owned/builder_owned_cleanup.rs:retire_returned_owner_block]]);
+   a `RETURN` of a value whose record pointer equals a
    registered cleanup's also skips it; a binding of a `collections` member that only
    re-packages its arguments' handles registers no owned-list
    ([[src/codegen/cleanup/owned/builder_owned_cleanup.rs:call_result_holds_only_argument_resources]]).
@@ -89,8 +95,10 @@ layers:
 2. **The owner word, the correctness layer.** Every resource record carries the
    token of the one scope that closes it (`./mfb spec memory heap-values`, "The
    owner word"). A binding claims an unowned record, a float raises it to the outer
-   collection's scope, a `RETURN` releases what the returning function's scopes
-   own, and every scope-exit close runs only when the owner is that scope.
+   container's scope, a `RETURN` releases what the returning function's scopes
+   own — every resource the returned value reaches, at any depth — and every
+   scope-exit close runs only when the owner is that scope.
+   [[src/codegen/resource/walk.rs:emit_for_each_resource]]
    [[src/codegen/resource/owner.rs:emit_skip_unless_owned]]
 3. **A closed/moved flag making a second close a defined no-op.** Every resource
    record carries it at offset 16, and both the built-in helpers and every native
