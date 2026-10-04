@@ -358,8 +358,8 @@ pub(crate) fn strings_package_static_string_value(
     }
 }
 
-/// Whether this binary op consumes a `Float` operand into an exact result type
-/// (`Fixed` or `Money`), which makes the operand's finiteness observable and so
+/// Whether this binary op consumes a `Float` operand into an exact type (`Fixed`
+/// or `Money`) — an arithmetic result, or a comparison's promoted operands — which makes the operand's finiteness observable and so
 /// requires the `ERR_INVALID_FORMAT` message object.
 ///
 /// Both exact types are in scope, not just `Fixed`: the spec gives `Money * Float`
@@ -375,17 +375,25 @@ pub(crate) fn binary_may_consume_float_into_exact(
     types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
-    if !matches!(
-        op,
+    // A comparison promotes its operands as `+` does (bug-816), so a
+    // `Fixed`/`Float` comparison converts the Float into Fixed like `+` would.
+    let op = match op {
         BinaryOp::Add
-            | BinaryOp::Subtract
-            | BinaryOp::Multiply
-            | BinaryOp::Divide
-            | BinaryOp::Mod
-            | BinaryOp::Power
-    ) {
-        return false;
-    }
+        | BinaryOp::Subtract
+        | BinaryOp::Multiply
+        | BinaryOp::Divide
+        | BinaryOp::Mod
+        | BinaryOp::Power => op,
+        BinaryOp::Equal
+        | BinaryOp::NotEqual
+        | BinaryOp::Less
+        | BinaryOp::LessEqual
+        | BinaryOp::Greater
+        | BinaryOp::GreaterEqual => BinaryOp::Add,
+        BinaryOp::Or | BinaryOp::Xor | BinaryOp::And | BinaryOp::Concat | BinaryOp::IntDiv => {
+            return false
+        }
+    };
     // bug-762: the hand table in `static_type_name_with_types` knows no
     // overloaded builtin's return (`math::abs`, `collections::sum`), so a
     // `Fixed * math::abs(x)` registered no message and failed at lowering with

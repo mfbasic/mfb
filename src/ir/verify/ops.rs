@@ -809,6 +809,7 @@ impl TypeEnv {
                         locals,
                         &self.declared_functions,
                         &self.total_functions,
+                        &self.globals,
                     );
                     unbound.retain(|name| {
                         locals.get(name).is_none_or(|type_| {

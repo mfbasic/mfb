@@ -2442,6 +2442,7 @@ impl CodeBuilder<'_> {
                         | BinaryOp::Or
                 ) && self.nir_value_cannot_fail(left)
                     && self.nir_value_cannot_fail(right)
+                    && self.nir_comparison_promotion_cannot_fail(*op, left, right)
             }
             NirValue::Unary { op, operand, .. } => {
                 *op == UnaryOp::Not && self.nir_value_cannot_fail(operand)
@@ -2451,6 +2452,23 @@ impl CodeBuilder<'_> {
             }
             _ => false,
         }
+    }
+
+    /// bug-816: a comparison promotes its operands as arithmetic does (§4.1), and
+    /// promotion into `Fixed` is checked — the IR census's own rule,
+    /// `ir::fallible::comparison_can_raise`. An unproven operand type is
+    /// `Unknown`, the side that only declines an optimization.
+    fn nir_comparison_promotion_cannot_fail(
+        &self,
+        op: crate::operators::BinaryOp,
+        left: &NirValue,
+        right: &NirValue,
+    ) -> bool {
+        let type_of = |value: &NirValue| {
+            self.static_item_type(value)
+                .unwrap_or(ParameterType::Unknown)
+        };
+        !crate::ir::fallible::comparison_can_raise(op, &type_of(left), &type_of(right))
     }
 
     /// A call to a built-in that cannot fail, over arguments that cannot fail and
@@ -4451,6 +4469,41 @@ impl CodeBuilder<'_> {
         matches!(self.provable_index_locals.get(i), Some((l, k)) if l == list && *k >= need_k)
     }
 
+    /// `value` converted to the numeric type `target` by arithmetic promotion
+    /// (§4.1): checked into `Fixed`, exact-or-nearest into `Float`, a widening
+    /// move from `Byte` to `Integer`. Identity when the types already agree.
+    fn numeric_value_as(
+        &mut self,
+        value: ValueResult,
+        target: &ParameterType,
+    ) -> Result<ValueResult, String> {
+        if value.type_ == *target {
+            return Ok(value);
+        }
+        let converted = self.allocate_register();
+        match (target, &value.type_) {
+            (ParameterType::Fixed, _) => self.load_numeric_as_fixed(&converted, &value)?,
+            (ParameterType::Float, _) => {
+                self.load_numeric_as_double(abi::FP_SCRATCH[0], &value)?;
+                self.emit(abi::float_move_x_from_d(&converted, abi::FP_SCRATCH[0]));
+            }
+            (ParameterType::Integer, ParameterType::Byte) => {
+                self.emit(abi::move_register(&converted, &value.location))
+            }
+            (target, source) => {
+                return Err(format!(
+                    "native code cannot promote a '{source}' value to '{target}'"
+                ));
+            }
+        }
+        Ok(ValueResult {
+            origin: None,
+            type_: target.clone(),
+            location: Operand::from(converted),
+            text: value.text,
+        })
+    }
+
     pub(crate) fn lower_numeric_for(
         &mut self,
         name: &str,
@@ -4466,6 +4519,14 @@ impl CodeBuilder<'_> {
         // Observation boundary: a `Float` loop counter's initial value is a
         // named binding and must be finite (plan-17).
         self.observe_float(start, &start_value)?;
+        // The counter takes the loop's promoted type, so a start of another
+        // numeric type is converted into it as arithmetic promotion would be —
+        // checked into `Fixed` — failing at the `FOR` (bug-816). Stored
+        // unconverted, its bits were read as the counter's.
+        let saved_loc = self.current_loc;
+        self.current_loc = loc;
+        let start_value = self.numeric_value_as(start_value, type_)?;
+        self.current_loc = saved_loc;
         self.store_value_at(&start_value, abi::stack_pointer(), local_slot);
         let previous = self.locals.insert(
             name.to_string(),
@@ -4496,10 +4557,12 @@ impl CodeBuilder<'_> {
             type_: type_.clone(),
             value: "0".to_string(),
         };
-        // The loop bound comparisons are infallible (comparisons never overflow),
-        // so a default source location is correct here; only the increment below
-        // can originate an overflow error and it carries the loop's location.
-        let cmp = NirSourceLoc::default();
+        // The bound and step tests compare in the loop's type, but an optimized
+        // `end`/`step` can arrive as the bound's original operand (a `Float` local
+        // for a `Fixed` loop), and a comparison promotes like arithmetic: that
+        // operand is converted into `Fixed`, which is checked (bug-816). A failure
+        // there, like the increment's below, carries the loop's location.
+        let cmp = loc;
         let condition = NirValue::Binary {
             op: BinaryOp::Or,
             left: Box::new(NirValue::Binary {

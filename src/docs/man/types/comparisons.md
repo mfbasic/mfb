@@ -47,10 +47,11 @@ Numeric comparisons use converted values. For example, Integer
 Integer to Float loses one unit. The same two values stored as Integers remain
 unequal.
 
-Currently a Float/Fixed comparison uses Float, unlike arithmetic's Fixed-first
-rule. For example, `1F = 1.00000000001` is false, while comparing `1F` to
-`toFixed(1.00000000001)` is true. Explicitly convert both operands when that
-representation choice matters.
+A comparison converts its operands the same way arithmetic does, so a Float
+compared with a Fixed is converted to Fixed first. For example,
+`1F = 1.00000000001` is true: the Float rounds to `1F`, just as
+`toFixed(1.00000000001)` does. Convert both operands explicitly (for example
+with `toFloat`) to compare in another type.
 
 | Context | Float matching | Positive and negative zero |
 | --- | --- | --- |
@@ -80,9 +81,10 @@ an orderable element or key type.
 
 ## Errors
 
-An Integer/Fixed comparison converts the Integer to Fixed first and can raise
-`ErrOverflow` if it is outside the Fixed range. Errors while computing either
-operand also propagate. Float comparisons themselves do not reject transient
+An Integer/Fixed or Float/Fixed comparison converts the Integer or Float to
+Fixed first. It raises `ErrOverflow` if that value is outside the Fixed range,
+and `ErrInvalidFormat` if the Float is NaN or infinite. Errors while computing
+either operand also propagate. Other Float comparisons do not reject transient
 NaN or infinity; the observation rules are in `mfb man types numeric`.
 
 ## Examples

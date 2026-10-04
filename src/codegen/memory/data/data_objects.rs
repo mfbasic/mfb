@@ -1257,6 +1257,24 @@ fn collect_string_values_from_ops_with_constants(
                 collect_string_values_from_value(start, values, constants, types, fields);
                 collect_string_values_from_value(end, values, constants, types, fields);
                 collect_string_values_from_value(step, values, constants, types, fields);
+                // bug-816: the counter takes the loop's type, and the bound and
+                // step tests compare it with `end`/`step`: a `Float` start, bound
+                // or step of a `Fixed` loop is converted into Fixed, which needs
+                // ErrInvalidFormat's message.
+                let counter = NirValue::Local(name.clone());
+                let mut loop_types = types.clone();
+                loop_types.insert(name.clone(), type_.clone());
+                if [start, end, step].into_iter().any(|bound| {
+                    binary_may_consume_float_into_exact(
+                        BinaryOp::LessEqual,
+                        &counter,
+                        bound,
+                        &loop_types,
+                        fields,
+                    )
+                }) {
+                    push_string_value(values, err_msg("ErrInvalidFormat"));
+                }
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);

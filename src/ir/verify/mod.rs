@@ -1014,7 +1014,7 @@ impl TypeEnv {
             unions,
             functions,
             declared_functions: project.functions.iter().map(|f| f.name.clone()).collect(),
-            total_functions: trap_init::total_functions(&project.functions),
+            total_functions: trap_init::total_functions(&project.functions, &globals),
             globals,
             global_muts,
             resource_closers,

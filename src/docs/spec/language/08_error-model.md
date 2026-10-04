@@ -91,7 +91,7 @@ END TRAP
 LET line = fs::readLine(f)
 ```
 
-An inline `TRAP` is legal only as the value of a `LET`/`MUT`/`RES` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression, and covers **every** fallible call inside that expression, not only its outermost one: in `LET b = outer(inner(x)) TRAP(e)` a failure of `inner` runs the handler, and a `RECOVER` there skips the rest of the expression, so `outer` is never called. It equally covers **every raising operator** in that expression — a division by zero, an arithmetic overflow, a `Float` that overflows to infinity: in `LET d = two(1 / z, 2) TRAP(e)` the division's failure runs the handler and `two` is never called. Which node raised makes no difference. The one exception is a fallible call *or* a raising operator in a **short-circuited** operand — the right side of `AND`/`OR`, evaluated only when the left side does not already decide the result. It cannot be lifted ahead of the expression the way the desugar (§8.8) requires, so it is rejected (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`); bind it to its own `TRAP` first. To wrap several *statements*, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a function declared `AS Nothing`, user or built-in), `RECOVER` takes no operand.
+An inline `TRAP` is legal only as the value of a `LET`/`MUT`/`RES` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression, and covers **every** fallible call inside that expression, not only its outermost one: in `LET b = outer(inner(x)) TRAP(e)` a failure of `inner` runs the handler, and a `RECOVER` there skips the rest of the expression, so `outer` is never called. It equally covers **every raising operator** in that expression — a division by zero, an arithmetic overflow, a `Float` that overflows to infinity, a comparison whose `Integer` or `Float` operand is out of range for the `Fixed` it is converted to: in `LET d = two(1 / z, 2) TRAP(e)` the division's failure runs the handler and `two` is never called. Which node raised makes no difference. The one exception is a fallible call *or* a raising operator in a **short-circuited** operand — the right side of `AND`/`OR`, evaluated only when the left side does not already decide the result. It cannot be lifted ahead of the expression the way the desugar (§8.8) requires, so it is rejected (`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`); bind it to its own `TRAP` first. To wrap several *statements*, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a function declared `AS Nothing`, user or built-in), `RECOVER` takes no operand.
 
 The inline `(e)` binding is likewise **optional**: when the handler ignores the error, write a bare `TRAP` (e.g. `LET n = toInt(s) TRAP / RECOVER -1 / END TRAP`). As with the function-level form, the error stays internally bound, so a bare inline handler may still `PROPAGATE` it unchanged.
 
@@ -205,9 +205,12 @@ in place (§14.2).
 [[src/ir/verify/trap_init.rs:locals_unbound_on_some_failure]]
 
 "Can fail" is the same census the compiler uses for function fallibility: `FAIL`,
-an arithmetic operator that can raise (a negative literal cannot), and a call,
-unless the callee is a built-in proven total or a project function proven unable
-to let an error out. An imported callee is assumed to fail. A call or operator
+an arithmetic operator that can raise (a negative literal cannot), a comparison
+that converts an `Integer` or `Float` operand to `Fixed` (an operand of unproven
+type counts; see `./mfb spec language types`), a counted `FOR` (its increment
+is checked), and a call, unless the callee is a built-in proven total or a
+project function proven unable to let an error out.
+[[src/ir/fallible.rs:comparison_can_raise]] An imported callee is assumed to fail. A call or operator
 under an inline `TRAP` is captured by that handler and is not an edge into this
 one. The census is applied to the IR, so a decoded package is held to the same
 rule as source. [[src/ir/verify/trap_init.rs:total_functions]]

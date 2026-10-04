@@ -77,8 +77,8 @@ For mixed arithmetic operands the type is selected in the order
 | `Float` | `Float` | `Float` | `Float` |
 
 The table is symmetric in the operand order. Numeric comparisons (`=`, `<>`, `<`,
-`>`, `<=`, `>=`) return `Boolean`. Currently comparisons prefer `Float` over
-`Fixed` when both appear; see `mfb man types comparisons`.
+`>`, `<=`, `>=`) return `Boolean` and convert their operands by the same
+table; see `mfb man types comparisons`.
 
 Promotion can fail: `Fixed` has a smaller range than `Integer` or `Float`.
 Combining a Fixed with an Integer outside -2147483648 through 2147483647 raises

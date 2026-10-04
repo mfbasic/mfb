@@ -719,14 +719,11 @@ impl CodeBuilder<'_> {
             text: right.text.clone(),
         };
 
-        let promoted = if left.type_ == ParameterType::Float || right.type_ == ParameterType::Float
-        {
-            ParameterType::Float
-        } else if left.type_ == ParameterType::Fixed || right.type_ == ParameterType::Fixed {
-            ParameterType::Fixed
-        } else {
-            promoted_binary_type(BinaryOp::Add, &left.type_, &right.type_)
-        };
+        // Comparisons promote exactly as arithmetic does (Fixed > Float > Integer
+        // > Byte, §4.1): a Float/Fixed pair compares as Fixed, so the Float
+        // operand takes the checked, rounding Float→Fixed conversion and can
+        // raise ErrOverflow/ErrInvalidFormat like `fixed + float` (bug-816).
+        let promoted = promoted_binary_type(BinaryOp::Add, &left.type_, &right.type_);
         let result = self.allocate_register();
         let true_label = self.label("cmp_true");
         let done_label = self.label("cmp_done");

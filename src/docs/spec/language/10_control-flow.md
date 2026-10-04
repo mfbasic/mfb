@@ -19,7 +19,7 @@ ELSE
 END IF
 ```
 
-A counted `FOR` loop variable takes the numeric type promoted across the start, end, and `STEP` operands; the result may be `Byte`, `Integer`, `Fixed`, or `Float`. Non-numeric operands are a compile error (`TYPE_FOR_REQUIRES_NUMERIC`). `STEP` is optional and defaults to `1`; a constant `STEP` of zero is a compile error (`TYPE_FOR_STEP_ZERO`).
+A counted `FOR` loop variable takes the numeric type promoted across the start, end, and `STEP` operands; the result may be `Byte`, `Integer`, `Fixed`, or `Float`. Non-numeric operands are a compile error (`TYPE_FOR_REQUIRES_NUMERIC`). Each operand is evaluated once, before the first test. The start is converted to the loop variable's type, and the bound and step tests and the increment promote the end and `STEP` exactly as the corresponding comparison or `+` would (`./mfb spec language types`), so a `Float` or `Integer` operand of a `Fixed` loop outside the `Fixed` range raises `ErrOverflow` (a non-finite `Float` raises `ErrInvalidFormat`) attributed to the `FOR` location. [[src/ir/lower.rs:lower_statement_inner]] [[src/codegen/engine/control/builder_control.rs:numeric_value_as]] `STEP` is optional and defaults to `1`; a constant `STEP` of zero is a compile error (`TYPE_FOR_STEP_ZERO`).
 
 The current counted-loop sequence tests the inclusive bound, executes the body,
 adds `STEP` with the loop variable's checked arithmetic, then tests again.

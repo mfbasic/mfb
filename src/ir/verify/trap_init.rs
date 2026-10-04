@@ -13,7 +13,8 @@
 //!
 //! * `FAIL` fails.
 //! * A raising arithmetic operator fails (`operator_can_raise`, with the
-//!   negative-literal exemption).
+//!   negative-literal exemption), and so does a comparison that promotes an
+//!   operand into `Fixed` (`comparison_can_raise`, bug-816).
 //! * A call fails unless the built-in census proves it total, or it names a
 //!   project function this walk proves cannot let an error out. An imported or
 //!   unknown callee is assumed to fail.
@@ -29,7 +30,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::codegen::builtins;
 use crate::ir::fallible::{
-    is_total_literal_negation, operator_can_raise, unary_operator_can_raise,
+    comparison_can_raise, is_total_literal_negation, operator_can_raise, unary_operator_can_raise,
 };
 use crate::ir::{IrFunction, IrMatchPattern, IrOp, IrValue};
 use crate::types::ParameterType;
@@ -37,7 +38,10 @@ use crate::types::ParameterType;
 /// Project functions that cannot let an error reach their caller, solved to a
 /// fixpoint. A function's *relevant block* is its `TRAP` handler when it has
 /// one (the body's errors are routed there), else its body.
-pub(super) fn total_functions(functions: &[IrFunction]) -> HashSet<String> {
+pub(super) fn total_functions(
+    functions: &[IrFunction],
+    globals: &HashMap<String, ParameterType>,
+) -> HashSet<String> {
     let declared: HashSet<String> = functions.iter().map(|f| f.name.clone()).collect();
     // Start from "every project function is total" and remove the ones that are
     // shown to fail, until nothing changes.
@@ -56,6 +60,7 @@ pub(super) fn total_functions(functions: &[IrFunction]) -> HashSet<String> {
             let census = Census {
                 total: &total,
                 declared: &declared,
+                globals,
             };
             if census.ops_may_fail(relevant, &mut types) {
                 total.remove(&function.name);
@@ -78,8 +83,13 @@ pub(super) fn locals_unbound_on_some_failure(
     types: &HashMap<String, ParameterType>,
     declared: &HashSet<String>,
     total: &HashSet<String>,
+    globals: &HashMap<String, ParameterType>,
 ) -> HashSet<String> {
-    let census = Census { total, declared };
+    let census = Census {
+        total,
+        declared,
+        globals,
+    };
     let mut types = types.clone();
     let mut failed_already = false;
     let mut unbound = HashSet::new();
@@ -123,6 +133,8 @@ fn param_types(function: &IrFunction) -> HashMap<String, ParameterType> {
 struct Census<'a> {
     total: &'a HashSet<String>,
     declared: &'a HashSet<String>,
+    /// Global types, for a comparison operand that reads a global.
+    globals: &'a HashMap<String, ParameterType>,
 }
 
 impl Census<'_> {
@@ -263,6 +275,11 @@ impl Census<'_> {
                 ..
             } => {
                 operator_can_raise(*op, type_)
+                    || comparison_can_raise(
+                        *op,
+                        &self.operand_type(left, types),
+                        &self.operand_type(right, types),
+                    )
                     || self.value_may_fail(left, types)
                     || self.value_may_fail(right, types)
             }
@@ -275,6 +292,21 @@ impl Census<'_> {
                     || self.value_may_fail(operand, types)
             }
         }
+    }
+
+    /// An operand's type: a name from `types` or the globals, any other node
+    /// from its own annotation, `Unknown` when neither answers.
+    fn operand_type(
+        &self,
+        value: &IrValue,
+        types: &HashMap<String, ParameterType>,
+    ) -> ParameterType {
+        match value {
+            IrValue::Local(name) => types.get(name).cloned(),
+            IrValue::Global(name) => self.globals.get(name).cloned(),
+            other => other.annotated_parameter_type(),
+        }
+        .unwrap_or(ParameterType::Unknown)
     }
 
     fn call_may_fail(

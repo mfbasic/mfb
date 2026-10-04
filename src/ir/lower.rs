@@ -1,8 +1,9 @@
 use super::*;
 
 use super::fallible::{
-    float_operator_raises_only_when_observed, float_unary_raises_only_when_observed,
-    is_total_literal_negation, operator_can_raise, unary_operator_can_raise, Fallibility,
+    comparison_can_raise, float_operator_raises_only_when_observed,
+    float_unary_raises_only_when_observed, is_total_literal_negation, operator_can_raise,
+    unary_operator_can_raise, Fallibility,
 };
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
 use crate::hir::{
@@ -1525,9 +1526,29 @@ fn lower_statement_inner(
                 })
                 .unwrap_or_else(|| numeric_constant_for_type(&loop_type, "1"));
 
+            // `$for_end`/`$for_step` keep their operand's own numeric type. The
+            // loop's bound and step tests and its increment then promote that
+            // operand exactly as the source comparison or `+` would (§4.1;
+            // bug-816). Declaring them the loop type made the native bind store
+            // the operand's bits unconverted, so a `Float` bound of a `Fixed`
+            // loop was read as a raw Fixed and the loop ran ~10^9 times.
+            let bound_type =
+                |value: &IrValue, source: &HirExpression, context: &LowerContext<'_>| {
+                    value
+                        .annotated_parameter_type()
+                        .or_else(|| expression_type(source, locals, context))
+                        .filter(numeric::is_numeric)
+                        .unwrap_or_else(|| loop_type.clone())
+                };
+            let end_bind_type = bound_type(&end_value, end, context);
+            let step_bind_type = match step {
+                Some(source) => bound_type(&step_value, source, context),
+                None => loop_type.clone(),
+            };
+
             locals.insert(iter_name.clone(), loop_type.clone());
-            locals.insert(end_name.clone(), loop_type.clone());
-            locals.insert(step_name.clone(), loop_type.clone());
+            locals.insert(end_name.clone(), end_bind_type.clone());
+            locals.insert(step_name.clone(), step_bind_type.clone());
 
             let step_local = IrValue::Local(step_name.clone());
             let iter_local = IrValue::Local(iter_name.clone());
@@ -1549,7 +1570,7 @@ fn lower_statement_inner(
                 IrOp::Bind {
                     mutable: false,
                     name: end_name,
-                    type_: loop_type.clone(),
+                    type_: end_bind_type,
                     value: Some(end_value),
                     loc,
                     explicit_type: false,
@@ -1557,7 +1578,7 @@ fn lower_statement_inner(
                 IrOp::Bind {
                     mutable: false,
                     name: step_name,
-                    type_: loop_type.clone(),
+                    type_: step_bind_type,
                     value: Some(step_value),
                     loc,
                     explicit_type: false,
@@ -2505,8 +2526,19 @@ fn trap_hoist_kind(
         // A raising operator is always checked: unlike a call there is no
         // declaration to prove it total, and `operator_can_raise` is already the
         // conservative side of that question.
-        IrValue::Binary { op, type_, .. } => (operator_can_raise(*op, type_)
+        IrValue::Binary {
+            op,
+            type_,
+            left,
+            right,
+            ..
+        } => ((operator_can_raise(*op, type_)
             && !(under_operator && float_operator_raises_only_when_observed(*op, type_)))
+            || comparison_can_raise(
+                *op,
+                &ir_operand_type(left, locals, globals),
+                &ir_operand_type(right, locals, globals),
+            ))
         .then_some(true),
         IrValue::Unary { op, type_, .. } => (unary_operator_can_raise(*op, type_)
             && !(under_operator && float_unary_raises_only_when_observed(*op, type_)))
@@ -2563,22 +2595,29 @@ fn ir_call_arg_types(
         return Vec::new();
     }
     args.iter()
-        .map(|arg| {
-            match arg {
-                // The two node kinds `annotated_parameter_type` answers `None`
-                // for: a bare name whose type lives in a binding environment.
-                IrValue::Local(name) => locals.get(name).cloned(),
-                IrValue::Global(name) => globals.get(name).cloned(),
-                // Every other node carries its own type. Delegated rather than
-                // re-listed: a hand-written copy of that match is a second list
-                // to keep in step, and the first draft of this one had already
-                // dropped `MemberAccess` — which is the documented real-world
-                // idiom, `toString(resp.body)`.
-                other => other.annotated_parameter_type(),
-            }
-            .unwrap_or(ParameterType::Unknown)
-        })
+        .map(|arg| ir_operand_type(arg, locals, globals))
         .collect()
+}
+
+/// The type of a call argument or operator operand, `Unknown` when unproven.
+///
+/// A bare name — the two node kinds `annotated_parameter_type` answers `None`
+/// for — is typed from its binding environment. Every other node carries its own
+/// type. Delegated rather than re-listed: a hand-written copy of that match is a
+/// second list to keep in step, and the first draft of this one had already
+/// dropped `MemberAccess` — which is the documented real-world idiom,
+/// `toString(resp.body)`.
+fn ir_operand_type(
+    value: &IrValue,
+    locals: &HashMap<String, ParameterType>,
+    globals: &HashMap<String, ParameterType>,
+) -> ParameterType {
+    match value {
+        IrValue::Local(name) => locals.get(name).cloned(),
+        IrValue::Global(name) => globals.get(name).cloned(),
+        other => other.annotated_parameter_type(),
+    }
+    .unwrap_or(ParameterType::Unknown)
 }
 
 /// The mutating twin of [`scan_trap_operands`]: walks the same nodes in the same

@@ -253,9 +253,10 @@ impl EscapeScope<'_, '_> {
 /// them is *checked* on an integer-family result — the spec's "checked numeric
 /// failures from operators are ordinary failures and therefore auto-propagate
 /// unless handled by a `TRAP`" — so each is a raise site the inline-`TRAP`
-/// desugar has to cover (bug-471). The logical (`AND`/`OR`/`XOR`/`NOT`),
-/// comparison and string-concatenation operators produce no *domain* error and
-/// are deliberately absent.
+/// desugar has to cover (bug-471). The logical (`AND`/`OR`/`XOR`/`NOT`) and
+/// string-concatenation operators produce no domain error and are deliberately
+/// absent; a comparison raises only while promoting into `Fixed`, which
+/// [`comparison_can_raise`] judges from the operand types.
 ///
 /// `&` (string concatenation) is the one case worth spelling out: it allocates
 /// a new `String` and so CAN raise `ErrOutOfMemory` at runtime, same as any
@@ -286,6 +287,48 @@ const ARITHMETIC_OPERATORS: [BinaryOp; 7] = [
     BinaryOp::Mod,
     BinaryOp::Power,
 ];
+
+/// The six comparison operators. They yield `Boolean` and have no domain of
+/// their own, but they promote their operands exactly as arithmetic does (§4.1),
+/// and promotion into `Fixed` is checked — see [`comparison_can_raise`].
+const COMPARISON_OPERATORS: [BinaryOp; 6] = [
+    BinaryOp::Equal,
+    BinaryOp::NotEqual,
+    BinaryOp::Less,
+    BinaryOp::LessEqual,
+    BinaryOp::Greater,
+    BinaryOp::GreaterEqual,
+];
+
+/// Whether a comparison can raise while promoting its operands (bug-816).
+///
+/// A comparison converts its operands to the arithmetic promotion type (§4.1),
+/// so a `Fixed` compared with an `Integer` or a `Float` converts that operand to
+/// `Fixed` first, and the conversion is checked: `ErrOverflow` outside the
+/// `Fixed` range, `ErrInvalidFormat` for a non-finite `Float`. `Byte` always
+/// fits, and every other pairing compares without converting into `Fixed`.
+///
+/// The operand types are whatever the caller can prove; `Unknown` is read as
+/// "could be any numeric type", the over-approximating side, exactly as
+/// [`operator_can_raise`] over-approximates — a redundant check is harmless,
+/// an omitted one lets the error escape an inline `TRAP`.
+pub(crate) fn comparison_can_raise(
+    op: BinaryOp,
+    left: &ParameterType,
+    right: &ParameterType,
+) -> bool {
+    let may_be_fixed =
+        |type_: &ParameterType| matches!(type_, ParameterType::Fixed | ParameterType::Unknown);
+    let checked_into_fixed = |type_: &ParameterType| {
+        matches!(
+            type_,
+            ParameterType::Integer | ParameterType::Float | ParameterType::Unknown
+        )
+    };
+    COMPARISON_OPERATORS.contains(&op)
+        && ((may_be_fixed(left) && checked_into_fixed(right))
+            || (may_be_fixed(right) && checked_into_fixed(left)))
+}
 
 /// The unary half of [`ARITHMETIC_OPERATORS`]: `-` is the only unary operator
 /// with a numeric domain, so the only one that can raise. `NOT` is
@@ -473,20 +516,12 @@ fn statement_escapes(statement: &HirStatement, scope: &mut EscapeScope<'_, '_>) 
             }
             false
         }
-        HirStatement::For {
-            start,
-            end,
-            step,
-            body,
-            ..
-        } => {
-            expression_escapes(start, scope)
-                || expression_escapes(end, scope)
-                || step
-                    .as_ref()
-                    .is_some_and(|step| expression_escapes(step, scope))
-                || block_escapes(body, scope)
-        }
+        // A counted loop can always raise: its increment is checked arithmetic
+        // (`ErrOverflow` past the counter type's range, a non-finite `Float`
+        // counter at its assignment boundary), and its bound and step tests
+        // promote like any comparison (bug-816). The IR census answers the same
+        // (`trap_init`'s `IrOp::For`).
+        HirStatement::For { .. } => true,
         HirStatement::ForEach {
             name,
             iterable,
@@ -527,11 +562,12 @@ fn expression_escapes(expression: &HirExpression, scope: &mut EscapeScope<'_, '_
         | HirExpression::Identifier(_) => false,
         // bug-471: a RAISING OPERATOR lets an error escape exactly as a failing
         // call does — `FUNC fltDiv(a AS Float, b AS Float) AS Float / RETURN a / b`
-        // fails with `ErrFloatOverflow`, and every caller must be told so. Judged
-        // by the operator spelling alone: this walk has no types, and an
-        // arithmetic operator only type-checks on numeric operands, so the
-        // spelling already implies the type (`AND`/`OR`/`XOR` are `Boolean`-only,
-        // `&` is `String`-only, comparisons yield `Boolean` — none are listed).
+        // fails with `ErrFloatOverflow`, and every caller must be told so. An
+        // arithmetic operator is judged by its spelling alone: it only
+        // type-checks on numeric operands, so the spelling already implies the
+        // type (`AND`/`OR`/`XOR` are `Boolean`-only, `&` is `String`-only). A
+        // comparison raises only while promoting an `Integer`/`Float` operand
+        // into `Fixed` (bug-816), so it is judged on its operand types.
         //
         // The `Unary` arm keeps the negative-literal exemption for the same
         // reason `lower::trap_hoist_kind` does: `RETURN -1` must not make a
@@ -545,6 +581,7 @@ fn expression_escapes(expression: &HirExpression, scope: &mut EscapeScope<'_, '_
             ..
         } => {
             ARITHMETIC_OPERATORS.contains(operator)
+                || comparison_can_raise(*operator, &scope.type_of(left), &scope.type_of(right))
                 || expression_escapes(left, scope)
                 || expression_escapes(right, scope)
         }

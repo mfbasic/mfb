@@ -4,8 +4,8 @@ Last updated: 2026-10-04
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/rt-behavior/arithmetic/float-fixed-comparison-promotion` plus runtime-error boundary fixtures
+Status: Fixed
+Regression Test: `tests/rt-behavior/arithmetic/float-fixed-comparison-promotion`, `tests/rt-error/arithmetic/float-fixed-comparison-overflow-rt`, `tests/rt-behavior/trap/inline-trap-fixed-comparison-promotion-rt`, `tests/syntax/trap/trap-local-after-fixed-comparison-invalid`, `tests/rt-behavior/types/with-fallible-comparison-source-order`, `tests/rt-behavior/control-flow/for-mixed-numeric-operands`
 
 ## Goal
 
@@ -111,3 +111,51 @@ check citations. Compile success alone is insufficient.
 ## Open Decisions
 
 Whether to retain the historical Fixed-first comparison contract or deliberately specify Float-first comparison must be settled before implementing a semantic change. Recommended: restore the previously specified promotion rule.
+
+## Resolution
+
+Open decision settled as recommended: comparisons follow the arithmetic
+promotion table (Fixed-first). RED fixtures in 4baadd56f; fix in the commit that
+archives this document.
+
+- `builder_numeric.rs:lower_numeric_comparison_binary` now takes
+  `promoted_binary_type(Add, …)`, so a Float/Fixed pair compares as Fixed through
+  the existing checked `load_numeric_as_fixed` (ErrOverflow out of range,
+  ErrInvalidFormat for a non-finite Float). Integer/Float stays Float; Money
+  stays Money/Money.
+- A comparison can therefore raise, and four censuses said it could not
+  (Integer/Fixed comparisons already raised, so all four were pre-existing
+  holes): `ir::fallible::comparison_can_raise` (new, shared) now feeds the HIR
+  escape walk (function fallibility), `lower::trap_hoist_kind` (inline TRAP
+  coverage), `trap_init` (function-level handler initialization, now typed with
+  globals), and codegen `nir_value_cannot_fail` (mixed `WITH` reordering).
+  `binary_may_consume_float_into_exact` registers the ErrInvalidFormat message
+  for comparisons.
+- Counted FOR: the IR bound `$for_end`/`$for_step` as the loop type with an
+  unconverted operand, so a Float bound/step of a Fixed loop, an Integer bound
+  of a Fixed loop, or an Integer start of a Float loop ran on raw bits (0, 1, 3
+  or ~10^9 iterations, pre-existing). The temps now keep their operand type and
+  the bound/step tests and increment promote; the start is converted by
+  `numeric_value_as`; test failures carry the FOR location. The HIR escape walk
+  now treats every FOR as able to raise (its increment is checked), matching
+  `trap_init`.
+
+Evidence: the six fixtures fail at the parent (build.log mismatch each, via
+`scripts/test-accept.sh <parent mfb>`) and pass after; e.g. `1F = 1.00000000001`
+FALSE→TRUE, `1F < 3000000000.0` TRUE→ErrOverflow. Runtime fixtures pass at -O0
+and -O1 on macOS arm64, 2226 (aarch64 glibc), 2229 (riscv64 musl) and 206
+(Windows x86-64), output byte-compared with the macOS run. Targeted acceptance
+over 205 related fixtures (arithmetic, control-flow, trap, conversions, money,
+operators, types, match, `*fixed*`, `*float*`, `*compar*`, `*toString*`) passes.
+An `-ir` sweep of all 1604 fixtures shows no IR or diagnostic change outside the
+new fixtures. Spec/man updated: `language types` §4.1, `language error-model`,
+`language control-flow`, `mfb man types comparisons`/`numeric`.
+
+Golden moves (native code only): `byte-identity/vector` `.ncodesum` on all five
+targets, measured by hashing `mfb build -ncode -target <t>` per goldened
+`.ncodesum` with the parent and with this fix plus the MATCH-pattern fix that
+follows it (157 files; the other 152 unchanged by these two commits); no
+`.ir`/`build.log` golden moves.
+
+Found alongside, filed as bug-820: a Float-suffixed literal (`1.5f`) is accepted
+into a Fixed/Money slot and stored as its f64 bits.

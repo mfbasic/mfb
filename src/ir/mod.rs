@@ -45,7 +45,7 @@ mod binary;
 mod docs;
 // bug-457: the lowering-side fallibility oracle the inline-`TRAP` desugar and
 // the shape pass both consult.
-mod fallible;
+pub(crate) mod fallible;
 mod json;
 mod link;
 mod lower;
