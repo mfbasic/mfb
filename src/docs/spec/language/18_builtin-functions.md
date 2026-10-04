@@ -28,6 +28,14 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 | `isPositive` / `isNegative` / `isZero` | 1 | `Boolean` | `Integer`, `Float`, `Fixed` |
 | `isEmpty(value)` / `isNotEmpty(value)` | 1 | `Boolean` | `String`, `List OF T`, `Set OF T`, `Map OF K TO V` |
 
+> `toString` of a `Fixed` renders `decimals` places (default 2) of the exact
+> Q32.32 value rounded half away from zero; at 10 or more places the extra digits
+> are trailing zeros. The rounding is applied to the unsigned magnitude, so it
+> holds at every magnitude including the range ends: `toString(2147483647.996F)`
+> is `2147483648.00`. A folded constant renders identically.
+> [[src/codegen/string/repr/builder_strings.rs:emit_fixed_to_string_value]]
+> [[src/numeric.rs:fixed_default_to_string_text]]
+>
 > The conversion name is `toInt` (not `toInteger`). String concatenation `&` is a
 > binary **operator**, not a built-in
 > function — it is not in this set. [[src/lexer.rs:TokenKind]]

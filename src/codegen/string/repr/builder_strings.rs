@@ -1808,16 +1808,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(scale, scale, divisor));
         self.emit(abi::subtract_immediate(scale, scale, 1));
         self.emit(abi::unsigned_divide_registers(scale, scale, divisor));
-        // Skip the bump when it would overflow i64 — only reachable at the very top
-        // of the Fixed range, where truncating is the safe answer.
-        self.emit(abi::move_immediate(
-            quotient,
-            "Integer",
-            "9223372036854775807",
-        ));
-        self.emit(abi::subtract_registers(quotient, quotient, scale));
-        self.emit(abi::compare_registers(raw, quotient));
-        self.emit(abi::branch_gt(&round_skip));
+        // `raw` is the unsigned magnitude (at most 2^63, the minimum Fixed) and the
+        // bias at most 2^31, so the sum fits in 64 unsigned bits and the logical
+        // shifts below split it correctly. No magnitude skips the bump: next to the
+        // maximum Fixed it carries into an integer part of 2^31 (bug-818).
         self.emit(abi::add_registers(raw, raw, scale));
         self.emit(abi::label(&round_skip));
         self.emit(abi::store_u64(raw, abi::stack_pointer(), magnitude_slot));

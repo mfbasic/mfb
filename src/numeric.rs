@@ -193,14 +193,10 @@ pub(crate) fn fixed_default_to_string_text(raw: i64) -> String {
     // representable boundary value (`0.125`) lands on the away-from-zero side.
     const HALF: u64 = (1_u64 << 31).div_ceil(100);
     let negative = raw < 0;
-    let mut magnitude = raw.unsigned_abs();
-    // The runtime guard is a *signed* compare of the magnitude register against
-    // `i64::MAX - half`, so the minimum Fixed (magnitude 2^63, which reads as
-    // negative) still takes the bump and the logical shift below sees the
-    // carried integer part — reproduce that exactly.
-    if (magnitude as i64) <= i64::MAX - HALF as i64 {
-        magnitude = magnitude.wrapping_add(HALF);
-    }
+    // The magnitude is at most 2^63 and the bias at most 2^31, so the unsigned
+    // sum cannot overflow: every magnitude rounds, the maximum and minimum
+    // Fixed included (bug-818).
+    let magnitude = raw.unsigned_abs() + HALF;
     let mut text = String::new();
     if negative {
         text.push('-');
@@ -730,8 +726,14 @@ mod tests {
             ("2.5e2", "250.00"),
             ("-0.005", "-0.01"),
             ("-0.001", "-0.00"),
-            // The minimum Fixed exercises the signed overflow-guard compare.
+            // The minimum Fixed's magnitude is 2^63.
             ("-2147483648.0", "-2147483648.00"),
+            // Next to the maximum the bias carries into an integer part of 2^31
+            // (bug-818: these were truncated to `…47.99`).
+            ("2147483647.996", "2147483648.00"),
+            ("-2147483647.996", "-2147483648.00"),
+            ("2147483647.99999999976716935634613037109375", "2147483648.00"),
+            ("2147483647.994", "2147483647.99"),
         ] {
             assert_eq!(
                 default_to_string_text(&crate::types::ParameterType::Fixed, literal).as_deref(),
