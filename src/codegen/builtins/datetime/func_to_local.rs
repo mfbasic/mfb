@@ -28,7 +28,9 @@ different civil `datetime::DateTime` on a host configured for a different zone o
 different DST rule.
 
 An instant outside the range the host can convert raises `ErrInvalidArgument`, as
-`datetime::localOffset` does."#;
+`datetime::localOffset` does. Adding the resolved offset to the instant's
+`seconds` can leave the `Integer` range when `seconds` is already near its
+limit; that raises `ErrOverflow`."#;
 const EX: &str = r#"Project the current instant into the host's local zone:
 
 ```
@@ -74,7 +76,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::named("DateTime"),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_toLocal"),
         }],
     });

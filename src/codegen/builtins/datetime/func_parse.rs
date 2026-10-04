@@ -80,7 +80,16 @@ fixed-offset moment, overriding `zone`. When `pattern` contains no offset token,
 the `zone` argument supplies the offset: the two-argument overload defaults it to
 `datetime::utc()`, and the three-argument overload resolves `value`'s civil fields
 against the given `zone`. `parse` is pure: it reads no host state and has no side
-effects."#;
+effects.
+
+A `yyyy`/`yy` run, or any longer run of `y`, reads as many digits as the run
+width allows, so a year far enough from the epoch makes the resulting civil
+seconds count leave the `Integer` range; that raises `ErrOverflow`. For the
+three-argument overload, resolving the parsed wall-clock reading against a
+`datetime::local` zone outside the range the host can convert raises
+`ErrInvalidArgument`, as `datetime::civil` does for the same zone; the
+two-argument overload always resolves against `datetime::utc()` and cannot
+raise it. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Parse a date and time, interpreted as UTC:
 
 ```
@@ -182,7 +191,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::named("DateTime"),
-                errors: vec!["ErrInvalidFormat"],
+                errors: vec!["ErrInvalidFormat", "ErrOutOfMemory", "ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_parse2"),
             },
             super::Implementation {
@@ -203,14 +212,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                     super::Parameter {
                         name: "zone",
-                        desc: "The zone to interpret the parsed wall-clock reading in, when the text does not carry one itself.",
+                        desc: "The zone to interpret the parsed wall-clock reading in, when the text does not carry one itself. A `datetime::local` zone that cannot convert the reading raises `ErrInvalidArgument`.",
                         aliases: &[],
                         ty: super::ParameterType::named("Zone"),
                         default: super::DefaultValue::None,
                     },
                 ],
                 return_type: super::ParameterType::named("DateTime"),
-                errors: vec!["ErrInvalidFormat"],
+                errors: vec!["ErrInvalidArgument", "ErrInvalidFormat", "ErrOutOfMemory", "ErrOverflow"],
                 body: super::Body::mfb(BODY_3, "__datetime_parse3"),
             },
         ],

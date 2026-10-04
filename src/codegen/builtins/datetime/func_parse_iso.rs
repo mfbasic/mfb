@@ -107,6 +107,9 @@ r#"FUNC __datetime_parseIso(value AS String) AS DateTime
   pos = __datetime_expect(value, mo.nextPos, "-")
   LET dy AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
   pos = dy.nextPos
+  IF pos >= n THEN
+    FAIL error(77050003, "datetime: expected date/time separator")
+  END IF
   LET sep AS String = strings::mid(value, pos, 1)
   IF sep <> "T" AND sep <> "t" AND sep <> " " THEN
     FAIL error(77050003, "datetime: expected date/time separator")

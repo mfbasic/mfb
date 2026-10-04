@@ -50,7 +50,8 @@ A `datetime::DateTime` from the constructors always renders; only a `digits`
 outside the allowed set raises. A `datetime::DateTime` record you build yourself
 is rendered as given: an out-of-range offset produces a nonsense offset field, and
 only the most negative `Integer` offset raises `ErrOverflow`. `toIso` is
-pure: it reads no host state and has no side effects."#;
+pure: it reads no host state and has no side effects. `ErrOutOfMemory` means
+the program ran out of memory."#;
 const EX: &str = r#"Render the current instant in UTC, yielding a `...Z` suffix:
 
 ```
@@ -162,7 +163,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 }],
                 return_type: super::ParameterType::String,
-                errors: vec!["ErrOverflow"],
+                errors: vec!["ErrOutOfMemory", "ErrOverflow"],
                 body: super::Body::mfb(BODY_1, "__datetime_toIso"),
             },
             super::Implementation {
@@ -183,7 +184,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                 ],
                 return_type: super::ParameterType::String,
-                errors: vec!["ErrInvalidArgument", "ErrOverflow"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrOverflow"],
                 body: super::Body::mfb(BODY_2, "__datetime_toIso2"),
             },
         ],

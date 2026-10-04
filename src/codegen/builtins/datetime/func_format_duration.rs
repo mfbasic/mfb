@@ -30,7 +30,8 @@ the remaining whole hours modulo 24, the minute field the remaining minutes modu
 string, and it has no side effects. Because the reduction to milliseconds is
 ordinary signed `Integer` arithmetic, a span whose second count is large enough
 that multiplying by 1000 (or negating the reduced total) leaves the signed
-`Integer` range raises `ErrOverflow` rather than formatting."#;
+`Integer` range raises `ErrOverflow` rather than formatting. `ErrOutOfMemory`
+means the program ran out of memory."#;
 const EX: &str = r#"Render a sub-day span:
 
 ```
@@ -105,7 +106,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::String,
-            errors: vec!["ErrOverflow"],
+            errors: vec!["ErrOutOfMemory", "ErrOverflow"],
             body: super::Body::mfb(BODY, "__datetime_formatDuration"),
         }],
     });
