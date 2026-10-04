@@ -5,8 +5,8 @@ Effort: large — a memory-model change to function values, not a drop-path fix 
 Severity: MEDIUM — documented arena-lifetime accumulation, not a spec violation
 Class: Other (memory-model limitation)
 
-Status: Open — fix decided (single-owner closures, below); ready to implement
-Regression Test: to be added (Phase 1)
+Status: Fixed (single-owner closures) — see Resolution
+Regression Test: `tests/runtime/rt_closure_single_owner.rs`
 
 A record whose `FUNC`-typed field holds a **capturing** `LAMBDA` never frees that
 closure when the record goes out of scope. Every such record leaks the closure's
@@ -235,54 +235,112 @@ this list from the code before Phase 2 starts.
 
 ### Phase 1 — failing test + audit
 
-- [ ] Runtime leak test (model: `tests/runtime/rt_callback_failure_frees.rs`'s
+- [x] Runtime leak test (model: `tests/runtime/rt_callback_failure_frees.rs`'s
       `--debug` counters) over the variants: `keep` + field read, direct
       construction, record in a `List`, record reassigned, closure in a `Map`
       value, closure in a union / `Result` payload, closure returned from a
       function. RED today (`live_bytes > 0`), output unchanged.
-- [ ] Audit every holder kind in *Blast Radius*; list each copy and drop site.
+- [x] Audit every holder kind in *Blast Radius*; list each copy and drop site.
 
-Commit: —
+Commit: see Resolution
 
 ### Phase 2 — self-describing environment
 
-- [ ] At each `LAMBDA`, generate a copy routine and a drop routine for its
+- [x] At each `LAMBDA`, generate a copy routine and a drop routine for its
       environment (the captures as an anonymous record, using the existing
       deep-copy / graph-drop machinery).
-- [ ] Add an environment header word pointing at that `LAMBDA`'s routines.
+- [x] Add an environment header word pointing at that `LAMBDA`'s routines.
       A non-capturing `FunctionRef` (static descriptor, `env = 0`) needs none.
 
-Commit: —
+Commit: see Resolution
 
 ### Phase 3 — single owner at every holder
 
-- [ ] Copying a function value copies the closure object and calls the env copy
+- [x] Copying a function value copies the closure object and calls the env copy
       routine; last use moves (§14.1); non-retaining callback positions
       (`is_nonescaping_callback_arg`) borrow.
-- [ ] Dropping a holder frees the closure object and calls the env drop routine:
+- [x] Dropping a holder frees the closure object and calls the env drop routine:
       bindings, record / union / `Result` fields, collection elements, `STATE`
       fields, thread messages, runtime-retained handlers.
-- [ ] Remove the function-type exclusions from `lower_value_owned` and
+- [x] Remove the function-type exclusions from `lower_value_owned` and
       `is_freeable_flat_value`.
 
-Commit: —
+Commit: see Resolution
 
 ### Phase 4 — spec
 
-- [ ] `mfb spec memory closures`: replace *Ownership and Reference Semantics* and
+- [x] `mfb spec memory closures`: replace *Ownership and Reference Semantics* and
       the arena-lifetime closure rule with single-owner semantics; document the
       env header and routines.
-- [ ] `mfb spec memory heap-values`: function fields/payloads are owned (*Records*,
+- [x] `mfb spec memory heap-values`: function fields/payloads are owned (*Records*,
       *Result*).
-- [ ] `mfb spec language memory-semantics` §14.1 / §14.4: function slots copy the
+- [x] `mfb spec language memory-semantics` §14.1 / §14.4: function slots copy the
       closure, not a pointer; dropping a binding reclaims it.
-- [ ] Gate: `cargo build`, `cargo test --bin mfb spec`.
+- [x] Gate: `cargo build`, `cargo test --bin mfb spec`.
 
-Commit: —
+Commit: see Resolution
 
 ### Phase 5 — full validation
 
-- [ ] Phase 1 tests GREEN; goldens (inspect one before accepting any diff); full
+- [x] Phase 1 tests GREEN; goldens (inspect one before accepting any diff); full
       suite; acceptance -O1/-O3.
 
-Commit: —
+Commit: see Resolution
+
+## Resolution
+
+Fixed 2026-10-03 with the decided single-owner model. Commits (detached HEAD on
+`bug-staging-7`):
+
+- `c109fac0e` graph builtins: get/getOr and an in-place list concat no longer orphan
+  graph blocks (pre-existing for recursive types; closure-holding lists inherit it).
+- `a928ba87f` last_use: a call through a function-value local reads the local (else
+  `LET g2 = g` before `g(1.0)` moved the closure out of `g`).
+- `e3872e3f3` bug-781: single-owner closures (implementation, tests, spec).
+
+**Phase 1 — audit (holders, copy and drop sites).** A function value is now a member
+of the graph-owned class (`needs_graph_copy`: `type_contains_func`), so every holder
+reuses the plan-134 owning-store and drop machinery instead of a new set of sites:
+locals and globals (`Bind`/`Assign`/`StoreGlobal` owned cleanups, `lower_value_owned`
+copy or last-use move), arguments (lent; a fresh closure argument is a statement
+temp, `pending_temp_is_freeable`, freed on error exits too), returns
+(`lower_returned_value`), record and union fields (`record_field_is_pointer(FUNC)`,
+`record_pointer_edges`, in-place `FieldStoreKind::Pointer` drops the old closure),
+collection elements and map values (`payload_edge_shape(FUNC) = Pointer`,
+`collection_payload_edges`, `emit_drop_entry_value`), `Result` payloads (the word at
++16 is the wrapper's closure: `emit_ok_result_payload_edges_drop`,
+`register_call_result_payload_temp` skips it), closure captures (the environment
+routine), `http::Route.handler` (`__http_route` stores a copy, verified in
+`codegen_closure_temp_drop`). Not holders: `STATE` fields (`TYPE_STATE_INVALID`
+rejects a `FUNC`-holding STATE) and thread messages (`FUNC` is unsendable); a record
+with both a `RES` and a `FUNC` field cannot be declared yet (plan-114 letter D).
+
+**Phase 2/3.** Environment header word + per-`LAMBDA` routine
+(`closure_ops.rs:lower_closure_env_ops`), `_mfb_rt_closure_copy`/`_mfb_rt_closure_drop`,
+captures at `(index + 1) * 8` everywhere (`closure_env_word_offset`). Retired: the
+bug-572/767 C per-call drain and its registry allow-list, the plan-77 M6 escape-only
+binding drop. New default: a `FUNC`'s default is the null word (an inline `TRAP` on a
+call returning a function value did not build at all).
+
+**Verification.** `rt_closure_single_owner` (15 shapes: the repro, direct
+construction, record in a list, reassigned, map value, union and `Result` payloads
+(function TRAP and inline TRAP), returned and copied, `List OF FUNC`, nested record,
+`String` capture, closure capturing a closure, by-ref `forEach` capture, nested-list
+`get`/`flatten`): base compiler 14 leak + 1 build failure; fixed: `alloc_calls =
+free_calls`, `live_bytes 0`, `double_free_skips 0` at the default level, `-O1` and
+`-O3` (macOS aarch64) and on linux-aarch64 glibc (2226), linux-riscv64 musl (2229) and
+windows-x86_64 (206).
+
+**Still open (pre-existing, not introduced here; same counts on the base compiler
+with a recursive `TYPE Holder / kids AS List OF Holder`):**
+
+1. A native `collections::transform` whose callback returns a fresh graph-owning
+   record leaks the record block and its edges (`free_callback_result` skips
+   non-flat results; `own_collection_payload_edges` then re-copies the edges). The
+   `.mfb` `groupBy` body inherits it. Repro: `collections::transform(hs,
+   LAMBDA(h AS Holder) -> Holder[[], h.id])` — 4 blocks / 128 B live for 2 elements.
+   With function values the same shape leaks the callback's closures (a
+   `transform` producing `List OF FUNC`), as every closure leaked before this fix.
+2. A lambda nested in a lambda that captures a binding two levels out fails to
+   build: `error: NIR local reference 'k' does not resolve`
+   (`collections::transform(xs, LAMBDA(i AS Integer) -> LAMBDA(v AS Integer) -> v * i + k)`).
