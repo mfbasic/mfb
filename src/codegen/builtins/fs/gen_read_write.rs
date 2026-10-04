@@ -1608,8 +1608,12 @@ pub(crate) fn lower_fs_read_line_helper(
         abi::branch(&refill),
         abi::label(&refill_at_eof),
         // At EOF: emit the trailing partial line if any, else signal end of file.
+        // The partial line had no LF, so a CR at its end is not half of a CRLF
+        // terminator: it is an ordinary character and is kept (the trim below runs
+        // only for a line that ended at an LF).
         abi::compare_immediate(&line_len, "0"),
         abi::branch_eq(&eof_error),
+        abi::branch(&build_result),
         abi::label(&emit_line),
         // Trim a single trailing '\r' (CRLF): if temp[8 + line_len - 1] == 13, drop it.
         abi::compare_immediate(&line_len, "0"),
