@@ -298,6 +298,8 @@ fn table() -> Vec<Case> {
         ),
         ("fcmp_zero_d", vec![("src", "d3")], vec!["fcmp   d3, #0.0"]),
         ("scvtf_d_from_x", two("d0", "x1"), vec!["scvtf  d0, x1"]),
+        ("fcvt_s_from_d", two("d0", "d1"), vec!["fcvt   s0, d1"]),
+        ("fcvt_d_from_s", two("d0", "d1"), vec!["fcvt   d0, s1"]),
         ("fcvtzs_x_from_d", two("x0", "d1"), vec!["fcvtzs x0, d1"]),
         ("fcvtms_x_from_d", two("x0", "d1"), vec!["fcvtms x0, d1"]),
         ("fcvtps_x_from_d", two("x0", "d1"), vec!["fcvtps x0, d1"]),

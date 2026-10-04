@@ -383,6 +383,7 @@ pub(crate) fn decode(word: u32, pc: u64) -> Option<Instruction> {
 /// Scalar floating point and NEON.
 fn decode_floating(word: u32) -> Option<Instruction> {
     let d = |number: u32| format!("d{number}");
+    let s = |number: u32| format!("s{number}");
     let v = |number: u32| format!("v{number}");
 
     // FP data processing, two sources (`.d`).
@@ -417,6 +418,9 @@ fn decode_floating(word: u32) -> Option<Instruction> {
         0x1e61_4000 => Some(("fneg", d(rd(word)), d(rn(word)))),
         0x1e60_c000 => Some(("fabs", d(rd(word)), d(rn(word)))),
         0x1e61_c000 => Some(("fsqrt", d(rd(word)), d(rn(word)))),
+        // bug-788: the single/double conversions a `CFloat` crosses with.
+        0x1e62_4000 => Some(("fcvt", s(rd(word)), d(rn(word)))),
+        0x1e22_c000 => Some(("fcvt", d(rd(word)), s(rn(word)))),
         0x9e66_0000 => Some(("fmov", x(rd(word), false), d(rn(word)))),
         0x9e67_0000 => Some(("fmov", d(rd(word)), x(rn(word), false))),
         0x9e62_0000 => Some(("scvtf", d(rd(word)), x(rn(word), false))),
