@@ -24,7 +24,7 @@ this read-time resolution is where overlaps are decided.
 negative index, or one at or past the end of the visible text, raises
 `ErrIndexOutOfRange` (`attribute index out of bounds`). On empty text every
 index is out of range, so `getAttributes` on it raises rather than returning an
-empty list."#;
+empty list. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT astrings
@@ -92,7 +92,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::named("Attribute")),
-            errors: vec!["ErrIndexOutOfRange"],
+            errors: vec!["ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__astrings_getAttributes"),
         }],
     });

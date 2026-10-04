@@ -26,7 +26,10 @@ standard markdown engine; do not treat `__`/`^^`/`::…::` as CommonMark.
   and an omitted slot leaves it unchanged (`::font::` font-only, `::;size::`
   size-only, `::-::` font reset).
 - **Delimiter characters** (`\ * _ ~ ^ :`) in the visible text are backslash-
-  escaped; font names additionally escape `;` (and a literal `-`)."#;
+  escaped; font names additionally escape `;` (and a literal `-`).
+
+Building the rendered text can raise `ErrOutOfMemory`, meaning the program ran
+out of memory."#;
 
 const EX: &str = r#"```
 IMPORT astrings
@@ -140,7 +143,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__astrings_toMarkdown"),
         }],
     });

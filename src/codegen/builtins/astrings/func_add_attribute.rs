@@ -24,7 +24,7 @@ and both ends must fall inside the visible text, or it raises
 `ErrIndexOutOfRange` (`attribute range out of bounds`). Because the range is
 inclusive, **empty text has no valid range at all** — even `0, 0` is out of
 bounds on an empty `AttributedString`, so guard construction from text that
-might be empty."#;
+might be empty. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT astrings
@@ -90,7 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: ranged_attr_params(),
             return_type: ParameterType::named("AttributedString"),
-            errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument"],
+            errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__astrings_addAttribute"),
         }],
     });

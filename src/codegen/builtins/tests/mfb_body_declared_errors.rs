@@ -261,6 +261,26 @@ pub(crate) struct MfbSweepResult {
     pub(crate) measured_members: usize,
 }
 
+/// A code this guard's own function-level (not per-overload, not
+/// argument-sensitive) call propagation reports as reachable for `member`,
+/// but which a human reading `member`'s own source has proven can never
+/// actually fire — the `Body::Mfb` counterpart of
+/// `declared_errors_sweep.rs`'s `unreachable_own_raise`/
+/// `unreachable_via_callee` (same evidentiary bar: cite the exact loop
+/// invariant or argument shape that makes the callee's check unreachable,
+/// not "it seems unlikely"). Phase 2 adds an entry here instead of declaring
+/// a code a member cannot actually raise, and instead of leaving a
+/// permanently-red baseline entry for a false positive.
+///
+/// `astrings::toMarkdown` calls `astrings::getAttributes`/`strings::mid`
+/// (via `__astrings_mdStateAt`) with an index `i` bounded by its own `WHILE i
+/// < n` loop, where `n = astrings::scalarLen(a)` is the exact same bound
+/// both callees range-check against (`getAttributes`'s `index < 0 OR index
+/// >= n` and `mid`'s scalar-unit bound, confirmed matching units: both
+/// `scalarLen` and `strings::mid` count Unicode scalars, not bytes or UTF-16
+/// units) — so the index can never be out of range for either call.
+const UNREACHABLE_VIA_CALLEE: &[(&str, &str)] = &[("toMarkdown", "ErrIndexOutOfRange")];
+
 /// Sweep every `Body::Mfb` member across the whole registry (unlike
 /// `declared_errors_sweep.rs`'s per-package entry points, one `Mfb` body can
 /// call a sibling member in ANOTHER package — `collections::sort` calling
@@ -343,6 +363,11 @@ pub(crate) fn sweep() -> MfbSweepResult {
                     &mut failures,
                 ));
             }
+            expected.retain(|code| {
+                !UNREACHABLE_VIA_CALLEE
+                    .iter()
+                    .any(|(member, unreachable)| *member == function.name && unreachable == code)
+            });
             let declared = member_declared.get(&key).cloned().unwrap_or_default();
             if declared != expected {
                 let missing: Vec<_> = expected.difference(&declared).collect();
@@ -381,11 +406,6 @@ pub(crate) fn sweep() -> MfbSweepResult {
 /// unrelated map overload); Phase 2 must re-derive each one from the source,
 /// not copy this list into a descriptor.
 const PHASE_1_BASELINE: &[&str] = &[
-    "astrings::addAttribute: undeclared [\"ErrOutOfMemory\"], declared but never raised []",
-    "astrings::removeAttribute: undeclared [\"ErrOutOfMemory\"], declared but never raised []",
-    "astrings::clearAttributes: undeclared [\"ErrOutOfMemory\"], declared but never raised []",
-    "astrings::getAttributes: undeclared [\"ErrOutOfMemory\"], declared but never raised []",
-    "astrings::toMarkdown: undeclared [\"ErrIndexOutOfRange\", \"ErrOutOfMemory\"], declared but never raised []",
     "audio::render: undeclared [\"ErrFloatNaN\", \"ErrInvalidArgument\", \"ErrOutOfMemory\"], declared but never raised []",
     "audio::play: undeclared [\"ErrFloatInf\", \"ErrFloatNaN\", \"ErrIndexOutOfRange\", \"ErrNotFound\", \"ErrOutOfMemory\", \"ErrOverflow\"], declared but never raised []",
     "canvas::present: undeclared [\"ErrIndexOutOfRange\", \"ErrInvalidArgument\", \"ErrOverflow\", \"ErrResourceClosed\"], declared but never raised []",
