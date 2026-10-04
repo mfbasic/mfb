@@ -1,0 +1,33 @@
+IMPORT io
+
+' A record field and a MATCH literal pattern are typed slots like a binding or a
+' call parameter, so a numeric literal that the slot's type cannot represent is
+' a compile-time TYPE_*_LITERAL_* error (`mfb spec language types`, literal
+' range checks). Constructor arguments, WITH updates and CASE patterns skipped
+' the check: `Box[300]` stored 300 in a Byte field and printed 300, and an
+' out-of-range Fixed, Money or Integer field failed later in lowering with no
+' source location. Found while fixing bug-820.
+TYPE Box
+  small AS Byte
+  whole AS Integer
+  ratio AS Fixed
+  cash AS Money
+END TYPE
+
+FUNC main() AS Nothing
+  LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+  LET updated AS Box = WITH built { small := 256, ratio := -3e9, cash := 1e400 }
+  LET fine AS Box = Box[255, 1, 1.5, 2.5]
+  MATCH fine.small
+    CASE 300
+      io::print("unreachable")
+    CASE ELSE
+      io::print(toString(updated.whole))
+  END MATCH
+  MATCH fine.ratio
+    CASE 1e400F
+      io::print("unreachable")
+    CASE ELSE
+      io::print("other")
+  END MATCH
+END FUNC

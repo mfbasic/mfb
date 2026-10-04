@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/types/literal-range-field-and-match-invalid
+  16 | 
+  17 | FUNC main() AS Nothing
+  18 |   LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:18 error[2-203-0013 TYPE_BYTE_LITERAL_OVERFLOW]: integer literal is outside the Byte range
+               Integer literal `300` is outside the Byte range 0..255.
+  16 | 
+  17 | FUNC main() AS Nothing
+  18 |   LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:18 error[2-203-0009 TYPE_INTEGER_LITERAL_OVERFLOW]: integer literal is outside the Integer range
+               Integer literal `99999999999999999999` is outside the Integer range.
+  16 | 
+  17 | FUNC main() AS Nothing
+  18 |   LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:18 error[2-203-0017 TYPE_FIXED_LITERAL_OVERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `3e9` is outside the Fixed range.
+  16 | 
+  17 | FUNC main() AS Nothing
+  18 |   LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:18 error[2-203-0105 TYPE_MONEY_LITERAL_OVERFLOW]: numeric literal is outside the Money range
+               Numeric literal `1e20` is outside the Money range.
+  17 | FUNC main() AS Nothing
+  18 |   LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+  19 |   LET updated AS Box = WITH built { small := 256, ratio := -3e9, cash := 1e400 }
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:19 error[2-203-0013 TYPE_BYTE_LITERAL_OVERFLOW]: integer literal is outside the Byte range
+               Integer literal `256` is outside the Byte range 0..255.
+  17 | FUNC main() AS Nothing
+  18 |   LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+  19 |   LET updated AS Box = WITH built { small := 256, ratio := -3e9, cash := 1e400 }
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:19 error[2-203-0018 TYPE_FIXED_LITERAL_UNDERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `-3e9` is outside the Fixed range.
+  17 | FUNC main() AS Nothing
+  18 |   LET built AS Box = Box[300, 99999999999999999999, 3e9, 1e20]
+  19 |   LET updated AS Box = WITH built { small := 256, ratio := -3e9, cash := 1e400 }
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:19 error[2-203-0105 TYPE_MONEY_LITERAL_OVERFLOW]: numeric literal is outside the Money range
+               Numeric literal `1e400` is outside the Money range.
+  20 |   LET fine AS Box = Box[255, 1, 1.5, 2.5]
+  21 |   MATCH fine.small
+  22 |     CASE 300
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:22 error[2-203-0013 TYPE_BYTE_LITERAL_OVERFLOW]: integer literal is outside the Byte range
+               Integer literal `300` is outside the Byte range 0..255.
+  20 |   LET fine AS Box = Box[255, 1, 1.5, 2.5]
+  21 |   MATCH fine.small
+  22 |     CASE 300
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:22 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE pattern has type Integer, expected Byte.
+  26 |   END MATCH
+  27 |   MATCH fine.ratio
+  28 |     CASE 1e400F
+     | ^
+tests/syntax/types/literal-range-field-and-match-invalid/src/main.mfb:28 error[2-203-0017 TYPE_FIXED_LITERAL_OVERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `1e400` is outside the Fixed range.
+[exit 1]
