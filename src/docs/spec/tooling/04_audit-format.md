@@ -286,19 +286,13 @@ fallible, the call's `capability` field).
 
 ### Fallible-call table
 
-A call is fallible if its callee is a built-in that declares an error, if it falls
-under one of the hand-maintained builtin tables, or if it names a user function
-already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
+A call is fallible if its callee is a built-in that declares an error, or if it
+names a user function already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
 
 ```text
-toInt(<enum>):              total (checked first)
-inline-census built-ins:    fallible iff some overload declares an error
-                            (bare general names, inline collections/strings/bits/math members)
-any other built-in:         fallible if some overload declares an error, or
-fallible builtin packages:  fs, io, json, net, thread, tls, http, tcp, udp, or
-per-builtin fallible sets:  the raising members of crypto, datetime, audio, os,
-                            regex, csv and encoding, plus the bare conversions
-otherwise:                  callee ∈ fallible-user-function set
+toInt(<enum>):  total (checked first)
+any built-in:   fallible iff some overload declares an error
+otherwise:      callee ∈ fallible-user-function set
 ```
 
 The declared-error rule is the one the inline-`TRAP` census applies (`./mfb spec
@@ -307,13 +301,14 @@ the built-ins that census answers for — the bare `general` names and the
 inline-lowered members — `mfb audit` and the dead-handler warning agree by
 construction: every `toString` overload is fallible (each can raise
 `ErrOutOfMemory`), `len` and `typeName` are total, and an allocating
-`collections`/`strings` member is fallible.[[src/audit/collect/source.rs:in_inline_census]]
-[[src/audit/collect/source.rs:builtin_declares_error]]
+`collections`/`strings` member is fallible.[[src/audit/collect/source.rs:builtin_declares_error]]
 
-Outside that domain the hand tables are a floor, not a ceiling. They predate the
-declared-error rule, and they still cover a member whose body raises an error its
-descriptor does not declare — `crypto::hmac` is one — which the declared-error
-rule alone would report total.[[src/audit/collect/source.rs:is_fallible_builtin]]
+The rule is exact, not an approximation, because every member's declared errors
+are held to what it raises by the compiler's own test sweeps: native lowerings,
+MFBASIC-source bodies (`Body::Mfb` and `Body::Rewrite` members alike) and the
+per-overload `general` conversions. So a total member in an otherwise fallible
+package — `io::isBuffered`, `thread::isCancelled` — is reported total.
+[[src/codegen/builtins/tests/mfb_body_declared_errors.rs:rewrite_sweep]]
 
 `toInt` of a provably enum-valued argument is treated as total. The collector
 tracks declared enum types, enum parameters and enum-valued local bindings for

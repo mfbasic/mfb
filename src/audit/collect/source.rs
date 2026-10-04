@@ -977,49 +977,26 @@ fn is_fallible_call(
     // bug-679: `toInt(<enum>)` is the ordinal the enum value already holds — a
     // register move that declares no error (plan-140-B) — so it is total, exactly
     // as `toString(<enum>)` is. It is the ONE `toInt` overload that cannot fail;
-    // every other one (bad parse, overflow) stays in the fallible list below, and
-    // an argument this cannot prove to be an enum falls through to it. This is the
-    // mirror of the inline-`TRAP` census's rule, kept here because `mfb audit`
-    // answers over the AST with its own hand-curated census (see `ir::fallible`'s
-    // module doc on why the two are deliberately separate).
+    // every other one (bad parse, overflow) declares its errors and is answered by
+    // the registry below, and an argument this cannot prove to be an enum falls
+    // through to it. This is the mirror of the inline-`TRAP` census's rule, kept
+    // here because `mfb audit` answers over the AST (see `ir::fallible`'s module
+    // doc on why the two are deliberately separate).
     if callee == "toInt" && arguments.len() == 1 {
         let (CallArg::Positional(value) | CallArg::Named { value, .. }) = &arguments[0];
         if expression_is_enum_valued(value, enums, enum_locals) {
             return false;
         }
     }
-    // bug-811: a built-in the inline-`TRAP` census answers for is fallible exactly
-    // when it declares an error — the fact that census reads (spec 8 rule 11), so
-    // the two cannot disagree. Every `toString` overload declares `ErrOutOfMemory`
-    // (owner decision 2026-10-04: a call that can run out of memory is fallible).
-    if in_inline_census(callee) {
-        if let Some(declares) = builtin_declares_error(callee) {
-            return declares;
-        }
-    }
-    // Every other built-in that declares an error is fallible too — the same rule,
-    // read off the same descriptors (bug-811). `process`, `term`, `big`, `canvas`
-    // and most allocating members were missing from the hand lists below.
-    if builtin_declares_error(callee) == Some(true) {
-        return true;
-    }
-    // The hand lists stay as a floor, not a ceiling: a `Body::Rewrite` member's
-    // descriptor is not yet checked against its body (`crypto::hmac`/`convert`
-    // raise but declare nothing), and dropping them would turn those calls total.
-    //
-    // Whole-package fallible surfaces — every call raises a trappable host error.
-    // `tls`/`http` join the original set: they are network I/O like `net`
-    // (bug-96). `tcp`/`udp` are the same transports (bug-791): every member
-    // declares at least one error, which `tests::every_tcp_and_udp_member_declares_an_error`
-    // keeps true — a total member would have to be listed individually instead.
-    if matches!(
-        package_of(callee),
-        "fs" | "io" | "json" | "net" | "thread" | "tls" | "http" | "tcp" | "udp"
-    ) {
-        return true;
-    }
-    if is_fallible_builtin(callee) {
-        return true;
+    // A built-in is fallible exactly when it declares an error — the fact the
+    // inline-`TRAP` census reads (spec 8 rule 11), so the two cannot disagree
+    // (bug-811). Every member's declaration is checked against what it raises:
+    // native lowerings by `declared_errors_all.rs`, `Body::Mfb` and `Body::Rewrite`
+    // bodies by `mfb_body_declared_errors.rs` (bug-814), the `general` members by
+    // `general_declared_errors.rs`. That is what retired the hand-written package
+    // and member lists that used to follow here.
+    if let Some(declares) = builtin_declares_error(callee) {
+        return declares;
     }
     fallible.contains(callee)
 }
@@ -1028,6 +1005,10 @@ fn is_fallible_call(
 /// (`builtins::inline_builtin_is_infallible`) answers for: a bare `general` name
 /// (`toString`, `len`, `toInt`, ...) or an inline-lowered member
 /// (`collections::get`, `strings::upper`, `bits::sl`, ...).
+// Test-only: `is_fallible_call` answers every built-in from the registry, so only
+// `census_builtins_are_fallible_exactly_when_they_declare_an_error` still needs
+// the census domain, to pin audit and the census to the same verdict on it.
+#[cfg(test)]
 fn in_inline_census(callee: &str) -> bool {
     crate::codegen::builtins::general::is_general_call(callee)
         || crate::codegen::builtins::native_builtin_target(callee).is_some()
@@ -1051,119 +1032,6 @@ fn builtin_declares_error(callee: &str) -> Option<bool> {
             .implementations
             .iter()
             .any(|implementation| !implementation.errors.is_empty()),
-    )
-}
-
-/// The specific builtins in mixed pure/fallible packages (`crypto`, `datetime`)
-/// that raise a trappable domain error. The rest of those packages are total
-/// computation, so a coarse package match would over-report (bug-96).
-fn is_fallible_builtin(callee: &str) -> bool {
-    matches!(
-        callee,
-        // crypto — AEAD (auth-tag verification), signatures, key generation, KDFs,
-        // MACs, and entropy draws can each fail; the SHA hashes and
-        // constant-time compare are total.
-        "crypto.seal"
-            | "crypto.open"
-            | "crypto.sign"
-            | "crypto.verify"
-            | "crypto.generate"
-            | "crypto.hkdf"
-            | "crypto.pbkdf2"
-            | "crypto.hmac"
-            | "crypto.randomBytes"
-            | "crypto.randomInt"
-            | "crypto.uuid4"
-            | "crypto.uuid7"
-            | "crypto.ulid"
-            // datetime — the parsers and formatters and the range-checked
-            // constructors raise; date/duration arithmetic is total. Derived from
-            // the `FAIL` sites in datetime_package.mfb.
-            | "datetime.date"
-            | "datetime.time"
-            | "datetime.fixedOffset"
-            | "datetime.format"
-            | "datetime.parse"
-            | "datetime.parseIso"
-            // bug-278. The sets below were derived, not guessed: each package's
-            // man-page `## Errors` table gives the user-facing contract, and for
-            // the source-implemented packages that agrees with a transitive walk
-            // of the `FAIL` sites in its `*_package.mfb`. Both methods were run
-            // and cross-checked.
-            //
-            // audio — 10 of its 11 documented builtins raise (device open,
-            // configuration, unavailable libasound, xrun-on-write). `audio.xruns`
-            // is a pure counter read, so this is an explicit list rather than a
-            // coarse package match, which would over-report it.
-            | "audio.available"
-            | "audio.close"
-            | "audio.closeInput"
-            | "audio.closeOutput"
-            | "audio.devices"
-            | "audio.openInput"
-            | "audio.openInputDevice"
-            | "audio.openOutput"
-            | "audio.openOutputDevice"
-            | "audio.play"
-            | "audio.poll"
-            | "audio.pollTimeout"
-            | "audio.read"
-            | "audio.readTimeout"
-            | "audio.render"
-            | "audio.write"
-            // os — the host-querying half; `appResourcePath` raises ErrInvalidPath /
-            // ErrUnsupported like its `executablePath` sibling.
-            | "os.args"
-            | "os.environ"
-            | "os.executablePath"
-            | "os.getEnv"
-            | "os.getEnvOr"
-            | "os.hostName"
-            | "os.appResourcePath"
-            | "os.appDataPath"
-            | "os.appCachePath"
-            | "os.userHomePath"
-            | "os.userDocumentsPath"
-            | "os.setEnv"
-            | "os.userName"
-            // regex — compilation of a caller-supplied pattern can fail
-            // (ErrInvalidFormat); the rest of the package is total.
-            | "regex.find"
-            | "regex.findAll"
-            | "regex.match"
-            | "regex.replace"
-            // csv — only the parser rejects input.
-            | "csv.parse"
-            // encoding — every decoder rejects malformed input, plus
-            // `uleb128Encode` (negative input). The encoders are otherwise total.
-            | "encoding.base32Decode"
-            | "encoding.base64Decode"
-            | "encoding.base64UrlDecode"
-            | "encoding.formUrlDecode"
-            | "encoding.hexDecode"
-            | "encoding.htmlUnescape"
-            | "encoding.percentDecode"
-            | "encoding.percentDecodeBytes"
-            | "encoding.punycodeDecode"
-            | "encoding.sleb128Decode"
-            | "encoding.uleb128Decode"
-            | "encoding.uleb128Encode"
-            | "encoding.utf16Decode"
-            | "encoding.utf32Decode"
-            | "encoding.utf8Decode"
-            | "encoding.utf8DecodeBytes"
-            | "encoding.utf8DecodeInts"
-            | "encoding.varintDecode"
-            // The bare `general` conversions: a value that does not parse raises
-            // ErrInvalidFormat and one outside range raises ErrOverflow
-            // (`builder_conversions.rs`). These carry no package prefix, so
-            // `package_of` cannot reach them and they must be named directly.
-            | "toInt"
-            | "toFloat"
-            | "toFixed"
-            | "toMoney"
-            | "toScalar"
-            | "toByte"
     )
 }
 
@@ -1418,7 +1286,7 @@ mod tests {
     }
 
     /// Every built-in that declares an error is reported fallible, census or not.
-    /// The hand lists below `is_fallible_call` were derived from the man-page Errors
+    /// The hand lists that used to follow `is_fallible_call` were derived from the man-page Errors
     /// tables once (bug-278) and drifted: `process` and `term` were never added,
     /// and since bug-698 every allocating member declares `ErrOutOfMemory`. 208
     /// declaring members outside the inline census were reported total.
@@ -1448,6 +1316,44 @@ mod tests {
             }
         }
         assert!(measured > 400, "only {measured} declaring members found");
+    }
+
+    /// bug-814: every built-in, census or not, is fallible in audit exactly when it
+    /// declares an error. The hand lists that used to sit under `is_fallible_call`
+    /// called five members fallible that declare and raise nothing
+    /// (`io::isBuffered`/`isInputTerminal`/`isOutputTerminal`/`isErrorTerminal`,
+    /// `thread::isCancelled`; `declared_errors_all.rs` holds each one's lowering to
+    /// its empty list) through a whole-package rule, and named nine members that
+    /// do not exist. Since every `Body::Rewrite` member is now checked against its body,
+    /// the declaration is the whole answer.
+    #[test]
+    fn every_builtin_is_fallible_exactly_when_it_declares_an_error() {
+        let no_names = HashSet::new();
+        let mut wrong = Vec::new();
+        let mut measured = 0;
+        for package in crate::codegen::registry::registry().packages() {
+            for function in package.functions() {
+                let callee = if package.import_name() == "general" {
+                    function.name.to_string()
+                } else {
+                    format!("{}.{}", package.import_name(), function.name)
+                };
+                measured += 1;
+                let declares = function
+                    .implementations
+                    .iter()
+                    .any(|implementation| !implementation.errors.is_empty());
+                if is_fallible_call(&callee, &no_names, &[], &no_names, &no_names) != declares {
+                    wrong.push(format!("{callee} (declares an error: {declares})"));
+                }
+            }
+        }
+        assert!(measured > 500, "only {measured} built-in members found");
+        assert!(
+            wrong.is_empty(),
+            "audit must call a built-in fallible exactly when it declares an error:\n  {}",
+            wrong.join("\n  ")
+        );
     }
 
     #[test]
@@ -1653,7 +1559,7 @@ mod tests {
     fn user_function_becomes_fallible_by_calling_fallible_builtin() {
         let source = concat!(
             "FUNC reader() AS String\n",
-            "  RETURN fs::read(\"p\")\n",
+            "  RETURN fs::readText(\"p\")\n",
             "END FUNC\n",
             "FUNC caller() AS String\n",
             "  RETURN reader()\n",
@@ -1710,29 +1616,6 @@ mod tests {
         assert!(guarded.calls.iter().any(|c| c.callee == "tcp.connect"));
     }
 
-    /// The whole-package classification above is only true while no `tcp`/`udp`
-    /// member is total.
-    #[test]
-    fn every_tcp_and_udp_member_declares_an_error() {
-        for package in crate::codegen::registry::registry().packages() {
-            if !matches!(package.import_name(), "tcp" | "udp") {
-                continue;
-            }
-            for function in package.functions() {
-                for implementation in &function.implementations {
-                    assert!(
-                        !implementation.errors.is_empty(),
-                        "{}::{} declares no error; list the fallible members of {} \
-                         individually in is_fallible_builtin instead",
-                        package.import_name(),
-                        function.name,
-                        package.import_name()
-                    );
-                }
-            }
-        }
-    }
-
     #[test]
     fn fail_statement_makes_function_fallible() {
         let source = concat!(
@@ -1785,7 +1668,7 @@ mod tests {
             "FUNC f(s AS Shape) AS Integer\n",
             "  MATCH s\n",
             "    CASE Circle(c) WHEN c.radius > 0\n",
-            "      RETURN fs::read(\"p\") & \"\"\n",
+            "      RETURN fs::readText(\"p\") & \"\"\n",
             "    CASE ELSE\n",
             "      RETURN 0\n",
             "  END MATCH\n",
