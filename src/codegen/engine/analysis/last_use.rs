@@ -156,6 +156,16 @@ impl Canon {
                             walk_value(self, value);
                         }
                     }
+                    // bug-781: a call THROUGH a function-value local (`g(1.0)`) reads the
+                    // local — its target is the binding's name, not a `NirValue`, so the
+                    // walk below never sees it. Unread, `LET g2 = g` before the call was
+                    // taken for `g`'s last read and moved the closure out from under it
+                    // (a null call). A target that names a function rather than a local
+                    // reads a place no site can ever name, so it only ever keeps a copy.
+                    NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
+                        self.out.push(self.canon.whole(target));
+                        walk_value(self, value);
+                    }
                     _ => walk_value(self, value),
                 }
             }
