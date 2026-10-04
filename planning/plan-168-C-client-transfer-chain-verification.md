@@ -1,6 +1,6 @@
 # plan-168-C: Clients verify the signed transfer chain before trusting a new owner
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Effort: large (3h–1d)
 Depends on: plan-168-B
 
@@ -30,7 +30,7 @@ See plan-168-A, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-168-B complete | `grep -c '^Commit: —' planning/plan-168-B-*.md` → `0` (or archived) | NOT MET |
+| plan-168-B complete | `grep -c '^Commit: —' planning/plan-168-B-*.md` → `0` (or archived) | MET (archived in `0fa3d9968`) |
 
 ## 1. Goal
 
@@ -194,7 +194,7 @@ client applies today.
 
 ### Phase 1: Measure the suspected rotation defect
 
-- [ ] Write a `/tmp` probe (or a new `cli_repo_governance` test
+- [x] Write a `/tmp` probe (or a new `cli_repo_governance` test
       `repo_registry_add_of_a_pre_rotation_release_installs`):
       register alice, publish 0.1.0, `key rotate alice`, then a fresh consumer
       runs `pkg add alice#x@0.1.0`. Record the observed result in Corrections.
@@ -203,7 +203,8 @@ client applies today.
 
 Acceptance: the claim is resolved with output.
   Check: `cargo test --test cli_repo_governance repo_registry_add_of_a_pre_rotation_release_installs` → recorded pass/fail (est. 8–15 min cold release build; this is the only path that runs the registry add across a rotation).
-Commit: —
+  Measured: FAILED — `error: refusing to install `rot_pkg`@0.1.0: the package identKey does not match the identKey pinned in project.json`. Landed RED; Phase 3 must turn it green.
+Commit: (this commit — recorded in the next)
 
 ### Phase 2: The pure verifier
 
@@ -293,6 +294,14 @@ Commit: —
   today.
 
 ## Corrections
+
+- **The suspected rotation defect is real** (§2 UNVERIFIED claim, Phase 1).
+  `repo_registry_add_of_a_pre_rotation_release_installs` (register alice,
+  publish 0.1.0, `key rotate alice`, fresh consumer `pkg add alice#rot_pkg@0.1.0`)
+  fails at HEAD of this branch with `refusing to install `rot_pkg`@0.1.0: the
+  package identKey does not match the identKey pinned in project.json`: the add
+  pins `index.ident_key` (the rotated, current key) while the release header
+  carries the pre-rotation key. Landed as a RED test.
 
 ## Summary
 

@@ -867,3 +867,70 @@ fn repo_release_state_yank_excludes_floating_but_allows_pin() {
     );
     assert!(pin_dir.join("packages/state_pkg.mfp").is_file());
 }
+
+/// plan-168-C Phase 1: a fresh registry `pkg add` of a release published
+/// before its owner rotated their ident. The index binds the CURRENT ident, the
+/// release header carries the OLD one; the add must still install it verified.
+#[test]
+fn repo_registry_add_of_a_pre_rotation_release_installs() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+    let pkg_dir = work.path().join("rot_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#rot_pkg\",\n",
+    );
+    std::fs::write(&manifest, &base).unwrap();
+    let publish = run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg]);
+    assert!(
+        publish.status.success(),
+        "publish failed: {}",
+        String::from_utf8_lossy(&publish.stderr)
+    );
+    let rotate = run_mfb(&repo, home.path(), &["key", "rotate", "alice"]);
+    assert!(
+        rotate.status.success(),
+        "key rotate failed: {}",
+        String::from_utf8_lossy(&rotate.stderr)
+    );
+
+    let app_dir = work.path().join("rot_consumer");
+    assert!(run_mfb_plain(&["init", app_dir.to_str().unwrap()])
+        .status
+        .success());
+    let run_in_consumer = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in consumer")
+    };
+    let add = run_in_consumer(&["pkg", "add", "alice#rot_pkg@0.1.0"]);
+    assert!(
+        add.status.success(),
+        "registry add of a pre-rotation release failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&add.stdout),
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let build = run_in_consumer(&["build"]);
+    assert!(
+        String::from_utf8_lossy(&build.stdout).contains("uses rot_pkg - [Verified]"),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
