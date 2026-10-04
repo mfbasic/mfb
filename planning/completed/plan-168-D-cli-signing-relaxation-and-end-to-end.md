@@ -147,7 +147,7 @@ Acceptance: the spec has no deviation for transfers, and citations resolve.
   `/index` binding deviation, unrelated); `cargo test -p mfb --bins
   citations_resolve` → `test result: ok. 1 passed`; `cargo test --bin mfb
   spec` → `46 passed`.
-Commit: (this commit — recorded on archive)
+Commit: 1ba768a08
 
 ## Validation Plan
 

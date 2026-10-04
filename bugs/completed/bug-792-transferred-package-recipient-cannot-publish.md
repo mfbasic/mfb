@@ -193,7 +193,7 @@ Commit: 0b3c5db49, fe5242d24 (A); ed3f34ab2, ffd19bbc8 (B); aa5b5b79f,
       runtime or `.mfp` byte change).
 
 Acceptance: complete suites pass and the goal is demonstrated end to end.
-Commit: ab3cc833c (end to end), and the plan-168-D Phase 3 close-out
+Commit: ab3cc833c (end to end), 1ba768a08 (close-out)
 
 ## Resolution
 
