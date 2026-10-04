@@ -1,0 +1,37 @@
+$ mfb build -ast -ir tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding
+Wrote AST to tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding/money_min_integer_divisor_rounding.ast
+Wrote IR to tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding/money_min_integer_divisor_rounding.ir
+[exit 0]
+$ mfb build tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding
+Wrote executable to tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding/build/money_min_integer_divisor_rounding.out
+[exit 0]
+$ tests/rt-behavior/arithmetic/money-min-integer-divisor-rounding/build/money_min_integer_divisor_rounding.out
+Commercial
+5e18 -0.00001 TRUE
+-5e18 0.00001 TRUE
+2^62-1 0.00000 TRUE
+2^62+1 -0.00001 TRUE
+-(2^62+1) 0.00001 TRUE
+2^62 -0.00001 TRUE
+-2^62 0.00001 TRUE
+zero 0.00000 TRUE
+minimum 0.00001 TRUE
+maximum -0.00001 TRUE
+5/-2 -0.00003 TRUE
+3/2b 0.00002 TRUE
+zero divisor ERR:77050002
+Banker
+5e18 -0.00001 TRUE
+-5e18 0.00001 TRUE
+2^62-1 0.00000 TRUE
+2^62+1 -0.00001 TRUE
+-(2^62+1) 0.00001 TRUE
+2^62 0.00000 TRUE
+-2^62 0.00000 TRUE
+zero 0.00000 TRUE
+minimum 0.00001 TRUE
+maximum -0.00001 TRUE
+5/-2 -0.00002 TRUE
+3/2b 0.00002 TRUE
+zero divisor ERR:77050002
+[exit 0]
