@@ -590,7 +590,8 @@ Commit: 0b3c5db49
 
 Acceptance: the spec renders with resolving citations and names no v1 transfer domain.
   Check: `cargo test --bin mfb spec` → `test result: ok`, and `grep -rn 'transfer-offer-v1\|transfer-accept-v1' src/docs/spec` → no output (est. 3–6 min; guess).
-Commit: —
+  Measured: `test result: ok. 46 passed; 0 failed`; the grep prints nothing.
+Commit: fe5242d24
 
 ## Validation Plan
 
@@ -602,7 +603,10 @@ Commit: —
 - Runtime proof: Phase 2's `cli_repo_governance` transfer test drives the shipped
   binaries.
 - Doc sync: Phase 4.
-- Final gate (once, after Phase 4): `cargo test -p mfb_repository --no-fail-fast > /tmp/168A.log 2>&1; echo EXIT=$?` → `EXIT=0`, then `cargo test --test cli_repo_governance > /tmp/168A-gov.log 2>&1; echo EXIT=$?` → `EXIT=0` (est. 15–25 min; guess). The whole-workspace suite runs once, at the end of plan-168-D. A touches no codegen, so the artifact gate cannot be affected.
+- Final gate (once, after Phase 4) — measured after phase 3's code was final
+  (phase 4 touched only spec prose): `EXIT=0` (424 lib tests passed) and
+  `EXIT=0` (7 passed).
+- Final gate as planned: `cargo test -p mfb_repository --no-fail-fast > /tmp/168A.log 2>&1; echo EXIT=$?` → `EXIT=0`, then `cargo test --test cli_repo_governance > /tmp/168A-gov.log 2>&1; echo EXIT=$?` → `EXIT=0` (est. 15–25 min; guess). The whole-workspace suite runs once, at the end of plan-168-D. A touches no codegen, so the artifact gate cannot be affected.
 
 ## Open Decisions
 

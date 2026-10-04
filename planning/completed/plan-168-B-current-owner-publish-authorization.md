@@ -196,7 +196,7 @@ Commit: ed3f34ab2
 
 Acceptance: `cargo test --bin mfb spec` → `test result: ok` (est. 3–6 min; guess).
   Measured: `test result: ok. 46 passed; 0 failed` (includes `spec_citations_resolve`).
-Commit: (this commit — recorded on archive)
+Commit: ffd19bbc8
 
 ## Validation Plan
 
