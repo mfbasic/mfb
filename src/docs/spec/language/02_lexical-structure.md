@@ -2,8 +2,8 @@
 
 - **Case-insensitive keywords**, case-sensitive identifiers. Convention: `camelCase` functions and built-in callable names, `CapitalCamelCase` types, `camelCase` bindings, `UPPERCASE` keywords. Keyword matching is case-insensitive ASCII (`eq_ignore_ascii_case`), so `func`, `FUNC`, and `Func` all lex to the same keyword.
 - **Comments**: `'` to end of line. `REM` also begins a line comment, but **only when it is the first token of a statement** — that is, at the start of a line or immediately after a `:` separator. Anywhere else `REM` (and any identifier merely containing the letters `rem`) is an ordinary identifier. Both comment forms run to the end of the line; there is no block-comment syntax.
-- **Statement separator**: newline (a `Newline` token), or `:` for multiple statements on one line.
-- **Line continuation**: a trailing `_` followed only by whitespace and then a newline joins the next line; the lexer emits no `Newline` token there. A `_` that is not in trailing position lexes as (the start of) an identifier — e.g. the pipeline placeholder `_`.
+- **Statement separator**: newline (a `Newline` token), or `:` for multiple statements on one line. A newline inside an unclosed `(`, `[` or `{` is **not** a separator (§2.6).
+- **Line continuation**: a trailing `_` followed only by whitespace and then a newline joins the next line; the lexer emits no `Newline` token there. A `_` that is not in trailing position lexes as (the start of) an identifier — e.g. the pipeline placeholder `_`. Inside an open bracket no `_` is needed (§2.6), but one is still accepted.
 - **Identifiers**: `[A-Za-z_][A-Za-z0-9_]*`, ASCII only (`is_ascii_alphanumeric() || '_'`). Legacy sigils (`$ % !`) are removed: they are not valid in identifiers and the lexer reports `MFB_LEX_UNEXPECTED_CHARACTER` for them. `#` is treated differently — it is **reserved**, not merely removed: it is rejected in user identifiers (also `MFB_LEX_UNEXPECTED_CHARACTER`) precisely so the compiler can use it as the untypeable internal sigil (see §2.5). There is no length limit.
 
 The full keyword set is: `AS CASE CONTINUE DO ELSE ELSEIF FALSE FAIL EXIT FOR EACH FUNC IF IN IMPORT ISOLATED LET LAMBDA LOOP DIV MOD MATCH MUT NOTHING AND OR NOT NEXT XOR RETURN TESTING THEN TRUE END ENUM EXPORT PUBLIC PROGRAM PRIVATE PROPAGATE RECOVER RES STEP TO TYPE TRAP UNTIL UNION WHEN WHILE WITH`. The historical BASIC terminator `WEND` is not a keyword: a `WHILE` block closes with `END WHILE`, and `wend` is an ordinary identifier. A keyword token may still be accepted in a name position (e.g. a native `LINK` function named `step`); definition and call sites both canonicalize to the keyword's lowercase lexeme so they match consistently.
@@ -12,6 +12,10 @@ The full keyword set is: `AS CASE CONTINUE DO ELSE ELSEIF FALSE FAIL EXIT FOR EA
 LET total = 0 : LET count = 0     ' two statements, one line
 LET msg = "hello " & _
           "world"                 ' continuation
+LET codes AS List OF String = [
+  "AED", "AFN",                   ' no _ needed inside brackets
+  "ALL",
+]
 ' this is a comment
 REM so is this
 ```
@@ -72,7 +76,25 @@ The lexer has an *internal* mode, selected when it lexes a file that ships as pa
 
 Because `#` is rejected in every user identifier (§2.1 lists it as reserved), a user can never *author* a name containing the sigil. The internal rewrite is therefore unforgeable: an internalized name like `#json_parse` cannot collide with, or be shadowed by, anything a user writes. The sigil survives through the AST and IR and is mapped to a reserved native-symbol namespace at code generation; user-facing diagnostics map it back to the readable `__` form so the sigil never leaks into error messages. The full mechanism — internalization, sigil round-tripping, and the native-symbol mapping — is specified separately. [[src/lexer.rs:lex_with]] [[src/internal_name.rs:internalize]]
 
+## 2.6 Newlines inside brackets
+
+The lexer keeps a stack of the `(`, `[` and `{` tokens it has not yet seen closed. While that stack is non-empty a newline is skipped like other whitespace — no `Newline` token is emitted — so the statement continues on the next line. This is the whole rule: it is lexical, not tied to any construct, so it applies equally to list, map and set literals, record constructors (`Type[ … ]`, positional or `name :=`), `WITH r { … }` updates, call arguments, parameter lists (`FUNC`, `LAMBDA`, function types, `LINK` ABI slot lists) and parenthesized expressions. The token stream for a bracket written across lines is the stream for the same bracket on one line, so the parsed program — and every value it computes — is identical. [[src/lexer.rs:lex_newline]] [[src/lexer.rs:OpenBracket]]
+
+- **What counts.** Only bracket *tokens* move the depth: a bracket inside a string literal, a scalar literal or a `'` comment is part of that token or comment and does not. A closer pops the innermost opener whatever its kind; a mismatched pair (`f(a]`) or a closer with nothing open is left to the parser, which reports it at the closer. [[src/lexer.rs:close_bracket]]
+- **Comments and blank lines.** A `'` comment may end any line inside a bracket, and blank or comment-only lines may sit between elements; both are ignored. `REM` begins a comment only at the start of a *statement* (§2), and a line inside a bracket is not one, so there a line-leading `REM` is an identifier. A `DOC` block is likewise recognized only at the start of a line that begins a statement (§2.4).
+- **`_` still works.** A trailing `_` inside a bracket joins the next line exactly as outside one; it is simply unnecessary there.
+- **Commas.** Because the newline vanishes, a comma may end a line or begin the next one (`"A"⏎, "B"` is `"A", "B"`). The parser additionally accepts one trailing comma before the closer of every comma-separated bracketed list — `[1, 2,]`, `f(a, b,)`, `Pt[x := 1,]`, `Map OF K TO V { k := v, }`, `Set OF T { e, }`, `WITH r { f := v, }`, `FUNC f(a AS Integer,)`, `FUNC(Integer,) AS T` — on one line or several. A comma with no element before it (`[,]`, `[, 1]`) or a doubled comma (`[1,, 2]`) is still a parse error. [[src/ast/expr.rs:parse_list_literal]] [[src/ast/expr.rs:parse_argument_list]] [[src/ast/items.rs:parse_params]]
+
+**Unclosed brackets** are reported at the **opening** bracket with `MFB_LEX_UNCLOSED_BRACKET` (`1-101-0006`), in two situations: [[src/lexer.rs:report_unclosed_brackets]]
+
+1. **End of file** with brackets still open: one diagnostic per open bracket, each at its opener ("`[` is never closed: the end of the file was reached before its closing `]`").
+2. **A statement-only keyword starts a line** while brackets are open. Every line inside a bracket holds part of an expression, type or parameter list, so a line whose first word is a keyword that can only begin a statement, block clause or declaration proves the bracket was left open. Those keywords are `CASE CONTINUE DO EACH ELSE ELSEIF END ENUM EXIT EXPORT FAIL FOR IF IMPORT LET LOOP MATCH NEXT PRIVATE PROGRAM PROPAGATE PUBLIC RECOVER RETURN STEP TESTING THEN TRAP TYPE UNION UNTIL WHEN WHILE`. Keywords that can legitimately begin a line inside a bracket — `FUNC`/`ISOLATED` (function types), `MUT`/`RES` (parameters and `RES` value types), `WITH`, `LAMBDA`, `NOT`, `AND`/`OR`/`XOR`/`DIV`/`MOD`, `TRUE`/`FALSE`/`NOTHING`, `AS`, `TO`, `IN` — do not end the run. Every open bracket is reported at its opener, naming the keyword and its line; the stack is then cleared and the newline before that line separates statements as usual, so the rest of the file is lexed normally (and further unclosed brackets are reported too) instead of being swallowed into one statement. [[src/lexer.rs:begins_statement_only]]
+
+Either way the file fails at the lexer and is not parsed, so no parser diagnostics for it are added on top of the unclosed-bracket reports. [[src/ast/manifest.rs:parse_source_with]] `mfb fmt` applies the same depth rule and the same keyword test, so its logical lines match the lexer's statements (`./mfb spec tooling fmt`).
+
 ## See Also
 
 * ./mfb spec architecture internal-naming — the full internalization mechanism: `__`→`#` rewrite, sigil round-tripping, and the reserved native-symbol mapping.
+* ./mfb spec language grammar — the bracketed lists whose trailing comma §2.6 permits
+* ./mfb spec tooling fmt — how the formatter keeps multi-line bracket layouts and moves leading commas
 * ./mfb spec architecture native — the reserved `_mfb_ifn_…` native-symbol namespace that internalized `#` names lower to.

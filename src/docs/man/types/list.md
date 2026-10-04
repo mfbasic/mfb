@@ -25,6 +25,28 @@ LET nums = [1, 2, 3]
 LET empty AS List OF String = []
 ```
 
+A long literal can run over several lines. Inside an unclosed `[ ]`, `{ }` or
+`( )` a line break does not end the statement, so no `_` is needed. A comma may
+follow the last item, a line may start with the comma instead, and a `'` comment
+may end any line inside the brackets. The list is the same as if it were
+written on one line:
+
+```
+LET codes AS List OF String = [
+  "AED", "AFN", "ALL",   ' one row per region
+  "AMD", "ANG",
+]
+LET more AS List OF String = [ "USD"
+                             , "EUR"
+                             ]
+```
+
+The same holds for map and set literals, record constructors, `WITH` updates,
+the arguments of a call, and an expression in parentheses. A bracket that is
+never closed is reported as `MFB_LEX_UNCLOSED_BRACKET` at the line that opened
+it. `mfb fmt` keeps these layouts as written and moves a leading comma to the
+end of the line before it (`mfb man tooling fmt`).
+
 Brackets after a type name are a record constructor (`TypeName[...]`), never
 indexing; there is no indexing-bracket syntax. All list access is through free
 functions such as `collections::get`.

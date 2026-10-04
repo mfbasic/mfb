@@ -1,0 +1,14 @@
+IMPORT io
+
+FUNC main() AS Nothing
+  LET xs AS List OF Integer = [1, 2
+  IF len(xs) > 0 THEN
+    io::print("non-empty")
+  END IF
+  LET total = sum(xs
+  io::print(toString(total))
+END FUNC
+
+FUNC sum(xs AS List OF Integer) AS Integer
+  RETURN 0
+END FUNC

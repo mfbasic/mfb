@@ -144,6 +144,7 @@ pub fn lex_with(path: &Path, source: &str, internal: bool) -> Result<Vec<Token>,
         tokens: Vec::new(),
         had_error: false,
         internal,
+        open_brackets: Vec::new(),
     };
     lexer.lex_all();
 
@@ -165,6 +166,68 @@ struct Lexer<'a> {
     /// When set, identifiers beginning `__` are rewritten to their internal
     /// sigil form (see [`lex_with`]). Public names (no `__` prefix) are untouched.
     internal: bool,
+    /// bug-821: every `(`, `[` and `{` not yet closed, innermost last. While it
+    /// is non-empty a newline is NOT a statement separator (no `Newline` token
+    /// is emitted), so a literal, constructor, call or grouped expression may
+    /// span lines. Each entry keeps the opener's position so an unclosed bracket
+    /// is reported where it was opened, not where the damage surfaced.
+    open_brackets: Vec<OpenBracket>,
+}
+
+/// An opening bracket the lexer has not yet seen closed (bug-821).
+struct OpenBracket {
+    ch: char,
+    line: usize,
+    column: usize,
+}
+
+/// Keywords that can only begin a statement, block clause or declaration, never
+/// an expression, a type, or a parameter. Inside an open bracket every line
+/// holds part of an expression/type/parameter list, so a physical line whose
+/// first word is one of these proves the bracket was left unclosed (bug-821):
+/// the lexer reports it at the opener instead of swallowing the rest of the
+/// file into one statement. `FUNC`/`ISOLATED` (function types), `MUT`/`RES`
+/// (parameters, `RES` value types), `WITH`, `LAMBDA`, `NOT`, the literal and
+/// operator keywords, `AS`, `TO` and `IN` all legitimately start a line inside
+/// a bracket, so they are absent. `mfb fmt` applies the same test so its
+/// logical lines agree with the lexer's statements.
+pub fn begins_statement_only(keyword: Keyword) -> bool {
+    matches!(
+        keyword,
+        Keyword::Case
+            | Keyword::Continue
+            | Keyword::Do
+            | Keyword::Each
+            | Keyword::Else
+            | Keyword::ElseIf
+            | Keyword::End
+            | Keyword::Enum
+            | Keyword::Exit
+            | Keyword::Export
+            | Keyword::Fail
+            | Keyword::For
+            | Keyword::If
+            | Keyword::Import
+            | Keyword::Let
+            | Keyword::Loop
+            | Keyword::Match
+            | Keyword::Next
+            | Keyword::Private
+            | Keyword::Program
+            | Keyword::Propagate
+            | Keyword::Public
+            | Keyword::Recover
+            | Keyword::Return
+            | Keyword::Step
+            | Keyword::Testing
+            | Keyword::Then
+            | Keyword::Trap
+            | Keyword::Type
+            | Keyword::Union
+            | Keyword::Until
+            | Keyword::When
+            | Keyword::While
+    )
 }
 
 impl Lexer<'_> {
@@ -175,10 +238,7 @@ impl Lexer<'_> {
                 ' ' | '\t' | '\r' => {
                     self.advance();
                 }
-                '\n' => {
-                    self.push_simple(TokenKind::Newline, 1);
-                    self.advance_line();
-                }
+                '\n' => self.lex_newline(),
                 '\'' => self.skip_line_comment(),
                 '`' => self.lex_scalar(),
                 '"' => self.lex_string(),
@@ -204,12 +264,12 @@ impl Lexer<'_> {
                         self.push_and_advance(TokenKind::Colon);
                     }
                 }
-                '[' => self.push_and_advance(TokenKind::LBracket),
-                ']' => self.push_and_advance(TokenKind::RBracket),
-                '(' => self.push_and_advance(TokenKind::LParen),
-                ')' => self.push_and_advance(TokenKind::RParen),
-                '{' => self.push_and_advance(TokenKind::LBrace),
-                '}' => self.push_and_advance(TokenKind::RBrace),
+                '[' => self.open_bracket(TokenKind::LBracket),
+                ']' => self.close_bracket(TokenKind::RBracket),
+                '(' => self.open_bracket(TokenKind::LParen),
+                ')' => self.close_bracket(TokenKind::RParen),
+                '{' => self.open_bracket(TokenKind::LBrace),
+                '}' => self.close_bracket(TokenKind::RBrace),
                 '=' => self.push_and_advance(TokenKind::Equal),
                 '<' => {
                     if self.peek_next() == Some('=') {
@@ -276,6 +336,7 @@ impl Lexer<'_> {
             }
         }
 
+        self.report_unclosed_brackets("the end of the file was reached");
         self.tokens.push(Token {
             kind: TokenKind::Eof,
             line: self.line,
@@ -1011,6 +1072,90 @@ impl Lexer<'_> {
             attrs,
             lines,
         })
+    }
+
+    /// A newline is a statement separator only outside every bracket (bug-821).
+    /// Inside one it is skipped like other whitespace — unless the next line
+    /// opens with a keyword that can only begin a statement, which proves the
+    /// bracket was left unclosed: report it at its opener and resume normal
+    /// separation so the rest of the file is not swallowed into one statement.
+    fn lex_newline(&mut self) {
+        if !self.open_brackets.is_empty() {
+            match self.next_line_statement_keyword() {
+                None => {
+                    self.advance_line();
+                    return;
+                }
+                Some(word) => {
+                    let reason =
+                        format!("`{word}` on line {} begins a new statement", self.line + 1);
+                    self.report_unclosed_brackets(&reason);
+                }
+            }
+        }
+        self.push_simple(TokenKind::Newline, 1);
+        self.advance_line();
+    }
+
+    /// The first word of the line after the newline at `self.index`, when it is
+    /// a keyword that can only begin a statement ([`begins_statement_only`]).
+    fn next_line_statement_keyword(&self) -> Option<String> {
+        let mut at = self.index + 1;
+        while matches!(self.chars.get(at), Some(' ' | '\t' | '\r')) {
+            at += 1;
+        }
+        let start = at;
+        while self
+            .chars
+            .get(at)
+            .is_some_and(|&ch| is_identifier_continue(ch))
+        {
+            at += 1;
+        }
+        let word: String = self.chars[start..at].iter().collect();
+        keyword(&word)
+            .filter(|&kw| begins_statement_only(kw))
+            .map(|kw| keyword_lexeme(kw).to_ascii_uppercase())
+    }
+
+    fn open_bracket(&mut self, kind: TokenKind) {
+        self.open_brackets.push(OpenBracket {
+            ch: self.peek(),
+            line: self.line,
+            column: self.column,
+        });
+        self.push_and_advance(kind);
+    }
+
+    /// A closer pops the innermost open bracket whatever its kind: a mismatched
+    /// pair (`f(a]`) is the parser's error to report, at the closer, and popping
+    /// keeps the depth — and so newline separation — in step with the source.
+    /// A closer with nothing open is likewise left to the parser.
+    fn close_bracket(&mut self, kind: TokenKind) {
+        self.open_brackets.pop();
+        self.push_and_advance(kind);
+    }
+
+    /// Report every still-open bracket at its opening position, then forget
+    /// them (so lexing continues with ordinary newline separation).
+    fn report_unclosed_brackets(&mut self, reason: &str) {
+        for open in std::mem::take(&mut self.open_brackets) {
+            self.report(
+                "MFB_LEX_UNCLOSED_BRACKET",
+                &format!(
+                    "`{}` is never closed: {reason} before its closing `{}`.",
+                    open.ch,
+                    match open.ch {
+                        '(' => ')',
+                        '[' => ']',
+                        _ => '}',
+                    }
+                ),
+                open.line,
+                open.column,
+                open.column + 1,
+            );
+        }
     }
 
     fn lex_line_continuation(&mut self) -> bool {
@@ -1811,6 +1956,7 @@ END DOC
             tokens: Vec::new(),
             had_error: false,
             internal: false,
+            open_brackets: Vec::new(),
         };
         lexer.lex_string();
         assert!(lexer.had_error);
@@ -1846,5 +1992,120 @@ END DOC
         assert!(tokens
             .iter()
             .any(|t| t.kind == TokenKind::Number("3.14".to_string())));
+    }
+
+    fn kinds(source: &str) -> Vec<TokenKind> {
+        lex(Path::new("main.mfb"), source)
+            .expect("lex source")
+            .into_iter()
+            .map(|token| token.kind)
+            .collect()
+    }
+
+    fn newline_count(source: &str) -> usize {
+        kinds(source)
+            .iter()
+            .filter(|kind| **kind == TokenKind::Newline)
+            .count()
+    }
+
+    fn lex_diagnostics(source: &str) -> (bool, Vec<(String, String)>) {
+        let (result, collected) =
+            crate::rules::collecting_diagnostics(|| lex(Path::new("main.mfb"), source).is_ok());
+        (result, collected)
+    }
+
+    /// bug-821: a newline inside an open `[`, `{` or `(` is not a separator.
+    #[test]
+    fn newline_inside_open_brackets_is_not_a_separator() {
+        // One separator each: the one after the closing bracket.
+        assert_eq!(newline_count("LET x = [\n  1,\n  2\n]\n"), 1);
+        assert_eq!(newline_count("LET m = Map OF K TO V {\n  1 := 2\n}\n"), 1);
+        assert_eq!(newline_count("f(\n  a,\n  b)\n"), 1);
+        assert_eq!(newline_count("LET y = (1 +\n  2)\n"), 1);
+        // Nested: depth returns to zero only after the outer closer.
+        assert_eq!(newline_count("LET n = [[1,\n2],\n[3]]\nLET z = 1\n"), 2);
+        // A blank line and a comment-only line inside the bracket add nothing.
+        assert_eq!(newline_count("LET x = [\n\n  1, ' one [\n  ' (\n  2]\n"), 1);
+        // Outside brackets every newline still separates.
+        assert_eq!(newline_count("LET a = 1\nLET b = 2\n"), 2);
+        // `_` continuation keeps working inside and outside a bracket.
+        assert_eq!(newline_count("LET s = \"a\" & _\n  \"b\"\n"), 1);
+        assert_eq!(newline_count("LET x = [1, _\n  2]\n"), 1);
+    }
+
+    /// bug-821: brackets inside a string, a scalar or a comment do not count.
+    #[test]
+    fn brackets_in_strings_scalars_and_comments_do_not_change_depth() {
+        assert_eq!(newline_count("LET s = \"[(\"\nLET t = 1\n"), 2);
+        assert_eq!(newline_count("LET c = `[`\nLET t = 1\n"), 2);
+        assert_eq!(newline_count("LET a = 1 ' f(\nLET t = 1\n"), 2);
+        assert_eq!(newline_count("REM f(\nLET t = 1\n"), 2);
+        assert_eq!(newline_count("LET x = [\"]\", \")\"\n]\n"), 1);
+    }
+
+    /// bug-821: a closer pops the innermost opener whatever its kind, and a
+    /// closer with nothing open is left to the parser, so the depth tracks the
+    /// source and neither case is a lexer error.
+    #[test]
+    fn mismatched_and_stray_closers_are_left_to_the_parser() {
+        assert_eq!(newline_count("f(a]\nLET t = 1\n"), 2);
+        assert_eq!(newline_count("]\n)\n}\nLET t = 1\n"), 4);
+    }
+
+    /// bug-821: a bracket still open at end of file is reported at its opener.
+    #[test]
+    fn unclosed_bracket_at_eof_is_reported() {
+        let (ok, diagnostics) = lex_diagnostics("LET x = [1,\n  2,\n");
+        assert!(!ok);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].0, "MFB_LEX_UNCLOSED_BRACKET");
+        assert!(
+            diagnostics[0].1.contains("`[` is never closed")
+                && diagnostics[0].1.contains("end of the file"),
+            "{diagnostics:?}"
+        );
+        // Every still-open bracket is reported, each at its own opener.
+        let (ok, diagnostics) = lex_diagnostics("f([1,\n");
+        assert!(!ok);
+        let names: Vec<_> = diagnostics.iter().map(|d| d.1.clone()).collect();
+        assert_eq!(diagnostics.len(), 2, "{names:?}");
+        assert!(names[0].starts_with("`(`") && names[1].starts_with("`[`"));
+    }
+
+    /// bug-821: a line opening with a statement-only keyword ends an unclosed
+    /// bracket's run: it is reported, and lexing resumes with ordinary newline
+    /// separation instead of swallowing the rest of the file.
+    #[test]
+    fn statement_keyword_after_unclosed_bracket_is_reported() {
+        let source = "FUNC main() AS Nothing\n  LET xs = [1, 2\n  IF TRUE THEN\n    LET y = f(1\n  end if\nEND FUNC\n";
+        let (ok, diagnostics) = lex_diagnostics(source);
+        assert!(!ok);
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        assert!(diagnostics[0]
+            .1
+            .contains("`[` is never closed: `IF` on line 3"));
+        assert!(diagnostics[1]
+            .1
+            .contains("`(` is never closed: `END` on line 5"));
+        // Keywords that legitimately begin a line inside a bracket do not end it.
+        for line in [
+            "LAMBDA(n AS Integer) -> n",
+            "NOT done",
+            "WITH r { a := 1 }",
+            "TRUE",
+            "NOTHING",
+            "AND b",
+            "MUT a AS Integer",
+            "RES f AS File",
+            "FUNC(Integer) AS Integer",
+            "ISOLATED FUNC() AS Integer",
+            "AS Integer",
+            "TO Integer",
+            "IN CInt",
+        ] {
+            let source = format!("f(\n  {line}\n)\n");
+            assert_eq!(newline_count(&source), 1, "{line}");
+        }
     }
 }

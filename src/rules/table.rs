@@ -127,6 +127,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "numeric literal is out of range",
     },
     Rule {
+        code: "1-101-0006",
+        name: "MFB_LEX_UNCLOSED_BRACKET",
+        severity: Severity::Error,
+        message: "bracket is never closed",
+    },
+    Rule {
         code: "1-102-0001",
         name: "MFB_PARSE_EXPECTED_EXPRESSION",
         severity: Severity::Error,

@@ -2,6 +2,8 @@
 
 All access is via free functions — **no indexing brackets, no key brackets**. Brackets construct values; functions read and update them.
 
+A list, map or set literal may span lines: a newline inside its unclosed `[`/`{` is not a statement separator, a `'` comment may end any line inside it, and one trailing comma before the closer is allowed (`[⏎  "AED",⏎  "AFN",⏎]`). The value is identical to the one-line literal. The rule is lexical and is owned by `./mfb spec language lexical-structure` §2.6.
+
 List literals use the declared or otherwise expected `List OF T` element type when one is available; otherwise the element type is inferred from the first item. Every element must be compatible with that element type. This allows annotated lists of union members, such as `LET shapes AS List OF Shape = [Circle[5], Rect[2, 3]]`.
 
 **Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec architecture type-inference`) for the directional compatibility rule. Element-type inference direction is computed during type inference, but the mismatch itself is rejected on the IR by the semantic verifier. [[src/ir/lower.rs:expression_type]] [[src/ir/verify/mod.rs]] [[src/ir/verify/values.rs:check_value_depth]]

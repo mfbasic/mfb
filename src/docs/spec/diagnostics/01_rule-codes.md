@@ -77,7 +77,7 @@ densely fill it.
 | code prefix | subsystem | rules |
 | --- | --- | --- |
 | `1-100` | MFBASIC source intake (read/root/overlap) | 5 |
-| `1-101` | lexer | 5 |
+| `1-101` | lexer | 6 |
 | `1-102` | parser | 13 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 19 |
@@ -245,6 +245,7 @@ their unused message text. [[src/rules/table.rs:RULES]] Unless noted, severity i
 | `1-101-0003` | `MFB_LEX_INVALID_UNICODE_ESCAPE` | error | `\u{...}` string escape is malformed |
 | `1-101-0004` | `MFB_LEX_MALFORMED_NUMBER` | error | numeric literal is malformed |
 | `1-101-0005` | `MFB_LEX_NUMBER_OUT_OF_RANGE` | error | numeric literal is out of range |
+| `1-101-0006` | `MFB_LEX_UNCLOSED_BRACKET` | error | bracket is never closed |
 
 ### `1-102` — Parser
 

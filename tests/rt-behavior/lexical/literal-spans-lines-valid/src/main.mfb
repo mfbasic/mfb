@@ -1,0 +1,553 @@
+IMPORT collections
+IMPORT io
+
+' bug-821: a newline inside an unclosed [ ], { } or ( ) is not a statement
+' separator, so every bracketed form below spans lines. Each multi-line form is
+' compared at runtime against its one-line twin.
+
+TYPE Pt
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Account
+  owner AS String
+  balance AS Integer
+  tags AS List OF String
+END TYPE
+
+FUNC render(xs AS List OF String) AS String
+  MUT out = ""
+  FOR EACH x IN xs
+    out = out & x & ";"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC renderInts(xs AS List OF Integer) AS String
+  MUT out = ""
+  FOR EACH x IN xs
+    out = out & toString(x) & ";"
+  NEXT
+  RETURN out
+END FUNC
+
+' A parameter list spans lines too, with a trailing comma.
+FUNC add3(
+  a AS Integer,
+  b AS Integer,  ' second
+  c AS Integer,
+) AS Integer
+  RETURN a + b + c
+END FUNC
+
+FUNC report(label AS String, ok AS Boolean) AS Nothing
+  IF ok THEN
+    io::print(label & " ok")
+  ELSE
+    io::print(label & " MISMATCH")
+  END IF
+END FUNC
+
+FUNC main() AS Nothing
+  LET testA AS List OF String = ["AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN", "BHD", "BIF", "BMD", "BND", "BOB", "BOV", "BRL", "BSD", "BTN", "BWP", "BYN", "BYR", "BZD", "CAD", "CDF", "CHE", "CHF", "CHW", "CLF", "CLP", "CNY", "COP", "COU", "CRC", "CUC", "CUP", "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EEK", "EGP", "ERN", "ETB", "EUR", "FJD", "FKP", "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL", "HRK", "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD", "JOD", "JPY", "KES", "KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT", "LAK", "LBP", "LKR", "LRD", "LSL", "LTL", "LVL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU", "MUR", "MVR", "MWK", "MXN", "MXV", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SLL", "SOS", "SRD", "SSP", "STN", "SVC", "SYP", "SZL", "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD", "USN", "UYI", "UYU", "UYW", "UZS", "VED", "VES", "VND", "VUV", "WST", "XAF", "XAG", "XAU", "XBA", "XBB", "XBC", "XBD", "XCD", "XCG", "XDR", "XOF", "XPD", "XPF", "XPT", "XSU", "ZWG"]
+  LET testB AS List OF String = ["AED", "AFN", "ALL", "AMD",
+"ANG", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN", "BHD", "BIF",
+"BMD", "BND", "BOB", "BOV", "BRL", "BSD", "BTN", "BWP", "BYN", "BYR", "BZD", "CAD",
+"CDF", "CHE", "CHF", "CHW", "CLF", "CLP", "CNY", "COP", "COU", "CRC", "CUC", "CUP",
+"CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EEK", "EGP", "ERN", "ETB", "EUR", "FJD",
+"FKP", "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL", "HRK",
+"HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD", "JOD", "JPY", "KES",
+"KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT", "LAK", "LBP", "LKR", "LRD",
+"LSL", "LTL", "LVL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU",
+"MUR", "MVR", "MWK", "MXN", "MXV", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR",
+"NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD",
+"RUB", "RWF", "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SLL", "SOS",
+"SRD", "SSP", "STN", "SVC", "SYP", "SZL", "THB", "TJS", "TMT", "TND", "TOP", "TRY",
+"TTD", "TWD", "TZS", "UAH", "UGX", "USD", "USN", "UYI", "UYU", "UYW", "UZS", "VED",
+"VES", "VND", "VUV", "WST", "XAF", "XAG", "XAU", "XBA", "XBB", "XBC", "XBD", "XCD",
+"XCG", "XDR", "XOF", "XPD", "XPF", "XPT", "XSU", "ZWG"]
+  LET testC AS List OF String = [
+    "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN",
+    "BAM", "BBD", "BDT", "BGN", "BHD", "BIF", "BMD", "BND", "BOB", "BOV",
+    "BRL", "BSD", "BTN", "BWP", "BYN", "BYR", "BZD", "CAD", "CDF", "CHE",
+    "CHF", "CHW", "CLF", "CLP", "CNY", "COP", "COU", "CRC", "CUC", "CUP",
+    "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EEK", "EGP", "ERN", "ETB",
+    "EUR", "FJD", "FKP", "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ",
+    "GYD", "HKD", "HNL", "HRK", "HTG", "HUF", "IDR", "ILS", "INR", "IQD",
+    "IRR", "ISK", "JMD", "JOD", "JPY", "KES", "KGS", "KHR", "KMF", "KPW",
+    "KRW", "KWD", "KYD", "KZT", "LAK", "LBP", "LKR", "LRD", "LSL", "LTL",
+    "LVL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU",
+    "MUR", "MVR", "MWK", "MXN", "MXV", "MYR", "MZN", "NAD", "NGN", "NIO",
+    "NOK", "NPR", "NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR", "PLN",
+    "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SDG",
+    "SEK", "SGD", "SHP", "SLE", "SLL", "SOS", "SRD", "SSP", "STN", "SVC",
+    "SYP", "SZL", "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD",
+    "TZS", "UAH", "UGX", "USD", "USN", "UYI", "UYU", "UYW", "UZS", "VED",
+    "VES", "VND", "VUV", "WST", "XAF", "XAG", "XAU", "XBA", "XBB", "XBC",
+    "XBD", "XCD", "XCG", "XDR", "XOF", "XPD", "XPF", "XPT", "XSU", "ZWG"
+  ]
+  LET testD AS List OF String = [ "AED"
+    , "AFN"
+    , "ALL"
+    , "AMD"
+    , "ANG"
+    , "AOA"
+    , "ARS"
+    , "AUD"
+    , "AWG"
+    , "AZN"
+    , "BAM"
+    , "BBD"
+    , "BDT"
+    , "BGN"
+    , "BHD"
+    , "BIF"
+    , "BMD"
+    , "BND"
+    , "BOB"
+    , "BOV"
+    , "BRL"
+    , "BSD"
+    , "BTN"
+    , "BWP"
+    , "BYN"
+    , "BYR"
+    , "BZD"
+    , "CAD"
+    , "CDF"
+    , "CHE"
+    , "CHF"
+    , "CHW"
+    , "CLF"
+    , "CLP"
+    , "CNY"
+    , "COP"
+    , "COU"
+    , "CRC"
+    , "CUC"
+    , "CUP"
+    , "CVE"
+    , "CZK"
+    , "DJF"
+    , "DKK"
+    , "DOP"
+    , "DZD"
+    , "EEK"
+    , "EGP"
+    , "ERN"
+    , "ETB"
+    , "EUR"
+    , "FJD"
+    , "FKP"
+    , "GBP"
+    , "GEL"
+    , "GHS"
+    , "GIP"
+    , "GMD"
+    , "GNF"
+    , "GTQ"
+    , "GYD"
+    , "HKD"
+    , "HNL"
+    , "HRK"
+    , "HTG"
+    , "HUF"
+    , "IDR"
+    , "ILS"
+    , "INR"
+    , "IQD"
+    , "IRR"
+    , "ISK"
+    , "JMD"
+    , "JOD"
+    , "JPY"
+    , "KES"
+    , "KGS"
+    , "KHR"
+    , "KMF"
+    , "KPW"
+    , "KRW"
+    , "KWD"
+    , "KYD"
+    , "KZT"
+    , "LAK"
+    , "LBP"
+    , "LKR"
+    , "LRD"
+    , "LSL"
+    , "LTL"
+    , "LVL"
+    , "LYD"
+    , "MAD"
+    , "MDL"
+    , "MGA"
+    , "MKD"
+    , "MMK"
+    , "MNT"
+    , "MOP"
+    , "MRU"
+    , "MUR"
+    , "MVR"
+    , "MWK"
+    , "MXN"
+    , "MXV"
+    , "MYR"
+    , "MZN"
+    , "NAD"
+    , "NGN"
+    , "NIO"
+    , "NOK"
+    , "NPR"
+    , "NZD"
+    , "OMR"
+    , "PAB"
+    , "PEN"
+    , "PGK"
+    , "PHP"
+    , "PKR"
+    , "PLN"
+    , "PYG"
+    , "QAR"
+    , "RON"
+    , "RSD"
+    , "RUB"
+    , "RWF"
+    , "SAR"
+    , "SBD"
+    , "SCR"
+    , "SDG"
+    , "SEK"
+    , "SGD"
+    , "SHP"
+    , "SLE"
+    , "SLL"
+    , "SOS"
+    , "SRD"
+    , "SSP"
+    , "STN"
+    , "SVC"
+    , "SYP"
+    , "SZL"
+    , "THB"
+    , "TJS"
+    , "TMT"
+    , "TND"
+    , "TOP"
+    , "TRY"
+    , "TTD"
+    , "TWD"
+    , "TZS"
+    , "UAH"
+    , "UGX"
+    , "USD"
+    , "USN"
+    , "UYI"
+    , "UYU"
+    , "UYW"
+    , "UZS"
+    , "VED"
+    , "VES"
+    , "VND"
+    , "VUV"
+    , "WST"
+    , "XAF"
+    , "XAG"
+    , "XAU"
+    , "XBA"
+    , "XBB"
+    , "XBC"
+    , "XBD"
+    , "XCD"
+    , "XCG"
+    , "XDR"
+    , "XOF"
+    , "XPD"
+    , "XPF"
+    , "XPT"
+    , "XSU"
+    , "ZWG"
+  ]
+  LET testE AS List OF String = [
+    "AED",  ' code 0
+    "AFN",  ' code 1
+    "ALL",  ' code 2
+    "AMD",  ' code 3
+    "ANG",  ' code 4
+    "AOA",  ' code 5
+    "ARS",  ' code 6
+    "AUD",  ' code 7
+    "AWG",  ' code 8
+    "AZN",  ' code 9
+    "BAM",  ' code 10
+    "BBD",  ' code 11
+    "BDT",  ' code 12
+    "BGN",  ' code 13
+    "BHD",  ' code 14
+    "BIF",  ' code 15
+    "BMD",  ' code 16
+    "BND",  ' code 17
+    "BOB",  ' code 18
+    "BOV",  ' code 19
+    "BRL",  ' code 20
+    "BSD",  ' code 21
+    "BTN",  ' code 22
+    "BWP",  ' code 23
+    "BYN",  ' code 24
+    "BYR",  ' code 25
+    "BZD",  ' code 26
+    "CAD",  ' code 27
+    "CDF",  ' code 28
+    "CHE",  ' code 29
+    "CHF",  ' code 30
+    "CHW",  ' code 31
+    "CLF",  ' code 32
+    "CLP",  ' code 33
+    "CNY",  ' code 34
+    "COP",  ' code 35
+    "COU",  ' code 36
+    "CRC",  ' code 37
+    "CUC",  ' code 38
+    "CUP",  ' code 39
+    "CVE",  ' code 40
+    "CZK",  ' code 41
+    "DJF",  ' code 42
+    "DKK",  ' code 43
+    "DOP",  ' code 44
+    "DZD",  ' code 45
+    "EEK",  ' code 46
+    "EGP",  ' code 47
+    "ERN",  ' code 48
+    "ETB",  ' code 49
+    "EUR",  ' code 50
+    "FJD",  ' code 51
+    "FKP",  ' code 52
+    "GBP",  ' code 53
+    "GEL",  ' code 54
+    "GHS",  ' code 55
+    "GIP",  ' code 56
+    "GMD",  ' code 57
+    "GNF",  ' code 58
+    "GTQ",  ' code 59
+    "GYD",  ' code 60
+    "HKD",  ' code 61
+    "HNL",  ' code 62
+    "HRK",  ' code 63
+    "HTG",  ' code 64
+    "HUF",  ' code 65
+    "IDR",  ' code 66
+    "ILS",  ' code 67
+    "INR",  ' code 68
+    "IQD",  ' code 69
+    "IRR",  ' code 70
+    "ISK",  ' code 71
+    "JMD",  ' code 72
+    "JOD",  ' code 73
+    "JPY",  ' code 74
+    "KES",  ' code 75
+    "KGS",  ' code 76
+    "KHR",  ' code 77
+    "KMF",  ' code 78
+    "KPW",  ' code 79
+    "KRW",  ' code 80
+    "KWD",  ' code 81
+    "KYD",  ' code 82
+    "KZT",  ' code 83
+    "LAK",  ' code 84
+    "LBP",  ' code 85
+    "LKR",  ' code 86
+    "LRD",  ' code 87
+    "LSL",  ' code 88
+    "LTL",  ' code 89
+    "LVL",  ' code 90
+    "LYD",  ' code 91
+    "MAD",  ' code 92
+    "MDL",  ' code 93
+    "MGA",  ' code 94
+    "MKD",  ' code 95
+    "MMK",  ' code 96
+    "MNT",  ' code 97
+    "MOP",  ' code 98
+    "MRU",  ' code 99
+    "MUR",  ' code 100
+    "MVR",  ' code 101
+    "MWK",  ' code 102
+    "MXN",  ' code 103
+    "MXV",  ' code 104
+    "MYR",  ' code 105
+    "MZN",  ' code 106
+    "NAD",  ' code 107
+    "NGN",  ' code 108
+    "NIO",  ' code 109
+    "NOK",  ' code 110
+    "NPR",  ' code 111
+    "NZD",  ' code 112
+    "OMR",  ' code 113
+    "PAB",  ' code 114
+    "PEN",  ' code 115
+    "PGK",  ' code 116
+    "PHP",  ' code 117
+    "PKR",  ' code 118
+    "PLN",  ' code 119
+    "PYG",  ' code 120
+    "QAR",  ' code 121
+    "RON",  ' code 122
+    "RSD",  ' code 123
+    "RUB",  ' code 124
+    "RWF",  ' code 125
+    "SAR",  ' code 126
+    "SBD",  ' code 127
+    "SCR",  ' code 128
+    "SDG",  ' code 129
+    "SEK",  ' code 130
+    "SGD",  ' code 131
+    "SHP",  ' code 132
+    "SLE",  ' code 133
+    "SLL",  ' code 134
+    "SOS",  ' code 135
+    "SRD",  ' code 136
+    "SSP",  ' code 137
+    "STN",  ' code 138
+    "SVC",  ' code 139
+    "SYP",  ' code 140
+    "SZL",  ' code 141
+    "THB",  ' code 142
+    "TJS",  ' code 143
+    "TMT",  ' code 144
+    "TND",  ' code 145
+    "TOP",  ' code 146
+    "TRY",  ' code 147
+    "TTD",  ' code 148
+    "TWD",  ' code 149
+    "TZS",  ' code 150
+    "UAH",  ' code 151
+    "UGX",  ' code 152
+    "USD",  ' code 153
+    "USN",  ' code 154
+    "UYI",  ' code 155
+    "UYU",  ' code 156
+    "UYW",  ' code 157
+    "UZS",  ' code 158
+    "VED",  ' code 159
+    "VES",  ' code 160
+    "VND",  ' code 161
+    "VUV",  ' code 162
+    "WST",  ' code 163
+    "XAF",  ' code 164
+    "XAG",  ' code 165
+    "XAU",  ' code 166
+    "XBA",  ' code 167
+    "XBB",  ' code 168
+    "XBC",  ' code 169
+    "XBD",  ' code 170
+    "XCD",  ' code 171
+    "XCG",  ' code 172
+    "XDR",  ' code 173
+    "XOF",  ' code 174
+    "XPD",  ' code 175
+    "XPF",  ' code 176
+    "XPT",  ' code 177
+    "XSU",  ' code 178
+    "ZWG",  ' code 179
+  ]
+
+  io::print("count=" & toString(len(testA)) & " first=" & collections::get(testA, 0) & " last=" & collections::get(testA, len(testA) - 1))
+  LET one = render(testA)
+  report("list break-after-comma", render(testB) = one)
+  report("list break-after-open", render(testC) = one)
+  report("list leading-comma", render(testD) = one)
+  report("list trailing-comma+comments", render(testE) = one)
+
+  ' Brackets, quotes and comment marks inside strings and comments do not
+  ' affect bracket depth.
+  LET tricky AS List OF String = [
+    "[", "(", "{",  ' a comment with ] ) } in it
+    "]", ")", "}",
+    "it's", "' not a comment",
+  ]
+  report("strings-with-brackets", render(tricky) = "[;(;{;];);};it's;' not a comment;")
+
+  ' Map literal.
+  LET mapOne AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "b" := 2, "c" := 3 }
+  LET mapMulti AS Map OF String TO Integer = Map OF String TO Integer {
+    "a" := 1,
+    "b" := 2,  ' trailing comment
+    "c" := 3,
+  }
+  LET mapLead AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1
+    , "b" := 2
+    , "c" := 3 }
+  report("map multi", len(mapMulti) = len(mapOne) AND collections::get(mapMulti, "b") = 2 AND collections::get(mapMulti, "c") = 3)
+  report("map leading-comma", len(mapLead) = 3 AND collections::get(mapLead, "a") = 1 AND collections::get(mapLead, "c") = 3)
+
+  ' Set literal.
+  LET setMulti AS Set OF Integer = Set OF Integer {
+    10,
+    20,
+    30,
+  }
+  report("set multi", len(setMulti) = 3 AND collections::contains(setMulti, 20))
+
+  ' Record constructors: positional and named, multi-line.
+  LET p1 AS Pt = Pt[1, 2]
+  LET p2 AS Pt = Pt[
+    1,
+    2,
+  ]
+  LET p3 AS Pt = Pt[
+    x := 1,
+    y := 2
+  ]
+  report("record positional", p1 = p2)
+  report("record named", p1 = p3)
+
+  LET acct AS Account = Account[
+    owner := "Ada",
+    balance := 100,
+    tags := [
+      "vip",
+      "early",
+    ],
+  ]
+  ' WITH update across lines.
+  LET acct2 AS Account = WITH acct {
+    balance := 250,
+    owner := "Grace",
+  }
+  report("with-update", acct2.owner = "Grace" AND acct2.balance = 250 AND render(acct2.tags) = "vip;early;" AND acct.balance = 100)
+
+  ' Call arguments and parenthesized expressions.
+  LET sum1 = add3(1, 2, 3)
+  LET sum2 = add3(
+    1,
+    2,
+    3,
+  )
+  LET sum3 = add3(1 +
+    0, 2
+    , 3)
+  LET paren = (1 +
+    2) * (
+    3
+  )
+  report("call args", sum1 = sum2 AND sum2 = sum3)
+  report("paren expr", paren = 9)
+
+  ' Lambdas inside a call's parentheses.
+  LET kept = collections::filter(
+    [1, 2, 3],
+    LAMBDA(n AS Integer) -> n > 1,
+  )
+  report("lambda in call", renderInts(kept) = "2;3;")
+
+  ' Nested brackets and _ continuation inside and outside brackets.
+  LET nested AS List OF List OF Integer = [
+    [1, 2],
+    [3, _
+     4],
+  ]
+  report("nested", len(nested) = 2 AND renderInts(collections::get(nested, 1)) = "3;4;")
+  LET joined = "a" & _
+    "b"
+  report("underscore continuation", joined = "ab")
+END FUNC

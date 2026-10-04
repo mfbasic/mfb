@@ -621,6 +621,10 @@ impl<'a> FileParser<'a> {
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&TokenKind::RParen) {
+                    break;
+                }
             }
         }
         if !self.consume_kind(TokenKind::RParen, "ABI slot list must close with `)`.") {

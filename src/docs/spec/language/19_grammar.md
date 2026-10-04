@@ -5,6 +5,13 @@
    RESOURCE/FUNC-alias declarations, and DOC blocks may appear in any order. *)
 program        = { import | declaration } ;
 
+(* Every comma-separated list written between brackets below — params,
+   typeList inside funcType, callArgList, fieldAssigns, exprList, mapEntries,
+   and abiSlotList — accepts ONE optional trailing "," before its
+   closing bracket: `[1, 2,]`, `f(a,)`, `FUNC f(a AS Integer,)`. A newline
+   inside an open bracket is not a statement separator, so any of them may
+   span lines (`./mfb spec language lexical-structure` §2.6). *)
+
 import         = "IMPORT" ( ident | qualifiedName ) [ "AS" ident ] ;
 qualifiedName  = ident "::" ident ;
 resourceDecl   = declVis "RESOURCE" ident "CLOSE" "BY" qualifiedName

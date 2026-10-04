@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main() AS Nothing
+  LET empty AS List OF Integer = [,]
+  LET leading AS List OF Integer = [, 1]
+  LET doubled AS List OF Integer = [1,, 2]
+  io::print(toString(len(empty)))
+END FUNC

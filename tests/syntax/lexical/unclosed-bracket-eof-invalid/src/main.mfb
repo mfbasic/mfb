@@ -1,0 +1,7 @@
+IMPORT io
+
+FUNC main() AS Nothing
+  LET codes AS List OF String = [
+    "AED",
+    "AFN",
+  io::print("unreachable")
