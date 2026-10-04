@@ -39,7 +39,11 @@ type.
 `vector::reject` is generic over the nine built-in vector record types. Both
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
-argument. The return type is always the first argument's own type."#;
+argument. The return type is always the first argument's own type.
+
+On the `Integer` overloads, the delegated `project` rounds a `Float`-computed
+ratio back to `Integer` and can raise `ErrOverflow` near the `Integer` range's
+edge; `reject`'s own component subtraction can raise it too."#;
 
 const EX: &str = r#"The part of a diagonal vector that is not along the `+x` axis:
 
@@ -145,15 +149,22 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations(
-            "reject",
-            super::Shape::BinaryVector,
-            &["ErrInvalidArgument"],
-            body,
-            &[
-                "The vector to take the rejection of.",
-                "The vector to reject from. Must not be zero-length, for the same reason as `project`.",
-            ],
-        ),
+        implementations: {
+            let mut impls = super::implementations(
+                "reject",
+                super::Shape::BinaryVector,
+                &["ErrInvalidArgument"],
+                body,
+                &[
+                    "The vector to take the rejection of.",
+                    "The vector to reject from. Must not be zero-length, for the same reason as `project`.",
+                ],
+            );
+            // reject delegates to project, whose Integer overloads round the
+            // Float-computed ratio back to Integer (see func_project.rs) and can
+            // raise ErrOverflow; reject's own Integer subtraction can too.
+            super::add_errors_for_types(&mut impls, super::INTEGER_TYPES, &["ErrOverflow"]);
+            impls
+        },
     });
 }

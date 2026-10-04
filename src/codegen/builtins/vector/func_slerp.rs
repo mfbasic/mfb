@@ -48,7 +48,9 @@ deterministic Q32.32 throughout. The `Integer` overloads compute the angle and t
 weights in `Fixed`, blend the components there, and round each result back with
 `math::round`, half away from zero, so an `Integer` `slerp` is heavily quantized —
 its degenerate-case fallback goes to the `Integer` `lerp_unclamped`, which rounds
-in the same way.
+in the same way, and can likewise raise `ErrOverflow` on the `Integer` overloads
+only, when a component near the edge of the `Integer` range no longer fits once
+it has passed through `Float`.
 
 `vector::slerp` is generic over the nine built-in vector record types. The first
 two arguments must be the *same* one of the nine types, and the third must be a
@@ -263,16 +265,22 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type and a Float t"),
         internal_only: false,
-        implementations: super::implementations(
-            "slerp",
-            super::Shape::Lerp,
-            &["ErrInvalidArgument"],
-            body,
-            &[
-                "The start vector. Must not be zero-length — the interpolation is over directions.",
-                "The end vector. Must not be zero-length either.",
-                "How far along the arc to travel, 0 through 1.",
-            ],
-        ),
+        implementations: {
+            let mut impls = super::implementations(
+                "slerp",
+                super::Shape::Lerp,
+                &["ErrInvalidArgument"],
+                body,
+                &[
+                    "The start vector. Must not be zero-length — the interpolation is over directions.",
+                    "The end vector. Must not be zero-length either.",
+                    "How far along the arc to travel, 0 through 1.",
+                ],
+            );
+            // Only the `Integer` overloads' degenerate-case fallback reaches
+            // `lerp_unclamped`'s `Integer` overload, the one that can overflow.
+            super::add_errors_for_types(&mut impls, super::INTEGER_TYPES, &["ErrOverflow"]);
+            impls
+        },
     });
 }

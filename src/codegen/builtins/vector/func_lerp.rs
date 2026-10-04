@@ -33,7 +33,9 @@ and the interpolation then runs entirely in Q32.32. On the `Integer` overloads
 each component is widened to `Float`, interpolated there, and rounded back with
 `math::round`, half away from zero — so `lerp` on `Integer` vectors quantizes the
 result to the integer lattice, and successive small steps of `t` can produce the
-same output repeatedly.
+same output repeatedly. A component near the edge of the `Integer` range can
+round back to a value that no longer fits once it has passed through `Float`,
+which raises `ErrOverflow` on the `Integer` overloads only.
 
 Interpolation is strictly component-wise, so `lerp` preserves neither length nor
 direction in general: the midpoint of two unit vectors pointing different ways is
@@ -178,10 +180,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type and a Float t"),
         internal_only: false,
-        implementations: super::implementations("lerp", super::Shape::Lerp, &[], body, &[
-            "The start vector, returned when `t` is 0.",
-            "The end vector, returned when `t` is 1.",
-            "How far along to travel, 0 through 1. Values outside that range are clamped — use `vector::lerp_unclamped` to extrapolate.",
-        ]),
+        implementations: {
+            let mut impls = super::implementations("lerp", super::Shape::Lerp, &[], body, &[
+                "The start vector, returned when `t` is 0.",
+                "The end vector, returned when `t` is 1.",
+                "How far along to travel, 0 through 1. Values outside that range are clamped — use `vector::lerp_unclamped` to extrapolate.",
+            ]);
+            // Only the `Integer` overloads round the `Float`-computed result back
+            // to `Integer`; the `Float`/`Fixed` overloads never call `math::round`.
+            super::add_errors_for_types(&mut impls, super::INTEGER_TYPES, &["ErrOverflow"]);
+            impls
+        },
     });
 }

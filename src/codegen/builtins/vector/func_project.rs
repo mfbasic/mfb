@@ -37,7 +37,10 @@ arithmetic, but the ratio is computed in `Float` and each scaled component is
 rounded back with `math::round`, half away from zero. An `Integer` projection is
 therefore a lattice approximation, and the identity
 `project(a, b) + reject(a, b) = a` still holds exactly only because
-`vector::reject` is defined by subtracting the rounded projection from `a`.
+`vector::reject` is defined by subtracting the rounded projection from `a`. On the
+`Integer` overloads only, a component near the `Integer` range's edge can round
+back to a value that no longer fits once the ratio is applied in `Float`, and
+that case raises `ErrOverflow`.
 
 `vector::project` is generic over the nine built-in vector record types. Both
 arguments must be the *same* one of the nine types: there is no mixed-element-type
@@ -211,15 +214,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type"),
         internal_only: false,
-        implementations: super::implementations(
-            "project",
-            super::Shape::BinaryVector,
-            &["ErrInvalidArgument"],
-            body,
-            &[
-                "The vector to project.",
-                "The vector to project onto. Must not be zero-length: there is no direction to project onto.",
-            ],
-        ),
+        implementations: {
+            let mut impls = super::implementations(
+                "project",
+                super::Shape::BinaryVector,
+                &["ErrInvalidArgument"],
+                body,
+                &[
+                    "The vector to project.",
+                    "The vector to project onto. Must not be zero-length: there is no direction to project onto.",
+                ],
+            );
+            // Only the `Integer` overloads round the `Float`-computed ratio back
+            // to `Integer`; the `Float`/`Fixed` overloads never call `math::round`.
+            super::add_errors_for_types(&mut impls, super::INTEGER_TYPES, &["ErrOverflow"]);
+            impls
+        },
     });
 }

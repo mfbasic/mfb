@@ -154,8 +154,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)"),
         internal_only: false,
-        implementations: super::implementations("abs", super::Shape::UnaryVector, &[], body, &[
-            "The vector to take component-wise. Each component is replaced by its magnitude; the result is a new vector.",
-        ]),
+        implementations: {
+            let mut impls = super::implementations("abs", super::Shape::UnaryVector, &[], body, &[
+                "The vector to take component-wise. Each component is replaced by its magnitude; the result is a new vector.",
+            ]);
+            // Only the `Fixed`/`Integer` overloads can meet a most-negative
+            // component with no positive counterpart; the `Float` overloads
+            // never fail (see the description above).
+            super::add_errors_for_types(
+                &mut impls,
+                &[super::FIXED_TYPES, super::INTEGER_TYPES].concat(),
+                &["ErrOverflow"],
+            );
+            impls
+        },
     });
 }

@@ -166,10 +166,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("two vectors of the same type and a Float t"),
         internal_only: false,
-        implementations: super::implementations("lerp_unclamped", super::Shape::Lerp, &[], body, &[
-            "The start vector, returned when `t` is 0.",
-            "The end vector, returned when `t` is 1.",
-            "How far along to travel. Not clamped: below 0 or above 1 extrapolates past the endpoints.",
-        ]),
+        implementations: {
+            let mut impls = super::implementations("lerp_unclamped", super::Shape::Lerp, &[], body, &[
+                "The start vector, returned when `t` is 0.",
+                "The end vector, returned when `t` is 1.",
+                "How far along to travel. Not clamped: below 0 or above 1 extrapolates past the endpoints.",
+            ]);
+            // Only the `Integer` overloads round the `Float`-computed result back
+            // to `Integer`; the `Float`/`Fixed` overloads never call `math::round`.
+            super::add_errors_for_types(&mut impls, super::INTEGER_TYPES, &["ErrOverflow"]);
+            impls
+        },
     });
 }

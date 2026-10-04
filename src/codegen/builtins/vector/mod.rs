@@ -101,6 +101,13 @@ const VEC2_TYPES: &[&str] = &["Float2", "Fixed2", "Integer2"];
 const VEC3_TYPES: &[&str] = &["Float3", "Fixed3", "Integer3"];
 const VEC4_TYPES: &[&str] = &["Float4", "Fixed4", "Integer4"];
 
+// Grouped by element type rather than dimension, for [`add_errors_for_types`]
+// callers whose extra error is specific to one element-type family (e.g. the
+// `Integer` overloads' final `math::round` back to `Integer`, or the `Fixed`/
+// `Integer` overloads' `math::abs` of the most-negative representable value).
+pub(crate) const INTEGER_TYPES: &[&str] = &["Integer2", "Integer3", "Integer4"];
+pub(crate) const FIXED_TYPES: &[&str] = &["Fixed2", "Fixed3", "Fixed4"];
+
 /// The scalar element `ParameterType` of a vector type (`Float3` → `Float`).
 fn element_of(ty: &str) -> ParameterType {
     if ty.starts_with("Float") {
@@ -331,6 +338,32 @@ pub(crate) fn implementations(
         }
     }
     out
+}
+
+/// Add `extra` error codes to every overload in `impls` whose first parameter's
+/// type name is one of `types` (deduped against what it already declares). Some
+/// members only raise a given code through one element-type family — `lerp`'s
+/// `ErrOverflow` comes from the `Integer` overloads' final `math::round` back to
+/// `Integer`, which the `Float`/`Fixed` overloads never call — and
+/// `super::implementations`'s shared `errors` slice applies uniformly to every
+/// overload of a shape, so that per-type difference is layered on afterward here.
+pub(crate) fn add_errors_for_types(
+    impls: &mut [Implementation],
+    types: &[&str],
+    extra: &[&'static str],
+) {
+    for imp in impls.iter_mut() {
+        let Some(first) = imp.params.first() else {
+            continue;
+        };
+        if types.contains(&first.ty.name().as_ref()) {
+            for &code in extra {
+                if !imp.errors.contains(&code) {
+                    imp.errors.push(code);
+                }
+            }
+        }
+    }
 }
 
 /// Register the nine value records with element-typed props (in declaration order, so
