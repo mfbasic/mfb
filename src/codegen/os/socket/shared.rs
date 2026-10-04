@@ -690,6 +690,8 @@ pub(crate) fn emit_make_handle(
         abi::load_u64(&v9, abi::stack_pointer(), fd_off),
         abi::store_u64(&v9, &v10, FILE_OFFSET_FD),
         abi::store_u64(abi::ZERO, &v10, FILE_OFFSET_CLOSED),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, &v10, RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, &v10, FILE_OFFSET_STATE),
     ]);
 }

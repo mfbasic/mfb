@@ -68,6 +68,9 @@ impl NativePlanPlatform for Platform {
             // plain `RETURN` has no ExitProgram op, so this import rides the entry,
             // not `program_exit_imports`.
             import("ExitProcess", KERNEL32, "_start"),
+            // bug-789: every thread's entry (the program entry and the worker
+            // trampoline) asks for its exact stack to set its stack-limit word.
+            import("GetCurrentThreadStackLimits", KERNEL32, "_start"),
         ];
         if module
             .entry

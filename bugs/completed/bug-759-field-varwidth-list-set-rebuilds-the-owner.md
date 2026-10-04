@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (performance — an O(n) rebuild per statement where the in-place contract promises O(1)-ish)
 
-Status: Open
-Regression Test: `tests/runtime/rt_inplace_field_varwidth_set.rs`, `tests/codegen/codegen_inplace_record_field.rs` (to be added, Phase 1)
+Status: Fixed (2026-10-03, bug-staging-5)
+Regression Test: `tests/runtime/rt_inplace_field_varwidth_set.rs`; `tests/codegen/codegen_inplace_record_field.rs` (`set_on_a_variable_width_record_list_grows_the_record`)
 
 `r = WITH r { xs := collections::set(r.xs, j, v) }` and `h.state.xs = collections::set(h.state.xs, j, v)` run in
 place when `xs` is a `List OF Integer`, and when `xs` is a plain local `List OF String`. When `xs` is a
@@ -259,3 +259,40 @@ The engineering risk is the overflow path at a field (record grow, old-record fr
 recomputed after the split). Everything it needs already exists and is exercised by `append` / `insert` / Map `set`;
 the bug is one hard-coded `None` and a decline justified by a branch bug-627 made unreachable. Left untouched: the
 not-last field, the plain-local and global arms, and the fixed-width field route.
+
+## Resolution (2026-10-03)
+
+As designed: `lower_list_set_in_place_with` takes `inline: Option<InlineGrow>` and
+hands it to the overflow repack (`None` from the plain wrapper and from
+`list_repeat`). `lower_field_set` admits a variable-width list at the owner's last
+inlined field, reads the field offset after the operands and before any grow, and
+passes `InlineGrow { block_slot, field_off_slot }`.
+
+On the operand rule (Fix Design §2): `field_realloc_admitted` declines any operand
+that reads the owner, which would also decline this bug's own shape
+(`set(rec.xs, j, get(rec.xs, j) & "!")`). The hazard is narrower: an item that is
+still a pointer into the owner when the repack frees it. `lower_value_stored` does not
+copy a flat value. So an item that reads the owner is admitted only when its top
+node is a `Binary`/`Unary` operation, which always builds a new value; anything
+else (e.g. `get(rec.xs, k)` itself) declines. The index is an `Integer`.
+
+Repro (macOS, `target/release`):
+
+```
+n=1000 localDyn=51 fieldDyn=53 stateDyn=40 fieldFix=4 ns/set     (was 53267 / 41830)
+n=4000 localDyn=27 fieldDyn=28 stateDyn=28 fieldFix=4 ns/set     (was 156119 / 156752)
+```
+
+`rt_inplace_field_varwidth_set`: record, nested and `STATE` sites rewrite every
+element twice with longer literals (the second overflows and grows the record),
+and the list and owner siblings read back exact. Allocation growth from N=400 to
+N=800 is under N/8 (main: 10 403). An aliasing-item case declines and stays exact.
+
+Test change, with proof: `codegen_inplace_record_field`'s
+`set_on_a_variable_width_record_list_declines` (plan-121-C, 021ebf944) asserted the
+decline because the rebuild branch was believed reachable; this bug's root-cause
+analysis disproves that (only the overflow repack can move the block, and it now
+grows the record). The test now asserts the route runs **with** `InlineGrow` (the
+field-offset slot), so it still pins the hazard it was written for. The in-place,
+list and self-update suites pass. Spec: `memory/05_collections.md`. Notes:
+`.ai/collections.md`.

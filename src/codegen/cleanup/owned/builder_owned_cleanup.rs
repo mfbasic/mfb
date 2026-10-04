@@ -57,6 +57,7 @@ impl CodeBuilder<'_> {
                 head_slot,
                 drop,
                 owns_elements,
+                scope_depth: self.current_scope_depth(),
             }));
         Ok(())
     }
@@ -162,6 +163,36 @@ impl CodeBuilder<'_> {
             .owned_list_heads
             .get(collection)
             .ok_or_else(|| format!("resource floats to '{collection}', which has no owned-list"))?;
+        // bug-755: the record floats up to the collection's scope — unless it is
+        // already owned there or further out, which a float never lowers.
+        let list = self
+            .active_cleanups
+            .iter()
+            .rev()
+            .find_map(|cleanup| match cleanup {
+                ActiveCleanup::OwnedList(list) if list.name == collection => Some((
+                    list.scope_depth,
+                    matches!(list.drop, OwnedListDrop::Union { .. }),
+                )),
+                _ => None,
+            });
+        if let Some((depth, union)) = list {
+            let value = self.allocate_register();
+            self.emit(abi::load_u64(&value, abi::stack_pointer(), resource_slot));
+            let record = if union {
+                let skip = self.label("owned_list_float_union_null");
+                let record = self.allocate_register();
+                self.emit(abi::move_immediate(&record, "Integer", "0"));
+                self.emit(abi::compare_immediate(&value, "0"));
+                self.emit(abi::branch_eq(&skip));
+                self.emit(abi::load_u64(&record, &value, 8));
+                self.emit(abi::label(&skip));
+                record
+            } else {
+                value
+            };
+            self.emit_resource_float(&abi::Reg::from(record), depth)?;
+        }
         // Allocate a 16-byte node (record ptr at 0, next at 8).
         let alloc_ok = self.label("owned_list_alloc_ok");
         let scratch9 = self.temporary_vreg();
@@ -220,6 +251,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&done_label));
         let item = self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?;
         self.emit(abi::store_u64(&item, abi::stack_pointer(), elem_slot));
+        // bug-755: the push floats each element to this scope. An element the callee
+        // released (unowned) is taken; one still owned further out — a handle the
+        // caller passed in and got back — keeps its owner, and the drain skips it.
         self.emit_owned_list_push(collection, elem_slot)?;
         self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, element_type);
         self.emit(abi::label(&done_label));
@@ -300,6 +334,17 @@ impl CodeBuilder<'_> {
                 // resource drop (bug-246).
                 self.emit(abi::compare_immediate(abi::return_register(), "0"));
                 self.emit(abi::branch_eq(&node_done));
+                // bug-755: close only a record this list's scope still owns. A record
+                // that was a reference here (owned further out) or that a `RETURN`
+                // released to the caller is someone else's to close.
+                let record = self.allocate_register();
+                self.emit(abi::move_register(&record, abi::return_register()));
+                self.emit_skip_unless_owned(
+                    &abi::Reg::from(record.clone()),
+                    cleanup.scope_depth,
+                    &node_done,
+                )?;
+                self.emit(abi::move_register(abi::return_register(), &record));
                 self.emit_symbol_call(&close);
                 self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
                 self.emit(abi::branch_eq(&close_ok));
@@ -348,6 +393,17 @@ impl CodeBuilder<'_> {
                 let dropped = self.label("owned_list_union_drop_box");
                 self.emit(abi::compare_immediate(&union_ptr, "0"));
                 self.emit(abi::branch_eq(&node_done));
+                // bug-755: as the concrete arm — the active variant's record must be
+                // owned by this list's scope.
+                let record = self.allocate_register();
+                self.emit(abi::load_u64(&record, &union_ptr, 8));
+                self.emit(abi::compare_immediate(&record, "0"));
+                self.emit(abi::branch_eq(&node_done));
+                self.emit_skip_unless_owned(
+                    &abi::Reg::from(record),
+                    cleanup.scope_depth,
+                    &node_done,
+                )?;
                 self.emit_union_tag_dispatch_drop(
                     &union_ptr,
                     &variants,

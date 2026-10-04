@@ -48,6 +48,10 @@ impl LinuxArch for Aarch64 {
         "libc.musl-aarch64.so.1"
     }
 
+    fn sys_prlimit64(&self) -> &'static str {
+        "261"
+    }
+
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend {
         &crate::arch::aarch64::backend::AARCH64_BACKEND
     }

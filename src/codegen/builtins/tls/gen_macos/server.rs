@@ -1273,6 +1273,8 @@ pub(crate) fn lower_tls_listen_macos(
     ins.extend([
         abi::move_immediate(&v9, "Integer", RESOURCE_TAG_TLS_LISTENER),
         abi::store_u64(&v9, abi::mfb_return(1), REC_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_STATE),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_CLOSED),
         abi::load_u64(&v9, abi::stack_pointer(), LISTENER),
@@ -1848,6 +1850,8 @@ pub(crate) fn lower_tls_accept_macos(
     ins.extend([
         abi::move_immediate(&v9, "Integer", RESOURCE_TAG_TLS_MACOS),
         abi::store_u64(&v9, abi::mfb_return(1), REC_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_STATE),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), REC_CLOSED),
         abi::load_u64(&v9, abi::stack_pointer(), CONN),

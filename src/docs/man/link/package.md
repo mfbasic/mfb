@@ -236,7 +236,7 @@ wrap native handles in `RESOURCE` types instead.
 | `2-203-0094` | `NATIVE_ABI_UNBOUND_SLOT` | an input ABI slot is not bound to a parameter or `CONST` pin, or an expression names something that is not a slot |
 | `2-203-0095` | `NATIVE_ABI_UNBOUND_PARAM` | a wrapper parameter has no matching ABI slot |
 | `2-203-0096` | `NATIVE_ABI_NO_RESULT` | a value-returning native wrapper has no `RETURN` |
-| `2-205-0002` | `NATIVE_MANIFEST_INVALID` | imported native binding metadata is malformed or inconsistent |
+| `2-205-0023` | `NATIVE_MANIFEST_INVALID` | imported native binding metadata is malformed or inconsistent |
 | `2-203-0097` | `NATIVE_CONST_OUT` | a `CONST`-pinned ABI slot is also `OUT` |
 | `2-203-0098` | `NATIVE_CONST_UNKNOWN_SLOT` | a `CONST` pin names an unknown ABI slot |
 | `2-203-0099` | `NATIVE_FREE_INVALID` | a `FREE` block is malformed — it must release a produced `CPtr` slot through a deallocator taking one `CPtr` and returning `CVoid` |

@@ -1,0 +1,33 @@
+' bug-795: runtime NFC composed a class-zero candidate with the starter across an
+' intervening mark (U+1100 U+0301 U+1161 -> U+AC00 U+0301). A mark of class zero
+' or of a class >= the candidate's blocks composition (UAX #15). Every line
+' matches Python's unicodedata.normalize('NFC') oracle; the folded call and the
+' self-update must agree with the runtime ones.
+IMPORT io
+IMPORT strings
+FUNC nfc(s AS String) AS String
+  RETURN strings::normalizeNfc(s)
+END FUNC
+FUNC show(s AS String) AS String
+  MUT out = ""
+  FOR EACH c IN strings::toScalars(s)
+    out = out & " " & toString(toInt(c))
+  NEXT
+  RETURN out
+END FUNC
+FUNC main AS Integer
+  io::print("blockedLV" & show(nfc("\u{1100}\u{301}\u{1161}")))
+  io::print("blockedLV-fold" & show(strings::normalizeNfc("\u{1100}\u{301}\u{1161}")))
+  io::print("blockedLVT" & show(nfc("\u{AC00}\u{301}\u{11A8}")))
+  io::print("adjacentLV" & show(nfc("\u{1100}\u{1161}")))
+  io::print("adjacentLVT" & show(nfc("\u{AC00}\u{11A8}")))
+  io::print("accent" & show(nfc("e\u{301}")))
+  io::print("reorder" & show(nfc("a\u{323}\u{302}")))
+  io::print("blocked-same-class" & show(nfc("a\u{301}\u{301}")))
+  io::print("oriya-adjacent" & show(nfc("\u{B47}\u{B3E}")))
+  io::print("oriya-blocked" & show(nfc("\u{B47}\u{301}\u{B3E}")))
+  MUT m = "\u{1100}\u{301}\u{1161}"
+  m = strings::normalizeNfc(m)
+  io::print("selfupdate" & show(m))
+  RETURN 0
+END FUNC

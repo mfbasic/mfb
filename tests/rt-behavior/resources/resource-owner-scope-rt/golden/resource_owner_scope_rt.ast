@@ -1,0 +1,464 @@
+{
+  "project": "resource_owner_scope_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 8 },
+    { "module": "fs", "line": 9 },
+    { "module": "thread", "line": 10 },
+    { "module": "collections", "line": 11 },
+    { "module": "errorCode", "line": 12 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Holder",
+      "line": 14,
+      "fields": [
+      { "visibility": null, "name": "label", "type": "String", "line": 15 },
+      { "visibility": null, "name": "handle", "type": "RES fs.File", "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dir",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "target" }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "state",
+      "line": 23,
+      "params": [
+      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 23 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "line", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 24,
+        "expression": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "h" }] },
+        "handler": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrResourceClosed" } },
+          "line": 25,
+          "then": [
+          { "kind": "recover", "value": { "kind": "string", "value": "CLOSED" }, "line": 26 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "recover", "value": { "kind": "string", "value": "open" }, "line": 28 }
+        ]
+      }, "line": 24 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "line" }, "right": { "kind": "string", "value": "CLOSED" } },
+        "line": 30,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "CLOSED" }, "line": 31 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "open" }, "line": 33 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "data",
+      "line": 36,
+      "params": [
+      ],
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "fs.open", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "dir", "arguments": [] }, "right": { "kind": "string", "value": "/b755-data.txt" } }, { "kind": "string", "value": "read" }] }, "line": 37 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "ident",
+      "line": 40,
+      "params": [
+      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 40 }
+      ],
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "h" }, "line": 41 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "same",
+      "line": 44,
+      "params": [
+      { "name": "xs", "type": "List OF RES fs.File", "default": null, "line": 44 }
+      ],
+      "returnType": "List OF RES fs.File",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "xs" }, "line": 45 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fresh",
+      "line": 49,
+      "params": [
+      { "name": "name", "type": "String", "default": null, "line": 49 }
+      ],
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "dir", "arguments": [] }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "identifier", "value": "name" } }, { "kind": "string", "value": "w" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "boolean", "value": true }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "flushed" }] }, "line": 52 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 53 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "flushed",
+      "line": 56,
+      "params": [
+      { "name": "name", "type": "String", "default": null, "line": 56 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "dir", "arguments": [] }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "identifier", "value": "name" } }] }, "line": 57 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addFresh",
+      "line": 60,
+      "params": [
+      { "name": "xs", "type": "List OF RES fs.File", "default": null, "line": 60 }
+      ],
+      "returnType": "List OF RES fs.File",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "call", "callee": "fresh", "arguments": [{ "kind": "string", "value": "b755-mixed.txt" }] }] }, "line": 61 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pick",
+      "line": 64,
+      "params": [
+      { "name": "c", "type": "Boolean", "default": null, "line": 64 },
+      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 64 }
+      ],
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "c" },
+        "line": 65,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "h" }, "line": 66 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "fresh", "arguments": [{ "kind": "string", "value": "b755-pick.txt" }] }, "line": 68 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "addTo",
+      "line": 71,
+      "params": [
+      { "name": "xs", "type": "List OF RES fs.File", "default": null, "line": 71 },
+      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 71 }
+      ],
+      "returnType": "List OF RES fs.File",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "h" }] }, "line": 72 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "wrap",
+      "line": 75,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 75 }
+      ],
+      "returnType": "Holder",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "h", "type": null, "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "string", "value": "made" }, { "kind": "identifier", "value": "f" }] }, "line": 76 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "h" }, "line": 77 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "worker",
+      "line": 80,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF RES fs.File TO Integer", "default": null, "line": 80 },
+      { "name": "path", "type": "String", "default": null, "line": 80 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 81,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "thread.accept", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "20000" }] }, "line": 82 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "accepted" }] }, "line": 83 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] }] }, "line": 85 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "handedBack",
+      "line": 88,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "data", "arguments": [] }, "line": 89 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 90,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "y", "type": "fs.File", "value": { "kind": "call", "callee": "ident", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 91 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "1 handed back: " }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 93 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "listHandedBack",
+      "line": 96,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "fs.File", "value": { "kind": "call", "callee": "data", "arguments": [] }, "line": 97 },
+      { "kind": "binding", "mutable": false, "name": "lb", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "b" }] }, "line": 98 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 99,
+        "then": [
+        { "kind": "binding", "mutable": false, "name": "p", "type": null, "value": { "kind": "call", "callee": "same", "arguments": [{ "kind": "identifier", "value": "lb" }] }, "line": 100 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "2 list handed back: " }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 102 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "mixedList",
+      "line": 105,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "fs.File", "value": { "kind": "call", "callee": "data", "arguments": [] }, "line": 106 },
+      { "kind": "binding", "mutable": false, "name": "lb", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "b" }] }, "line": 107 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 108,
+        "then": [
+        { "kind": "binding", "mutable": false, "name": "q", "type": null, "value": { "kind": "call", "callee": "addFresh", "arguments": [{ "kind": "identifier", "value": "lb" }] }, "line": 109 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "3 mixed list: fresh " }, "right": { "kind": "call", "callee": "flushed", "arguments": [{ "kind": "string", "value": "b755-mixed.txt" }] } }, "right": { "kind": "string", "value": ", passed " } }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 111 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "mixedSingle",
+      "line": 114,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "data", "arguments": [] }, "line": 115 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 116,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "p", "type": "fs.File", "value": { "kind": "call", "callee": "pick", "arguments": [{ "kind": "boolean", "value": true }, { "kind": "identifier", "value": "a" }] }, "line": 117 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 119,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "q", "type": "fs.File", "value": { "kind": "call", "callee": "pick", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "identifier", "value": "a" }] }, "line": 120 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "4 mixed single: fresh " }, "right": { "kind": "call", "callee": "flushed", "arguments": [{ "kind": "string", "value": "b755-pick.txt" }] } }, "right": { "kind": "string", "value": ", passed " } }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 122 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "discarded",
+      "line": 125,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "data", "arguments": [] }, "line": 126 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "ident", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 127 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fresh", "arguments": [{ "kind": "string", "value": "b755-dropped.txt" }] }, "line": 128 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "5 discarded: fresh " }, "right": { "kind": "call", "callee": "flushed", "arguments": [{ "kind": "string", "value": "b755-dropped.txt" }] } }, "right": { "kind": "string", "value": ", passed " } }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 129 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "floated",
+      "line": 132,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "outer", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 133 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 134,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "data", "arguments": [] }, "line": 135 },
+        { "kind": "assignment", "name": "outer", "value": { "kind": "call", "callee": "addTo", "arguments": [{ "kind": "identifier", "value": "outer" }, { "kind": "identifier", "value": "f" }] }, "line": 136 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "6 floated: " }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "outer" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 138 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "recordField",
+      "line": 141,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "data", "arguments": [] }, "line": 142 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 143,
+        "then": [
+        { "kind": "binding", "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "call", "callee": "wrap", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 144 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "7 record field: " }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "a" }] } }] }, "line": 146 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "accepted",
+      "line": 149,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "dir", "arguments": [] }, "right": { "kind": "string", "value": "/b755-accept.txt" } }, "line": 150 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "Thread OF RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "worker" }, { "kind": "identifier", "value": "path" }] }, "line": 151 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "w" }] }, "line": 152 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "boolean", "value": true }] }, "line": 153 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "f" }] }, "line": 154 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "8 accepted: worker read " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "a" }] }] } }] }, "line": 155 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 158,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectories", "arguments": [{ "kind": "call", "callee": "dir", "arguments": [] }] }, "line": 159 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "dir", "arguments": [] }, "right": { "kind": "string", "value": "/b755-data.txt" } }, { "kind": "string", "value": "hello\nworld\nagain\n" }] }, "line": 160 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "handedBack", "arguments": [] }, "line": 161 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "listHandedBack", "arguments": [] }, "line": 162 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "mixedList", "arguments": [] }, "line": 163 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "mixedSingle", "arguments": [] }, "line": 164 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "discarded", "arguments": [] }, "line": 165 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "floated", "arguments": [] }, "line": 166 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "recordField", "arguments": [] }, "line": 167 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "accepted", "arguments": [] }, "line": 168 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 169 }
+      ]
+    }
+    ]
+  }
+  ]
+}

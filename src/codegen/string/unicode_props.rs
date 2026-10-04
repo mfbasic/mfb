@@ -962,6 +962,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(no_break_label));
     }
 
+    /// Turn the first scalar's raw Indic_Conjunct_Break property, in `icb`, into
+    /// the GB9c context state a walk starts from (bug-796). Only a consonant opens
+    /// a conjunct prefix. A leading linker or extend has no consonant before it, so
+    /// the state is "none" (0), and a consonant after it breaks. Seeding the raw
+    /// property made a leading `U+094D` look like "consonant + linker seen", so
+    /// `U+094D U+0915` came out as one cluster.
+    pub(crate) fn emit_seed_indic_conjunct_state(&mut self, icb: impl Into<abi::Reg>) {
+        let seeded = self.label("grapheme_icb_seeded");
+        let mut instrs = Vec::new();
+        emit_seed_indic_conjunct_state_instrs(icb, &seeded, &mut instrs);
+        for instruction in instrs {
+            self.emit(instruction);
+        }
+    }
+
     pub(crate) fn emit_grapheme_state_update(
         &mut self,
         state_bc: impl Into<abi::Reg>,
@@ -1413,6 +1428,30 @@ pub(crate) fn emit_unicode_property_ptr_free(
     emit_load_data_address_free(from, UNICODE_PROPERTIES_SYMBOL, scratch, instrs, relocs);
     instrs.push(abi::add_registers(prop_out, scratch, prop_out));
     instrs.push(abi::label(&done));
+}
+
+/// The free-function form of [`CodeBuilder::emit_seed_indic_conjunct_state`],
+/// for the hand-labelled cluster walks (bug-796).
+pub(crate) fn emit_seed_indic_conjunct_state_free(
+    label_prefix: &str,
+    icb: impl Into<abi::Reg>,
+    instrs: &mut Vec<CodeInstruction>,
+) {
+    emit_seed_indic_conjunct_state_instrs(icb, &format!("{label_prefix}_icbseed"), instrs);
+}
+
+fn emit_seed_indic_conjunct_state_instrs(
+    icb: impl Into<abi::Reg>,
+    seeded: &str,
+    instrs: &mut Vec<CodeInstruction>,
+) {
+    let icb: abi::Reg = icb.into();
+    instrs.extend([
+        abi::compare_immediate(icb, INDIC_CONJUNCT_BREAK_CONSONANT),
+        abi::branch_eq(seeded),
+        abi::move_immediate(icb, "Integer", "0"),
+        abi::label(seeded),
+    ]);
 }
 
 /// Read a property record's boundclass (offset 18), indic-conjunct-break (offset

@@ -126,7 +126,7 @@ After `after_show`, the bootstrap re-tests `REG_HEADLESS`:
   normal operation; if it ever does, `_exit(0)`. The `&argblock` pointer stays
   valid because `_main` blocks forever in `[NSApp run]`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 - **Headless**: there is no run loop or delegate callback, so the worker is spawned
-  inline — `pthread_create(&tid, NULL, _mfb_macapp_worker, &argblock)` — and `_main`
+  inline — `pthread_create(&tid, &attr, _mfb_macapp_worker, &argblock)` — and `_main`
   parks in a `pause()` loop (label `spin`) while the worker runs the program and
   exits the process.
   [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
@@ -135,6 +135,10 @@ After `after_show`, the bootstrap re-tests `REG_HEADLESS`:
 re-fetches `[NSApplication sharedApplication]`, reads the `&argblock` pointer back
 out of `ARG_ASSOC_KEY`, and `pthread_create`s the worker (the `pthread_t` is
 discarded; the worker is never joined). [[src/target/macos_aarch64/app/bootstrap.rs:emit_did_finish_launching_helper]]
+
+Both spawn sites pass an `attr` with a `THREAD_STACK_BYTES` (8 MiB) stack, the size
+a console program's main thread and every `thread::start` worker get; default
+attributes would give the program thread 512 KiB. [[src/target/macos_aarch64/app/bootstrap.rs:emit_spawn_program_thread]]
 
 ## Worker pthread shim
 

@@ -19,6 +19,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn target(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::target") }
     fn arch(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::arch") }
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
+    fn emit_stack_limit(&self, _from: &str, _pi: &HashMap<String, String>, _stack: crate::codegen::engine::types::ThreadStack, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_stack_limit") }
     fn emit_apply_raw_mode(&self, _b: crate::target::shared::abi::Reg, _o: usize, _m: usize, _de: bool, _dc: bool, _s: [crate::target::shared::abi::Reg; 2], _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(
     &self,

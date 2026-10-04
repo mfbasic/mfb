@@ -290,7 +290,7 @@ A call is fallible if its callee's package is a known-fallible builtin namespace
 or if it names a user function already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
 
 ```text
-fallible builtin packages: fs, io, json, net, thread, tls, http
+fallible builtin packages: fs, io, json, net, thread, tls, http, tcp, udp
 per-builtin fallible sets: the raising members of crypto, datetime, audio, os,
                            regex, csv and encoding, plus the bare conversions
                            toInt / toFloat / toFixed / toMoney / toScalar / toByte
@@ -305,9 +305,9 @@ registry error descriptors.[[src/audit/collect/source.rs:is_fallible_builtin]]
 
 `toInt` of a provably enum-valued argument is treated as total. The collector
 tracks declared enum types, enum parameters and enum-valued local bindings for
-this exception. `tcp` and `udp` are absent from the fallibility table, so their
-calls alone do not appear in `sourceFlow.calls` or make a function fallible;
-their network permissions and recognized resource acquisitions still appear.
+this exception. `tcp` and `udp` are whole-package entries because every member
+declares at least one error. A unit test keeps that true, so a total member added
+later would have to move both packages to the per-builtin table.
 [[src/audit/collect/source.rs:is_fallible_call]]
 
 A call whose error is fully handled by an enclosing inline `TRAP … RECOVER` does

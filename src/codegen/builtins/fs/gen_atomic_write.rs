@@ -1237,6 +1237,8 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         ),
         abi::store_u64(&fd, abi::mfb_return(1), FILE_OFFSET_FD),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_CLOSED),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, abi::mfb_return(1), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
         // Arena memory is poisoned, so zero the buffer fields explicitly.

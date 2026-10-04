@@ -990,10 +990,12 @@ fn is_fallible_call(
     }
     // Whole-package fallible surfaces — every call raises a trappable host error.
     // `tls`/`http` join the original set: they are network I/O like `net`
-    // (bug-96).
+    // (bug-96). `tcp`/`udp` are the same transports (bug-791): every member
+    // declares at least one error, which `tests::every_tcp_and_udp_member_declares_an_error`
+    // keeps true — a total member would have to be listed individually instead.
     if matches!(
         package_of(callee),
-        "fs" | "io" | "json" | "net" | "thread" | "tls" | "http"
+        "fs" | "io" | "json" | "net" | "thread" | "tls" | "http" | "tcp" | "udp"
     ) {
         return true;
     }
@@ -1477,6 +1479,72 @@ mod tests {
         // `reader` calls a fallible builtin; `caller` calls fallible `reader`.
         assert!(reader.fallible);
         assert!(caller.fallible);
+    }
+
+    /// bug-791: `tcp`/`udp` calls were missing from the census, so a function
+    /// acquiring a socket reported `fallible: false` and no call rows.
+    #[test]
+    fn tcp_and_udp_calls_are_fallible_and_propagate() {
+        let source = concat!(
+            "IMPORT tcp\n",
+            "IMPORT udp\n",
+            "FUNC open() AS Integer\n",
+            "  RES listener = tcp::listen(\"127.0.0.1\", 0)\n",
+            "  RES socket = udp::bind(\"127.0.0.1\", 0)\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+            "FUNC caller() AS Integer\n",
+            "  RETURN open()\n",
+            "END FUNC\n",
+            "FUNC guarded() AS Integer\n",
+            "  RES conn = tcp::connect(\"127.0.0.1\", 1)\n",
+            "  RETURN 0\n",
+            "  TRAP(e)\n",
+            "    RETURN 1\n",
+            "  END TRAP\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _, ..) = collect_source(&project(source));
+        let open = flow.iter().find(|f| f.function == "open").unwrap();
+        assert!(open.fallible);
+        let callees: Vec<&str> = open.calls.iter().map(|c| c.callee.as_str()).collect();
+        assert!(
+            callees.contains(&"tcp.listen") && callees.contains(&"udp.bind"),
+            "{callees:?}"
+        );
+        assert!(
+            flow.iter()
+                .find(|f| f.function == "caller")
+                .unwrap()
+                .fallible
+        );
+        // A handler that returns keeps the error from leaving the function.
+        let guarded = flow.iter().find(|f| f.function == "guarded").unwrap();
+        assert!(!guarded.fallible);
+        assert!(guarded.calls.iter().any(|c| c.callee == "tcp.connect"));
+    }
+
+    /// The whole-package classification above is only true while no `tcp`/`udp`
+    /// member is total.
+    #[test]
+    fn every_tcp_and_udp_member_declares_an_error() {
+        for package in crate::codegen::registry::registry().packages() {
+            if !matches!(package.import_name(), "tcp" | "udp") {
+                continue;
+            }
+            for function in package.functions() {
+                for implementation in &function.implementations {
+                    assert!(
+                        !implementation.errors.is_empty(),
+                        "{}::{} declares no error; list the fallible members of {} \
+                         individually in is_fallible_builtin instead",
+                        package.import_name(),
+                        function.name,
+                        package.import_name()
+                    );
+                }
+            }
+        }
     }
 
     #[test]

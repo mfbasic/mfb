@@ -1,11 +1,11 @@
 # bug-791: audit omits fallible TCP and UDP calls
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: add collector regressions in `src/audit/collect/source.rs` and an audit CLI acceptance fixture.
+Status: Fixed
+Regression Test: `src/audit/collect/source.rs:tests::tcp_and_udp_calls_are_fallible_and_propagate`, `every_tcp_and_udp_member_declares_an_error`; `tests/syntax/packages/audit-capabilities` (`.audit` golden)
 
 `mfb audit` reports a function containing `tcp::listen` and `udp::bind` as
 non-fallible and emits no call rows. A fix must report these raising calls and
@@ -103,26 +103,26 @@ call-context analysis. Verify nested expression, caller, and inline TRAP cases.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add collector and CLI regressions for the reproduction.
-- [ ] Audit all TCP/UDP members and select total-operation contrast cases.
-- [ ] Add transitive-caller and handled-TRAP regression cases.
+- [x] Add collector and CLI regressions for the reproduction.
+- [x] Audit all TCP/UDP members and select total-operation contrast cases.
+- [x] Add transitive-caller and handled-TRAP regression cases.
 
 Acceptance: regressions fail for the omitted transport calls.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Correct the fallibility census and update the tooling spec's as-is limitation.
+- [x] Correct the fallibility census and update the tooling spec's as-is limitation.
 
 Acceptance: regressions pass; permission/resource rows and total calls stay correct.
 Commit: —
 
 ### Phase 3 — expected outputs and validation
 
-- [ ] Run the full suite before any golden correction; document which exact
+- [x] Run the full suite before any golden correction; document which exact
       lines are disproved by the descriptor/raise-site evidence.
-- [ ] Correct only affected audit expectations, then run the full suite again.
-- [ ] Rebuild release and rerun the CLI reproduction.
+- [x] Correct only affected audit expectations, then run the full suite again.
+- [x] Rebuild release and rerun the CLI reproduction.
 
 Acceptance: correct CLI report and full-suite success with explained deltas.
 Commit: —
@@ -132,3 +132,29 @@ Commit: —
 Use collector tests plus the CLI reproduction for observable proof; run
 `cargo test` and the repository's applicable acceptance gates. Update
 `src/docs/spec/tooling/04_audit-format.md` when the code fix lands.
+
+## Resolution (2026-10-03)
+
+Audit of the descriptors: every `tcp` and `udp` member declares at least one
+error, including every `tcp.connect` overload, `tcp.localAddress`, `tcp.close`
+and `udp.close`. So, like `net`/`tls`, both join the collector's whole-package
+list. `every_tcp_and_udp_member_declares_an_error` keeps that classification
+true against the registry.
+
+**Tests.** The new collector test covers:
+
+- direct `tcp::listen`/`udp::bind`, which are fallible and appear as call rows;
+- a transitive caller, which is also fallible;
+- a function-level `TRAP` that returns, which is not fallible and still reports
+  the `tcp.connect` row.
+
+**CLI reproduction.** With the fix it prints `True ['tcp.listen', 'udp.bind']`;
+on main it prints `False []`.
+
+**Expected-output change, corrected at the bug-staging batch gate.**
+`tests/syntax/packages/audit-capabilities/golden/audit_capabilities.audit` gains
+the `tcp.connect` / `tcp.close` rows (line 32/33, `-> trap`) in text and JSON. Its
+missing rows are disproved by those members' declared errors.
+
+Spec: `mfb spec tooling audit-format` (the "tcp and udp are absent" note is
+replaced).

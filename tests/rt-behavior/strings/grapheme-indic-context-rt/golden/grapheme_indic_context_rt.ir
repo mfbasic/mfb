@@ -1,0 +1,122 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "grapheme_indic_context_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "clusters",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 8, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 9, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "s" }] }] } }
+    ]
+  },
+  {
+    "name": "firstOf",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 11, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 12, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Scalar", "target": "strings.toScalars", "args": [{ "kind": "call", "type": "String", "target": "strings.graphemeAt", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 14,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "leading-linker folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "्क" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "्क" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "्क" }] }] } }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "extend-linker folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "़्क" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "़्क" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "़्क" }] }] } }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "conjunct folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "क्ष" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "क्ष" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "क्ष" }] }] } }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cons-extend-linker folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "क़्ष" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "क़्ष" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "क़्ष" }] }] } }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "double-linker folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "क््ष" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "क््ष" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "क््ष" }] }] } }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "reset folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "क्a्क" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "क्a्क" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "क्a्क" }] }] } }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "two-conjuncts folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "क्षक्ष" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "क्षक्ष" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "क्षक्ष" }] }] } }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "linker-only folded=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "const", "type": "String", "value": "््" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " runtime=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "clusters", "args": [{ "kind": "const", "type": "String", "value": "््" }] }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "firstOf", "args": [{ "kind": "const", "type": "String", "value": "््" }] }] } }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

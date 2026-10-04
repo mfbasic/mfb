@@ -63,7 +63,10 @@ ArenaState (at x19)
   +1168 U64  largeBin[64]     ; large-block size-class heads, chunks > 2048: 4 classes
                               ; per power of two from 2 KiB, the last holding 112 MiB
                               ; and up (see arena_free); 0 = empty
-  +1680 U128 v128Slots[127]   ; per-thread v128 scalarization region (2032 bytes);
+  +1680 U64  stackLimit       ; lowest sp a function body may start at (bug-789); 0 =
+                              ; unchecked; low so one load reads it on every target
+  +1688 U64  stackLimitTmp    ; scratch while a thread computes stackLimit
+  +1696 U128 v128Slots[126]   ; per-thread v128 scalarization region (2016 bytes);
                               ; reserved on every target, addressed only by rv64
                               ; codegen; kept low so its offset fits rv64's 12-bit addi
   +3712 U64  flagRhs          ; rv64 flag-emulation compare rhs snapshot (16 bytes,
@@ -400,7 +403,7 @@ A **resource** is scope-dropped, but on its own terms: drop and close do differe
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — the drop path `arena_free`s the resource's output buffer,
 read buffer, and `STATE` payload, nulling each pointer word as it goes.
-The **owning binding's** drop also frees the 96-byte record for `fs.File`,
+The **owning binding's** drop also frees the resource record for `fs.File`,
 `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
 the record last, after close and block reclamation, and zeroes the slot. Other
@@ -422,10 +425,23 @@ can name. Everything the node POINTS at — the element's `STATE` block, its per
 I/O buffers, its record for the record-freeing kinds above, a union element's
 `{tag, record-ptr}` box, and the collection block itself — is freed only for a
 collection proved to be their one owner: every store into it is a collection
-literal or a self-receiving `collections::` mutator, it is never named outside a call's
-argument position, no `collections::get`/`getOr` (nor a `*::poll`) reads an element back
-out of it, and every element that floats into it is a fresh producer record that does
-not escape. A collection that fails any of those keeps a close-only drain, which leaks
+literal, a self-receiving `collections::` mutator, a call audited to return a block
+nothing else holds — `collections::take`/`drop`/`chunks`/`window` (source bodies over
+the native slice) and the natively lowered `filter`, `append`, `prepend`, `insert`,
+`set`, `removeAt` and `mid` — or a
+call to a function whose every `RETURN` hands back such a block — a literal, one of those
+calls, or a local whose every store is fresh, that no call keeps and that is named
+nowhere but in its `RETURN`s (a parameter never qualifies: it is the caller's block); it
+is never named outside a call's argument position; no call keeps its block — it is never
+a `collections::` member's non-receiver argument (`collections::append(out, piece)`
+stores `piece`'s block inside `out`), nor an argument a callee's body keeps by the same
+rules, a recursive callee counting as keeping; no `collections::get`/`getOr` (nor a
+`*::poll`) reads an element back out of it; and every element that floats into it is a
+fresh producer record that does not escape. Such a collection also frees the block a copying
+reassignment replaces (`out = collections::append(out, x)` when the in-place append
+declines); the elements are references and are not touched. The intermediates a `collections` member builds for a `RES` collection (an
+element's singleton, `set`'s removed copy) are freed the same shallow way.
+[[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]] A collection that fails any of those keeps a close-only drain, which leaks
 those blocks rather than risking a double free.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]

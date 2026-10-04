@@ -294,6 +294,19 @@ pub(crate) fn platform_family(target: &str) -> PlatformFamily {
     }
 }
 
+/// bug-789: how a thread's stack came to exist, for
+/// [`CodegenPlatform::emit_stack_limit`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ThreadStack {
+    /// The process's main thread, entered by the OS.
+    Process,
+    /// A thread this runtime created with a stack of exactly this many bytes.
+    Created(usize),
+    /// A thread another runtime created (the app-mode worker the toolkit
+    /// bootstrap starts with default attributes): its stack must be asked for.
+    Inherited,
+}
+
 pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
     /// The OS family this platform belongs to, for exhaustive-`match` OS
@@ -1079,6 +1092,20 @@ pub(crate) trait CodegenPlatform {
         spec: &ProgramEntrySpec<'_>,
         platform_imports: &HashMap<String, String>,
     ) -> Result<CodeFunction, String>;
+
+    /// bug-789: set this thread's stack-limit word (`ARENA_STACK_LIMIT_OFFSET`) to its
+    /// stack bottom plus the reserve. Emitted once per thread, right after its arena
+    /// state is cleared, while only the pinned arena register is live; it may call
+    /// out and clobber every caller-saved register. `stack` says how the thread came
+    /// to exist, for a platform that cannot ask the OS for a thread's bounds.
+    fn emit_stack_limit(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        stack: ThreadStack,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
 
     /// Emit the thread trampoline (`_mfb_rt_thread_trampoline`) the OS thread
     /// primitive enters: it sets up the child's arena-state register and stack,

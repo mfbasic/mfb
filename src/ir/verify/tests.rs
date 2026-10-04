@@ -674,6 +674,47 @@ fn resource_union_parameter_widening_is_directional() {
     );
 }
 
+/// bug-786: an `ISOLATED FUNC` is assignable to the ordinary `FUNC` of the same
+/// shape (isolation is an extra guarantee). The conversion is one-way, needs the
+/// same parameters and return, and is NOT part of `compatible`. That one also
+/// judges package annotations against derived types, where the two must agree.
+#[test]
+fn an_isolated_callable_is_assignable_to_the_ordinary_one_only() {
+    let proj = project(vec![], vec![]);
+    let env = super::TypeEnv::build(&proj);
+    let value = IrValue::Local("f".to_string());
+    let plain = ParameterType::parse("FUNC(Integer) AS Integer");
+    let isolated = ParameterType::parse("ISOLATED FUNC(Integer) AS Integer");
+    assert!(
+        env.assignable(&plain, &isolated, &value),
+        "isolated -> ordinary"
+    );
+    assert!(
+        !env.assignable(&isolated, &plain, &value),
+        "ordinary -> isolated"
+    );
+    assert!(
+        !env.assignable(
+            &ParameterType::parse("FUNC(String) AS Integer"),
+            &isolated,
+            &value
+        ),
+        "different parameters"
+    );
+    assert!(
+        !env.assignable(
+            &ParameterType::parse("FUNC(Integer) AS String"),
+            &isolated,
+            &value
+        ),
+        "different return"
+    );
+    assert!(
+        !env.compatible(&plain, &isolated),
+        "annotation integrity still requires agreement"
+    );
+}
+
 #[test]
 fn rejects_union_wrap_of_foreign_variant() {
     let body = vec![IrOp::Return {

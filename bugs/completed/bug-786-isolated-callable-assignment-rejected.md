@@ -1,11 +1,11 @@
 # bug-786: IR verification rejects isolated callables in ordinary callable slots
 
-Last updated: 2026-10-01
+Last updated: 2026-10-03
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/syntax/functions/isolated-callable-assignment-valid` and matching runtime fixture; not added in this documentation-only task.
+Status: Fixed
+Regression Test: `tests/rt-behavior/functions/isolated-callable-widening-rt` (binding/return/argument/list element; prints 7 8 9 1); `tests/syntax/functions/isolated-callable-narrowing-invalid`; `src/ir/verify/tests.rs:an_isolated_callable_is_assignable_to_the_ordinary_one_only`
 
 An isolated `FUNC(Integer) AS Integer` cannot initialize an ordinary
 `FUNC(Integer) AS Integer` local. The HIR shape checker explicitly permits this
@@ -116,10 +116,10 @@ attacker-controlled annotation and its independently derived type.
 
 ### Phase 1 — failing tests and consumer audit
 
-- [ ] Add a positive syntax fixture reproducing the rejection and a runtime
+- [x] Add a positive syntax fixture reproducing the rejection and a runtime
       fixture that calls the assigned function.
-- [ ] Add reverse-direction and incompatible-signature negative cases.
-- [ ] Exercise return, argument, container, and decoded-package consumers.
+- [x] Add reverse-direction and incompatible-signature negative cases.
+- [x] Exercise return, argument, container, and decoded-package consumers.
 
 Acceptance: the positive case fails for `TYPE_BINDING_MISMATCH`; the audit
 records each consumer's required relation.
@@ -127,21 +127,51 @@ Commit: —
 
 ### Phase 2 — fix
 
-- [ ] Implement safe isolation widening at the proper compatibility seam.
-- [ ] Preserve independent annotation-integrity checks and `RES` compatibility.
-- [ ] Update the architecture type-inference contract.
+- [x] Implement safe isolation widening at the proper compatibility seam.
+- [x] Preserve independent annotation-integrity checks and `RES` compatibility.
+- [x] Update the architecture type-inference contract.
 
 Acceptance: positive syntax and runtime cases pass; negative cases still reject.
 Commit: —
 
 ### Phase 3 — validation
 
-- [ ] Run the full suite before considering any expected-output changes; prove
+- [x] Run the full suite before considering any expected-output changes; prove
       each changed expectation wrong before editing it.
-- [ ] Run `cargo test` and
+- [x] Run `cargo test` and
       `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-- [ ] Rebuild release and rerun this reproduction as an executable; assert exit 0.
+- [x] Rebuild release and rerun this reproduction as an executable; assert exit 0.
 
 Acceptance: full validation passes, the original failure is resolved, and
 package annotations cannot evade the verifier.
 Commit: —
+
+## Resolution (2026-10-03)
+
+New `TypeEnv::assignable` = `expression_compatible`, plus one directional
+conversion: `ISOLATED FUNC(P) AS R` is accepted where `FUNC(P) AS R` is expected
+(parameters equal after peeling `RES`, return equal). The reverse still
+mismatches.
+
+**Where it applies.** It is used at every assignment position: bindings,
+globals, assignments, returns, `STATE` writes, user and builtin call arguments,
+constructor fields, union wraps, `WITH` updates, and list/set/map elements.
+
+**Where it does not apply.** `compatible` itself is unchanged. It is also the
+annotation-integrity predicate (`check_member_access_type`,
+`check_operator_result_type`, `check_call_result_type`), where a package's
+attacker-controlled annotation must agree with the derived type, not merely
+convert to it. Match patterns also keep the exact rule.
+
+**Proof.**
+
+- On main, the positive program fails with `TYPE_RETURN_MISMATCH`,
+  `TYPE_BINDING_MISMATCH` and `TYPE_LIST_ELEMENT_MISMATCH`. With the fix it runs
+  and prints `7 8 9 1`.
+- The reverse direction and a different parameter list are still rejected.
+- 462 `ir::verify` tests pass.
+- Function/lambda/closure/thread fixtures: the mismatch set under this compiler
+  equals batch 2's compiler on the same tree, except the new fixture. Those
+  mismatches are bug-785's stale `thread_workers.mfp` copies.
+
+Spec: `mfb spec architecture type-inference`.

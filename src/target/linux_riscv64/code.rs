@@ -56,6 +56,10 @@ impl LinuxArch for Riscv64 {
         "libc.musl-riscv64.so.1"
     }
 
+    fn sys_prlimit64(&self) -> &'static str {
+        "261"
+    }
+
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend {
         &crate::arch::riscv64::backend::RISCV64_BACKEND
     }

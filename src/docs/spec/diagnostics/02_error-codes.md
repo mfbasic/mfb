@@ -82,6 +82,7 @@ emitting operations or a guarantee of identical message text at every emitter.
 | `7-705-0008` | `77050008` | `ErrTimeout`                  | Operation did not complete before its deadline. |
 | `7-705-0009` | `77050009` | `ErrInterrupted`              | Operation was interrupted before completion. |
 | `7-701-0001` | `77010001` | `ErrOutOfMemory`              | Allocation failed. |
+| `7-701-0002` | `77010002` | `ErrStackOverflow`            | The call depth exceeded the thread's stack. Raised at entry to the function that would have run past the thread's stack limit, before it binds anything; the caller's `TRAP` catches it and every frame unwound runs its cleanup, as for any failure. Distinct from `ErrOutOfMemory`: the arena may have room — the call chain is too deep. |
 | `7-703-0001` | `77030001` | `ErrPathNotFound`             | Filesystem path does not exist. |
 | `7-703-0002` | `77030002` | `ErrInvalidPath`              | Filesystem path string is invalid for the host platform. |
 | `7-703-0003` | `77030003` | `ErrAccessDenied`             | Filesystem access was denied. |

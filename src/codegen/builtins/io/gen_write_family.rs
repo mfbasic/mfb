@@ -180,33 +180,7 @@ pub(crate) fn lower_write_family(
     let write_error = format!("{symbol}_write_error");
     let done = format!("{symbol}_done");
     let fd_str = if stderr { "2" } else { "1" };
-    let direct_loop = format!("{symbol}_direct_loop");
-    let direct_written = format!("{symbol}_direct_written");
-    // Loop on short writes (bug-51): a single write() may transfer fewer than the
-    // string's byte count (pipe/FIFO, filling disk, signal); advance the cursor and
-    // retry until nothing remains. A 0 or -1 return is a write failure, never
-    // success. %v13/%v14 (cursor/remaining) are vregs, so the allocator spills them
-    // across each `bl write` and reloads them afterward (compiler.md register
-    // lifetimes) — the pointer/count are never read from a caller-saved register.
-    let v14 = vregs.next();
-    let v13 = vregs.next();
-    instructions.extend([
-        abi::load_u64(&v14, abi::return_register(), 0),
-        abi::add_immediate(&v13, abi::return_register(), 8),
-        abi::label(&direct_loop),
-        abi::compare_immediate(&v14, "0"),
-        abi::branch_eq(&direct_written),
-        abi::move_register(abi::string_data_register(), &v13),
-        abi::move_register(abi::string_length_register(), &v14),
-        abi::move_immediate(abi::return_register(), "Integer", fd_str),
-    ]);
-    platform.emit_write(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    emit_transfer_loop_tail_epipe(
+    emit_fd_write_all(
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -214,57 +188,14 @@ pub(crate) fn lower_write_family(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        fd_str,
         abi::return_register(),
-        write_uses_raw_syscall(platform),
-        &v13,
-        &v14,
-        &direct_loop,
+        append_newline,
+        8,
         stdout_epipe_label(platform, platform_imports, &epipe),
         &write_error,
+        &mut vregs,
     )?;
-    instructions.push(abi::label(&direct_written));
-    if append_newline {
-        let newline_loop = format!("{symbol}_newline_loop");
-        let newline_written = format!("{symbol}_newline_written");
-        let v9 = vregs.next();
-        instructions.extend([
-            abi::move_immediate(&v9, "Integer", "10"),
-            abi::store_u64(&v9, abi::stack_pointer(), 8),
-            abi::add_immediate(&v13, abi::stack_pointer(), 8),
-            abi::move_immediate(&v14, "Integer", "1"),
-            // A 1-byte write cannot short-count positively, but a 0 return still
-            // means the byte was not written — loop and treat 0/-1 as a failure.
-            abi::label(&newline_loop),
-            abi::compare_immediate(&v14, "0"),
-            abi::branch_eq(&newline_written),
-            abi::move_register(abi::string_data_register(), &v13),
-            abi::move_register(abi::string_length_register(), &v14),
-            abi::move_immediate(abi::return_register(), "Integer", fd_str),
-        ]);
-        platform.emit_write(
-            symbol,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?;
-        emit_transfer_loop_tail_epipe(
-            &mut EmitCtx {
-                symbol,
-                platform_imports,
-                platform,
-                instructions: &mut instructions,
-                relocations: &mut relocations,
-            },
-            abi::return_register(),
-            write_uses_raw_syscall(platform),
-            &v13,
-            &v14,
-            &newline_loop,
-            stdout_epipe_label(platform, platform_imports, &epipe),
-            &write_error,
-        )?;
-        instructions.push(abi::label(&newline_written));
-    }
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -322,6 +253,94 @@ pub(crate) fn lower_write_family(
         location: Operand::from("void"),
         text: text.to_string(),
     })
+}
+
+/// Write a whole MFBASIC `String` object to `fd`, then a trailing LF when `newline`:
+/// loop on short writes (bug-51), retry `EINTR`, branch to `epipe` (when `Some`) on
+/// `EPIPE` and to `write_error` on any other failure, and fall through once every
+/// byte is written. `str_obj` holds the string object (`{u64 len; bytes}`) on
+/// entry; the LF is staged at `sp + newline_slot`. Shared by the console write
+/// family and every app-mode fd fallback (bug-799), so a write that fails or
+/// short-counts behaves the same in both builds.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_fd_write_all(
+    ctx: &mut EmitCtx,
+    fd_str: &str,
+    str_obj: impl Into<Reg>,
+    append_newline: bool,
+    newline_slot: usize,
+    epipe: Option<&str>,
+    write_error: &str,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let symbol = ctx.symbol;
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+    let str_obj: Reg = str_obj.into();
+    let direct_loop = format!("{symbol}_direct_loop");
+    let direct_written = format!("{symbol}_direct_written");
+    // Loop on short writes (bug-51): a single write() may transfer fewer than the
+    // string's byte count (pipe/FIFO, filling disk, signal); advance the cursor and
+    // retry until nothing remains. A 0 or -1 return is a write failure, never
+    // success. %v13/%v14 (cursor/remaining) are vregs, so the allocator spills them
+    // across each `bl write` and reloads them afterward (compiler.md register
+    // lifetimes) — the pointer/count are never read from a caller-saved register.
+    let v14 = vregs.next();
+    let v13 = vregs.next();
+    ctx.instructions.extend([
+        abi::load_u64(&v14, str_obj.clone(), 0),
+        abi::add_immediate(&v13, str_obj, 8),
+        abi::label(&direct_loop),
+        abi::compare_immediate(&v14, "0"),
+        abi::branch_eq(&direct_written),
+        abi::move_register(abi::string_data_register(), &v13),
+        abi::move_register(abi::string_length_register(), &v14),
+        abi::move_immediate(abi::return_register(), "Integer", fd_str),
+    ]);
+    platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+    emit_transfer_loop_tail_epipe(
+        ctx,
+        abi::return_register(),
+        write_uses_raw_syscall(platform),
+        &v13,
+        &v14,
+        &direct_loop,
+        epipe,
+        write_error,
+    )?;
+    ctx.instructions.push(abi::label(&direct_written));
+    if append_newline {
+        let newline_loop = format!("{symbol}_newline_loop");
+        let newline_written = format!("{symbol}_newline_written");
+        let v9 = vregs.next();
+        ctx.instructions.extend([
+            abi::move_immediate(&v9, "Integer", "10"),
+            abi::store_u64(&v9, abi::stack_pointer(), newline_slot),
+            abi::add_immediate(&v13, abi::stack_pointer(), newline_slot),
+            abi::move_immediate(&v14, "Integer", "1"),
+            // A 1-byte write cannot short-count positively, but a 0 return still
+            // means the byte was not written — loop and treat 0/-1 as a failure.
+            abi::label(&newline_loop),
+            abi::compare_immediate(&v14, "0"),
+            abi::branch_eq(&newline_written),
+            abi::move_register(abi::string_data_register(), &v13),
+            abi::move_register(abi::string_length_register(), &v14),
+            abi::move_immediate(abi::return_register(), "Integer", fd_str),
+        ]);
+        platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+        emit_transfer_loop_tail_epipe(
+            ctx,
+            abi::return_register(),
+            write_uses_raw_syscall(platform),
+            &v13,
+            &v14,
+            &newline_loop,
+            epipe,
+            write_error,
+        )?;
+        ctx.instructions.push(abi::label(&newline_written));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

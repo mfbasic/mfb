@@ -1,0 +1,170 @@
+' bug-755: the resource holds its cleanup scope; every `RES` is a reference.
+'
+' Each case below closed a handle early (or never) before the owner word: the
+' compiler attached a close to every binding of a call result, so a binding of a
+' handle a callee was passed and handed back closed the caller's resource at the
+' inner block's exit. Runs on every target through the cross-target harnesses;
+' `tests/runtime/rt_resource_owner_scope.rs` pins the same cases one per test.
+IMPORT io
+IMPORT fs
+IMPORT thread
+IMPORT collections
+IMPORT errorCode
+
+TYPE Holder
+  label  AS String
+  handle AS RES fs::File
+END TYPE
+
+FUNC dir() AS String
+  RETURN "target"
+END FUNC
+
+FUNC state(RES h AS fs::File) AS String
+  LET line = fs::readLine(h) TRAP(e)
+    IF e.code = errorCode::ErrResourceClosed THEN
+      RECOVER "CLOSED"
+    END IF
+    RECOVER "open"
+  END TRAP
+  IF line = "CLOSED" THEN
+    RETURN "CLOSED"
+  END IF
+  RETURN "open"
+END FUNC
+
+FUNC data() AS RES fs::File
+  RETURN fs::open(dir() & "/b755-data.txt", "read")
+END FUNC
+
+FUNC ident(RES h AS fs::File) AS RES fs::File
+  RETURN h
+END FUNC
+
+FUNC same(xs AS List OF RES fs::File) AS List OF RES fs::File
+  RETURN xs
+END FUNC
+
+' A fresh write handle whose only bytes sit in its buffer until it is closed.
+FUNC fresh(name AS String) AS RES fs::File
+  RES f AS fs::File = fs::openFile(dir() & "/" & name, "w")
+  fs::setBuffered(f, TRUE)
+  fs::writeAll(f, "flushed")
+  RETURN f
+END FUNC
+
+FUNC flushed(name AS String) AS String
+  RETURN fs::readText(dir() & "/" & name)
+END FUNC
+
+FUNC addFresh(xs AS List OF RES fs::File) AS List OF RES fs::File
+  RETURN collections::append(xs, fresh("b755-mixed.txt"))
+END FUNC
+
+FUNC pick(c AS Boolean, RES h AS fs::File) AS RES fs::File
+  IF c THEN
+    RETURN h
+  END IF
+  RETURN fresh("b755-pick.txt")
+END FUNC
+
+FUNC addTo(xs AS List OF RES fs::File, RES h AS fs::File) AS List OF RES fs::File
+  RETURN collections::append(xs, h)
+END FUNC
+
+FUNC wrap(RES f AS fs::File) AS Holder
+  LET h = Holder["made", f]
+  RETURN h
+END FUNC
+
+ISOLATED FUNC worker(t AS ThreadWorker OF RES fs::File TO Integer, path AS String) AS Integer
+  IF TRUE THEN
+    RES f AS fs::File = thread::accept(t, 20000)
+    fs::writeAll(f, "accepted")
+  END IF
+  RETURN len(fs::readText(path))
+END FUNC
+
+FUNC handedBack() AS Nothing
+  RES a AS fs::File = data()
+  IF TRUE THEN
+    RES y AS fs::File = ident(a)
+  END IF
+  io::print("1 handed back: " & state(a))
+END FUNC
+
+FUNC listHandedBack() AS Nothing
+  RES b AS fs::File = data()
+  LET lb AS List OF RES fs::File = [b]
+  IF TRUE THEN
+    LET p = same(lb)
+  END IF
+  io::print("2 list handed back: " & state(b))
+END FUNC
+
+FUNC mixedList() AS Nothing
+  RES b AS fs::File = data()
+  LET lb AS List OF RES fs::File = [b]
+  IF TRUE THEN
+    LET q = addFresh(lb)
+  END IF
+  io::print("3 mixed list: fresh " & flushed("b755-mixed.txt") & ", passed " & state(b))
+END FUNC
+
+FUNC mixedSingle() AS Nothing
+  RES a AS fs::File = data()
+  IF TRUE THEN
+    RES p AS fs::File = pick(TRUE, a)
+  END IF
+  IF TRUE THEN
+    RES q AS fs::File = pick(FALSE, a)
+  END IF
+  io::print("4 mixed single: fresh " & flushed("b755-pick.txt") & ", passed " & state(a))
+END FUNC
+
+FUNC discarded() AS Nothing
+  RES a AS fs::File = data()
+  ident(a)
+  fresh("b755-dropped.txt")
+  io::print("5 discarded: fresh " & flushed("b755-dropped.txt") & ", passed " & state(a))
+END FUNC
+
+FUNC floated() AS Nothing
+  MUT outer AS List OF RES fs::File = []
+  IF TRUE THEN
+    RES f AS fs::File = data()
+    outer = addTo(outer, f)
+  END IF
+  io::print("6 floated: " & state(collections::get(outer, 0)))
+END FUNC
+
+FUNC recordField() AS Nothing
+  RES a AS fs::File = data()
+  IF TRUE THEN
+    LET h AS Holder = wrap(a)
+  END IF
+  io::print("7 record field: " & state(a))
+END FUNC
+
+FUNC accepted() AS Nothing
+  LET path AS String = dir() & "/b755-accept.txt"
+  RES a AS Thread OF RES fs::File TO Integer = thread::start(worker, path)
+  RES f AS fs::File = fs::openFile(path, "w")
+  fs::setBuffered(f, TRUE)
+  thread::transfer(a, f)
+  io::print("8 accepted: worker read " & toString(thread::waitFor(a)))
+END FUNC
+
+FUNC main AS Integer
+  fs::createDirectories(dir())
+  fs::writeText(dir() & "/b755-data.txt", "hello\nworld\nagain\n")
+  handedBack()
+  listHandedBack()
+  mixedList()
+  mixedSingle()
+  discarded()
+  floated()
+  recordField()
+  accepted()
+  RETURN 0
+END FUNC

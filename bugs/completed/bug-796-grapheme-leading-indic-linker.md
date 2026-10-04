@@ -1,11 +1,11 @@
 # bug-796: Runtime grapheme segmentation joins a leading Indic linker to a consonant
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed `tests/rt-behavior/strings/grapheme-indic-context-rt`
+Status: Fixed
+Regression Test: `tests/rt-behavior/strings/grapheme-indic-context-rt`
 
 The correct behavior is that `U+094D U+0915` forms two extended grapheme
 clusters, whether segmentation is folded or emitted. Runtime segmentation
@@ -94,28 +94,28 @@ Apply equivalent transitions to builder and standalone helpers.
 
 ### Phase 1 — failing tests and audit
 
-- [ ] Add dynamic-versus-folded cases for leading linker, Extend+linker, valid
+- [x] Add dynamic-versus-folded cases for leading linker, Extend+linker, valid
       consonant+linker, consonant+Extend+linker, repeated linkers, and context resets.
-- [ ] Audit callers and test the standalone terminal emitter's state transitions.
+- [x] Audit callers and test the standalone terminal emitter's state transitions.
 
 Acceptance: leading-linker regression fails today; valid conjunct contrasts pass.
 Commit: —
 
 ### Phase 2 — correction
 
-- [ ] Correct context initialization, transitions and boundary eligibility in
+- [x] Correct context initialization, transitions and boundary eligibility in
       both helper families.
-- [ ] Verify grapheme list, count, indexing and self-update results.
+- [x] Verify grapheme list, count, indexing and self-update results.
 
 Acceptance: runtime and folded results agree for the corpus without weakening tests.
 Commit: —
 
 ### Phase 3 — full validation and documentation
 
-- [ ] Run the full suite before changing any golden; inspect all expected deltas.
-- [ ] Run compiler/artifact/runtime gates from `.ai/compiler.md` and
+- [x] Run the full suite before changing any golden; inspect all expected deltas.
+- [x] Run compiler/artifact/runtime gates from `.ai/compiler.md` and
       `.ai/testing-gates.md` across affected targets.
-- [ ] Update the Unicode spec's current-behavior limitation once fixed.
+- [x] Update the Unicode spec's current-behavior limitation once fixed.
 
 Acceptance: full validation passes; the reproduction prints `2` twice.
 Commit: —
@@ -128,3 +128,32 @@ Keep regression inputs dynamic. Include the pinned Unicode grapheme-break test
 corpus when validating the redesigned state machine. Update
 `src/docs/spec/unicode/01_tables-and-algorithms.md`. This filing changes no code
 or tests.
+
+## Resolution (2026-10-03)
+
+The transitions in `emit_grapheme_state_update` already reach EXTEND/LINKER only
+through a consonant. The defect was the **seed**: each walk stored the first
+scalar's raw property as the state. `emit_seed_indic_conjunct_state` (and its
+`_free` twin) maps the seed to CONSONANT or "none".
+
+It is applied at all five places a walk seeds the state:
+
+- grapheme count and write (`lower_strings_graphemes`);
+- `graphemeAt` (`gen_graphemes.rs`);
+- `displayWidth` (`func_display_width.rs`);
+- terminal placement (`term_grid.rs`).
+
+A mid-string reseed never sees a linker or an Extend, because GB9 forbids a break
+before an Extend-class scalar.
+
+**Proof.** The fixture compares the folded count (`unicode_segmentation`) with
+the runtime count, plus `graphemeAt(s, 0)`. The cases are: leading linker,
+extend+linker, a valid conjunct, consonant+extend+linker, a double linker, a
+context reset, two conjuncts, and linker-only. All agree; on main the first two
+are wrong.
+
+The `strings` byte-identity `.ncode` change was localized on `linux-x86_64`:
+with label numbering normalized, the only change is six copies of the
+4-instruction seed (plus spill offsets). Those goldens are regenerated at the
+batch gate. The 21 related fixtures pass. Spec: `mfb spec unicode
+tables-and-algorithms` (the limitation is replaced by the context model).

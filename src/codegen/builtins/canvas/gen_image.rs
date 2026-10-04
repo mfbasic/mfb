@@ -1,8 +1,8 @@
 //! The `canvas::Image` resource record, and the pieces its members share.
 //!
 //! An `Image` is a plain RES resource on the canonical header — `tag@0`,
-//! `handle@8`, `closed@16`, `STATE@24` — with the image's own fields in the tail at
-//! 32+. Ownership is MFB scope, exactly like an open file: `destroyImage` (or
+//! `handle@8`, `closed@16`, `STATE@24`, `owner@32` — with the image's own fields in
+//! the tail at 40+. Ownership is MFB scope, exactly like an open file: `destroyImage` (or
 //! scope-drop of the owner) sets the closed flag, and using a closed one is the
 //! universal `ErrResourceClosed`. There is no refcount and no generation table.
 //!
@@ -20,15 +20,15 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::abi::Reg;
 
-/// Pixel width. The tail starts at 32, immediately after the canonical header.
+/// Pixel width. The tail starts at `RESOURCE_TAIL_START`, immediately after the canonical header.
 ///
-/// Nothing generic frees offset 32 — `fs::File` happens to keep its buffer pointer
+/// Nothing generic frees that offset — `fs::File` happens to keep its buffer pointer
 /// there and reclaims it, but that is `File`'s own drop path, and `process` stores a
 /// plain fd at the same offset. The one documented rule is not to put a per-record
 /// *close function pointer* here.
-pub(crate) const IMAGE_WIDTH: usize = 32;
+pub(crate) const IMAGE_WIDTH: usize = RESOURCE_TAIL_START;
 /// Pixel height.
-pub(crate) const IMAGE_HEIGHT: usize = 40;
+pub(crate) const IMAGE_HEIGHT: usize = RESOURCE_TAIL_START + 8;
 /// Pointer to the CPU-side pixel shadow: a `List OF Byte` block of exactly
 /// `width * height * 4` RGBA8 bytes, owned by the arena.
 ///
@@ -45,10 +45,10 @@ pub(crate) const IMAGE_HEIGHT: usize = 40;
 /// stamp, for a texture upload-and-deferred-free protocol. bug-484 drew pictures with
 /// no texture object — the texels are copied into each frame's buffer — so neither had
 /// a reader and both were removed rather than kept written for nobody.
-pub(crate) const IMAGE_PIXELS: usize = 48;
+pub(crate) const IMAGE_PIXELS: usize = RESOURCE_TAIL_START + 16;
 
-// The tail must fit the canonical 96-byte envelope, and must not overlap the header.
-const _: () = assert!(IMAGE_WIDTH == RESOURCE_OFFSET_STATE + 8);
+// The tail must fit the canonical record envelope, and must not overlap the header.
+const _: () = assert!(IMAGE_WIDTH == RESOURCE_TAIL_START);
 const _: () = assert!(IMAGE_PIXELS + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 /// Bytes per pixel. RGBA8 is the one pixel format the canvas surface takes, so a

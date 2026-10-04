@@ -32,39 +32,18 @@ REM an internal native member reading the shared rodata run table (plan-118-B);
 REM this chunk used to carry a whole renamed copy of the regex package's
 REM generated 4099-arm category table so the two never collided.
 
-IMPORT collections
-IMPORT encoding
-
 REM ---------------------------------------------------------------------------
 REM String <-> List OF Scalar seam
 REM ---------------------------------------------------------------------------
 
-REM Decode a String into its Unicode scalars in order. `utf32Encode` walks the
-REM UTF-8 once yielding valid code points, so `toScalar` never actually fails;
-REM the inline TRAP is unreachable and only keeps the function total (infallible).
+REM The astrings companion calls these two by name. Both members are lowered
+REM natively (bug-772), so each is a single call to the member.
 FUNC __strings_toScalars(s AS String) AS List OF Scalar
-  MUT out AS List OF Scalar = []
-  LET cps AS List OF Integer = encoding::utf32Encode(s)
-  FOR EACH cp IN cps
-    LET sc AS Scalar = toScalar(cp) TRAP(err)
-      RETURN out
-    END TRAP
-    out = collections::append(out, sc)
-  NEXT
-  RETURN out
+  RETURN strings::toScalars(s)
 END FUNC
 
-REM Rebuild a String from scalars in order. Every Scalar is a valid, non-surrogate
-REM code point, so `utf32Decode` never fails; the inline TRAP is unreachable.
 FUNC __strings_fromScalars(scalars AS List OF Scalar) AS String
-  MUT cps AS List OF Integer = []
-  FOR EACH sc IN scalars
-    cps = collections::append(cps, toInt(sc))
-  NEXT
-  LET result AS String = encoding::utf32Decode(cps) TRAP(err)
-    RETURN ""
-  END TRAP
-  RETURN result
+  RETURN strings::fromScalars(scalars)
 END FUNC
 
 REM ---------------------------------------------------------------------------
@@ -128,15 +107,7 @@ FUNC __strings_isLower(sc AS Scalar) AS Boolean
 END FUNC"#;
 
 /// The seam members whose reference opens the `WhenUsed` gate.
-const SEAM_MEMBERS: &[&str] = &[
-    "toScalars",
-    "fromScalars",
-    "isLetter",
-    "isDigit",
-    "isWhitespace",
-    "isUpper",
-    "isLower",
-];
+const SEAM_MEMBERS: &[&str] = &["isLetter", "isDigit", "isWhitespace", "isUpper", "isLower"];
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     // plan-118-B: the chunk is now just `SEAM`. It used to be `SEAM` concatenated

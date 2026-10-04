@@ -88,6 +88,9 @@ pub(crate) trait LinuxArch {
     fn target(&self) -> &'static str;
     /// The musl C-library soname; glibc's is `libc.so.6` on every ISA.
     fn musl_libc(&self) -> &'static str;
+    /// bug-789: the raw `prlimit64` syscall number (`asm-generic` 261; x86-64 302).
+    /// Not `getrlimit`: riscv64 does not provide it.
+    fn sys_prlimit64(&self) -> &'static str;
     fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend;
     fn app(&self) -> AppSupport;
 
@@ -623,7 +626,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         stderr: bool,
         newline: bool,
         term_state_offset: Option<usize>,
-        _platform_imports: &HashMap<String, String>,
+        platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Option<Result<(), String>> {
@@ -632,14 +635,18 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         // caller's `abi_function` body and the shared finalizer builds the frame
         // (plan-101 append shape).
         let _ = self.arch.app().require_gtk();
-        gtk::emit_app_io_write(
+        if let Err(error) = gtk::emit_app_io_write(
+            self,
             symbol,
             stderr,
             newline,
             term_state_offset,
+            platform_imports,
             instructions,
             relocations,
-        );
+        ) {
+            return Some(Err(error));
+        }
         Some(Ok(()))
     }
 
@@ -1326,6 +1333,155 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
 
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
         self.arch.emit_arena_unmap(instructions)
+    }
+
+    /// bug-789: a thread this runtime created has a known stack (the workers); the
+    /// app-mode worker the GTK bootstrap starts asks `pthread_getattr_np`. The main thread asks
+    /// `RLIMIT_STACK` through the raw `prlimit64(0, RLIMIT_STACK, NULL, &old)` syscall
+    /// — no libc, so a static executable stays static — into the arena's limit and
+    /// scratch words (`rlim_cur`, `rlim_max`).
+    fn emit_stack_limit(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        stack: crate::codegen::engine::types::ThreadStack,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::codegen::engine::types::ThreadStack;
+        use crate::codegen::error::constants::{ARENA_STACK_LIMIT_OFFSET, ARENA_STATE_REGISTER};
+        match stack {
+            ThreadStack::Inherited => {
+                // App mode only, which links libc/libpthread (GTK) anyway. The
+                // `pthread_attr_t` borrows the start of the arena's v128 scratch
+                // region, unused this early; the stack address and size land in the
+                // limit and scratch words.
+                use crate::codegen::error::constants::{
+                    ARENA_STACK_LIMIT_SCRATCH_OFFSET, ARENA_V128_SLOTS_OFFSET,
+                };
+                emit_linux_c_call(
+                    self.target(),
+                    from,
+                    "pthread_self",
+                    platform_imports,
+                    instructions,
+                    relocations,
+                )?;
+                instructions.extend([
+                    abi::move_register(abi::c_arg(0), abi::c_return(0)),
+                    abi::add_immediate(
+                        abi::c_arg(1),
+                        ARENA_STATE_REGISTER,
+                        ARENA_V128_SLOTS_OFFSET,
+                    ),
+                ]);
+                emit_linux_c_call(
+                    self.target(),
+                    from,
+                    "pthread_getattr_np",
+                    platform_imports,
+                    instructions,
+                    relocations,
+                )?;
+                instructions.extend([
+                    abi::add_immediate(
+                        abi::c_arg(0),
+                        ARENA_STATE_REGISTER,
+                        ARENA_V128_SLOTS_OFFSET,
+                    ),
+                    abi::add_immediate(
+                        abi::c_arg(1),
+                        ARENA_STATE_REGISTER,
+                        ARENA_STACK_LIMIT_OFFSET,
+                    ),
+                    abi::add_immediate(
+                        abi::c_arg(2),
+                        ARENA_STATE_REGISTER,
+                        ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+                    ),
+                ]);
+                emit_linux_c_call(
+                    self.target(),
+                    from,
+                    "pthread_attr_getstack",
+                    platform_imports,
+                    instructions,
+                    relocations,
+                )?;
+                instructions.push(abi::add_immediate(
+                    abi::c_arg(0),
+                    ARENA_STATE_REGISTER,
+                    ARENA_V128_SLOTS_OFFSET,
+                ));
+                emit_linux_c_call(
+                    self.target(),
+                    from,
+                    "pthread_attr_destroy",
+                    platform_imports,
+                    instructions,
+                    relocations,
+                )?;
+                instructions.extend([
+                    abi::load_u64(
+                        abi::c_arg(0),
+                        ARENA_STATE_REGISTER,
+                        ARENA_STACK_LIMIT_OFFSET,
+                    ),
+                    abi::load_u64(
+                        abi::c_arg(1),
+                        ARENA_STATE_REGISTER,
+                        ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+                    ),
+                    abi::store_u64(
+                        abi::ZERO,
+                        ARENA_STATE_REGISTER,
+                        ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+                    ),
+                ]);
+                crate::codegen::runtime::stack_limit::emit_limit_from_bounds(
+                    instructions,
+                    from,
+                    abi::c_arg(0),
+                    abi::c_arg(1),
+                    abi::c_arg(2),
+                );
+            }
+            ThreadStack::Created(size) => {
+                crate::codegen::runtime::stack_limit::emit_limit_for_known_stack(
+                    instructions,
+                    size,
+                    abi::c_arg(0),
+                    abi::c_arg(1),
+                );
+            }
+            ThreadStack::Process => {
+                instructions.extend([
+                    abi::move_immediate(abi::sys_arg(0), "Integer", "0"), // this process
+                    abi::move_immediate(abi::sys_arg(1), "Integer", "3"), // RLIMIT_STACK
+                    abi::move_immediate(abi::sys_arg(2), "Integer", "0"), // no new limit
+                    abi::add_immediate(
+                        abi::sys_arg(3),
+                        ARENA_STATE_REGISTER,
+                        ARENA_STACK_LIMIT_OFFSET,
+                    ),
+                    abi::move_immediate(
+                        abi::syscall_register(),
+                        "Integer",
+                        self.arch.sys_prlimit64(),
+                    ),
+                    abi::syscall(),
+                    abi::move_register(abi::c_arg(0), abi::sys_return()),
+                ]);
+                crate::codegen::runtime::stack_limit::emit_limit_from_rlimit(
+                    instructions,
+                    from,
+                    abi::c_arg(0),
+                    abi::c_arg(1),
+                    abi::c_arg(2),
+                );
+            }
+        }
+        Ok(())
     }
 
     // --- net constants (Linux values; identical on every Linux ISA) ---------

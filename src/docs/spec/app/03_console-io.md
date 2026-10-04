@@ -17,14 +17,18 @@ diverge and are flagged.
 
 | Call | GUI behaviour | Headless / no-window fallback |
 |------|---------------|-------------------------------|
-| `io::write` / `io::print` | Append the UTF-8 text to the transcript (and a newline for `print`). When TUI mode is active, route into the term surface instead. | `write(1, bytes, len)` (+ `'\n'`) — but when TUI mode is active the text is stamped into the console shadow grid's back buffer and shown only on the next `term::sync`, never written straight to fd 1. |
-| `io::writeError` / `io::printError` | Same, prefixed with `"[stderr] "` to visually distinguish error output. | `write(2, bytes, len)` (+ `'\n'`) |
+| `io::write` / `io::print` | Append the UTF-8 text to the transcript (and a newline for `print`). When TUI mode is active, route into the term surface instead. | The console write loop to fd 1 (+ `'\n'`): every byte or `ErrWriteFailed`, `EINTR` retried, `EPIPE` re-raising SIGPIPE — exactly as a console build — but when TUI mode is active the text is stamped into the console shadow grid's back buffer and shown only on the next `term::sync`, never written straight to fd 1. |
+| `io::writeError` / `io::printError` | Same, prefixed with `"[stderr] "` to visually distinguish error output. | The console write loop to fd 2 (+ `'\n'`) |
 | `io::flush` | No-op returning `OK`; transcript writes are already synchronous. | Same (no-op `OK`) |
 | `io::input` | Switch to line-echo mode, render the prompt via the `io::write` helper, then read one committed line via the console `io::readLine` helper (reads fd 0). | Same; reads fd 0 (the pipe) |
 | `io::readLine` | Unchanged console helper; reads fd 0 (the window input pipe). | Same |
 | `io::readRaw` / `io::readScalar` / `io::readGrapheme` / `io::readKey` | Set raw mode (each key event's bytes are delivered immediately), then read fd 0 through the shared read engine and key decoder. | Same; reads fd 0 |
 | `io::isInputTerminal` / `io::isOutputTerminal` / `io::isErrorTerminal` | Always `OK(TRUE)` — the window *is* the interactive console; no `isatty` probe. | Same (`OK(TRUE)`) |
 | `io::terminalSize` | Not part of `io::`. The transcript-viewport sizing helper was retargeted to the `term::` backend; see *term-backend*. | n/a |
+
+The fallback is the console family's own loop, shared rather than restated, on
+every app backend (`WriteFile` on Windows, where there is no `EPIPE` re-raise).
+[[src/codegen/builtins/io/gen_write_family.rs:emit_fd_write_all]]
 
 The read helpers (`readLine`, `input` and the four keystroke readers) are **not**
 rewritten for app mode beyond the input-mode prelude — they are the standard

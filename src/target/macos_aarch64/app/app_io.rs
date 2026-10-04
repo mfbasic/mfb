@@ -23,14 +23,17 @@ use crate::codegen::error::constants::RESULT_VALUE_REGISTER;
 /// values live in allocator-managed vregs so the finalizer both colors them to
 /// callee-saved registers and saves them; objc args go via `mfb_arg`, results via
 /// `mfb_return`, each caller-saved and consumed at its call.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_app_io_write(
+    platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     symbol: &str,
     stderr: bool,
     newline: bool,
     term_state_offset: Option<usize>,
+    platform_imports: &std::collections::HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-) {
+) -> Result<(), String> {
     let mut asm = Asm::new(symbol);
     let mut vregs = Vregs::new();
     let fd = if stderr { "2" } else { "1" };
@@ -117,21 +120,60 @@ pub(crate) fn emit_app_io_write(
     asm.push(abi::branch("done"));
 
     // --- headless / no-window path: write to the file descriptor ---
+    // bug-799: the console write loop, not a bare `_write` — every byte or
+    // `ErrWriteFailed`, `EINTR` retried, stdout `EPIPE` re-raising SIGPIPE. The LF
+    // is staged in the member's local scratch (`sp+0`, unused by this backend's
+    // transcript path).
     asm.push(abi::label("fd_path"));
-    asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", fd));
-    asm.push(abi::add_immediate(abi::mfb_arg(1), &v_str, 8));
-    asm.push(abi::load_u64(abi::mfb_arg(2), &v_str, 0));
-    asm.call_external("_write", LIB_SYSTEM);
-    if newline {
-        // The trailing LF comes from the shared read-only "\n" data object, so the
-        // fd path needs no writable stack scratch (the finalizer keeps stack_size
-        // at 0 — the body is frame-only for lr + the callee-saved vregs).
-        asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", fd));
-        asm.local_address(abi::mfb_arg(1), STR_NEWLINE.0);
-        asm.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1"));
-        asm.call_external("_write", LIB_SYSTEM);
+    let epipe = format!("{symbol}_fd_epipe");
+    let epipe = crate::codegen::io::stdout::io_stdout::stdout_epipe_label(
+        platform,
+        platform_imports,
+        &epipe,
+    );
+    {
+        let mut ctx = crate::codegen::engine::builder::EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut asm.ins,
+            relocations: &mut asm.rel,
+        };
+        crate::codegen::builtins::io::gen_write_family::emit_fd_write_all(
+            &mut ctx,
+            fd,
+            &v_str,
+            newline,
+            0,
+            epipe,
+            "fd_write_error",
+            &mut vregs,
+        )?;
+        ctx.instructions.push(abi::branch("done"));
+        if let Some(epipe) = epipe {
+            crate::codegen::os::syscall::emit_sigpipe_restore_and_raise(&mut ctx, epipe)?;
+        }
     }
-    asm.push(abi::branch("done"));
+    // A failed fd write: the `ErrWriteFailed` result survives the pool pop.
+    asm.push(abi::label("fd_write_error"));
+    crate::codegen::memory::data::raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.push(abi::move_register(&v_tmp, RESULT_VALUE_REGISTER));
+    asm.push(abi::move_register(&v_owned, RESULT_ERROR_MESSAGE_REGISTER));
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_pool));
+    asm.call_external("_objc_autoreleasePoolPop", LIB_OBJC);
+    asm.push(abi::move_register(RESULT_VALUE_REGISTER, &v_tmp));
+    asm.push(abi::move_register(RESULT_ERROR_MESSAGE_REGISTER, &v_owned));
+    asm.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        crate::codegen::error::constants::RESULT_ERR_TAG,
+    ));
+    asm.push(abi::return_());
 
     // --- TUI surface path: write into the TermView grid on the main thread ---
     if term_state_offset.is_some() {
@@ -202,6 +244,7 @@ pub(crate) fn emit_app_io_write(
 
     instructions.extend(asm.ins);
     relocations.extend(asm.rel);
+    Ok(())
 }
 
 /// App-mode body for `io.flush`. Transcript writes are already synchronous (see

@@ -325,7 +325,7 @@ pub(crate) enum HelperGate {
     /// debug half of a [`RegistryHelper::debug_split`] (plan-130-E).
     DebugBuildOnly,
     /// Inject only when the program references at least one of these **local**
-    /// function names — the `strings` scalar-seam gate (`toScalars`/`isLetter`/…),
+    /// function names — the `strings` scalar-seam gate (`isLetter`/`isDigit`/…),
     /// which keeps the heavy Unicode general-category table out of a program that
     /// imports `strings` but calls no seam member (plan-41-D).
     WhenUsed(&'static [&'static str]),

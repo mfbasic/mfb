@@ -30,6 +30,7 @@ impl CodegenPlatform for TestPlatform {
         i.push(abi::move_register(abi::return_register(), abi::string_length_register()));
         Ok(())
     }
+    fn emit_stack_limit(&self, _from: &str, _pi: &HashMap<String, String>, _stack: crate::codegen::engine::types::ThreadStack, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_stack_limit") }
     fn emit_poll_input(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_poll_input") }
     fn emit_is_terminal(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_is_terminal") }
     fn emit_terminal_size(&self, _from: &str, _pi: &HashMap<String, String>, i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {

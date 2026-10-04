@@ -6,7 +6,7 @@
 //!
 //! On Linux a `Socket` handle is an arena record with the canonical plan-80
 //! header (`tag`@0, `fd`@8, `closed`@16, `STATE`@24) and a TLS tail: the
-//! `SSL_CTX*` at 32 and the `SSL*` at 40. Each helper
+//! `SSL_CTX*` at 40 and the `SSL*` at 48. Each helper
 //! re-`dlopen`s `libssl` (cheap once loaded — it just bumps the refcount) and
 //! `dlsym`s the `SSL_*` symbols it needs; `dlsym` resolves the library's default
 //! symbol version, which is why a single binary works against both OpenSSL
@@ -28,7 +28,7 @@ use std::collections::HashMap;
 
 // TLS handles share the canonical resource-record header (plan-80): tag@0,
 // fd (handle)@8, closed@16, STATE@24 — then the TLS-specific `SSL_CTX*`/`SSL*`
-// tail at 32+. Before plan-80 this record was 32 bytes with `SSL*` at 16, which
+// tail at 40+ (32 before bug-755 added the owner word). Before plan-80 this record was 32 bytes with `SSL*` at 16, which
 // collided with the generic `STATE` slot and SIGSEGV'd a `Stream STATE` union
 // over a `Socket` (plan-76-D D4). An accepted (server-side) `Socket`
 // stores 0 in the `SSL_CTX*` slot: the marker that it points at the listener's
@@ -36,8 +36,8 @@ use std::collections::HashMap;
 pub(crate) const TLS_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
 pub(crate) const TLS_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
 pub(crate) const TLS_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
-pub(crate) const TLS_OFFSET_CTX: usize = 32;
-pub(crate) const TLS_OFFSET_SSL: usize = 40;
+pub(crate) const TLS_OFFSET_CTX: usize = RESOURCE_TAIL_START;
+pub(crate) const TLS_OFFSET_SSL: usize = RESOURCE_TAIL_START + 8;
 pub(crate) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
 // OpenSSL `Socket` only: 1 once `tls::read` has reported the peer's close
 // (`ErrConnectionClosed`). From then on every `tls::write` on the socket raises
@@ -45,21 +45,21 @@ pub(crate) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
 // follows (Schannel keeps the same flag in its state block, Network.framework in
 // its connection ctx). `tls::connect` and `tls::accept` zero it, and it is a
 // declared live slot so a `thread::transfer` carries it.
-pub(crate) const TLS_OFFSET_PEER_CLOSED: usize = 48;
+pub(crate) const TLS_OFFSET_PEER_CLOSED: usize = RESOURCE_TAIL_START + 16;
 
 // The schannel (Windows) backend stores a pointer to its separate SSPI
 // credential/context arena block in the record. Before plan-80 that pointer sat
 // at offset 16 (a bare literal); the header now owns 0..32, so it moves to the
 // TLS-specific tail at 40 (there is no `SSL*` slot on Windows — SSPI keeps its
 // handles in the block this points at).
-pub(crate) const TLS_SCHANNEL_OFFSET_BLOCK: usize = 40;
+pub(crate) const TLS_SCHANNEL_OFFSET_BLOCK: usize = RESOURCE_TAIL_START + 8;
 
 // The `Listener` record: the listening fd plus the server `SSL_CTX*` it owns
 // (freed exactly once, when the listener closes). Shares the canonical header;
-// the `SSL_CTX*` moves to the type-specific tail at 32 (plan-80).
+// the `SSL_CTX*` moves to the type-specific tail (`RESOURCE_TAIL_START`, plan-80).
 pub(crate) const TLS_LISTENER_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
 pub(crate) const TLS_LISTENER_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
-pub(crate) const TLS_LISTENER_OFFSET_CTX: usize = 32;
+pub(crate) const TLS_LISTENER_OFFSET_CTX: usize = RESOURCE_TAIL_START;
 
 // Both OpenSSL records place `closed`/`STATE` at the canonical resource offsets
 // (plan-38, plan-80), so the backend-independent closed-default and union STATE

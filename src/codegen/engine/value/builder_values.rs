@@ -1436,7 +1436,7 @@ impl CodeBuilder<'_> {
     /// The distinction matters at exactly one place: the inline-`TRAP` `Result`
     /// wrap (`materialize_current_result`). For a **sendable** resource it used to
     /// route the producer's record through `copy_resource_to_current_arena`, which
-    /// allocates a SECOND 96-byte record, copies the header into it, and tombstones
+    /// allocates a SECOND resource record, copies the header into it, and tombstones
     /// the source `moved|closed`. That is right across a thread boundary and wrong
     /// in the same arena: the producer's record is already here, nothing else names
     /// it, the moved bit makes `emit_resource_block_reclaim` skip it — so every

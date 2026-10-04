@@ -1,0 +1,131 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "isolated_callable_widening_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "identity",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 5, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 6, "value": { "kind": "local", "name": "x" } }
+    ]
+  },
+  {
+    "name": "apply",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 9, "type": "FUNC(Integer) AS Integer", "default": null },
+    { "name": "v", "line": 9, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "local", "name": "v" }] } }
+    ]
+  },
+  {
+    "name": "pick",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "FUNC(Integer) AS Integer",
+    "body": [
+    { "op": "return", "line": 14, "value": { "kind": "functionRef", "name": "identity", "type": "ISOLATED FUNC(Integer) AS Integer" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": false, "name": "f", "type": "FUNC(Integer) AS Integer", "value": { "kind": "functionRef", "name": "identity", "type": "ISOLATED FUNC(Integer) AS Integer" } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "fs", "type": "List OF FUNC(Integer) AS Integer", "value": { "kind": "list", "type": "List OF FUNC(Integer) AS Integer", "values": [{ "kind": "functionRef", "name": "identity", "type": "ISOLATED FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "p", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "type": "FUNC(Integer) AS Integer", "target": "pick", "args": [] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "apply", "args": [{ "kind": "functionRef", "name": "identity", "type": "ISOLATED FUNC(Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "p", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "fs" }] }] } }] } },
+    { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

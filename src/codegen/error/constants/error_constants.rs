@@ -906,9 +906,33 @@ pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET +
 /// [`ARENA_FLAG_RHS_OFFSET`] below, so `ARENA_STATE_SIZE` (and every target's
 /// arena-clear) is byte-for-byte unchanged. `arch::riscv64::v128::SLOT_COUNT`
 /// dropped to 127 in lockstep.
-pub(crate) const ARENA_V128_SLOTS_OFFSET: usize =
+///
+/// bug-789: the region's first 16 bytes became [`ARENA_STACK_LIMIT_OFFSET`] and a
+/// scratch word, so `SLOT_COUNT` dropped to 126 in lockstep and every later offset
+/// and `ARENA_STATE_SIZE` are unchanged.
+pub(crate) const ARENA_V128_SLOTS_OFFSET: usize = ARENA_STACK_LIMIT_OFFSET + 16;
+pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 126 * 16;
+/// bug-789: this thread's stack limit — the lowest stack pointer a function body
+/// may start at (the thread's stack bottom plus [`STACK_LIMIT_RESERVE_BYTES`]).
+/// Every function that makes a call compares `sp` against it at entry and raises
+/// `ErrStackOverflow` below it. Written once per thread, right after its arena state
+/// is cleared (the program entry, the worker trampoline); `0` — a thread that never
+/// sets it — disables the check, since every stack address is above it. Kept below
+/// rv64's 12-bit load immediate so the per-call check is one load on every target.
+pub(crate) const ARENA_STACK_LIMIT_OFFSET: usize =
     ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
-pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 127 * 16;
+/// bug-789: scratch beside the limit word, used only while a thread computes it.
+pub(crate) const ARENA_STACK_LIMIT_SCRATCH_OFFSET: usize = ARENA_STACK_LIMIT_OFFSET + 8;
+const _: () = assert!(ARENA_STACK_LIMIT_SCRATCH_OFFSET + 8 <= 2047);
+/// bug-789: stack kept free below the limit: the largest frame a function allocates
+/// before its entry check (the regex engine's is ~230 KiB) plus the error path that
+/// raises `ErrStackOverflow`. Capped at a quarter of a small thread stack.
+pub(crate) const STACK_LIMIT_RESERVE_BYTES: usize = 512 * 1024;
+/// bug-789: the stack every runtime-created thread gets (workers, the Linux app
+/// worker), so its limit is known without asking the OS.
+pub(crate) const THREAD_STACK_BYTES: usize = 8 * 1024 * 1024;
+/// bug-789: the most of an unlimited (`RLIM_INFINITY`) main stack the limit counts on.
+pub(crate) const MAIN_STACK_CAP_BYTES: usize = 256 * 1024 * 1024;
 /// Per-thread rv64 flag-emulation rhs snapshot (bug-381). RISC-V has no condition
 /// flags, so a bare (non-fused) integer compare whose flag-reading branch is not
 /// adjacent must keep its *compared values* live across the span — but under
@@ -1203,9 +1227,9 @@ pub(crate) const FILE_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
 /// the poisoned arena alloc, so a handle that never calls `fs::setBuffered(f, TRUE)`
 /// takes the unbuffered direct-write path (byte-identical to pre-plan-14). The
 /// thread-transfer copy also zeroes them so a moved handle starts unbuffered.
-pub(crate) const FILE_OFFSET_BUF_PTR: usize = 32;
-pub(crate) const FILE_OFFSET_BUF_FILLED: usize = 40;
-pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 48;
+pub(crate) const FILE_OFFSET_BUF_PTR: usize = RESOURCE_TAIL_START;
+pub(crate) const FILE_OFFSET_BUF_FILLED: usize = RESOURCE_TAIL_START + 8;
+pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = RESOURCE_TAIL_START + 16;
 /// Transparent per-`File` **read** buffer fields (plan-14-C), appended after the
 /// write-buffer fields. Always-on (a read buffer can never lose or reorder data):
 /// `fs::readLine` serves lines from `READ_PTR` and refills with one block `read()`,
@@ -1218,23 +1242,23 @@ pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 48;
 /// (seek back + invalidate) before touching the fd. Zeroed at every File alloc
 /// and in the thread-transfer copy, so a fresh/moved handle starts with an empty
 /// cache at the fd's current position.
-pub(crate) const FILE_OFFSET_READ_PTR: usize = 56;
-pub(crate) const FILE_OFFSET_READ_POS: usize = 64;
-pub(crate) const FILE_OFFSET_READ_FILL: usize = 72;
-pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = 80;
+pub(crate) const FILE_OFFSET_READ_PTR: usize = RESOURCE_TAIL_START + 24;
+pub(crate) const FILE_OFFSET_READ_POS: usize = RESOURCE_TAIL_START + 32;
+pub(crate) const FILE_OFFSET_READ_FILL: usize = RESOURCE_TAIL_START + 40;
+pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = RESOURCE_TAIL_START + 48;
 /// Size of a resource record: the canonical header (tag/handle/closed/STATE) plus
 /// the widest type-specific tail (the File output-buffer fields ptr/filled/enabled
 /// and read-buffer fields ptr/pos/fill/at_eof end at offset 88). All resource
 /// kinds share the size so the generic thread-transfer copy and closed-default
 /// stay uniform. Grown 80 → 96 by plan-80 (header +8 for the `tag`, rounded up to
 /// a 16-byte multiple with one slot of headroom).
-pub(crate) const RESOURCE_RECORD_SIZE: &str = "96";
+pub(crate) const RESOURCE_RECORD_SIZE: &str = "112";
 /// `RESOURCE_RECORD_SIZE` as a `usize`, for compile-time layout checks (the
 /// string form above is what the arena-alloc immediate needs). Every per-backend
 /// resource record MUST fit inside this many zeroed bytes so the closed-default
 /// (`lower_default_value`) covers each real layout — see the asserts in the
 /// backend modules (`audio/mod.rs`, `tls/mod.rs`, `tls/macos.rs`).
-pub(crate) const RESOURCE_RECORD_SIZE_BYTES: usize = 96;
+pub(crate) const RESOURCE_RECORD_SIZE_BYTES: usize = 112;
 
 /// Canonical byte offset of the `closed` flag in every built-in resource record
 /// (moved 8 → 16 by plan-80 to make room for the `tag`/`handle` header words).
@@ -1252,12 +1276,25 @@ pub(crate) const RESOURCE_OFFSET_CLOSED: usize = 16;
 /// whose record used offset 16 for `SSL*` — writes STATE here without clobbering
 /// a live field. Each backend asserts its own STATE slot equals this.
 pub(crate) const RESOURCE_OFFSET_STATE: usize = 24;
+/// bug-755: the scope token of the resource's one owning scope, or `0` when it is
+/// unowned (freshly produced and not yet bound, or released by a `RETURN` and not
+/// yet taken). The resource holds its cleanup scope; every `RES` that names it is
+/// a reference. A scope exit closes a registered resource only when this word
+/// equals that scope's token.
+pub(crate) const RESOURCE_OFFSET_OWNER: usize = 32;
+/// Where every resource kind's type-specific tail begins: just past the
+/// canonical header (`tag`, `handle`, `closed`, `state`, `owner`). Each kind
+/// defines its tail as `RESOURCE_TAIL_START + n`.
+pub(crate) const RESOURCE_TAIL_START: usize = RESOURCE_OFFSET_OWNER + 8;
 
 // The canonical header shape (plan-80): the File template must match it exactly.
 const _: () = assert!(RESOURCE_OFFSET_TAG == 0);
 const _: () = assert!(RESOURCE_OFFSET_HANDLE == 8);
 const _: () = assert!(RESOURCE_OFFSET_CLOSED == 16);
 const _: () = assert!(RESOURCE_OFFSET_STATE == 24);
+const _: () = assert!(RESOURCE_OFFSET_OWNER == 32);
+const _: () = assert!(RESOURCE_TAIL_START == 40);
+const _: () = assert!(RESOURCE_RECORD_SIZE_BYTES % 16 == 0);
 const _: () = assert!(FILE_OFFSET_FD == RESOURCE_OFFSET_HANDLE);
 const _: () = assert!(FILE_OFFSET_CLOSED == RESOURCE_OFFSET_CLOSED);
 const _: () = assert!(FILE_OFFSET_STATE == RESOURCE_OFFSET_STATE);

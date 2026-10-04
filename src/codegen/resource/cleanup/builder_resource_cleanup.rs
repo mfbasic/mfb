@@ -11,7 +11,7 @@ impl CodeBuilder<'_> {
     /// Whether a resource kind uses the per-`File` output/read buffer words
     /// (`BUF_PTR` @32 … `READ_AT_EOF` @80) — i.e. whether it is a `File`.
     ///
-    /// Every resource kind shares the 96-byte record, but only `File`'s open
+    /// Every resource kind shares the resource record, but only `File`'s open
     /// helpers zero those words after the PRNG-poisoned arena alloc; `net`'s
     /// `emit_make_handle` writes offsets 0/8/16/24 and leaves the rest poisoned. So
     /// the words are readable-as-pointers only for a `File`, and the drop-path
@@ -20,7 +20,7 @@ impl CodeBuilder<'_> {
         type_.without_state().is_named("fs.File")
     }
 
-    /// bug-623: the resource kinds whose 96-byte record the owning binding's scope
+    /// bug-623: the resource kinds whose resource record the owning binding's scope
     /// drop frees — the `tcp`, `udp` and `tls` handles. Before this, a
     /// `tcp::connect`/`tcp::close` loop leaked one record per connection forever.
     ///
@@ -272,7 +272,7 @@ impl CodeBuilder<'_> {
 
     /// True when `type_`'s base names a resource union (plan-74). A resource union
     /// *value* is a `{ tag @0, resource-record-ptr @8 }` block — **not** the
-    /// 96-byte resource record itself — so its `STATE` payload lives in the active
+    /// resource record itself — so its `STATE` payload lives in the active
     /// variant's record reached via a `+8` indirection, whereas a concrete
     /// resource value already *is* that record. The STATE suffix is stripped.
     pub(crate) fn is_resource_union_type(&self, type_: &ParameterType) -> bool {
@@ -450,6 +450,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&ptr, "0"));
         self.emit(abi::branch_eq(&done));
         self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
+        // bug-755: only the owner's scope frees the tombstone; a reference that
+        // transferred a resource owned further out leaves it to that owner.
+        self.emit_skip_unless_owned(&abi::Reg::from(ptr.clone()), cleanup.scope_depth, &done)?;
         if let Some(escaping) = self.escaping_value_slot {
             let escaping_ptr = self.allocate_register();
             self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
@@ -553,6 +556,13 @@ impl CodeBuilder<'_> {
         // Resource-union alias class: an alias union (`closes_variant == false`) does not
         // own the record, so it neither closes it nor frees its STATE — only its box.
         if cleanup.closes_variant {
+            // bug-755: the variant record closes only when this binding's scope owns
+            // it; a union referring to a record owned further out frees just its box.
+            let record = self.allocate_register();
+            self.emit(abi::load_u64(&record, &union_ptr, 8));
+            self.emit(abi::compare_immediate(&record, "0"));
+            self.emit(abi::branch_eq(&dropped));
+            self.emit_skip_unless_owned(&abi::Reg::from(record), cleanup.scope_depth, &dropped)?;
             self.emit_union_tag_dispatch_drop(
                 &union_ptr,
                 &cleanup.variants,
@@ -778,6 +788,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(&ptr, "0"));
             self.emit(abi::branch_eq(&done));
             self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
+            // bug-755: the resource holds its cleanup scope. This binding closes the
+            // record only when its scope is the record's owner; a binding that refers
+            // to a resource owned further out — a handle a callee was passed and
+            // handed back — closes and reclaims nothing.
+            self.emit_skip_unless_owned(&abi::Reg::from(ptr.clone()), cleanup.scope_depth, &done)?;
 
             // plan-59-D: the identity skip. This resource's record pointer equals
             // the value escaping the scope, so it is being RETURNed — its close
@@ -842,7 +857,7 @@ impl CodeBuilder<'_> {
 
     /// Reclaim the blocks a resource record points at — its output buffer, its
     /// read buffer, and its `STATE` payload — and null each pointer word as it
-    /// goes (plan-52-B Phase 2). The 96-byte record itself is deliberately NOT
+    /// goes (plan-52-B Phase 2). The resource record itself is deliberately NOT
     /// freed: it is the tombstone holding the closed flag that makes a re-close
     /// idempotent and that every alias reads (res.md §3.1).
     ///
@@ -891,7 +906,7 @@ impl CodeBuilder<'_> {
 
         // The two per-`File` buffers are fixed-capacity blocks (plan-14-B/14-C).
         // Only a `File` may be asked for them: every resource kind shares the
-        // 96-byte record, but only `File`'s open helpers zero these words after
+        // resource record, but only `File`'s open helpers zero these words after
         // the PRNG-poisoned arena alloc — a socket's record leaves 32..80 as
         // poison, so a null-guard is not enough to skip them and freeing them
         // handed `arena_free` a poison value (SIGSEGV in every `net::` program's

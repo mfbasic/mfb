@@ -1634,7 +1634,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 242, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Scalar", "target": "#strings_toScalars", "args": [{ "kind": "local", "name": "s" }] }] } }
+    { "op": "return", "line": 242, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Scalar", "target": "strings.toScalars", "args": [{ "kind": "local", "name": "s" }] }] } }
     ]
   },
   {
@@ -1851,12 +1851,12 @@
       "line": 325,
       "name": "sc",
       "type": "Scalar",
-      "iterable": { "kind": "call", "type": "List OF Scalar", "target": "#strings_toScalars", "args": [{ "kind": "local", "name": "text" }] },
+      "iterable": { "kind": "call", "type": "List OF Scalar", "target": "strings.toScalars", "args": [{ "kind": "local", "name": "text" }] },
       "body": [
       {
         "op": "if",
         "line": 326,
-        "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "chars" }, { "kind": "call", "type": "String", "target": "#strings_fromScalars", "args": [{ "kind": "list", "type": "List OF Scalar", "values": [{ "kind": "local", "name": "sc" }] }] }] },
+        "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "chars" }, { "kind": "call", "type": "String", "target": "strings.fromScalars", "args": [{ "kind": "list", "type": "List OF Scalar", "values": [{ "kind": "local", "name": "sc" }] }] }] },
         "then": [
         { "op": "assign", "line": 327, "name": "c", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "c" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ],
@@ -2281,9 +2281,9 @@
       "line": 498,
       "name": "sc",
       "type": "Scalar",
-      "iterable": { "kind": "call", "type": "List OF Scalar", "target": "#strings_toScalars", "args": [{ "kind": "local", "name": "s" }] },
+      "iterable": { "kind": "call", "type": "List OF Scalar", "target": "strings.toScalars", "args": [{ "kind": "local", "name": "s" }] },
       "body": [
-      { "op": "bind", "line": 499, "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "type": "String", "target": "#strings_fromScalars", "args": [{ "kind": "list", "type": "List OF Scalar", "values": [{ "kind": "local", "name": "sc" }] }] } },
+      { "op": "bind", "line": 499, "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.fromScalars", "args": [{ "kind": "list", "type": "List OF Scalar", "values": [{ "kind": "local", "name": "sc" }] }] } },
       {
         "op": "if",
         "line": 500,
@@ -2326,9 +2326,9 @@
       "line": 517,
       "name": "sc",
       "type": "Scalar",
-      "iterable": { "kind": "call", "type": "List OF Scalar", "target": "#strings_toScalars", "args": [{ "kind": "local", "name": "s" }] },
+      "iterable": { "kind": "call", "type": "List OF Scalar", "target": "strings.toScalars", "args": [{ "kind": "local", "name": "s" }] },
       "body": [
-      { "op": "bind", "line": 518, "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "type": "String", "target": "#strings_fromScalars", "args": [{ "kind": "list", "type": "List OF Scalar", "values": [{ "kind": "local", "name": "sc" }] }] } },
+      { "op": "bind", "line": 518, "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.fromScalars", "args": [{ "kind": "list", "type": "List OF Scalar", "values": [{ "kind": "local", "name": "sc" }] }] } },
       {
         "op": "if",
         "line": 519,
@@ -11319,231 +11319,180 @@
   },
   {
     "name": "#strings_toScalars",
-    "line": 18,
+    "line": 14,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "s", "line": 18, "type": "String", "default": null }
+    { "name": "s", "line": 14, "type": "String", "default": null }
     ],
     "returns": "List OF Scalar",
     "body": [
-    { "op": "bind", "line": 19, "mutable": true, "name": "out", "type": "List OF Scalar", "value": { "kind": "list", "type": "List OF Scalar", "values": [] } },
-    { "op": "bind", "line": 20, "mutable": false, "name": "cps", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#encoding_utf32Encode", "args": [{ "kind": "local", "name": "s" }] } },
-    {
-      "op": "forEach",
-      "line": 21,
-      "name": "cp",
-      "type": "Integer",
-      "iterable": { "kind": "local", "name": "cps" },
-      "body": [
-      { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res50", "type": "Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "toScalar", "args": [{ "kind": "local", "name": "cp" }] } },
-      { "op": "bind", "line": 22, "mutable": true, "name": "$trap_val51", "type": "Scalar", "value": null },
-      {
-        "op": "if",
-        "line": 22,
-        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res50" } },
-        "then": [
-        { "op": "assign", "line": 22, "name": "$trap_val51", "value": { "kind": "resultValue", "type": "Scalar", "value": { "kind": "local", "name": "$trap_res50" } } }
-        ],
-        "else": [
-        { "op": "return", "line": 23, "value": { "kind": "local", "name": "out" } }
-        ]
-      },
-      { "op": "bind", "line": 22, "mutable": false, "name": "sc", "type": "Scalar", "value": { "kind": "local", "name": "$trap_val51" } },
-      { "op": "assign", "line": 25, "name": "out", "value": { "kind": "call", "type": "List OF Scalar", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "sc" }] } }
-      ]
-    },
-    { "op": "return", "line": 27, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 15, "value": { "kind": "call", "type": "List OF Scalar", "target": "strings.toScalars", "args": [{ "kind": "local", "name": "s" }] } }
     ]
   },
   {
     "name": "#strings_fromScalars",
-    "line": 32,
+    "line": 18,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "scalars", "line": 32, "type": "List OF Scalar", "default": null }
+    { "name": "scalars", "line": 18, "type": "List OF Scalar", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 33, "mutable": true, "name": "cps", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    {
-      "op": "forEach",
-      "line": 34,
-      "name": "sc",
-      "type": "Scalar",
-      "iterable": { "kind": "local", "name": "scalars" },
-      "body": [
-      { "op": "assign", "line": 35, "name": "cps", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "cps" }, { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] }] } }
-      ]
-    },
-    { "op": "bind", "line": 37, "mutable": false, "name": "$trap_res52", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#encoding_utf32Decode", "args": [{ "kind": "local", "name": "cps" }] } },
-    { "op": "bind", "line": 37, "mutable": true, "name": "$trap_val53", "type": "String", "value": null },
-    {
-      "op": "if",
-      "line": 37,
-      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res52" } },
-      "then": [
-      { "op": "assign", "line": 37, "name": "$trap_val53", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res52" } } }
-      ],
-      "else": [
-      { "op": "return", "line": 38, "value": { "kind": "const", "type": "String", "value": "" } }
-      ]
-    },
-    { "op": "bind", "line": 37, "mutable": false, "name": "result", "type": "String", "value": { "kind": "local", "name": "$trap_val53" } },
-    { "op": "return", "line": 40, "value": { "kind": "local", "name": "result" } }
+    { "op": "return", "line": 19, "value": { "kind": "call", "type": "String", "target": "strings.fromScalars", "args": [{ "kind": "local", "name": "scalars" }] } }
     ]
   },
   {
     "name": "#strings_isLetter",
-    "line": 52,
+    "line": 31,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "sc", "line": 52, "type": "Scalar", "default": null }
+    { "name": "sc", "line": 31, "type": "Scalar", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 53, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
     {
       "op": "if",
-      "line": 54,
+      "line": 33,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
       "then": [
-      { "op": "return", "line": 55, "value": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "65" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "90" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "97" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "122" } } } } }
+      { "op": "return", "line": 34, "value": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "65" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "90" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "97" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "122" } } } } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 57, "mutable": false, "name": "cat", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] } },
-    { "op": "return", "line": 58, "value": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lu" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Ll" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lt" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lm" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lo" } } } }
+    { "op": "bind", "line": 36, "mutable": false, "name": "cat", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] } },
+    { "op": "return", "line": 37, "value": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lu" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Ll" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lt" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lm" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Lo" } } } }
     ]
   },
   {
     "name": "#strings_isDigit",
-    "line": 61,
+    "line": 40,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "sc", "line": 61, "type": "Scalar", "default": null }
+    { "name": "sc", "line": 40, "type": "Scalar", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 62, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
     {
       "op": "if",
-      "line": 63,
+      "line": 42,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
       "then": [
-      { "op": "return", "line": 64, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "48" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "57" } } } }
+      { "op": "return", "line": 43, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "48" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "57" } } } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 66, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] }, "right": { "kind": "const", "type": "String", "value": "Nd" } } }
+    { "op": "return", "line": 45, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] }, "right": { "kind": "const", "type": "String", "value": "Nd" } } }
     ]
   },
   {
     "name": "#strings_isWhitespace",
-    "line": 69,
+    "line": 48,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "sc", "line": 69, "type": "Scalar", "default": null }
+    { "name": "sc", "line": 48, "type": "Scalar", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 70, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
     {
       "op": "if",
-      "line": 71,
+      "line": 50,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
       "then": [
-      { "op": "return", "line": 72, "value": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "9" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "13" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "32" } } } }
+      { "op": "return", "line": 51, "value": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "9" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "13" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "32" } } } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 74, "mutable": false, "name": "cat", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] } },
+    { "op": "bind", "line": 53, "mutable": false, "name": "cat", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] } },
     {
       "op": "if",
-      "line": 75,
+      "line": 54,
       "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Zs" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Zl" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cat" }, "right": { "kind": "const", "type": "String", "value": "Zp" } } },
       "then": [
-      { "op": "return", "line": 76, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 55, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 78,
+      "line": 57,
       "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "9" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "13" } } },
       "then": [
-      { "op": "return", "line": 79, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 58, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 81,
+      "line": 60,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "133" } },
       "then": [
-      { "op": "return", "line": 82, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      { "op": "return", "line": 61, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 84, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 63, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#strings_isUpper",
-    "line": 87,
+    "line": 66,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "sc", "line": 87, "type": "Scalar", "default": null }
+    { "name": "sc", "line": 66, "type": "Scalar", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 88, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
+    { "op": "bind", "line": 67, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
     {
       "op": "if",
-      "line": 89,
+      "line": 68,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
       "then": [
-      { "op": "return", "line": 90, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "65" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "90" } } } }
+      { "op": "return", "line": 69, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "65" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "90" } } } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 92, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] }, "right": { "kind": "const", "type": "String", "value": "Lu" } } }
+    { "op": "return", "line": 71, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] }, "right": { "kind": "const", "type": "String", "value": "Lu" } } }
     ]
   },
   {
     "name": "#strings_isLower",
-    "line": 95,
+    "line": 74,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "sc", "line": 95, "type": "Scalar", "default": null }
+    { "name": "sc", "line": 74, "type": "Scalar", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 96, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
+    { "op": "bind", "line": 75, "mutable": false, "name": "cp", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "sc" }] } },
     {
       "op": "if",
-      "line": 97,
+      "line": 76,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
       "then": [
-      { "op": "return", "line": 98, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "97" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "122" } } } }
+      { "op": "return", "line": 77, "value": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "97" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "cp" }, "right": { "kind": "const", "type": "Integer", "value": "122" } } } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "line": 100, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] }, "right": { "kind": "const", "type": "String", "value": "Ll" } } }
+    { "op": "return", "line": 79, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "strings.genCat", "args": [{ "kind": "local", "name": "cp" }] }, "right": { "kind": "const", "type": "String", "value": "Ll" } } }
     ]
   },
   {
@@ -13741,11 +13690,11 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 905, "mutable": false, "name": "$match54", "type": "encoding.Codepage", "value": { "kind": "local", "name": "codepage" } },
+    { "op": "bind", "line": 905, "mutable": false, "name": "$match50", "type": "encoding.Codepage", "value": { "kind": "local", "name": "codepage" } },
     {
       "op": "match",
       "line": 905,
-      "value": { "kind": "local", "name": "$match54" },
+      "value": { "kind": "local", "name": "$match50" },
       "cases": [
       {
         "line": 906,

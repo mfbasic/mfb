@@ -1,11 +1,11 @@
 # bug-790: distinct compiler diagnostic rules share numeric codes
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 Effort: medium (estimate)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed `src/rules/mod.rs:tests::rule_codes_are_unique`
+Status: Fixed
+Regression Test: `src/rules/mod.rs:tests::rule_codes_are_unique` (registry-wide, no allowlist)
 
 Every registered compiler diagnostic must have a unique numeric code. Currently,
 separate rules share codes, so tooling that identifies diagnostics by code cannot
@@ -118,9 +118,9 @@ commit. Do not select replacement numbers without checking the current table.
 
 ### Phase 1 — failing test and compatibility audit
 
-- [ ] Add `rule_codes_are_unique` beside `rule_names_are_unique`; prove it fails
+- [x] Add `rule_codes_are_unique` beside `rule_names_are_unique`; prove it fails
       on the reproduced collisions.
-- [ ] Establish allocation history and all live numeric-code consumers for each
+- [x] Establish allocation history and all live numeric-code consumers for each
       pair; select the assignments to retain and unused replacements.
 
 Acceptance: the test fails on the current registry and the compatibility impact
@@ -129,8 +129,8 @@ Commit: —
 
 ### Phase 2 — registry correction
 
-- [ ] Correct every colliding assignment and update the owning spec table.
-- [ ] Verify name lookup, severity, message, and emit conditions remain unchanged.
+- [x] Correct every colliding assignment and update the owning spec table.
+- [x] Verify name lookup, severity, message, and emit conditions remain unchanged.
 
 Acceptance: the uniqueness test passes with no exemptions; rendered diagnostics
 use the corrected labels.
@@ -138,12 +138,12 @@ Commit: —
 
 ### Phase 3 — expected-output proof and validation
 
-- [ ] Before editing any golden, establish its history, protected behavior,
+- [x] Before editing any golden, establish its history, protected behavior,
       consumers, and independent proof of the wrong code; run the full suite
       before changing expected output. Change only the disproved label lines.
-- [ ] Run `cargo test`, `cargo build`, and
+- [x] Run `cargo test`, `cargo build`, and
       `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-- [ ] Build release, rerun the reproduction, render diagnostics, and run
+- [x] Build release, rerun the reproduction, render diagnostics, and run
       `scripts/spec-census.sh --citations diagnostics`, `--links diagnostics`,
       and `--render diagnostics`.
 
@@ -157,3 +157,30 @@ Use the registry-wide test to cover dormant as well as emitted rules. Use the
 existing parser/testing/DOC fixtures and CLI formatting test to verify observable
 headers. The correctness condition is unique codes, not merely successful lookup
 by symbolic name or a green documentation-presence test.
+
+## Resolution (2026-10-03)
+
+`rule_codes_are_unique` fails on main with exactly the three reproduced pairs.
+The reassignments:
+
+| code | kept | moved | new code | why this one moves |
+|---|---|---|---|---|
+| `1-102-0010` | `MFB_PARSE_TESTING_EXPECTED_TGROUP` (4b3e6fe68, 2026-07-06) | `MFB_PARSE_BLOCK_TOO_DEEP` (b26c805c1, 2026-07-14) | `1-102-0014` | Both are live; allocation order |
+| `2-205-0001` | `DOC_UNRESOLVED` (live emitter) | `PACKAGE_VERSION_UNSUPPORTED` (no emitter) | `2-205-0022` | Keeps every code a user has actually seen |
+| `2-205-0002` | `DOC_NAME_MISMATCH` (live emitter) | `NATIVE_MANIFEST_INVALID` (no emitter) | `2-205-0023` | Same |
+
+The new codes are the next free ones in each range. `planning/` reserves none
+of them (it reserves `2-203-0141`/`0142`).
+
+- Names, severities, messages and emit conditions are unchanged.
+- `mfb spec diagnostics rule-codes`: the "Code Collisions" section is replaced
+  by the uniqueness rule, and the rows moved.
+- The `mfb man link package` row was updated.
+
+**Expected-output change, corrected at the bug-staging batch gate.** Three
+parser-depth goldens print `1-102-0010 MFB_PARSE_BLOCK_TOO_DEEP`:
+`parser_statement_block_depth`, `parser_inline_trap_depth` and
+`parser_tgroup_depth`. Their label is disproved by the registry contract (one
+code, one rule). Only that label changes, to `1-102-0014`.
+`testing-parse-invalid` keeps `1-102-0010 MFB_PARSE_TESTING_EXPECTED_TGROUP`.
+`tests/cli/cli_fmt_nesting_depth.rs` matches the symbolic name only.

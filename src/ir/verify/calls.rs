@@ -177,7 +177,7 @@ impl TypeEnv {
                     let Some(actual) = self.infer_type(arg, locals) else {
                         continue;
                     };
-                    if !self.expression_compatible(expected, &actual, arg) {
+                    if !self.assignable(expected, &actual, arg) {
                         let (actual, expected) = (actual.name(), expected.name());
                         self.emit_argument_mismatch(format!(
                             "Argument {} for `{target}` has type {actual}, expected {expected}.",
@@ -212,7 +212,7 @@ impl TypeEnv {
             let actual = resource_base_type(&actual);
             let param_type = resource_base_type(param_type);
             self.check_literal_range(&param_type, arg);
-            if !self.expression_compatible(&param_type, &actual, arg) {
+            if !self.assignable(&param_type, &actual, arg) {
                 let (actual, param_type) = (actual.name(), param_type.name());
                 self.emit_argument_mismatch(format!(
                     "Argument {} for `{target}` has type {actual}, expected {param_type}.",

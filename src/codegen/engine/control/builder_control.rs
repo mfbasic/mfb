@@ -2232,6 +2232,13 @@ impl CodeBuilder<'_> {
                                 self.live_resource_aliases.insert(name.clone(), src.clone());
                             }
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
+                            // bug-755: the binding claims the record only when it is
+                            // unowned — a producer's fresh record, or one a callee's
+                            // `RETURN` released. A record owned further out (a handle
+                            // the callee was passed and hands back) keeps its owner, and
+                            // the drop registered here closes nothing.
+                            let scope_depth = self.current_scope_depth();
+                            self.emit_resource_claim_at(stack_offset, scope_depth)?;
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
                                     name: name.clone(),
@@ -2242,6 +2249,7 @@ impl CodeBuilder<'_> {
                                         && self.record_owning_locals.contains(name),
                                     moved_record_only: false,
                                     owner_flag_slot,
+                                    scope_depth,
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
@@ -2282,6 +2290,10 @@ impl CodeBuilder<'_> {
                                     }
                                 }
                             }
+                            let scope_depth = self.current_scope_depth();
+                            if !alias_wrap {
+                                self.emit_resource_union_claim_at(stack_offset, scope_depth)?;
+                            }
                             self.active_cleanups.push(ActiveCleanup::ResourceUnion(
                                 ResourceUnionCleanup {
                                     name: name.clone(),
@@ -2296,6 +2308,7 @@ impl CodeBuilder<'_> {
                                     },
                                     closes_variant: !alias_wrap,
                                     owner_flag_slot,
+                                    scope_depth,
                                 },
                             ));
                         } else if owns_freeable_value {
@@ -2677,6 +2690,18 @@ impl CodeBuilder<'_> {
                             // Observation boundary: a `Float` reassignment must
                             // be finite (plan-17).
                             self.observe_float(value, &result)?;
+                            // bug-755: the scope of the binding's registered close, when
+                            // it has one. A binding with no close is a reference: it
+                            // claims nothing, and the old record's owner check below can
+                            // only match a record this very scope owns.
+                            let registered_depth = self.active_cleanups.iter().rev().find_map(
+                                |cleanup| match cleanup {
+                                    ActiveCleanup::Resource(resource) if resource.name == *name => {
+                                        Some(resource.scope_depth)
+                                    }
+                                    _ => None,
+                                },
+                            );
                             let assign_slot = if let Some(symbol) =
                                 self.resource_cleanup_symbol(&result.type_)
                             {
@@ -2696,6 +2721,8 @@ impl CodeBuilder<'_> {
                                     ) && self.record_owning_locals.contains(name),
                                     moved_record_only: false,
                                     owner_flag_slot: self.trap_owner_flags.get(name).copied(),
+                                    scope_depth: registered_depth
+                                        .unwrap_or_else(|| self.current_scope_depth()),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
@@ -2745,7 +2772,15 @@ impl CodeBuilder<'_> {
                                 Some(slot)
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
-                                    || self.owns_graph(&result.type_))
+                                    || self.owns_graph(&result.type_)
+                                    // bug-753: a `RES` collection proved the sole holder
+                                    // of its block (`record_ownership::owning_collections`)
+                                    // frees the block a copying reassignment replaces —
+                                    // `out = collections::append(out, collections::get(xs, 0))`
+                                    // leaked every replaced block. Shallow: its elements
+                                    // are references with their own owners.
+                                    || (Self::is_res_marked_resource_collection(&result.type_)
+                                        && self.owned_list_owning_collections.contains(name)))
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block
@@ -2837,6 +2872,32 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     stack_offset,
                                 );
+                                // bug-755: the binding's scope claims the new record when
+                                // it is unowned, exactly as the bind does.
+                                if let (Some(depth), Some(_)) = (registered_depth, assign_slot) {
+                                    if self.resource_cleanup_symbol(&result.type_).is_some() {
+                                        self.emit_resource_claim_at(stack_offset, depth)?;
+                                    }
+                                }
+                                // A resource-union binding whose drop closes its active
+                                // variant claims the new variant's record the same way:
+                                // the drop is owner-checked, so an unclaimed record (the
+                                // inline-`TRAP` desugar fills `$trap_valN` by assignment)
+                                // would never be closed.
+                                if let Some(depth) =
+                                    self.active_cleanups.iter().rev().find_map(|cleanup| {
+                                        match cleanup {
+                                            ActiveCleanup::ResourceUnion(union)
+                                                if union.name == *name && union.closes_variant =>
+                                            {
+                                                Some(union.scope_depth)
+                                            }
+                                            _ => None,
+                                        }
+                                    })
+                                {
+                                    self.emit_resource_union_claim_at(stack_offset, depth)?;
+                                }
                             }
                             // bug-648: record whether this store handed a `Mixed` temp
                             // an owned value — strictly after the old value's drop
@@ -3042,7 +3103,18 @@ impl CodeBuilder<'_> {
                         self.value_discarded_armed = true;
                         let lowered = self.lower_value(value);
                         self.value_discarded_armed = false;
-                        lowered?;
+                        let lowered = lowered?;
+                        // bug-755: a discarded call result closes what nobody owns —
+                        // a record the callee produced or released — and leaves a
+                        // handle the callee was passed and handed back to its owner.
+                        if matches!(
+                            value,
+                            NirValue::Call { .. }
+                                | NirValue::CallResult { .. }
+                                | NirValue::RuntimeCall { .. }
+                        ) {
+                            self.emit_close_discarded_value(&lowered.location, &lowered.type_)?;
+                        }
                     }
                     NirOp::Return { value } => {
                         // bug-567: the watermark travels with the statement so the
@@ -4722,13 +4794,22 @@ mod transfer_temp_classification_tests {
         use super::TransferTemps::*;
         let body = classifier_body();
         for (arm, class) in [
-            ("NirOp::Return { .. } => TransferTemps::FreedBeforeBranch", FreedBeforeBranch),
+            (
+                "NirOp::Return { .. } => TransferTemps::FreedBeforeBranch",
+                FreedBeforeBranch,
+            ),
             (
                 "NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => TransferTemps::NoExpression",
                 NoExpression,
             ),
-            ("NirOp::Fail { .. } => TransferTemps::AdoptedByTheCatcher", AdoptedByTheCatcher),
-            ("NirOp::ExitProgram { .. } => TransferTemps::ProcessTerminates", ProcessTerminates),
+            (
+                "NirOp::Fail { .. } => TransferTemps::AdoptedByTheCatcher",
+                AdoptedByTheCatcher,
+            ),
+            (
+                "NirOp::ExitProgram { .. } => TransferTemps::ProcessTerminates",
+                ProcessTerminates,
+            ),
         ] {
             assert!(
                 body.contains(arm),

@@ -51,6 +51,19 @@ impl plan::NativePlanPlatform for Platform {
             symbol: "_signal".to_string(),
             required_by: "_main".to_string(),
         });
+        // bug-789: every thread's entry (the program entry and the worker trampoline)
+        // asks for its exact stack to set its stack-limit word.
+        for symbol in [
+            "_pthread_self",
+            "_pthread_get_stackaddr_np",
+            "_pthread_get_stacksize_np",
+        ] {
+            imports.push(PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: symbol.to_string(),
+                required_by: "_main".to_string(),
+            });
+        }
         imports
     }
 
@@ -141,6 +154,7 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_pthread_create"),
             ("libSystem", "_pthread_attr_init"),
             ("libSystem", "_pthread_attr_setstacksize"),
+            ("libSystem", "_pthread_attr_destroy"),
             ("libSystem", "_pause"),
             ("libSystem", "_getenv"),
             ("libSystem", "_write"),

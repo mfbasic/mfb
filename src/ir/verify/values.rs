@@ -173,7 +173,7 @@ impl TypeEnv {
                     let Some(actual) = self.infer_type(&update.value, locals) else {
                         continue;
                     };
-                    if !self.expression_compatible(expected, &actual, &update.value) {
+                    if !self.assignable(expected, &actual, &update.value) {
                         let (actual, expected) = (actual.name(), expected.name());
                         self.emit(
                             "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
@@ -207,7 +207,7 @@ impl TypeEnv {
                     for v in values {
                         self.check_literal_range(element, v);
                         if let Some(actual) = self.infer_type(v, locals) {
-                            if !self.expression_compatible(element, &actual, v) {
+                            if !self.assignable(element, &actual, v) {
                                 let (actual, element) = (actual.name(), element.name());
                                 self.emit(
                                     "TYPE_LIST_ELEMENT_MISMATCH",
@@ -234,7 +234,7 @@ impl TypeEnv {
                     for v in values {
                         self.check_literal_range(element, v);
                         if let Some(actual) = self.infer_type(v, locals) {
-                            if !self.expression_compatible(element, &actual, v) {
+                            if !self.assignable(element, &actual, v) {
                                 let (actual, element) = (actual.name(), element.name());
                                 self.emit(
                                     "TYPE_SET_ELEMENT_MISMATCH",
@@ -256,7 +256,7 @@ impl TypeEnv {
                         self.check_literal_range(key_type, k);
                         self.check_literal_range(value_type, v);
                         if let Some(actual) = self.infer_type(k, locals) {
-                            if !self.expression_compatible(key_type, &actual, k) {
+                            if !self.assignable(key_type, &actual, k) {
                                 let (actual, key_type) = (actual.name(), key_type.name());
                                 self.emit(
                                     "TYPE_MAP_KEY_MISMATCH",
@@ -265,7 +265,7 @@ impl TypeEnv {
                             }
                         }
                         if let Some(actual) = self.infer_type(v, locals) {
-                            if !self.expression_compatible(value_type, &actual, v) {
+                            if !self.assignable(value_type, &actual, v) {
                                 let (actual, value_type) = (actual.name(), value_type.name());
                                 self.emit(
                                     "TYPE_MAP_VALUE_MISMATCH",

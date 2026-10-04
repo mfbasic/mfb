@@ -1,24 +1,24 @@
 //! Native code generation for the built-in `process` package (plan-90).
 //!
 //! A `Process` is a native resource (tag 10) sharing the canonical plan-80
-//! 96-byte record header — tag@0, handle (the child pid)@8, closed@16, generic
-//! STATE@24 — followed by a process-specific tail:
+//! resource record header — tag@0, handle (the child pid)@8, closed@16, generic
+//! STATE@24, owner@32 — followed by a process-specific tail:
 //!
 //! ```text
-//!   32  stdin-write fd   (parent's write end of the child's stdin; -1 once close'd)
-//!   40  stdout-read fd   (parent's read end of the child's stdout)
-//!   48  stderr-read fd   (parent's read end of the child's stderr)
-//!   56  reaped flag      (0 = child not yet reaped; 1 = reaped, status cached)
-//!   64  raw waitpid status (valid when reaped; C's `didSignal` reads WTERMSIG)
-//!   72  cached exit code (valid when reaped; waitFor returns it, -1 on signal)
-//!   80  stdout spill-buffer ptr (bug-475; 0 until `waitFor` has to drain)
-//!   88  stderr spill-buffer ptr (bug-475; 0 until `waitFor` has to drain)
+//!   40  stdin-write fd   (parent's write end of the child's stdin; -1 once close'd)
+//!   48  stdout-read fd   (parent's read end of the child's stdout)
+//!   56  stderr-read fd   (parent's read end of the child's stderr)
+//!   64  reaped flag      (0 = child not yet reaped; 1 = reaped, status cached)
+//!   72  raw waitpid status (valid when reaped; C's `didSignal` reads WTERMSIG)
+//!   80  cached exit code (valid when reaped; waitFor returns it, -1 on signal)
+//!   88  stdout spill-buffer ptr (bug-475; 0 until `waitFor` has to drain)
+//!   96  stderr spill-buffer ptr (bug-475; 0 until `waitFor` has to drain)
 //! ```
 //!
 //! The two spill buffers are what keeps `waitFor` from deadlocking against a
 //! child that outruns the pipe (bug-475). While it waits, `waitFor` moves
 //! whatever the child has written out of the kernel pipe and into an arena block
-//! hanging off slot 80/88; `receive`/`receiveBytes`/`poll` serve from that block
+//! hanging off `PROC_STDOUT_BUF`/`PROC_STDERR_BUF`; `receive`/`receiveBytes`/`poll` serve from that block
 //! first and only then fall through to the fd, so the output is delivered in
 //! order and nothing is discarded. Each block is:
 //!
@@ -94,17 +94,17 @@ pub(crate) fn lower_process_drop_helper(
 pub(crate) const PROCESS_REAPER_SYMBOL: &str = "_mfb_rt_process_reaper";
 
 // --- Process record tail (offsets from the record base) ----------------------
-pub(crate) const PROC_STDIN_W: usize = 32;
-pub(crate) const PROC_STDOUT_R: usize = 40;
-pub(crate) const PROC_STDERR_R: usize = 48;
-pub(crate) const PROC_REAPED: usize = 56;
-pub(crate) const PROC_STATUS: usize = 64;
-pub(crate) const PROC_EXITCODE: usize = 72;
-pub(crate) const PROC_STDOUT_BUF: usize = 80;
-pub(crate) const PROC_STDERR_BUF: usize = 88;
+pub(crate) const PROC_STDIN_W: usize = RESOURCE_TAIL_START;
+pub(crate) const PROC_STDOUT_R: usize = RESOURCE_TAIL_START + 8;
+pub(crate) const PROC_STDERR_R: usize = RESOURCE_TAIL_START + 16;
+pub(crate) const PROC_REAPED: usize = RESOURCE_TAIL_START + 24;
+pub(crate) const PROC_STATUS: usize = RESOURCE_TAIL_START + 32;
+pub(crate) const PROC_EXITCODE: usize = RESOURCE_TAIL_START + 40;
+pub(crate) const PROC_STDOUT_BUF: usize = RESOURCE_TAIL_START + 48;
+pub(crate) const PROC_STDERR_BUF: usize = RESOURCE_TAIL_START + 56;
 
-// The whole tail must fit inside the shared 96-byte envelope (plan-80).
-const _: () = assert!(PROC_STDIN_W == 32);
+// The whole tail must fit inside the shared record envelope (plan-80, bug-755).
+const _: () = assert!(PROC_STDIN_W == RESOURCE_TAIL_START);
 const _: () = assert!(PROC_STDERR_BUF + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
 // --- Spill-buffer block (bug-475) --------------------------------------------
