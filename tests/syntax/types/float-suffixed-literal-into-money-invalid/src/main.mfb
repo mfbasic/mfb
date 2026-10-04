@@ -1,0 +1,44 @@
+IMPORT io
+IMPORT collections
+
+' bug-820: a Float-suffixed literal is a Float, and nothing converts into Money
+' implicitly (`mfb spec language types`, `Money`), so `5.0f` in any Money slot is
+' a type error, exactly as the Fixed-suffixed `5.0F` is. It used to be accepted
+' and stored as its f64 bit pattern. Every slot kind is rejected, positive and
+' negated; the unsuffixed and `m`-suffixed spellings stay valid.
+TYPE Wallet
+  cash AS Money
+END TYPE
+
+FUNC pay(amount AS Money) AS String
+  RETURN toString(amount)
+END FUNC
+
+FUNC fee(amount AS Money = 0.5f) AS String
+  RETURN toString(amount)
+END FUNC
+
+FUNC refund() AS Money
+  RETURN -2.5f
+END FUNC
+
+FUNC main() AS Nothing
+  LET price AS Money = 5.0f
+  LET credit AS Money = -5.0f
+  MUT total AS Money = 0m
+  total = 1.25f
+  io::print(pay(1.5f) & pay(amount := -1.5f) & fee() & toString(refund()))
+  LET wallet AS Wallet = Wallet[2.5f]
+  LET moved AS Wallet = WITH wallet { cash := 3.5f }
+  LET amounts AS List OF Money = [1.5m, 0.25f]
+  LET named AS Map OF String TO Money = Map OF String TO Money { "k" := 6.5f }
+  MATCH total
+    CASE 1.25f
+      io::print("matched")
+    CASE ELSE
+      io::print("other")
+  END MATCH
+  LET fine AS Money = 5.0
+  LET alsoFine AS Money = -5.0m
+  io::print(toString(price + credit + fine + alsoFine) & toString(moved.cash) & toString(collections::get(amounts, 0)) & toString(collections::get(named, "k")))
+END FUNC

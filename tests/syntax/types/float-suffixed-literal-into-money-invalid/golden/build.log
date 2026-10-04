@@ -1,0 +1,74 @@
+$ mfb build -ast -ir tests/syntax/types/float-suffixed-literal-into-money-invalid
+  28 |   MUT total AS Money = 0m
+  29 |   total = 1.25f
+  30 |   io::print(pay(1.5f) & pay(amount := -1.5f) & fee() & toString(refund()))
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:30 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `pay` has type Float, expected Money.
+  28 |   MUT total AS Money = 0m
+  29 |   total = 1.25f
+  30 |   io::print(pay(1.5f) & pay(amount := -1.5f) & fee() & toString(refund()))
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:30 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `pay` has type Float, expected Money.
+  15 | END FUNC
+  16 | 
+  17 | FUNC fee(amount AS Money = 0.5f) AS String
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:17 error[2-203-0027 TYPE_DEFAULT_VALUE_MISMATCH]: default parameter value has the wrong type
+               Default value for `amount` has type Float, expected Money.
+  20 | 
+  21 | FUNC refund() AS Money
+  22 |   RETURN -2.5f
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:22 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Float, expected Money.
+  24 | 
+  25 | FUNC main() AS Nothing
+  26 |   LET price AS Money = 5.0f
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:26 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `price` has initializer type Float, expected Money.
+  25 | FUNC main() AS Nothing
+  26 |   LET price AS Money = 5.0f
+  27 |   LET credit AS Money = -5.0f
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:27 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `credit` has initializer type Float, expected Money.
+  27 |   LET credit AS Money = -5.0f
+  28 |   MUT total AS Money = 0m
+  29 |   total = 1.25f
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:29 error[2-203-0008 TYPE_ASSIGNMENT_MISMATCH]: assignment value type does not match binding type
+               Assignment to `total` has type Float, expected Money.
+  29 |   total = 1.25f
+  30 |   io::print(pay(1.5f) & pay(amount := -1.5f) & fee() & toString(refund()))
+  31 |   LET wallet AS Wallet = Wallet[2.5f]
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:31 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Wallet` has type Float, expected Money for field `cash`.
+  30 |   io::print(pay(1.5f) & pay(amount := -1.5f) & fee() & toString(refund()))
+  31 |   LET wallet AS Wallet = Wallet[2.5f]
+  32 |   LET moved AS Wallet = WITH wallet { cash := 3.5f }
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:32 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               WITH update for `cash` has type Float, expected Money.
+  31 |   LET wallet AS Wallet = Wallet[2.5f]
+  32 |   LET moved AS Wallet = WITH wallet { cash := 3.5f }
+  33 |   LET amounts AS List OF Money = [1.5m, 0.25f]
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:33 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Float, expected Money.
+  32 |   LET moved AS Wallet = WITH wallet { cash := 3.5f }
+  33 |   LET amounts AS List OF Money = [1.5m, 0.25f]
+  34 |   LET named AS Map OF String TO Money = Map OF String TO Money { "k" := 6.5f }
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:34 error[2-203-0053 TYPE_MAP_VALUE_MISMATCH]: map value type does not match the declared value type
+               Map value has type Float, expected Money.
+  34 |   LET named AS Map OF String TO Money = Map OF String TO Money { "k" := 6.5f }
+  35 |   MATCH total
+  36 |     CASE 1.25f
+     | ^
+tests/syntax/types/float-suffixed-literal-into-money-invalid/src/main.mfb:36 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE pattern has type Float, expected Money.
+[exit 1]

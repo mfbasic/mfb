@@ -1,0 +1,63 @@
+IMPORT io
+IMPORT collections
+
+' bug-820: a Float-suffixed literal (`1.5f`) in a Fixed slot kept its Float
+' type, so the slot received the literal's f64 bit pattern: `g(1.5f)` saw
+' 1073217536.00 and `CASE 1.5f` never matched a Fixed 1.5. A Fixed slot accepts a
+' Float literal (`mfb spec architecture type-inference`, "Literal Coercion"),
+' converting it as toFixed(Float) does: the binary64 value, not the spelling, is
+' rounded to the nearest Fixed. Every slot kind is covered, positive and negated.
+TYPE Box
+  v AS Fixed
+END TYPE
+
+FUNC show(x AS Fixed) AS String
+  RETURN toString(x)
+END FUNC
+
+FUNC withDefault(x AS Fixed = 2.5f) AS String
+  RETURN toString(x)
+END FUNC
+
+FUNC give() AS Fixed
+  RETURN -2.25f
+END FUNC
+
+FUNC classify(x AS Fixed) AS String
+  MATCH x
+    CASE 1.5f
+      RETURN "one and a half"
+    CASE -0.5f
+      RETURN "minus a half"
+    CASE ELSE
+      RETURN "other"
+  END MATCH
+END FUNC
+
+FUNC main() AS Nothing
+  LET a AS Fixed = 1.5f
+  LET b AS Fixed = -1.5f
+  io::print("let: " & toString(a) & " " & toString(b) & " " & toString(a = 1.5F) & " " & toString(b = -1.5F))
+  MUT m AS Fixed = 0F
+  m = 0.75f
+  io::print("assign: " & toString(m))
+  io::print("arg: " & show(1.5f) & " " & show(x := -1.5f))
+  io::print("default: " & withDefault())
+  io::print("return: " & toString(give()))
+  LET box AS Box = Box[0.25f]
+  LET moved AS Box = WITH box { v := -3.5f }
+  io::print("field: " & toString(box.v) & " " & toString(moved.v))
+  LET xs AS List OF Fixed = [0.5f, -1e1f]
+  io::print("list: " & toString(collections::get(xs, 0)) & " " & toString(collections::get(xs, 1)))
+  LET ms AS Map OF String TO Fixed = Map OF String TO Fixed { "k" := 6.125f }
+  io::print("map: " & toString(collections::get(ms, "k")))
+  io::print("match: " & classify(1.5F) & ", " & classify(-0.5F) & ", " & classify(1F))
+  ' The binary64 nearest 2097152.0000000002 is 2^21 itself, so the Float
+  ' literal converts to exactly 2097152; the unsuffixed literal is rounded from
+  ' its decimal spelling, one Fixed quantum higher. The runtime conversion agrees.
+  LET viaFloat AS Fixed = 2097152.0000000002f
+  LET viaDecimal AS Fixed = 2097152.0000000002
+  io::print("binary64: " & toString(viaFloat, toByte(10)) & " " & toString(viaDecimal, toByte(10)) & " " & toString(viaFloat = toFixed(2097152.0000000002f)))
+  LET minimum AS Fixed = -2147483648.0f
+  io::print("minimum: " & toString(minimum))
+END FUNC

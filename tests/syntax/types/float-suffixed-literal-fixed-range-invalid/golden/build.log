@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/types/float-suffixed-literal-fixed-range-invalid
+   8 | ' minimum and stays valid.
+   9 | FUNC main() AS Nothing
+  10 |   LET big AS Fixed = 3e9f
+     | ^
+tests/syntax/types/float-suffixed-literal-fixed-range-invalid/src/main.mfb:10 error[2-203-0017 TYPE_FIXED_LITERAL_OVERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `3e9` is outside the Fixed range.
+   9 | FUNC main() AS Nothing
+  10 |   LET big AS Fixed = 3e9f
+  11 |   LET huge AS Fixed = 1e400f
+     | ^
+tests/syntax/types/float-suffixed-literal-fixed-range-invalid/src/main.mfb:11 error[2-203-0017 TYPE_FIXED_LITERAL_OVERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `1e400` is outside the Fixed range.
+  10 |   LET big AS Fixed = 3e9f
+  11 |   LET huge AS Fixed = 1e400f
+  12 |   LET past AS Fixed = 2147483647.99999994f
+     | ^
+tests/syntax/types/float-suffixed-literal-fixed-range-invalid/src/main.mfb:12 error[2-203-0017 TYPE_FIXED_LITERAL_OVERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `2.147483648e9` is outside the Fixed range.
+  11 |   LET huge AS Fixed = 1e400f
+  12 |   LET past AS Fixed = 2147483647.99999994f
+  13 |   LET low AS Fixed = -3e9f
+     | ^
+tests/syntax/types/float-suffixed-literal-fixed-range-invalid/src/main.mfb:13 error[2-203-0018 TYPE_FIXED_LITERAL_UNDERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `-3e9` is outside the Fixed range.
+[exit 1]

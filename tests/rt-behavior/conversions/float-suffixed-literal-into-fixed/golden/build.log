@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/rt-behavior/conversions/float-suffixed-literal-into-fixed
+Wrote AST to tests/rt-behavior/conversions/float-suffixed-literal-into-fixed/float_suffixed_literal_into_fixed.ast
+Wrote IR to tests/rt-behavior/conversions/float-suffixed-literal-into-fixed/float_suffixed_literal_into_fixed.ir
+[exit 0]
+$ mfb build tests/rt-behavior/conversions/float-suffixed-literal-into-fixed
+Wrote executable to tests/rt-behavior/conversions/float-suffixed-literal-into-fixed/build/float_suffixed_literal_into_fixed.out
+[exit 0]
+$ tests/rt-behavior/conversions/float-suffixed-literal-into-fixed/build/float_suffixed_literal_into_fixed.out
+let: 1.50 -1.50 TRUE TRUE
+assign: 0.75
+arg: 1.50 -1.50
+default: 2.50
+return: -2.25
+field: 0.25 -3.50
+list: 0.50 -10.00
+map: 6.13
+match: one and a half, minus a half, other
+binary64: 2097152.0000000000 2097152.0000000002 TRUE
+minimum: -2147483648.00
+[exit 0]

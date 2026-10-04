@@ -1,0 +1,16 @@
+IMPORT io
+
+' bug-820: a Float-suffixed literal in a Fixed slot converts its binary64 value
+' (as toFixed(Float) does), so its range is decided on that value. 3e9f and the
+' non-finite 1e400f are outside the Fixed range, and so is
+' 2147483647.99999994f: its decimal spelling would round inside the range, but
+' the nearest binary64 is 2^31, which does not. Its negation is the Fixed
+' minimum and stays valid.
+FUNC main() AS Nothing
+  LET big AS Fixed = 3e9f
+  LET huge AS Fixed = 1e400f
+  LET past AS Fixed = 2147483647.99999994f
+  LET low AS Fixed = -3e9f
+  LET minimum AS Fixed = -2147483647.99999994f
+  io::print(toString(big + huge + past + low + minimum))
+END FUNC
