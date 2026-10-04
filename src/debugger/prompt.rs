@@ -1779,7 +1779,7 @@ Thread 1 hit a breakpoint at 0x0000000000007000.
         assert!(lines.contains(&"  quickBin[128]     1 non-empty".to_string()));
         assert!(lines.contains(&"    [2]             0x000000000000abcd".to_string()));
         assert!(lines.contains(&"  largeBin[64]      0 non-empty".to_string()));
-        assert!(lines.contains(&"  v128Slots[127]    1 non-empty".to_string()));
+        assert!(lines.contains(&"  v128Slots[126]    1 non-empty".to_string()));
         assert!(
             lines.contains(&"    [1]             0x00000000000000000000000000000007".to_string())
         );
