@@ -184,6 +184,10 @@ name = "cli_fmt_nesting_depth"
 path = "tests/cli/cli_fmt_nesting_depth.rs"
 
 [[test]]
+name = "cli_fmt_multiline_brackets"
+path = "tests/cli/cli_fmt_multiline_brackets.rs"
+
+[[test]]
 name = "cli_fmt_scalar_quote"
 path = "tests/cli/cli_fmt_scalar_quote.rs"
 

@@ -1,15 +1,18 @@
 # Formatter (mfb fmt)
 
 `mfb fmt` rewrites MFBASIC source in place, normalizing only **leading
-whitespace** and **keyword capitalization**. String contents, comments, blank
-lines, and the interiors of `DOC` and `LINK` block bodies are preserved. The
+whitespace**, **keyword capitalization**, and **leading commas** inside an open
+bracket (moved to the trailing position; see "Leading commas" below). String
+contents, comments, blank lines, line breaks, and the interiors of `DOC` and
+`LINK` block bodies are preserved. The
 transform is pure and deterministic: the same input and indent width always
 produce the same output. [[src/fmt.rs:format_source]]
 
 "Byte-for-byte" would be too strong, and the exceptions are all at the line
 edges. Within a logical line the **first** physical line is trimmed and
-re-indented, while a **continuation** line keeps its original leading whitespace
-and has only its trailing whitespace stripped — which is also why "no tabs in
+re-indented, while a **continuation** line (after a trailing `_`, or inside an
+open bracket) keeps its original leading whitespace and has only its trailing
+whitespace stripped — which is also why "no tabs in
 output" holds for computed indentation but not for a continuation line whose
 preserved leading whitespace already contained one. `END LINK` is emitted as
 hardcoded uppercase, unlike `END FUNC` **inside a LINK block**, which keeps
@@ -118,8 +121,12 @@ RES t AS Thread OF Nothing TO Integer   ' type    → Nothing
 
 A *statement start* is the beginning of a line or the position immediately after
 a `:` statement separator. `REM` is only a comment introducer there; elsewhere it
-is treated as an ordinary word. The `stmt_start` flag is set true at line start,
-re-set true after a single `:`, and cleared by every other token. [[src/fmt.rs:scan_line]]
+is treated as an ordinary word. The `stmt_start` flag is set true at the start of
+a line that begins a logical line, re-set true after a single `:`, and cleared by
+every other token. A **continuation** line (after a trailing `_`, or inside an
+open bracket) does not begin a statement — the lexer emits no `Newline` before
+it — so `stmt_start` starts false there and a line-leading `REM` is an ordinary
+word whose followers are still keyword-cased, exactly as the lexer reads it. [[src/fmt.rs:scan_line]]
 
 ### Literals and punctuation
 
@@ -135,18 +142,73 @@ re-set true after a single `:`, and cleared by every other token. [[src/fmt.rs:s
 - Any other character is copied as-is; `(` becomes `Sig::LParen`, everything else
   `Sig::Other`. [[src/fmt.rs:scan_line]]
 
+Besides the cased text and the `Sig` vector, `scan_line` reports, for the
+bracket and comma rules below: the line's `(`/`[`/`{` openers and `)`/`]`/`}`
+closers in order (`brackets`; a bracket inside a string, scalar or comment is not
+code and is not reported), the offset of a `,` that is the line's first
+significant token (`leading_comma`), and the offset just past the line's last
+significant token other than a trailing `_`, with whether that token was an
+opener or a comma (`code_end`). [[src/fmt.rs:Scanned]]
+
 ## Line continuation
 
 A logical line is a leading physical line plus every following physical line that
-the previous one continues into. A physical line **continues** when its last
-significant token is `Sig::Underscore` (a trailing `_`). Continuation lines are
-gathered into the logical line and:
+the previous one continues into. A physical line **continues** when either:
+
+- its last significant token is `Sig::Underscore` (a trailing `_`); or
+- it ends inside an open bracket — the running bracket depth of the logical line,
+  counted from `Scanned::brackets` (an opener adds one; a closer subtracts one,
+  never below zero), is positive — **and** the next physical line does not begin
+  with a statement-only keyword. That keyword test is the lexer's own
+  (`lexer::begins_statement_only`; the list is in `./mfb spec language
+  lexical-structure` §2.6), so an unclosed bracket ends the logical line exactly
+  where the lexer stops suppressing newlines, and the rest of the file is still
+  re-indented block by block. A bracket still open at end of file simply ends
+  the logical line there. [[src/fmt.rs:begins_statement]]
+
+Lines inside a bracket are never joined, split, or re-indented to the block
+level, so a multi-line literal, constructor, call or parameter list keeps its
+layout; blank and comment-only lines inside it are kept too. Continuation lines
+are gathered into the logical line and:
 
 - The **first** physical line is trimmed and re-indented to the computed block
   level.
 - **Continuation** lines keep their original leading whitespace (only trailing
   whitespace is stripped), so hand-aligned continuations are not disturbed; their
   keywords are still cased. [[src/fmt.rs:format_source]]
+
+The structure ops below are computed over the whole logical line's `Sig` vector,
+so a multi-line `FUNC f(⏎ a AS Integer,⏎) AS Integer` header opens one block
+and a multi-line `IF f(a,⏎ b) THEN` is still recognized by its final `THEN`.
+
+### Leading commas
+
+Inside an open bracket a line may begin with the comma that separates it from
+the previous element (`[ "A"⏎, "B"⏎]`). The formatter rewrites that layout to
+the trailing-comma form (`normalize_leading_comma`): the comma is inserted just
+after the code on the nearest earlier line of the same logical line that has
+code — before that line's `'` comment or trailing `_` — and is replaced by a
+single space where it stood, so the element keeps its column. A line that held
+nothing but the comma is dropped. Nothing moves when the comma has no earlier
+code in the logical line, or that code already ends in an opening bracket or a
+comma (`[⏎, a`, `a,⏎, b`): those are parse errors, and the formatter re-emits
+malformed source as written. A comma that begins a line outside every bracket
+is not a continuation and is not touched. [[src/fmt.rs:normalize_leading_comma]]
+
+```text
+LET codes = [ "AED"  ' first          ' before
+            , "AFN"
+            , "ALL"
+            ]
+
+LET codes = [ "AED",  ' first         ' after
+              "AFN",
+              "ALL"
+            ]
+```
+
+The rewrite is idempotent: its output has no leading comma left to move, so a
+second run changes nothing.
 
 ## Block-structure operation model
 

@@ -32,9 +32,33 @@ The transform is pure and deterministic — the same input and indent width alwa
 produce the same output.
 
 Indentation is computed as `level * indent-width` spaces, so the formatter never
-emits a tab for computed indentation. A line-continuation line (one following a
-line that ends in a trailing `_`) keeps its original leading whitespace and has
-only its trailing whitespace stripped.
+emits a tab for computed indentation. A continuation line keeps its original
+leading whitespace and has only its trailing whitespace stripped. A line is a
+continuation when the line before it ends in a trailing `_`, or when it sits
+inside a `[ ]`, `{ }` or `( )` opened on an earlier line — a list, map or set
+literal, a record constructor, a `WITH` update, call arguments or a parameter
+list written over several lines (`mfb man types list`). Such a layout is never
+joined onto one line or re-indented.
+
+Inside brackets, a line that starts with a comma is rewritten so the comma ends
+the line before it instead; the comma's old place becomes a space, so the item
+stays in its column:
+
+```
+LET codes = [ "AED"
+            , "AFN"
+            ]
+```
+
+becomes
+
+```
+LET codes = [ "AED",
+              "AFN"
+            ]
+```
+
+Running `mfb fmt` again changes nothing.
 
 With no `path`, `mfb fmt` formats the current directory. A directory argument is
 walked recursively for MFBASIC source files.
