@@ -997,6 +997,16 @@ fn is_fallible_call(
             return declares;
         }
     }
+    // Every other built-in that declares an error is fallible too — the same rule,
+    // read off the same descriptors (bug-811). `process`, `term`, `big`, `canvas`
+    // and most allocating members were missing from the hand lists below.
+    if builtin_declares_error(callee) == Some(true) {
+        return true;
+    }
+    // The hand lists stay as a floor, not a ceiling: a `Body::Rewrite` member's
+    // descriptor is not yet checked against its body (`crypto::hmac`/`convert`
+    // raise but declare nothing), and dropping them would turn those calls total.
+    //
     // Whole-package fallible surfaces — every call raises a trappable host error.
     // `tls`/`http` join the original set: they are network I/O like `net`
     // (bug-96). `tcp`/`udp` are the same transports (bug-791): every member
@@ -1405,6 +1415,39 @@ mod tests {
                 "{callee}",
             );
         }
+    }
+
+    /// Every built-in that declares an error is reported fallible, census or not.
+    /// The hand lists below `is_fallible_call` were derived from the man-page Errors
+    /// tables once (bug-278) and drifted: `process` and `term` were never added,
+    /// and since bug-698 every allocating member declares `ErrOutOfMemory`. 208
+    /// declaring members outside the inline census were reported total.
+    #[test]
+    fn every_declaring_builtin_is_fallible() {
+        let no_names = HashSet::new();
+        let mut measured = 0;
+        for package in crate::codegen::registry::registry().packages() {
+            for function in package.functions() {
+                let callee = if package.import_name() == "general" {
+                    function.name.to_string()
+                } else {
+                    format!("{}.{}", package.import_name(), function.name)
+                };
+                let declares = function
+                    .implementations
+                    .iter()
+                    .any(|implementation| !implementation.errors.is_empty());
+                if !declares {
+                    continue;
+                }
+                measured += 1;
+                assert!(
+                    is_fallible_call(&callee, &no_names, &[], &no_names, &no_names),
+                    "{callee} declares an error, so a call to it is fallible",
+                );
+            }
+        }
+        assert!(measured > 400, "only {measured} declaring members found");
     }
 
     #[test]
