@@ -1,5 +1,5 @@
 {
-  "name": "wind",
+  "name": "weather",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",
@@ -15,8 +15,8 @@
   ],
   "resources": [
     {
-      "src": "resources/wind/*.bin",
-      "dst": "wind/"
+      "src": "resources/weather/*.bin",
+      "dst": "weather/"
     }
   ],
   "entry": "main",

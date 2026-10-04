@@ -2,10 +2,10 @@
 """Generate a minimal, spec-legal GRIB2 fixture for bug-711's regression test.
 
 Builds four GRIB2 messages, each a 1x1 grid carrying one of the four fields
-examples/wind/src/fetch.mfb:windsFrom requires (UGRD 10 m, VGRD 10 m, TMP
+examples/weather/src/fetch.mfb:windsFrom requires (UGRD 10 m, VGRD 10 m, TMP
 2 m, PRATE surface), using data representation template 5.0 at bit width 0
 (a constant field, so section 7 needs no packed data). Decodes correctly
-with the real, unmodified examples/wind/src/grib.mfb. See README.md for why
+with the real, unmodified examples/weather/src/grib.mfb. See README.md for why
 this replaced a captured real (926 KB) GFS analysis file.
 
 Usage: generate.py [output-path]  (default: /tmp/synthetic-valid-analysis.grb2)

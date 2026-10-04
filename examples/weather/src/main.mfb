@@ -1,4 +1,4 @@
-' wind - NOAA's global 10 m wind field, drawn as streamlines on an Equal Earth
+' weather - NOAA's global 10 m wind field, drawn as streamlines on an Equal Earth
 ' map.
 '
 ' The program downloads the latest GFS analysis from NOAA NOMADS, decodes the
@@ -11,9 +11,9 @@
 ' Nothing is bundled but the land-and-lake map resource.
 '
 ' Build and run it (canvas needs a window, so this is an --app program):
-'   mfb build examples/wind
-'   open examples/wind/build/wind.app          (macOS)
-'   ./examples/wind/build/wind.AppImage        (Linux)
+'   mfb build examples/weather
+'   open examples/weather/build/weather.app          (macOS)
+'   ./examples/weather/build/weather.AppImage        (Linux)
 '
 ' Controls:
 '   q e            zoom in, zoom out
@@ -432,11 +432,11 @@ END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
-  app::setTitle("Wind")
+  app::setTitle("Weather")
 
   LET fontName AS String = systemFontName()
   IF fontName = "" THEN
-    io::printError("wind: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
+    io::printError("weather: none of these fonts is installed: " & strings::join(PREFERRED_FONTS, ", "))
     RETURN 1
   END IF
   RES face AS canvas::Font = canvas::loadSystemFont(fontName)
@@ -449,7 +449,7 @@ FUNC main AS Integer
     RETURN 1
   END TRAP
   LET run AS Cycle = analysis.cycle
-  app::setTitle("Wind \u{00B7} " & analysis.winds.label)
+  app::setTitle("Weather \u{00B7} " & analysis.winds.label)
 
   ' The analysis is on screen from here on; the rest of the run arrives behind
   ' it. Dropping the handle on the way out - quitting before the fetch is done -

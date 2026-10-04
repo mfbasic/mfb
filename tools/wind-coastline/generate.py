@@ -14,7 +14,7 @@ import json
 import math
 import sys
 
-# --- Equal Earth, exactly as examples/wind/src/earth.mfb `project` computes it ---
+# --- Equal Earth, exactly as examples/weather/src/earth.mfb `project` computes it ---
 A1, A2, A3, A4 = 1.340264, -0.081106, 0.000893, 0.003796
 M = math.sqrt(3.0) / 2.0
 

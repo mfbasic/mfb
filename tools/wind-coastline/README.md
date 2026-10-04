@@ -1,6 +1,6 @@
 # tools/wind-coastline
 
-Builds `examples/wind/resources/wind/coastline.bin`, the land and lakes the wind
+Builds `examples/weather/resources/weather/coastline.bin`, the land and lakes the wind
 example draws, from Natural Earth's 1:10m layers.
 
     curl -L -o ne_10m_land.geojson \
@@ -8,7 +8,7 @@ example draws, from Natural Earth's 1:10m layers.
     curl -L -o ne_10m_lakes.geojson \
       https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_lakes.geojson
     python3 tools/wind-coastline/generate.py ne_10m_land.geojson ne_10m_lakes.geojson \
-      examples/wind/resources/wind/coastline.bin
+      examples/weather/resources/weather/coastline.bin
 
 Standard-library Python 3 only. The run that produced the checked-in file used
 downloads with sha256 `1ac90796408bc6ad6911d69448485d3c4dbf2190370080368a09976e1c9f7416`
@@ -22,7 +22,7 @@ Natural Earth is public domain (https://www.naturalearthdata.com/about/terms-of-
 
 The example draws the map at a level of detail that follows the view: at most
 `COAST_BUDGET` (1,500) land-and-lake outline points on screen whether the window
-shows the whole world or one island (`examples/wind/src/land.mfb`). To take any
+shows the whole world or one island (`examples/weather/src/land.mfb`). To take any
 level of detail out of one file, every point carries its **importance**: the area
 of the triangle it formed with its neighbours when Visvalingam-Whyatt
 simplification removed it.
@@ -38,7 +38,7 @@ top down while the count stays within the budget. It counts from a 5-degree grid
 builds at load, with per-cell counts per level, and looks at single points only in
 cells the window's edge crosses, so a rebuild costs what is drawn, not the whole file.
 
-`generate.py`'s `project` must match `project` in `examples/wind/src/earth.mfb`.
+`generate.py`'s `project` must match `project` in `examples/weather/src/earth.mfb`.
 The app projects the stored longitude and latitude itself, so a mismatch cannot move
 the map. It would only rank the points by slightly wrong areas. Regenerate the file
 if the projection ever changes.

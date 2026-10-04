@@ -6,7 +6,7 @@
 # error), and that the corrupt file is deleted so it is not retried forever.
 #
 # Builds a small headless driver project (no `canvas`/`app` dependency, so it
-# needs no display) out of verbatim copies of examples/wind/src/fetch.mfb and
+# needs no display) out of verbatim copies of examples/weather/src/fetch.mfb and
 # grib.mfb, plus a driver main.mfb that exercises attemptCycle directly
 # against two synthetic cycles that can never collide with a real GFS cycle:
 #
@@ -32,7 +32,7 @@ fi
 MFB_BIN=$(cd "$(dirname "$MFB_BIN")" && pwd)/$(basename "$MFB_BIN")
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-WIND_SRC="$SCRIPT_DIR/../src"
+WEATHER_SRC="$SCRIPT_DIR/../src"
 FIXTURE="$SCRIPT_DIR/fixtures/valid-analysis.grb2"
 
 WORK=$(mktemp -d)
@@ -48,8 +48,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$WORK/src"
-cp "$WIND_SRC/fetch.mfb" "$WORK/src/fetch.mfb"
-cp "$WIND_SRC/grib.mfb" "$WORK/src/grib.mfb"
+cp "$WEATHER_SRC/fetch.mfb" "$WORK/src/fetch.mfb"
+cp "$WEATHER_SRC/grib.mfb" "$WORK/src/grib.mfb"
 
 cat > "$WORK/project.json" <<'EOF'
 {
@@ -121,7 +121,7 @@ EOF
 # Compute the two paths this test plants (and must clean up) the same way
 # cachePath does, without needing a second run: gfs-<day>-<hour>-<hourTag>-<suffix>.
 TMPDIR_RESOLVED=${TMPDIR:-/tmp}
-CACHE_DIR="${TMPDIR_RESOLVED%/}/mfb-wind-gfs"
+CACHE_DIR="${TMPDIR_RESOLVED%/}/mfb-weather-gfs"
 CORRUPT_PATH="$CACHE_DIR/gfs-19990101-00-f000-wind-temp-rain-0p50.grb2"
 VALID_PATH="$CACHE_DIR/gfs-19990101-06-f000-wind-temp-rain-0p50.grb2"
 

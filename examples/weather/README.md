@@ -1,4 +1,4 @@
-# wind
+# weather
 
 NOAA's global 10 m wind field, drawn as streamlines on an Equal Earth map,
 plus a five-day forecast that plays hour by hour once it has downloaded. A
@@ -11,13 +11,13 @@ colour wash, and a precipitation colour wash. See the header comment in
 Canvas needs a window, so this is a `--app` build:
 
 ```sh
-mfb build examples/wind
+mfb build examples/weather
 ```
 
-- macOS — `open examples/wind/build/wind.app`
-- Linux — `./examples/wind/build/wind.AppImage`
-- Windows — cross-compile with `mfb build --target windows-x86_64 examples/wind`,
-  then run `examples/wind/build/wind.exe`
+- macOS — `open examples/weather/build/weather.app`
+- Linux — `./examples/weather/build/weather.AppImage`
+- Windows — cross-compile with `mfb build --target windows-x86_64 examples/weather`,
+  then run `examples/weather/build/weather.exe`
 
 ## Network dependency
 

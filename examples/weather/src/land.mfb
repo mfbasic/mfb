@@ -5,7 +5,7 @@
 ' back over the land. There is no terrain, no borders and no labels, because
 ' everything here is background - the point of the picture is what moves over it.
 '
-' The shapes come from resources/wind/coastline.bin: Natural Earth's 1:10m land
+' The shapes come from resources/weather/coastline.bin: Natural Earth's 1:10m land
 ' and lake layers, with every point ranked by how much the outline would change
 ' if it were dropped. tools/wind-coastline/ builds it; its README says where the
 ' data came from and how the file is laid out.
@@ -299,7 +299,7 @@ END FUNC
 
 ' Read the shipped coastline into the flat lists, and index it.
 FUNC loadCoastline() AS Nothing
-  coastBytes = fs::readBytes(os::appResourcePath("wind/coastline.bin"))
+  coastBytes = fs::readBytes(os::appResourcePath("weather/coastline.bin"))
   IF NOT isCoastlineFile() THEN FAIL error(errorCode::ErrInvalidFormat, "coastline: not a version 3 MFBC coastline file")
   coastAt = 5
   LET ringCount AS Integer = nextVarint()

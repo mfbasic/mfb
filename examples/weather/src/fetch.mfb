@@ -122,7 +122,7 @@ FUNC filterUrl(c AS Cycle, hour AS Integer, fields AS String) AS String
 END FUNC
 
 FUNC cacheDirectory AS String
-  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-wind-gfs"])
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-weather-gfs"])
   IF NOT fs::directoryExists(dir) THEN fs::createDirectories(dir)
   RETURN dir
 END FUNC

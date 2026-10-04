@@ -1,7 +1,7 @@
-' wind-map-probe - measures how many canvas::DrawItems examples/wind's static
+' wind-map-probe - measures how many canvas::DrawItems examples/weather's static
 ' map contributes to a single animation frame's scene.
 '
-' bug-712: `examples/wind` used to splice mapItems()'s whole result (the
+' bug-712: `examples/weather` used to splice mapItems()'s whole result (the
 ' ocean rectangle plus one item per visible coastline ring/copy - dozens of
 ' items even at a world-sized zoom) into a fresh per-frame scene list every
 ' frame, so canvas::present copied the static map's geometry on every single
