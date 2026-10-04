@@ -9,7 +9,8 @@ step [<count>] [<thread>]     s …
 step-all [<count>]            sa …
 disassemble                   dis
 dis <count>
-dis <function>
+dis <where> [<count>]
+dis <function> [<count>]
 ```
 
 `step` runs one instruction of thread 0, the main thread of a console program,
@@ -54,8 +55,27 @@ first.
 
 `dis` shows the machine code of the function the current thread is in, the
 way lldb does; `->` marks the instruction the thread runs next. `dis 5` shows
-just the next five instructions, and `dis isPrime` or `dis exit` shows a
-function you name, the same way `breakpoint` reads a name.
+just the next five instructions, and `dis -3` the three before it and then
+that one, to see how the thread got there:
+
+```
+DBG> dis -3
+debug.out`isPrime:
+    0x00000001049c4aa4 <+0>:  sub    sp, sp, #0xf0
+    0x00000001049c4aa8 <+4>:  str    x30, [sp]
+    0x00000001049c4aac <+8>:  str    x0, [sp, #0x10]
+->  0x00000001049c4ab0 <+12>: ldr    x8, [sp, #0x10]
+```
+
+`dis isPrime` or `dis exit` shows a function you name, the same way
+`breakpoint` reads a name, and `dis isPrime 3` its first three instructions.
+`dis` also starts anywhere you name an address or a register, either with an
+offset: `dis pc-8 4` shows four instructions from two before the current one,
+`dis lr 2`, at a breakpoint on a function's first instruction, the code it
+returns to, and `dis 0x1049c4ab0+0x40` the code at that address. A negative count works with all of them, and a count
+that runs back past the start of the function shows those addresses as
+`<-8>`, before the function. Every instruction is 4 bytes, so an address that
+is not a multiple of 4 is refused.
 
 The notes after `;` say where a branch goes (`<+68>` is 68 bytes into this
 function), which function a call reaches, and the value of a number. Your

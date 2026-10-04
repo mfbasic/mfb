@@ -98,8 +98,9 @@ Commands at the DBG> prompt:
   finish, f   Run until the current function returns
   restart, rs Start the program again (a program the debugger launched)
   disassemble, dis
-              Disassemble the current function, dis <count> instructions from
-              the current one, or dis <function>
+              Disassemble the current function; dis <count> instructions from
+              the current one (negative: before it); dis <where> [<count>]
+              from an address or register (pc-0x20); dis <function> [<count>]
   backtrace, bt
               Show the current thread's calls: bt [<count>] [<thread>];
               every thread's: bt all

@@ -40,12 +40,11 @@ pub(crate) enum Target {
 }
 
 impl Target {
-    /// `0x` and hex digits is an address; anything else is a name.
+    /// `0x` and hex digits, perhaps with `+`/`-` an offset, is an address;
+    /// anything else is a name.
     pub(crate) fn parse(word: &str) -> Result<Target, String> {
-        match word.strip_prefix("0x").or_else(|| word.strip_prefix("0X")) {
-            Some(hex) => u64::from_str_radix(hex, 16)
-                .map(Target::Address)
-                .map_err(|_| format!("'{word}' is not an address")),
+        match super::prompt::address(word) {
+            Some(address) => address.map(Target::Address),
             None => Ok(Target::Name(word.to_string())),
         }
     }

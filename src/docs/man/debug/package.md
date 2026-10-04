@@ -143,7 +143,8 @@ session's.
 | `step [<count>] [<thread>]` | `s …` | runs one thread one instruction, or `<count>` |
 | `step-all [<count>]` | `sa …` | runs every thread one instruction, or `<count>` |
 | `disassemble` | `dis` | shows the machine code of the current function |
-| `dis <count>`, `dis <function>` | | the next `<count>` instructions, or a function's |
+| `dis <count>` | | the next `<count>` instructions, or with `-` the ones before |
+| `dis <where> [<count>]`, `dis <function> [<count>]` | | from an address or register (`pc-0x20`), or a function's |
 | `backtrace [<count>] [<thread>]` | `bt …` | shows the calls the current thread is in |
 | `backtrace all` | `bt all` | shows the calls every thread is in |
 | `list` | `l` | shows what can be listed |

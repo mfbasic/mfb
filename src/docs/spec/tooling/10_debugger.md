@@ -273,8 +273,9 @@ Then, repeatedly:
 | `backtrace all`, `bt all` | prints every thread's frames |
 | `restart`, `rs` | starts a launched program again |
 | `disassemble`, `dis` | disassembles the current function |
-| `dis <count>` | disassembles `<count>` instructions from the current `pc` |
-| `dis <function>` | disassembles each function `<function>` names |
+| `dis <count>` | disassembles `<count>` instructions from the current `pc`; a negative count, that many before it and then the `pc` |
+| `dis <where> [<count>]` | disassembles from an address or register (either `±<offset>`): to the end of its function, or `<count>` as above |
+| `dis <function> [<count>]` | disassembles each function `<function>` names, or `<count>` from its start as above |
 | `quit`, `q` | ends the session |
 
 `list` may be spelled `l` in every form. Commands are case-sensitive.
@@ -312,8 +313,11 @@ Then, repeatedly:
 | a `backtrace` count that is not a `usize` of 1 or more | `'<count>' is not a number of frames (1 or more), or 'all'` |
 | `backtrace` with three arguments | `'<name>' takes at most two arguments` |
 | `backtrace <count> <id>` past the last thread | `no thread <id>: the program has <n> thread(s); type 'list thread' for them` |
-| `dis 0` (or a count past `u64`) | `cannot show <count> instructions; give 1 or more` |
-| `dis` with two arguments | `'<name>' takes at most one argument` |
+| a `dis` count of 0 or not an `i64` | `cannot show <count> instructions; give a count other than 0 (negative counts back)` |
+| `dis` with three arguments | `'<name>' takes at most two arguments` |
+| `dis` at an address not a multiple of 4 | `0x<address> is not the start of an instruction: they start every 4 bytes` |
+| `dis` counting back past address 0 | `there are not <n> instructions before 0x<address>` |
+| an address `0x<hex>±<offset>` below 0 or past `u64::MAX` | `'<word>' is below address 0` / `'<word>' is past the last address` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
 | `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
 | `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, or show arena [<id>]` |
@@ -494,8 +498,9 @@ instruction`, `an arithmetic exception`, `a breakpoint instruction`, or
 
 [[src/debugger/prompt.rs:show_memory]] `show mem <where> [<size>]` reads
 `<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at `<where>`:
-an address (`0x…`), or a register of the current thread with an optional
-offset (`sp`, `sp+0x18`, `x19-16`; a 64-bit register only). It prints
+an address (`0x…`), or a register of the current thread, either with an
+optional offset (`0x1000-0x10`, `sp`, `sp+0x18`, `x19-16`; a 64-bit register
+only). [[src/debugger/prompt.rs:address]] It prints
 `Memory at 0x<address>:` — with ` (<register>±0x<offset> of thread <t>)` for a
 register — then the bytes as `show arena`'s dump does, each line led by its
 full address (`0x` + 16 digits). [[src/debugger/prompt.rs:memory_lines]]
@@ -621,7 +626,8 @@ outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
 ### Breakpoints
 
 [[src/debugger/breakpoints.rs:Breakpoints]] A `<target>` starting `0x` (or
-`0X`) is an address in hex; anything else is a name.
+`0X`) is an address in hex, perhaps `+` or `-` an offset (decimal, or hex after
+`0x`), as `show mem` reads one; anything else is a name.
 
 - **By address**: one breakpoint at that address, described by the function
   that holds it (`<symbol>+0x<offset>` and `<written>+0x<offset>`), a linked
@@ -674,7 +680,17 @@ the last `run` stopped (the first breakpoint hit, or the exception's thread)
 or the last `step` ran; thread 0 before either, or when it has ended.
 
 - `dis`: the function holding the current thread's `pc`, from its start.
-- `dis <count>` (all digits): `<count>` instructions from the `pc`.
+- `dis <count>` (digits, perhaps after `-`): a count, never 0. A positive count
+  is that many instructions from the `pc`; a negative one is that many before
+  it, then the `pc`'s own.
+- `dis <where> [<count>]`, `<where>` starting `0x`, holding `+` or `-`, or a
+  register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it resolves to
+  as `show mem` resolves one, which must be a multiple of 4. With no count, the
+  listing runs from there to the end of the function holding it (or to the first
+  `ret` or 64 instructions when its extent is unknown); with one, as for
+  `dis <count>`. The header names the function holding that address.
+- `dis <function> <count>`: `<count>` counted from each function's start, as
+  for `dis <count>`.
 - `dis <function>`: resolved as a breakpoint name is — symbols spelled
   `<function>` (the executable's, its imports' bound addresses, the libraries'
   via `library_functions`), else written names (the executable's functions,
@@ -691,7 +707,8 @@ The listing is lldb's: a header `<image>`<name>:` (`<image>`0x<start>:` when
 unnamed; `0x<start>:` when no image holds it), where the name is the written
 name for the developer's functions and otherwise the symbol less one leading
 `_`; then per instruction `->  ` at the current `pc` or four spaces, the
-address as `0x` and 16 hex digits, ` <+<offset>>:` padded to the widest in the listing (omitted
+address as `0x` and 16 hex digits, ` <+<offset>>:` (` <-<offset>>:` before the
+function's start, when a count runs back past it) padded to the widest in the listing (omitted
 when no image holds it), and the instruction. A comment follows from column 33
 of the instruction text: `=<decimal>` for a wide `mov` immediate; for a branch
 or call, `<+<offset>>` inside this function, else the function at the target

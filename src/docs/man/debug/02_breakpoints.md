@@ -13,7 +13,8 @@ list breakpoint           l breakpoint
 ```
 
 `<where>` is an address (`0x` and hex digits, as `list func` and `list thread`
-show them) or a function name:
+show them, perhaps with `+` or `-` an offset: `0x100a4d374+0x40`) or a
+function name:
 
 - a name as you wrote it: `isPrime`, `formatLine`. A function from a package
   is `package::name`, and a built-in function the runtime carries out for you

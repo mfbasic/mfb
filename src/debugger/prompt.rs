@@ -39,8 +39,10 @@ Commands:
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
   disassemble, dis
-                  Disassemble the current function, dis <count> instructions
-                  from the current one, or dis <function>
+                  Disassemble the current function; dis <count> instructions
+                  from the current one (negative: before it); dis <where>
+                  [<count>] from an address or register (pc-0x20); or
+                  dis <function> [<count>]
   backtrace, bt   Show the current thread's calls: bt [<count>] [<thread>]
                   Every thread's: bt all
   step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
@@ -98,7 +100,7 @@ enum Command {
     SetBreakpoint(Target),
     RemoveBreakpoint(Target),
     Run,
-    Disassemble(Request),
+    Disassemble(Disassembly),
     Finish,
     Restart,
     ShowMemory { location: Location, size: u64 },
@@ -138,12 +140,93 @@ enum Location {
     Register { name: String, offset: i64 },
 }
 
+/// What a `dis` names, before a location is resolved to an address.
+#[derive(Debug, PartialEq, Eq)]
+enum Disassembly {
+    Current,
+    Count(i64),
+    At(Location, Option<i64>),
+    Named(String, Option<i64>),
+}
+
+impl Disassembly {
+    /// `dis <start> [<count>]`: a location (an address, or a register, either
+    /// with an offset), else a function name.
+    fn from(start: &str, count: Option<i64>) -> Result<Disassembly, String> {
+        let location = start.starts_with("0x")
+            || start.starts_with("0X")
+            || start.contains(['+', '-'])
+            || is_register(start);
+        Ok(if location {
+            Disassembly::At(Location::parse(start)?, count)
+        } else {
+            Disassembly::Named(start.to_string(), count)
+        })
+    }
+}
+
+/// Whether `word` names an AArch64 register an address can be in: `x0`–`x30`,
+/// `fp`, `lr`, `sp` or `pc`.
+fn is_register(word: &str) -> bool {
+    matches!(word, "fp" | "lr" | "sp" | "pc")
+        || word.strip_prefix('x').is_some_and(|number| {
+            (number == "0" || !number.starts_with('0'))
+                && number.parse::<u8>().is_ok_and(|number| number <= 30)
+        })
+}
+
+/// Whether `word` reads as a count: digits, perhaps after a `-`.
+fn is_count(word: &str) -> bool {
+    let digits = word.strip_prefix('-').unwrap_or(word);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// A `dis` count: any whole number but 0, negative to count back.
+fn instruction_count(word: &str) -> Result<i64, String> {
+    match word.parse::<i64>() {
+        Ok(0) | Err(_) => Err(format!(
+            "cannot show {word} instructions; give a count other than 0 (negative counts back)"
+        )),
+        Ok(count) => Ok(count),
+    }
+}
+
+/// `0x<hex>`, perhaps followed by `+` or `-` and an offset (decimal, or hex
+/// after `0x`): the address it names. `None` when `word` does not start with
+/// `0x`.
+pub(crate) fn address(word: &str) -> Option<Result<u64, String>> {
+    let hex = word
+        .strip_prefix("0x")
+        .or_else(|| word.strip_prefix("0X"))?;
+    let bad = || format!("'{word}' is not an address");
+    let (base, offset) = match hex.find(['+', '-']) {
+        Some(at) => (&hex[..at], Some(&hex[at..])),
+        None => (hex, None),
+    };
+    let Ok(base) = u64::from_str_radix(base, 16) else {
+        return Some(Err(bad()));
+    };
+    let Some(offset) = offset else {
+        return Some(Ok(base));
+    };
+    let Ok(amount) = number(&offset[1..]) else {
+        return Some(Err(bad()));
+    };
+    Some(if offset.starts_with('-') {
+        base.checked_sub(amount)
+            .ok_or_else(|| format!("'{word}' is below address 0"))
+    } else {
+        base.checked_add(amount)
+            .ok_or_else(|| format!("'{word}' is past the last address"))
+    })
+}
+
 impl Location {
     /// `0x…`, or `<register>`, `<register>+<n>`, `<register>-<n>` (`n` decimal
     /// or `0x` hex).
     fn parse(word: &str) -> Result<Location, String> {
-        if word.starts_with("0x") || word.starts_with("0X") {
-            return number(word).map(Location::Address);
+        if let Some(address) = address(word) {
+            return address.map(Location::Address);
         }
         let (name, offset) = match word.find(['+', '-']) {
             Some(at) => {
@@ -334,17 +417,18 @@ fn parse(line: &str) -> Result<Command, String> {
             "cannot show '{other}'; 'show mem', 'show type' and 'show arena' are what can be \
              shown"
         )),
-        ("disassemble" | "dis", []) => Ok(Command::Disassemble(Request::Current)),
-        ("disassemble" | "dis", [word]) if word.bytes().all(|byte| byte.is_ascii_digit()) => {
-            match word.parse::<u64>() {
-                Ok(0) | Err(_) => Err(format!("cannot show {word} instructions; give 1 or more")),
-                Ok(count) => Ok(Command::Disassemble(Request::Count(count))),
-            }
+        ("disassemble" | "dis", []) => Ok(Command::Disassemble(Disassembly::Current)),
+        ("disassemble" | "dis", [word]) if is_count(word) => Ok(Command::Disassemble(
+            Disassembly::Count(instruction_count(word)?),
+        )),
+        ("disassemble" | "dis", [start]) => {
+            Ok(Command::Disassemble(Disassembly::from(start, None)?))
         }
-        ("disassemble" | "dis", [name]) => {
-            Ok(Command::Disassemble(Request::Named(name.to_string())))
-        }
-        ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most one argument")),
+        ("disassemble" | "dis", [start, count]) => Ok(Command::Disassemble(Disassembly::from(
+            start,
+            Some(instruction_count(count)?),
+        )?)),
+        ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most two arguments")),
         ("finish" | "f", []) => Ok(Command::Finish),
         ("finish" | "f", _) => Err(format!("'{name}' takes no arguments")),
         ("restart" | "rs", []) => Ok(Command::Restart),
@@ -1151,14 +1235,27 @@ fn backtrace(
 fn disassemble_at(
     inferior: &mut dyn Inferior,
     current: usize,
-    request: &Request,
+    disassembly: &Disassembly,
 ) -> Result<Vec<String>, String> {
     let threads = inferior.threads()?;
     let thread = threads
         .get(current)
         .or_else(|| threads.first())
         .ok_or_else(|| no_thread(current, threads.len()))?;
-    disassemble::disassemble(inferior, thread.pc, request)
+    let pc = thread.pc;
+    let request = match disassembly {
+        Disassembly::Current => Request::Current,
+        Disassembly::Count(count) => Request::Count(*count),
+        Disassembly::At(location, count) => Request::At {
+            address: resolve(inferior, current, location)?.0,
+            count: *count,
+        },
+        Disassembly::Named(name, count) => Request::Named {
+            name: name.clone(),
+            count: *count,
+        },
+    };
+    disassemble::disassemble(inferior, pc, &request)
 }
 
 /// Where each thread is: its pc, and the function holding it when the
@@ -2137,6 +2234,78 @@ Address            Symbol              Written name
                 "'x' is not a thread id; type 'list thread' for the threads",
             ),
             ("bt 1 2 3", "'bt' takes at most two arguments"),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
+    }
+
+    #[test]
+    fn an_address_may_carry_an_offset_either_way() {
+        assert_eq!(address("0x10"), Some(Ok(0x10)));
+        assert_eq!(address("0x10+8"), Some(Ok(0x18)));
+        assert_eq!(address("0X10-0x8"), Some(Ok(0x8)));
+        assert_eq!(
+            address("0x10-0x20"),
+            Some(Err("'0x10-0x20' is below address 0".to_string()))
+        );
+        assert_eq!(
+            address("0xffffffffffffffff+1"),
+            Some(Err(
+                "'0xffffffffffffffff+1' is past the last address".to_string()
+            ))
+        );
+        for word in ["0xzz", "0x10+zz", "0x10-", "0x+4"] {
+            assert_eq!(
+                address(word),
+                Some(Err(format!("'{word}' is not an address"))),
+                "{word}"
+            );
+        }
+        assert_eq!(address("16"), None);
+        assert_eq!(Location::parse("0x1000-16"), Ok(Location::Address(0xff0)));
+        assert_eq!(Target::parse("0x1000+4"), Ok(Target::Address(0x1004)));
+    }
+
+    #[test]
+    fn dis_takes_a_count_a_place_or_a_function_and_counts_back_when_negative() {
+        let register = |name: &str, offset| Location::Register {
+            name: name.to_string(),
+            offset,
+        };
+        for (line, expected) in [
+            ("dis", Disassembly::Current),
+            ("dis 5", Disassembly::Count(5)),
+            ("dis -3", Disassembly::Count(-3)),
+            ("dis pc-8 4", Disassembly::At(register("pc", -8), Some(4))),
+            ("dis x1", Disassembly::At(register("x1", 0), None)),
+            ("dis lr -2", Disassembly::At(register("lr", 0), Some(-2))),
+            (
+                "dis 0x100+4 -1",
+                Disassembly::At(Location::Address(0x104), Some(-1)),
+            ),
+            (
+                "dis isPrime",
+                Disassembly::Named("isPrime".to_string(), None),
+            ),
+            (
+                "dis isPrime -2",
+                Disassembly::Named("isPrime".to_string(), Some(-2)),
+            ),
+            ("dis x31", Disassembly::Named("x31".to_string(), None)),
+        ] {
+            assert_eq!(parse(line), Ok(Command::Disassemble(expected)), "{line}");
+        }
+        for (line, message) in [
+            (
+                "dis 0",
+                "cannot show 0 instructions; give a count other than 0 (negative counts back)",
+            ),
+            (
+                "dis pc x",
+                "cannot show x instructions; give a count other than 0 (negative counts back)",
+            ),
+            ("dis pc 1 2", "'dis' takes at most two arguments"),
+            ("dis 0xzz", "'0xzz' is not an address"),
         ] {
             assert_eq!(parse(line), Err(message.to_string()), "{line}");
         }
