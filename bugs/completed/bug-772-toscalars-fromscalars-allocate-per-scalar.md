@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (performance: a linear op with a 10–15× constant, from per-element heap allocation)
 
-Status: Open
-Regression Test: `tests/runtime/rt_scalar_seam_alloc.rs` (to be added, Phase 1); the existing
+Status: Fixed (2026-10-03, bug-staging-5)
+Regression Test: `tests/runtime/rt_scalar_seam_alloc.rs`; the existing
 `tests/rt-behavior/general/scalar-strings-seam-rt` (behavior guard)
 
 `strings::toScalars(s)` and `strings::fromScalars(xs)` are correct, but they are MFBASIC source bodies stacked three deep over
@@ -322,3 +322,38 @@ Commit: —
 The engineering is small and well precedented, because the UTF-8 walkers already exist. The risk is confined to getting the
 kind-2 `Scalar` list and string layouts exactly right, and to regenerating the handful of goldens that inline the seam.
 Everything observable stays the same: signatures, errors, round-trip identity and the predicates.
+
+## Resolution (2026-10-03)
+
+Both members are `Body::abi_inline` lowerings in
+`src/codegen/builtins/strings/gen_scalar_seam.rs`, in the `gen_case_map` shape:
+
+- `toScalars`: one `emit_utf8_decode_next` walk counts the scalars, one allocation of
+  an exactly-sized kind-2 `List OF Scalar` (header + 4 bytes each), and a second walk
+  stores each code point.
+- `fromScalars`: one pass sums `emit_utf8_encoded_width` over the payloads, one
+  allocation of the exact `String` (`len + 9`), and a second pass encodes with
+  `emit_utf8_encode_next`.
+
+Both now declare `ErrOutOfMemory`, which they can raise. The seam chunk's
+`__strings_toScalars`/`__strings_fromScalars` (called by name from the `astrings`
+companion) delegate to the members, the two members leave the seam's `WhenUsed`
+gate, and the chunk no longer imports `collections` or `encoding`. So an `astrings`
+program stops pulling in all 61 `#encoding_*` functions; its `.ir` changes in exactly
+that set, the call targets (`#strings_toScalars` → `strings.toScalars`), and the
+predicates' line numbers.
+
+Measured with the Failing Reproduction program (`-O 1`, macOS M2 Max):
+
+| n | toScalars ns/scalar | fromScalars ns/scalar |
+| --- | ---: | ---: |
+| 43 | 29 → 2 | 41 → 2 |
+| 430 | 24 → 1 | 37 → 2 |
+| 4,300 | 28 → 1 | 39 → 2 |
+| 43,000 | 36 → 2 | 41 → 2 |
+
+`rt_scalar_seam_alloc`: exactly 1 allocation per call for ASCII, mixed 1–4-byte, and
+empty input (main: 56 and 99 per call at n = 43), with `fromScalars(toScalars(s)) = s`
+and one `Scalar` per Unicode scalar. The strings/astrings fixtures run and print
+unchanged; the `strings` `toScalars`/`fromScalars` and all 17 `astrings` man examples run.
+Spec: `architecture/02_frontend.md`.

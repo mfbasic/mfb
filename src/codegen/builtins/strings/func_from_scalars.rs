@@ -1,8 +1,6 @@
-//! `strings::fromScalars` — scalar-seam member (`Body::Rewrite`).
-//!
-//! Backed by the injected scalar-seam chunk (`helper_scalar_seam.rs`, gated `WhenUsed`): a call
-//! rewrites to the internal `__strings_fromScalars` FUNC through the registry's
-//! `rewrite_target`.
+//! `strings::fromScalars` — lowered natively (`gen_scalar_seam::lower_from_scalars`,
+//! bug-772): one pass to sum the UTF-8 widths, one exactly-sized `String`, one pass
+//! to encode.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -71,8 +69,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
-            body: Body::Rewrite("__strings_fromScalars"),
+            errors: vec!["ErrOutOfMemory"],
+            body: Body::abi_inline(super::gen_scalar_seam::lower_from_scalars),
         }],
     });
 }
