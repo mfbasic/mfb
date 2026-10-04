@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/syntax/threads/thread-transfer-use-after-move-invalid
+  23 |   RES f AS fs::File = fs::openFile(path)
+  24 |   thread::transfer(w, f)
+  25 |   LET line AS String = fs::readLine(f)
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:25 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  31 |   RES f AS fs::File = fs::openFile(path)
+  32 |   thread::transfer(t, f)
+  33 |   io::print(fs::readLine(f))
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:33 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  38 |   RES f AS fs::File = fs::openFile(path)
+  39 |   thread::transfer(t, f)
+  40 |   thread::transfer(t, f)
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:40 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  45 |   RES f AS fs::File = fs::openFile(path)
+  46 |   thread::transfer(t, f)
+  47 |   fs::close(f)
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:47 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  53 |   RES g AS fs::File = same(f)
+  54 |   thread::transfer(t, f)
+  55 |   io::print(fs::readLine(g))
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:55 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `g` was moved and cannot be used again.
+  63 |     RECOVER
+  64 |   END TRAP
+  65 |   io::print(fs::readLine(f))
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:65 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  73 |     RECOVER
+  74 |   END TRAP
+  75 |   io::print(fs::readLine(f))
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:75 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  82 |     thread::transfer(t, f)
+  83 |   END IF
+  84 |   io::print(fs::readLine(f))
+     | ^
+tests/syntax/threads/thread-transfer-use-after-move-invalid/src/main.mfb:84 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+[exit 1]

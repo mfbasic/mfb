@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/threads/thread-transfer-failure-handler-valid
+Wrote AST to tests/syntax/threads/thread-transfer-failure-handler-valid/thread_transfer_failure_handler_valid.ast
+Wrote IR to tests/syntax/threads/thread-transfer-failure-handler-valid/thread_transfer_failure_handler_valid.ir
+[exit 0]

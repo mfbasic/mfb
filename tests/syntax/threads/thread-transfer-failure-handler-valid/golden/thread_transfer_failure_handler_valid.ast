@@ -1,0 +1,219 @@
+{
+  "project": "thread_transfer_failure_handler_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 3 },
+    { "module": "io", "line": 4 },
+    { "module": "thread", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "wait",
+      "line": 7,
+      "params": [
+      { "name": "text", "type": "String", "default": null, "line": 7 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "worker",
+      "line": 11,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF String RES fs.File TO Integer", "default": null, "line": 11 },
+      { "name": "seed", "type": "String", "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "signal", "type": null, "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "handlerUses",
+      "line": 17,
+      "params": [
+      { "name": "t", "type": "Thread OF String RES fs.File TO Integer", "default": null, "line": 17 },
+      { "name": "path", "type": "String", "default": null, "line": 17 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 18 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 19,
+        "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 20 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 21 },
+        { "kind": "recover", "value": null, "line": 22 }
+        ]
+      }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "chainHandlerUses",
+      "line": 28,
+      "params": [
+      { "name": "t", "type": "Thread OF String RES fs.File TO Integer", "default": null, "line": 28 },
+      { "name": "path", "type": "String", "default": null, "line": 28 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 29 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 30,
+        "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }, { "kind": "call", "callee": "wait", "arguments": [{ "kind": "string", "value": "0" }] }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 31 },
+        { "kind": "recover", "value": null, "line": 32 }
+        ]
+      }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "handlerReturns",
+      "line": 38,
+      "params": [
+      { "name": "t", "type": "Thread OF String RES fs.File TO Integer", "default": null, "line": 38 },
+      { "name": "path", "type": "String", "default": null, "line": 38 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 39 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 40,
+        "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 41 },
+        { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 42 }
+        ]
+      }, "line": 40 },
+      { "kind": "return", "value": { "kind": "boolean", "value": true }, "line": 44 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "retry",
+      "line": 48,
+      "params": [
+      { "name": "t", "type": "Thread OF String RES fs.File TO Integer", "default": null, "line": 48 },
+      { "name": "path", "type": "String", "default": null, "line": 48 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "sent", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 50 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "unary", "operator": "NOT", "operand": { "kind": "identifier", "value": "sent" } },
+        "line": 51,
+        "body": [
+        { "kind": "assignment", "name": "sent", "value": { "kind": "boolean", "value": true }, "line": 52 },
+        { "kind": "expression", "expression": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 53,
+          "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }] },
+          "handler": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 54 },
+          { "kind": "assignment", "name": "sent", "value": { "kind": "boolean", "value": false }, "line": 55 },
+          { "kind": "recover", "value": null, "line": 56 }
+          ]
+        }, "line": 53 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "otherArm",
+      "line": 62,
+      "params": [
+      { "name": "t", "type": "Thread OF String RES fs.File TO Integer", "default": null, "line": 62 },
+      { "name": "path", "type": "String", "default": null, "line": 62 },
+      { "name": "send", "type": "Boolean", "default": null, "line": 62 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 63 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "send" },
+        "line": 64,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }] }, "line": 65 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 67 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "rebind",
+      "line": 72,
+      "params": [
+      { "name": "t", "type": "Thread OF String RES fs.File TO Integer", "default": null, "line": 72 },
+      { "name": "path", "type": "String", "default": null, "line": 72 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "f" }] }, "line": 75 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "g" }] }] }, "line": 77 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 80,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": null, "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "worker" }, { "kind": "string", "value": "" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "handlerUses", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "a.txt" }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "done" }] }, "line": 83 }
+      ]
+    }
+    ]
+  }
+  ]
+}

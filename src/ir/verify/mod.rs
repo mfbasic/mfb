@@ -525,6 +525,7 @@ fn collect_diagnostics_with(
                 );
             }
         }
+        env.transfer_failure_flags.borrow_mut().clear();
         env.check_resource_moves(
             &function.body,
             &mut locals,
@@ -754,6 +755,13 @@ struct TypeEnv {
     /// already closed, while its handler is being checked — so a read of one is
     /// reported as that, not as an ordinary move.
     trap_closed: RefCell<HashSet<String>>,
+    /// bug-804: an inline-`TRAP` check chain's failure flag (`$trap_failedN`) →
+    /// the resources a transfer inside the chain moves on success. The chain's
+    /// handler runs behind that flag only when no transfer succeeded, so it sees
+    /// them unmoved. The flag is set in a nested check and read by a sibling of the
+    /// outermost one, so the map lives across the move pass's recursion; it is
+    /// cleared per function (temp names are unique only within one).
+    transfer_failure_flags: RefCell<HashMap<String, HashSet<String>>>,
     /// Project-relative file of the function currently being checked.
     current_file: RefCell<String>,
     /// bug-642: the user calls that instantiated the built-in package body being
@@ -1019,6 +1027,7 @@ impl TypeEnv {
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),
             trap_closed: RefCell::new(HashSet::new()),
+            transfer_failure_flags: RefCell::new(HashMap::new()),
             current_file: RefCell::new(String::new()),
             current_sites: RefCell::new(Vec::new()),
             current_return: RefCell::new(ParameterType::Unknown),

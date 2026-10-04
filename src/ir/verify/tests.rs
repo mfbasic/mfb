@@ -9279,3 +9279,217 @@ fn a_close_on_one_arm_does_not_move_the_resource_on_its_sibling() {
     let p = project(vec![owner_fn("run", "Nothing", body, &["f"])], vec![]);
     expect_no_rule(&p, "TYPE_USE_AFTER_MOVE");
 }
+
+// --- bug-804: a transfer moves its resource on the success edge only ---------
+//
+// Built as IR directly, so these pin the rule on the decoded-package path too,
+// where nothing but the verifier sees the shape.
+
+const RES_PLANE: &str = "Thread OF String RES fs.File TO Integer";
+
+/// A `thread::transfer(t, f)` as `target` lowers it: a propagating `Call`, or
+/// the `CallResult` an inline `TRAP` binds to `$trap_res`.
+fn transfer_value(target: &str, res: &str, checked: bool) -> IrValue {
+    let target = target.to_string();
+    let args = vec![
+        IrValue::Local("t".to_string()),
+        IrValue::Local(res.to_string()),
+    ];
+    let type_ = ParameterType::parse("Nothing");
+    let loc = IrSourceLoc::default();
+    if checked {
+        IrValue::CallResult {
+            target,
+            args,
+            type_,
+            loc,
+        }
+    } else {
+        IrValue::Call {
+            target,
+            args,
+            type_,
+            loc,
+        }
+    }
+}
+
+fn result_is_ok(result: &str) -> IrValue {
+    IrValue::ResultIsOk {
+        value: Box::new(IrValue::Local(result.to_string())),
+    }
+}
+
+/// A function holding `t` (a resource-plane thread) and owning `f`.
+fn transfer_fn(body: Vec<IrOp>) -> IrProject {
+    let mut f = owner_fn("run", "Nothing", body, &["f", "g"]);
+    f.params.push(param("t", RES_PLANE, None));
+    project(vec![f], vec![])
+}
+
+#[test]
+fn a_read_after_a_propagating_transfer_is_a_use_after_move() {
+    for target in [
+        crate::codegen::builtins::thread::TRANSFER_RESOURCE,
+        crate::codegen::builtins::thread::EMIT_RESOURCE,
+    ] {
+        let p = transfer_fn(vec![
+            bind("f", "fs.File", None, true, false),
+            eval(transfer_value(target, "f", false)),
+            read_of("f"),
+        ]);
+        expect_rule(&p, "TYPE_USE_AFTER_MOVE");
+    }
+}
+
+#[test]
+fn a_read_before_a_transfer_is_not_a_use_after_move() {
+    let p = transfer_fn(vec![
+        bind("f", "fs.File", None, true, false),
+        read_of("f"),
+        eval(transfer_value(
+            crate::codegen::builtins::thread::TRANSFER_RESOURCE,
+            "f",
+            false,
+        )),
+    ]);
+    expect_no_rule(&p, "TYPE_USE_AFTER_MOVE");
+}
+
+#[test]
+fn a_transfer_moves_a_possible_alias() {
+    // `RES g = same(f)` records g as a may-alias of f; transferring f moves g.
+    let p = transfer_fn(vec![
+        bind("f", "fs.File", None, true, false),
+        bind(
+            "g",
+            "fs.File",
+            Some(IrValue::Call {
+                target: "same".to_string(),
+                args: vec![IrValue::Local("f".to_string())],
+                type_: ParameterType::parse("fs.File"),
+                loc: IrSourceLoc::default(),
+            }),
+            true,
+            false,
+        ),
+        eval(transfer_value(
+            crate::codegen::builtins::thread::TRANSFER_RESOURCE,
+            "f",
+            false,
+        )),
+        read_of("g"),
+    ]);
+    expect_rule(&p, "TYPE_USE_AFTER_MOVE");
+}
+
+/// The one-check inline-TRAP shape: the failure arm keeps the resource.
+fn inline_transfer(then_body: Vec<IrOp>, else_body: Vec<IrOp>, after: Vec<IrOp>) -> IrProject {
+    let mut body = vec![
+        bind("f", "fs.File", None, true, false),
+        bind(
+            "$trap_res0",
+            "Result OF Nothing",
+            Some(transfer_value(
+                crate::codegen::builtins::thread::TRANSFER_RESOURCE,
+                "f",
+                true,
+            )),
+            false,
+            false,
+        ),
+        if_op(result_is_ok("$trap_res0"), then_body, else_body),
+    ];
+    body.extend(after);
+    transfer_fn(body)
+}
+
+#[test]
+fn an_inline_failure_arm_may_use_the_untransferred_resource() {
+    let p = inline_transfer(vec![], vec![read_of("f"), close_eval("f")], vec![]);
+    expect_no_rule(&p, "TYPE_USE_AFTER_MOVE");
+}
+
+#[test]
+fn the_inline_success_arm_sees_the_resource_moved() {
+    let p = inline_transfer(vec![read_of("f")], vec![], vec![]);
+    expect_rule(&p, "TYPE_USE_AFTER_MOVE");
+}
+
+#[test]
+fn a_read_after_an_inline_transfer_join_is_a_use_after_move() {
+    let p = inline_transfer(vec![], vec![read_of("f")], vec![read_of("f")]);
+    expect_rule(&p, "TYPE_USE_AFTER_MOVE");
+}
+
+#[test]
+fn a_diverging_success_arm_does_not_poison_the_failure_continuation() {
+    let p = inline_transfer(vec![ret_none()], vec![], vec![read_of("f")]);
+    expect_no_rule(&p, "TYPE_USE_AFTER_MOVE");
+}
+
+/// The check-chain shape: a fallible argument check wraps the transfer check,
+/// every failing `else` sets `$trap_failed1`, and the handler runs after the
+/// chain behind that flag.
+fn chain_transfer(handler: Vec<IrOp>, after: Vec<IrOp>) -> IrProject {
+    let set_failed = || IrOp::Assign {
+        name: "$trap_failed1".to_string(),
+        value: const_of("Boolean", "true"),
+        loc: IrSourceLoc::default(),
+    };
+    let mut body = vec![
+        bind("f", "fs.File", None, true, false),
+        bind(
+            "$trap_failed1",
+            "Boolean",
+            Some(const_of("Boolean", "false")),
+            false,
+            true,
+        ),
+        bind(
+            "$trap_res2",
+            "Result OF Integer",
+            Some(IrValue::CallResult {
+                target: "wait".to_string(),
+                args: vec![],
+                type_: ParameterType::parse("Integer"),
+                loc: IrSourceLoc::default(),
+            }),
+            false,
+            false,
+        ),
+        if_op(
+            result_is_ok("$trap_res2"),
+            vec![
+                bind(
+                    "$trap_res3",
+                    "Result OF Nothing",
+                    Some(transfer_value(
+                        crate::codegen::builtins::thread::TRANSFER_RESOURCE,
+                        "f",
+                        true,
+                    )),
+                    false,
+                    false,
+                ),
+                if_op(result_is_ok("$trap_res3"), vec![], vec![set_failed()]),
+            ],
+            vec![set_failed()],
+        ),
+        if_op(IrValue::Local("$trap_failed1".to_string()), handler, vec![]),
+    ];
+    body.extend(after);
+    transfer_fn(body)
+}
+
+#[test]
+fn a_check_chain_handler_may_use_the_untransferred_resource() {
+    let p = chain_transfer(vec![read_of("f")], vec![]);
+    expect_no_rule(&p, "TYPE_USE_AFTER_MOVE");
+}
+
+#[test]
+fn a_read_after_a_check_chain_join_is_a_use_after_move() {
+    let p = chain_transfer(vec![read_of("f")], vec![read_of("f")]);
+    expect_rule(&p, "TYPE_USE_AFTER_MOVE");
+}

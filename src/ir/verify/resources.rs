@@ -56,7 +56,10 @@ impl TypeEnv {
     /// leak moves back out), so no valid program is ever rejected; it catches
     /// the common close-then-use and double-close. Consumption = a call to the
     /// resource type's registered close op with the binding as its first
-    /// argument, or `RETURN <resource>`.
+    /// argument, `RETURN <resource>`, or a successful `thread::transfer` of it
+    /// (bug-804) — on the op's continuation for a propagating call, and only on
+    /// the `ResultIsOk` branch for an inline `TRAP`, whose failure arm keeps the
+    /// untransferred resource.
     pub(super) fn check_resource_moves(
         &self,
         ops: &[IrOp],
@@ -139,6 +142,12 @@ impl TypeEnv {
         // construct — never from the outer set as a sibling branch already merged
         // into it. Starting the `ELSE` from the merged set made a close in the
         // `THEN` a use-after-move in the `ELSE`, two paths that never meet.
+        //
+        // `start` overrides the moved set the branch begins with: a transfer's
+        // success branch begins with the transferred resource moved, and a check
+        // chain's failure handler begins without it (bug-804). Only the branch's OWN
+        // view changes; the merge below still only adds, so an override never
+        // un-moves a name in the outer set.
         type Entry = (
             HashSet<String>,
             HashMap<String, HashSet<String>>,
@@ -147,11 +156,12 @@ impl TypeEnv {
         let run_branch =
             |body: &[IrOp],
              entry: &Entry,
+             start: Option<HashSet<String>>,
              locals: &HashMap<String, ParameterType>,
              moved: &mut HashSet<String>,
              aliases: &mut HashMap<String, HashSet<String>>,
              contains: &mut HashMap<String, HashSet<String>>| {
-                let mut branch_moved = entry.0.clone();
+                let mut branch_moved = start.unwrap_or_else(|| entry.0.clone());
                 // Aliases discovered inside a branch merge back the same way moves do:
                 // "may alias on *some* fall-through path" is still may-alias after the
                 // join, and treating it otherwise would lose the relation exactly where
@@ -203,6 +213,12 @@ impl TypeEnv {
                     }
                 }
             };
+        // bug-804: an inline-`TRAP` transfer's result temp → the resource it sends.
+        // The `Bind $trap_res = CallResult(transfer(...))` and the
+        // `If ResultIsOk($trap_res)` that consumes it are always siblings in one op
+        // sequence (both desugar shapes in `lower_inline_trap`), so this map is
+        // local to the sequence.
+        let mut pending_transfers: HashMap<String, String> = HashMap::new();
         for op in ops {
             self.current_line.set(op.loc().line);
             // A read of an already-moved binding is a use-after-move. The
@@ -281,6 +297,41 @@ impl TypeEnv {
                     }
                     moved.insert(held);
                 }
+            }
+            // bug-804: a resource-plane `thread::transfer`. A plain `Call` propagates
+            // its failure out of this scope — to the caller, or to the function-level
+            // `TRAP`, whose handler already treats every local resource as closed — so
+            // the only continuation of the op itself is the success edge, and the
+            // resource is moved there. An inline `CallResult` defers the move to its
+            // `ResultIsOk` branch (the `If` arm below): its failure arm keeps the
+            // resource. Ordered after the read check for the same reason a close is.
+            match op {
+                IrOp::Eval { value, .. }
+                | IrOp::Assign { value, .. }
+                | IrOp::Bind {
+                    value: Some(value), ..
+                } if matches!(value, IrValue::Call { .. }) => {
+                    if let Some(sent) = self.transferred_resource(value, locals) {
+                        for alias in alias_closure(&sent, aliases) {
+                            moved.insert(alias);
+                        }
+                        moved.insert(sent);
+                    }
+                }
+                IrOp::Bind {
+                    name,
+                    value: Some(value),
+                    ..
+                }
+                | IrOp::Assign { name, value, .. } => {
+                    pending_transfers.remove(name);
+                    if matches!(value, IrValue::CallResult { .. }) {
+                        if let Some(sent) = self.transferred_resource(value, locals) {
+                            pending_transfers.insert(name.clone(), sent);
+                        }
+                    }
+                }
+                _ => {}
             }
             match op {
                 IrOp::Bind {
@@ -381,18 +432,82 @@ impl TypeEnv {
                     locals.insert(name.clone(), type_.clone());
                 }
                 IrOp::If {
+                    condition,
                     then_body,
                     else_body,
                     ..
                 } => {
+                    // bug-804: `If ResultIsOk($trap_res)` over an inline-`TRAP`
+                    // transfer. The success branch begins with the resource (and every
+                    // name that may denote it) moved; the failure branch begins without.
+                    // The ordinary merge then leaves it maybe-moved after the join when
+                    // the success branch falls through — which is the conservative rule:
+                    // after recovery it is moved on *some* path. A diverging success
+                    // branch adds nothing to the join.
                     let entry = (moved.clone(), aliases.clone(), contains.clone());
-                    run_branch(then_body, &entry, locals, moved, aliases, contains);
-                    run_branch(else_body, &entry, locals, moved, aliases, contains);
+                    let success_moves: HashSet<String> = match condition {
+                        IrValue::ResultIsOk { value } => match value.as_ref() {
+                            IrValue::Local(result) => pending_transfers
+                                .get(result)
+                                .map(|sent| {
+                                    let mut names = alias_closure(sent, aliases);
+                                    names.insert(sent.clone());
+                                    names.retain(|name| !moved.contains(name));
+                                    names
+                                })
+                                .unwrap_or_default(),
+                            _ => HashSet::new(),
+                        },
+                        _ => HashSet::new(),
+                    };
+                    // A check chain (a fallible call nested in the transfer's
+                    // arguments) runs its single handler AFTER the checks, behind a
+                    // failure flag every failing check's `else` sets first. The
+                    // handler only runs when this transfer did not succeed, so it is
+                    // entitled to see the resource unmoved — record which names this
+                    // flag restores.
+                    if !success_moves.is_empty() {
+                        if let Some(IrOp::Assign {
+                            name: flag,
+                            value: IrValue::Const { type_, value },
+                            ..
+                        }) = else_body.first()
+                        {
+                            if flag.starts_with('$')
+                                && *type_ == ParameterType::Boolean
+                                && value == "true"
+                            {
+                                self.transfer_failure_flags
+                                    .borrow_mut()
+                                    .entry(flag.clone())
+                                    .or_default()
+                                    .extend(success_moves.iter().cloned());
+                            }
+                        }
+                    }
+                    let then_start = if !success_moves.is_empty() {
+                        let mut start = entry.0.clone();
+                        start.extend(success_moves);
+                        Some(start)
+                    } else if let IrValue::Local(flag) = condition {
+                        // The chain's handler: `If $trap_failed { … }`.
+                        self.transfer_failure_flags.borrow().get(flag).map(|kept| {
+                            let mut start = entry.0.clone();
+                            start.retain(|name| !kept.contains(name));
+                            start
+                        })
+                    } else {
+                        None
+                    };
+                    run_branch(
+                        then_body, &entry, then_start, locals, moved, aliases, contains,
+                    );
+                    run_branch(else_body, &entry, None, locals, moved, aliases, contains);
                 }
                 IrOp::Match { cases, .. } => {
                     let entry = (moved.clone(), aliases.clone(), contains.clone());
                     for case in cases {
-                        run_branch(&case.body, &entry, locals, moved, aliases, contains);
+                        run_branch(&case.body, &entry, None, locals, moved, aliases, contains);
                     }
                 }
                 IrOp::ForEach {
@@ -423,7 +538,7 @@ impl TypeEnv {
                 }
                 IrOp::While { body, .. } | IrOp::For { body, .. } | IrOp::DoUntil { body, .. } => {
                     let entry = (moved.clone(), aliases.clone(), contains.clone());
-                    run_branch(body, &entry, locals, moved, aliases, contains);
+                    run_branch(body, &entry, None, locals, moved, aliases, contains);
                 }
                 // bug-676: every route into the function-level handler closes the
                 // function's own resources first (`trap_route_cleanups`, codegen:

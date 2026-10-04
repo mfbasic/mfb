@@ -1,0 +1,91 @@
+' bug-804: a successful `thread::transfer` moves the sent resource, so every
+' read of the sender's binding on the success continuation is
+' TYPE_USE_AFTER_MOVE. Each function below holds exactly one such read.
+IMPORT fs
+IMPORT io
+IMPORT thread
+
+FUNC same(RES f AS fs::File) AS RES fs::File
+  RETURN f
+END FUNC
+
+FUNC wait(text AS String) AS Integer
+  RETURN toInt(text)
+END FUNC
+
+ISOLATED FUNC worker(t AS ThreadWorker OF String RES fs::File TO Integer, seed AS String) AS Integer
+  LET signal = thread::receive(t)
+  RETURN 0
+END FUNC
+
+' Worker direction: the worker's own handle sends to the parent.
+ISOLATED FUNC giver(w AS ThreadWorker OF String RES fs::File TO Integer, path AS String) AS Integer
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(w, f)
+  LET line AS String = fs::readLine(f)
+  RETURN len(line)
+END FUNC
+
+' A propagating transfer, then a read.
+FUNC direct(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f)
+  io::print(fs::readLine(f))
+END FUNC
+
+' A transfer, then a second transfer of the same handle.
+FUNC twice(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f)
+  thread::transfer(t, f)
+END FUNC
+
+' A transfer, then a close.
+FUNC closeAfter(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f)
+  fs::close(f)
+END FUNC
+
+' `g` may denote the transferred resource, so it moves too.
+FUNC alias(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  RES g AS fs::File = same(f)
+  thread::transfer(t, f)
+  io::print(fs::readLine(g))
+END FUNC
+
+' After inline recovery the transfer may have succeeded.
+FUNC afterRecovery(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f, 0) TRAP(e)
+    io::print(e.message)
+    RECOVER
+  END TRAP
+  io::print(fs::readLine(f))
+END FUNC
+
+' The same after a check chain (a fallible call in the arguments).
+FUNC afterChain(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f, wait("0")) TRAP(e)
+    io::print(e.message)
+    RECOVER
+  END TRAP
+  io::print(fs::readLine(f))
+END FUNC
+
+' A transfer on one IF arm leaves the handle maybe-moved after the join.
+FUNC oneArm(t AS Thread OF String RES fs::File TO Integer, path AS String, send AS Boolean) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  IF send THEN
+    thread::transfer(t, f)
+  END IF
+  io::print(fs::readLine(f))
+END FUNC
+
+FUNC main() AS Nothing
+  RES t = thread::start(worker, "", 1, 1)
+  direct(t, "a.txt")
+  thread::send(t, "done")
+END FUNC

@@ -36,6 +36,12 @@
 ' registered close op through the path `native-resource-scope-drop-rt` pins. One
 ' owner at a time, one close.
 '
+' The transfer goes through `give`, a callee holding the handle as a `RES`
+' parameter, so `db` in `main` is an alias the static move check cannot see —
+' the case the runtime moved guard exists for. A direct `thread::transfer(t, db)`
+' followed by `sql::exec(db, …)` is rejected at compile time
+' (`TYPE_USE_AFTER_MOVE`, bug-804).
+'
 ' WHY 2000 ITERATIONS AND NOT 3. The correct arm is the deep copy into the
 ' RECEIVER's arena (`copy_resource_to_current_arena`); the other candidate
 ' considered for this bug was the move-only pointer arm, which is layout-agnostic
@@ -86,6 +92,11 @@ ISOLATED FUNC drain(t AS ThreadWorker OF RES Db TO Integer, rounds AS Integer) A
   RETURN used
 END FUNC
 
+' Hands the caller's database to the worker. The caller keeps its own binding.
+FUNC give(RES db AS Db, t AS Thread OF RES Db TO Integer) AS Nothing
+  thread::transfer(t, db, 5000)
+END FUNC
+
 FUNC main AS Integer
   RES t AS Thread OF RES Db TO Integer = thread::start(drain, 2000)
   MUT moved AS Integer = 0
@@ -93,7 +104,7 @@ FUNC main AS Integer
   WHILE i < 2000
     RES db AS Db = sql::open(":memory:")
     sql::exec(db, "CREATE TABLE seeded(a INTEGER);")
-    thread::transfer(t, db, 5000)
+    give(db, t)
     sql::exec(db, "INSERT INTO seeded VALUES (3);") TRAP(err)
       IF err.code <> 77030009 THEN FAIL err
       moved = moved + 1

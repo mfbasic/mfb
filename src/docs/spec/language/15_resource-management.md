@@ -74,7 +74,8 @@ runtime closed/moved checks, not by full static linearity. A statically invalid
 name reports `TYPE_USE_AFTER_MOVE`; a guarded operation through an untracked
 closed view reports `ErrResourceClosed`, and through a transferred view reports
 `ErrResourceMoved`. These checks are distinct from the lifetime of the resource
-record itself. The current static transfer gap is specified in §14.9.
+record itself. How a transfer's success and failure edges enter the static check
+is specified in §14.9.
 [[src/ir/verify/resources.rs:check_resource_moves]]
 [[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
@@ -269,8 +270,10 @@ hands the resource to the receiving side and marks the sender's record **moved**
 Every sender view shares that moved state, including the caller's view when a
 callee transfers a `RES` parameter. A later guarded operation reports
 `ErrResourceMoved`, not `ErrResourceClosed`: the handle belongs to another thread.
-The static checker currently omits transfer effects (§14.9), so this runtime
-check also protects direct post-transfer uses, not only indirect aliases.
+A direct read of the transferred name on the success continuation is rejected at
+compile time (`TYPE_USE_AFTER_MOVE`, §14.9); the runtime check protects the views
+that check cannot connect, such as the caller's binding after a callee transfers
+its `RES` parameter.
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
 [[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
@@ -283,7 +286,7 @@ unwinding are separate decisions:
 | --- | --- |
 | Successful continuation | Sender views are moved; the receiver owns the transferred handle. Sender cleanup must not close it. Reclamation of eligible sender-side tombstone records can remain scheduled. |
 | Inline `TRAP` failure arm | The resource remains in its pre-transfer state and cleanup scope. The handler may use it, close it, or retry. |
-| Continuation after inline recovery | The resource is moved if transfer succeeded; it retains the failure handler's resulting state if recovery ran. The current verifier does not encode this transfer-dependent distinction. |
+| Continuation after inline recovery | The resource is moved if transfer succeeded; it retains the failure handler's resulting state if recovery ran. Statically it is moved on some path, so a read of the transferred name here is `TYPE_USE_AFTER_MOVE` (§14.9). |
 | Propagation or function-level `TRAP` | Transfer itself leaves the resource unchanged, but exiting scopes run their cleanup. A local resource whose cleanup scope was exited is not reusable in the handler; a parameter owned further out is not closed merely by leaving the callee. |
 | Timeout before enqueue, including a full queue with `timeoutMs = 0` | `ErrTimeout`; no transfer, followed by the chosen error-routing rules above. |
 | Cancellation or queue/thread closure before enqueue | No transfer; the queue operation fails and the same error-routing rules apply. Error selection follows `./mfb spec threading queue-semantics`. |

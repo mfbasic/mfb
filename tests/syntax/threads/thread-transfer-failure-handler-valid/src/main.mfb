@@ -1,0 +1,84 @@
+' bug-804: a transfer moves its resource only on success. Every read below is on
+' a path where no transfer of that handle succeeded, so none is a use after move.
+IMPORT fs
+IMPORT io
+IMPORT thread
+
+FUNC wait(text AS String) AS Integer
+  RETURN toInt(text)
+END FUNC
+
+ISOLATED FUNC worker(t AS ThreadWorker OF String RES fs::File TO Integer, seed AS String) AS Integer
+  LET signal = thread::receive(t)
+  RETURN 0
+END FUNC
+
+' The inline failure arm keeps the untransferred handle: read it, then close it.
+FUNC handlerUses(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f, 0) TRAP(e)
+    io::print(fs::readLine(f))
+    fs::close(f)
+    RECOVER
+  END TRAP
+END FUNC
+
+' A check chain runs its handler after the checks, behind a failure flag; the
+' handler still sees the handle untransferred.
+FUNC chainHandlerUses(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f, wait("0")) TRAP(e)
+    io::print(fs::readLine(f))
+    RECOVER
+  END TRAP
+END FUNC
+
+' A handler that leaves the function: only the success path reaches the end, and
+' nothing reads the handle there.
+FUNC handlerReturns(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Boolean
+  RES f AS fs::File = fs::openFile(path)
+  thread::transfer(t, f, 0) TRAP(e)
+    io::print(fs::readLine(f))
+    RETURN FALSE
+  END TRAP
+  RETURN TRUE
+END FUNC
+
+' Retry until a transfer succeeds; the handler may use the handle every time.
+FUNC retry(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  MUT sent AS Boolean = FALSE
+  WHILE NOT sent
+    sent = TRUE
+    thread::transfer(t, f, 0) TRAP(e)
+      io::print(fs::readLine(f))
+      sent = FALSE
+      RECOVER
+    END TRAP
+  END WHILE
+END FUNC
+
+' A transfer on one arm does not move the handle on the other.
+FUNC otherArm(t AS Thread OF String RES fs::File TO Integer, path AS String, send AS Boolean) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  IF send THEN
+    thread::transfer(t, f)
+  ELSE
+    io::print(fs::readLine(f))
+  END IF
+END FUNC
+
+' Reads before the transfer, and a fresh binding after it.
+FUNC rebind(t AS Thread OF String RES fs::File TO Integer, path AS String) AS Nothing
+  RES f AS fs::File = fs::openFile(path)
+  io::print(fs::readLine(f))
+  thread::transfer(t, f)
+  RES g AS fs::File = fs::openFile(path)
+  io::print(fs::readLine(g))
+END FUNC
+
+FUNC main() AS Nothing
+  RES t = thread::start(worker, "", 1, 1)
+  handlerUses(t, "a.txt")
+  thread::send(t, "done")
+END FUNC

@@ -134,7 +134,8 @@ Use-after-move (§14.1, §14.8) is detected on the **typed IR** by the IR semant
 verifier's resource-move pass — the same checker that runs on decoded `.mfp`
 packages, so a crafted package cannot smuggle a double-free past it. The check is
 a static binding-validity check: close, return, and direct-name resource rebinds
-can mark a source name moved. A move in this check is not necessarily a transfer
+can mark a source name moved. A successful `thread::transfer` also moves its resource
+(below). A move in this check is not necessarily a transfer
 of cleanup responsibility: close ends the resource's open state, while a direct
 `RES new = old` can copy its reference and invalidate `old` without relocating its
 cleanup. The initializer table and cleanup model are specified in §15. Copying
@@ -164,20 +165,34 @@ A resource's cleanup scope follows the production, container-routing and
 escape rules in §15; merely reading or passing a pointer does not change it.
 Any holder — a resource parameter, a `FOR EACH`
 element binding, a `RES` binding whose ownership floated to a collection's scope —
-may close, `RETURN`, or transfer it. Close and return of a tracked name participate
-in the static move check; the owning scope closes an unescaped resource if nobody
+may close, `RETURN`, or transfer it. Close, return, and successful transfer of a
+tracked name participate in the static move check; the owning scope closes an unescaped resource if nobody
 already did.
 
-**Transfer is currently enforced dynamically, not by this moved-name set.**
-`consumed_resource` deliberately excludes `thread::transfer` (both lowered
-resource-plane directions). It does not distinguish a transfer's success and
-failure edges, and marking its `CallResult` unconditionally moved would reject
-legal reuse in an inline failure handler. Consequently even a direct read after
-an untrapped successful transfer can pass verification; a subsequent guarded
-resource operation raises `ErrResourceMoved`. This is a static-checking gap, not
-permission to use a successfully transferred resource. §15 specifies the runtime
-effects and the distinction between inline recovery and function-level cleanup.
-[[src/ir/verify/link.rs:consumed_resource]]
+**A successful transfer moves the sent name.** A resource-plane
+`thread::transfer(t, f)` of a tracked name `f` — the parent direction and the
+worker direction alike — marks `f`, and every name that may alias it, moved on
+the transfer's *success* edge only:
+
+* A transfer without an inline `TRAP` propagates its failure out of the scope, so
+  the statement's own continuation is the success edge: the next read of `f` is
+  `TYPE_USE_AFTER_MOVE`.
+* Under an inline `TRAP`, the failure handler runs on the failure edge and keeps
+  the untransferred resource: it may read, close, or retry `f`. This holds also
+  when a fallible call nested in the transfer's arguments makes the handler run
+  after the argument checks.
+* After the inline `TRAP` statement, `f` is moved on *some* fall-through path
+  (the transfer may have succeeded), so a read there is rejected by the join rule
+  above. A handler that diverges leaves only the success path to reach that code.
+
+Because the effect is attached to the success branch rather than to the call,
+`consumed_resource` (close and `RETURN`, which consume on every edge) does not
+list transfer; `transferred_resource` names the sent binding. A transfer through
+a name the check cannot connect to the caller's binding — a callee transferring
+its `RES` parameter — is still refused at run time: a later guarded operation
+raises `ErrResourceMoved`.
+[[src/ir/verify/link.rs:transferred_resource]]
+[[src/ir/verify/resources.rs:check_resource_moves]]
 [[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
 Because two names can now denote one resource, a consume through either marks

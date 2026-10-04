@@ -1110,6 +1110,37 @@ impl TypeEnv {
         }
     }
 
+    /// The resource binding a resource-plane `thread::transfer` hands to the other
+    /// thread, if `value` is that call (bug-804): `thread.transferResource` — the
+    /// one target both directions lower to — or `thread.emitResource`, the worker
+    /// direction codegen splits it into, with the resource at argument 1.
+    ///
+    /// Only the *binding* is answered, not when it moves. A `Call` propagates its
+    /// failure out of the scope, so the binding is moved on the op's normal
+    /// continuation; a `CallResult` (inline `TRAP`) moves it only on the
+    /// `ResultIsOk` branch, which the caller has to find.
+    pub(super) fn transferred_resource(
+        &self,
+        value: &IrValue,
+        locals: &HashMap<String, ParameterType>,
+    ) -> Option<String> {
+        let (IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. }) = value
+        else {
+            return None;
+        };
+        if target != crate::codegen::builtins::thread::TRANSFER_RESOURCE
+            && target != crate::codegen::builtins::thread::EMIT_RESOURCE
+        {
+            return None;
+        }
+        let IrValue::Local(name) = args.get(1)? else {
+            return None;
+        };
+        let type_ = locals.get(name)?;
+        self.close_op_for(&resource_base_type(type_))
+            .map(|_| name.clone())
+    }
+
     /// The resource binding consumed by an op, if any: a call to the binding's
     /// registered close op with it as the first argument, or `RETURN <binding>`.
     pub(super) fn consumed_resource(
@@ -1124,12 +1155,13 @@ impl TypeEnv {
                 }
                 _ => return None,
             };
-            // NOTE: thread::transfer is intentionally NOT treated as a move
-            // here. On the failure path of `transfer(...) TRAP(e)` ownership
-            // returns to the sender so the handler may close the resource — a
-            // straight-line detector cannot see that and would false-reject the
-            // valid recover pattern. The former source checker models the restore explicitly;
-            // the IR checker stays conservative and only tracks close/return.
+            // `thread::transfer` is NOT a consume here: a close consumes on every
+            // edge, a transfer only on its success edge. An inline `TRAP`'s
+            // failure arm keeps the untransferred resource, and its `CallResult`
+            // is evaluated before the success test, so treating it as a close
+            // would reject the legal handler. `transferred_resource` names the
+            // transferred binding and `check_resource_moves` attaches the move to
+            // the right edge (bug-804).
             // A registered close op consumes the resource at arg 0.
             let IrValue::Local(name) = args.first()? else {
                 return None;
