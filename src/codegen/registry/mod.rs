@@ -6636,10 +6636,12 @@ mod tests {
         // exact complements (exactly 1 implementation vs 2 or more), which is
         // what stops both from answering for the same member; asserting BOTH
         // halves is what makes that a property rather than a coincidence.
+        // bug-815 added the two `fs::File` overloads, so position 0 is `String` in
+        // two overloads and `File` in two: disagreement, which must decline.
         assert_eq!(
-            agreed_argument_type("json.parse", 0).map(|t| t.name().into_owned()),
-            Some("String".to_string()),
-            "both parse overloads take String first"
+            agreed_argument_type("json.parse", 0),
+            None,
+            "parse takes String or File first since bug-815 and must NOT be guessed"
         );
         assert_eq!(argument_types_typed("json.parse"), None);
         // Position 1 exists in only ONE of the two overloads. A position past
