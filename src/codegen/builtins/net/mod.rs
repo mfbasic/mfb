@@ -406,8 +406,11 @@ mod tests {
         ];
         let cases: &[(&str, &[&[&str]])] = &[
             ("net.percentDecode", &[&["ErrInvalidFormat"]]),
-            ("net.parseQuery", &[&[]]),
-            ("net.toUrl", &[&["ErrInvalidFormat", "ErrUnsupported"]]),
+            ("net.parseQuery", &[&["ErrOutOfMemory"]]),
+            (
+                "net.toUrl",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory", "ErrUnsupported"]],
+            ),
             (
                 "net.lookup",
                 &[&["ErrAddressInvalid", "ErrAddressNotFound", "ErrOutOfMemory"]],

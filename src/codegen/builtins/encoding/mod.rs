@@ -460,40 +460,80 @@ mod tests {
     fn members_declare_the_errors_they_raise() {
         const INVALID_FORMAT: &str = "ErrInvalidFormat";
         let cases: &[(&str, &[&[&str]])] = &[
-            ("encoding.percentDecode", &[&[INVALID_FORMAT]]),
-            ("encoding.formUrlDecode", &[&[INVALID_FORMAT]]),
-            ("encoding.base32Decode", &[&[INVALID_FORMAT]]),
-            ("encoding.base64Decode", &[&[INVALID_FORMAT]]),
-            ("encoding.base64UrlDecode", &[&[INVALID_FORMAT]]),
-            ("encoding.hexDecode", &[&[INVALID_FORMAT]]),
-            ("encoding.htmlUnescape", &[&[INVALID_FORMAT]]),
+            (
+                "encoding.percentDecode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.formUrlDecode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.base32Decode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.base64Decode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.base64UrlDecode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.hexDecode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.htmlUnescape",
+                &[&["ErrInvalidFormat", "ErrEncoding", "ErrOutOfMemory"]],
+            ),
             ("encoding.sleb128Decode", &[&[INVALID_FORMAT]]),
             ("encoding.uleb128Decode", &[&[INVALID_FORMAT]]),
-            ("encoding.uleb128Encode", &[&[INVALID_FORMAT]]),
-            ("encoding.utf16Decode", &[&[INVALID_FORMAT]]),
-            ("encoding.utf32Decode", &[&[INVALID_FORMAT]]),
+            (
+                "encoding.uleb128Encode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.utf16Decode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.utf32Decode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
             (
                 "encoding.utf8Decode",
                 &[&[INVALID_FORMAT], &[INVALID_FORMAT]],
             ),
             ("encoding.varintDecode", &[&[INVALID_FORMAT]]),
-            ("encoding.codepageDecode", &[&[INVALID_FORMAT]]),
-            ("encoding.codepageEncode", &[&[INVALID_FORMAT]]),
-            ("encoding.punycodeDecode", &[&[INVALID_FORMAT]]),
-            // No path in the body or its helpers reaches a `FAIL`.
+            (
+                "encoding.codepageDecode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.codepageEncode",
+                &[&["ErrInvalidFormat", "ErrOutOfMemory"]],
+            ),
+            (
+                "encoding.punycodeDecode",
+                &[&["ErrInvalidFormat", "ErrEncoding", "ErrOutOfMemory"]],
+            ),
+            // No path in the body or its helpers reaches a `FAIL`; the ones that
+            // build their result can run out of memory (bug-698).
             ("encoding.base32Encode", &[&[]]),
             ("encoding.base64Encode", &[&[]]),
             ("encoding.base64UrlEncode", &[&[]]),
-            ("encoding.formUrlEncode", &[&[]]),
+            ("encoding.formUrlEncode", &[&["ErrOutOfMemory"]]),
             ("encoding.hexEncode", &[&[]]),
             ("encoding.htmlEscape", &[&[]]),
-            ("encoding.percentEncode", &[&[]]),
-            ("encoding.punycodeEncode", &[&[]]),
-            ("encoding.sleb128Encode", &[&[]]),
-            ("encoding.utf16Encode", &[&[]]),
-            ("encoding.utf32Encode", &[&[]]),
+            ("encoding.percentEncode", &[&["ErrOutOfMemory"]]),
+            ("encoding.punycodeEncode", &[&["ErrOutOfMemory"]]),
+            ("encoding.sleb128Encode", &[&["ErrOutOfMemory"]]),
+            ("encoding.utf16Encode", &[&["ErrOutOfMemory"]]),
+            ("encoding.utf32Encode", &[&["ErrOutOfMemory"]]),
             ("encoding.utf8Encode", &[&[], &[]]),
-            ("encoding.varintEncode", &[&[]]),
+            ("encoding.varintEncode", &[&["ErrOutOfMemory"]]),
         ];
         assert_eq!(
             cases.len(),

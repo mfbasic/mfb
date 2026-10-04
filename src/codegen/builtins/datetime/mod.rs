@@ -1008,11 +1008,17 @@ mod tests {
             ("datetime.dayOfYear", &[&[OVERFLOW]]),
             ("datetime.weekday", &[&[OVERFLOW]]),
             ("datetime.resolve", &[&[OVERFLOW]]),
-            ("datetime.format", &[&[INVALID_FORMAT, OVERFLOW]]),
-            ("datetime.formatDuration", &[&[OVERFLOW]]),
+            (
+                "datetime.format",
+                &[&[INVALID_ARGUMENT, INVALID_FORMAT, "ErrOutOfMemory", OVERFLOW]],
+            ),
+            ("datetime.formatDuration", &[&["ErrOutOfMemory", OVERFLOW]]),
             (
                 "datetime.toIso",
-                &[&[OVERFLOW], &[INVALID_ARGUMENT, OVERFLOW]],
+                &[
+                    &["ErrOutOfMemory", OVERFLOW],
+                    &[INVALID_ARGUMENT, "ErrOutOfMemory", OVERFLOW],
+                ],
             ),
             // bug-640: a clock reading whose nanosecond count leaves the `Integer`
             // range raises (`tests/runtime/rt_datetime_clock_overflow.rs`).
