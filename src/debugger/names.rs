@@ -9,6 +9,11 @@
 //! An IR name that starts with `#` drops the `#` and uses `_mfb_ifn_` instead:
 //! that is a built-in package's internal function, or a file-`PRIVATE` function
 //! whose name carries a 16-hex-digit file hash and a `$`.
+//!
+//! A built-in package member the runtime implements natively is emitted at
+//! `_mfb_rt_<family>_<call>` (`crate::target::shared::runtime::symbol_for_call`),
+//! so `io::print` is `_mfb_rt_io_io_print`. The compiler's helper catalog maps
+//! that symbol back to the member it implements.
 
 /// Where a function in the listing comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -31,12 +36,15 @@ impl Origin {
     }
 }
 
+use crate::target::shared::runtime::{supported_helper_specs, symbol_for_call};
+
 const USER_PREFIX: &str = "_mfb_fn_";
 const INTERNAL_PREFIX: &str = "_mfb_ifn_";
+const RUNTIME_PREFIX: &str = "_mfb_rt_";
 const OWN_SUFFIX: &str = "$own";
 
 /// Classify a function the program defines, and recover the name its author
-/// wrote (`None` for runtime code, which has no such name).
+/// wrote: for runtime code, the package member it implements, if any.
 pub(crate) fn classify_defined(symbol: &str) -> (Origin, Option<String>) {
     if let Some(rest) = symbol.strip_prefix(USER_PREFIX) {
         return (Origin::User, Some(written_name(&decode(strip_own(rest)))));
@@ -46,7 +54,34 @@ pub(crate) fn classify_defined(symbol: &str) -> (Origin, Option<String>) {
             return (Origin::User, Some(written_name(name)));
         }
     }
+    if symbol.starts_with(RUNTIME_PREFIX) {
+        return (Origin::Runtime, package_member(symbol));
+    }
     (Origin::Runtime, None)
+}
+
+/// The built-in package member a runtime helper implements, as the developer
+/// writes it (`_mfb_rt_io_io_print` is `io::print`), or `None` for the runtime's
+/// own support code and for helpers no MFBASIC source can call by name.
+fn package_member(symbol: &str) -> Option<String> {
+    static MEMBERS: std::sync::OnceLock<std::collections::HashMap<String, String>> =
+        std::sync::OnceLock::new();
+    MEMBERS
+        .get_or_init(|| {
+            let registry = crate::codegen::registry::registry();
+            supported_helper_specs()
+                .iter()
+                .filter(|spec| registry.owning_package(spec.call).is_some())
+                .map(|spec| {
+                    (
+                        symbol_for_call(spec.helper, spec.call),
+                        spec.call.replacen('.', "::", 1),
+                    )
+                })
+                .collect()
+        })
+        .get(symbol)
+        .cloned()
 }
 
 /// The name a linked function has in C: the Mach-O symbol less its leading `_`.
@@ -199,6 +234,26 @@ mod tests {
                 "{symbol}"
             );
         }
+    }
+
+    #[test]
+    fn a_runtime_helper_reads_as_the_package_member_it_implements() {
+        for (symbol, member) in [
+            ("_mfb_rt_io_io_print", "io::print"),
+            ("_mfb_rt_fs_fs_open", "fs::open"),
+            ("_mfb_rt_net_net_lookup", "net::lookup"),
+        ] {
+            assert_eq!(
+                classify_defined(symbol),
+                (Origin::Runtime, Some(member.to_string())),
+                "{symbol}"
+            );
+        }
+        // A helper only the compiler calls has no written name.
+        assert_eq!(
+            classify_defined("_mfb_rt_net_net_connectTcpAddr"),
+            (Origin::Runtime, None)
+        );
     }
 
     #[test]

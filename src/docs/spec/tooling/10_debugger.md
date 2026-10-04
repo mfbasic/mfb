@@ -5,10 +5,10 @@
 programs and nothing else, and there is no cross-debugging. Today it starts or
 attaches to a program, pauses it, lists its functions, threads, registers and
 arenas, single-steps one thread or all of them, runs it to software
-breakpoints, and disassembles it; it is the seam later debugger features build
+breakpoints, disassembles it, and unwinds its threads' calls; it is the seam later debugger features build
 on.
 
-The developer-facing guide is `./mfb man debug debugger`.
+The developer-facing guide is `./mfb man debug`.
 
 ## Invocation
 
@@ -189,7 +189,8 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   when `waitpid(WNOHANG)` reaps it (exit status or signal); an attached one
   when `pid_for_task` fails or `kill(pid, 0)` finds no process
   (`Exit::Unknown`). After that the session refuses every command but `help`,
-  `list`, `list breakpoint` and `quit`, and `quit` reports `AlreadyExited`.
+  `list`, `list breakpoint`, a bare `list reg` and `quit`, and `quit` reports
+  `AlreadyExited`.
 - **Libraries.** `function_at` and `library_functions` read the loader's image
   list (`task_info(TASK_DYLD_INFO)` → `dyld_all_image_infos.infoArray`), and
   for each image but the executable its Mach-O header in memory: `__TEXT`'s
@@ -253,9 +254,12 @@ Then, repeatedly:
 | `list`, `l` | prints the `LIST_USAGE` block |
 | `list func` | prints the function listing |
 | `list thread` | prints the thread listing |
-| `list reg [<id>] [<register>...]` | prints thread `<id>`'s registers (default 0), or only those named |
+| `list reg [<id>]` | prints the `LIST_REG_USAGE` block |
+| `list reg [<id>] <what>...` | prints thread `<id>`'s registers (default 0) of each group or name in `<what>` |
 | `list arena` | prints the arena listing |
 | `show mem <where> [<size>]` | dumps `<size>` bytes (default 64) of memory |
+| `show type` | prints the `TYPE_USAGE` block |
+| `show type <type> <where> [...]` | prints the arena value at `<where>` read as `<type>` |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
@@ -265,10 +269,13 @@ Then, repeatedly:
 | `list breakpoint` | prints the breakpoint listing |
 | `run`, `r` | runs the program to the next stop |
 | `finish`, `f` | runs the current thread until its function returns |
+| `backtrace [<count>] [<id>]`, `bt …` | prints thread `<id>`'s frames (default the current thread), the innermost `<count>` (default all) |
+| `backtrace all`, `bt all` | prints every thread's frames |
 | `restart`, `rs` | starts a launched program again |
 | `disassemble`, `dis` | disassembles the current function |
-| `dis <count>` | disassembles `<count>` instructions from the current `pc` |
-| `dis <function>` | disassembles each function `<function>` names |
+| `dis <count>` | disassembles `<count>` instructions from the current `pc`; a negative count, that many before it and then the `pc` |
+| `dis <where> [<count>]` | disassembles from an address or register (either `±<offset>`): to the end of its function, or `<count>` as above |
+| `dis <function> [<count>]` | disassembles each function `<function>` names, or `<count>` from its start as above |
 | `quit`, `q` | ends the session |
 
 `list` may be spelled `l` in every form. Commands are case-sensitive.
@@ -281,11 +288,16 @@ Then, repeatedly:
 | `list <what>` for an unknown `<what>` | `cannot list '<what>'; type 'list' for what can be listed` |
 | `list func`/`thread`/`arena` with an argument, `list reg` with two | `too many arguments to '<name> <what>'` |
 | `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
-| `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for them all` |
+| `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for the groups` |
 | `show mem` with no location | `'show mem' needs an address or a register: show mem <where> [<size>]` |
 | `show mem` with a location that is neither `0x…` nor `<register>[±<n>]` | `'<where>' is not an address or a register` |
 | `show mem` with a size of 0 or over 65536 | `cannot show <size> bytes; give 1 to 65536` |
 | `show mem` at a vector register | `'<name>' is a vector register, not an address` |
+| `show type <type>` with no location | `'show type <type>' needs an address or a register: show type <type> <where>` |
+| `show type <word>` for a `<word>` that is no type | `cannot show type '<word>'; the types are: int, float, fixed, money, bool, byte, scalar, string, list, set, map, resource` |
+| a scalar, `string` or `resource` view with more than a location | `too many arguments to 'show type <type>'` |
+| a `list`/`set` span or type that reads as neither | `'<word>' is not an index or a range (3, 0..10, 2..) or a type` |
+| a `map` argument but `keys`, `values`, an index or `get` | `'<word>' is not an index, 'keys', 'values' or 'get <key>'` |
 | `finish` or `restart` with arguments | `'<name>' takes no arguments` |
 | `restart` of an attached program | `restart needs a program the debugger launched; this one was attached to` |
 | `finish` where no known function holds the `pc` | `cannot finish: no known function holds 0x…` |
@@ -298,17 +310,29 @@ Then, repeatedly:
 | `breakpoint` with more than `r <target>` | `too many arguments to '<name>'` |
 | a target starting `0x` that is not hex | `'<target>' is not an address` |
 | `run` with arguments | `'<name>' takes no arguments` |
-| `dis 0` (or a count past `u64`) | `cannot show <count> instructions; give 1 or more` |
-| `dis` with two arguments | `'<name>' takes at most one argument` |
+| a `backtrace` count that is not a `usize` of 1 or more | `'<count>' is not a number of frames (1 or more), or 'all'` |
+| `backtrace` with three arguments | `'<name>' takes at most two arguments` |
+| `backtrace <count> <id>` past the last thread | `no thread <id>: the program has <n> thread(s); type 'list thread' for them` |
+| a `dis` count of 0 or not an `i64` | `cannot show <count> instructions; give a count other than 0 (negative counts back)` |
+| `dis` with three arguments | `'<name>' takes at most two arguments` |
+| `dis` at an address not a multiple of 4 | `0x<address> is not the start of an instruction: they start every 4 bytes` |
+| `dis` counting back past address 0 | `there are not <n> instructions before 0x<address>` |
+| an address `0x<hex>±<offset>` below 0 or past `u64::MAX` | `'<word>' is below address 0` / `'<word>' is past the last address` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
 | `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
-| `show` alone | `'show' needs what to show: show mem <where> [<size>], or show arena [<id>]` |
-| `show <what>` but `mem` or `arena` | `cannot show '<what>'; 'show mem' and 'show arena' are what can be shown` |
+| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, or show arena [<id>]` |
+| `show <what>` but `mem`, `type` or `arena` | `cannot show '<what>'; 'show mem', 'show type' and 'show arena' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
-| any command but `help`, `list`, `list breakpoint`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+| any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+
+Every listing below is laid out by `prompt::table`: a header line naming its
+columns, then one line per row; the columns are one space apart and each but
+the last is left-aligned to its widest entry, header included, counted in
+characters. A listing with no rows prints no header.
+[[src/debugger/prompt.rs:table]]
 
 A listing or step the backend cannot produce prints `error: <reason>`. All go
 to stderr after stdout is flushed; the prompt continues. End of input writes a
@@ -322,27 +346,30 @@ unbound import) is shown once; the same name at two addresses is shown twice:
 [[src/debugger/prompt.rs:function_lines]]
 
 ```text
-<type> <address> <name> <written name>
+Type Address Symbol Written name
+<type> <address> <symbol> <written name>
 ```
 
 - `<type>` is `MU`, `MR` or `LN`, and lines are grouped in that order; within a
   group they are in address order with an unbound import last, and ties keep
   symbol-table order.
-- `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import,
-  left-aligned in 18 columns.
-- `<name>` is the symbol as the executable spells it, left-aligned to the
-  longest name in the listing.
+- `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import.
+- `<symbol>` is the symbol as the executable spells it.
 - `<written name>` is the name the developer wrote, or `-`.
 
 Classification and the written name come from the symbol alone
 (`src/debugger/names.rs:classify_defined`), inverting
-`src/target/shared/nir/symbols.rs:function_symbol`: [[src/debugger/names.rs:classify_defined]]
+`src/target/shared/nir/symbols.rs:function_symbol` and, for a runtime helper,
+`src/target/shared/runtime/mod.rs:symbol_for_call` over the helper catalog
+(`supported_helper_specs`): [[src/debugger/names.rs:classify_defined]]
+[[src/debugger/names.rs:package_member]]
 
 | Symbol | Type | Written name |
 | --- | --- | --- |
 | `_mfb_fn_<escaped>` | `MU` | `<escaped>` with each `_XX` (two uppercase hex digits) decoded to its byte, then reduced as below |
 | `_mfb_ifn_<escaped>` decoding to `<16 hex>$<name>` (a file-`PRIVATE` function) | `MU` | `<name>`, reduced as below |
-| any other defined symbol (`_mfb_ifn_` built-in internals, `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
+| `_mfb_rt_<family>_<call>` that `symbol_for_call` makes from a catalog spec whose `call` is a registry package member (`registry().owning_package` answers) | `MR` | `call` with its first `.` written `::`: `_mfb_rt_io_io_print` is `io::print` |
+| any other defined symbol (`_mfb_ifn_` built-in internals, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
 | an import | `LN` | the symbol less one leading `_` |
 
 A trailing `$own<hex>` (a hand-over copy; the mask is not escaped) is dropped
@@ -354,7 +381,8 @@ empty. A `_` not followed by two uppercase hex digits is kept literally.
 
 ### `list thread`
 
-One line per thread, in the backend's order, `<id> <name> <pc> <task>`:
+One line per thread, in the backend's order, `<id> <name> <pc> <task>`, under
+the header `ID Name PC Task`:
 [[src/debugger/prompt.rs:thread_lines]]
 
 - `<id>` is the thread's index, the id `list reg` and `list arena` use.
@@ -378,23 +406,37 @@ no globals, so an app's main thread paused in a system call is `Other` there.
 
 ### `list reg`
 
-One line per register of thread `<id>` (default 0) — or, given names, one per
-name in the order given — as `<register> 0x<hex> (<decimal>)`: the name
-left-aligned to the longest, the value as `0x` plus 16 lowercase hex digits
+The arguments are split at whitespace and at commas, so `x0, x1,x2` names
+three registers. A first argument of all digits is the thread id `<id>`
+(default 0). With no other argument the command prints the `LIST_REG_USAGE`
+block, even after the program has ended; otherwise every other argument picks
+registers, in the order given: `gpr`, `simd` and `sys` pick every register of
+that `RegisterGroup` in the backend's order, and any other word picks the one
+register of that name. [[src/debugger/prompt.rs:RegisterPick]]
+
+One line per register picked, `<register> 0x<hex> (<decimal>)`, under the
+header `Register Hex Decimal`: the value as `0x` plus 16 lowercase hex digits
 (64-bit) or 32 (128-bit), and the same value in decimal, signed for a 64-bit
-register (as MFBASIC's `Integer`) and unsigned for a 128-bit one. A first
-argument of all digits is the thread id; every other argument is a register
-name. [[src/debugger/prompt.rs:register_lines]] On
-AArch64 the set is the registers generated code can use
-(`src/arch/aarch64/regmodel.rs`): `x0`–`x17`, `x19`–`x28`, `lr`, `sp`, `pc`,
-`nzcv`, `v0`–`v31`. `x18` (platform-reserved) and `x29` (generated code keeps
-no frame pointer) are omitted; `nzcv` is CPSR with every bit but 31–28
-cleared, as the `NZCV` system register reads.
+register (as MFBASIC's `Integer`) and unsigned for a 128-bit one.
+[[src/debugger/prompt.rs:register_lines]]
+
+On AArch64 every register of the thread state is read
+(`src/debugger/macos.rs:arm64_registers`):
+
+| Group | Registers |
+| --- | --- |
+| `gpr` (`General`) | `x0`–`x28`, `fp` (x29), `lr` (x30) |
+| `sys` (`System`) | `sp`, `pc`, `nzcv`, `fpsr`, `fpcr` |
+| `simd` (`Simd`) | `v0`–`v31` |
+
+`nzcv` is CPSR with every bit but 31–28 cleared, as the `NZCV` system register
+reads; `fpsr` and `fpcr` are the 32-bit words of `ARM_NEON_STATE64`.
 
 ### `list arena`
 
 One line per live arena in the `--debug` registry,
-`<id> <thread id> <address> <size in KB>`: [[src/debugger/runtime.rs:arenas]]
+`<id> <thread id> <address> <size in KB>`, under the header
+`ID Thread Address Size (KB)`: [[src/debugger/runtime.rs:arenas]]
 [[src/debugger/prompt.rs:arena_lines]]
 
 - `<id>` is the registry slot (`./mfb spec tooling debug-report`); a slot whose
@@ -456,11 +498,99 @@ instruction`, `an arithmetic exception`, `a breakpoint instruction`, or
 
 [[src/debugger/prompt.rs:show_memory]] `show mem <where> [<size>]` reads
 `<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at `<where>`:
-an address (`0x…`), or a register of the current thread with an optional
-offset (`sp`, `sp+0x18`, `x19-16`; a 64-bit register only). It prints
+an address (`0x…`), or a register of the current thread, either with an
+optional offset (`0x1000-0x10`, `sp`, `sp+0x18`, `x19-16`; a 64-bit register
+only). [[src/debugger/prompt.rs:address]] It prints
 `Memory at 0x<address>:` — with ` (<register>±0x<offset> of thread <t>)` for a
 register — then the bytes as `show arena`'s dump does, each line led by its
 full address (`0x` + 16 digits). [[src/debugger/prompt.rs:memory_lines]]
+
+### `show type`
+
+[[src/debugger/values.rs:show]] `show type <type> <where> [...]` reads the value
+at `<where>` (as `show mem` resolves it: an address, or a register's value plus
+an offset) as `<type>`; `show type` alone prints the `TYPE_USAGE` block, even
+after the program has ended. `<type>` is `int`/`integer`, `float`, `fixed`,
+`money`, `bool`/`boolean`, `byte`, `scalar`, `string`, `list`, `set`, `map` or
+`resource`, in any case. [[src/debugger/values.rs:parse_view]]
+
+Every byte read must lie in the usable space (`blockAddress + 32` up to
+`blockAddress + blockSize`) of one block of one arena in the `--debug` registry
+(`Region`); without a registry the command fails with `'show type' reads values
+in the arena, which needs a debug build; …`, and before the runtime has started
+with `no arenas yet: …`. An address in no block is `0x<address> is not in an
+arena block, so it holds no <Type>; 'show mem' reads any memory`; one whose
+bytes run past their block is `not a <Type> at 0x<address>: its <n> bytes run
+past the end of their arena block`. Layouts are `./mfb spec memory
+heap-values`, `scalar-storage` and `collections`.
+
+| Type | Bytes | Prints |
+| --- | --- | --- |
+| `int` | 8 | `Value: 0x<16 hex> (<signed decimal>)` |
+| `float` | 8 | `Value: 0x<16 hex> (<f64, as Rust's Debug>)` |
+| `fixed` | 8 | `Value: 0x<16 hex> (<as toString prints it: 2 places, rounded half away from zero>)` |
+| `money` | 8 | `Value: 0x<16 hex> (<raw / 100000, 5 places>)` |
+| `bool` | 1 | `Value: 0x00 (FALSE)` or `0x01 (TRUE)`; any other byte fails |
+| `byte` | 1 | `Value: 0x<2 hex> (<decimal>)` |
+| `scalar` | 4 | `Value: 0x<8 hex> (U+<hex> '<char>')`; a non-codepoint fails |
+| `string` | 8 + length + 1 | `Length: <n> Value: "<text>"` |
+
+A `string`'s length word, its bytes and its NUL must lie in the block
+(`not a String … its length, <n>, runs past the end of its arena block`), its
+bytes must be UTF-8 (`not a String … byte <i> of its value, 0x<b>, is not
+UTF-8`), and at most 65536 bytes are shown, then ` (the first 65536 bytes)`. Text
+is escaped as `char::escape_debug` does ([[src/debugger/values.rs:quoted]]).
+
+`list`, `set` and `map` read a 40-byte `CollectionHeader` and check it: the kind
+byte (0 or 2 for `list`, 3 for `set`, 1 for `map`; else `not a <Type> … its kind
+byte is <k>, a <Kind>` or `…, which no collection has`), the type codes (a list's
+key type 0 and a known value code; a set's known key code and Boolean value; a
+map's known codes), `count <= capacity`, `dataLength <= dataCapacity`, a kind-2
+list's `count * width <= dataCapacity`, and that the block —
+`40 + capacity*40 (none for kind 2) + dataCapacity`, the hash index excluded — is
+in one arena block. With no further argument each prints one line:
+
+```text
+List Type: <type> Length: <count> Capacity: <capacity> Data: <dataLength>/<dataCapacity> bytes Block: 0x<start>-0x<end> (<size> bytes)
+Set Type: <type> Length: <count - dead> Removed: <dead> Capacity: … Data: … Block: …
+Map Keys: <count - dead> Key Type: <type> Value Type: <type> Removed: <dead> Capacity: … Data: … Block: …
+```
+
+`<type>` names a runtime type code (code 22 is `object (Set, record, enum,
+resource or function)`). `list|set <where> [<type>] <span>` prints the elements
+`<span>` picks — `<i>`, `<a>..<b>` (`a < b`, `b` excluded) or `<a>..` — as a
+table `Index Address Bytes Value` (`Element` for a set), skipping removed
+entries; a span past the last element fails with `no element <i>: the <Type> has
+<n> (numbered from 0)`. Each entry's flags must be used (1), or removed (2) in a
+set or map, and its payloads within `dataLength`. `map <where> keys [<type>]`
+and `values [<type>]` print every key or value the same way; `map <where> <i>`
+prints `Index: <i>`, `Key: <value> at 0x<address> (<n> bytes)` and `Value: …`;
+`map <where> get <key>` prints the same for the entry whose key bytes equal
+`<key>` encoded as the key type stores it (the rest of the line, less one pair of
+surrounding quotes; Integer decimal or `0x` hex, Float, Fixed and Money decimal,
+Boolean `TRUE`/`FALSE`, Byte, Scalar as one character or `U+<hex>`; codes 20–22
+cannot be looked up), else `the map has no key <key>`.
+
+A payload is decoded by its type code: Nothing as `Nothing`, a scalar as above
+(its size must be the type's width), String bytes as `"<text>"`, a nested List
+or Map (codes 20/21) as its header line plus ` (inline)` for a block inlined in
+the data region or ` (stored at 0x…)` for an 8-byte payload holding the block's address. Code 22 needs
+`<type>`: `set` (inline or pointer, as above) or `resource` (an 8-byte pointer,
+shown as `resource` shows it); without one it prints `(type code 22: name it, as
+set or resource, to read it)`. A `<type>` that contradicts a known code fails
+with `the elements are <Type>, not <Type>`.
+
+`resource` reads a 112-byte resource record and prints one line:
+`Type: <kind> Closed: Y|N Moved: Y|N <handle>: <value> State: 0x<16 hex> Scope:
+<scope>` then the kind's own fields (`File`: `Write Buffer`, `Write Filled`,
+`Write Enabled`, `Read Buffer`, `Read Position`, `Read Filled`, `At EOF`; the
+TLS and audio tails of the layout tables), counts in decimal and addresses in
+hex. `Closed` and `Moved` are bits 0 and 1 of the word at `+16`; `<handle>` is
+`Handle (fd)` in decimal for the fd-backed kinds; `<scope>` is the owner word at
+`+32`: `none (not bound to a scope yet)` for 0, else the token with its depth and
+token slot decoded (`((sp + token_slot) << 12) -
+depth`). A tag outside the resource tag table fails with `not a resource …: its
+tag, <t>, is no resource kind`.
 
 ### `show arena`
 
@@ -496,7 +626,8 @@ outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
 ### Breakpoints
 
 [[src/debugger/breakpoints.rs:Breakpoints]] A `<target>` starting `0x` (or
-`0X`) is an address in hex; anything else is a name.
+`0X`) is an address in hex, perhaps `+` or `-` an offset (decimal, or hex after
+`0x`), as `show mem` reads one; anything else is a name.
 
 - **By address**: one breakpoint at that address, described by the function
   that holds it (`<symbol>+0x<offset>` and `<written>+0x<offset>`), a linked
@@ -520,9 +651,9 @@ breakpoints whose symbol is `<target>`, or else whose written name is. Each
 prints `Removed the breakpoint at <place>.`; none fails with `there is no
 breakpoint at <address>` / `on '<target>'`.
 
-`list breakpoint` prints `<address> <symbol> <written name>` per breakpoint, in
-address order with pending ones last (`-` for the address), the symbol column
-left-aligned to the longest; with none, `no breakpoints`.
+`list breakpoint` prints `<address> <symbol> <written name>` per breakpoint
+under the header `Address Symbol Written name`, in address order with pending
+ones last (`-` for the address); with none, `no breakpoints`.
 
 ### `run`
 
@@ -549,7 +680,17 @@ the last `run` stopped (the first breakpoint hit, or the exception's thread)
 or the last `step` ran; thread 0 before either, or when it has ended.
 
 - `dis`: the function holding the current thread's `pc`, from its start.
-- `dis <count>` (all digits): `<count>` instructions from the `pc`.
+- `dis <count>` (digits, perhaps after `-`): a count, never 0. A positive count
+  is that many instructions from the `pc`; a negative one is that many before
+  it, then the `pc`'s own.
+- `dis <where> [<count>]`, `<where>` starting `0x`, holding `+` or `-`, or a
+  register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it resolves to
+  as `show mem` resolves one, which must be a multiple of 4. With no count, the
+  listing runs from there to the end of the function holding it (or to the first
+  `ret` or 64 instructions when its extent is unknown); with one, as for
+  `dis <count>`. The header names the function holding that address.
+- `dis <function> <count>`: `<count>` counted from each function's start, as
+  for `dis <count>`.
 - `dis <function>`: resolved as a breakpoint name is — symbols spelled
   `<function>` (the executable's, its imports' bound addresses, the libraries'
   via `library_functions`), else written names (the executable's functions,
@@ -566,7 +707,8 @@ The listing is lldb's: a header `<image>`<name>:` (`<image>`0x<start>:` when
 unnamed; `0x<start>:` when no image holds it), where the name is the written
 name for the developer's functions and otherwise the symbol less one leading
 `_`; then per instruction `->  ` at the current `pc` or four spaces, the
-address as `0x` and 16 hex digits, ` <+<offset>>:` padded to the widest in the listing (omitted
+address as `0x` and 16 hex digits, ` <+<offset>>:` (` <-<offset>>:` before the
+function's start, when a count runs back past it) padded to the widest in the listing (omitted
 when no image holds it), and the instruction. A comment follows from column 33
 of the instruction text: `=<decimal>` for a wide `mov` immediate; for a branch
 or call, `<+<offset>>` inside this function, else the function at the target
@@ -599,6 +741,51 @@ on. Any other stop — a user breakpoint, an exception, Ctrl-C, the end —
 removes them and is reported as `run` reports it. With no function at the
 `pc`: `cannot finish: no known function holds 0x…`; with no `ret` found:
 `cannot finish: no ret instruction found in the function at 0x…`.
+
+### `backtrace`
+
+[[src/debugger/backtrace.rs:frames]] Unwinds thread `<id>` (default the
+current thread, falling back to 0 when it has ended) from its `pc`, `sp`,
+`fp` and `lr`. Executables carry no unwind tables and MFBASIC code keeps no
+frame-pointer chain (`./mfb spec memory native-calling-convention`), so each
+frame is unwound by reading its function's code from its start to the frame's
+`pc` (`state_at`), as lldb does for code without unwind tables:
+[[src/debugger/backtrace.rs:state_at]]
+
+- The state tracked is `sp - CFA` (the CFA is the `sp` on entry), where `lr`
+  and the caller's `fp` are saved (offsets from the CFA), and `fp - CFA` once
+  the function points `fp` at a frame record.
+- `sub`/`add sp, sp, #imm{, lsl #12}` move `sp`; `str` (unsigned offset, pre-
+  and post-index) and `stp` (offset, pre- and post-index) through `sp`, `fp`,
+  or a register set by `add x<n>, sp, #imm` record where `x29`/`x30` went;
+  `ldr`/`ldp` of `x29`/`x30` put them back in their registers; `add x29, sp,
+  #imm` sets `fp`; `sub sp, x29, #imm` sets `sp` from it; any other write to
+  `sp` makes it unknown, and the CFA then comes from `fp`.
+- The prologue is the leading run of `sp` decrements, stores through `sp` (or a
+  register set from it), `add x<n>, sp, #imm` and hints. The state it leaves is
+  the body's: `ret`, `br`, or `b` outside the function's extent restores it, so
+  an epilogue in the middle of a function does not leak into the code after it.
+
+A frame's caller resumes at the saved `lr` (the thread's `lr` for the
+innermost frame while it is unsaved), with `sp` the CFA and `fp` the saved one
+(else unchanged); the address has bits 63–47 cleared. The function for a frame
+after the first is looked up at its return address less 4, so a call that is a
+function's last instruction is attributed to it. The walk ends after the
+program entry `_main` (whose caller's return address is gone once it calls),
+at a frame no function holds (the innermost one is unwound as a function that
+has not touched the stack), when the next return address is 0, when the next
+frame's `sp` is below this one's (or equal, past the innermost frame), or at
+4096 frames.
+
+Output follows lldb's `bt`: per thread,
+`<mark> thread #<id>[, name = '<name>'], task = '<task>'` (`<mark>` `*` for the
+current thread, else a space; `<name>` only for a thread that named itself;
+`<task>` as `list thread`), then per frame
+`  <mark> frame #<n>: 0x<pc> <image>`<function>[ + <offset>]`, `<mark>` `*` on
+the current thread's frame 0, `<function>` named as `dis` names it
+(`disassemble::display_name`), else `0x<start>`; the offset is decimal and
+omitted when 0; a frame no image names prints only its address.
+[[src/debugger/backtrace.rs:lines]]
 
 ### `restart`
 

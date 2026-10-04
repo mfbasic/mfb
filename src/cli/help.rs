@@ -89,6 +89,8 @@ Commands at the DBG> prompt:
   show        Show memory: show mem <address|register[+offset]> [<size>]
               An arena's state and blocks: show arena [<id>]
               Dump a block: show arena <id> <block> [<offset>] [<size>]
+              An arena value as a type: show type <type> <address|register>
+              ('show type' alone for the types and their forms)
   breakpoint, bp
               Set a breakpoint: breakpoint <address|function>
               Remove one: breakpoint r <address|function>
@@ -96,8 +98,12 @@ Commands at the DBG> prompt:
   finish, f   Run until the current function returns
   restart, rs Start the program again (a program the debugger launched)
   disassemble, dis
-              Disassemble the current function, dis <count> instructions from
-              the current one, or dis <function>
+              Disassemble the current function; dis <count> instructions from
+              the current one (negative: before it); dis <where> [<count>]
+              from an address or register (pc-0x20); dis <function> [<count>]
+  backtrace, bt
+              Show the current thread's calls: bt [<count>] [<thread>];
+              every thread's: bt all
   step, s     Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa
               Run every thread together: step-all [<count>] (default 1)
@@ -106,10 +112,12 @@ Commands at the DBG> prompt:
 
 Function names and arenas come from a debug build (mfb build --debug -O0);
 without one, list func shows only the functions the program calls in linked
-libraries, and list arena is not available.
+libraries, and list arena, show arena and show type are not available.
 
 The prompt reads commands from stdin, so a script can drive it through a pipe;
 end of input ends the session the same way as quit.
+
+The guide: mfb man debug.
 
 Arguments:
   <binary>    The executable to launch. An existing file wins over a <pid>.

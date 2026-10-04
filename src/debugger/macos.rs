@@ -61,8 +61,8 @@ use std::time::{Duration, Instant};
 
 use super::macho::{self, Location};
 use super::{
-    Backend, Ending, Exit, FunctionRange, FunctionSymbol, Inferior, Register, RegisterValue,
-    RunStop, Step, StepStop, ThreadFacts,
+    Backend, Ending, Exit, FunctionRange, FunctionSymbol, Inferior, Register, RegisterGroup,
+    RegisterValue, RunStop, Step, StepStop, ThreadFacts,
 };
 
 type MachPort = u32;
@@ -1515,13 +1515,12 @@ impl Exception {
     }
 }
 
-/// `__darwin_arm_neon_state64`: 32 128-bit registers, then FPSR and FPCR,
-/// which MFBASIC code never reads or sets; they are here for the layout.
+/// `__darwin_arm_neon_state64`: 32 128-bit registers, then FPSR and FPCR.
 #[repr(C, align(16))]
 struct NeonState {
     v: [u128; 32],
-    _fpsr: u32,
-    _fpcr: u32,
+    fpsr: u32,
+    fpcr: u32,
 }
 
 /// Read one register set of `thread` into `state`, which holds `count` ints.
@@ -1766,8 +1765,8 @@ impl Inferior for Task {
         let general = general_state(thread)?;
         let mut neon = NeonState {
             v: [0; 32],
-            _fpsr: 0,
-            _fpcr: 0,
+            fpsr: 0,
+            fpcr: 0,
         };
         thread_state(
             thread,
@@ -1775,7 +1774,7 @@ impl Inferior for Task {
             ptr::addr_of_mut!(neon).cast(),
             ARM_NEON_STATE64_COUNT,
         )?;
-        Ok(arm64_registers(&general, &neon.v))
+        Ok(arm64_registers(&general, &neon))
     }
 
     fn step(&mut self, indices: &[usize], count: u64) -> Result<Vec<Step>, String> {
@@ -1963,26 +1962,42 @@ impl Task {
     }
 }
 
-/// The registers MFBASIC code uses, in display order, from the
+/// Every register of a thread, in display order, from the
 /// `__darwin_arm_thread_state64` words (x0–x28, fp, lr, sp, pc, cpsr) and the
-/// NEON registers. Generated code never touches x18 or the frame pointer x29
-/// (`crate::arch::aarch64::regmodel`), so neither is shown; NZCV is the top
-/// four bits of CPSR, shown where the `NZCV` system register holds them.
-fn arm64_registers(general: &[u64; 34], vectors: &[u128; 32]) -> Vec<Register> {
-    let x = |name: String, value: u64| Register {
+/// NEON state (v0–v31, fpsr, fpcr): the general-purpose registers, then the
+/// system ones, then the SIMD ones. NZCV is the top four bits of CPSR, shown
+/// where the `NZCV` system register holds them.
+fn arm64_registers(general: &[u64; 34], neon: &NeonState) -> Vec<Register> {
+    let x = |name: String, group: RegisterGroup, value: u64| Register {
         name,
+        group,
         value: RegisterValue::Bits64(value),
     };
     let mut registers = (0..29)
-        .filter(|index| *index != 18)
-        .map(|index| x(format!("x{index}"), general[index]))
+        .map(|index| x(format!("x{index}"), RegisterGroup::General, general[index]))
         .collect::<Vec<_>>();
-    registers.push(x("lr".to_string(), general[30]));
-    registers.push(x("sp".to_string(), general[31]));
-    registers.push(x("pc".to_string(), general[32]));
-    registers.push(x("nzcv".to_string(), general[33] & 0xf000_0000));
-    registers.extend(vectors.iter().enumerate().map(|(index, value)| Register {
+    registers.push(x("fp".to_string(), RegisterGroup::General, general[29]));
+    registers.push(x("lr".to_string(), RegisterGroup::General, general[30]));
+    registers.push(x("sp".to_string(), RegisterGroup::System, general[31]));
+    registers.push(x("pc".to_string(), RegisterGroup::System, general[32]));
+    registers.push(x(
+        "nzcv".to_string(),
+        RegisterGroup::System,
+        general[33] & 0xf000_0000,
+    ));
+    registers.push(x(
+        "fpsr".to_string(),
+        RegisterGroup::System,
+        neon.fpsr.into(),
+    ));
+    registers.push(x(
+        "fpcr".to_string(),
+        RegisterGroup::System,
+        neon.fpcr.into(),
+    ));
+    registers.extend(neon.v.iter().enumerate().map(|(index, value)| Register {
         name: format!("v{index}"),
+        group: RegisterGroup::Simd,
         value: RegisterValue::Bits128(*value),
     }));
     registers

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Runs every shell example in the `mfb man debug` topic on the platform it is for.
+# Runs every shell example in the `mfb man debug` and `mfb man debug-external`
+# topics on the platform it is for.
 #
-# The topic's scripts live in src/docs/man/debug/*.md as fenced blocks tagged by
-# platform:
+# The topics' scripts live in src/docs/man/debug/*.md and
+# src/docs/man/debug-external/*.md as fenced blocks tagged by platform:
 #
 #   ```sh macos            run with bash on this Mac, from a scratch copy of the repo
 #   ```sh linux            run with bash on a Linux box over ssh
@@ -20,10 +21,13 @@
 # build — the debugger, the profiler, the lookups — runs on the target OS.
 #
 # A block passes when it exits 0 and prints at least one line naming an MFBASIC
-# function (`mfb_fn_`), a debug report's end (`mfb.debug.end`) or its main arena
-# (`arena.0.kind`); the setup block passes when gdb prints its version. Each block's
-# output is kept in $OUT/<platform>-<page>-<n>.log for refreshing the topic's
-# sample output.
+# function (`mfb_fn_`), a debug report's end (`mfb.debug.end`), its main arena
+# (`arena.0.kind`) or the end of an `mfb dbg` session (`DBG> q`); the setup block
+# passes when gdb prints its version. Each block's output is kept in
+# $OUT/<platform>-<page>-<n>.log for refreshing the topics' sample output.
+#
+# The macOS blocks run `mfb dbg`, which macOS lets pause a program only when it is
+# signed for it, so the harness signs <mfb-exe> with scripts/sign-debugger.sh first.
 #
 # Usage: man-debug-examples.sh <mfb-exe> [macos|linux|windows|all] [--setup]
 #
@@ -44,7 +48,7 @@ setup=0
 [ "${3:-}" = "--setup" ] && setup=1
 mfb=$(cd "$(dirname "$mfb")" && pwd)/$(basename "$mfb")
 repo=$(cd "$(dirname "$0")/.." && pwd)
-docs=$repo/src/docs/man/debug
+docs=("$repo/src/docs/man/debug" "$repo/src/docs/man/debug-external")
 OUT=${OUT:-/tmp/man-debug-examples}
 LINUX_SSH=${LINUX_SSH:-"-p 2226 test@127.0.0.1"}
 LINUX_TARGET=${LINUX_TARGET:-linux-aarch64}
@@ -56,10 +60,12 @@ mkdir -p "$OUT/blocks"
 fail=0
 pass=0
 
-# Split every page into one file per tagged block: $OUT/blocks/<tag>.<page>.<n>.
-for page in "$docs"/*.md; do
+# Split every page into one file per tagged block: $OUT/blocks/<tag>.<page>.<n>,
+# <page> prefixed with `external-` for a debug-external page.
+for page in "${docs[0]}"/*.md "${docs[1]}"/*.md; do
 	name=$(basename "$page" .md)
 	name=${name#[0-9][0-9]_}
+	case $page in */debug-external/*) name=external-$name ;; esac
 	awk -v dir="$OUT/blocks" -v page="$name" '
 		/^```(sh macos|sh linux|powershell windows|powershell windows-setup)$/ {
 			tag = $2; n[tag]++; file = dir "/" tag "." page "." n[tag]; next
@@ -79,7 +85,7 @@ scratch() {
 
 check() {
 	local label=$1 status=$2 log=$3
-	local expect=${4:-'mfb_fn_|mfb\.debug\.end|arena\.0\.kind'}
+	local expect=${4:-'mfb_fn_|mfb\.debug\.end|arena\.0\.kind|^DBG> q$'}
 	if [ "$status" = 0 ] && grep -qE "$expect" "$log"; then
 		echo "PASS  $label"
 		pass=$((pass + 1))
@@ -99,6 +105,11 @@ prebuild() {
 }
 
 run_macos() {
+	sh "$repo/scripts/sign-debugger.sh" "$mfb" >/dev/null 2>&1 || {
+		echo "FAIL  signing $mfb for mfb dbg"
+		fail=$((fail + 1))
+		return
+	}
 	for block in "$OUT"/blocks/macos.*; do
 		[ -e "$block" ] || continue
 		local label=macos-${block#*/blocks/macos.}

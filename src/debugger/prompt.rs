@@ -10,13 +10,15 @@
 
 use std::io::{BufRead, Write};
 
+use super::backtrace;
 use super::breakpoints::{Breakpoints, Finish, Target};
 use super::disassemble::{self, Request};
 use super::names::{classify_defined, linked_name, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
+use super::values::{self, Region, View};
 use super::{
-    Ending, Exit, FunctionSymbol, Inferior, Program, Register, RegisterValue, RunStop, StepStop,
-    ThreadFacts,
+    Ending, Exit, FunctionSymbol, Inferior, Program, Register, RegisterGroup, RegisterValue,
+    RunStop, StepStop, ThreadFacts,
 };
 
 pub(crate) const PROMPT: &str = "DBG> ";
@@ -29,14 +31,20 @@ Commands:
   show            Show memory: show mem <address|register[+offset]> [<size>]
                   An arena's state and blocks: show arena [<id>]
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
+                  An arena value as a type: show type <type> <address|register[+offset]>
+                  ('show type' alone for the types and their forms)
   breakpoint, bp  Set a breakpoint: breakpoint <address|function>
                   Remove one: breakpoint r <address|function>
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
   disassemble, dis
-                  Disassemble the current function, dis <count> instructions
-                  from the current one, or dis <function>
+                  Disassemble the current function; dis <count> instructions
+                  from the current one (negative: before it); dis <where>
+                  [<count>] from an address or register (pc-0x20); or
+                  dis <function> [<count>]
+  backtrace, bt   Show the current thread's calls: bt [<count>] [<thread>]
+                  Every thread's: bt all
   step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa    Run every thread together: step-all [<count>] (default 1)
   quit, q         End the session: kill the program if the debugger launched
@@ -46,8 +54,10 @@ Commands:
 pub(crate) const LIST_USAGE: &str = "\
 Usage: list <what>
 
+Each listing starts with a line naming its columns.
+
   func          The program's functions, one per line:
-                  <type> <address> <name> <written name>
+                  <type> <address> <symbol> <written name>
                 <type> is MU for a function the program's author wrote, MR for
                 the MFBASIC runtime, LN for a function in a linked library.
                 <address> is - for a linked function the program has not
@@ -55,16 +65,28 @@ Usage: list <what>
                 name.
   thread        The program's threads: <id> <name> <pc> <task>
                 <task> is App, MFB Main, User Thread or Other.
-  reg [<id>] [<register>...]
-                The registers of thread <id> (default 0, the main thread), or
-                just the ones named: <register> <hex value> (<decimal>)
+  reg           A thread's registers: gpr, simd, sys, or the ones named.
+                Type 'list reg' for how.
   arena         The program's MFBASIC memory arenas (debug builds):
                   <id> <thread id> <address> <size in KB>
-  breakpoint    The breakpoints: <address> <name> <written name>
+  breakpoint    The breakpoints: <address> <symbol> <written name>
                 <address> is - for one waiting for its library to load.";
 
-/// The thread a bare `step` runs and a bare `list reg` shows: the initial
-/// thread.
+/// What a bare `list reg` prints.
+pub(crate) const LIST_REG_USAGE: &str = "\
+Usage: list reg [<id>] <what>...
+
+Shows the registers of thread <id> (default 0, the main thread) as
+<register> <hex value> (<decimal>). <what> is one or more of:
+
+  gpr           The general-purpose registers: x0 to x28, fp (x29), lr (x30)
+  simd          The SIMD and floating-point registers: v0 to v31
+  sys           The system registers: sp, pc, nzcv, fpsr, fpcr
+  <register>    One register by name; list several with spaces or commas,
+                as in: list reg x0, x1, sp";
+
+/// The thread a bare `step` runs and `list reg` shows when given no thread:
+/// the initial thread.
 const MAIN_THREAD: usize = 0;
 
 /// One parsed command line.
@@ -78,12 +100,28 @@ enum Command {
     SetBreakpoint(Target),
     RemoveBreakpoint(Target),
     Run,
-    Disassemble(Request),
+    Disassemble(Disassembly),
     Finish,
     Restart,
     ShowMemory { location: Location, size: u64 },
+    ShowType { location: Location, view: View },
+    TypeUsage,
+    Backtrace(Backtrace),
     Quit,
     Empty,
+}
+
+/// Which threads' calls `backtrace` shows.
+#[derive(Debug, PartialEq, Eq)]
+enum Backtrace {
+    /// The innermost `count` frames (default all) of `thread` (default the
+    /// current thread).
+    Thread {
+        count: Option<usize>,
+        thread: Option<usize>,
+    },
+    /// Every frame of every thread.
+    All,
 }
 
 /// Which bytes of an arena block `show arena` dumps.
@@ -102,12 +140,93 @@ enum Location {
     Register { name: String, offset: i64 },
 }
 
+/// What a `dis` names, before a location is resolved to an address.
+#[derive(Debug, PartialEq, Eq)]
+enum Disassembly {
+    Current,
+    Count(i64),
+    At(Location, Option<i64>),
+    Named(String, Option<i64>),
+}
+
+impl Disassembly {
+    /// `dis <start> [<count>]`: a location (an address, or a register, either
+    /// with an offset), else a function name.
+    fn from(start: &str, count: Option<i64>) -> Result<Disassembly, String> {
+        let location = start.starts_with("0x")
+            || start.starts_with("0X")
+            || start.contains(['+', '-'])
+            || is_register(start);
+        Ok(if location {
+            Disassembly::At(Location::parse(start)?, count)
+        } else {
+            Disassembly::Named(start.to_string(), count)
+        })
+    }
+}
+
+/// Whether `word` names an AArch64 register an address can be in: `x0`–`x30`,
+/// `fp`, `lr`, `sp` or `pc`.
+fn is_register(word: &str) -> bool {
+    matches!(word, "fp" | "lr" | "sp" | "pc")
+        || word.strip_prefix('x').is_some_and(|number| {
+            (number == "0" || !number.starts_with('0'))
+                && number.parse::<u8>().is_ok_and(|number| number <= 30)
+        })
+}
+
+/// Whether `word` reads as a count: digits, perhaps after a `-`.
+fn is_count(word: &str) -> bool {
+    let digits = word.strip_prefix('-').unwrap_or(word);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// A `dis` count: any whole number but 0, negative to count back.
+fn instruction_count(word: &str) -> Result<i64, String> {
+    match word.parse::<i64>() {
+        Ok(0) | Err(_) => Err(format!(
+            "cannot show {word} instructions; give a count other than 0 (negative counts back)"
+        )),
+        Ok(count) => Ok(count),
+    }
+}
+
+/// `0x<hex>`, perhaps followed by `+` or `-` and an offset (decimal, or hex
+/// after `0x`): the address it names. `None` when `word` does not start with
+/// `0x`.
+pub(crate) fn address(word: &str) -> Option<Result<u64, String>> {
+    let hex = word
+        .strip_prefix("0x")
+        .or_else(|| word.strip_prefix("0X"))?;
+    let bad = || format!("'{word}' is not an address");
+    let (base, offset) = match hex.find(['+', '-']) {
+        Some(at) => (&hex[..at], Some(&hex[at..])),
+        None => (hex, None),
+    };
+    let Ok(base) = u64::from_str_radix(base, 16) else {
+        return Some(Err(bad()));
+    };
+    let Some(offset) = offset else {
+        return Some(Ok(base));
+    };
+    let Ok(amount) = number(&offset[1..]) else {
+        return Some(Err(bad()));
+    };
+    Some(if offset.starts_with('-') {
+        base.checked_sub(amount)
+            .ok_or_else(|| format!("'{word}' is below address 0"))
+    } else {
+        base.checked_add(amount)
+            .ok_or_else(|| format!("'{word}' is past the last address"))
+    })
+}
+
 impl Location {
     /// `0x…`, or `<register>`, `<register>+<n>`, `<register>-<n>` (`n` decimal
     /// or `0x` hex).
     fn parse(word: &str) -> Result<Location, String> {
-        if word.starts_with("0x") || word.starts_with("0X") {
-            return number(word).map(Location::Address);
+        if let Some(address) = address(word) {
+            return address.map(Location::Address);
         }
         let (name, offset) = match word.find(['+', '-']) {
             Some(at) => {
@@ -141,9 +260,31 @@ const DUMP_SIZE: u64 = 1024;
 enum Listing {
     Functions,
     Threads,
-    Registers { thread: usize, names: Vec<String> },
+    RegisterUsage,
+    Registers {
+        thread: usize,
+        picks: Vec<RegisterPick>,
+    },
     Arenas,
     Breakpoints,
+}
+
+/// What a `list reg` argument asks for: a group, or one register by name.
+#[derive(Debug, PartialEq, Eq)]
+enum RegisterPick {
+    Group(RegisterGroup),
+    Name(String),
+}
+
+impl RegisterPick {
+    fn parse(word: &str) -> RegisterPick {
+        match word {
+            "gpr" => RegisterPick::Group(RegisterGroup::General),
+            "simd" => RegisterPick::Group(RegisterGroup::Simd),
+            "sys" => RegisterPick::Group(RegisterGroup::System),
+            name => RegisterPick::Name(name.to_string()),
+        }
+    }
 }
 
 fn parse(line: &str) -> Result<Command, String> {
@@ -161,15 +302,24 @@ fn parse(line: &str) -> Result<Command, String> {
         ("list" | "l", ["arena"]) => Ok(Command::List(Some(Listing::Arenas))),
         ("list" | "l", ["breakpoint"]) => Ok(Command::List(Some(Listing::Breakpoints))),
         ("list" | "l", ["reg", rest @ ..]) => {
-            let (thread, names) = match rest.first() {
+            // Commas separate registers as well as spaces: `x0, x1,x2`.
+            let words = rest
+                .iter()
+                .flat_map(|word| word.split(','))
+                .filter(|word| !word.is_empty())
+                .collect::<Vec<_>>();
+            let (thread, picks) = match words.first() {
                 Some(first) if first.bytes().all(|byte| byte.is_ascii_digit()) => {
-                    (thread_id(first)?, &rest[1..])
+                    (thread_id(first)?, &words[1..])
                 }
-                _ => (MAIN_THREAD, rest),
+                _ => (MAIN_THREAD, &words[..]),
             };
+            if picks.is_empty() {
+                return Ok(Command::List(Some(Listing::RegisterUsage)));
+            }
             Ok(Command::List(Some(Listing::Registers {
                 thread,
-                names: names.iter().map(|name| name.to_string()).collect(),
+                picks: picks.iter().map(|word| RegisterPick::parse(word)).collect(),
             })))
         }
         ("list" | "l", ["func" | "thread" | "arena" | "breakpoint", ..]) => {
@@ -191,6 +341,20 @@ fn parse(line: &str) -> Result<Command, String> {
             thread: thread_id(thread)?,
         }),
         ("step" | "s", _) => Err(format!("'{name}' takes at most two arguments")),
+        ("backtrace" | "bt", []) => Ok(Command::Backtrace(Backtrace::Thread {
+            count: None,
+            thread: None,
+        })),
+        ("backtrace" | "bt", ["all"]) => Ok(Command::Backtrace(Backtrace::All)),
+        ("backtrace" | "bt", [count]) => Ok(Command::Backtrace(Backtrace::Thread {
+            count: Some(frame_count(count)?),
+            thread: None,
+        })),
+        ("backtrace" | "bt", [count, thread]) => Ok(Command::Backtrace(Backtrace::Thread {
+            count: Some(frame_count(count)?),
+            thread: Some(thread_id(thread)?),
+        })),
+        ("backtrace" | "bt", _) => Err(format!("'{name}' takes at most two arguments")),
         ("step-all" | "sa", []) => Ok(Command::StepAll(1)),
         ("step-all" | "sa", [count]) => Ok(Command::StepAll(step_count(count)?)),
         ("step-all" | "sa", _) => Err(format!("'{name}' takes at most one argument")),
@@ -233,24 +397,38 @@ fn parse(line: &str) -> Result<Command, String> {
             size: number(size)?,
         }),
         ("show", ["mem", ..]) => Err("too many arguments to 'show mem'".to_string()),
+        ("show", ["type", type_word, location, rest @ ..]) => {
+            let view = values::parse_view(type_word, rest, line)?;
+            Ok(Command::ShowType {
+                location: Location::parse(location)?,
+                view,
+            })
+        }
+        ("show", ["type"]) => Ok(Command::TypeUsage),
+        ("show", ["type", type_word]) => Err(format!(
+            "'show type {type_word}' needs an address or a register: show type {type_word} <where>"
+        )),
         ("show", []) => Err(
-            "'show' needs what to show: show mem <where> [<size>], or show arena [<id>]"
+            "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
+             or show arena [<id>]"
                 .to_string(),
         ),
         ("show", [other, ..]) => Err(format!(
-            "cannot show '{other}'; 'show mem' and 'show arena' are what can be shown"
+            "cannot show '{other}'; 'show mem', 'show type' and 'show arena' are what can be \
+             shown"
         )),
-        ("disassemble" | "dis", []) => Ok(Command::Disassemble(Request::Current)),
-        ("disassemble" | "dis", [word]) if word.bytes().all(|byte| byte.is_ascii_digit()) => {
-            match word.parse::<u64>() {
-                Ok(0) | Err(_) => Err(format!("cannot show {word} instructions; give 1 or more")),
-                Ok(count) => Ok(Command::Disassemble(Request::Count(count))),
-            }
+        ("disassemble" | "dis", []) => Ok(Command::Disassemble(Disassembly::Current)),
+        ("disassemble" | "dis", [word]) if is_count(word) => Ok(Command::Disassemble(
+            Disassembly::Count(instruction_count(word)?),
+        )),
+        ("disassemble" | "dis", [start]) => {
+            Ok(Command::Disassemble(Disassembly::from(start, None)?))
         }
-        ("disassemble" | "dis", [name]) => {
-            Ok(Command::Disassemble(Request::Named(name.to_string())))
-        }
-        ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most one argument")),
+        ("disassemble" | "dis", [start, count]) => Ok(Command::Disassemble(Disassembly::from(
+            start,
+            Some(instruction_count(count)?),
+        )?)),
+        ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most two arguments")),
         ("finish" | "f", []) => Ok(Command::Finish),
         ("finish" | "f", _) => Err(format!("'{name}' takes no arguments")),
         ("restart" | "rs", []) => Ok(Command::Restart),
@@ -287,9 +465,48 @@ fn number(word: &str) -> Result<u64, String> {
     .map_err(|_| format!("'{word}' is not a number"))
 }
 
+fn frame_count(word: &str) -> Result<usize, String> {
+    word.parse::<usize>()
+        .ok()
+        .filter(|count| *count > 0)
+        .ok_or_else(|| format!("'{word}' is not a number of frames (1 or more), or 'all'"))
+}
+
 fn thread_id(word: &str) -> Result<usize, String> {
     word.parse::<usize>()
         .map_err(|_| format!("'{word}' is not a thread id; type 'list thread' for the threads"))
+}
+
+/// Lay out a listing: a line of `headers`, then one line per row, the columns
+/// one space apart and each but the last left-aligned to its widest entry,
+/// header included. A listing with no rows has no lines, not even the header.
+pub(crate) fn table<const N: usize>(headers: [&str; N], rows: Vec<[String; N]>) -> Vec<String> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let mut widths = headers.map(|header| header.chars().count());
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    std::iter::once(headers.map(str::to_string))
+        .chain(rows)
+        .map(|row| {
+            row.iter()
+                .zip(widths)
+                .enumerate()
+                .map(|(at, (cell, width))| {
+                    if at + 1 == N {
+                        cell.clone()
+                    } else {
+                        format!("{cell:<width$}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect()
 }
 
 /// The `list func` lines: the program's own functions, then the runtime's, then
@@ -313,41 +530,43 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
     // records) is shown once; one name at two addresses is shown twice.
     let mut seen = std::collections::HashSet::new();
     rows.retain(|(_, address, name, _)| seen.insert((*address, name.to_string())));
-    let width = rows
-        .iter()
-        .map(|(_, _, name, _)| name.len())
-        .max()
-        .unwrap_or(0);
-    rows.into_iter()
-        .map(|(origin, address, name, written)| {
-            let address = address.map_or_else(|| "-".to_string(), |at| format!("0x{at:016x}"));
-            format!(
-                "{} {address:<18} {name:<width$} {}",
-                origin.code(),
-                written.as_deref().unwrap_or("-")
-            )
-        })
-        .collect()
+    table(
+        ["Type", "Address", "Symbol", "Written name"],
+        rows.into_iter()
+            .map(|(origin, address, name, written)| {
+                [
+                    origin.code().to_string(),
+                    address.map_or_else(|| "-".to_string(), |at| format!("0x{at:016x}")),
+                    name.clone(),
+                    written.unwrap_or_else(|| "-".to_string()),
+                ]
+            })
+            .collect(),
+    )
 }
 
 /// The `list reg` lines: one register per line, the value in full-width hex and
 /// then in decimal — signed for a 64-bit register, as MFBASIC's `Integer` is.
 pub(crate) fn register_lines(registers: &[Register]) -> Vec<String> {
-    let width = registers
-        .iter()
-        .map(|register| register.name.len())
-        .max()
-        .unwrap_or(0);
-    registers
-        .iter()
-        .map(|register| {
-            let value = match register.value {
-                RegisterValue::Bits64(value) => format!("0x{value:016x} ({})", value as i64),
-                RegisterValue::Bits128(value) => format!("0x{value:032x} ({value})"),
-            };
-            format!("{:<width$} {value}", register.name)
-        })
-        .collect()
+    table(
+        ["Register", "Hex", "Decimal"],
+        registers
+            .iter()
+            .map(|register| {
+                let (hex, decimal) = register_value(register);
+                [register.name.clone(), hex, decimal]
+            })
+            .collect(),
+    )
+}
+
+/// A register's value as `list reg` shows it: in full-width hex, and in
+/// decimal in parentheses.
+fn register_value(register: &Register) -> (String, String) {
+    match register.value {
+        RegisterValue::Bits64(value) => (format!("0x{value:016x}"), format!("({})", value as i64)),
+        RegisterValue::Bits128(value) => (format!("0x{value:032x}"), format!("({value})")),
+    }
 }
 
 /// The `list thread` lines: `<id> <name> <pc> <task>`. A thread's name is the
@@ -357,62 +576,48 @@ pub(crate) fn thread_lines(
     roles: &[Role],
     functions: &[FunctionSymbol],
 ) -> Vec<String> {
-    let names = threads
-        .iter()
-        .map(|thread| {
-            thread
-                .name
-                .clone()
-                .or_else(|| runtime::locate(functions, thread.pc))
-                .unwrap_or_else(|| format!("thread-{:#x}", thread.id))
-        })
-        .collect::<Vec<_>>();
-    let id_width = threads.len().saturating_sub(1).to_string().len();
-    let name_width = names.iter().map(String::len).max().unwrap_or(0);
-    threads
-        .iter()
-        .zip(&names)
-        .zip(roles)
-        .enumerate()
-        .map(|(id, ((thread, name), role))| {
-            format!(
-                "{id:<id_width$} {name:<name_width$} 0x{:016x} {}",
-                thread.pc,
-                role.label()
-            )
-        })
-        .collect()
+    table(
+        ["ID", "Name", "PC", "Task"],
+        threads
+            .iter()
+            .zip(roles)
+            .enumerate()
+            .map(|(id, (thread, role))| {
+                let name = thread
+                    .name
+                    .clone()
+                    .or_else(|| runtime::locate(functions, thread.pc))
+                    .unwrap_or_else(|| format!("thread-{:#x}", thread.id));
+                [
+                    id.to_string(),
+                    name,
+                    format!("0x{:016x}", thread.pc),
+                    role.label().to_string(),
+                ]
+            })
+            .collect(),
+    )
 }
 
 /// The `list arena` lines: `<id> <thread id> <address> <size in KB>`, the size
 /// rounded up to whole kilobytes and `-` for an arena no thread allocates from.
 pub(crate) fn arena_lines(arenas: &[Arena]) -> Vec<String> {
-    let threads = arenas
-        .iter()
-        .map(|arena| {
-            arena
-                .thread
-                .map_or_else(|| "-".to_string(), |id| id.to_string())
-        })
-        .collect::<Vec<_>>();
-    let id_width = arenas
-        .iter()
-        .map(|arena| arena.id.to_string().len())
-        .max()
-        .unwrap_or(0);
-    let thread_width = threads.iter().map(String::len).max().unwrap_or(0);
-    arenas
-        .iter()
-        .zip(&threads)
-        .map(|(arena, thread)| {
-            format!(
-                "{:<id_width$} {thread:<thread_width$} 0x{:016x} {}",
-                arena.id,
-                arena.address,
-                arena.mapped.div_ceil(1024)
-            )
-        })
-        .collect()
+    table(
+        ["ID", "Thread", "Address", "Size (KB)"],
+        arenas
+            .iter()
+            .map(|arena| {
+                [
+                    arena.id.to_string(),
+                    arena
+                        .thread
+                        .map_or_else(|| "-".to_string(), |id| id.to_string()),
+                    format!("0x{:016x}", arena.address),
+                    arena.mapped.div_ceil(1024).to_string(),
+                ]
+            })
+            .collect(),
+    )
 }
 
 /// The lines a `list` prints, or the error it reports.
@@ -432,22 +637,32 @@ fn list(
             let functions = inferior.functions().unwrap_or_default();
             Ok(thread_lines(&threads, &roles, &functions))
         }
-        Some(Listing::Registers { thread, names }) => {
+        Some(Listing::RegisterUsage) => Ok(LIST_REG_USAGE.lines().map(str::to_string).collect()),
+        Some(Listing::Registers { thread, picks }) => {
             let count = inferior.threads()?.len();
             if thread >= count {
                 return Err(no_thread(thread, count));
             }
             let registers = inferior.registers(thread)?;
-            if names.is_empty() {
-                return Ok(register_lines(&registers));
-            }
             let mut chosen = Vec::new();
-            for name in &names {
-                let register = registers
-                    .iter()
-                    .find(|register| &register.name == name)
-                    .ok_or_else(|| format!("no register '{name}'; type 'list reg' for them all"))?;
-                chosen.push(register.clone());
+            for pick in &picks {
+                match pick {
+                    RegisterPick::Group(group) => chosen.extend(
+                        registers
+                            .iter()
+                            .filter(|register| register.group == *group)
+                            .cloned(),
+                    ),
+                    RegisterPick::Name(name) => chosen.push(
+                        registers
+                            .iter()
+                            .find(|register| &register.name == name)
+                            .cloned()
+                            .ok_or_else(|| {
+                                format!("no register '{name}'; type 'list reg' for the groups")
+                            })?,
+                    ),
+                }
             }
             Ok(register_lines(&chosen))
         }
@@ -848,12 +1063,9 @@ fn finish(
                 registers
                     .iter()
                     .find(|register| register.name == name)
-                    .map(|register| register_lines(std::slice::from_ref(register)).remove(0))
-                    .map(|line| {
-                        line.split_whitespace()
-                            .skip(1)
-                            .collect::<Vec<_>>()
-                            .join(" ")
+                    .map(|register| {
+                        let (hex, decimal) = register_value(register);
+                        format!("{hex} {decimal}")
                     })
                     .unwrap_or_default()
             };
@@ -900,14 +1112,70 @@ fn show_memory(
     if size == 0 || size > MAX_MEMORY {
         return Err(format!("cannot show {size} bytes; give 1 to {MAX_MEMORY}"));
     }
-    let (address, described) = match location {
-        Location::Address(address) => (*address, String::new()),
+    let (address, described) = resolve(inferior, current, location)?;
+    let bytes = inferior.read_bytes(address, size as usize)?;
+    let mut lines = vec![format!("Memory at 0x{address:016x}{described}:")];
+    lines.extend(memory_lines(address, &bytes));
+    Ok(lines)
+}
+
+/// `show type`: the value at `location` read as the type `view` names. It
+/// must be in one of the program's arena blocks, which needs a `--debug`
+/// build's arena registry to find.
+fn show_type(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    current: usize,
+    location: &Location,
+    view: &View,
+) -> Result<Vec<String>, String> {
+    let (address, _) = resolve(inferior, current, location)?;
+    let threads = inferior.threads()?;
+    let roles = runtime::roles(inferior, &threads, program.app)?;
+    let Some(arenas) = runtime::arenas(inferior, &threads, &roles)? else {
+        return Err(
+            "'show type' reads values in the arena, which needs a debug build; \
+                    rebuild the program with: mfb build --debug -O0 <project>"
+                .to_string(),
+        );
+    };
+    if arenas.is_empty() {
+        return Err("no arenas yet: the program's runtime has not started".to_string());
+    }
+    let mut regions = Vec::new();
+    for arena in &arenas {
+        for (number, block) in runtime::blocks(inferior, arena.address)?.iter().enumerate() {
+            regions.push(Region::of_block(
+                arena.id,
+                number,
+                block.address,
+                block.size,
+            ));
+        }
+    }
+    values::show(
+        &mut |at, length| inferior.read_bytes(at, length),
+        &regions,
+        address,
+        view,
+    )
+}
+
+/// The address `location` names for thread `current`, and how to describe it
+/// when it came from a register: ` (<register>+<offset> of thread <t>)`.
+fn resolve(
+    inferior: &mut dyn Inferior,
+    current: usize,
+    location: &Location,
+) -> Result<(u64, String), String> {
+    match location {
+        Location::Address(address) => Ok((*address, String::new())),
         Location::Register { name, offset } => {
             let registers = inferior.registers(current)?;
             let register = registers
                 .iter()
                 .find(|register| &register.name == name)
-                .ok_or_else(|| format!("no register '{name}'; type 'list reg' for them all"))?;
+                .ok_or_else(|| format!("no register '{name}'; type 'list reg' for the groups"))?;
             let RegisterValue::Bits64(base) = register.value else {
                 return Err(format!("'{name}' is a vector register, not an address"));
             };
@@ -917,12 +1185,48 @@ fn show_memory(
                 offset if *offset < 0 => format!("{name}-{:#x}", offset.unsigned_abs()),
                 offset => format!("{name}+{offset:#x}"),
             };
-            (address, format!(" ({shown} of thread {current})"))
+            Ok((address, format!(" ({shown} of thread {current})")))
+        }
+    }
+}
+
+/// The `backtrace` lines: one thread's frames, or every thread's, the
+/// current thread marked. A current thread that has since ended falls back to
+/// thread 0.
+fn backtrace(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    current: usize,
+    request: Backtrace,
+) -> Result<Vec<String>, String> {
+    let threads = inferior.threads()?;
+    let roles = runtime::roles(inferior, &threads, program.app)?;
+    let current = if current < threads.len() {
+        current
+    } else {
+        MAIN_THREAD
+    };
+    let (chosen, limit) = match request {
+        Backtrace::All => ((0..threads.len()).collect(), backtrace::MAX_FRAMES),
+        Backtrace::Thread { count, thread } => {
+            let thread = thread.unwrap_or(current);
+            if thread >= threads.len() {
+                return Err(no_thread(thread, threads.len()));
+            }
+            (vec![thread], count.unwrap_or(backtrace::MAX_FRAMES))
         }
     };
-    let bytes = inferior.read_bytes(address, size as usize)?;
-    let mut lines = vec![format!("Memory at 0x{address:016x}{described}:")];
-    lines.extend(memory_lines(address, &bytes));
+    let mut lines = Vec::new();
+    for thread in chosen {
+        let frames = backtrace::frames(inferior, thread, limit)?;
+        lines.extend(backtrace::lines(
+            thread,
+            threads[thread].name.as_deref(),
+            roles[thread].label(),
+            &frames,
+            thread == current,
+        ));
+    }
     Ok(lines)
 }
 
@@ -931,14 +1235,27 @@ fn show_memory(
 fn disassemble_at(
     inferior: &mut dyn Inferior,
     current: usize,
-    request: &Request,
+    disassembly: &Disassembly,
 ) -> Result<Vec<String>, String> {
     let threads = inferior.threads()?;
     let thread = threads
         .get(current)
         .or_else(|| threads.first())
         .ok_or_else(|| no_thread(current, threads.len()))?;
-    disassemble::disassemble(inferior, thread.pc, request)
+    let pc = thread.pc;
+    let request = match disassembly {
+        Disassembly::Current => Request::Current,
+        Disassembly::Count(count) => Request::Count(*count),
+        Disassembly::At(location, count) => Request::At {
+            address: resolve(inferior, current, location)?.0,
+            count: *count,
+        },
+        Disassembly::Named(name, count) => Request::Named {
+            name: name.clone(),
+            count: *count,
+        },
+    };
+    disassemble::disassemble(inferior, pc, &request)
 }
 
 /// Where each thread is: its pc, and the function holding it when the
@@ -972,8 +1289,8 @@ pub(crate) fn run(
     let mut breakpoints = Breakpoints::default();
     // The thread `dis` shows: the last one a `run` or `step` stopped.
     let mut current = MAIN_THREAD;
-    // Once the program has ended only `help`, `list`, `list breakpoint` and
-    // `quit` mean anything.
+    // Once the program has ended only `help`, `list`, `list breakpoint`, a bare
+    // `list reg` and `quit` mean anything.
     let mut exited = false;
     loop {
         write!(out, "{PROMPT}")
@@ -997,9 +1314,10 @@ pub(crate) fn run(
             Ok(Command::Empty) => Ok(Vec::new()),
             Ok(Command::Help) => Ok(vec![HELP.to_string()]),
             Ok(Command::Quit) => break,
-            Ok(Command::List(listing @ (None | Some(Listing::Breakpoints)))) => {
-                list(inferior, program, &breakpoints, listing)
-            }
+            Ok(Command::TypeUsage) => Ok(values::TYPE_USAGE.lines().map(str::to_string).collect()),
+            Ok(Command::List(
+                listing @ (None | Some(Listing::Breakpoints | Listing::RegisterUsage)),
+            )) => list(inferior, program, &breakpoints, listing),
             Ok(Command::Restart) => restart(inferior, &mut breakpoints).inspect(|_| {
                 exited = false;
                 current = MAIN_THREAD;
@@ -1034,6 +1352,10 @@ pub(crate) fn run(
                     exited = ended;
                     lines
                 })
+            }
+            Ok(Command::Backtrace(request)) => backtrace(inferior, program, current, request),
+            Ok(Command::ShowType { location, view }) => {
+                show_type(inferior, program, current, &location, &view)
             }
             Ok(Command::ShowMemory { location, size }) => {
                 show_memory(inferior, current, &location, size)
@@ -1174,14 +1496,17 @@ mod tests {
             Ok(vec![
                 Register {
                     name: "x0".to_string(),
+                    group: RegisterGroup::General,
                     value: RegisterValue::Bits64(x0),
                 },
                 Register {
                     name: "nzcv".to_string(),
+                    group: RegisterGroup::System,
                     value: RegisterValue::Bits64(0x6000_0000),
                 },
                 Register {
                     name: "v31".to_string(),
+                    group: RegisterGroup::Simd,
                     value: RegisterValue::Bits128(1 << 64),
                 },
             ])
@@ -1332,12 +1657,13 @@ mod tests {
             out,
             format!(
                 "{PROMPT}\
-MU 0x0000000000001004 _mfb_fn_next_5Fseed next_seed
-MU 0x0000000000001010 _mfb_fn_main        main
-MR 0x0000000000001000 _main               -
-MR 0x0000000000001008 _mfb_rt_print       -
-LN 0x0000000000009000 _free               free
-LN -                  _malloc             malloc
+Type Address            Symbol              Written name
+MU   0x0000000000001004 _mfb_fn_next_5Fseed next_seed
+MU   0x0000000000001010 _mfb_fn_main        main
+MR   0x0000000000001000 _main               -
+MR   0x0000000000001008 _mfb_rt_print       -
+LN   0x0000000000009000 _free               free
+LN   -                  _malloc             malloc
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -1351,9 +1677,54 @@ LN -                  _malloc             malloc
             out,
             format!(
                 "{PROMPT}\
-0 _main            0x0000000000001000 MFB Main
-1 com.apple.worker 0x0000000000007000 Other
-2 thread-0x503     0x0000000000007004 Other
+ID Name             PC                 Task
+0  _main            0x0000000000001000 MFB Main
+1  com.apple.worker 0x0000000000007000 Other
+2  thread-0x503     0x0000000000007004 Other
+{PROMPT}Killed process 42.\n"
+            )
+        );
+    }
+
+    #[test]
+    fn list_reg_alone_shows_its_usage_even_after_the_program_ends() {
+        for line in ["list reg\nq\n", "l reg 2\nq\n"] {
+            let (out, err, _) = session(line, Ending::Killed, false);
+            assert_eq!(
+                out,
+                format!("{PROMPT}{LIST_REG_USAGE}\n{PROMPT}Killed process 42.\n")
+            );
+            assert_eq!(err, "");
+        }
+        let mut inferior = Recorder::new(Ending::AlreadyExited);
+        inferior.runs = vec![RunStop::Exited(Exit::Status(0))];
+        let (out, err) = drive(&mut inferior, "run\nlist reg\nlist reg gpr\nq\n", false);
+        assert!(out.contains(LIST_REG_USAGE), "{out}");
+        assert_eq!(
+            err,
+            "error: the program has exited; type 'quit' to end the session\n"
+        );
+    }
+
+    #[test]
+    fn list_reg_shows_each_group_of_the_main_thread_or_the_one_asked_for() {
+        let (out, err, _) = session(
+            "list reg simd\nl reg 2 gpr sys simd\nq\n",
+            Ending::Killed,
+            false,
+        );
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}\
+Register Hex                                Decimal
+v31      0x00000000000000010000000000000000 (18446744073709551616)
+{PROMPT}\
+Register Hex                                Decimal
+x0       0x000000000000002c                 (44)
+nzcv     0x0000000060000000                 (1610612736)
+v31      0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -1361,18 +1732,24 @@ LN -                  _malloc             malloc
 
     #[test]
     fn list_reg_shows_the_main_thread_or_the_one_asked_for() {
-        let (out, _, _) = session("list reg\nl reg 2\nq\n", Ending::Killed, false);
+        let (out, _, _) = session(
+            "list reg gpr sys simd\nl reg 2 gpr sys simd\nq\n",
+            Ending::Killed,
+            false,
+        );
         assert_eq!(
             out,
             format!(
                 "{PROMPT}\
-x0   0x000000000000002a (42)
-nzcv 0x0000000060000000 (1610612736)
-v31  0x00000000000000010000000000000000 (18446744073709551616)
+Register Hex                                Decimal
+x0       0x000000000000002a                 (42)
+nzcv     0x0000000060000000                 (1610612736)
+v31      0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}\
-x0   0x000000000000002c (44)
-nzcv 0x0000000060000000 (1610612736)
-v31  0x00000000000000010000000000000000 (18446744073709551616)
+Register Hex                                Decimal
+x0       0x000000000000002c                 (44)
+nzcv     0x0000000060000000                 (1610612736)
+v31      0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -1381,40 +1758,55 @@ v31  0x00000000000000010000000000000000 (18446744073709551616)
     #[test]
     fn list_reg_refuses_a_thread_or_register_that_does_not_exist() {
         let (_, err, _) = session(
-            "list reg 3\nlist reg x9\nlist reg 1 x0 w5\nq\n",
+            "list reg 3 gpr\nlist reg x9\nlist reg 1 x0, w5\nq\n",
             Ending::Killed,
             false,
         );
         assert_eq!(
             err,
             "error: no thread 3: the program has 3 threads; type 'list thread' for them\n\
-             error: no register 'x9'; type 'list reg' for them all\n\
-             error: no register 'w5'; type 'list reg' for them all\n"
+             error: no register 'x9'; type 'list reg' for the groups\n\
+             error: no register 'w5'; type 'list reg' for the groups\n"
         );
     }
 
     #[test]
-    fn list_reg_shows_just_the_registers_named() {
-        let (out, err, _) = session("list reg 2 nzcv x0\nq\n", Ending::Killed, false);
-        assert_eq!(err, "");
-        assert_eq!(
-            out,
-            format!(
-                "{PROMPT}\
-nzcv 0x0000000060000000 (1610612736)
-x0   0x000000000000002c (44)
+    fn list_reg_shows_just_the_registers_named_by_spaces_or_commas() {
+        for line in [
+            "list reg 2 nzcv x0\nq\n",
+            "list reg 2 nzcv, x0\nq\n",
+            "list reg 2,nzcv,x0\nq\n",
+        ] {
+            let (out, err, _) = session(line, Ending::Killed, false);
+            assert_eq!(err, "", "{line}");
+            assert_eq!(
+                out,
+                format!(
+                    "{PROMPT}\
+Register Hex                Decimal
+nzcv     0x0000000060000000 (1610612736)
+x0       0x000000000000002c (44)
 {PROMPT}Killed process 42.\n"
-            )
-        );
+                ),
+                "{line}"
+            );
+        }
     }
 
     #[test]
     fn a_negative_64_bit_value_shows_as_a_signed_decimal() {
         let register = Register {
             name: "x8".to_string(),
+            group: RegisterGroup::General,
             value: RegisterValue::Bits64(u64::MAX),
         };
-        assert_eq!(register_lines(&[register]), ["x8 0xffffffffffffffff (-1)"]);
+        assert_eq!(
+            register_lines(&[register]),
+            [
+                "Register Hex                Decimal",
+                "x8       0xffffffffffffffff (-1)",
+            ]
+        );
     }
 
     #[test]
@@ -1462,6 +1854,91 @@ x0   0x000000000000002c (44)
     }
 
     #[test]
+    fn show_type_needs_a_debug_build_s_arenas() {
+        let (_, err, _) = session("show type string x1\nq\n", Ending::Killed, false);
+        assert_eq!(
+            err,
+            "error: 'show type' reads values in the arena, which needs a debug build; rebuild \
+             the program with: mfb build --debug -O0 <project>\n"
+        );
+    }
+
+    #[test]
+    fn show_type_alone_shows_its_usage() {
+        let (out, err, _) = session("show type\nq\n", Ending::Killed, false);
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}{}\n{PROMPT}Killed process 42.\n",
+                values::TYPE_USAGE
+            )
+        );
+    }
+
+    #[test]
+    fn show_type_parses_a_type_a_location_and_a_view() {
+        assert_eq!(
+            parse("show type string x1"),
+            Ok(Command::ShowType {
+                location: Location::Register {
+                    name: "x1".to_string(),
+                    offset: 0
+                },
+                view: View::String
+            })
+        );
+        assert_eq!(
+            parse("show type list 0x1000 resource 2..5"),
+            Ok(Command::ShowType {
+                location: Location::Address(0x1000),
+                view: View::List {
+                    element: Some(values::Kind::Resource),
+                    span: Some(values::Span {
+                        start: 2,
+                        end: Some(5)
+                    })
+                }
+            })
+        );
+        assert_eq!(
+            parse("show type map x3 get Grace Hopper"),
+            Ok(Command::ShowType {
+                location: Location::Register {
+                    name: "x3".to_string(),
+                    offset: 0
+                },
+                view: View::Map(values::MapView::Get("Grace Hopper".to_string()))
+            })
+        );
+        for (line, message) in [
+            (
+                "show type string",
+                "'show type string' needs an address or a register: show type string <where>",
+            ),
+            (
+                "show type string x1 8",
+                "too many arguments to 'show type string'",
+            ),
+            (
+                "show type record x1",
+                "cannot show type 'record'; the types are: int, float, fixed, money, bool, \
+                 byte, scalar, string, list, set, map, resource",
+            ),
+            (
+                "show type list x1 3..1",
+                "'3..1' is not an index or a range (3, 0..10, 2..) or a type",
+            ),
+            (
+                "show type map x1 nope",
+                "'nope' is not an index, 'keys', 'values' or 'get <key>'",
+            ),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
+    }
+
+    #[test]
     fn memory_lines_lead_with_full_addresses() {
         assert_eq!(
             memory_lines(0x16f0_0010, b"MFB!"),
@@ -1503,9 +1980,10 @@ x0   0x000000000000002c (44)
                 arena(13, None, 0x2_0000, 0),
             ]),
             [
-                "0  0 0x0000000016f00000 4",
-                "12 3 0x0000000000010000 5",
-                "13 - 0x0000000000020000 0",
+                "ID Thread Address            Size (KB)",
+                "0  0      0x0000000016f00000 4",
+                "12 3      0x0000000000010000 5",
+                "13 -      0x0000000000020000 0",
             ]
         );
         assert!(arena_lines(&[]).is_empty());
@@ -1634,7 +2112,7 @@ Thread 2 is at 0x0000000000007004.
         inferior.unreadable = true;
         let (out, err) = drive(
             &mut inferior,
-            "list func\nlist reg\nlist thread\nq\n",
+            "list func\nlist reg gpr\nlist thread\nq\n",
             false,
         );
         assert_eq!(
@@ -1665,6 +2143,21 @@ Thread 2 is at 0x0000000000007004.
         assert!(function_lines(&[]).is_empty());
         assert!(register_lines(&[]).is_empty());
         assert!(thread_lines(&[], &[], &[]).is_empty());
+        assert!(table(["A", "B"], Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn a_table_aligns_every_column_to_its_widest_entry_by_characters() {
+        assert_eq!(
+            table(
+                ["ID", "Name", "Task"],
+                vec![
+                    ["0".to_string(), "héllo".to_string(), "MFB Main".to_string()],
+                    ["10".to_string(), "x".to_string(), "Other".to_string()],
+                ]
+            ),
+            ["ID Name  Task", "0  héllo MFB Main", "10 x     Other",]
+        );
     }
 
     #[test]
@@ -1682,14 +2175,140 @@ Thread 2 is at 0x0000000000007004.
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed.\n\
                  {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2.\n\
                  {PROMPT}\
+Address            Symbol              Written name
 0x0000000000001004 _mfb_fn_next_5Fseed next_seed
 0x0000000000001012 _mfb_fn_main+0x2    main+0x2
 {PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2.\n\
-                 {PROMPT}0x0000000000001004 _mfb_fn_next_5Fseed next_seed\n\
+                 {PROMPT}Address            Symbol              Written name\n\
+                 0x0000000000001004 _mfb_fn_next_5Fseed next_seed\n\
                  {PROMPT}Killed process 42.\n"
             )
         );
         assert_eq!(inferior.inserted, [0x1004]);
+    }
+
+    #[test]
+    fn backtrace_parses_its_forms_in_both_spellings() {
+        for name in ["backtrace", "bt"] {
+            assert_eq!(
+                parse(name),
+                Ok(Command::Backtrace(Backtrace::Thread {
+                    count: None,
+                    thread: None
+                }))
+            );
+            assert_eq!(
+                parse(&format!("{name} all")),
+                Ok(Command::Backtrace(Backtrace::All))
+            );
+            assert_eq!(
+                parse(&format!("{name} 5")),
+                Ok(Command::Backtrace(Backtrace::Thread {
+                    count: Some(5),
+                    thread: None
+                }))
+            );
+            assert_eq!(
+                parse(&format!("{name} 5 2")),
+                Ok(Command::Backtrace(Backtrace::Thread {
+                    count: Some(5),
+                    thread: Some(2)
+                }))
+            );
+        }
+        for (line, message) in [
+            (
+                "bt 0",
+                "'0' is not a number of frames (1 or more), or 'all'",
+            ),
+            (
+                "bt -1",
+                "'-1' is not a number of frames (1 or more), or 'all'",
+            ),
+            (
+                "bt x",
+                "'x' is not a number of frames (1 or more), or 'all'",
+            ),
+            (
+                "bt 1 x",
+                "'x' is not a thread id; type 'list thread' for the threads",
+            ),
+            ("bt 1 2 3", "'bt' takes at most two arguments"),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
+    }
+
+    #[test]
+    fn an_address_may_carry_an_offset_either_way() {
+        assert_eq!(address("0x10"), Some(Ok(0x10)));
+        assert_eq!(address("0x10+8"), Some(Ok(0x18)));
+        assert_eq!(address("0X10-0x8"), Some(Ok(0x8)));
+        assert_eq!(
+            address("0x10-0x20"),
+            Some(Err("'0x10-0x20' is below address 0".to_string()))
+        );
+        assert_eq!(
+            address("0xffffffffffffffff+1"),
+            Some(Err(
+                "'0xffffffffffffffff+1' is past the last address".to_string()
+            ))
+        );
+        for word in ["0xzz", "0x10+zz", "0x10-", "0x+4"] {
+            assert_eq!(
+                address(word),
+                Some(Err(format!("'{word}' is not an address"))),
+                "{word}"
+            );
+        }
+        assert_eq!(address("16"), None);
+        assert_eq!(Location::parse("0x1000-16"), Ok(Location::Address(0xff0)));
+        assert_eq!(Target::parse("0x1000+4"), Ok(Target::Address(0x1004)));
+    }
+
+    #[test]
+    fn dis_takes_a_count_a_place_or_a_function_and_counts_back_when_negative() {
+        let register = |name: &str, offset| Location::Register {
+            name: name.to_string(),
+            offset,
+        };
+        for (line, expected) in [
+            ("dis", Disassembly::Current),
+            ("dis 5", Disassembly::Count(5)),
+            ("dis -3", Disassembly::Count(-3)),
+            ("dis pc-8 4", Disassembly::At(register("pc", -8), Some(4))),
+            ("dis x1", Disassembly::At(register("x1", 0), None)),
+            ("dis lr -2", Disassembly::At(register("lr", 0), Some(-2))),
+            (
+                "dis 0x100+4 -1",
+                Disassembly::At(Location::Address(0x104), Some(-1)),
+            ),
+            (
+                "dis isPrime",
+                Disassembly::Named("isPrime".to_string(), None),
+            ),
+            (
+                "dis isPrime -2",
+                Disassembly::Named("isPrime".to_string(), Some(-2)),
+            ),
+            ("dis x31", Disassembly::Named("x31".to_string(), None)),
+        ] {
+            assert_eq!(parse(line), Ok(Command::Disassemble(expected)), "{line}");
+        }
+        for (line, message) in [
+            (
+                "dis 0",
+                "cannot show 0 instructions; give a count other than 0 (negative counts back)",
+            ),
+            (
+                "dis pc x",
+                "cannot show x instructions; give a count other than 0 (negative counts back)",
+            ),
+            ("dis pc 1 2", "'dis' takes at most two arguments"),
+            ("dis 0xzz", "'0xzz' is not an address"),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
     }
 
     #[test]
@@ -1864,11 +2483,12 @@ Thread 1 hit a breakpoint at 0x0000000000007000.
         for (line, message) in [
             (
                 "show",
-                "'show' needs what to show: show mem <where> [<size>], or show arena [<id>]",
+                "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
+                 or show arena [<id>]",
             ),
             (
                 "show it",
-                "cannot show 'it'; 'show mem' and 'show arena' are what can be shown",
+                "cannot show 'it'; 'show mem', 'show type' and 'show arena' are what can be shown",
             ),
             (
                 "show arena x",

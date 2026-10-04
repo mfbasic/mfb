@@ -216,11 +216,12 @@ a `cargo test` target, another script, or a person.
 
 ## Man docs
 
-- **man-debug-examples.sh** — Runs every shell example in the `mfb man debug` topic on
-  the platform it is for: `sh macos` blocks here, `sh linux` blocks on a Linux box and
+- **man-debug-examples.sh** — Runs every shell example in the `mfb man debug` and
+  `mfb man debug-external` topics on the platform it is for: `sh macos` blocks here, `sh linux` blocks on a Linux box and
   `powershell windows` blocks on a Windows box over ssh (each block's `mfb build` is
-  cross-built here and shipped; a stub `mfb` stands in remotely). A block passes when
-  it exits 0 and names an MFBASIC function or prints a debug report; logs land in
+  cross-built here and shipped; a stub `mfb` stands in remotely; the macOS blocks run
+  `mfb dbg`, so it signs `mfb` first). A block passes when it exits 0 and names an
+  MFBASIC function, prints a debug report or ends an `mfb dbg` session; logs land in
   `$OUT`. Remote boxes and tool paths come from `LINUX_SSH`, `LINUX_TARGET`,
   `LINUX_TOOLS`, `WINDOWS_SSH`, `WINDOWS_TOOLS`. Usage:
   `bash scripts/man-debug-examples.sh <mfb-exe> [macos|linux|windows|all] [--setup]`.

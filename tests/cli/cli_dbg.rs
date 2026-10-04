@@ -205,11 +205,10 @@ mod macos {
         project.join("build").join(format!("{name}.out"))
     }
 
-    /// The `list func` rows of a listing, split into their four columns.
-    fn function_rows(listing: &str) -> Vec<[String; 4]> {
-        listing
-            .lines()
-            .filter(|line| line.len() > 3 && ["MU ", "MR ", "LN "].contains(&&line[..3]))
+    /// The `list func` rows of a reply, split into their four columns.
+    fn function_rows(reply: &str) -> Vec<[String; 4]> {
+        table_rows(reply, FUNCTION_COLUMNS)
+            .iter()
             .map(|line| {
                 let words = line.split_whitespace().collect::<Vec<_>>();
                 assert_eq!(words.len(), 4, "{line}");
@@ -401,7 +400,7 @@ mod macos {
 
     /// A debug build, launched: its own functions under their written names,
     /// the runtime's, and every import record, none bound yet; then thread 0's
-    /// registers, every one the compiler can use.
+    /// registers, every one in its group: gpr, sys, then simd.
     #[test]
     fn list_shows_a_launched_debug_build_s_functions_and_registers() {
         let mfb = signed_mfb();
@@ -437,25 +436,20 @@ mod macos {
         sorted.sort_by_key(|code| ["MU", "MR", "LN"].iter().position(|c| c == code));
         assert_eq!(order, sorted);
 
-        session.send("list reg\n");
-        let registers = session.until_prompt();
+        session.send("list reg gpr sys simd\n");
+        let registers = table_rows(&session.until_prompt(), REGISTER_COLUMNS);
         let lines = registers
-            .lines()
-            .skip(1)
-            .take_while(|line| !line.starts_with("DBG>"))
+            .iter()
             .map(|line| line.split_whitespace().collect::<Vec<_>>())
             .collect::<Vec<_>>();
         let names = lines
             .iter()
             .map(|words| words[0].to_string())
             .collect::<Vec<_>>();
-        let mut expected = (0..29)
-            .filter(|index| *index != 18)
-            .map(|index| format!("x{index}"))
-            .collect::<Vec<_>>();
-        expected.extend(["lr", "sp", "pc", "nzcv"].map(String::from));
+        let mut expected = (0..29).map(|index| format!("x{index}")).collect::<Vec<_>>();
+        expected.extend(["fp", "lr", "sp", "pc", "nzcv", "fpsr", "fpcr"].map(String::from));
         expected.extend((0..32).map(|index| format!("v{index}")));
-        assert_eq!(names, expected, "{registers}");
+        assert_eq!(names, expected, "{registers:?}");
         // General registers print 16 hex digits, vector registers 32.
         for words in &lines {
             let digits = if words[0].starts_with('v') { 32 } else { 16 };
@@ -555,6 +549,50 @@ mod macos {
             .collect()
     }
 
+    /// The columns of each listing's header line.
+    const FUNCTION_COLUMNS: &[&str] = &["Type", "Address", "Symbol", "Written name"];
+    const THREAD_COLUMNS: &[&str] = &["ID", "Name", "PC", "Task"];
+    const REGISTER_COLUMNS: &[&str] = &["Register", "Hex", "Decimal"];
+    const ARENA_COLUMNS: &[&str] = &["ID", "Thread", "Address", "Size (KB)"];
+    const BREAKPOINT_COLUMNS: &[&str] = &["Address", "Symbol", "Written name"];
+
+    /// The rows of a listing reply, after checking that its first line is the
+    /// header naming `columns` and that every row starts each column where the
+    /// header does.
+    fn table_rows(reply: &str, columns: &[&str]) -> Vec<String> {
+        let mut lines = body(reply);
+        assert!(!lines.is_empty(), "no listing in {reply:?}");
+        let header = lines.remove(0).chars().collect::<Vec<_>>();
+        let text = header.iter().collect::<String>();
+        let mut starts = Vec::new();
+        let mut from = 0;
+        for column in columns {
+            let at = text[from..]
+                .find(column)
+                .map(|at| text[..from + at].chars().count())
+                .unwrap_or_else(|| panic!("no column {column:?} in {text:?}"));
+            starts.push(at);
+            from = text.char_indices().nth(at).unwrap().0 + column.len();
+        }
+        assert_eq!(starts[0], 0, "{text:?}");
+        assert_eq!(
+            text.split_whitespace().collect::<Vec<_>>(),
+            columns.join(" ").split_whitespace().collect::<Vec<_>>(),
+            "{text:?}"
+        );
+        for line in &lines {
+            let cells = line.chars().collect::<Vec<_>>();
+            for start in &starts[1..] {
+                assert!(
+                    cells.get(start - 1) == Some(&' ')
+                        && cells.get(*start).is_some_and(|cell| *cell != ' '),
+                    "a column of {line:?} does not start at {start}, under {text:?}"
+                );
+            }
+        }
+        lines
+    }
+
     /// A launched program has one thread, the one that will run `main`, and no
     /// arenas until its runtime starts; `step` runs it an instruction at a time.
     #[test]
@@ -566,7 +604,7 @@ mod macos {
         session.until_prompt();
 
         session.send("list thread\n");
-        let threads = body(&session.until_prompt());
+        let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
         assert_eq!(threads.len(), 1, "{threads:?}");
         let words = threads[0].split_whitespace().collect::<Vec<_>>();
         assert_eq!(words[0], "0");
@@ -606,7 +644,7 @@ mod macos {
         let still = body(&session.until_prompt());
         assert_eq!(still, [format!("Thread 0 is at {}.", pc(&more[0]))]);
 
-        session.send("step -1\nlist reg 1\nq\n");
+        session.send("step -1\nlist reg 1 gpr\nq\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));
     }
@@ -628,7 +666,7 @@ mod macos {
         session.until_prompt();
 
         session.send("list thread\n");
-        let threads = body(&session.until_prompt());
+        let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
         let task = |line: &String| {
             line.split_whitespace()
                 .skip(3)
@@ -644,7 +682,7 @@ mod macos {
         assert_eq!(workers.len(), 1, "{threads:?}");
 
         session.send("list arena\n");
-        let arenas = body(&session.until_prompt());
+        let arenas = table_rows(&session.until_prompt(), ARENA_COLUMNS);
         let rows = arenas
             .iter()
             .map(|line| {
@@ -745,7 +783,7 @@ mod macos {
         let mut session = Session::start(&mfb, &[&app.id().to_string()]);
         session.until_prompt();
         session.send("list thread\n");
-        let threads = body(&session.until_prompt());
+        let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
         let task = |line: &String| {
             line.split_whitespace()
                 .skip(3)
@@ -766,6 +804,39 @@ mod macos {
         assert_eq!(code, Some(0));
         app.kill().unwrap();
         app.wait().unwrap();
+    }
+
+    /// The String `formatLine` returns, read from the arena by `show type`
+    /// at the address `finish` reports in `x1`.
+    #[test]
+    fn show_type_reads_a_returned_string_from_the_arena() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bp formatLine\n");
+        session.until_prompt();
+        session.send("run\n");
+        session.until_prompt();
+        session.send("finish\n");
+        let returned = body(&session.until_prompt());
+        assert!(
+            returned.len() == 1 && returned[0].contains(" returned from formatLine "),
+            "{returned:?}"
+        );
+        session.send("show type string x1\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Length: 18 Value: \"round 1: 37 primes\""]
+        );
+        session.send("show type int x1\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Value: 0x0000000000000012 (18)"]
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
     }
 
     /// Breakpoints by written name and by a system function's symbol (pending
@@ -822,14 +893,34 @@ mod macos {
         let exit = body(&session.until_prompt());
         assert_eq!(exit[0], "libsystem_c.dylib`exit:", "{exit:?}");
 
+        // The calls that led to isPrime, innermost first, ending at the
+        // program's entry; `bt 2` keeps the innermost two.
+        session.send("bt\n");
+        let frames = body(&session.until_prompt());
+        assert_eq!(frames[0], "* thread #0, task = 'MFB Main'", "{frames:?}");
+        assert!(frames[1].starts_with("  * frame #0: 0x"), "{frames:?}");
+        assert!(frames[1].ends_with(" debug.out`isPrime"), "{frames:?}");
+        for (line, function) in frames[2..].iter().zip([
+            "debug.out`countPrimes",
+            "debug.out`runRound",
+            "debug.out`runRounds",
+            "debug.out`main",
+            "debug.out`main",
+        ]) {
+            assert!(line.contains(&format!(" {function} + ")), "{frames:?}");
+        }
+        assert_eq!(frames.len(), 7, "{frames:?}");
+        session.send("bt 2\n");
+        assert_eq!(body(&session.until_prompt()), frames[..3]);
+
         // The registers isPrime starts with, and the function's return.
         session.send("list reg x0 sp\n");
-        let registers = body(&session.until_prompt());
+        let registers = table_rows(&session.until_prompt(), REGISTER_COLUMNS);
         assert!(
             registers.len() == 2
-                && registers[0].starts_with("x0 0x")
+                && registers[0].starts_with("x0       0x")
                 && registers[0].ends_with(')')
-                && registers[1].starts_with("sp 0x"),
+                && registers[1].starts_with("sp       0x"),
             "{registers:?}"
         );
         session.send("show mem sp 16\n");
@@ -847,7 +938,7 @@ mod macos {
         );
 
         session.send("list breakpoint\n");
-        let listed = body(&session.until_prompt());
+        let listed = table_rows(&session.until_prompt(), BREAKPOINT_COLUMNS);
         assert_eq!(listed.len(), 2, "{listed:?}");
         assert!(listed
             .iter()
@@ -887,7 +978,10 @@ mod macos {
         session.send("list breakpoint\n");
         assert_eq!(
             body(&session.until_prompt()),
-            ["-                  _exit exit"]
+            [
+                "Address            Symbol Written name",
+                "-                  _exit  exit"
+            ]
         );
         session.send("run\n");
         let again = body(&session.until_prompt());

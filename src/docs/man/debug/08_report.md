@@ -163,66 +163,71 @@ print the same sections without the `perf` lines.
 mfb.debug.begin 1
 mfb.debug.target macos-aarch64
 mfb.debug.build console
-perf.mfb_alloc.count 33
-perf.mfb_alloc.avg 393
+perf.mfb_alloc.count 71
+perf.mfb_alloc.avg 507
 perf.mfb_alloc.median 0
 perf.mfb_alloc.min 0
-perf.mfb_alloc.max 6000
-perf.mfb_alloc.sum 13000
-perf.mfb_free.count 23
-perf.mfb_free.avg 43
+perf.mfb_alloc.max 11000
+perf.mfb_alloc.sum 36000
+perf.mfb_free.count 61
+perf.mfb_free.avg 131
 perf.mfb_free.median 0
 perf.mfb_free.min 0
-perf.mfb_free.max 1000
-perf.mfb_free.sum 1000
+perf.mfb_free.max 2000
+perf.mfb_free.sum 8000
 perf.program.count 1
-perf.program.avg 784000
-perf.program.median 784000
-perf.program.min 784000
-perf.program.max 784000
-perf.program.sum 784000
+perf.program.avg 2961000
+perf.program.median 2961000
+perf.program.min 2961000
+perf.program.max 2961000
+perf.program.sum 2961000
 arena.count 5
 arena.registry_overflow 0
 arena.0.kind main
-arena.0.maps 1
-arena.0.mapped_bytes 4096
+arena.0.maps 2
+arena.0.mapped_bytes 12288
 arena.0.unmaps 0
 arena.0.unmapped_bytes 0
-arena.0.alloc_calls 23
-arena.0.alloc_bytes 816
-arena.0.free_calls 23
-arena.0.free_bytes 816
+arena.0.alloc_calls 61
+arena.0.alloc_bytes 11600
+arena.0.free_calls 61
+arena.0.free_bytes 11600
 arena.0.live_bytes 0
-arena.0.peak_live_bytes 320
-arena.0.hit_quick_bin 15
-arena.0.hit_carve 7
-arena.0.hit_large_bin 0
+arena.0.peak_live_bytes 4624
+arena.0.hit_quick_bin 36
+arena.0.hit_carve 22
+arena.0.hit_large_bin 1
 arena.0.hit_walk 0
-arena.0.grow 1
+arena.0.grow 2
 arena.0.flushes 0
 arena.0.insert_free_calls 0
 arena.0.double_free_skips 0
-arena.0.fill_grow_calls 1
-arena.0.fill_grow_bytes 4064
-arena.0.fill_free_calls 11
-arena.0.fill_free_bytes 448
-arena.0.series.count 1
-arena.0.series.0.t_ns 8000
+arena.0.fill_grow_calls 2
+arena.0.fill_grow_bytes 12224
+arena.0.fill_free_calls 42
+arena.0.fill_free_bytes 10624
+arena.0.series.count 2
+arena.0.series.0.t_ns 27000
 arena.0.series.0.mapped_bytes 4096
 arena.0.series.0.live_bytes 176
-arena.0.series.0.peak_rss_bytes 1114112
-process.peak_rss_bytes 1245184
+arena.0.series.0.peak_rss_bytes 1163264
+arena.0.series.1.t_ns 39000
+arena.0.series.1.mapped_bytes 12288
+arena.0.series.1.live_bytes 4560
+arena.0.series.1.peak_rss_bytes 1196032
+process.peak_rss_bytes 1523712
 thread.table_capacity 64
 thread.table_high 1
 thread.table_live 0
 mfb.debug.end 1
 ```
 
-Reading it: the whole run took 784000 ns (0.8 ms). The main thread's pool
-took one 4 KiB block, its values never needed more than 320 bytes at once, and
-nothing was still held at exit (`live_bytes 0`). All 23 requests were served
-from ready slots or the current block (15 + 7, plus the 1 `grow` that fetched
-the block). The program ran one worker at a time, so `thread.table_high` is 1.
+Reading it: the whole run took 2961000 ns (3 ms). The main thread's pool
+took two blocks, 12 KiB in all, its values never needed more than 4624 bytes
+at once, and nothing was still held at exit (`live_bytes 0`). Its 61 requests
+were served from ready slots (36), the current block (22), a larger slot (1)
+and the 2 `grow`s that fetched the blocks. The program ran one worker at a
+time, so `thread.table_high` is 1.
 
 To pull out a few figures:
 
@@ -248,6 +253,7 @@ Select-String -Path report.txt -Pattern '^(arena\.\d+\.(kind|peak_live_bytes|liv
 ## See also
 
 - `mfb man debug`
-- `mfb man debug profiler` — where the time goes, function by function
+- `mfb man debug pools` — the pools these figures describe, live in `mfb dbg`
+- `mfb man debug-external profiler` — where the time goes, function by function
 - `mfb man variable` — how values are copied and when they go away
 - `mfb spec tooling debug-report` — the report's exact format

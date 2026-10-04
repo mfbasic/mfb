@@ -19,16 +19,24 @@ const MAX_FUNCTION: u64 = 1 << 20;
 /// Where a comment starts, counted from the instruction text.
 const COMMENT_COLUMN: usize = 33;
 
-/// What a `dis` asks for.
+/// What a `dis` asks for. A count is never 0: a positive count is that many
+/// instructions from the starting point, a negative one that many before it
+/// and then the starting point itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Request {
     /// The function holding the current thread's `pc`.
     Current,
-    /// This many instructions from the current thread's `pc`.
-    Count(u64),
-    /// Every function with this name.
-    Named(String),
+    /// Instructions around the current thread's `pc`.
+    Count(i64),
+    /// Instructions around an address: through the end of its function when
+    /// no count is given.
+    At { address: u64, count: Option<i64> },
+    /// Every function with this name: all of it, or a count from its start.
+    Named { name: String, count: Option<i64> },
 }
+
+/// The size of an AArch64 instruction; every one starts on a multiple of it.
+const INSTRUCTION: u64 = 4;
 
 /// How a function is named in a listing: what the developer wrote for their
 /// own functions, otherwise the symbol less the leading `_` C adds (as lldb
@@ -66,29 +74,74 @@ pub(crate) fn disassemble(
             };
             Ok(lines)
         }
-        Request::Count(count) => {
-            let range = inferior.function_at(pc)?.unwrap_or_else(|| unknown(pc));
-            listing(inferior, &range, pc, None, Some(*count), pc)
+        Request::Count(count) => around(inferior, pc, Some(*count), pc),
+        Request::At { address, count } => {
+            if address % INSTRUCTION != 0 {
+                return Err(format!(
+                    "0x{address:016x} is not the start of an instruction: they start every \
+                     {INSTRUCTION} bytes"
+                ));
+            }
+            around(inferior, *address, *count, pc)
         }
-        Request::Named(name) => {
+        Request::Named { name, count } => {
             let ranges = resolve(inferior, name)?;
             let mut lines = Vec::new();
             for range in ranges {
                 if !lines.is_empty() {
                     lines.push(String::new());
                 }
-                lines.extend(listing(
-                    inferior,
-                    &range,
-                    range.start,
-                    range.size,
-                    None,
-                    pc,
-                )?);
+                lines.extend(match count {
+                    None => listing(inferior, &range, range.start, range.size, None, pc)?,
+                    Some(count) => counted(inferior, &range, range.start, *count, pc)?,
+                });
             }
             Ok(lines)
         }
     }
+}
+
+/// The listing around `anchor`, headed by the function holding it: `count`
+/// instructions as `Request` describes, or with none the rest of that
+/// function from `anchor`.
+fn around(
+    inferior: &mut dyn Inferior,
+    anchor: u64,
+    count: Option<i64>,
+    pc: u64,
+) -> Result<Vec<String>, String> {
+    let range = inferior
+        .function_at(anchor)?
+        .filter(|range| range.start <= anchor)
+        .unwrap_or_else(|| unknown(anchor));
+    match count {
+        Some(count) => counted(inferior, &range, anchor, count, pc),
+        None => {
+            let rest = range
+                .size
+                .map(|size| (range.start + size).saturating_sub(anchor));
+            listing(inferior, &range, anchor, rest, None, pc)
+        }
+    }
+}
+
+/// `count` instructions from `anchor`, or before it and then `anchor`.
+fn counted(
+    inferior: &mut dyn Inferior,
+    range: &FunctionRange,
+    anchor: u64,
+    count: i64,
+    pc: u64,
+) -> Result<Vec<String>, String> {
+    if count > 0 {
+        return listing(inferior, range, anchor, None, Some(count as u64), pc);
+    }
+    let back = count.unsigned_abs();
+    let from = back
+        .checked_mul(INSTRUCTION)
+        .and_then(|bytes| anchor.checked_sub(bytes))
+        .ok_or_else(|| format!("there are not {back} instructions before 0x{anchor:016x}"))?;
+    listing(inferior, range, from, None, Some(back + 1), pc)
 }
 
 /// The address of every `ret` in `range`: through its size when known, else
@@ -220,7 +273,12 @@ fn listing(
         if range.image.is_empty() && range.name.is_none() {
             String::new()
         } else {
-            format!(" <+{}>:", address.wrapping_sub(range.start))
+            // An instruction before the function's start (a listing counted
+            // back past it) shows how far before.
+            match address.checked_sub(range.start) {
+                Some(after) => format!(" <+{after}>:"),
+                None => format!(" <-{}>:", range.start - address),
+            }
         }
     };
     let width = rows

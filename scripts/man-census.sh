@@ -484,16 +484,20 @@ mode_scope() {
 	local pkgs=("$@")
 	local pkg fn hits=0 carve3=0 carve5=0
 
-	# Carve-out 5: the `debug` guide documents what a `--debug` build prints and
-	# what debuggers show, and two of those spellings contain `arena`: the debug
-	# report's own keys (`arena.count`, `arena.0.live_bytes`, and a script's
-	# `arena\.` pattern for them) and the runtime's symbol names in a backtrace
-	# or profile (`_mfb_arena_alloc`). Both are program output, not page prose —
-	# the same shape as carve-out 2's derived error messages. Only a line whose
-	# every hit is inside one of those literal spellings is carved; the word
-	# `arena` in the topic's own sentences stays a HIT (the topic says "pool").
+	# Carve-out 5: the `debug` and `debug-external` guides document what a
+	# `--debug` build prints and what debuggers show, and some of those spellings
+	# trip the sweep: the debug report's own keys (`arena.count`,
+	# `arena.0.live_bytes`, and a script's `arena\.` pattern for them), the
+	# runtime's symbol names in a backtrace or profile (`_mfb_arena_alloc`),
+	# `mfb dbg`'s own commands and their output (`list arena`, `show arena`,
+	# `Arena Block (0):`), and a system library's function names in a backtrace
+	# (`libsystem_kernel.dylib`__psynch_cvwait`). All are program output or
+	# commands a developer types, not page prose — the same shape as carve-out
+	# 2's derived error messages. Only a line whose every hit is inside one of
+	# those literal spellings is carved; the word `arena` in the topics' own
+	# sentences stays a HIT (the topics say "pool").
 	carve5_strip() {
-		sed -E 's/_mfb_arena_[A-Za-z0-9_…]*//g; s/arena\\?\.[^ │)]*//g'
+		sed -E 's/_mfb_arena_[A-Za-z0-9_…]*//g; s/arena\\?\.[^ │)]*//g; s/(list|show|l) arena//g; s/Arena (State|Block)//g; s/[A-Za-z0-9_.+-]+\.dylib`[^ ]*//g'
 	}
 
 	# Carve-out 3 (plan-125-A Phase 1): the `optimizations` guide's pass table is
@@ -528,7 +532,7 @@ mode_scope() {
 				printf 'CARVE-3  %-28s %5s  %s\n' "$label" "$n" "$body"
 				continue
 			fi
-			if [ "$label" = 'debug (guide)' ] &&
+			if { [ "$label" = 'debug (guide)' ] || [ "$label" = 'debug-external (guide)' ]; } &&
 				! printf '%s' "$body" | carve5_strip | grep -qE "$(scope_regex)"; then
 				carve5=$((carve5 + 1))
 				printf 'CARVE-5  %-28s %5s  %s\n' "$label" "$n" "$body"
@@ -560,7 +564,7 @@ mode_scope() {
 	printf '\n'
 	printf 'internals-vocabulary hits: %d\n' "$hits"
 	printf 'carve-out 3 (generated optimizer-catalog row): %d\n' "$carve3"
-	printf 'carve-out 5 (debug report key / runtime symbol in the debug guide): %d\n' "$carve5"
+	printf 'carve-out 5 (debug report key / runtime symbol / mfb dbg command in the debug guides): %d\n' "$carve5"
 	[ "$hits" -eq 0 ]
 }
 

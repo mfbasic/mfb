@@ -15,6 +15,7 @@
 
 use super::disassemble::returns;
 use super::names::{classify_defined, linked_name};
+use super::prompt::table;
 use super::{FunctionSymbol, Inferior, RunStop, StepStop};
 
 /// One breakpoint the session holds.
@@ -39,12 +40,11 @@ pub(crate) enum Target {
 }
 
 impl Target {
-    /// `0x` and hex digits is an address; anything else is a name.
+    /// `0x` and hex digits, perhaps with `+`/`-` an offset, is an address;
+    /// anything else is a name.
     pub(crate) fn parse(word: &str) -> Result<Target, String> {
-        match word.strip_prefix("0x").or_else(|| word.strip_prefix("0X")) {
-            Some(hex) => u64::from_str_radix(hex, 16)
-                .map(Target::Address)
-                .map_err(|_| format!("'{word}' is not an address")),
+        match super::prompt::address(word) {
+            Some(address) => address.map(Target::Address),
             None => Ok(Target::Name(word.to_string())),
         }
     }
@@ -269,24 +269,21 @@ impl Breakpoints {
         }
         let mut sorted = self.list.iter().collect::<Vec<_>>();
         sorted.sort_by_key(|breakpoint| (breakpoint.address.is_none(), breakpoint.address));
-        let width = sorted
-            .iter()
-            .map(|breakpoint| shown(&breakpoint.symbol).len())
-            .max()
-            .unwrap_or(0);
-        sorted
-            .iter()
-            .map(|breakpoint| {
-                let address = breakpoint
-                    .address
-                    .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}"));
-                format!(
-                    "{address:<18} {:<width$} {}",
-                    shown(&breakpoint.symbol),
-                    shown(&breakpoint.written)
-                )
-            })
-            .collect()
+        table(
+            ["Address", "Symbol", "Written name"],
+            sorted
+                .iter()
+                .map(|breakpoint| {
+                    [
+                        breakpoint
+                            .address
+                            .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}")),
+                        shown(&breakpoint.symbol).to_string(),
+                        shown(&breakpoint.written).to_string(),
+                    ]
+                })
+                .collect(),
+        )
     }
 
     /// Run the program to the next stop the user should see. Pending
@@ -710,6 +707,7 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
+                "Address            Symbol               Written name",
                 "0x0000000000001124 _mfb_fn_isPrime+0x24 isPrime+0x24",
                 "0x0000000000005000 -                    -",
             ]
@@ -737,6 +735,7 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
+                "Address            Symbol       Written name",
                 "0x0000000000001300 _mfb_fn_exit exit",
                 "-                  _exit        exit",
             ]

@@ -5,10 +5,10 @@ Stop the program when it reaches a function
 ## Description
 
 A breakpoint stops the program the moment it enters a function. While it is
-stopped you can look at how it got there (`mfb man debug backtraces`), then
+stopped you can look at how it got there (`mfb man debug-external backtraces`), then
 let it run on to the next stop.
 
-Build with `--debug -O0` first (`mfb man debug`). A breakpoint is set by the
+Build with `--debug -O0` first (`mfb man debug-external`). A breakpoint is set by the
 function's name in the executable. That is `_mfb_fn_` plus the name you wrote,
 and a `_` in your name is spelled `_5F`. lldb on macOS drops the leading `_`.
 
@@ -48,12 +48,12 @@ Set two breakpoints and start the program. lldb shown, gdb in the comments:
 
 ```
 (lldb) b mfb_fn_next_5Fseed     # gdb: break _mfb_fn_next_5Fseed
-Breakpoint 1: where = debug.out`mfb_fn_next_5Fseed, address = 0x0000000100000888
+Breakpoint 1: where = debug.out`mfb_fn_next_5Fseed, address = 0x00000001000008d0
 (lldb) b mfb_fn_isPrime         # gdb: break _mfb_fn_isPrime
-Breakpoint 2: where = debug.out`mfb_fn_isPrime, address = 0x0000000100000a5c
+Breakpoint 2: where = debug.out`mfb_fn_isPrime, address = 0x0000000100000aa4
 (lldb) run
 Process 95760 stopped
-    frame #0: 0x0000000100000888 debug.out`mfb_fn_next_5Fseed
+    frame #0: 0x00000001000008d0 debug.out`mfb_fn_next_5Fseed
 ```
 
 The first stop is `next_seed`. `runRounds` calls it to pick the round's seed.
@@ -62,9 +62,9 @@ reaches the first `isPrime`:
 
 ```
 (lldb) continue
-    frame #0: 0x0000000100000888 debug.out`mfb_fn_next_5Fseed
+    frame #0: 0x00000001000008d0 debug.out`mfb_fn_next_5Fseed
 (lldb) continue
-    frame #0: 0x0000000100000a5c debug.out`mfb_fn_isPrime
+    frame #0: 0x0000000100000aa4 debug.out`mfb_fn_isPrime
 ```
 
 `isPrime` runs once per number, so it would stop a thousand more times. Remove
@@ -138,23 +138,23 @@ gdb prints each stop the same way on Linux and Windows. The Windows run, with
 the debug report left out:
 
 ```
-Breakpoint 1 at 0x14000208e
-Breakpoint 2 at 0x140002387
-[New Thread 15776.0x32c8]
-[New Thread 15776.0x2f58]
-[New Thread 15776.0x2b54]
+Breakpoint 1 at 0x1400020ef
+Breakpoint 2 at 0x1400023e8
+[New Thread 6700.0x12c8]
+[New Thread 6700.0x27ec]
+[New Thread 6700.0x1ca0]
 
-Thread 1 hit Breakpoint 1, 0x00007ff6cc52208e in _mfb_fn_next_5Fseed ()
+Thread 1 hit Breakpoint 1, 0x00007ff6ffce20ef in _mfb_fn_next_5Fseed ()
 
-Thread 1 hit Breakpoint 1, 0x00007ff6cc52208e in _mfb_fn_next_5Fseed ()
+Thread 1 hit Breakpoint 1, 0x00007ff6ffce20ef in _mfb_fn_next_5Fseed ()
 
-Thread 1 hit Breakpoint 2, 0x00007ff6cc522387 in _mfb_fn_isPrime ()
+Thread 1 hit Breakpoint 2, 0x00007ff6ffce23e8 in _mfb_fn_isPrime ()
 round 1: 75 primes
 total: 75 primes
-[Thread 15776.0x2f58 exited with code 0]
-[Thread 15776.0x2b54 exited with code 0]
-[Thread 15776.0x32c8 exited with code 0]
-[Inferior 1 (process 15776) exited normally]
+[Thread 6700.0x1ca0 exited with code 0]
+[Thread 6700.0x27ec exited with code 0]
+[Thread 6700.0x12c8 exited with code 0]
+[Inferior 1 (process 6700) exited normally]
 ```
 
 The `[New Thread …]` lines are threads Windows starts in every process; your
@@ -171,8 +171,8 @@ gdb -batch -ex 'rbreak ^_mfb_fn_run' -ex 'info breakpoints' \
 
 ```
 Num     Type           Disp Enb Address            What
-1       breakpoint     keep y   0x0000000000001bc0 <_mfb_fn_runRound+16>
-2       breakpoint     keep y   0x0000000000002214 <_mfb_fn_runRounds+32>
+1       breakpoint     keep y   0x0000000000001c78 <_mfb_fn_runRound+8>
+2       breakpoint     keep y   0x0000000000002e40 <_mfb_fn_runRounds+96>
 ```
 
 and the same on macOS:
@@ -192,5 +192,5 @@ gdb -batch -ex 'rbreak ^_mfb_fn_run' -ex 'info breakpoints' --args examples\debu
 
 ## See also
 
-- `mfb man debug backtraces`
-- `mfb man debug`
+- `mfb man debug-external backtraces`
+- `mfb man debug-external`
