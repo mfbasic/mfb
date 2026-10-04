@@ -1112,6 +1112,12 @@ pub(crate) fn app_mode_imports(
         // exactly as the console runtime resolves them on glibc.
         (libpthread, "pthread_create"),
         (libpthread, "pthread_detach"),
+        // bug-789: the app-mode entry asks for its worker thread's stack to set the
+        // thread's stack limit (`emit_stack_limit`, `ThreadStack::Inherited`).
+        (libpthread, "pthread_self"),
+        (libpthread, "pthread_getattr_np"),
+        (libpthread, "pthread_attr_getstack"),
+        (libpthread, "pthread_attr_destroy"),
         // `__libc_start_main` runs the C runtime + shared-library constructors
         // (the GLib/GObject type system) before calling our real `main`; the
         // entry can't link crt1.o, so it calls this directly (plan-05 §6.1).

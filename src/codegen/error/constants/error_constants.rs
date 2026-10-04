@@ -906,9 +906,33 @@ pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET +
 /// [`ARENA_FLAG_RHS_OFFSET`] below, so `ARENA_STATE_SIZE` (and every target's
 /// arena-clear) is byte-for-byte unchanged. `arch::riscv64::v128::SLOT_COUNT`
 /// dropped to 127 in lockstep.
-pub(crate) const ARENA_V128_SLOTS_OFFSET: usize =
+///
+/// bug-789: the region's first 16 bytes became [`ARENA_STACK_LIMIT_OFFSET`] and a
+/// scratch word, so `SLOT_COUNT` dropped to 126 in lockstep and every later offset
+/// and `ARENA_STATE_SIZE` are unchanged.
+pub(crate) const ARENA_V128_SLOTS_OFFSET: usize = ARENA_STACK_LIMIT_OFFSET + 16;
+pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 126 * 16;
+/// bug-789: this thread's stack limit — the lowest stack pointer a function body
+/// may start at (the thread's stack bottom plus [`STACK_LIMIT_RESERVE_BYTES`]).
+/// Every function that makes a call compares `sp` against it at entry and raises
+/// `ErrStackOverflow` below it. Written once per thread, right after its arena state
+/// is cleared (the program entry, the worker trampoline); `0` — a thread that never
+/// sets it — disables the check, since every stack address is above it. Kept below
+/// rv64's 12-bit load immediate so the per-call check is one load on every target.
+pub(crate) const ARENA_STACK_LIMIT_OFFSET: usize =
     ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
-pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 127 * 16;
+/// bug-789: scratch beside the limit word, used only while a thread computes it.
+pub(crate) const ARENA_STACK_LIMIT_SCRATCH_OFFSET: usize = ARENA_STACK_LIMIT_OFFSET + 8;
+const _: () = assert!(ARENA_STACK_LIMIT_SCRATCH_OFFSET + 8 <= 2047);
+/// bug-789: stack kept free below the limit: the largest frame a function allocates
+/// before its entry check (the regex engine's is ~230 KiB) plus the error path that
+/// raises `ErrStackOverflow`. Capped at a quarter of a small thread stack.
+pub(crate) const STACK_LIMIT_RESERVE_BYTES: usize = 512 * 1024;
+/// bug-789: the stack every runtime-created thread gets (workers, the Linux app
+/// worker), so its limit is known without asking the OS.
+pub(crate) const THREAD_STACK_BYTES: usize = 8 * 1024 * 1024;
+/// bug-789: the most of an unlimited (`RLIM_INFINITY`) main stack the limit counts on.
+pub(crate) const MAIN_STACK_CAP_BYTES: usize = 256 * 1024 * 1024;
 /// Per-thread rv64 flag-emulation rhs snapshot (bug-381). RISC-V has no condition
 /// flags, so a bare (non-fused) integer compare whose flag-reading branch is not
 /// adjacent must keep its *compared values* live across the span — but under

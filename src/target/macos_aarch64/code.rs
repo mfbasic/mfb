@@ -872,6 +872,85 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         ]);
     }
 
+    /// bug-789: macOS reports any thread's exact stack: its top
+    /// (`pthread_get_stackaddr_np`) and size (`pthread_get_stacksize_np`), for the
+    /// main thread and an app or worker thread alike, so `stack` is not needed. The
+    /// values cross the calls in the arena's limit and scratch words.
+    fn emit_stack_limit(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        _stack: crate::codegen::engine::types::ThreadStack,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::codegen::error::constants::{
+            ARENA_STACK_LIMIT_OFFSET, ARENA_STACK_LIMIT_SCRATCH_OFFSET, ARENA_STATE_REGISTER,
+        };
+        emit_libsystem_call(
+            from,
+            "_pthread_self",
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.push(abi::store_u64(
+            abi::c_return(0),
+            ARENA_STATE_REGISTER,
+            ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+        ));
+        instructions.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+        emit_libsystem_call(
+            from,
+            "_pthread_get_stackaddr_np",
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::store_u64(
+                abi::c_return(0),
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_OFFSET,
+            ),
+            abi::load_u64(
+                abi::c_arg(0),
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+            ),
+        ]);
+        emit_libsystem_call(
+            from,
+            "_pthread_get_stacksize_np",
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        // low = top - size; the scratch word is free again.
+        instructions.extend([
+            abi::move_register(abi::c_arg(1), abi::c_return(0)),
+            abi::load_u64(
+                abi::c_arg(0),
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_OFFSET,
+            ),
+            abi::subtract_registers(abi::c_arg(0), abi::c_arg(0), abi::c_arg(1)),
+            abi::store_u64(
+                abi::ZERO,
+                ARENA_STATE_REGISTER,
+                ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+            ),
+        ]);
+        crate::codegen::runtime::stack_limit::emit_limit_from_bounds(
+            instructions,
+            from,
+            abi::c_arg(0),
+            abi::c_arg(1),
+            abi::c_arg(2),
+        );
+        Ok(())
+    }
+
     fn emit_realpath(
         &self,
         from: &str,

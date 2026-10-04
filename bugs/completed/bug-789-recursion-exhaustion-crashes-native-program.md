@@ -4,8 +4,8 @@ Last updated: 2026-10-03
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
-Status: Open
-Regression Test: add `tests/runtime/rt_stack_exhaustion.rs`
+Status: Fixed (2026-10-03, bug-staging-6)
+Regression Test: `tests/runtime/rt_stack_exhaustion.rs` (6 cases); `tests/rt-behavior/control-flow/stack-overflow-rt` (every target)
 
 Native stack exhaustion terminates a recursive MFBASIC program with SIGSEGV,
 without a language error. The desired behavior is a bounded, catchable exhaustion
@@ -143,3 +143,47 @@ Commit: —
 
 Runtime exit status, stderr, TRAP recovery and resource-cleanup evidence are the
 proof. Include a worker-thread case; a main-thread-only stack check is insufficient.
+
+## Resolution (2026-10-03)
+
+- **Error:** `ErrStackOverflow` = 7-701-0002 (`diagnostics/02_error-codes.md`, the
+  errorCode table, the added-codes guard).
+- **Limit word:** `ARENA_STACK_LIMIT_OFFSET` (+1680) plus a scratch word, carved from
+  the start of the rv64 v128 region (`SLOT_COUNT` 127 → 126). Every other arena
+  offset and `ARENA_STATE_SIZE` are unchanged, and one load reads it on every target.
+- **Setting it** (`CodegenPlatform::emit_stack_limit`, once per thread, in the C
+  argument registers):
+  - macOS: `pthread_get_stackaddr_np`/`_stacksize_np`, exact for every thread.
+  - Windows: `GetCurrentThreadStackLimits`, exact.
+  - Linux: workers use their known 8 MiB stack. The main thread reads `RLIMIT_STACK`
+    through raw `prlimit64` (no libc, so a static ELF stays static) and counts on the
+    ¾ below the entry `sp` (arguments and environment are capped at ¼); unlimited is
+    capped at 256 MiB. The app-mode thread uses `pthread_getattr_np` (GTK links libc
+    anyway).
+  - Reserve: `min(512 KiB, stack / 4)`, covering the regex engine's ~230 KiB frame
+    and the raise.
+- **Check:** `emit_stack_check` at the entry of every function whose body has a
+  `Call`/`CallResult`: load the limit, `cmp sp, limit`, `b.lt` to a cold block after
+  the body that raises. The `promote` pass learned the check's
+  `add_imm dst, sp, #0` → `cmp` shape (`sp_value_feeds_only_the_next_compare`).
+  Without that it disabled slot promotion for the whole function, and `fib(32)` ran
+  35% slower.
+
+Bug found on the way: on Win64 `abi::SCRATCH[0]` realizes to `rbx`, the trampoline's
+pinned current-thread register, so the first version crashed every Windows worker
+(0xC0000005). The limit code now uses only C argument registers.
+
+**Verified:**
+
+- `rt_stack_exhaustion` 6/6 on macOS (fails on main: every deep case dies by
+  signal).
+- `stack-overflow-rt` (direct ×2, mutual, function value, worker, shallow 10 000)
+  passes on macos-aarch64, linux-aarch64 glibc (2226), linux-riscv64 musl (2229) and
+  windows-x86_64 hardware (206). linux-x86_64 boxes were down.
+- App mode: the same program on Linux GTK (2226, `Inherited` path) passes. On macOS
+  app mode every deep case raises; the 10 000-deep *shallow* call also raises there,
+  because the app thread has the default 512 KiB pthread stack (bug-803). Before this
+  fix it died by SIGSEGV.
+- Cost: `fib(32)` 13 ms before and after. Benchmark suite, 451 rows at `-O1`:
+  median ratio 1.00, geomean 0.994; worst `treewalk` +11%, `transform` +10%,
+  `dispatch union` +9% (measured beside a running gate).

@@ -194,6 +194,14 @@ pub(crate) fn string_symbols(
     ] {
         push_string_value(&mut values, value);
     }
+    // bug-789: every function that can recurse raises `ErrStackOverflow` at entry.
+    if module
+        .functions
+        .iter()
+        .any(crate::codegen::runtime::stack_limit::function_needs_stack_check)
+    {
+        push_string_value(&mut values, err_msg("ErrStackOverflow"));
+    }
     if module_may_emit_float_numeric_error(module) {
         for value in [
             err_msg("ErrFloatDomain"),

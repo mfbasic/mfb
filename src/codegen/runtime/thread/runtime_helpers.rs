@@ -850,7 +850,7 @@ pub(crate) fn lower_thread_start_helper(
         });
         ctx.instructions.extend([
             abi::move_immediate(abi::c_arg(0), "Integer", "0"), // lpThreadAttributes
-            abi::move_immediate(abi::c_arg(1), "Integer", &(8 * 1024 * 1024).to_string()),
+            abi::move_immediate(abi::c_arg(1), "Integer", &THREAD_STACK_BYTES.to_string()),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // dwCreationFlags = 0
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // lpThreadId = NULL
             abi::branch_link("CreateThread"),
@@ -894,7 +894,7 @@ pub(crate) fn lower_thread_start_helper(
             .push(external_branch(symbol, attr_init_symbol, platform_imports)?);
         ctx.instructions.extend([
             abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), ATTR_OFFSET),
-            abi::move_immediate(abi::c_arg(1), "Integer", &(8 * 1024 * 1024).to_string()),
+            abi::move_immediate(abi::c_arg(1), "Integer", &THREAD_STACK_BYTES.to_string()),
         ]);
         ctx.instructions
             .push(abi::branch_link(attr_setstacksize_symbol));
@@ -1032,7 +1032,7 @@ pub(crate) fn lower_thread_start_helper(
 }
 
 pub(crate) fn lower_thread_trampoline(
-    _platform_imports: &HashMap<String, String>,
+    platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     uses_stdin: bool,
     arena_init: ArenaInitSymbols,
@@ -1118,6 +1118,16 @@ pub(crate) fn lower_thread_trampoline(
         ),
     ];
     let mut relocations = Vec::new();
+    // bug-789: the worker's stack limit, before the worker runs. `thread::start`
+    // gave it a `THREAD_STACK_BYTES` stack. The calls preserve the callee-saved
+    // arena and current-thread registers.
+    platform.emit_stack_limit(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        crate::codegen::engine::types::ThreadStack::Created(THREAD_STACK_BYTES),
+        &mut instructions,
+        &mut relocations,
+    )?;
     // bug-369: everything in the writable globals region is PER-ARENA, and this
     // worker's arena was allocated fresh and zeroed by `thread::start`. Re-run the
     // same initializers the program entry runs, in the same order, so a worker

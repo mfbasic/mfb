@@ -1187,6 +1187,16 @@ pub(crate) fn lower_function(
         // per-function costs, and separating it from allocation is what says
         // whether a slow function is slow to *lower* or slow to *color*.
         let _span = crate::trace::span("emit ops");
+        // bug-789: a function that can recurse checks the stack at entry; the raise
+        // is a cold block after the body.
+        let stack_overflow =
+            if crate::codegen::runtime::stack_limit::function_needs_stack_check(function) {
+                let label = builder.label("stack_overflow");
+                builder.emit_stack_check(&label);
+                Some(label)
+            } else {
+                None
+            };
         // plan-156-E: a parameter that declares a thread view's STATE default-builds it
         // when the view has none yet — the worker entry's own view arrives without one
         // (the runtime builds the view, not its STATE); a view that already carries
@@ -1203,6 +1213,9 @@ pub(crate) fn lower_function(
         builder.lower_ops(&function.body)?;
         if !builder.current_block_returns() {
             builder.emit_return_exit(None, None)?;
+        }
+        if let Some(label) = stack_overflow {
+            builder.emit_stack_overflow_block(&label)?;
         }
     }
     // Fuse single-use `a*b ± c` float chains into one single-rounded fused op

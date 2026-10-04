@@ -12,7 +12,10 @@ pthread_create(&controlBlock.osHandle, attr, _mfb_rt_thread_trampoline, controlB
 ```
 
 The trampoline is a pthread start routine, with libSystem managing the OS
-thread's pthread registration and TLS. Generated thread helpers call the
+thread's pthread registration and TLS. Before the worker runs, the trampoline sets
+the worker arena's stack-limit word (`./mfb spec language functions`, recursion);
+every platform's trampoline does the same through
+`CodegenPlatform::emit_stack_limit`. Generated thread helpers call the
 pthread interface, not raw Mach thread creation.
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]

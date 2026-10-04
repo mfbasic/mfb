@@ -63,7 +63,10 @@ ArenaState (at x19)
   +1168 U64  largeBin[64]     ; large-block size-class heads, chunks > 2048: 4 classes
                               ; per power of two from 2 KiB, the last holding 112 MiB
                               ; and up (see arena_free); 0 = empty
-  +1680 U128 v128Slots[127]   ; per-thread v128 scalarization region (2032 bytes);
+  +1680 U64  stackLimit       ; lowest sp a function body may start at (bug-789); 0 =
+                              ; unchecked; low so one load reads it on every target
+  +1688 U64  stackLimitTmp    ; scratch while a thread computes stackLimit
+  +1696 U128 v128Slots[126]   ; per-thread v128 scalarization region (2016 bytes);
                               ; reserved on every target, addressed only by rv64
                               ; codegen; kept low so its offset fits rv64's 12-bit addi
   +3712 U64  flagRhs          ; rv64 flag-emulation compare rhs snapshot (16 bytes,

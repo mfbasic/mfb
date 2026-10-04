@@ -340,6 +340,7 @@ fn touch(instructions: &[CodeInstruction], index: usize) -> Touch {
             }
         }
         CodeOp::AddImm if mentions == ["src"] => match numeric(instruction, "imm") {
+            Some(0) if sp_value_feeds_only_the_next_compare(instructions, index) => Touch::None,
             Some(offset) if address_feeds_only_a_single_slot_helper(instructions, index) => {
                 Touch::Address(offset)
             }
@@ -360,6 +361,29 @@ fn is_integer_register(operand: &Operand) -> bool {
                 && !spelling.starts_with("%f")
         }
     }
+}
+
+/// bug-789: `add_imm dst, sp, #0` whose `dst` is named only by the very next
+/// instruction, a `cmp` — the stack check every recursing function opens with
+/// (`CodeBuilder::emit_stack_check`). It reads the stack pointer's value; no frame
+/// object's address leaves it, so it neither pins a slot nor blocks promotion.
+fn sp_value_feeds_only_the_next_compare(instructions: &[CodeInstruction], index: usize) -> bool {
+    let Some(dst) = instructions[index].operand("dst") else {
+        return false;
+    };
+    let Some(next) = instructions.get(index + 1) else {
+        return false;
+    };
+    if next.op != CodeOp::Cmp
+        || !(next.operand("lhs") == Some(dst) || next.operand("rhs") == Some(dst))
+    {
+        return false;
+    }
+    instructions.iter().enumerate().all(|(other, instruction)| {
+        other == index
+            || other == index + 1
+            || !instruction.fields.iter().any(|(_, operand)| operand == dst)
+    })
 }
 
 /// Whether the frame address `add_imm dst, sp, #k` at `index` reaches nothing

@@ -36,14 +36,17 @@ use crate::codegen::engine::types::CodeInstruction;
 /// Maximum distinct `v128` values per function. Capped so the largest lane
 /// offset (`(SLOT_COUNT-1)*16 + 8`) stays within the 12-bit signed load/store
 /// immediate (±2047) — otherwise the encoder would materialize the address into
-/// `t0`, clobbering a lane. 127 slots ⇒ max offset 2024.
+/// `t0`, clobbering a lane. 126 slots ⇒ max offset 2008.
 ///
 /// bug-381: dropped from 128 to 127 in lockstep with `ARENA_V128_SLOTS_SIZE`,
 /// which reclaimed the 128th slot's 16 bytes for the per-thread flag-emulation
 /// rhs snapshot (`ARENA_FLAG_RHS_OFFSET`). No function has ever needed 128
 /// distinct `v128` values, and the `peak_slots <= SLOT_COUNT` assertion in
 /// `select_riscv64` would catch it loudly if one did.
-pub(crate) const SLOT_COUNT: usize = 127;
+///
+/// bug-789: 127 → 126 in lockstep with `ARENA_V128_SLOTS_SIZE`, which gave its
+/// first 16 bytes to the per-thread stack-limit word.
+pub(crate) const SLOT_COUNT: usize = 126;
 
 const T0: &str = "t0";
 const T1: &str = "t1";

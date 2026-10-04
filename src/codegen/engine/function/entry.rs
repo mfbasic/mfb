@@ -236,6 +236,20 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     );
     instructions.push(abi::store_u64(ARENA_STATE_REGISTER, abi::SCRATCH[0], 0));
+    // bug-789: this thread's stack limit, before any MFBASIC function runs. An
+    // app-mode entry is called on the worker thread the toolkit bootstrap started; a
+    // console entry runs on the process's main thread.
+    platform.emit_stack_limit(
+        entry_symbol,
+        platform_imports,
+        if entry_called_as_function {
+            crate::codegen::engine::types::ThreadStack::Inherited
+        } else {
+            crate::codegen::engine::types::ThreadStack::Process
+        },
+        &mut instructions,
+        &mut relocations,
+    )?;
     // plan-130: each active `--debug` feature's entry work (the perf section maps its
     // region and opens the whole-program span). The calls clobber x0–x17, but argc/argv
     // are already parked in the callee-saved SCRATCH[17]/SCRATCH[18] (or irrelevant

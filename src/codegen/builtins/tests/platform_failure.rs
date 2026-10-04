@@ -835,6 +835,18 @@ impl CodegenPlatform for FailAt<'_> {
     fn emit_tls_block_trampolines(&self, server: bool) -> Vec<CodeFunction> {
         self.inner.emit_tls_block_trampolines(server)
     }
+    fn emit_stack_limit(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        stack: crate::codegen::engine::types::ThreadStack,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.tick()?;
+        self.inner
+            .emit_stack_limit(from, platform_imports, stack, instructions, relocations)
+    }
     fn app_mode_data_objects(
         &self,
         project_name: &str,
