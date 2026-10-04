@@ -4,8 +4,9 @@
 **host**, not of a compiled program: an `mfb` built for macOS debugs macOS
 programs and nothing else, and there is no cross-debugging. Today it starts or
 attaches to a program, pauses it, lists its functions, threads, registers and
-arenas, single-steps one thread or all of them, and runs it to software
-breakpoints; it is the seam later debugger features build on.
+arenas, single-steps one thread or all of them, runs it to software
+breakpoints, and disassembles it; it is the seam later debugger features build
+on.
 
 The developer-facing guide is `./mfb man debug debugger`.
 
@@ -52,7 +53,8 @@ Only macOS has one; on every other host, after argument parsing succeeds,
 [[src/debugger/mod.rs:host_backend]] A new platform implements the `Backend`
 trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `end`,
 `functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`, `registers`, `step`,
-`entry`, `insert_breakpoint`, `remove_breakpoint`, `run`) and is returned from
+`restart`, `entry`, `insert_breakpoint`, `remove_breakpoint`, `run`, `read_code`,
+`function_at`, `library_functions`, `data_symbol_at`) and is returned from
 `host_backend`. Symbol classification, the reading of the runtime's thread
 table and arena registry (`src/debugger/runtime.rs`), breakpoint resolution and
 pending placement (`src/debugger/breakpoints.rs`), the listings' format, the
@@ -183,6 +185,25 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   when `pid_for_task` fails or `kill(pid, 0)` finds no process
   (`Exit::Unknown`). After that the session refuses every command but `help`,
   `list`, `list breakpoint` and `quit`, and `quit` reports `AlreadyExited`.
+- **Libraries.** `function_at` and `library_functions` read the loader's image
+  list (`task_info(TASK_DYLD_INFO)` → `dyld_all_image_infos.infoArray`), and
+  for each image but the executable its Mach-O header in memory: `__TEXT`'s
+  range and sections, `__LINKEDIT` (whose `vmaddr` + slide − `fileoff` locates
+  every table offset), `LC_FUNCTION_STARTS`, `LC_SYMTAB` and `LC_DYSYMTAB`.
+  Function starts are ULEB128 deltas from `__TEXT`'s start; a library function
+  runs to the next start and never past its section. Names come from the
+  `N_SECT` symbols, whose strings (in the shared cache, one pool shared by every
+  library) are read in runs of nearby offsets. An address in a
+  `S_SYMBOL_STUBS` section is the stub named through the indirect symbol table
+  (`symbol stub for: <symbol>`). The list is re-read when its count changes;
+  each library's starts and symbols are read on first use.
+  [[src/debugger/macos.rs:Library]]
+- **Restart.** `restart` refuses an attached program. For a launched one it
+  kills and reaps the process (unless it has already ended), releases its task
+  port, spawns the program again with the same arguments exactly as `launch`
+  does, and forgets everything about the old process: the load offset, the
+  breakpoints written into it, its exit, its libraries, and the executable's
+  symbols (read again, so a rebuilt file is seen).
 - **Ctrl-C.** For the session's length `mfb` handles `SIGINT` with a handler
   that only sets an atomic flag (and puts the previous handler back when the
   session ends). A `run` that sees the flag suspends the task and answers
@@ -227,8 +248,9 @@ Then, repeatedly:
 | `list`, `l` | prints the `LIST_USAGE` block |
 | `list func` | prints the function listing |
 | `list thread` | prints the thread listing |
-| `list reg [<id>]` | prints thread `<id>`'s registers (default 0) |
+| `list reg [<id>] [<register>...]` | prints thread `<id>`'s registers (default 0), or only those named |
 | `list arena` | prints the arena listing |
+| `show mem <where> [<size>]` | dumps `<size>` bytes (default 64) of memory |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
@@ -237,6 +259,11 @@ Then, repeatedly:
 | `breakpoint r <target>`, `bp r …` | removes breakpoints at `<target>` |
 | `list breakpoint` | prints the breakpoint listing |
 | `run`, `r` | runs the program to the next stop |
+| `finish`, `f` | runs the current thread until its function returns |
+| `restart`, `rs` | starts a launched program again |
+| `disassemble`, `dis` | disassembles the current function |
+| `dis <count>` | disassembles `<count>` instructions from the current `pc` |
+| `dis <function>` | disassembles each function `<function>` names |
 | `quit`, `q` | ends the session |
 
 `list` may be spelled `l` in every form. Commands are case-sensitive.
@@ -248,7 +275,15 @@ Then, repeatedly:
 | `help` or `quit` with arguments | `'<name>' takes no arguments` |
 | `list <what>` for an unknown `<what>` | `cannot list '<what>'; type 'list' for what can be listed` |
 | `list func`/`thread`/`arena` with an argument, `list reg` with two | `too many arguments to '<name> <what>'` |
-| `list reg <id>` or `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
+| `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
+| `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for them all` |
+| `show mem` with no location | `'show mem' needs an address or a register: show mem <where> [<size>]` |
+| `show mem` with a location that is neither `0x…` nor `<register>[±<n>]` | `'<where>' is not an address or a register` |
+| `show mem` with a size of 0 or over 65536 | `cannot show <size> bytes; give 1 to 65536` |
+| `show mem` at a vector register | `'<name>' is a vector register, not an address` |
+| `finish` or `restart` with arguments | `'<name>' takes no arguments` |
+| `restart` of an attached program | `restart needs a program the debugger launched; this one was attached to` |
+| `finish` where no known function holds the `pc` | `cannot finish: no known function holds 0x…` |
 | `list reg <id>` or `step <count> <id>` past the last thread | `no thread <id>: the program has <n> thread(s); type 'list thread' for them` |
 | a `step`/`step-all` count that is a negative integer | `cannot step <count> instructions: the count must not be negative` |
 | a `step`/`step-all` count otherwise not a `u64` | `'<count>' is not a number of instructions` |
@@ -258,13 +293,17 @@ Then, repeatedly:
 | `breakpoint` with more than `r <target>` | `too many arguments to '<name>'` |
 | a target starting `0x` that is not hex | `'<target>' is not an address` |
 | `run` with arguments | `'<name>' takes no arguments` |
-| `show` alone | `'show' needs what to show: show arena [<id>]` |
-| `show <what>` but `arena` | `cannot show '<what>'; 'show arena' is what can be shown` |
+| `dis 0` (or a count past `u64`) | `cannot show <count> instructions; give 1 or more` |
+| `dis` with two arguments | `'<name>' takes at most one argument` |
+| `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
+| `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
+| `show` alone | `'show' needs what to show: show mem <where> [<size>], or show arena [<id>]` |
+| `show <what>` but `mem` or `arena` | `cannot show '<what>'; 'show mem' and 'show arena' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
-| any command but `help`, `list`, `list breakpoint`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+| any command but `help`, `list`, `list breakpoint`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
 
 A listing or step the backend cannot produce prints `error: <reason>`. All go
 to stderr after stdout is flushed; the prompt continues. End of input writes a
@@ -272,7 +311,9 @@ newline and ends the session as `quit` does.
 
 ### `list func`
 
-One line per symbol `Inferior::functions` answers, repeats included:
+One line per symbol `Inferior::functions` answers, except that a symbol
+repeated at the same address (an import's repeated records, or the same
+unbound import) is shown once; the same name at two addresses is shown twice:
 [[src/debugger/prompt.rs:function_lines]]
 
 ```text
@@ -332,9 +373,13 @@ no globals, so an app's main thread paused in a system call is `Other` there.
 
 ### `list reg`
 
-One line per register of thread `<id>` (default 0), `<register> <value>`,
-the name left-aligned to the longest and the value `0x` plus 16 lowercase hex
-digits (64-bit) or 32 (128-bit). [[src/debugger/prompt.rs:register_lines]] On
+One line per register of thread `<id>` (default 0) — or, given names, one per
+name in the order given — as `<register> 0x<hex> (<decimal>)`: the name
+left-aligned to the longest, the value as `0x` plus 16 lowercase hex digits
+(64-bit) or 32 (128-bit), and the same value in decimal, signed for a 64-bit
+register (as MFBASIC's `Integer`) and unsigned for a 128-bit one. A first
+argument of all digits is the thread id; every other argument is a register
+name. [[src/debugger/prompt.rs:register_lines]] On
 AArch64 the set is the registers generated code can use
 (`src/arch/aarch64/regmodel.rs`): `x0`–`x17`, `x19`–`x28`, `lr`, `sp`, `pc`,
 `nzcv`, `v0`–`v31`. `x18` (platform-reserved) and `x29` (generated code keeps
@@ -401,6 +446,16 @@ program starts during the step is not stepped and runs until the round ends.
 `<exception>` is `a bad memory access at 0x<address>`, `an illegal
 instruction`, `an arithmetic exception`, `a breakpoint instruction`, or
 `exception <n>`.
+
+### `show mem`
+
+[[src/debugger/prompt.rs:show_memory]] `show mem <where> [<size>]` reads
+`<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at `<where>`:
+an address (`0x…`), or a register of the current thread with an optional
+offset (`sp`, `sp+0x18`, `x19-16`; a 64-bit register only). It prints
+`Memory at 0x<address>:` — with ` (<register>±0x<offset> of thread <t>)` for a
+register — then the bytes as `show arena`'s dump does, each line led by its
+full address (`0x` + 16 digits). [[src/debugger/prompt.rs:memory_lines]]
 
 ### `show arena`
 
@@ -481,6 +536,85 @@ outcome, `<place>` as in `step`:
 | a launched program exited | `The program exited with status <n>.` |
 | a launched program ended by a signal | `The program was ended by signal <n>.` |
 | an attached program ended | `The program exited.` |
+
+### `disassemble`
+
+[[src/debugger/disassemble.rs:disassemble]] The **current thread** is the one
+the last `run` stopped (the first breakpoint hit, or the exception's thread)
+or the last `step` ran; thread 0 before either, or when it has ended.
+
+- `dis`: the function holding the current thread's `pc`, from its start.
+- `dis <count>` (all digits): `<count>` instructions from the `pc`.
+- `dis <function>`: resolved as a breakpoint name is — symbols spelled
+  `<function>` (the executable's, its imports' bound addresses, the libraries'
+  via `library_functions`), else written names (the executable's functions,
+  its imports less `_`, and the libraries' `_<function>`) — one listing per
+  distinct start, separated by an empty line.
+
+A function's extent is the first known of: the executable's symbol size
+(`--debug` builds), its import stub's size, the library's function starts.
+With none, the listing runs to the first `ret` or 64 instructions
+(`UNSIZED_LIMIT`). Code is read with `read_code`, which puts each
+breakpoint's saved instruction back, so a listing never shows the `brk`.
+
+The listing is lldb's: a header `<image>`<name>:` (`<image>`0x<start>:` when
+unnamed; `0x<start>:` when no image holds it), where the name is the written
+name for the developer's functions and otherwise the symbol less one leading
+`_`; then per instruction `->  ` at the current `pc` or four spaces, the
+address as `0x` and 16 hex digits, ` <+<offset>>:` padded to the widest in the listing (omitted
+when no image holds it), and the instruction. A comment follows from column 33
+of the instruction text: `=<decimal>` for a wide `mov` immediate; for a branch
+or call, `<+<offset>>` inside this function, else the function at the target
+(`<name>` or `<name> + <offset>`); for an `add #imm` whose register an earlier
+`adrp` in the listing set, the data symbol at the address the pair forms, else
+the function there.
+
+Instructions are decoded by `crate::arch::aarch64::decode`, which knows
+exactly the forms `crate::arch::aarch64::encode` emits — a word it does not
+know prints as `.word  0x<word>` — and spells them as LLVM does on macOS,
+NEON in Apple's syntax (`fadd.2d v1, v0, v2`, `mov.16b v24, v0`, `mov.d x8,
+v1[0]`). Its round-trip test encodes every emitter form and decodes it back,
+and fails when the emitter gains a form it does not cover.
+[[src/arch/aarch64/decode/mod.rs:decode]]
+
+### `finish`
+
+[[src/debugger/breakpoints.rs:Breakpoints]] `finish` runs the current thread
+until the function holding its `pc` returns. It finds every `ret` in the
+function (through its extent, or the first within 64 instructions as `dis`
+does, `disassemble::returns`), writes a breakpoint of its own on each that
+holds none, and runs as `run` does. A stop at one of them by the current
+thread with its stack pointer at or above the one it had (so a deeper,
+recursive call's return does not count) removes them and steps the `ret`,
+then prints
+`Thread <t> returned from <function> to <place>: x0 = <value>, x1 = <value>.`
+— MFBASIC returns an error code in `x0` and the value in `x1`, each shown as
+`list reg` shows it. A stop at them by another thread or a deeper frame runs
+on. Any other stop — a user breakpoint, an exception, Ctrl-C, the end —
+removes them and is reported as `run` reports it. With no function at the
+`pc`: `cannot finish: no known function holds 0x…`; with no `ret` found:
+`cannot finish: no ret instruction found in the function at 0x…`.
+
+### `restart`
+
+`restart` asks the backend to start the program again (an attached program
+cannot) and prints `Restarted the program as process <pid>; paused before its
+first instruction.` Every breakpoint is then placed again by the function
+symbol and offset it was set at — the new process is loaded at a new address —
+a linked function's becoming pending until its library loads; one at an
+address no function held is dropped with `Dropped the breakpoint at <place>:
+no function holds it.`, and one whose function the program no longer has with
+`Dropped the breakpoint on <symbol>: the program no longer has it.` The
+current thread is 0 again, and the session runs on even after the program had
+ended.
+
+### Addresses
+
+Every address the debugger prints itself — listings, stops, breakpoints,
+registers, memory dumps, errors — is `0x` and 16 lowercase hex digits, so a
+script can match one against another. Operands inside a disassembled
+instruction keep LLVM's spelling (`b.lt 0x104864780`). Offsets and sizes
+(`+0x44`, `0x2d bytes`) are not addresses and print as short as they are.
 
 ## Ending
 

@@ -36,8 +36,9 @@ and stops; use gdb there (`mfb man debug breakpoints`).
 
 The debugger is new: for now it pauses a program, lists its functions,
 threads, registers and memory pools, steps one thread or all of them an
-instruction at a time, runs it to breakpoints, and lets it go. Backtraces and
-the other tools in this topic still come from lldb and gdb.
+instruction at a time, runs it to breakpoints, shows its machine code, and
+lets it go. Backtraces and the other tools in this topic still come from lldb
+and gdb.
 
 ### Commands
 
@@ -47,8 +48,9 @@ the other tools in this topic still come from lldb and gdb.
 | `list` | `l` | shows what can be listed |
 | `list func` | `l func` | lists the program's functions |
 | `list thread` | `l thread` | lists the program's threads |
-| `list reg [<id>]` | `l reg [<id>]` | lists a thread's registers and their values |
+| `list reg [<id>] [<register>...]` | `l reg …` | lists a thread's registers, or just the ones named |
 | `list arena` | `l arena` | lists the program's memory pools |
+| `show mem <where> [<size>]` | | shows the raw bytes of memory |
 | `show arena [<id>]` | | shows one memory pool in detail |
 | `show arena <id> <block> …` | | shows the raw bytes of part of a pool |
 | `step [<count>] [<thread>]` | `s …` | runs one thread one instruction, or `<count>` |
@@ -57,6 +59,11 @@ the other tools in this topic still come from lldb and gdb.
 | `breakpoint r <where>` | `bp r …` | removes one |
 | `list breakpoint` | `l breakpoint` | lists the breakpoints |
 | `run` | `r` | runs the program until a breakpoint or its end |
+| `finish` | `f` | runs until the current function returns |
+| `restart` | `rs` | starts the program again |
+| `disassemble` | `dis` | shows the machine code of the current function |
+| `dis <count>` | | shows the next `<count>` instructions |
+| `dis <function>` | | shows a function's machine code |
 | `quit` | `q` | ends the session (below) |
 
 How `quit` ends the session depends on how it began:
@@ -130,8 +137,9 @@ is running your code; while it waits (in `os::sleep`, say) it shows as `Other`.
 
 ### Listing registers
 
-`list reg` prints the registers of thread 0 and their values, one per line;
-`list reg 2` prints thread 2's. The registers are `x0` to `x28` (without
+`list reg` prints the registers of thread 0 and their values, one per line, in
+hex and then in decimal (`0x000000000000002d (45)`); `list reg 2` prints
+thread 2's, and `list reg x8 x9` or `list reg 2 x8 x9` just the ones named. The registers are `x0` to `x28` (without
 `x18`), `lr`, `sp`, `pc`, the condition flags `nzcv`, and the vector registers
 `v0` to `v31`: all the registers MFBASIC code uses. A program paused before its
 first instruction has almost all of them at zero; `pc` is where it will start.
@@ -150,6 +158,21 @@ or `-` for a pool that only carries values from one thread to another.
 `<size in KB>` is how much memory the pool holds. `list arena` works only on a
 program built with `--debug`, and lists nothing until the program has started
 running.
+
+### Reading memory
+
+`show mem` prints raw bytes, 64 unless you give a size. Name an address, or a
+register with an offset: at `-O0` your variables live at offsets from `sp`, so
+`show mem sp+0x10 24` shows three of them at once.
+
+```
+DBG> show mem sp+0x10 24
+Memory at 0x000000016f325ea0 (sp+0x10 of thread 0):
+0x000000016f325ea0 0a 00 00 00 00 00 00 00 2d 00 00 00 00 00 00 00 | . . . . . . . . - . . . . . . .
+0x000000016f325eb0 0a 00 00 00 00 00 00 00                         | . . . . . . . .
+```
+
+Numbers are stored lowest byte first, so the 8 bytes `2d 00 … 00` are 45.
 
 ### Looking inside a memory pool
 
@@ -272,6 +295,50 @@ Process 51166 had already exited.
 
 Once the program has ended, only `help`, `list`, `list breakpoint` and `quit`
 still work.
+
+### Finishing a function and starting over
+
+`finish` lets the program run until the function the current thread is in
+returns, then says where it went back to and what came back: MFBASIC returns
+an error code in `x0` (0 when there was none) and the value in `x1`.
+
+```
+DBG> finish
+Thread 0 returned from sumTo to 0x0000000100ad8854 in main+0x28: x0 = 0x0000000000000000 (0), x1 = 0x000000000000002d (45).
+```
+
+If a breakpoint is reached first, `finish` stops there instead.
+
+`restart` starts the program again from the beginning, with the same
+arguments, and keeps your breakpoints. It works on a program `mfb dbg`
+started, even after it has ended, and picks up a program you rebuilt in the
+meantime.
+
+### Reading machine code
+
+`dis` shows the machine code of the function the program is in, the way lldb
+does; `->` marks the instruction the thread runs next. "The program" means the
+thread `run` last stopped or `step` last ran (thread 0 at first). `dis 5` shows
+just the next five instructions, and `dis isPrime` or `dis exit` shows a
+function you name, the same way `breakpoint` reads a name.
+
+```
+DBG> dis 5
+debug.out`isPrime:
+->  0x10418ca5c <+0>:  sub    sp, sp, #0xf0
+    0x10418ca60 <+4>:  str    x30, [sp]
+    0x10418ca64 <+8>:  str    x0, [sp, #0x10]
+    0x10418ca68 <+12>: ldr    x8, [sp, #0x10]
+    0x10418ca6c <+16>: str    x8, [sp, #0x18]
+```
+
+The notes after `;` say where a branch goes (`<+68>` is 68 bytes into this
+function), which function a call reaches, and the value of a number. Your
+functions are shown in full only in a `--debug` build; otherwise, and for code
+the debugger knows nothing about, it shows up to the first `ret` or 64
+instructions. `mfb dbg` reads the instructions MFBASIC programs are made of; an
+instruction it does not know, which happens mostly inside system libraries,
+shows as `.word` and its number.
 
 ### Driving it from a script
 
