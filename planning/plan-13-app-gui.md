@@ -1,6 +1,6 @@
 # plan-13: the `app::` native GUI package
 
-Last updated: 2026-07-20
+Last updated: 2026-10-04 (13-B satisfied by the landed plan-89 `AttributedString`)
 Overall Effort: huge (>3d) — language amendment + package surface + emitted layout solver
 + two native backends + TextArea + Table
 
@@ -260,7 +260,9 @@ above the small/medium band a sub-plan must fit. A alone carries 8 phases, one o
 **GTK does not depend on macOS** — both consume the solver. Phase 5 (GTK) reusing "the
 emitted solver unchanged" is stated in the draft itself; the numbering contradicts it.
 
-**(d) Two units are freed to block on nothing.** `text::` AttributeString (was B Phase 1)
+**(d) Two units are freed to block on nothing.** *(2026-10-04: the first of these, 13-B, was
+superseded by plan-89's `AttributedString` and has landed; see §Corrections.)*
+`text::` AttributeString (was B Phase 1)
 is pure worker-side value code with no host seam — B's own text calls it "independently
 valuable" and "genuinely headless", while B's header says "Depends on plan-13-C being
 landed." That header is wrong, and it is the same defect plan-47-F had.
@@ -282,8 +284,8 @@ than being a phase inside a larger one.
 Every unit is additionally gated behind §Prerequisites.
 
 ```
-  BLOCKS ON NOTHING:
-    13-B  text:: AttributeString (pure value code, headless, independently valuable)
+  ALREADY LANDED (outside this plan):
+    13-B  superseded by plan-89: `AttributedString` + the `astrings` package
 
   THE GATE:
     13-A  language amendment: resource-union parameters  ──┐
@@ -294,22 +296,22 @@ Every unit is additionally gated behind §Prerequisites.
       │
       ├──► 13-E  macOS/AppKit backend ──► 13-G  events, pacing, Input I/O
       ├──► 13-F  GTK4 backend
-      ├──► 13-H  TextArea            (also ← 13-B)
-      └──► 13-I  Table               (also ← 13-B for the addTextArea overload only)
+      ├──► 13-H  TextArea            (value type: plan-89 AttributedString, landed)
+      └──► 13-I  Table               (its addTextArea overload waits on 13-H)
                      │
     13-J  lifetime & detach correctness  ← 13-E + 13-F
     13-K  polish, docs, worked examples  ← everything
 ```
 
 Dependency list, in the form the executor checks:
-`13-B ← nothing`; `13-A ← nothing`; `13-C ← 13-A`; `13-D ← 13-C`;
-`13-E ← 13-D`; `13-F ← 13-D`; `13-G ← 13-E`; `13-H ← 13-D + 13-B`;
+`13-B` = plan-89 (landed); `13-A ← nothing`; `13-C ← 13-A`; `13-D ← 13-C`;
+`13-E ← 13-D`; `13-F ← 13-D`; `13-G ← 13-E`; `13-H ← 13-D`;
 `13-I ← 13-D`; `13-J ← 13-E + 13-F`; `13-K ← all`.
 
 | Unit | Was | Effort | Produces |
 |---|---|---|---|
 | **13-A** | A Phase 0 | small | the spec amendment + the three checkers accepting variant→union widening in non-owning position |
-| **13-B** | B Phase 1 | medium | `text::AttributeString`, the span/LUT encoding, `text::setAttribute`/`getAttributes`/`&` |
+| **13-B** | B Phase 1 | — | **Superseded by plan-89, landed.** `AttributedString` (always in scope), the `astrings` package (`addAttribute`/`removeAttribute`/`clearAttributes`/`getAttributes`/`toMarkdown`, the `Attribute` constructors), and `&` concatenation. No plan-13 work remains |
 | **13-C** | A Phase 1 | medium | the `app::` package: 11 types, 32 functions as overload sets, close-op registration, **and the ability for an emitted helper to mint a `RES` record outside `LINK`** (§2.4 gap b — new capability) |
 | **13-D** | A Phase 2 | medium–large **(measure first)** | `_mfb_rt_app_layout` + the `headless` host + the golden layout matrix |
 | **13-E** | A Phase 3 | medium | the AppKit backend and the host-protocol seam |
@@ -336,8 +338,9 @@ broken binary.
   amendment; three checkers accept it. Widening stays directional — a union actual into a
   concrete parameter must still be rejected, and every registered close op and
   `thread::transfer`/`accept` keeps concrete-typed parameters, so no blocklist is needed.
-- **New:** the `app::` package (27th builtin), `text::AttributeString`, a `headless` host
-  backend, and `--app-host headless`.
+- **New:** the `app::` package (27th builtin), a `headless` host backend, and
+  `--app-host headless`. (The attributed-text value type is plan-89's `AttributedString`,
+  already landed, not new here.)
 - **Unchanged:** app mode's existing transcript behavior; `io::`/`term::` console lowering
   in GUI sub-mode; every other builtin package.
 
@@ -365,13 +368,22 @@ broken binary.
 2. **13-D's real size** (§2.3). Recommended: spike the Row-only single-axis case first and
    extrapolate, before committing to the full `Direction × Justification × Align` matrix
    estimate. `term_grid.rs`'s 1202 lines for a simpler problem is the floor.
-3. **Whether 13-I needs 13-B.** C's `addTextArea` table overload is the only coupling.
-   Recommended: ship 13-I without that overload and add it when 13-H lands, so C does not
-   wait on the attribute machinery.
+3. **Whether 13-I needs 13-H.** C's `addTextArea` table overload is the only coupling.
+   The attribute machinery itself (plan-89) has landed, so the remaining coupling is to
+   the TextArea widget. Recommended: ship 13-I without that overload and add it when 13-H
+   lands.
 
 ## Corrections
 
 <!-- Filled in during execution. -->
+
+- 2026-10-04 — **13-B is satisfied by plan-89, which has landed.** plan-13-B
+  (`text::AttributeString`) was superseded on 2026-08-08 by plan-89
+  (`astrings::AttributedString`; see `planning/completed/superseded-plan-13-B-attributestring.md`),
+  and plan-89 A–E are archived (`ls planning/completed/plan-89-*` → 5). The feature map
+  still listed 13-B as open work and 13-H/13-K as depending on it, which made 13-H look
+  blocked by a plan that does not exist. 13-B is now marked landed, 13-H depends only on
+  13-D, and §Open Decisions 3 names 13-H (the widget) as the remaining coupling for 13-I.
 
 - 2026-07-24 — **The presentation-mode system was extracted into plan-62 and is now a
   prerequisite.** The pre-plan-62 design left `term::on()` and `app::window()` sharing one
