@@ -24,7 +24,8 @@ A missing alpha means **opaque**, not transparent, which is what a reader of
 Anything else raises `ErrInvalidFormat` (`77050003`): an unsupported length, a
 non-hex character, an empty string, a second `#`. The parse is total in the other
 direction — every string is either one of the four forms or an error, and there is
-no partial or best-effort result.
+no partial or best-effort result. `ErrOutOfMemory` means the program ran out of
+memory.
 
 `color::toHexAlpha` is the lossless inverse: `fromHex(toHexAlpha(c))` is `c` for
 every colour. `color::toHex` drops alpha, so it only round-trips an opaque one."#;
@@ -130,7 +131,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named(super::COLOR_TYPE),
-            errors: vec!["ErrInvalidFormat"],
+            errors: vec!["ErrInvalidFormat", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__color_fromHex"),
         }],
     });

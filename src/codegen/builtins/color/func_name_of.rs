@@ -18,7 +18,8 @@ measure that people reasonably disagree about, so `nameOf` does not guess.
 
 `base` must be **fully opaque**. Every entry in the table has alpha `255`, so a
 translucent colour has no name even when its red, green and blue match one
-exactly — `nameOf` raises rather than quietly dropping the alpha.
+exactly — `nameOf` raises rather than quietly dropping the alpha. `ErrOutOfMemory`
+means the program ran out of memory.
 
 Nine colours have two CSS spellings — seven gray/grey pairs, plus `aqua`/`cyan`
 and `fuchsia`/`magenta` — and `nameOf` returns the **alphabetically first** of
@@ -125,7 +126,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec!["ErrNotFound"],
+            errors: vec!["ErrNotFound", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__color_nameOf"),
         }],
     });

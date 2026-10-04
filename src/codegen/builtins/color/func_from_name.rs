@@ -14,6 +14,7 @@ or a form field resolves without cleaning up first.
 
 Anything not in the table raises `ErrNotFound` (`77050004`) — there is no
 best-effort or nearest-colour behaviour. `color::nameOf` is the reverse lookup.
+`ErrOutOfMemory` means the program ran out of memory.
 
 **The CSS green is not the green you expect.** The CSS keyword `green` is `#008000`, a
 dark green; the vivid `#00ff00` most people picture is `lime`. This trips
@@ -106,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named(super::COLOR_TYPE),
-            errors: vec!["ErrNotFound"],
+            errors: vec!["ErrNotFound", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__color_fromName"),
         }],
     });
