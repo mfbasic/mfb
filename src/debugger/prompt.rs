@@ -15,8 +15,8 @@ use super::disassemble::{self, Request};
 use super::names::{classify_defined, linked_name, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::{
-    Ending, Exit, FunctionSymbol, Inferior, Program, Register, RegisterValue, RunStop, StepStop,
-    ThreadFacts,
+    Ending, Exit, FunctionSymbol, Inferior, Program, Register, RegisterGroup, RegisterValue,
+    RunStop, StepStop, ThreadFacts,
 };
 
 pub(crate) const PROMPT: &str = "DBG> ";
@@ -46,8 +46,10 @@ Commands:
 pub(crate) const LIST_USAGE: &str = "\
 Usage: list <what>
 
+Each listing starts with a line naming its columns.
+
   func          The program's functions, one per line:
-                  <type> <address> <name> <written name>
+                  <type> <address> <symbol> <written name>
                 <type> is MU for a function the program's author wrote, MR for
                 the MFBASIC runtime, LN for a function in a linked library.
                 <address> is - for a linked function the program has not
@@ -55,16 +57,28 @@ Usage: list <what>
                 name.
   thread        The program's threads: <id> <name> <pc> <task>
                 <task> is App, MFB Main, User Thread or Other.
-  reg [<id>] [<register>...]
-                The registers of thread <id> (default 0, the main thread), or
-                just the ones named: <register> <hex value> (<decimal>)
+  reg           A thread's registers: gpr, simd, sys, or the ones named.
+                Type 'list reg' for how.
   arena         The program's MFBASIC memory arenas (debug builds):
                   <id> <thread id> <address> <size in KB>
-  breakpoint    The breakpoints: <address> <name> <written name>
+  breakpoint    The breakpoints: <address> <symbol> <written name>
                 <address> is - for one waiting for its library to load.";
 
-/// The thread a bare `step` runs and a bare `list reg` shows: the initial
-/// thread.
+/// What a bare `list reg` prints.
+pub(crate) const LIST_REG_USAGE: &str = "\
+Usage: list reg [<id>] <what>...
+
+Shows the registers of thread <id> (default 0, the main thread) as
+<register> <hex value> (<decimal>). <what> is one or more of:
+
+  gpr           The general-purpose registers: x0 to x28, fp (x29), lr (x30)
+  simd          The SIMD and floating-point registers: v0 to v31
+  sys           The system registers: sp, pc, nzcv, fpsr, fpcr
+  <register>    One register by name; list several with spaces or commas,
+                as in: list reg x0, x1, sp";
+
+/// The thread a bare `step` runs and `list reg` shows when given no thread:
+/// the initial thread.
 const MAIN_THREAD: usize = 0;
 
 /// One parsed command line.
@@ -141,9 +155,31 @@ const DUMP_SIZE: u64 = 1024;
 enum Listing {
     Functions,
     Threads,
-    Registers { thread: usize, names: Vec<String> },
+    RegisterUsage,
+    Registers {
+        thread: usize,
+        picks: Vec<RegisterPick>,
+    },
     Arenas,
     Breakpoints,
+}
+
+/// What a `list reg` argument asks for: a group, or one register by name.
+#[derive(Debug, PartialEq, Eq)]
+enum RegisterPick {
+    Group(RegisterGroup),
+    Name(String),
+}
+
+impl RegisterPick {
+    fn parse(word: &str) -> RegisterPick {
+        match word {
+            "gpr" => RegisterPick::Group(RegisterGroup::General),
+            "simd" => RegisterPick::Group(RegisterGroup::Simd),
+            "sys" => RegisterPick::Group(RegisterGroup::System),
+            name => RegisterPick::Name(name.to_string()),
+        }
+    }
 }
 
 fn parse(line: &str) -> Result<Command, String> {
@@ -161,15 +197,24 @@ fn parse(line: &str) -> Result<Command, String> {
         ("list" | "l", ["arena"]) => Ok(Command::List(Some(Listing::Arenas))),
         ("list" | "l", ["breakpoint"]) => Ok(Command::List(Some(Listing::Breakpoints))),
         ("list" | "l", ["reg", rest @ ..]) => {
-            let (thread, names) = match rest.first() {
+            // Commas separate registers as well as spaces: `x0, x1,x2`.
+            let words = rest
+                .iter()
+                .flat_map(|word| word.split(','))
+                .filter(|word| !word.is_empty())
+                .collect::<Vec<_>>();
+            let (thread, picks) = match words.first() {
                 Some(first) if first.bytes().all(|byte| byte.is_ascii_digit()) => {
-                    (thread_id(first)?, &rest[1..])
+                    (thread_id(first)?, &words[1..])
                 }
-                _ => (MAIN_THREAD, rest),
+                _ => (MAIN_THREAD, &words[..]),
             };
+            if picks.is_empty() {
+                return Ok(Command::List(Some(Listing::RegisterUsage)));
+            }
             Ok(Command::List(Some(Listing::Registers {
                 thread,
-                names: names.iter().map(|name| name.to_string()).collect(),
+                picks: picks.iter().map(|word| RegisterPick::parse(word)).collect(),
             })))
         }
         ("list" | "l", ["func" | "thread" | "arena" | "breakpoint", ..]) => {
@@ -292,6 +337,38 @@ fn thread_id(word: &str) -> Result<usize, String> {
         .map_err(|_| format!("'{word}' is not a thread id; type 'list thread' for the threads"))
 }
 
+/// Lay out a listing: a line of `headers`, then one line per row, the columns
+/// one space apart and each but the last left-aligned to its widest entry,
+/// header included. A listing with no rows has no lines, not even the header.
+pub(crate) fn table<const N: usize>(headers: [&str; N], rows: Vec<[String; N]>) -> Vec<String> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let mut widths = headers.map(|header| header.chars().count());
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    std::iter::once(headers.map(str::to_string))
+        .chain(rows)
+        .map(|row| {
+            row.iter()
+                .zip(widths)
+                .enumerate()
+                .map(|(at, (cell, width))| {
+                    if at + 1 == N {
+                        cell.clone()
+                    } else {
+                        format!("{cell:<width$}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect()
+}
+
 /// The `list func` lines: the program's own functions, then the runtime's, then
 /// linked ones, each group in address order (a linked function not yet bound
 /// last), symbols that tie in symbol-table order, and a name repeated at the
@@ -313,41 +390,39 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
     // records) is shown once; one name at two addresses is shown twice.
     let mut seen = std::collections::HashSet::new();
     rows.retain(|(_, address, name, _)| seen.insert((*address, name.to_string())));
-    let width = rows
-        .iter()
-        .map(|(_, _, name, _)| name.len())
-        .max()
-        .unwrap_or(0);
-    rows.into_iter()
-        .map(|(origin, address, name, written)| {
-            let address = address.map_or_else(|| "-".to_string(), |at| format!("0x{at:016x}"));
-            format!(
-                "{} {address:<18} {name:<width$} {}",
-                origin.code(),
-                written.as_deref().unwrap_or("-")
-            )
-        })
-        .collect()
+    table(
+        ["Type", "Address", "Symbol", "Written name"],
+        rows.into_iter()
+            .map(|(origin, address, name, written)| {
+                [
+                    origin.code().to_string(),
+                    address.map_or_else(|| "-".to_string(), |at| format!("0x{at:016x}")),
+                    name.clone(),
+                    written.unwrap_or_else(|| "-".to_string()),
+                ]
+            })
+            .collect(),
+    )
 }
 
 /// The `list reg` lines: one register per line, the value in full-width hex and
 /// then in decimal — signed for a 64-bit register, as MFBASIC's `Integer` is.
 pub(crate) fn register_lines(registers: &[Register]) -> Vec<String> {
-    let width = registers
-        .iter()
-        .map(|register| register.name.len())
-        .max()
-        .unwrap_or(0);
-    registers
-        .iter()
-        .map(|register| {
-            let value = match register.value {
-                RegisterValue::Bits64(value) => format!("0x{value:016x} ({})", value as i64),
-                RegisterValue::Bits128(value) => format!("0x{value:032x} ({value})"),
-            };
-            format!("{:<width$} {value}", register.name)
-        })
-        .collect()
+    table(
+        ["Register", "Hex", "Decimal"],
+        registers
+            .iter()
+            .map(|register| {
+                let (hex, decimal) = match register.value {
+                    RegisterValue::Bits64(value) => {
+                        (format!("0x{value:016x}"), (value as i64).to_string())
+                    }
+                    RegisterValue::Bits128(value) => (format!("0x{value:032x}"), value.to_string()),
+                };
+                [register.name.clone(), hex, format!("({decimal})")]
+            })
+            .collect(),
+    )
 }
 
 /// The `list thread` lines: `<id> <name> <pc> <task>`. A thread's name is the
@@ -357,62 +432,48 @@ pub(crate) fn thread_lines(
     roles: &[Role],
     functions: &[FunctionSymbol],
 ) -> Vec<String> {
-    let names = threads
-        .iter()
-        .map(|thread| {
-            thread
-                .name
-                .clone()
-                .or_else(|| runtime::locate(functions, thread.pc))
-                .unwrap_or_else(|| format!("thread-{:#x}", thread.id))
-        })
-        .collect::<Vec<_>>();
-    let id_width = threads.len().saturating_sub(1).to_string().len();
-    let name_width = names.iter().map(String::len).max().unwrap_or(0);
-    threads
-        .iter()
-        .zip(&names)
-        .zip(roles)
-        .enumerate()
-        .map(|(id, ((thread, name), role))| {
-            format!(
-                "{id:<id_width$} {name:<name_width$} 0x{:016x} {}",
-                thread.pc,
-                role.label()
-            )
-        })
-        .collect()
+    table(
+        ["ID", "Name", "PC", "Task"],
+        threads
+            .iter()
+            .zip(roles)
+            .enumerate()
+            .map(|(id, (thread, role))| {
+                let name = thread
+                    .name
+                    .clone()
+                    .or_else(|| runtime::locate(functions, thread.pc))
+                    .unwrap_or_else(|| format!("thread-{:#x}", thread.id));
+                [
+                    id.to_string(),
+                    name,
+                    format!("0x{:016x}", thread.pc),
+                    role.label().to_string(),
+                ]
+            })
+            .collect(),
+    )
 }
 
 /// The `list arena` lines: `<id> <thread id> <address> <size in KB>`, the size
 /// rounded up to whole kilobytes and `-` for an arena no thread allocates from.
 pub(crate) fn arena_lines(arenas: &[Arena]) -> Vec<String> {
-    let threads = arenas
-        .iter()
-        .map(|arena| {
-            arena
-                .thread
-                .map_or_else(|| "-".to_string(), |id| id.to_string())
-        })
-        .collect::<Vec<_>>();
-    let id_width = arenas
-        .iter()
-        .map(|arena| arena.id.to_string().len())
-        .max()
-        .unwrap_or(0);
-    let thread_width = threads.iter().map(String::len).max().unwrap_or(0);
-    arenas
-        .iter()
-        .zip(&threads)
-        .map(|(arena, thread)| {
-            format!(
-                "{:<id_width$} {thread:<thread_width$} 0x{:016x} {}",
-                arena.id,
-                arena.address,
-                arena.mapped.div_ceil(1024)
-            )
-        })
-        .collect()
+    table(
+        ["ID", "Thread", "Address", "Size (KB)"],
+        arenas
+            .iter()
+            .map(|arena| {
+                [
+                    arena.id.to_string(),
+                    arena
+                        .thread
+                        .map_or_else(|| "-".to_string(), |id| id.to_string()),
+                    format!("0x{:016x}", arena.address),
+                    arena.mapped.div_ceil(1024).to_string(),
+                ]
+            })
+            .collect(),
+    )
 }
 
 /// The lines a `list` prints, or the error it reports.
@@ -432,22 +493,32 @@ fn list(
             let functions = inferior.functions().unwrap_or_default();
             Ok(thread_lines(&threads, &roles, &functions))
         }
-        Some(Listing::Registers { thread, names }) => {
+        Some(Listing::RegisterUsage) => Ok(LIST_REG_USAGE.lines().map(str::to_string).collect()),
+        Some(Listing::Registers { thread, picks }) => {
             let count = inferior.threads()?.len();
             if thread >= count {
                 return Err(no_thread(thread, count));
             }
             let registers = inferior.registers(thread)?;
-            if names.is_empty() {
-                return Ok(register_lines(&registers));
-            }
             let mut chosen = Vec::new();
-            for name in &names {
-                let register = registers
-                    .iter()
-                    .find(|register| &register.name == name)
-                    .ok_or_else(|| format!("no register '{name}'; type 'list reg' for them all"))?;
-                chosen.push(register.clone());
+            for pick in &picks {
+                match pick {
+                    RegisterPick::Group(group) => chosen.extend(
+                        registers
+                            .iter()
+                            .filter(|register| register.group == *group)
+                            .cloned(),
+                    ),
+                    RegisterPick::Name(name) => chosen.push(
+                        registers
+                            .iter()
+                            .find(|register| &register.name == name)
+                            .cloned()
+                            .ok_or_else(|| {
+                                format!("no register '{name}'; type 'list reg' for the groups")
+                            })?,
+                    ),
+                }
             }
             Ok(register_lines(&chosen))
         }
@@ -972,8 +1043,8 @@ pub(crate) fn run(
     let mut breakpoints = Breakpoints::default();
     // The thread `dis` shows: the last one a `run` or `step` stopped.
     let mut current = MAIN_THREAD;
-    // Once the program has ended only `help`, `list`, `list breakpoint` and
-    // `quit` mean anything.
+    // Once the program has ended only `help`, `list`, `list breakpoint`, a bare
+    // `list reg` and `quit` mean anything.
     let mut exited = false;
     loop {
         write!(out, "{PROMPT}")
@@ -997,9 +1068,9 @@ pub(crate) fn run(
             Ok(Command::Empty) => Ok(Vec::new()),
             Ok(Command::Help) => Ok(vec![HELP.to_string()]),
             Ok(Command::Quit) => break,
-            Ok(Command::List(listing @ (None | Some(Listing::Breakpoints)))) => {
-                list(inferior, program, &breakpoints, listing)
-            }
+            Ok(Command::List(
+                listing @ (None | Some(Listing::Breakpoints | Listing::RegisterUsage)),
+            )) => list(inferior, program, &breakpoints, listing),
             Ok(Command::Restart) => restart(inferior, &mut breakpoints).inspect(|_| {
                 exited = false;
                 current = MAIN_THREAD;
@@ -1174,14 +1245,17 @@ mod tests {
             Ok(vec![
                 Register {
                     name: "x0".to_string(),
+                    group: RegisterGroup::General,
                     value: RegisterValue::Bits64(x0),
                 },
                 Register {
                     name: "nzcv".to_string(),
+                    group: RegisterGroup::System,
                     value: RegisterValue::Bits64(0x6000_0000),
                 },
                 Register {
                     name: "v31".to_string(),
+                    group: RegisterGroup::Simd,
                     value: RegisterValue::Bits128(1 << 64),
                 },
             ])
@@ -1332,12 +1406,13 @@ mod tests {
             out,
             format!(
                 "{PROMPT}\
-MU 0x0000000000001004 _mfb_fn_next_5Fseed next_seed
-MU 0x0000000000001010 _mfb_fn_main        main
-MR 0x0000000000001000 _main               -
-MR 0x0000000000001008 _mfb_rt_print       -
-LN 0x0000000000009000 _free               free
-LN -                  _malloc             malloc
+Type Address            Symbol              Written name
+MU   0x0000000000001004 _mfb_fn_next_5Fseed next_seed
+MU   0x0000000000001010 _mfb_fn_main        main
+MR   0x0000000000001000 _main               -
+MR   0x0000000000001008 _mfb_rt_print       -
+LN   0x0000000000009000 _free               free
+LN   -                  _malloc             malloc
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -1351,9 +1426,54 @@ LN -                  _malloc             malloc
             out,
             format!(
                 "{PROMPT}\
-0 _main            0x0000000000001000 MFB Main
-1 com.apple.worker 0x0000000000007000 Other
-2 thread-0x503     0x0000000000007004 Other
+ID Name             PC                 Task
+0  _main            0x0000000000001000 MFB Main
+1  com.apple.worker 0x0000000000007000 Other
+2  thread-0x503     0x0000000000007004 Other
+{PROMPT}Killed process 42.\n"
+            )
+        );
+    }
+
+    #[test]
+    fn list_reg_alone_shows_its_usage_even_after_the_program_ends() {
+        for line in ["list reg\nq\n", "l reg 2\nq\n"] {
+            let (out, err, _) = session(line, Ending::Killed, false);
+            assert_eq!(
+                out,
+                format!("{PROMPT}{LIST_REG_USAGE}\n{PROMPT}Killed process 42.\n")
+            );
+            assert_eq!(err, "");
+        }
+        let mut inferior = Recorder::new(Ending::AlreadyExited);
+        inferior.runs = vec![RunStop::Exited(Exit::Status(0))];
+        let (out, err) = drive(&mut inferior, "run\nlist reg\nlist reg gpr\nq\n", false);
+        assert!(out.contains(LIST_REG_USAGE), "{out}");
+        assert_eq!(
+            err,
+            "error: the program has exited; type 'quit' to end the session\n"
+        );
+    }
+
+    #[test]
+    fn list_reg_shows_each_group_of_the_main_thread_or_the_one_asked_for() {
+        let (out, err, _) = session(
+            "list reg simd\nl reg 2 gpr sys simd\nq\n",
+            Ending::Killed,
+            false,
+        );
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}\
+Register Hex                                Decimal
+v31      0x00000000000000010000000000000000 (18446744073709551616)
+{PROMPT}\
+Register Hex                                Decimal
+x0       0x000000000000002c                 (44)
+nzcv     0x0000000060000000                 (1610612736)
+v31      0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -1361,18 +1481,24 @@ LN -                  _malloc             malloc
 
     #[test]
     fn list_reg_shows_the_main_thread_or_the_one_asked_for() {
-        let (out, _, _) = session("list reg\nl reg 2\nq\n", Ending::Killed, false);
+        let (out, _, _) = session(
+            "list reg gpr sys simd\nl reg 2 gpr sys simd\nq\n",
+            Ending::Killed,
+            false,
+        );
         assert_eq!(
             out,
             format!(
                 "{PROMPT}\
-x0   0x000000000000002a (42)
-nzcv 0x0000000060000000 (1610612736)
-v31  0x00000000000000010000000000000000 (18446744073709551616)
+Register Hex                                Decimal
+x0       0x000000000000002a                 (42)
+nzcv     0x0000000060000000                 (1610612736)
+v31      0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}\
-x0   0x000000000000002c (44)
-nzcv 0x0000000060000000 (1610612736)
-v31  0x00000000000000010000000000000000 (18446744073709551616)
+Register Hex                                Decimal
+x0       0x000000000000002c                 (44)
+nzcv     0x0000000060000000                 (1610612736)
+v31      0x00000000000000010000000000000000 (18446744073709551616)
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -1381,40 +1507,55 @@ v31  0x00000000000000010000000000000000 (18446744073709551616)
     #[test]
     fn list_reg_refuses_a_thread_or_register_that_does_not_exist() {
         let (_, err, _) = session(
-            "list reg 3\nlist reg x9\nlist reg 1 x0 w5\nq\n",
+            "list reg 3 gpr\nlist reg x9\nlist reg 1 x0, w5\nq\n",
             Ending::Killed,
             false,
         );
         assert_eq!(
             err,
             "error: no thread 3: the program has 3 threads; type 'list thread' for them\n\
-             error: no register 'x9'; type 'list reg' for them all\n\
-             error: no register 'w5'; type 'list reg' for them all\n"
+             error: no register 'x9'; type 'list reg' for the groups\n\
+             error: no register 'w5'; type 'list reg' for the groups\n"
         );
     }
 
     #[test]
-    fn list_reg_shows_just_the_registers_named() {
-        let (out, err, _) = session("list reg 2 nzcv x0\nq\n", Ending::Killed, false);
-        assert_eq!(err, "");
-        assert_eq!(
-            out,
-            format!(
-                "{PROMPT}\
-nzcv 0x0000000060000000 (1610612736)
-x0   0x000000000000002c (44)
+    fn list_reg_shows_just_the_registers_named_by_spaces_or_commas() {
+        for line in [
+            "list reg 2 nzcv x0\nq\n",
+            "list reg 2 nzcv, x0\nq\n",
+            "list reg 2,nzcv,x0\nq\n",
+        ] {
+            let (out, err, _) = session(line, Ending::Killed, false);
+            assert_eq!(err, "", "{line}");
+            assert_eq!(
+                out,
+                format!(
+                    "{PROMPT}\
+Register Hex                Decimal
+nzcv     0x0000000060000000 (1610612736)
+x0       0x000000000000002c (44)
 {PROMPT}Killed process 42.\n"
-            )
-        );
+                ),
+                "{line}"
+            );
+        }
     }
 
     #[test]
     fn a_negative_64_bit_value_shows_as_a_signed_decimal() {
         let register = Register {
             name: "x8".to_string(),
+            group: RegisterGroup::General,
             value: RegisterValue::Bits64(u64::MAX),
         };
-        assert_eq!(register_lines(&[register]), ["x8 0xffffffffffffffff (-1)"]);
+        assert_eq!(
+            register_lines(&[register]),
+            [
+                "Register Hex                Decimal",
+                "x8       0xffffffffffffffff (-1)",
+            ]
+        );
     }
 
     #[test]
@@ -1503,9 +1644,10 @@ x0   0x000000000000002c (44)
                 arena(13, None, 0x2_0000, 0),
             ]),
             [
-                "0  0 0x0000000016f00000 4",
-                "12 3 0x0000000000010000 5",
-                "13 - 0x0000000000020000 0",
+                "ID Thread Address            Size (KB)",
+                "0  0      0x0000000016f00000 4",
+                "12 3      0x0000000000010000 5",
+                "13 -      0x0000000000020000 0",
             ]
         );
         assert!(arena_lines(&[]).is_empty());
@@ -1634,7 +1776,7 @@ Thread 2 is at 0x0000000000007004.
         inferior.unreadable = true;
         let (out, err) = drive(
             &mut inferior,
-            "list func\nlist reg\nlist thread\nq\n",
+            "list func\nlist reg gpr\nlist thread\nq\n",
             false,
         );
         assert_eq!(
@@ -1665,6 +1807,21 @@ Thread 2 is at 0x0000000000007004.
         assert!(function_lines(&[]).is_empty());
         assert!(register_lines(&[]).is_empty());
         assert!(thread_lines(&[], &[], &[]).is_empty());
+        assert!(table(["A", "B"], Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn a_table_aligns_every_column_to_its_widest_entry_by_characters() {
+        assert_eq!(
+            table(
+                ["ID", "Name", "Task"],
+                vec![
+                    ["0".to_string(), "héllo".to_string(), "MFB Main".to_string()],
+                    ["10".to_string(), "x".to_string(), "Other".to_string()],
+                ]
+            ),
+            ["ID Name  Task", "0  héllo MFB Main", "10 x     Other",]
+        );
     }
 
     #[test]
@@ -1682,10 +1839,12 @@ Thread 2 is at 0x0000000000007004.
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed.\n\
                  {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2.\n\
                  {PROMPT}\
+Address            Symbol              Written name
 0x0000000000001004 _mfb_fn_next_5Fseed next_seed
 0x0000000000001012 _mfb_fn_main+0x2    main+0x2
 {PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2.\n\
-                 {PROMPT}0x0000000000001004 _mfb_fn_next_5Fseed next_seed\n\
+                 {PROMPT}Address            Symbol              Written name\n\
+                 0x0000000000001004 _mfb_fn_next_5Fseed next_seed\n\
                  {PROMPT}Killed process 42.\n"
             )
         );

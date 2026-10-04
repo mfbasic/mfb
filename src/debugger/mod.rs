@@ -193,7 +193,19 @@ pub(crate) struct FunctionRange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Register {
     pub(crate) name: String,
+    pub(crate) group: RegisterGroup,
     pub(crate) value: RegisterValue,
+}
+
+/// The `list reg` group a register belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegisterGroup {
+    /// `gpr`: the general-purpose registers.
+    General,
+    /// `simd`: the SIMD and floating-point registers.
+    Simd,
+    /// `sys`: the stack pointer, program counter and status registers.
+    System,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -189,7 +189,8 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   when `waitpid(WNOHANG)` reaps it (exit status or signal); an attached one
   when `pid_for_task` fails or `kill(pid, 0)` finds no process
   (`Exit::Unknown`). After that the session refuses every command but `help`,
-  `list`, `list breakpoint` and `quit`, and `quit` reports `AlreadyExited`.
+  `list`, `list breakpoint`, a bare `list reg` and `quit`, and `quit` reports
+  `AlreadyExited`.
 - **Libraries.** `function_at` and `library_functions` read the loader's image
   list (`task_info(TASK_DYLD_INFO)` → `dyld_all_image_infos.infoArray`), and
   for each image but the executable its Mach-O header in memory: `__TEXT`'s
@@ -253,7 +254,8 @@ Then, repeatedly:
 | `list`, `l` | prints the `LIST_USAGE` block |
 | `list func` | prints the function listing |
 | `list thread` | prints the thread listing |
-| `list reg [<id>] [<register>...]` | prints thread `<id>`'s registers (default 0), or only those named |
+| `list reg [<id>]` | prints the `LIST_REG_USAGE` block |
+| `list reg [<id>] <what>...` | prints thread `<id>`'s registers (default 0) of each group or name in `<what>` |
 | `list arena` | prints the arena listing |
 | `show mem <where> [<size>]` | dumps `<size>` bytes (default 64) of memory |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
@@ -281,7 +283,7 @@ Then, repeatedly:
 | `list <what>` for an unknown `<what>` | `cannot list '<what>'; type 'list' for what can be listed` |
 | `list func`/`thread`/`arena` with an argument, `list reg` with two | `too many arguments to '<name> <what>'` |
 | `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
-| `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for them all` |
+| `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for the groups` |
 | `show mem` with no location | `'show mem' needs an address or a register: show mem <where> [<size>]` |
 | `show mem` with a location that is neither `0x…` nor `<register>[±<n>]` | `'<where>' is not an address or a register` |
 | `show mem` with a size of 0 or over 65536 | `cannot show <size> bytes; give 1 to 65536` |
@@ -308,7 +310,13 @@ Then, repeatedly:
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
-| any command but `help`, `list`, `list breakpoint`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+| any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+
+Every listing below is laid out by `prompt::table`: a header line naming its
+columns, then one line per row; the columns are one space apart and each but
+the last is left-aligned to its widest entry, header included, counted in
+characters. A listing with no rows prints no header.
+[[src/debugger/prompt.rs:table]]
 
 A listing or step the backend cannot produce prints `error: <reason>`. All go
 to stderr after stdout is flushed; the prompt continues. End of input writes a
@@ -322,27 +330,30 @@ unbound import) is shown once; the same name at two addresses is shown twice:
 [[src/debugger/prompt.rs:function_lines]]
 
 ```text
-<type> <address> <name> <written name>
+Type Address Symbol Written name
+<type> <address> <symbol> <written name>
 ```
 
 - `<type>` is `MU`, `MR` or `LN`, and lines are grouped in that order; within a
   group they are in address order with an unbound import last, and ties keep
   symbol-table order.
-- `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import,
-  left-aligned in 18 columns.
-- `<name>` is the symbol as the executable spells it, left-aligned to the
-  longest name in the listing.
+- `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import.
+- `<symbol>` is the symbol as the executable spells it.
 - `<written name>` is the name the developer wrote, or `-`.
 
 Classification and the written name come from the symbol alone
 (`src/debugger/names.rs:classify_defined`), inverting
-`src/target/shared/nir/symbols.rs:function_symbol`: [[src/debugger/names.rs:classify_defined]]
+`src/target/shared/nir/symbols.rs:function_symbol` and, for a runtime helper,
+`src/target/shared/runtime/mod.rs:symbol_for_call` over the helper catalog
+(`supported_helper_specs`): [[src/debugger/names.rs:classify_defined]]
+[[src/debugger/names.rs:package_member]]
 
 | Symbol | Type | Written name |
 | --- | --- | --- |
 | `_mfb_fn_<escaped>` | `MU` | `<escaped>` with each `_XX` (two uppercase hex digits) decoded to its byte, then reduced as below |
 | `_mfb_ifn_<escaped>` decoding to `<16 hex>$<name>` (a file-`PRIVATE` function) | `MU` | `<name>`, reduced as below |
-| any other defined symbol (`_mfb_ifn_` built-in internals, `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
+| `_mfb_rt_<family>_<call>` that `symbol_for_call` makes from a catalog spec whose `call` is a registry package member (`registry().owning_package` answers) | `MR` | `call` with its first `.` written `::`: `_mfb_rt_io_io_print` is `io::print` |
+| any other defined symbol (`_mfb_ifn_` built-in internals, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
 | an import | `LN` | the symbol less one leading `_` |
 
 A trailing `$own<hex>` (a hand-over copy; the mask is not escaped) is dropped
@@ -354,7 +365,8 @@ empty. A `_` not followed by two uppercase hex digits is kept literally.
 
 ### `list thread`
 
-One line per thread, in the backend's order, `<id> <name> <pc> <task>`:
+One line per thread, in the backend's order, `<id> <name> <pc> <task>`, under
+the header `ID Name PC Task`:
 [[src/debugger/prompt.rs:thread_lines]]
 
 - `<id>` is the thread's index, the id `list reg` and `list arena` use.
@@ -378,23 +390,37 @@ no globals, so an app's main thread paused in a system call is `Other` there.
 
 ### `list reg`
 
-One line per register of thread `<id>` (default 0) — or, given names, one per
-name in the order given — as `<register> 0x<hex> (<decimal>)`: the name
-left-aligned to the longest, the value as `0x` plus 16 lowercase hex digits
+The arguments are split at whitespace and at commas, so `x0, x1,x2` names
+three registers. A first argument of all digits is the thread id `<id>`
+(default 0). With no other argument the command prints the `LIST_REG_USAGE`
+block, even after the program has ended; otherwise every other argument picks
+registers, in the order given: `gpr`, `simd` and `sys` pick every register of
+that `RegisterGroup` in the backend's order, and any other word picks the one
+register of that name. [[src/debugger/prompt.rs:RegisterPick]]
+
+One line per register picked, `<register> 0x<hex> (<decimal>)`, under the
+header `Register Hex Decimal`: the value as `0x` plus 16 lowercase hex digits
 (64-bit) or 32 (128-bit), and the same value in decimal, signed for a 64-bit
-register (as MFBASIC's `Integer`) and unsigned for a 128-bit one. A first
-argument of all digits is the thread id; every other argument is a register
-name. [[src/debugger/prompt.rs:register_lines]] On
-AArch64 the set is the registers generated code can use
-(`src/arch/aarch64/regmodel.rs`): `x0`–`x17`, `x19`–`x28`, `lr`, `sp`, `pc`,
-`nzcv`, `v0`–`v31`. `x18` (platform-reserved) and `x29` (generated code keeps
-no frame pointer) are omitted; `nzcv` is CPSR with every bit but 31–28
-cleared, as the `NZCV` system register reads.
+register (as MFBASIC's `Integer`) and unsigned for a 128-bit one.
+[[src/debugger/prompt.rs:register_lines]]
+
+On AArch64 every register of the thread state is read
+(`src/debugger/macos.rs:arm64_registers`):
+
+| Group | Registers |
+| --- | --- |
+| `gpr` (`General`) | `x0`–`x28`, `fp` (x29), `lr` (x30) |
+| `sys` (`System`) | `sp`, `pc`, `nzcv`, `fpsr`, `fpcr` |
+| `simd` (`Simd`) | `v0`–`v31` |
+
+`nzcv` is CPSR with every bit but 31–28 cleared, as the `NZCV` system register
+reads; `fpsr` and `fpcr` are the 32-bit words of `ARM_NEON_STATE64`.
 
 ### `list arena`
 
 One line per live arena in the `--debug` registry,
-`<id> <thread id> <address> <size in KB>`: [[src/debugger/runtime.rs:arenas]]
+`<id> <thread id> <address> <size in KB>`, under the header
+`ID Thread Address Size (KB)`: [[src/debugger/runtime.rs:arenas]]
 [[src/debugger/prompt.rs:arena_lines]]
 
 - `<id>` is the registry slot (`./mfb spec tooling debug-report`); a slot whose
@@ -520,9 +546,9 @@ breakpoints whose symbol is `<target>`, or else whose written name is. Each
 prints `Removed the breakpoint at <place>.`; none fails with `there is no
 breakpoint at <address>` / `on '<target>'`.
 
-`list breakpoint` prints `<address> <symbol> <written name>` per breakpoint, in
-address order with pending ones last (`-` for the address), the symbol column
-left-aligned to the longest; with none, `no breakpoints`.
+`list breakpoint` prints `<address> <symbol> <written name>` per breakpoint
+under the header `Address Symbol Written name`, in address order with pending
+ones last (`-` for the address); with none, `no breakpoints`.
 
 ### `run`
 

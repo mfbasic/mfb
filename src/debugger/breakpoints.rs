@@ -15,6 +15,7 @@
 
 use super::disassemble::returns;
 use super::names::{classify_defined, linked_name};
+use super::prompt::table;
 use super::{FunctionSymbol, Inferior, RunStop, StepStop};
 
 /// One breakpoint the session holds.
@@ -269,24 +270,21 @@ impl Breakpoints {
         }
         let mut sorted = self.list.iter().collect::<Vec<_>>();
         sorted.sort_by_key(|breakpoint| (breakpoint.address.is_none(), breakpoint.address));
-        let width = sorted
-            .iter()
-            .map(|breakpoint| shown(&breakpoint.symbol).len())
-            .max()
-            .unwrap_or(0);
-        sorted
-            .iter()
-            .map(|breakpoint| {
-                let address = breakpoint
-                    .address
-                    .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}"));
-                format!(
-                    "{address:<18} {:<width$} {}",
-                    shown(&breakpoint.symbol),
-                    shown(&breakpoint.written)
-                )
-            })
-            .collect()
+        table(
+            ["Address", "Symbol", "Written name"],
+            sorted
+                .iter()
+                .map(|breakpoint| {
+                    [
+                        breakpoint
+                            .address
+                            .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}")),
+                        shown(&breakpoint.symbol).to_string(),
+                        shown(&breakpoint.written).to_string(),
+                    ]
+                })
+                .collect(),
+        )
     }
 
     /// Run the program to the next stop the user should see. Pending
@@ -710,6 +708,7 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
+                "Address            Symbol               Written name",
                 "0x0000000000001124 _mfb_fn_isPrime+0x24 isPrime+0x24",
                 "0x0000000000005000 -                    -",
             ]
@@ -737,6 +736,7 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
+                "Address            Symbol       Written name",
                 "0x0000000000001300 _mfb_fn_exit exit",
                 "-                  _exit        exit",
             ]

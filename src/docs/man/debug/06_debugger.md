@@ -48,7 +48,11 @@ and gdb.
 | `list` | `l` | shows what can be listed |
 | `list func` | `l func` | lists the program's functions |
 | `list thread` | `l thread` | lists the program's threads |
-| `list reg [<id>] [<register>...]` | `l reg …` | lists a thread's registers, or just the ones named |
+| `list reg` | `l reg` | shows how to list registers |
+| `list reg [<id>] gpr` | `l reg …` | lists a thread's general-purpose registers |
+| `list reg [<id>] simd` | `l reg …` | lists a thread's SIMD registers |
+| `list reg [<id>] sys` | `l reg …` | lists a thread's system registers |
+| `list reg [<id>] <register>, …` | `l reg …` | lists just the registers named |
 | `list arena` | `l arena` | lists the program's memory pools |
 | `show mem <where> [<size>]` | | shows the raw bytes of memory |
 | `show arena [<id>]` | | shows one memory pool in detail |
@@ -74,12 +78,16 @@ How `quit` ends the session depends on how it began:
 
 A command `mfb dbg` does not know is reported, and the prompt comes back.
 
+Every listing starts with a line naming its columns, and each column starts
+at the same place on every line.
+
 ### Listing functions
 
-`list func` prints one function per line:
+`list func` prints one function per line, under the header
+`Type Address Symbol Written name`:
 
 ```
-<type> <address> <name> <written name>
+<type> <address> <symbol> <written name>
 ```
 
 | Type | The function is |
@@ -88,11 +96,13 @@ A command `mfb dbg` does not know is reported, and the prompt comes back.
 | `MR` | part of the MFBASIC runtime, which every program carries |
 | `LN` | in a system library the program calls, such as `malloc` |
 
-`<name>` is the function's name in the executable, the one lldb and gdb use
+`<symbol>` is the function's name in the executable, the one lldb and gdb use
 (`mfb man debug` explains how your names are spelled there). `<written name>`
 is the name as you wrote it, so `_mfb_fn_next_5Fseed` shows as `next_seed`, and
 a second version of a function (a name ending in `$own` and a number) shows
-under the function's own name. Runtime functions show `-`.
+under the function's own name. A runtime function that does the work of a
+built-in package function shows that function's name, so `_mfb_rt_io_io_print`
+shows as `io::print`; the rest of the runtime shows `-`.
 
 `<address>` is where the function is in the running program. A program `mfb
 dbg` started is paused before it has loaded its system libraries, so every `LN`
@@ -112,7 +122,7 @@ and `list func` shows only the `LN` functions.
 
 ### Listing threads
 
-`list thread` prints one thread per line:
+`list thread` prints one thread per line, under the header `ID Name PC Task`:
 
 ```
 <id> <name> <pc> <task>
@@ -137,17 +147,27 @@ is running your code; while it waits (in `os::sleep`, say) it shows as `Other`.
 
 ### Listing registers
 
-`list reg` prints the registers of thread 0 and their values, one per line, in
-hex and then in decimal (`0x000000000000002d (45)`); `list reg 2` prints
-thread 2's, and `list reg x8 x9` or `list reg 2 x8 x9` just the ones named. The registers are `x0` to `x28` (without
-`x18`), `lr`, `sp`, `pc`, the condition flags `nzcv`, and the vector registers
-`v0` to `v31`: all the registers MFBASIC code uses. A program paused before its
-first instruction has almost all of them at zero; `pc` is where it will start.
+`list reg` on its own explains how to list registers. Name a group, or the
+registers you want, and it prints them for thread 0, one per line under the
+header `Register Hex Decimal`, in hex and then in decimal
+(`0x000000000000002d (45)`):
+
+| Group | The registers |
+| --- | --- |
+| `gpr` | the general-purpose registers: `x0` to `x28`, `fp` (`x29`) and `lr` (`x30`) |
+| `simd` | the SIMD and floating-point registers: `v0` to `v31` |
+| `sys` | the system registers: `sp`, `pc`, the condition flags `nzcv`, and `fpsr` and `fpcr` |
+
+Put a thread's `<id>` first to see that thread's instead: `list reg 2 gpr`.
+Name registers with spaces or commas, `list reg x8, x9, sp`, and mix them with
+groups, `list reg sys x0`. A program paused before its first instruction has
+almost all of them at zero; `pc` is where it will start.
 
 ### Listing memory pools
 
 Each thread that runs MFBASIC code keeps the values it makes in a pool of its
-own, called an arena. `list arena` prints one per line:
+own, called an arena. `list arena` prints one per line, under the header
+`ID Thread Address Size (KB)`:
 
 ```
 <id> <thread id> <address> <size in KB>
@@ -259,8 +279,8 @@ stops in its second versions. `breakpoint r` takes the same forms and removes
 what they name.
 
 A system function such as `_exit` has no address until the program has loaded
-its libraries. Set before then, its breakpoint waits (`list breakpoint` shows
-`-` for its address), and `run` places it once the libraries are loaded.
+its libraries. Set before then, its breakpoint waits (`list breakpoint`, under
+the header `Address Symbol Written name`, shows `-` for its address), and `run` places it once the libraries are loaded.
 
 `run` lets every thread go until one reaches a breakpoint, an instruction
 fails, or the program ends. Press Ctrl-C to pause it wherever it is. A program
@@ -294,8 +314,8 @@ DBG> q
 Process 51166 had already exited.
 ```
 
-Once the program has ended, only `help`, `list`, `list breakpoint` and `quit`
-still work.
+Once the program has ended, only `help`, `list`, `list breakpoint`, `list reg`
+on its own, and `quit` still work.
 
 ### Finishing a function and starting over
 
@@ -395,20 +415,20 @@ keeps those lines) and where the program is (`pc`):
 mfb build --debug -O0 examples/debug
 examples/debug/build/debug.out 3000 20000 > rounds.txt 2> report.txt &
 sleep 1
-printf 'list func\nlist reg\nq\n' | mfb dbg $! | grep -E '^(MU|pc )'
+printf 'list func\nlist reg pc\nq\n' | mfb dbg $! | grep -E '^(MU|pc )'
 kill $!
 ```
 
 ```
-MU 0x0000000104694888 _mfb_fn_next_5Fseed                                 next_seed
-MU 0x0000000104694a5c _mfb_fn_isPrime                                     isPrime
-MU 0x0000000104694d38 _mfb_fn_countPrimes                                 countPrimes
-MU 0x0000000104695078 _mfb_fn_runRound                                    runRound
-MU 0x00000001046951ec _mfb_fn_roundWorker                                 roundWorker
-MU 0x0000000104695254 _mfb_fn_formatLine                                  formatLine
-MU 0x00000001046956bc _mfb_fn_runRounds                                   runRounds
-MU 0x0000000104696040 _mfb_fn_main                                        main
-pc   0x0000000104694c80
+MU   0x0000000104694888 _mfb_fn_next_5Fseed                                 next_seed
+MU   0x0000000104694a5c _mfb_fn_isPrime                                     isPrime
+MU   0x0000000104694d38 _mfb_fn_countPrimes                                 countPrimes
+MU   0x0000000104695078 _mfb_fn_runRound                                    runRound
+MU   0x00000001046951ec _mfb_fn_roundWorker                                 roundWorker
+MU   0x0000000104695254 _mfb_fn_formatLine                                  formatLine
+MU   0x00000001046956bc _mfb_fn_runRounds                                   runRounds
+MU   0x0000000104696040 _mfb_fn_main                                        main
+pc       0x0000000104694c80 (4368977024)
 ```
 
 The addresses change from run to run. Here `pc` is between `isPrime` and
