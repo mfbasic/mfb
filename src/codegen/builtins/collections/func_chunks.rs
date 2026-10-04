@@ -354,7 +354,8 @@ block holding the whole list.
 
 `chunkSize` must be at least 1. A `chunkSize` below 1 is rejected at runtime
 with `ErrInvalidArgument`; there is no clamping and no default, so the argument
-is always required.
+is always required. Building the result needs memory, so it can also raise
+`ErrOutOfMemory`.
 
 Each block is a new list. For ordinary values it holds copies of the
 corresponding elements, so nothing you do with a block affects `value`, and
@@ -461,7 +462,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::list_of(ParameterType::var("T"))),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_chunks", chunks_fast_path),
         }],
     });

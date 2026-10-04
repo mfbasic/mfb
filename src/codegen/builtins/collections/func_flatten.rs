@@ -135,7 +135,8 @@ simply skipped over; they do not produce a placeholder element. When `value`
 itself is empty, the result is an empty list.
 
 `value` is not modified, and neither are the inner lists it holds; the result is
-a newly built list. `flatten` invokes no user callback and raises no error.
+a newly built list. `flatten` invokes no user callback and raises no error
+of its own. `ErrOutOfMemory` means the program ran out of memory.
 
 Note that the template argument `T` is inferred from the argument, so a bare
 untyped `[]` literal cannot be passed directly — bind it to a
@@ -227,7 +228,13 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::var("T")),
-            errors: vec![],
+            // bug-698: `collections::get(value, i)` stays within `[0, len(value))`
+            // by the loop's own invariant, so its `ErrIndexOutOfRange` is not
+            // reachable; the call is always the list overload, so `ErrNotFound`
+            // (the unrelated map overload) is not reachable either. The list-concat
+            // overload of `collections::append` that follows declares only
+            // `ErrOutOfMemory`, which is genuine: every inner list grows `result`.
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_flatten", flatten_fast_path),
         }],
     });

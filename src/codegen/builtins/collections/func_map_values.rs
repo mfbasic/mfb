@@ -185,7 +185,8 @@ result is an empty map.
 `f` is an ordinary MFBASIC function value invoked with an ordinary call. If `f`
 fails on some entry, its error propagates out of `mapValues` to the caller and
 can be caught by the caller's `TRAP` block; the partially built result map is
-discarded. `mapValues` itself raises no error of its own.
+discarded. `mapValues` itself raises no error of its own. `ErrOutOfMemory` means the
+program ran out of memory.
 
 `f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
 value of the required type.
@@ -286,7 +287,12 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::map_of(ParameterType::var("K"), ParameterType::var("U")),
-            errors: vec![],
+            // bug-698: the only call the body makes is `collections::set` on the
+            // map overload (`e.key` is always a map key, never a list index), so
+            // its `ErrIndexOutOfRange` (the unrelated list overload) is not
+            // reachable here. The map overload's own `ErrOutOfMemory` is genuine:
+            // every entry grows `result`.
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_mapValues", map_values_fast_path),
         }],
     });

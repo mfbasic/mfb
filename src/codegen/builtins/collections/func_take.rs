@@ -36,7 +36,10 @@ anywhere else — `ys = collections::take(xs, n)` — builds a new list and leav
 
 `T` is inferred from `value` and carries no ordering or comparability
 requirement: `take` copies a contiguous range and never inspects an element, so
-any list element type is accepted. `count` must be `Integer`."#;
+any list element type is accepted. `count` must be `Integer`.
+
+`take` raises no error of its own: it clamps `count` rather than rejecting it.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Keep the first two elements:
 
@@ -127,7 +130,20 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::var("T")),
-            errors: vec![],
+            // bug-698: `take` renders to a range copy that is always intercepted
+            // by the native `#collections_slice$T` fast path (`gen_slice.rs`'s
+            // `try_inline_slice_op`; `CollectionTypeLayout::from_type` has a
+            // catch-all `COLLECTION_TYPE_OBJECT` arm, so it never returns `None`
+            // for a `List OF T` and the `.mfb` `__collections_slice` body never
+            // actually runs) — that native range copy clamps `start`/`stop` into
+            // bounds (so no index is ever out of range) and allocates the result
+            // block, which can raise `ErrOutOfMemory`
+            // (`src/codegen/builtins/collections/gen_slice.rs:208`). The dead
+            // `.mfb` helper body's own unclamped `collections::get` is never
+            // reached, so its `ErrIndexOutOfRange` is not reachable, and it is
+            // always the list overload, so `ErrNotFound` (the unrelated map
+            // overload) is not reachable either.
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__collections_take"),
         }],
     });

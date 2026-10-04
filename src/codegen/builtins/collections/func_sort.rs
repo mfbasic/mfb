@@ -593,6 +593,9 @@ comparison.
 `value` is not modified. Like every `collections` helper, `sort` produces a new
 list value and leaves its argument intact.
 
+`sort` raises no error of its own. `ErrOutOfMemory` means the program ran out
+of memory.
+
 `T` is inferred from the argument. `sort` compares whole elements with `<`, so
 the instantiated element type must be one the `<` operator accepts: `Integer`,
 `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`. `Money` compares only
@@ -722,7 +725,14 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::var("T")),
-            errors: vec![],
+            // bug-698: the merge body's own `collections::get`/`collections::set`
+            // calls stay within `[0, n)` by the loop's own invariant (`dst`/`src`
+            // always have the same length `n`), so neither call's
+            // `ErrIndexOutOfRange` is reachable; both calls resolve to the list
+            // overload only, so `collections::get`'s `ErrNotFound` (its unrelated
+            // map overload) is not reachable either. `set`'s `ErrOutOfMemory` is
+            // genuine: each pass builds a new `dst` list.
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_sort", sort_fast_path),
         }],
     });

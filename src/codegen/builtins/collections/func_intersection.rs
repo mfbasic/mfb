@@ -18,7 +18,8 @@ Surviving elements keep the insertion order they had in `a`. The intersection of
 disjoint sets is the empty set, and the intersection of a set with itself is a
 set equal to it.
 
-`intersection` raises no error of its own.
+`intersection` raises no error of its own. Building the result needs memory, so
+it can raise `ErrOutOfMemory`.
 
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
@@ -94,7 +95,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::set_of(ParameterType::var("T")),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__collections_intersection"),
         }],
     });

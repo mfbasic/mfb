@@ -45,7 +45,8 @@ and reading `collections::keys` is asymptotically cheaper. Today those keys come
 back in insertion order, but map iteration order is implementation-defined, so do
 not depend on it.
 
-`distinct` raises no errors.
+`distinct` raises no error of its own. Building the result needs memory, so it
+can raise `ErrOutOfMemory`.
 
 `T` is inferred from the element type of `value` and **must be comparable**,
 because membership is tested with `collections::contains`. A call whose element
@@ -159,7 +160,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::var("T")),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__collections_distinct"),
         }],
     });

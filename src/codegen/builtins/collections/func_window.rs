@@ -368,7 +368,7 @@ When `size` is greater than the length of `value`, no window fits and the result
 is the empty list; an empty `value` likewise produces an empty result. Both
 `size` and `stride` must be at least 1, and either being below 1 is rejected at
 runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
-`step`.
+`step`. Building the result needs memory, so it can also raise `ErrOutOfMemory`.
 
 Each window is a new list. For ordinary values it holds copies of the elements,
 so overlapping windows hold independent copies and nothing you do with a window
@@ -488,7 +488,7 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::list_of(ParameterType::var("T"))),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_window", window_fast_path),
         }],
     });

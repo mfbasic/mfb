@@ -562,6 +562,9 @@ is not called for an empty list and is called once for a one-element list.
 There is no descending form. To order descending by a numeric key, have `keyFn`
 return the negated key. `value` is not modified.
 
+`sortBy` raises no error of its own. `ErrOutOfMemory` means the program ran out
+of memory.
+
 `T` is the element type and `U` is the return type of `keyFn`; both are inferred
 from the arguments. The ordering constraint applies to `U`, **not** to `T`: the
 keys are what `<` is applied to, so `U` must be one of the types the `<` operator
@@ -703,7 +706,16 @@ pub(crate) fn register(pkg: &mut crate::codegen::registry::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::list_of(ParameterType::var("T")),
-            errors: vec![],
+            // bug-698: `collections::transform`'s own errors is just
+            // `ErrOutOfMemory` (a user `keyFn` failure propagates uncounted, the
+            // same convention `any`/`all`/`groupBy` use for a callback). The merge
+            // loop's `collections::get`/`collections::set` calls on `items`/`keys`
+            // stay within `[0, n)` by the loop's own invariant, so neither call's
+            // `ErrIndexOutOfRange` is reachable; both resolve to the list overload
+            // only, so `get`'s `ErrNotFound` (its unrelated map overload) is not
+            // reachable either. `set`'s `ErrOutOfMemory` is genuine: each pass
+            // builds new `itemsDst`/`keysDst` lists.
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb_with_fast_path(BODY, "__collections_sortBy", sort_by_fast_path),
         }],
     });
