@@ -28,6 +28,7 @@ Build & Development:
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
   info <binary>           Inspect an MFBASIC executable: libraries, signer, integrity
+  dbg <binary>|<pid>      Debug an MFBASIC program: launch it, or attach to it
 
 Documentation & Reference:
   doc [options] [path]    Render HTML docs from package or file source
@@ -69,6 +70,45 @@ unreachable registry reports NOT VERIFIED. Every result exits 0.
 
 Arguments:
   <binary>    The executable to inspect.";
+
+pub(crate) const DBG_HELP: &str = "\
+Usage: mfb dbg <binary> [-- <args>...]
+       mfb dbg <pid>
+
+Debug an MFBASIC program. Given a <binary>, launch it with any <args> and
+pause it before its first instruction; given a <pid>, attach to that running
+program and pause it. Either way the program waits at the DBG> prompt.
+
+The program must be an MFBASIC executable built for this computer. mfb dbg
+runs on macOS only, where macOS requires this mfb to be signed for debugging
+(sh scripts/sign-debugger.sh, from the compiler's source tree).
+
+Commands at the DBG> prompt:
+  help, h     Show the list of commands
+  list, l     Show what can be listed
+  show        Show an arena's state and blocks: show arena [<id>]
+              Dump a block: show arena <id> <block> [<offset>] [<size>]
+  breakpoint, bp
+              Set a breakpoint: breakpoint <address|function>
+              Remove one: breakpoint r <address|function>
+  run, r      Run the program until a breakpoint or its end (Ctrl-C pauses)
+  step, s     Run one thread: step [<count>] [<thread>] (default 1, thread 0)
+  step-all, sa
+              Run every thread together: step-all [<count>] (default 1)
+  quit, q     End the session: kill a program the debugger launched, or detach
+              and let an attached program run on
+
+Function names and arenas come from a debug build (mfb build --debug -O0);
+without one, list func shows only the functions the program calls in linked
+libraries, and list arena is not available.
+
+The prompt reads commands from stdin, so a script can drive it through a pipe;
+end of input ends the session the same way as quit.
+
+Arguments:
+  <binary>    The executable to launch. An existing file wins over a <pid>.
+  <pid>       The process ID of a running program to attach to.
+  <args>      Arguments passed to the launched program.";
 
 pub(crate) const INIT_PKG_HELP: &str = "\
 Usage: mfb init-pkg <path>

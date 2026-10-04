@@ -4,6 +4,7 @@ mod audit;
 mod binary_repr;
 mod cli;
 mod codegen;
+mod debugger;
 mod doc;
 mod docs;
 mod fmt;

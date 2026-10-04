@@ -1,0 +1,440 @@
+//! The functions a Mach-O executable names, read from its own symbol table.
+//!
+//! Two kinds of `nlist_64` entry are functions: a symbol defined in a section
+//! that holds instructions, and an undefined external (an import the loader
+//! binds). Each import record of an MFBASIC executable has its own undefined
+//! entry and its own non-lazy pointer slot (`./mfb spec linker import-selection`),
+//! found through the indirect symbol table; the slot is where the loader writes
+//! the function's address. Entries are kept in symbol-table order, repeats
+//! included, so the listing matches `nm`.
+//!
+//! The input is the file on disk and is untrusted: every offset is
+//! bounds-checked, and a file whose tables do not fit is refused.
+
+use crate::os::inspect::{
+    c_bytes, range, u32_at, u64_at, LC_SEGMENT_64, MH_MAGIC_64, SECTION_SIZE, SEGMENT_COMMAND_SIZE,
+};
+
+const LC_SYMTAB: u32 = 0x2;
+const LC_DYSYMTAB: u32 = 0xb;
+/// `LC_MAIN`: the entry point, as an offset into the file (and so into
+/// `__TEXT`, which starts at file offset 0).
+const LC_MAIN: u32 = 0x8000_0028;
+const NLIST_SIZE: usize = 16;
+/// `n_type` bits: a debugger stab, the type field, and "external".
+const N_STAB: u8 = 0xe0;
+const N_TYPE: u8 = 0x0e;
+const N_EXT: u8 = 0x01;
+const N_UNDF: u8 = 0x0;
+const N_SECT: u8 = 0xe;
+/// Section flags: the section type, and the two "contains instructions" bits.
+const SECTION_TYPE: u32 = 0xff;
+const S_NON_LAZY_SYMBOL_POINTERS: u32 = 0x6;
+const S_LAZY_SYMBOL_POINTERS: u32 = 0x7;
+const S_ATTR_PURE_INSTRUCTIONS: u32 = 0x8000_0000;
+const S_ATTR_SOME_INSTRUCTIONS: u32 = 0x400;
+/// Indirect-symbol entries that name no symbol.
+const INDIRECT_SYMBOL_LOCAL: u32 = 0x8000_0000;
+const INDIRECT_SYMBOL_ABS: u32 = 0x4000_0000;
+
+/// What [`read`] found.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Image {
+    /// The address `__TEXT` (and so the Mach-O header) asks to load at; the
+    /// live address minus this is the load offset.
+    pub(crate) text_address: u64,
+    pub(crate) functions: Vec<FileFunction>,
+    /// Every other symbol the file defines (data such as the runtime's
+    /// globals), as `(name, unslid address)`.
+    pub(crate) data: Vec<(String, u64)>,
+    /// The unslid address `LC_MAIN` names as the entry point.
+    pub(crate) entry: Option<u64>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct FileFunction {
+    pub(crate) name: String,
+    pub(crate) location: Location,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Location {
+    /// A function this file defines, at its unslid address, running up to the
+    /// next function in its section or the section's end.
+    Defined { address: u64, size: u64 },
+    /// An import, with the pointer slot the loader binds it through when the
+    /// file has one.
+    Import(Option<Slot>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Slot {
+    /// The slot's unslid address.
+    pub(crate) address: u64,
+    /// The slot's bytes in the file: what it holds until the loader binds it.
+    pub(crate) unbound: [u8; 8],
+}
+
+struct Section {
+    address: u64,
+    size: u64,
+    offset: u32,
+    flags: u32,
+    reserved1: u32,
+}
+
+/// Read the function symbols of the 64-bit Mach-O `bytes`, or `None` when its
+/// headers or tables do not fit the file. A file with no symbol table names no
+/// functions.
+pub(crate) fn read(bytes: &[u8]) -> Option<Image> {
+    if u32_at(bytes, 0)? != MH_MAGIC_64 {
+        return None;
+    }
+    let mut sections = Vec::new();
+    let mut text_address = None;
+    let mut symtab = None;
+    let mut indirect = None;
+    let mut entry_offset = None;
+    let mut at = 32usize;
+    for _ in 0..u32_at(bytes, 16)? {
+        let size = usize::try_from(u32_at(bytes, at.checked_add(4)?)?).ok()?;
+        if size < 8 {
+            return None;
+        }
+        let command = bytes.get(at..at.checked_add(size)?)?;
+        match u32_at(command, 0)? {
+            LC_SEGMENT_64 if command.len() >= SEGMENT_COMMAND_SIZE => {
+                if c_bytes(&command[8..24]) == b"__TEXT" {
+                    text_address = Some(u64_at(command, 24)?);
+                }
+                let count = usize::try_from(u32_at(command, 64)?).ok()?;
+                let records = command.get(SEGMENT_COMMAND_SIZE..)?;
+                if records.len() / SECTION_SIZE < count {
+                    return None;
+                }
+                for record in records.chunks_exact(SECTION_SIZE).take(count) {
+                    sections.push(Section {
+                        address: u64_at(record, 32)?,
+                        size: u64_at(record, 40)?,
+                        offset: u32_at(record, 48)?,
+                        flags: u32_at(record, 64)?,
+                        reserved1: u32_at(record, 68)?,
+                    });
+                }
+            }
+            LC_SYMTAB if command.len() >= 24 => {
+                symtab = Some((
+                    u32_at(command, 8)?,
+                    u32_at(command, 12)?,
+                    u32_at(command, 16)?,
+                    u32_at(command, 20)?,
+                ));
+            }
+            LC_DYSYMTAB if command.len() >= 64 => {
+                indirect = Some((u32_at(command, 56)?, u32_at(command, 60)?));
+            }
+            LC_MAIN if command.len() >= 16 => entry_offset = Some(u64_at(command, 8)?),
+            _ => {}
+        }
+        at += size;
+    }
+    let text_address = text_address?;
+    let entry = match entry_offset {
+        Some(offset) => Some(text_address.checked_add(offset)?),
+        None => None,
+    };
+    let Some((symoff, nsyms, stroff, strsize)) = symtab else {
+        return Some(Image {
+            text_address,
+            functions: Vec::new(),
+            data: Vec::new(),
+            entry,
+        });
+    };
+    let symbols = range(
+        bytes,
+        u64::from(symoff),
+        u64::from(nsyms).checked_mul(NLIST_SIZE as u64)?,
+    )?;
+    let strings = range(bytes, u64::from(stroff), u64::from(strsize))?;
+    let slots = import_slots(bytes, &sections, indirect)?;
+
+    // Code symbols as (entry in `functions`, section index, address), for sizing.
+    let mut code = Vec::new();
+    let mut functions = Vec::new();
+    let mut data = Vec::new();
+    for (index, entry) in symbols.chunks_exact(NLIST_SIZE).enumerate() {
+        let kind = entry[4];
+        if kind & N_STAB != 0 {
+            continue;
+        }
+        let name = strings.get(usize::try_from(u32_at(entry, 0)?).ok()?..)?;
+        let name = String::from_utf8_lossy(c_bytes(name)).into_owned();
+        let location = match kind & N_TYPE {
+            N_SECT => {
+                let section_index = usize::from(entry[5]).checked_sub(1)?;
+                let section = sections.get(section_index)?;
+                let address = u64_at(entry, 8)?;
+                if section.flags & (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS) == 0 {
+                    data.push((name, address));
+                    continue;
+                }
+                code.push((functions.len(), section_index, address));
+                Location::Defined { address, size: 0 }
+            }
+            N_UNDF if kind & N_EXT != 0 => Location::Import(
+                slots
+                    .iter()
+                    .find(|(symbol, _)| *symbol == index)
+                    .map(|(_, slot)| slot.clone()),
+            ),
+            _ => continue,
+        };
+        functions.push(FileFunction { name, location });
+    }
+    for &(at, section_index, address) in &code {
+        let section = &sections[section_index];
+        let end = code
+            .iter()
+            .filter(|(_, other, start)| *other == section_index && *start > address)
+            .map(|(_, _, start)| *start)
+            .min()
+            .unwrap_or_else(|| section.address.saturating_add(section.size));
+        functions[at].location = Location::Defined {
+            address,
+            size: end.saturating_sub(address),
+        };
+    }
+    Some(Image {
+        text_address,
+        functions,
+        data,
+        entry,
+    })
+}
+
+/// Each symbol-pointer slot, as `(symbol index, slot)`, from the pointer
+/// sections and the indirect symbol table they index into.
+fn import_slots(
+    bytes: &[u8],
+    sections: &[Section],
+    indirect: Option<(u32, u32)>,
+) -> Option<Vec<(usize, Slot)>> {
+    let Some((indirectoff, nindirect)) = indirect else {
+        return Some(Vec::new());
+    };
+    let table = range(
+        bytes,
+        u64::from(indirectoff),
+        u64::from(nindirect).checked_mul(4)?,
+    )?;
+    let mut slots = Vec::new();
+    for section in sections {
+        let kind = section.flags & SECTION_TYPE;
+        if kind != S_NON_LAZY_SYMBOL_POINTERS && kind != S_LAZY_SYMBOL_POINTERS {
+            continue;
+        }
+        let contents = range(bytes, u64::from(section.offset), section.size)?;
+        for (slot, unbound) in contents.chunks_exact(8).enumerate() {
+            let entry_index = usize::try_from(section.reserved1).ok()?.checked_add(slot)?;
+            let entry = u32_at(table, entry_index.checked_mul(4)?)?;
+            if entry & (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS) != 0 {
+                continue;
+            }
+            slots.push((
+                usize::try_from(entry).ok()?,
+                Slot {
+                    address: section.address.checked_add(u64::try_from(slot * 8).ok()?)?,
+                    unbound: unbound.try_into().ok()?,
+                },
+            ));
+        }
+    }
+    Some(slots)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::image::{
+        EncodedImage, EncodedImport, EncodedSection, EncodedSymbol, ImportKind,
+    };
+
+    /// A linked Mach-O whose code defines `symbols` (at 4-byte steps) and
+    /// imports `imports`, with or without its debug symbol table.
+    fn linked(symbols: &[&str], imports: &[&str], debug: bool) -> Vec<u8> {
+        let dir = tempfile::tempdir().unwrap();
+        let mut text = Vec::new();
+        for _ in symbols {
+            text.extend([0xc0, 0x03, 0x5f, 0xd6]);
+        }
+        let image = EncodedImage {
+            text,
+            data: Vec::new(),
+            rodata_size: 0,
+            symbols: symbols
+                .iter()
+                .enumerate()
+                .map(|(at, name)| EncodedSymbol {
+                    name: name.to_string(),
+                    section: EncodedSection::Text,
+                    offset: at * 4,
+                })
+                .collect(),
+            relocations: Vec::new(),
+            imports: imports
+                .iter()
+                .map(|symbol| EncodedImport {
+                    library: "libSystem".to_string(),
+                    symbol: symbol.to_string(),
+                    kind: ImportKind::Function,
+                    version: None,
+                })
+                .collect(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: None,
+            rpaths: Vec::new(),
+            debug_symbols: debug,
+        };
+        let path = crate::os::macos::write_linked_executable(dir.path(), "probe", &image)
+            .expect("link Mach-O");
+        std::fs::read(path).unwrap()
+    }
+
+    fn summary(image: &Image) -> Vec<(String, bool)> {
+        image
+            .functions
+            .iter()
+            .map(|function| {
+                (
+                    function.name.clone(),
+                    matches!(function.location, Location::Defined { .. }),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_debug_build_lists_its_functions_then_every_import_record() {
+        let bytes = linked(
+            &["_main", "_mfb_fn_main", "_mfb_rt_print"],
+            &["_malloc", "_free", "_malloc"],
+            true,
+        );
+        let image = read(&bytes).expect("a well-formed Mach-O");
+        assert_eq!(image.text_address, 0x1_0000_0000);
+        // The entry is `_main`, the first function.
+        let main = image
+            .functions
+            .iter()
+            .find_map(|function| match function.location {
+                Location::Defined { address, .. } if function.name == "_main" => Some(address),
+                _ => None,
+            });
+        assert_eq!(image.entry, main);
+        assert_eq!(
+            summary(&image),
+            [
+                ("_main", true),
+                ("_mfb_fn_main", true),
+                ("_mfb_rt_print", true),
+                ("_malloc", false),
+                ("_free", false),
+                ("_malloc", false),
+            ]
+            .map(|(name, defined)| (name.to_string(), defined))
+        );
+        // Code addresses are the symbols' offsets into `__text`, in order.
+        let addresses = image
+            .functions
+            .iter()
+            .filter_map(|function| match function.location {
+                Location::Defined { address, size } => Some((address, size)),
+                Location::Import(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(addresses[1].0 - addresses[0].0, 4);
+        assert_eq!(addresses[2].0 - addresses[1].0, 4);
+        // Each function runs to the next, and the last to the end of `__text`.
+        assert!(
+            addresses.iter().all(|(_, size)| *size == 4),
+            "{addresses:?}"
+        );
+        // Every import record has its own slot, which the file leaves unbound.
+        let slots = image
+            .functions
+            .iter()
+            .filter_map(|function| match &function.location {
+                Location::Import(slot) => Some(slot.as_ref().expect("an import slot")),
+                Location::Defined { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(slots.len(), 3);
+        assert!(slots
+            .windows(2)
+            .all(|pair| pair[0].address != pair[1].address));
+        assert!(slots.iter().all(|slot| slot.unbound == [0; 8]));
+    }
+
+    #[test]
+    fn a_normal_build_lists_only_its_imports() {
+        let bytes = linked(&["_main", "_mfb_fn_main"], &["_exit"], false);
+        let image = read(&bytes).unwrap();
+        assert_eq!(summary(&image), [("_exit".to_string(), false)]);
+    }
+
+    #[test]
+    fn data_symbols_are_not_functions() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = EncodedImage {
+            text: vec![0xc0, 0x03, 0x5f, 0xd6],
+            data: vec![0; 16],
+            rodata_size: 8,
+            symbols: vec![
+                EncodedSymbol {
+                    name: "_main".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 0,
+                },
+                EncodedSymbol {
+                    name: "_mfb_str_0".to_string(),
+                    section: EncodedSection::Data,
+                    offset: 0,
+                },
+            ],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: None,
+            rpaths: Vec::new(),
+            debug_symbols: true,
+        };
+        let path = crate::os::macos::write_linked_executable(dir.path(), "probe", &image).unwrap();
+        let image = read(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(summary(&image), [("_main".to_string(), true)]);
+        assert_eq!(
+            image
+                .data
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            ["_mfb_str_0"]
+        );
+    }
+
+    #[test]
+    fn a_file_that_does_not_fit_its_headers_is_refused() {
+        let bytes = linked(&["_main"], &["_exit"], true);
+        assert_eq!(read(b"not a program"), None);
+        assert_eq!(read(&bytes[..40]), None);
+        // Every truncation either reads the same table or is refused; none panic.
+        for length in (0..bytes.len()).step_by(97) {
+            let _ = read(&bytes[..length]);
+        }
+        let mut corrupt = bytes.clone();
+        corrupt[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(read(&corrupt), None);
+    }
+}

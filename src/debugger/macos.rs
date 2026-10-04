@@ -1,0 +1,1519 @@
+//! The macOS debugger backend: Mach task ports.
+//!
+//! A launched program is started with `posix_spawn` and Apple's
+//! `POSIX_SPAWN_START_SUSPENDED`, so the kernel creates it already suspended and
+//! no instruction of it — not even the loader's (`dyld`) — runs before the
+//! prompt. An attached program is paused with `task_suspend`, which stops every
+//! thread in the task at once.
+//!
+//! Both need the program's task port from `task_for_pid`, which macOS grants
+//! only to a debugger signed with the `com.apple.security.cs.debugger`
+//! entitlement (or running as root), and only for a target without the hardened
+//! runtime; MFBASIC programs are ad-hoc signed without it. The kernel ties both
+//! holds to this process: a `task_suspend` hold is dropped when the holder
+//! exits, and a program still suspended at spawn does not outlive its parent,
+//! so a debugger that dies never leaves a program frozen.
+//!
+//! Listing reads the executable's symbol table from its file
+//! (`super::macho`) and the paused task's memory: the live address of the
+//! Mach-O header (found by walking the task's memory regions) gives the load
+//! offset to add to every file address, and an import's pointer slot holds the
+//! function's address once `dyld` has bound it. Registers are read with
+//! `thread_get_state`.
+//!
+//! A step runs a set of threads in rounds of one instruction each: every other
+//! thread is held with `thread_suspend`, each stepping thread's `MDSCR_EL1.SS`
+//! bit is set through `ARM_DEBUG_STATE64`, the task is resumed, and each
+//! thread's single-step exception arrives on an exception port this process
+//! installs on the task for the length of the step (and then puts the
+//! program's own ports back). A thread that has raised its exception waits in
+//! the kernel for the answer, so it runs exactly one instruction; the task is
+//! suspended again before any exception is answered. A thread that raises no
+//! exception in time (it is in a system call that blocks) or raises another
+//! one is held for the rest of the step.
+//!
+//! A breakpoint is a `brk #0` written over the instruction at its address:
+//! the page is made writable with `mach_vm_protect(VM_PROT_COPY)` (a private
+//! copy, so a shared-cache library page changes for this process only),
+//! written with `mach_vm_write`, and made executable again; removing it writes
+//! the original instruction back. `run` resumes the task and waits on the
+//! exception port for a `brk` at a breakpoint's address, another exception,
+//! the end of the process, or Ctrl-C. A launched program gets a process group
+//! of its own, so a Ctrl-C at the terminal reaches only the debugger, whose
+//! handler asks `run` to pause the program.
+//!
+//! Everything here is in libSystem, which every macOS binary already links.
+
+use std::collections::BTreeMap;
+use std::ffi::{c_char, c_int, c_short, c_void, CStr, CString, OsString};
+use std::io;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::path::{Path, PathBuf};
+use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use super::macho::{self, Location};
+use super::{
+    Backend, Ending, Exit, FunctionSymbol, Inferior, Register, RegisterValue, RunStop, Step,
+    StepStop, ThreadFacts,
+};
+
+type MachPort = u32;
+type KernReturn = c_int;
+type SpawnAttr = *mut c_void;
+
+const KERN_SUCCESS: KernReturn = 0;
+/// `<spawn.h>`: create the process suspended (Apple extension).
+const POSIX_SPAWN_START_SUSPENDED: c_short = 0x0080;
+/// `<spawn.h>`: put the child in the process group `posix_spawnattr_setpgroup`
+/// names (0: a new group led by the child).
+const POSIX_SPAWN_SETPGROUP: c_short = 0x0002;
+const SIGINT: c_int = 2;
+/// `<sys/signal.h>`: `SIG_ERR`.
+const SIG_ERR: usize = usize::MAX;
+/// `<mach/vm_prot.h>`.
+const VM_PROT_WRITE: c_int = 2;
+const VM_PROT_EXECUTE: c_int = 4;
+const VM_PROT_COPY: c_int = 0x10;
+/// `brk #0`, the instruction a breakpoint writes.
+const BREAKPOINT_INSTRUCTION: [u8; 4] = 0xd420_0000_u32.to_le_bytes();
+/// How often a `run` that is waiting looks for Ctrl-C and for the program's
+/// end.
+const RUN_POLL_MS: u32 = 100;
+const SIGKILL: c_int = 9;
+const WNOHANG: c_int = 1;
+const EINTR: i32 = 4;
+const ESRCH: i32 = 3;
+/// `<sys/proc_info.h>`: `PROC_PIDPATHINFO_MAXSIZE`.
+const PROC_PIDPATHINFO_MAXSIZE: usize = 4096;
+/// `<mach/kern_return.h>`: no region at or above the address asked for.
+const KERN_INVALID_ADDRESS: KernReturn = 1;
+/// `<mach/vm_region.h>`: `VM_REGION_BASIC_INFO_64` and its size in `int`s.
+const VM_REGION_BASIC_INFO_64: c_int = 9;
+const VM_REGION_BASIC_INFO_COUNT_64: u32 = 9;
+const VM_PROT_READ: i32 = 1;
+/// `<mach-o/loader.h>`: the main executable's `filetype`.
+const MH_EXECUTE: u32 = 0x2;
+/// `<mach/arm/thread_status.h>`: the 64-bit general and NEON register sets.
+const ARM_THREAD_STATE64: c_int = 6;
+const ARM_THREAD_STATE64_COUNT: u32 = 68;
+const ARM_NEON_STATE64: c_int = 17;
+const ARM_NEON_STATE64_COUNT: u32 = 132;
+/// The most memory regions the header search walks before giving up.
+const MAX_REGIONS: usize = 1 << 16;
+/// `<mach/thread_info.h>`: `THREAD_IDENTIFIER_INFO` and its size in `int`s
+/// (`thread_id`, `thread_handle`, `dispatch_qaddr`).
+const THREAD_IDENTIFIER_INFO: c_int = 4;
+const THREAD_IDENTIFIER_INFO_COUNT: u32 = 6;
+/// `<sys/proc_info.h>`: `PROC_PIDTHREADID64INFO`, the size of
+/// `struct proc_threadinfo`, and where its `pth_name` starts.
+const PROC_PIDTHREADID64INFO: c_int = 15;
+const PROC_THREADINFO_SIZE: usize = 112;
+const PROC_THREADINFO_NAME: usize = 48;
+/// `<mach/arm/thread_status.h>`: the debug register set; `MDSCR_EL1.SS` is bit
+/// 0 of its last word.
+const ARM_DEBUG_STATE64: c_int = 15;
+const ARM_DEBUG_STATE64_COUNT: u32 = 130;
+const MDSCR_SS: u64 = 1;
+/// `<mach/exception_types.h>` and `<mach/message.h>`.
+const EXC_BAD_ACCESS: i32 = 1;
+const EXC_BAD_INSTRUCTION: i32 = 2;
+const EXC_ARITHMETIC: i32 = 3;
+const EXC_BREAKPOINT: i32 = 6;
+const EXC_MASK_STEP: u32 = 0x2 | 0x4 | 0x8 | 0x40;
+const EXC_TYPES_COUNT: usize = 14;
+const EXCEPTION_DEFAULT: c_int = 1;
+const MACH_EXCEPTION_CODES: c_int = 0x8000_0000_u32 as c_int;
+const THREAD_STATE_NONE: c_int = 5;
+const MACH_PORT_RIGHT_RECEIVE: u32 = 1;
+const MACH_MSG_TYPE_MAKE_SEND: u32 = 20;
+const MACH_SEND_MSG: c_int = 0x1;
+const MACH_RCV_MSG: c_int = 0x2;
+const MACH_RCV_TIMEOUT: c_int = 0x100;
+const MACH_RCV_TIMED_OUT: KernReturn = 0x1000_4003;
+/// `mach_exception_raise` as received: header, body, the thread and task port
+/// descriptors, NDR, then `exception`, `codeCnt` and two 64-bit codes, packed
+/// to 4 bytes.
+const EXC_MESSAGE_THREAD: usize = 28;
+const EXC_MESSAGE_TASK: usize = 40;
+const EXC_MESSAGE_EXCEPTION: usize = 60;
+const EXC_MESSAGE_CODES: usize = 68;
+const EXC_MESSAGE_BUFFER: usize = 1024;
+/// The reply: header, NDR (little-endian integers), return code.
+const EXC_REPLY_SIZE: u32 = 36;
+const NDR_RECORD: [u8; 8] = [0, 0, 0, 0, 1, 0, 0, 0];
+/// How long one instruction may take before the step reports the thread as
+/// waiting (in a system call that blocks).
+const STEP_TIMEOUT_MS: u32 = 2000;
+/// `brk #imm`: `1101 0100 001 imm16 000 00`.
+const BRK_MASK: u32 = 0xffe0_001f;
+const BRK_BITS: u32 = 0xd420_0000;
+
+extern "C" {
+    static mach_task_self_: MachPort;
+    fn task_for_pid(target_tport: MachPort, pid: c_int, task: *mut MachPort) -> KernReturn;
+    fn task_suspend(task: MachPort) -> KernReturn;
+    fn task_resume(task: MachPort) -> KernReturn;
+    fn mach_port_deallocate(task: MachPort, name: MachPort) -> KernReturn;
+    fn mach_error_string(error: KernReturn) -> *const c_char;
+    fn posix_spawnattr_init(attr: *mut SpawnAttr) -> c_int;
+    fn posix_spawnattr_setflags(attr: *mut SpawnAttr, flags: c_short) -> c_int;
+    fn posix_spawnattr_destroy(attr: *mut SpawnAttr) -> c_int;
+    fn posix_spawn(
+        pid: *mut c_int,
+        path: *const c_char,
+        file_actions: *const c_void,
+        attr: *const SpawnAttr,
+        argv: *const *const c_char,
+        envp: *const *const c_char,
+    ) -> c_int;
+    fn _NSGetEnviron() -> *const *const *const c_char;
+    fn kill(pid: c_int, signal: c_int) -> c_int;
+    fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
+    fn proc_pidpath(pid: c_int, buffer: *mut c_void, size: u32) -> c_int;
+    fn posix_spawnattr_setpgroup(attr: *mut SpawnAttr, group: c_int) -> c_int;
+    fn signal(signal: c_int, handler: usize) -> usize;
+    fn getpagesize() -> c_int;
+    fn pid_for_task(task: MachPort, pid: *mut c_int) -> KernReturn;
+    fn mach_vm_protect(
+        task: MachPort,
+        address: u64,
+        size: u64,
+        set_maximum: c_int,
+        protection: c_int,
+    ) -> KernReturn;
+    fn mach_vm_write(task: MachPort, address: u64, data: *const u8, count: u32) -> KernReturn;
+    fn mach_vm_region(
+        task: MachPort,
+        address: *mut u64,
+        size: *mut u64,
+        flavor: c_int,
+        info: *mut i32,
+        count: *mut u32,
+        object_name: *mut MachPort,
+    ) -> KernReturn;
+    fn mach_vm_read_overwrite(
+        task: MachPort,
+        address: u64,
+        size: u64,
+        data: u64,
+        out_size: *mut u64,
+    ) -> KernReturn;
+    fn mach_vm_deallocate(task: MachPort, address: u64, size: u64) -> KernReturn;
+    fn task_threads(task: MachPort, threads: *mut *mut MachPort, count: *mut u32) -> KernReturn;
+    fn thread_get_state(
+        thread: MachPort,
+        flavor: c_int,
+        state: *mut u32,
+        count: *mut u32,
+    ) -> KernReturn;
+    fn thread_set_state(
+        thread: MachPort,
+        flavor: c_int,
+        state: *const u32,
+        count: u32,
+    ) -> KernReturn;
+    fn thread_info(thread: MachPort, flavor: c_int, info: *mut i32, count: *mut u32) -> KernReturn;
+    fn thread_suspend(thread: MachPort) -> KernReturn;
+    fn thread_resume(thread: MachPort) -> KernReturn;
+    fn proc_pidinfo(pid: c_int, flavor: c_int, arg: u64, buffer: *mut c_void, size: c_int)
+        -> c_int;
+    fn mach_port_allocate(task: MachPort, right: u32, name: *mut MachPort) -> KernReturn;
+    fn mach_port_insert_right(
+        task: MachPort,
+        name: MachPort,
+        right: MachPort,
+        disposition: u32,
+    ) -> KernReturn;
+    fn mach_port_mod_refs(task: MachPort, name: MachPort, right: u32, delta: i32) -> KernReturn;
+    fn task_swap_exception_ports(
+        task: MachPort,
+        mask: u32,
+        port: MachPort,
+        behavior: c_int,
+        flavor: c_int,
+        masks: *mut u32,
+        count: *mut u32,
+        handlers: *mut MachPort,
+        behaviors: *mut c_int,
+        flavors: *mut c_int,
+    ) -> KernReturn;
+    fn task_set_exception_ports(
+        task: MachPort,
+        mask: u32,
+        port: MachPort,
+        behavior: c_int,
+        flavor: c_int,
+    ) -> KernReturn;
+    fn mach_msg(
+        message: *mut u8,
+        option: c_int,
+        send_size: u32,
+        receive_size: u32,
+        receive_name: MachPort,
+        timeout: u32,
+        notify: MachPort,
+    ) -> KernReturn;
+}
+
+pub(super) struct MacOs;
+
+impl Backend for MacOs {
+    fn executable_of(&self, pid: u32) -> Result<PathBuf, String> {
+        let raw = raw_pid(pid)?;
+        let mut buffer = vec![0u8; PROC_PIDPATHINFO_MAXSIZE];
+        // SAFETY: `buffer` is writable for the length passed; `proc_pidpath`
+        // writes at most that many bytes and returns how many it wrote.
+        let written = unsafe {
+            proc_pidpath(
+                raw,
+                buffer.as_mut_ptr().cast(),
+                PROC_PIDPATHINFO_MAXSIZE as u32,
+            )
+        };
+        if written <= 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(ESRCH) {
+                return Err(format!("no process with PID {pid}"));
+            }
+            return Err(format!(
+                "cannot find the executable of process {pid}: {error}"
+            ));
+        }
+        buffer.truncate(written as usize);
+        Ok(PathBuf::from(OsString::from_vec(buffer)))
+    }
+
+    fn launch(&self, program: &Path, args: &[OsString]) -> Result<Box<dyn Inferior>, String> {
+        let c_string = |value: &[u8]| {
+            CString::new(value).map_err(|_| {
+                format!(
+                    "cannot launch '{}': an argument contains a NUL byte",
+                    super::shown(program)
+                )
+            })
+        };
+        let path = c_string(program.as_os_str().as_bytes())?;
+        let mut owned = vec![path.clone()];
+        for arg in args {
+            owned.push(c_string(arg.as_bytes())?);
+        }
+        let mut argv = owned.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
+        argv.push(ptr::null());
+
+        let mut attr: SpawnAttr = ptr::null_mut();
+        let mut pid: c_int = 0;
+        // SAFETY: `attr` is initialized before use and destroyed after;
+        // `path`, `argv` (NUL-terminated) and the strings it points at outlive
+        // the call; `_NSGetEnviron` returns the live, NUL-terminated
+        // environment of this process.
+        let status = unsafe {
+            let init = posix_spawnattr_init(&mut attr);
+            if init != 0 {
+                init
+            } else {
+                let flags = posix_spawnattr_setflags(
+                    &mut attr,
+                    POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_SETPGROUP,
+                );
+                let group = posix_spawnattr_setpgroup(&mut attr, 0);
+                let status = if flags != 0 {
+                    flags
+                } else if group != 0 {
+                    group
+                } else {
+                    posix_spawn(
+                        &mut pid,
+                        path.as_ptr(),
+                        ptr::null(),
+                        &attr,
+                        argv.as_ptr(),
+                        *_NSGetEnviron(),
+                    )
+                };
+                posix_spawnattr_destroy(&mut attr);
+                status
+            }
+        };
+        if status != 0 {
+            return Err(format!(
+                "cannot launch '{}': {}",
+                super::shown(program),
+                io::Error::from_raw_os_error(status)
+            ));
+        }
+        let pid = pid as u32;
+        match task_port(pid) {
+            Ok(task) => Ok(Box::new(Task::new(pid, task, true, program))),
+            Err(message) => {
+                kill_and_reap(pid);
+                Err(message)
+            }
+        }
+    }
+
+    fn attach(&self, pid: u32, program: &Path) -> Result<Box<dyn Inferior>, String> {
+        let task = task_port(pid)?;
+        // SAFETY: `task` is a task port this process holds a send right to.
+        let status = unsafe { task_suspend(task) };
+        if status != KERN_SUCCESS {
+            release(task);
+            return Err(format!(
+                "cannot pause process {pid}: task_suspend: {}",
+                mach_error(status)
+            ));
+        }
+        Ok(Box::new(Task::new(pid, task, false, program)))
+    }
+}
+
+/// A debuggee held through its task port. A launched program is paused by the
+/// suspension it was spawned with; an attached one by this task's
+/// `task_suspend` hold.
+struct Task {
+    pid: u32,
+    task: MachPort,
+    launched: bool,
+    ended: bool,
+    program: PathBuf,
+    /// The executable's symbol table, read on first use.
+    image: Option<macho::Image>,
+    /// The load offset, found on first use; it cannot change while the
+    /// process lives.
+    slide: Option<u64>,
+    /// Each breakpoint written into the program, with the instruction it
+    /// replaced.
+    breakpoints: BTreeMap<u64, [u8; 4]>,
+    /// How the program ended, once a `run` or `step` saw it end.
+    exited: Option<Exit>,
+    /// The SIGINT handler this process had before the session installed its
+    /// own.
+    previous_interrupt: usize,
+}
+
+/// Set by the SIGINT handler; a `run` that sees it pauses the program.
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_interrupt(_: c_int) {
+    INTERRUPTED.store(true, Ordering::SeqCst);
+}
+
+impl Task {
+    fn new(pid: u32, task: MachPort, launched: bool, program: &Path) -> Self {
+        // SAFETY: `on_interrupt` only stores to an atomic, which is
+        // async-signal-safe; the previous handler is put back in `end`.
+        let previous_interrupt = unsafe { signal(SIGINT, on_interrupt as *const () as usize) };
+        Self {
+            pid,
+            task,
+            launched,
+            ended: false,
+            program: program.to_path_buf(),
+            image: None,
+            slide: None,
+            breakpoints: BTreeMap::new(),
+            exited: None,
+            previous_interrupt,
+        }
+    }
+
+    /// Write `bytes` over the code at `address`: the page is made writable
+    /// (as a private copy) for the write, then executable again.
+    fn patch(&self, address: u64, bytes: &[u8; 4]) -> Result<(), String> {
+        // SAFETY: `getpagesize` has no preconditions.
+        let page_size = u64::try_from(unsafe { getpagesize() }).unwrap_or(16384);
+        let page = address & !(page_size - 1);
+        // SAFETY: the calls name memory in the debuggee only; `bytes` is
+        // readable for the 4 bytes written.
+        let status = unsafe {
+            let status = mach_vm_protect(
+                self.task,
+                page,
+                page_size,
+                0,
+                VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY,
+            );
+            if status != KERN_SUCCESS {
+                status
+            } else {
+                let written = mach_vm_write(self.task, address, bytes.as_ptr(), 4);
+                let restored = mach_vm_protect(
+                    self.task,
+                    page,
+                    page_size,
+                    0,
+                    VM_PROT_READ | VM_PROT_EXECUTE,
+                );
+                if written != KERN_SUCCESS {
+                    written
+                } else {
+                    restored
+                }
+            }
+        };
+        if status != KERN_SUCCESS {
+            return Err(format!(
+                "cannot change the instruction at {address:#x}: {}",
+                mach_error(status)
+            ));
+        }
+        Ok(())
+    }
+
+    /// Put every breakpoint's original instruction back, for a step or a
+    /// detach; [`Task::reinsert`] writes them again.
+    fn lift(&self) -> Result<(), String> {
+        for (address, original) in &self.breakpoints {
+            self.patch(*address, original)?;
+        }
+        Ok(())
+    }
+
+    fn reinsert(&self) -> Result<(), String> {
+        for address in self.breakpoints.keys() {
+            self.patch(*address, &BREAKPOINT_INSTRUCTION)?;
+        }
+        Ok(())
+    }
+
+    /// How the program ended, if it has: a launched child is reaped and its
+    /// status read; an attached program is gone when its task port no longer
+    /// names a process.
+    fn check_exit(&mut self) -> Option<Exit> {
+        if self.exited.is_some() {
+            return self.exited;
+        }
+        let exit = if self.launched {
+            let mut status = 0;
+            // SAFETY: `status` is a valid out-parameter; `pid` is this
+            // process's own child.
+            if unsafe { waitpid(self.pid as c_int, &mut status, WNOHANG) } != self.pid as c_int {
+                return None;
+            }
+            if status & 0x7f == 0 {
+                Exit::Status((status >> 8) & 0xff)
+            } else {
+                Exit::Signal(status & 0x7f)
+            }
+        } else {
+            let mut pid = 0;
+            // SAFETY: `pid` is a valid out-parameter.
+            if unsafe { pid_for_task(self.task, &mut pid) } == KERN_SUCCESS && alive(self.pid) {
+                return None;
+            }
+            Exit::Unknown
+        };
+        self.exited = Some(exit);
+        Some(exit)
+    }
+
+    fn image(&mut self) -> Result<&macho::Image, String> {
+        if self.image.is_none() {
+            let shown = super::shown(&self.program);
+            let bytes = std::fs::read(&self.program)
+                .map_err(|err| format!("cannot read '{shown}': {err}"))?;
+            let image = macho::read(&bytes)
+                .ok_or_else(|| format!("cannot read the symbol table of '{shown}'"))?;
+            self.image = Some(image);
+        }
+        Ok(self.image.as_ref().expect("read above"))
+    }
+
+    /// How far the executable was loaded from the address it asks for.
+    fn slide(&mut self) -> Result<u64, String> {
+        if let Some(slide) = self.slide {
+            return Ok(slide);
+        }
+        let header = self.executable_header()?;
+        let slide = header.wrapping_sub(self.image()?.text_address);
+        self.slide = Some(slide);
+        Ok(slide)
+    }
+
+    /// The live address of the main executable's Mach-O header: the first
+    /// readable region that starts with a 64-bit `MH_EXECUTE` header. The
+    /// kernel maps the executable before `dyld` runs, so this holds from the
+    /// first instruction on.
+    fn executable_header(&self) -> Result<u64, String> {
+        let mut address = 0u64;
+        for _ in 0..MAX_REGIONS {
+            let mut size = 0u64;
+            let mut info = [0i32; VM_REGION_BASIC_INFO_COUNT_64 as usize];
+            let mut count = VM_REGION_BASIC_INFO_COUNT_64;
+            let mut object: MachPort = 0;
+            // SAFETY: every out-parameter is a valid local; `info` holds
+            // `count` ints, the size of `vm_region_basic_info_data_64_t`.
+            let status = unsafe {
+                mach_vm_region(
+                    self.task,
+                    &mut address,
+                    &mut size,
+                    VM_REGION_BASIC_INFO_64,
+                    info.as_mut_ptr(),
+                    &mut count,
+                    &mut object,
+                )
+            };
+            if status == KERN_INVALID_ADDRESS {
+                break;
+            }
+            if status != KERN_SUCCESS {
+                return Err(format!(
+                    "cannot read the memory map of process {}: mach_vm_region: {}",
+                    self.pid,
+                    mach_error(status)
+                ));
+            }
+            // `protection` is the first field of the region info.
+            if info[0] & VM_PROT_READ != 0 {
+                if let Ok(header) = self.read(address, 16) {
+                    let magic = u32::from_le_bytes(header[0..4].try_into().expect("16 bytes"));
+                    let kind = u32::from_le_bytes(header[12..16].try_into().expect("16 bytes"));
+                    if magic == crate::os::inspect::MH_MAGIC_64 && kind == MH_EXECUTE {
+                        return Ok(address);
+                    }
+                }
+            }
+            address = match address.checked_add(size) {
+                Some(next) if size > 0 => next,
+                _ => break,
+            };
+        }
+        Err(format!(
+            "cannot find the executable's header in process {}",
+            self.pid
+        ))
+    }
+
+    /// `length` bytes of the process's memory at `address`.
+    fn read(&self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+        let mut buffer = vec![0u8; length];
+        let mut read = 0u64;
+        // SAFETY: `buffer` is writable for `length` bytes; the kernel copies at
+        // most that many into it and reports how many in `read`.
+        let status = unsafe {
+            mach_vm_read_overwrite(
+                self.task,
+                address,
+                length as u64,
+                buffer.as_mut_ptr() as u64,
+                &mut read,
+            )
+        };
+        if status != KERN_SUCCESS || read != length as u64 {
+            return Err(format!(
+                "cannot read process {}'s memory at {address:#x}: {}",
+                self.pid,
+                mach_error(status)
+            ));
+        }
+        Ok(buffer)
+    }
+
+    /// Every thread of the task, in the system's order.
+    fn thread_ports(&self) -> Result<ThreadPorts, String> {
+        let mut threads: *mut MachPort = ptr::null_mut();
+        let mut count = 0u32;
+        // SAFETY: both out-parameters are valid locals.
+        let status = unsafe { task_threads(self.task, &mut threads, &mut count) };
+        if status != KERN_SUCCESS {
+            return Err(format!(
+                "cannot list the threads of process {}: task_threads: {}",
+                self.pid,
+                mach_error(status)
+            ));
+        }
+        // SAFETY: on success `threads` points at `count` thread ports the
+        // kernel placed in this task. They are copied out, and the array is
+        // returned to the kernel; the ports themselves are released when the
+        // `ThreadPorts` is dropped.
+        unsafe {
+            let ports = std::slice::from_raw_parts(threads, count as usize).to_vec();
+            mach_vm_deallocate(
+                mach_task_self_,
+                threads as u64,
+                u64::from(count) * std::mem::size_of::<MachPort>() as u64,
+            );
+            Ok(ThreadPorts(ports))
+        }
+    }
+
+    /// The thread at `index`, or the error naming how many there are.
+    fn thread_at(&self, threads: &ThreadPorts, index: usize) -> Result<MachPort, String> {
+        threads.0.get(index).copied().ok_or_else(|| {
+            format!(
+                "no thread {index}: process {} has {} threads",
+                self.pid,
+                threads.0.len()
+            )
+        })
+    }
+
+    /// The memory region holding `address`, `[start, end)`, if one does.
+    fn region_containing(&self, address: u64) -> Option<(u64, u64)> {
+        let mut start = address;
+        let mut size = 0u64;
+        let mut info = [0i32; VM_REGION_BASIC_INFO_COUNT_64 as usize];
+        let mut count = VM_REGION_BASIC_INFO_COUNT_64;
+        let mut object: MachPort = 0;
+        // SAFETY: as in `executable_header`.
+        let status = unsafe {
+            mach_vm_region(
+                self.task,
+                &mut start,
+                &mut size,
+                VM_REGION_BASIC_INFO_64,
+                info.as_mut_ptr(),
+                &mut count,
+                &mut object,
+            )
+        };
+        (status == KERN_SUCCESS && start <= address).then(|| (start, start.saturating_add(size)))
+    }
+
+    fn facts(&self, thread: MachPort) -> Result<ThreadFacts, String> {
+        let general = general_state(thread)?;
+        let mut identity = [0u64; 3];
+        let mut count = THREAD_IDENTIFIER_INFO_COUNT;
+        // SAFETY: `identity` holds `count` ints of `thread_identifier_info`.
+        let status = unsafe {
+            thread_info(
+                thread,
+                THREAD_IDENTIFIER_INFO,
+                identity.as_mut_ptr().cast(),
+                &mut count,
+            )
+        };
+        if status != KERN_SUCCESS {
+            return Err(format!(
+                "cannot identify a thread of process {}: thread_info: {}",
+                self.pid,
+                mach_error(status)
+            ));
+        }
+        let [id, handle, _] = identity;
+        Ok(ThreadFacts {
+            id,
+            handle,
+            name: self.thread_name(id),
+            pc: general[32],
+            sp: general[31],
+            arena: general[19],
+            stack: self.region_containing(general[31]),
+        })
+    }
+
+    /// The name the thread `id` gave itself, if any.
+    fn thread_name(&self, id: u64) -> Option<String> {
+        let mut info = [0u8; PROC_THREADINFO_SIZE];
+        // SAFETY: `info` is writable for the size passed.
+        let written = unsafe {
+            proc_pidinfo(
+                self.pid as c_int,
+                PROC_PIDTHREADID64INFO,
+                id,
+                info.as_mut_ptr().cast(),
+                PROC_THREADINFO_SIZE as c_int,
+            )
+        };
+        if written != PROC_THREADINFO_SIZE as c_int {
+            return None;
+        }
+        let name = crate::os::inspect::c_bytes(&info[PROC_THREADINFO_NAME..]);
+        (!name.is_empty())
+            .then(|| crate::terminal_safe::safe(&String::from_utf8_lossy(name)).into_owned())
+    }
+
+    /// Run `threads` for up to `count` rounds of one instruction each; every
+    /// other thread is already held and the exception port installed. Answers
+    /// one `Step` per thread, in order.
+    fn step_rounds(
+        &self,
+        threads: &[MachPort],
+        port: &ExceptionPort,
+        count: u64,
+    ) -> Result<Vec<Step>, String> {
+        let mut steps = vec![
+            Step {
+                taken: 0,
+                stop: StepStop::Finished,
+            };
+            threads.len()
+        ];
+        let mut active = (0..threads.len()).collect::<Vec<_>>();
+        // Threads that stopped early, held until the step ends.
+        let mut parked = Vec::new();
+        let mut result = Ok(());
+        for _ in 0..count {
+            if active.is_empty() {
+                break;
+            }
+            let before = active
+                .iter()
+                .map(|at| general_state(threads[*at]).map(|general| general[32]))
+                .collect::<Vec<_>>();
+            if let Err(message) = active
+                .iter()
+                .try_for_each(|at| set_single_step(threads[*at], true))
+            {
+                for at in &active {
+                    let _ = set_single_step(threads[*at], false);
+                }
+                result = Err(message);
+                break;
+            }
+            // SAFETY: `self.task` is this session's task port.
+            let resumed = unsafe { task_resume(self.task) } == KERN_SUCCESS;
+            let mut raised = (0..threads.len()).map(|_| None).collect::<Vec<_>>();
+            if resumed {
+                let deadline = Instant::now() + Duration::from_millis(u64::from(STEP_TIMEOUT_MS));
+                while active.iter().any(|at| raised[*at].is_none()) {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    if left.is_zero() {
+                        break;
+                    }
+                    let Some(exception) = port.receive(left.as_millis() as u32) else {
+                        break;
+                    };
+                    place(threads, &mut raised, exception);
+                }
+            }
+            // SAFETY: as above.
+            let suspended = resumed && unsafe { task_suspend(self.task) } == KERN_SUCCESS;
+            for at in &active {
+                let _ = set_single_step(threads[*at], false);
+            }
+            // An exception may have arrived after the wait gave up.
+            while let Some(late) = port.receive(0) {
+                place(threads, &mut raised, late);
+            }
+            if !suspended {
+                let stop = if alive(self.pid) {
+                    StepStop::Waiting
+                } else {
+                    StepStop::Exited
+                };
+                for at in &active {
+                    steps[*at].stop = stop.clone();
+                }
+                for exception in raised.into_iter().flatten() {
+                    exception.answer();
+                }
+                active.clear();
+                break;
+            }
+            let mut still = Vec::with_capacity(active.len());
+            let mut stopped = Vec::new();
+            for (at, before) in active.iter().zip(before) {
+                match raised[*at].take() {
+                    Some(exception) => {
+                        exception.answer();
+                        if self.is_step(&exception, before) {
+                            steps[*at].taken += 1;
+                            still.push(*at);
+                        } else {
+                            steps[*at].stop = StepStop::Exception(exception.describe());
+                            stopped.push(threads[*at]);
+                        }
+                    }
+                    None => {
+                        steps[*at].stop = StepStop::Waiting;
+                        stopped.push(threads[*at]);
+                    }
+                }
+            }
+            // Exceptions from threads not being stepped (none run) are
+            // answered all the same.
+            for exception in raised.into_iter().flatten() {
+                exception.answer();
+            }
+            for thread in stopped {
+                // SAFETY: a thread port of this task; the hold is given back
+                // below, once the step is over.
+                if unsafe { thread_suspend(thread) } == KERN_SUCCESS {
+                    parked.push(thread);
+                }
+            }
+            active = still;
+        }
+        for thread in parked {
+            // SAFETY: drops the hold taken above.
+            unsafe {
+                thread_resume(thread);
+            }
+        }
+        result.map(|()| steps)
+    }
+
+    /// A single-step and a `brk` both raise `EXC_BREAKPOINT`; a `brk` leaves
+    /// the program counter on itself.
+    fn is_step(&self, exception: &Exception, before: Result<u64, String>) -> bool {
+        if exception.kind != EXC_BREAKPOINT {
+            return false;
+        }
+        let Ok(before) = before else {
+            return true;
+        };
+        let instruction = self
+            .read(before, 4)
+            .map(|bytes| u32::from_le_bytes(bytes[..].try_into().expect("4 bytes")));
+        let after = general_state(exception.thread).map(|general| general[32]);
+        !(instruction.is_ok_and(|word| word & BRK_MASK == BRK_BITS) && after == Ok(before))
+    }
+}
+
+/// File `exception` under the thread that raised it; one from a thread not
+/// being stepped, or a second from the same thread, is answered at once.
+fn place(threads: &[MachPort], raised: &mut [Option<Exception>], exception: Exception) {
+    match threads
+        .iter()
+        .position(|thread| *thread == exception.thread)
+    {
+        Some(at) if raised[at].is_none() => raised[at] = Some(exception),
+        _ => exception.answer(),
+    }
+}
+
+/// A task's thread ports, released when dropped.
+struct ThreadPorts(Vec<MachPort>);
+
+impl Drop for ThreadPorts {
+    fn drop(&mut self) {
+        for port in &self.0 {
+            release(*port);
+        }
+    }
+}
+
+/// `ARM_THREAD_STATE64` as words: x0–x28, fp, lr, sp, pc, then CPSR.
+fn general_state(thread: MachPort) -> Result<[u64; 34], String> {
+    let mut general = [0u64; ARM_THREAD_STATE64_COUNT as usize / 2];
+    thread_state(
+        thread,
+        ARM_THREAD_STATE64,
+        general.as_mut_ptr().cast(),
+        ARM_THREAD_STATE64_COUNT,
+    )?;
+    Ok(general)
+}
+
+/// Set or clear `MDSCR_EL1.SS`, the hardware single-step bit, for `thread`.
+fn set_single_step(thread: MachPort, on: bool) -> Result<(), String> {
+    let mut debug = [0u64; ARM_DEBUG_STATE64_COUNT as usize / 2];
+    thread_state(
+        thread,
+        ARM_DEBUG_STATE64,
+        debug.as_mut_ptr().cast(),
+        ARM_DEBUG_STATE64_COUNT,
+    )?;
+    let last = debug.len() - 1;
+    if on {
+        debug[last] |= MDSCR_SS;
+    } else {
+        debug[last] &= !MDSCR_SS;
+    }
+    // SAFETY: `debug` holds `ARM_DEBUG_STATE64_COUNT` ints of that flavor.
+    let status = unsafe {
+        thread_set_state(
+            thread,
+            ARM_DEBUG_STATE64,
+            debug.as_ptr().cast(),
+            ARM_DEBUG_STATE64_COUNT,
+        )
+    };
+    if status != KERN_SUCCESS {
+        return Err(format!(
+            "cannot set a thread's single-step bit: thread_set_state: {}",
+            mach_error(status)
+        ));
+    }
+    Ok(())
+}
+
+/// A receive right this process listens on for the task's exceptions, with
+/// the handlers it replaced; dropping it puts those back and destroys it.
+struct ExceptionPort {
+    task: MachPort,
+    port: MachPort,
+    saved: Vec<(u32, MachPort, c_int, c_int)>,
+}
+
+impl ExceptionPort {
+    /// Route `task`'s step-related exceptions to a fresh port.
+    fn install(task: MachPort) -> Result<Self, String> {
+        let mut port: MachPort = 0;
+        // SAFETY: `port` is a valid out-parameter; the right is created in
+        // this task, and given a send right of its own for the kernel to use.
+        let status = unsafe {
+            let status = mach_port_allocate(mach_task_self_, MACH_PORT_RIGHT_RECEIVE, &mut port);
+            if status == KERN_SUCCESS {
+                mach_port_insert_right(mach_task_self_, port, port, MACH_MSG_TYPE_MAKE_SEND)
+            } else {
+                status
+            }
+        };
+        if status != KERN_SUCCESS {
+            return Err(format!(
+                "cannot make an exception port: {}",
+                mach_error(status)
+            ));
+        }
+        let mut masks = [0u32; EXC_TYPES_COUNT];
+        let mut handlers = [0 as MachPort; EXC_TYPES_COUNT];
+        let mut behaviors = [0 as c_int; EXC_TYPES_COUNT];
+        let mut flavors = [0 as c_int; EXC_TYPES_COUNT];
+        let mut count = EXC_TYPES_COUNT as u32;
+        // SAFETY: each array holds `count` entries, as the call requires.
+        let status = unsafe {
+            task_swap_exception_ports(
+                task,
+                EXC_MASK_STEP,
+                port,
+                EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES,
+                THREAD_STATE_NONE,
+                masks.as_mut_ptr(),
+                &mut count,
+                handlers.as_mut_ptr(),
+                behaviors.as_mut_ptr(),
+                flavors.as_mut_ptr(),
+            )
+        };
+        let mut installed = ExceptionPort {
+            task,
+            port,
+            saved: Vec::new(),
+        };
+        if status != KERN_SUCCESS {
+            return Err(format!(
+                "cannot catch the program's exceptions: task_swap_exception_ports: {}",
+                mach_error(status)
+            ));
+        }
+        installed.saved = (0..count.min(EXC_TYPES_COUNT as u32) as usize)
+            .map(|at| (masks[at], handlers[at], behaviors[at], flavors[at]))
+            .collect();
+        Ok(installed)
+    }
+
+    /// The next exception, waiting up to `timeout` milliseconds.
+    fn receive(&self, timeout: u32) -> Option<Exception> {
+        let mut buffer = [0u8; EXC_MESSAGE_BUFFER];
+        // SAFETY: `buffer` is writable for the size passed.
+        let status = unsafe {
+            mach_msg(
+                buffer.as_mut_ptr(),
+                MACH_RCV_MSG | MACH_RCV_TIMEOUT,
+                0,
+                EXC_MESSAGE_BUFFER as u32,
+                self.port,
+                timeout,
+                0,
+            )
+        };
+        if status == MACH_RCV_TIMED_OUT || status != KERN_SUCCESS {
+            return None;
+        }
+        let word = |at: usize| u32::from_le_bytes(buffer[at..at + 4].try_into().expect("4 bytes"));
+        let wide = |at: usize| i64::from_le_bytes(buffer[at..at + 8].try_into().expect("8 bytes"));
+        Some(Exception {
+            bits: word(0),
+            reply: word(8),
+            id: word(20),
+            thread: word(EXC_MESSAGE_THREAD),
+            task: word(EXC_MESSAGE_TASK),
+            kind: word(EXC_MESSAGE_EXCEPTION) as i32,
+            codes: [wide(EXC_MESSAGE_CODES), wide(EXC_MESSAGE_CODES + 8)],
+        })
+    }
+}
+
+impl Drop for ExceptionPort {
+    fn drop(&mut self) {
+        // SAFETY: restores the handlers `install` replaced, then drops this
+        // process's rights to them and to its own port.
+        unsafe {
+            for (mask, handler, behavior, flavor) in &self.saved {
+                task_set_exception_ports(self.task, *mask, *handler, *behavior, *flavor);
+                if *handler != 0 {
+                    mach_port_deallocate(mach_task_self_, *handler);
+                }
+            }
+            mach_port_deallocate(mach_task_self_, self.port);
+            mach_port_mod_refs(mach_task_self_, self.port, MACH_PORT_RIGHT_RECEIVE, -1);
+        }
+    }
+}
+
+/// One `mach_exception_raise` message.
+struct Exception {
+    bits: u32,
+    reply: MachPort,
+    id: u32,
+    thread: MachPort,
+    task: MachPort,
+    kind: i32,
+    codes: [i64; 2],
+}
+
+impl Exception {
+    /// Answer "handled", so the thread retries or continues when it next runs,
+    /// and drop the thread and task rights the message carried.
+    fn answer(&self) {
+        let mut reply = [0u8; EXC_REPLY_SIZE as usize];
+        // The reply's remote right is the request's reply right, as sent.
+        reply[0..4].copy_from_slice(&(self.bits & 0x1f).to_le_bytes());
+        reply[4..8].copy_from_slice(&EXC_REPLY_SIZE.to_le_bytes());
+        reply[8..12].copy_from_slice(&self.reply.to_le_bytes());
+        reply[20..24].copy_from_slice(&(self.id + 100).to_le_bytes());
+        reply[24..32].copy_from_slice(&NDR_RECORD);
+        reply[32..36].copy_from_slice(&KERN_SUCCESS.to_le_bytes());
+        // SAFETY: `reply` is a complete reply message of the size passed; the
+        // two port names came in this message and are not used again.
+        unsafe {
+            mach_msg(
+                reply.as_mut_ptr(),
+                MACH_SEND_MSG,
+                EXC_REPLY_SIZE,
+                0,
+                0,
+                0,
+                0,
+            );
+            mach_port_deallocate(mach_task_self_, self.thread);
+            mach_port_deallocate(mach_task_self_, self.task);
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self.kind {
+            EXC_BAD_ACCESS => format!("a bad memory access at {:#x}", self.codes[1]),
+            EXC_BAD_INSTRUCTION => "an illegal instruction".to_string(),
+            EXC_ARITHMETIC => "an arithmetic exception".to_string(),
+            EXC_BREAKPOINT => "a breakpoint instruction".to_string(),
+            other => format!("exception {other}"),
+        }
+    }
+}
+
+/// `__darwin_arm_neon_state64`: 32 128-bit registers, then FPSR and FPCR,
+/// which MFBASIC code never reads or sets; they are here for the layout.
+#[repr(C, align(16))]
+struct NeonState {
+    v: [u128; 32],
+    _fpsr: u32,
+    _fpcr: u32,
+}
+
+/// Read one register set of `thread` into `state`, which holds `count` ints.
+fn thread_state(
+    thread: MachPort,
+    flavor: c_int,
+    state: *mut u32,
+    count: u32,
+) -> Result<(), String> {
+    let mut got = count;
+    // SAFETY: the caller passes a buffer of `count` ints for this flavor.
+    let status = unsafe { thread_get_state(thread, flavor, state, &mut got) };
+    if status != KERN_SUCCESS {
+        return Err(format!(
+            "cannot read a thread's registers: thread_get_state: {}",
+            mach_error(status)
+        ));
+    }
+    Ok(())
+}
+
+impl Inferior for Task {
+    fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    fn end(&mut self) -> Result<Ending, String> {
+        self.ended = true;
+        // SAFETY: puts back the handler `new` replaced.
+        unsafe {
+            if self.previous_interrupt != SIG_ERR {
+                signal(SIGINT, self.previous_interrupt);
+            }
+        }
+        let ending = if self.exited.is_some() {
+            Ok(Ending::AlreadyExited)
+        } else if self.launched {
+            let pid = self.pid as c_int;
+            let mut status = 0;
+            // SAFETY: `status` is a valid out-parameter; `pid` is this
+            // process's own child, so reaping it touches nothing else.
+            if unsafe { waitpid(pid, &mut status, WNOHANG) } == pid {
+                Ok(Ending::AlreadyExited)
+            } else {
+                kill_and_reap(self.pid);
+                Ok(Ending::Killed)
+            }
+        } else {
+            // A program left running must not meet a `brk` with no debugger.
+            let lifted = self.lift();
+            // SAFETY: `self.task` is the task port `attach` acquired.
+            let status = unsafe { task_resume(self.task) };
+            if let Err(message) = lifted {
+                Err(message)
+            } else if status == KERN_SUCCESS {
+                Ok(Ending::Detached)
+            } else if !alive(self.pid) {
+                Ok(Ending::AlreadyExited)
+            } else {
+                Err(format!(
+                    "cannot resume process {}: task_resume: {}",
+                    self.pid,
+                    mach_error(status)
+                ))
+            }
+        };
+        release(self.task);
+        ending
+    }
+
+    fn functions(&mut self) -> Result<Vec<FunctionSymbol>, String> {
+        let slide = self.slide()?;
+        let image = self.image.take().expect("slide reads the image");
+        let mut functions = Vec::with_capacity(image.functions.len());
+        let mut failure = None;
+        for function in &image.functions {
+            let (linked, address, size) = match &function.location {
+                Location::Defined { address, size } => {
+                    (false, Some(address.wrapping_add(slide)), Some(*size))
+                }
+                Location::Import(None) => (true, None, None),
+                Location::Import(Some(slot)) => {
+                    match self.read(slot.address.wrapping_add(slide), 8) {
+                        // A slot that still holds the file's bytes is unbound.
+                        Ok(live) if live[..] == slot.unbound[..] => (true, None, None),
+                        Ok(live) => (
+                            true,
+                            Some(u64::from_le_bytes(live[..].try_into().expect("8 bytes"))),
+                            None,
+                        ),
+                        Err(message) => {
+                            failure = Some(message);
+                            break;
+                        }
+                    }
+                }
+            };
+            functions.push(FunctionSymbol {
+                name: function.name.clone(),
+                linked,
+                address,
+                size,
+            });
+        }
+        self.image = Some(image);
+        match failure {
+            Some(message) => Err(message),
+            None => Ok(functions),
+        }
+    }
+
+    fn data_symbol(&mut self, name: &str) -> Result<Option<u64>, String> {
+        let slide = self.slide()?;
+        Ok(self
+            .image()?
+            .data
+            .iter()
+            .find(|(symbol, _)| symbol == name)
+            .map(|(_, address)| address.wrapping_add(slide)))
+    }
+
+    fn read_u64(&mut self, address: u64) -> Result<u64, String> {
+        let bytes = self.read(address, 8)?;
+        Ok(u64::from_le_bytes(bytes[..].try_into().expect("8 bytes")))
+    }
+
+    fn read_bytes(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+        self.read(address, length)
+    }
+
+    fn threads(&mut self) -> Result<Vec<ThreadFacts>, String> {
+        let threads = self.thread_ports()?;
+        threads.0.iter().map(|thread| self.facts(*thread)).collect()
+    }
+
+    fn registers(&mut self, index: usize) -> Result<Vec<Register>, String> {
+        let threads = self.thread_ports()?;
+        let thread = self.thread_at(&threads, index)?;
+        let general = general_state(thread)?;
+        let mut neon = NeonState {
+            v: [0; 32],
+            _fpsr: 0,
+            _fpcr: 0,
+        };
+        thread_state(
+            thread,
+            ARM_NEON_STATE64,
+            ptr::addr_of_mut!(neon).cast(),
+            ARM_NEON_STATE64_COUNT,
+        )?;
+        Ok(arm64_registers(&general, &neon.v))
+    }
+
+    fn step(&mut self, indices: &[usize], count: u64) -> Result<Vec<Step>, String> {
+        let threads = self.thread_ports()?;
+        let stepping = indices
+            .iter()
+            .map(|index| self.thread_at(&threads, *index))
+            .collect::<Result<Vec<_>, _>>()?;
+        let port = ExceptionPort::install(self.task)?;
+        // SAFETY: each is a thread port of this task; every hold taken here is
+        // given back below.
+        let held = threads
+            .0
+            .iter()
+            .copied()
+            .filter(|thread| !stepping.contains(thread))
+            .filter(|thread| unsafe { thread_suspend(*thread) } == KERN_SUCCESS)
+            .collect::<Vec<_>>();
+        let steps = self
+            .lift()
+            .and_then(|()| self.step_rounds(&stepping, &port, count));
+        for thread in held {
+            // SAFETY: drops the hold taken above.
+            unsafe {
+                thread_resume(thread);
+            }
+        }
+        drop(port);
+        let steps = steps?;
+        if steps.iter().any(|step| step.stop == StepStop::Exited) {
+            self.exited = Some(self.check_exit().unwrap_or(Exit::Unknown));
+        } else {
+            self.reinsert()?;
+        }
+        Ok(steps)
+    }
+
+    fn entry(&mut self) -> Result<Option<u64>, String> {
+        let slide = self.slide()?;
+        Ok(self.image()?.entry.map(|entry| entry.wrapping_add(slide)))
+    }
+
+    fn insert_breakpoint(&mut self, address: u64) -> Result<(), String> {
+        if self.breakpoints.contains_key(&address) {
+            return Err(format!("there is already a breakpoint at {address:#x}"));
+        }
+        let original: [u8; 4] = self.read(address, 4)?[..].try_into().expect("4 bytes");
+        self.patch(address, &BREAKPOINT_INSTRUCTION)?;
+        self.breakpoints.insert(address, original);
+        Ok(())
+    }
+
+    fn remove_breakpoint(&mut self, address: u64) -> Result<(), String> {
+        let Some(original) = self.breakpoints.get(&address).copied() else {
+            return Err(format!("there is no breakpoint at {address:#x}"));
+        };
+        self.patch(address, &original)?;
+        self.breakpoints.remove(&address);
+        Ok(())
+    }
+
+    fn run(&mut self) -> Result<RunStop, String> {
+        if let Some(exit) = self.check_exit() {
+            return Ok(RunStop::Exited(exit));
+        }
+        // A thread paused on a breakpoint runs that one instruction first.
+        let waiting = {
+            let threads = self.thread_ports()?;
+            threads
+                .0
+                .iter()
+                .enumerate()
+                .filter(|(_, thread)| {
+                    general_state(**thread)
+                        .is_ok_and(|general| self.breakpoints.contains_key(&general[32]))
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>()
+        };
+        if !waiting.is_empty() {
+            for (index, step) in waiting.iter().zip(self.step(&waiting, 1)?) {
+                match step.stop {
+                    StepStop::Finished | StepStop::Waiting => {}
+                    StepStop::Exited => {
+                        return Ok(RunStop::Exited(self.exited.unwrap_or(Exit::Unknown)))
+                    }
+                    StepStop::Exception(what) => {
+                        return Ok(RunStop::Exception {
+                            thread: *index,
+                            what,
+                        })
+                    }
+                }
+            }
+        }
+        let port = ExceptionPort::install(self.task)?;
+        INTERRUPTED.store(false, Ordering::SeqCst);
+        // SAFETY: `self.task` is this session's task port.
+        if unsafe { task_resume(self.task) } != KERN_SUCCESS {
+            return Ok(RunStop::Exited(self.check_exit().unwrap_or(Exit::Unknown)));
+        }
+        loop {
+            if let Some(first) = port.receive(RUN_POLL_MS) {
+                // SAFETY: as above.
+                let suspended = unsafe { task_suspend(self.task) } == KERN_SUCCESS;
+                let mut raised = vec![first];
+                while let Some(more) = port.receive(0) {
+                    raised.push(more);
+                }
+                let stop = self.classify(&raised);
+                for exception in &raised {
+                    exception.answer();
+                }
+                if !suspended {
+                    return Ok(RunStop::Exited(self.check_exit().unwrap_or(Exit::Unknown)));
+                }
+                return stop;
+            }
+            if INTERRUPTED.swap(false, Ordering::SeqCst) {
+                // SAFETY: as above.
+                if unsafe { task_suspend(self.task) } == KERN_SUCCESS {
+                    return Ok(RunStop::Interrupted);
+                }
+            }
+            if let Some(exit) = self.check_exit() {
+                return Ok(RunStop::Exited(exit));
+            }
+        }
+    }
+}
+
+impl Task {
+    /// What the exceptions a `run` caught mean: every `brk` at one of the
+    /// debugger's breakpoints, or else the first other exception.
+    fn classify(&self, raised: &[Exception]) -> Result<RunStop, String> {
+        let threads = self.thread_ports()?;
+        let index = |exception: &Exception| {
+            threads
+                .0
+                .iter()
+                .position(|thread| *thread == exception.thread)
+                .unwrap_or(usize::MAX)
+        };
+        let hits = raised
+            .iter()
+            .filter(|exception| {
+                exception.kind == EXC_BREAKPOINT
+                    && self.breakpoints.contains_key(&(exception.codes[1] as u64))
+            })
+            .map(|exception| (index(exception), exception.codes[1] as u64))
+            .collect::<Vec<_>>();
+        if !hits.is_empty() {
+            return Ok(RunStop::Breakpoints(hits));
+        }
+        let first = &raised[0];
+        Ok(RunStop::Exception {
+            thread: index(first),
+            what: first.describe(),
+        })
+    }
+}
+
+/// The registers MFBASIC code uses, in display order, from the
+/// `__darwin_arm_thread_state64` words (x0–x28, fp, lr, sp, pc, cpsr) and the
+/// NEON registers. Generated code never touches x18 or the frame pointer x29
+/// (`crate::arch::aarch64::regmodel`), so neither is shown; NZCV is the top
+/// four bits of CPSR, shown where the `NZCV` system register holds them.
+fn arm64_registers(general: &[u64; 34], vectors: &[u128; 32]) -> Vec<Register> {
+    let x = |name: String, value: u64| Register {
+        name,
+        value: RegisterValue::Bits64(value),
+    };
+    let mut registers = (0..29)
+        .filter(|index| *index != 18)
+        .map(|index| x(format!("x{index}"), general[index]))
+        .collect::<Vec<_>>();
+    registers.push(x("lr".to_string(), general[30]));
+    registers.push(x("sp".to_string(), general[31]));
+    registers.push(x("pc".to_string(), general[32]));
+    registers.push(x("nzcv".to_string(), general[33] & 0xf000_0000));
+    registers.extend(vectors.iter().enumerate().map(|(index, value)| Register {
+        name: format!("v{index}"),
+        value: RegisterValue::Bits128(*value),
+    }));
+    registers
+}
+
+impl Drop for Task {
+    /// A session left without `quit` (a failed write to the terminal, say)
+    /// still ends the way it began.
+    fn drop(&mut self) {
+        if !self.ended {
+            let _ = self.end();
+        }
+    }
+}
+
+/// The task port of `pid`, or the reason macOS refused it.
+fn task_port(pid: u32) -> Result<MachPort, String> {
+    let raw = raw_pid(pid)?;
+    let mut task: MachPort = 0;
+    // SAFETY: `task` is a valid out-parameter; `mach_task_self_` is this
+    // process's own task port, initialized by the runtime before `main`.
+    let status = unsafe { task_for_pid(mach_task_self_, raw, &mut task) };
+    if status == KERN_SUCCESS {
+        return Ok(task);
+    }
+    let mfb = std::env::current_exe()
+        .map(|exe| exe.display().to_string())
+        .unwrap_or_else(|_| "<path to mfb>".to_string());
+    Err(format!(
+        "cannot attach to process {pid}: task_for_pid: {}\n\
+         macOS lets one program debug another only when the debugger is signed with\n\
+         the com.apple.security.cs.debugger entitlement, or runs as root. To sign\n\
+         this mfb, run from the compiler's source tree:\n  \
+         sh scripts/sign-debugger.sh {mfb}",
+        mach_error(status)
+    ))
+}
+
+fn raw_pid(pid: u32) -> Result<c_int, String> {
+    c_int::try_from(pid).map_err(|_| format!("no process with PID {pid}"))
+}
+
+/// Kill a child this process launched and wait for it, so it leaves no zombie.
+fn kill_and_reap(pid: u32) {
+    let pid = pid as c_int;
+    let mut status = 0;
+    // SAFETY: `pid` is this process's own child; `status` is a valid
+    // out-parameter.
+    unsafe {
+        kill(pid, SIGKILL);
+        while waitpid(pid, &mut status, 0) == -1
+            && io::Error::last_os_error().raw_os_error() == Some(EINTR)
+        {}
+    }
+}
+
+/// Whether `pid` still names a process (one this user may not signal counts).
+fn alive(pid: u32) -> bool {
+    let Ok(raw) = raw_pid(pid) else {
+        return false;
+    };
+    // SAFETY: signal 0 performs only the existence and permission check.
+    let signalled = unsafe { kill(raw, 0) == 0 };
+    signalled || io::Error::last_os_error().raw_os_error() != Some(ESRCH)
+}
+
+fn release(task: MachPort) {
+    // SAFETY: drops this process's send right to `task`; the port name is not
+    // used again.
+    unsafe {
+        mach_port_deallocate(mach_task_self_, task);
+    }
+}
+
+fn mach_error(status: KernReturn) -> String {
+    // SAFETY: `mach_error_string` returns a static, NUL-terminated string for
+    // every value.
+    unsafe { CStr::from_ptr(mach_error_string(status)) }
+        .to_string_lossy()
+        .into_owned()
+}
