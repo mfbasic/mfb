@@ -823,6 +823,11 @@ pub struct SessionClaims {
     pub aud: String,
 }
 
+/// The `/validate` diagnostic for a release by a later owner of a package that
+/// moved through an unsigned (legacy) transfer (plan-168-B, B-D3).
+const LEGACY_TRANSFER_PUBLISH_REFUSED: &str = "package ownership moved before signed transfers, \
+     so clients cannot verify a release by a later owner";
+
 /// Maximum inline request body (plan-10-D2): caps the base64 artifact carried
 /// by `/validate` and `/publish` so a single upload cannot exhaust memory.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
@@ -2329,8 +2334,27 @@ async fn issue_token(
         &signature,
     )
     .map_err(|_| bad_request("invalid token issuance ident signature".to_string()))?;
-    // Scope must belong to the issuing owner.
-    if !scope_owner_matches(&request.scope, &request.owner) {
+    // Scope must belong to the issuing owner. An exact scope names one package,
+    // which belongs to its STORED owner once it exists (plan-168-B): the
+    // recipient of a transfer can scope a CI token to it, and the former owner
+    // no longer can.
+    let scope_is_issuers = match request.scope.split_once('#') {
+        Some((_, package)) if package != "*" => {
+            match state
+                .store
+                .package_owner(&request.scope)
+                .map_err(internal)?
+            {
+                Some(current) => {
+                    crate::validation::fold_owner(&current.owner_display)
+                        == crate::validation::fold_owner(&request.owner)
+                }
+                None => scope_owner_matches(&request.scope, &request.owner),
+            }
+        }
+        _ => scope_owner_matches(&request.scope, &request.owner),
+    };
+    if !scope_is_issuers {
         return Err(bad_request(
             "token scope must be within the issuing owner".to_string(),
         ));
@@ -2463,17 +2487,36 @@ fn scope_owner_matches(scope: &str, owner: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Whether a token `scope` permits attesting `ident` (`<owner>#<package>`).
-/// `<owner>#*` matches any package of that owner; otherwise an exact match.
-fn scope_permits(scope: &str, ident: &str) -> bool {
-    if let Some((scope_owner, scope_pkg)) = scope.split_once('#') {
-        if let Some((ident_owner, _)) = ident.split_once('#') {
-            let owner_ok = crate::validation::fold_owner(scope_owner)
-                == crate::validation::fold_owner(ident_owner);
-            return owner_ok && (scope_pkg == "*" || scope == ident);
-        }
+/// Whether a token `scope` permits `ident` (`<owner>#<package>`), whose
+/// governing owner is `governing_owner` (see [`governing_owner`]). `<owner>#*`
+/// matches any package that owner governs — after a transfer that follows the
+/// stored owner, not the ident prefix (plan-168-B, B-D2); otherwise the scope
+/// must name the ident exactly.
+fn scope_permits(scope: &str, ident: &str, governing_owner: &str) -> bool {
+    let (Some((scope_owner, scope_pkg)), true) = (scope.split_once('#'), ident.contains('#'))
+    else {
+        return false;
+    };
+    if scope_pkg == "*" {
+        return crate::validation::fold_owner(scope_owner)
+            == crate::validation::fold_owner(governing_owner);
     }
-    false
+    scope == ident
+}
+
+/// The account that governs `ident` for token scopes: its stored owner, or for
+/// a package with no row yet (first publish) the ident's `owner#` prefix.
+fn governing_owner(
+    store: &Store,
+    ident: &str,
+) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
+    Ok(match store.package_owner(ident).map_err(internal)? {
+        Some(current) => current.owner_display,
+        None => ident
+            .split_once('#')
+            .map(|(owner, _)| owner.to_string())
+            .unwrap_or_default(),
+    })
 }
 
 /// `GET /root.json` (plan-10-C2): the offline-root-signed metadata delegating
@@ -3239,7 +3282,11 @@ async fn signing(
     // only attest packages within its scope, and only until it expires (the
     // expiry/revocation refusals live in `publish_token_scope`, bug-492).
     if let Some(scope) = publish_token_scope(&state.store, key.id)? {
-        if !scope_permits(&scope, &request.ident) {
+        if !scope_permits(
+            &scope,
+            &request.ident,
+            &governing_owner(&state.store, &request.ident)?,
+        ) {
             return Err(bad_request(
                 "publish token scope does not permit this package".to_string(),
             ));
@@ -3559,7 +3606,11 @@ async fn validate_package_request(
         .map_err(internal)?
     {
         if let Some(scope) = publish_token_scope(&state.store, key.id)? {
-            if !scope_permits(&scope, &request.ident) {
+            if !scope_permits(
+                &scope,
+                &request.ident,
+                &governing_owner(&state.store, &request.ident)?,
+            ) {
                 return Err(bad_request(
                     "publish token scope does not permit this package".to_string(),
                 ));
@@ -3593,29 +3644,59 @@ async fn validate_package_request(
         diagnostics.push("request signingFingerprint does not match package header".to_string());
     }
 
-    // §3.4 step 1 — session owner == header owner; ident is <owner>#<package>.
+    // §3.4 step 1 — the session owner publishes, and must be entitled to the
+    // ident. bug-792 / plan-168-B: when the package exists its STORED owner
+    // decides (the same rule `/signing` and `/release-state` apply through
+    // `require_package_owner`); the `owner#` prefix decides only a first
+    // publish. The prefix never moves when ownership does, so binding the
+    // publisher to it stranded every transferred package.
     let Some((owner_part, _package_part)) = package.ident.split_once('#') else {
         diagnostics.push("package ident must use <owner>#<package>".to_string());
         return Ok(invalid_report(hash, diagnostics));
     };
-    if crate::validation::fold_owner(owner_part) != crate::validation::fold_owner(&claims.sub) {
-        diagnostics.push("session owner does not match package ident owner".to_string());
+    match state
+        .store
+        .package_owner(&package.ident)
+        .map_err(internal)?
+    {
+        Some(current) => {
+            if current.id != claims.owner_id {
+                diagnostics.push("session owner is not the package's current owner".to_string());
+            } else if crate::validation::fold_owner(owner_part)
+                != crate::validation::fold_owner(&claims.sub)
+                && state
+                    .store
+                    .has_legacy_transfer(&package.ident)
+                    .map_err(internal)?
+            {
+                // Clients stop trusting owners at the first unsigned (legacy)
+                // transfer link and fall back to the origin owner alone, so a
+                // later owner's release would publish and then never install.
+                diagnostics.push(LEGACY_TRANSFER_PUBLISH_REFUSED.to_string());
+            }
+        }
+        None => {
+            if crate::validation::fold_owner(owner_part)
+                != crate::validation::fold_owner(&claims.sub)
+            {
+                diagnostics.push("session owner does not match package ident owner".to_string());
+            }
+            if state
+                .store
+                .owner_with_ident_key(owner_part)
+                .map_err(internal)?
+                .is_none()
+            {
+                diagnostics.push("package ident owner is not registered".to_string());
+                return Ok(invalid_report(hash, diagnostics));
+            }
+        }
     }
     let Some((owner, _key)) = state
         .store
-        .owner_auth_key_by_fingerprint(owner_part, &claims.auth_fingerprint)
+        .owner_auth_key_by_fingerprint(&claims.sub, &claims.auth_fingerprint)
         .map_err(internal)?
     else {
-        // Distinguish "owner unknown" from "session key no longer current".
-        if state
-            .store
-            .owner_with_ident_key(owner_part)
-            .map_err(internal)?
-            .is_none()
-        {
-            diagnostics.push("package ident owner is not registered".to_string());
-            return Ok(invalid_report(hash, diagnostics));
-        }
         diagnostics.push("session key does not match current owner key".to_string());
         return Ok(invalid_report(hash, diagnostics));
     };
@@ -3642,10 +3723,11 @@ async fn validate_package_request(
     }
 
     // §3.4 step 5 — the attestation must match the server's CURRENT
-    // name↔ident binding; a stale attestation (pre-rotation) is refused.
+    // name↔ident binding of the PUBLISHER (the session owner, plan-168-B); a
+    // stale attestation (pre-rotation) is refused.
     match state
         .store
-        .owner_with_ident_key(owner_part)
+        .owner_with_ident_key(&owner.owner_display)
         .map_err(internal)?
     {
         Some((_ident_owner, ident_key)) => {
@@ -10845,15 +10927,20 @@ mod tests {
         )
         .await;
 
-        // Alice's session still validates the package (she still holds the
-        // ident named in the header, and the attestation is genuine), but the
-        // store refuses the write — and the staged blob must be aborted, leaving
-        // no orphan in the datapath.
+        // Alice still holds the ident named in the header and a genuine
+        // attestation, but she no longer owns the package: `/validate` refuses
+        // her (plan-168-B; before it, only the store's write did), so nothing
+        // is staged and no orphan reaches the datapath. The store-refusal abort
+        // path itself is covered by
+        // `publish_aborts_the_staged_blob_when_the_store_refuses_the_write`.
         let hash = request.content_hash.clone();
         let (status, message) =
             err_of(publish_package(State(h.state.clone()), Json(request)).await);
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(message.contains("owned by another owner"), "{message}");
+        assert!(
+            message.contains("session owner is not the package's current owner"),
+            "{message}"
+        );
         assert!(
             !h.packages_dir.join(format!("{hash}.mfp")).exists(),
             "a refused publish must not leave a servable blob behind",
@@ -10867,6 +10954,50 @@ mod tests {
         assert!(!h
             .store
             .package_version_exists("alice#toolbox", "2.0.0")
+            .unwrap());
+    }
+
+    /// The blob-ordering contract (plan-10-A §2.6) when the STORE refuses a
+    /// publish that validated: the staged blob is aborted, leaving no servable
+    /// orphan and no version row. A lost history table stands in for any write
+    /// failure after validation (an ownership race, a full disk).
+    #[tokio::test]
+    async fn publish_aborts_the_staged_blob_when_the_store_refuses_the_write() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let (_artifact, request) = signed_request(
+            &h.state,
+            &alice,
+            &alice_token,
+            "1.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+        let report = validate_package(State(h.state.clone()), Json(clone_request(&request)))
+            .await
+            .unwrap()
+            .0;
+        assert!(report.valid, "{:?}", report.diagnostics);
+        crate::store::tests::drop_tables(&h.store, &["transfer_history"]);
+
+        let hash = request.content_hash.clone();
+        let (_status, message) =
+            err_of(publish_package(State(h.state.clone()), Json(request)).await);
+        assert!(message.contains("transfer history"), "{message}");
+        assert!(
+            !h.packages_dir.join(format!("{hash}.mfp")).exists(),
+            "a refused publish must not leave a servable blob behind",
+        );
+        assert!(!h
+            .state
+            .blob_store
+            .exists(&hash, BlobKind::Package)
+            .await
+            .unwrap());
+        assert!(!h
+            .store
+            .package_version_exists("alice#toolbox", "1.0.0")
             .unwrap());
     }
 
@@ -11520,6 +11651,190 @@ mod tests {
         );
     }
 
+    /// Issue a publish token for `owner` scoped to `scope` through the real
+    /// `/tokens` handler and open a session with it.
+    async fn token_session_for(
+        h: &Harness,
+        owner: &str,
+        keys: &TestOwnerKeys,
+        owner_session: &str,
+        scope: &str,
+    ) -> Result<String, (StatusCode, String)> {
+        let (token_public, token_private) = crypto::generate_keypair();
+        let token_fingerprint = crypto::fingerprint(&token_public);
+        let proof = crypto::sign(
+            &token_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, owner, &token_public),
+        )
+        .unwrap();
+        let issued = issue_token(
+            State(h.state.clone()),
+            Json(TokenIssueRequest {
+                owner: owner.to_string(),
+                token_key: crypto::encode_bytes(&token_public),
+                proof: crypto::encode_bytes(&proof),
+                scope: scope.to_string(),
+                ttl_seconds: 3600,
+                session_token: owner_session.to_string(),
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &keys.ident_private,
+                        &crypto::token_issue_message(owner, &token_fingerprint, scope),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await;
+        if let Err(err) = issued {
+            return Err(err_of::<()>(Err(err)));
+        }
+        Ok(open_session_for_key(
+            &h.store,
+            owner,
+            &token_private,
+            &token_fingerprint,
+        ))
+    }
+
+    /// plan-168-B (B-D2): publish-token scopes follow the stored owner. After
+    /// the transfer bob can scope a CI token to `alice#toolbox` (exactly, or
+    /// through `bob#*`) and attest with it; alice can no longer issue one.
+    #[tokio::test]
+    async fn a_recipient_token_scoped_to_the_transferred_package_can_attest() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
+        )
+        .await;
+        let attest = |session: String| SigningRequest {
+            owner: "bob".to_string(),
+            ident: "alice#toolbox".to_string(),
+            version: "2.0.0".to_string(),
+            signing_fingerprint: crypto::fingerprint(&crypto::generate_keypair().0),
+            session_token: session,
+        };
+        for scope in ["alice#toolbox", "bob#*"] {
+            let session = token_session_for(&h, "bob", &bob, &bob_token, scope)
+                .await
+                .unwrap_or_else(|err| panic!("bob may scope a token to {scope}: {err:?}"));
+            let attested = signing(
+                State(h.state.clone()),
+                peer("127.0.0.1"),
+                Json(attest(session)),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("a {scope} token attests the transferred package"))
+            .0;
+            assert_eq!(attested.owner, "bob");
+        }
+        // A token for one of bob's own packages does not reach this one.
+        let session = token_session_for(&h, "bob", &bob, &bob_token, "bob#other")
+            .await
+            .unwrap();
+        assert_eq!(
+            err_of(
+                signing(
+                    State(h.state.clone()),
+                    peer("127.0.0.1"),
+                    Json(attest(session))
+                )
+                .await
+            )
+            .1,
+            "publish token scope does not permit this package",
+        );
+        // The former owner cannot scope a token to the package any more.
+        assert_eq!(
+            token_session_for(&h, "alice", &alice, &alice_token, "alice#toolbox")
+                .await
+                .unwrap_err()
+                .1,
+            "token scope must be within the issuing owner",
+        );
+    }
+
+    /// plan-168-B: bob's release of the transferred package publishes, and
+    /// `/index` records him as its publisher in ownership epoch 1 — while the
+    /// pre-transfer release keeps alice at epoch 0.
+    #[tokio::test]
+    async fn the_publish_records_bob_as_publisher_at_epoch_1() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+        transfer_through_handlers(
+            &h.state,
+            "alice#toolbox",
+            "alice",
+            &alice,
+            &alice_token,
+            "bob",
+            &bob,
+            &bob_token,
+        )
+        .await;
+        let request =
+            owner_signed_request(&h.state, "bob", &bob, &bob_token, "alice#toolbox", "2.0.0").await;
+        let published = publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("the recipient publishes")
+            .0;
+        assert_eq!(published.version, "2.0.0");
+
+        let index = package_index(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("index served")
+        .0;
+        let summary: Vec<_> = index
+            .versions
+            .iter()
+            .map(|v| {
+                let publisher = v.publisher.clone().unwrap();
+                (
+                    v.version.clone(),
+                    publisher.owner,
+                    publisher.ident_fingerprint,
+                    v.epoch,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (
+                    "1.0.0".to_string(),
+                    "alice".to_string(),
+                    Some(crypto::fingerprint(&alice.ident_public)),
+                    0
+                ),
+                (
+                    "2.0.0".to_string(),
+                    "bob".to_string(),
+                    Some(crypto::fingerprint(&bob.ident_public)),
+                    1
+                ),
+            ]
+        );
+    }
+
     /// bug-494 (audit-3 REPO-03): `/release-state` and `/signing` authorized
     /// on the ident's `owner#` prefix, which never moves when ownership does.
     /// After a correctly guarded transfer the former owner could still yank the
@@ -11790,13 +12105,18 @@ mod tests {
         assert!(!scope_owner_matches("bob#toolbox", "alice"));
         assert!(!scope_owner_matches("noseparator", "alice"));
 
-        assert!(scope_permits("alice#*", "alice#toolbox"));
-        assert!(scope_permits("alice#toolbox", "alice#toolbox"));
-        assert!(!scope_permits("alice#toolbox", "alice#other"));
-        assert!(!scope_permits("alice#*", "bob#toolbox"));
+        assert!(scope_permits("alice#*", "alice#toolbox", "alice"));
+        assert!(scope_permits("Alice#*", "alice#toolbox", "alice"));
+        assert!(scope_permits("alice#toolbox", "alice#toolbox", "alice"));
+        assert!(!scope_permits("alice#toolbox", "alice#other", "alice"));
+        assert!(!scope_permits("alice#*", "bob#toolbox", "bob"));
         // A scope or an ident without the separator matches nothing.
-        assert!(!scope_permits("noseparator", "alice#toolbox"));
-        assert!(!scope_permits("alice#*", "noseparator"));
+        assert!(!scope_permits("noseparator", "alice#toolbox", "alice"));
+        assert!(!scope_permits("alice#*", "noseparator", "alice"));
+        // plan-168-B: a wildcard follows the governing (stored) owner, not
+        // the ident prefix.
+        assert!(scope_permits("bob#*", "alice#toolbox", "bob"));
+        assert!(!scope_permits("alice#*", "alice#toolbox", "bob"));
     }
 
     #[test]

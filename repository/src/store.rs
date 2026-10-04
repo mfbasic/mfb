@@ -3057,6 +3057,21 @@ impl Store {
         Ok(())
     }
 
+    /// Whether the package moved through a transfer accepted before signed
+    /// transfers existed (plan-168-B): an unsigned legacy history link, which
+    /// no client can authenticate.
+    pub fn has_legacy_transfer(&self, ident: &str) -> Result<bool, String> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM transfer_history h JOIN packages p ON p.id = h.package_id
+                 WHERE p.ident = ?1 AND h.offer_signature IS NULL)",
+            params![ident],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("failed to read transfer history: {err}"))
+    }
+
     /// The package's accepted transfers, oldest first (plan-168-A §4.3). A
     /// legacy link (replayed from the transparency log) has no keys, digest or
     /// signatures.
@@ -8085,7 +8100,7 @@ pub(crate) mod tests {
         rows.map(|row| row.unwrap()).collect()
     }
 
-    fn drop_tables(store: &Store, tables: &[&str]) {
+    pub(crate) fn drop_tables(store: &Store, tables: &[&str]) {
         let conn = store.conn();
         conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
         for table in tables {

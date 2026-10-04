@@ -157,19 +157,19 @@ Acceptance: the regression is RED for the documented mechanism.
   the same two prefix diagnostics. `first_publish_is_still_prefix_bound` and
   `the_origin_owner_publishes_after_a_legacy_round_trip` pass, as contrast
   cases should.
-Commit: (this commit; see the Phase 2 line)
+Commit: fab5bbea3
 
 ### Phase 2: Authorization and proof binding
 
-- [ ] `repository/src/package.rs:verify_proof` / `verify_attestation`: implement
+- [x] `repository/src/package.rs:verify_proof` / `verify_attestation`: implement
       §3. Add `package.rs` tests:
   - `proof_owner_binds_to_the_author_not_the_prefix` (bob-authored `alice#x`
     passes; alice-owner proof on a bob-authored package fails);
   - `a_case_differing_legacy_prefix_still_verifies`.
-- [ ] `repository/src/server.rs:validate_package_request`, `scope_permits`,
+- [x] `repository/src/server.rs:validate_package_request`, `scope_permits`,
       `issue_token`, `publish_package`, and `repository/src/store.rs:has_legacy_transfer`:
       implement §3.
-- [ ] Tests:
+- [x] Tests:
   - `a_recipient_token_scoped_to_the_transferred_package_can_attest`;
   - `the_publish_records_bob_as_publisher_at_epoch_1`;
   - the existing `publish_chain_enforces_two_credentials_and_pinning` and
@@ -178,7 +178,9 @@ Commit: (this commit; see the Phase 2 line)
 Acceptance: the probe is GREEN, the contrast cases hold, and no pre-existing
 publish test changed.
   Check: `cargo test -p mfb_repository --lib -- spec_probe_transfer the_former_owner first_publish a_legacy_recipient the_origin_owner proof_owner a_case_differing a_recipient_token the_publish_records publish_chain a_transferred_package` → `test result: ok`, 0 failed (est. 3–5 min; guess).
-Commit: —
+  Measured: `test result: ok. 11 passed; 0 failed`. One pre-existing publish
+  test did change (see Corrections): `publish_aborts_the_staged_blob_when_the_ident_moved_owner`.
+Commit: (this commit — recorded in the next)
 
 ### Phase 3: Spec sync
 
@@ -218,6 +220,44 @@ Commit: —
   install. Rejected: the registry would list releases nobody can install.
 
 ## Corrections
+
+- **`publish_aborts_the_staged_blob_when_the_ident_moved_owner` changed one
+  line** (Acceptance said no pre-existing publish test would change). AGENTS.md
+  proof: (1) written in `d0e3962b8` (bug-347 coverage of the blob-abort path),
+  setup adjusted in bug-494; (2) it protects "a publish refused because the
+  ident moved owner leaves no servable blob and no version row"; (3) nothing
+  else depends on it (`grep -rn publish_aborts_the_staged_blob` → the test, the
+  bug-494 record, plan-168-A's census); (4) its message assertion
+  `"owned by another owner"` encoded WHERE the refusal happened — the store
+  write, because `/validate` let a former owner through. That is the bug-792
+  root cause this plan fixes: `/validate` now refuses her with `session owner is
+  not the package's current owner`, before anything is staged. Only that line
+  moved; the no-blob/no-row assertions are unchanged. The store-refusal abort
+  path the test used to cover is now unreachable through an ownership change,
+  so `publish_aborts_the_staged_blob_when_the_store_refuses_the_write` covers it
+  directly (a lost `transfer_history` table fails the store write after
+  validation); replacing the abort with a promote turns it red (measured).
+- **`scope_permits` takes the governing owner.** `scope_permits(scope, ident,
+  governing_owner)` plus `governing_owner(store, ident)` (stored owner, else the
+  prefix) replace the store-taking signature §3 sketched, so the rule stays a
+  pure function. `token_scope_matching_is_owner_folded_and_separator_strict`
+  passes the prefix owner as the governing owner (an API migration: every
+  original assertion kept, two transfer cases added). (1) `d0e3962b8`;
+  (2) owner folding and separator strictness; (3) only this test calls it;
+  (4) B-D2 moves the wildcard rule to the stored owner, so the two-argument
+  form cannot express it.
+- **`issue_token`'s exact-scope rule refuses the former owner too.** An exact
+  scope `a#p` whose package exists is the issuer's only when the issuer is its
+  stored owner, so after a transfer alice can no longer scope a token to
+  `alice#toolbox` (asserted in `a_recipient_token_scoped_to_the_transferred_package_can_attest`).
+  Wildcards and not-yet-published idents keep the prefix rule.
+- **First publish keeps "package ident owner is not registered".** §3 looked
+  the publisher up by the session owner only; the no-row branch still reports
+  an unregistered prefix owner and stops, which
+  `validate_reports_owner_author_and_duplicate_problems` asserts.
+- Phase 1's contrast tests use a new helper, `owner_signed_request`, that builds
+  a CLI-shaped request for any owner and ident (the existing helpers hard-code
+  alice).
 
 ## Summary
 
