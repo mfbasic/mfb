@@ -37,7 +37,40 @@ Any top-level `FUNC` declaration may use `ISOLATED`, at any visibility —
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 
-Top-level bindings initialize before `main`, and an imported package's bindings initialize before those of every project that imports it — its consumer's and any other package's — so a top-level `LET`/`MUT` initializer may read a package's `EXPORT`ed binding (`LET limit = pkg::Limit`) or call a package function that reads its own globals, and sees their initialized values. Within one project, bindings initialize in declaration order. [[src/ir/package.rs:order_bindings_dependencies_first]] A builtin package's own top-level bindings — the tables and limits its injected source declares, such as `json`'s parse-depth limit or `compress`'s CRC table — initialize before all of these, so a top-level initializer may call `json::parse`, `compress::crc32` or `color::fromName`. They are recognized by their internalized names, which no program can spell. [[src/ir/package.rs:order_builtin_bindings_first]] [[src/internal_name.rs:is_builtin_internal]]
+Top-level bindings initialize before `main`, and an imported package's bindings initialize before those of every project that imports it — its consumer's and any other package's — so a top-level `LET`/`MUT` initializer may read a package's `EXPORT`ed binding (`LET limit = pkg::Limit`) or call a package function that reads its own globals, and sees their initialized values. Within one project, bindings initialize in source-file order, then declaration
+order within each file. The source-file order is the final ascending display-path
+sort across all selected files, not filesystem traversal or `sources[]` entry
+order; `./mfb spec tooling source-selection` owns the selection algorithm.
+[[src/ast/manifest.rs:collect_selected_source_files]]
+[[src/ast/manifest.rs:parse_project]] [[src/ir/package.rs:order_bindings_dependencies_first]] A builtin package's own top-level bindings — the tables and limits its injected source declares, such as `json`'s parse-depth limit or `compress`'s CRC table — initialize before all of these, so a top-level initializer may call `json::parse`, `compress::crc32` or `color::fromName`. They are recognized by their internalized names, which no program can spell. [[src/ir/package.rs:order_builtin_bindings_first]] [[src/internal_name.rs:is_builtin_internal]]
+
+Initialization is sequential and eager; it does not sort bindings by the
+globals their expressions or called functions read, nor lazily initialize a
+later binding on demand. Global storage is zeroed before the initializer runs.
+An early read therefore sees the current storage, not the later initializer's
+result: for an `Integer` global whose store has not executed, that is `0`.
+The same rule applies to reads through functions and is preserved across
+optimization levels. Zeroed storage is not a promise that every type has a
+valid source-level default value.
+[[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/target/shared/nir/lower.rs:lower_global_initializer]]
+[[src/optimizer/opt1/globals.rs:substitute_outside_initialization]]
+
+```basic
+LET first AS Integer = readLater()
+LET later AS Integer = 5
+FUNC readLater() AS Integer
+  RETURN later * 2
+END FUNC
+' After initialization: first = 0, later = 5.
+```
+
+A dependency cycle between global reads is not the package-import cycle check:
+there is no binding-dependency traversal that diagnoses such a cycle or runs an
+initializer twice. Reads use the current stores in the sequence above. If
+initializer calls recursively call each other instead, ordinary function
+recursion/error rules apply (`./mfb spec language functions`).
+[[src/target/shared/nir/lower.rs:lower_global_initializer]]
 
 Double-colon notation is reserved for package access. Dot notation is reserved for field access into data values and enum members:
 
@@ -81,7 +114,7 @@ Rules:
 - A package-qualified name has exactly two parts: `package::identifier`.
 - Nested package qualifiers are illegal: `a::b::c` is a compile error.
 - Record fields use `value.field`. Methods and object-style access do not exist.
-- Imports are not transitive. A package cannot export an imported package or create re-export chains.
+- Imports are not transitive for package namespaces. A package cannot export an imported package namespace; foreign types may pass through exported signatures as described below.
 - `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed.
 - An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name. The complete built-in package set is listed in `./mfb spec language builtin-functions`. [[src/codegen/builtins/mod.rs:is_builtin_import]]
 - `[visibility] FUNC alias AS qualified::name` declares a **function alias**. This form exists only as a transparent re-export of a native `LINK` function: the resolver requires the alias target to resolve to a `LINK` (native) function signature and reports `SYMBOL_UNKNOWN_IDENTIFIER` otherwise. [[src/resolver/mod.rs:link_target_signature]] It is not a general mechanism for aliasing arbitrary MFBASIC functions to package-qualified names.
@@ -139,10 +172,10 @@ compiler resolves the first identifier in the import using this order: [[src/res
 `node_modules` in Node projects. It is managed by the package manager. The
 compiler does not implicitly import undeclared packages from this directory.
 
-Imports remain non-transitive for **names**: a package cannot export an
-imported package or create a re-export chain, and an importing project cannot
-write `basepkg::` merely because a package it declares imports `basepkg` —
-that still requires its own `IMPORT basepkg`. But a native build merges
+Imports remain non-transitive for **package namespaces**: an importing project
+cannot write `basepkg::` merely because a package it declares imports `basepkg` —
+that still requires its own `IMPORT basepkg`. Foreign-type references may cross
+intermediary packages without introducing that namespace. But a native build merges
 exactly the packages `project.json` declares, so the importing project's
 `packages[]` must declare a package's **whole dependency closure**: every
 package any declared package's own import table names, not only the packages
@@ -150,6 +183,58 @@ the project's own source names in an `IMPORT`. This is a declaration/merging
 rule, not a visibility one — see `./mfb spec tooling project-manifest` for the
 `direct`/`requiredBy` fields that record why each entry is there and the
 diagnostics that refuse an inconsistent closure.
+
+## Foreign types in exported signatures
+
+An exported signature can expose a dependency's type through intermediary
+packages. Such a type retains its declaring package's identity; it is not a new
+type owned by each intermediary. This is **type exposure**, not export of the
+originating package's namespace. The `.mfp` representation and reconstruction of
+reachable field types are specified in `./mfb spec architecture
+binary-representation`.
+[[src/manifest/package.rs:package_type_owners]]
+[[src/manifest/package.rs:imported_type_def]]
+
+For example, `origin` exports `Item`, `producer` exports `make() AS
+origin::Item`, and `consumer` exports `use(value AS origin::Item) AS Integer`.
+Each intermediary imports `origin` when declaring that signature. An application
+can pass the inferred value between them without naming its type:
+
+```basic
+IMPORT producer
+IMPORT consumer
+' In a function body:
+LET item = producer::make()
+LET result = consumer::use(item)
+```
+
+To write an explicit annotation, the application must also `IMPORT origin` and
+write `LET item AS origin::Item = producer::make()` (or use its own import alias).
+Importing `producer` does not itself bind `origin`. Regardless of whether source
+names the owner, the application's manifest must declare the whole dependency
+closure, including `origin`, so its definition is available for merging.
+[[src/resolver/resolution.rs:resolve_type]]
+[[src/manifest/package.rs:qualify_package_type]]
+[[src/manifest/closure.rs:check]]
+
+## Source-level API compatibility
+
+Exported parameter names are part of the named-call source contract. Renaming
+`value` to `item` breaks a caller using `value := ...` even if ordered parameter
+types and the machine calling convention stay the same. Package function
+metadata preserves parameter names; this is distinct from function-value types,
+which preserve neither names nor defaults (`./mfb spec language functions`).
+[[src/binary_repr/writer.rs:encode_functions]]
+[[src/ir/lower.rs:normalize_local_call_arguments]]
+
+Likewise, accessible record field names and enum member names are source-level
+API spellings. Renaming them can break member references and named construction.
+Renaming an enum member also changes its built-in `toString` result, even when
+its ordinal stays the same. Source compatibility, textual-output compatibility,
+and binary layout/calling-convention compatibility must be assessed separately;
+an unchanged layout alone does not establish compatibility.
+[[src/ir/lower.rs:lower_constructor_args]]
+[[src/codegen/string/repr/builder_strings.rs:lower_enum_to_string]]
 
 ## 13.1 Package identity, versions, and manifests
 
