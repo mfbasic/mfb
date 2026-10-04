@@ -669,6 +669,10 @@ path = "tests/guards/test_targets_registered.rs"
 
 # --- tests/link/ ------------------------------------------------------
 [[test]]
+name = "link_macos_unique_imports"
+path = "tests/link/link_macos_unique_imports.rs"
+
+[[test]]
 name = "link_linux_pie_headers"
 path = "tests/link/link_linux_pie_headers.rs"
 

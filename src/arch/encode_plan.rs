@@ -143,9 +143,15 @@ pub(crate) fn encode_plan<E: InstructionEncoder>(
         encoder.clear_patches();
     }
 
+    // bug-802: the plan lists an import once per runtime helper that needs it
+    // (`fs.canonicalPath` and `fs.isWithin` each list `_realpath`), so the image
+    // keeps the first of each `(library, symbol)`: one undefined symbol, one stub,
+    // one GOT/IAT slot per import, as a system linker emits.
+    let mut seen = std::collections::HashSet::new();
     let imports = plan
         .imports
         .iter()
+        .filter(|import| seen.insert((import.library.clone(), import.symbol.clone())))
         .map(|import| EncodedImport {
             library: import.library.clone(),
             symbol: import.symbol.clone(),
