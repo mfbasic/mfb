@@ -64,14 +64,14 @@ right after the opening bracket / before the closing one:
 The values are identical to the one-line forms. `_` continuation keeps working.
 A newline outside brackets is still a separator.
 
-## Decisions for the owner
+## Owner decisions (2026-10-04)
 
-1. Include `( )` too: call arguments and parenthesized expressions? Recommended
-   yes, for one consistent rule.
-2. Allow a trailing comma before the closing bracket (`"ZWG",⏎]`)? Recommended
-   yes; it makes adding or reordering lines a one-line diff.
-3. A `'` comment at the end of a line inside an open bracket: allowed (and
-   ignored)? Recommended yes.
+1. **Parentheses too:** call arguments and parenthesized expressions span lines
+   under the same rule as `[ ]` and `{ }`.
+2. **Trailing comma allowed** before any closing bracket (`"ZWG",⏎]`). A
+   **leading-comma** layout (`⏎, "B"`) must also parse. `mfb fmt` rewrites
+   leading commas into trailing commas.
+3. **End-of-line `'` comments** inside an open bracket are allowed and ignored.
 
 ## Blast Radius
 
