@@ -270,16 +270,38 @@ is claimed as the function's result, so it is built once and not copied.
 [[src/codegen/builtins/vector/builder_vector_inline.rs:vector_value_as_block]]
 [[src/codegen/engine/control/builder_exits.rs:lower_returned_value]]
 
-A single-use `Float` `a*b±c` chain is **fused** into one single-rounded fused
-multiply-add before register allocation: `a*b+c`→`fmadd_d`,
-`a*b-c`→`fmsub_d`, `c-a*b`→`fnmsub_d`. The rewrite is decided on the neutral MIR
-stream, so it fires identically on every backend, and applies only when the
-product's FP virtual register is used exactly once — a product the program
-observes (a named binding, a store, a second reader) keeps its own `fmul_d` and is
-checked at that boundary like any other value. Fusion rounds the product
-once instead of twice, so a fused result is `≤1` ULP and no worse than the discrete
-form; the intermediate product is not a named `Float` and does not independently
-trap, so `a*b+c` can be finite even where `a*b` alone would overflow.
+Scalar Float contraction runs before register allocation, independently of the
+optimization dial. `fuse_scalar_fma` counts reads across the lowered instruction
+list and scans multiplies in instruction order. A candidate must be `fmul_d`
+with FP virtual-register inputs and output, distinct output/input registers,
+and exactly one read of the product. That later read must be a register operand
+of `fadd_d` or `fsub_d`. No multiply input or product may be redefined between
+the instructions, and no label may intervene. Physical-register math kernels
+are excluded from this recognizer.
+[[src/codegen/compiler/opt/fma_fusion.rs:fuse_scalar_fma]]
+
+| Consumer | Replacement | Exact expression before final rounding |
+| --- | --- | --- |
+| `p + c` or `c + p` | `fmadd_d` | `a*b + c` |
+| `p - c` | `fmsub_d` | `a*b - c` |
+| `c - p` | `fnmsub_d` | `c - a*b` |
+
+The scan rewrites the consumer immediately and removes fused multiplies at the
+end. It does not reassociate expressions or rescan a fused consumer as an add;
+competing products feeding one add therefore cannot both be absorbed. These
+are current selection details; source-level observation boundaries and eligible
+forms are described in `./mfb spec language operators`.
+[[src/codegen/compiler/opt/fma_fusion.rs:fuse_scalar_fma]]
+
+Fused instructions perform one rounding of the combined exact expression;
+there is no independently rounded product to overflow. This does not make
+arbitrarily reassociated expressions equivalent. The x86-64 emitter uses FMA3
+instructions directly; there is no non-FMA software path or unfused substitute
+for older x86 CPUs. The RISC-V emitter uses the double-precision fused
+instructions. Running the emitted instructions requires the corresponding
+hardware support.
+[[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+[[src/arch/riscv64/encode/emitter.rs:emit_instruction]]
 
 On AArch64, an FP value live across a call may use callee-saved `d8`–`d15`.
 Call survival is determined by the selected target's register model; SysV x86-64

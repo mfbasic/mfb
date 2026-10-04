@@ -25,12 +25,26 @@ is not a constant is not checked: if it is zero when the loop starts and the loo
 runs at all, the loop variable never advances, and the loop repeats until
 something inside it leaves with `EXIT FOR`.
 
+A Float counter can also stop advancing when adding a small step rounds back
+to the same value. There is no progress check: for example, starting at
+`9007199254740992.0` with step `1.0` repeats the same value while the bound still
+holds. Use an Integer counter when you need a known number of iterations.
+
+The increment happens after the body, before testing the bound again. A loop
+from the maximum Integer to that same value executes the body once and then
+raises `ErrOverflow` while incrementing. `EXIT FOR` in the body avoids that
+increment; `CONTINUE FOR` does not.
+
 `EXIT FOR` leaves the innermost enclosing `FOR` loop and `CONTINUE FOR` skips to
 its next iteration.
 
 ## Errors
 
-No errors.
+Evaluating or converting the start, end, or step can raise a numeric error.
+The counter increment uses checked arithmetic: overflow raises `ErrOverflow`
+for Integer/Fixed or an out-of-range Byte result. A Float increment producing
+infinity raises `ErrFloatOverflow`; a NaN raises `ErrFloatNaN`. Finite
+non-progress and a runtime zero step do not themselves raise an error.
 
 ## Examples
 

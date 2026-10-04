@@ -20,8 +20,8 @@ fixed-point value scaled to **five decimal places**. One raw unit is `0.00001`;
 representable range follows directly from the i64 carrier: `-92233720368547.75808`
 through `92233720368547.75807`. [[src/ir/verify/values.rs:check_const_literal]]
 
-Because the scale is a power of **ten**, every decimal amount within range is
-stored with **no representation error**: `0.10`, `0.01`, `0.20` are the exact raw
+Because the scale is a power of **ten**, every decimal amount within range
+with at most five fractional places is stored with **no representation error**: `0.10`, `0.01`, `0.20` are the exact raw
 integers `10000`, `1000`, `20000`. This is the property `Float` cannot provide —
 an IEEE-754 binary carrier cannot represent `0.10` exactly, so repeated cent
 accounting drifts. With `Money`, the only rounding that ever occurs is the
@@ -29,12 +29,66 @@ accounting drifts. With `Money`, the only rounding that ever occurs is the
 integer scaling, and comparison are exact integer operations on the raw i64 and
 never round.
 
-Because the carrier is an integer, all of `Money`'s exact operations are ordinary
-integer arithmetic under overflow checking. Rounding enters only where a result
-cannot be represented at five places — `M / k`, `M * Float`, `M * Fixed`, the
-`toMoney` / `toFixed` conversions, and the explicit `money::round`. Every one of
-those sites consults a single rounding rule, described below, so the two modes are
-implemented exactly once. [[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding]]
+## Operation formulas and current rounding limits
+
+Let `m` and `n` be signed Money raw carriers, `S = 100000`, `Q = 2^32`,
+`f` a signed Fixed raw carrier, and `k` an Integer/Byte value. `trunc` means
+truncation toward zero; `floor` means toward negative infinity. `R` is nearest
+integer rounding under the calling thread's mode. The following describes the
+current implementation, including the Fixed paths' failure to apply `R`.
+
+| Operation | Result calculation |
+| --- | --- |
+| Money add/subtract | checked `m + n` / `m - n` |
+| Money times Integer/Byte | checked `m * k` |
+| Money divided by Integer/Byte | `R(m / k)` except the minimum-Integer special case below |
+| Money MOD Money | `m - trunc(m / n) * n`, exact signed remainder |
+| Money times Fixed (either order) | `floor(m * f / Q)` |
+| Money divided by Fixed | `trunc(m * Q / f)` |
+| `toMoney(Fixed)` | `floor(f * S / Q)` |
+| `toFixed(Money)` | `trunc(m * Q / S)` as a Fixed raw carrier |
+| `toInt(Money)` | `trunc(m / S)` |
+| `toByte(Money)` | `trunc(m / S)`, then range check `0..255` |
+
+Integer operations check the signed carrier range. The Fixed multiply uses the
+full signed high/low product before discarding its low 32 bits. Fixed division
+constructs the quotient and 32 fraction bits with integer arithmetic; neither
+path uses a Float intermediate. **The Fixed arithmetic/conversion paths
+currently ignore the Money rounding mode**: their truncation/floor behavior is
+an implementation limitation, not the nearest-rounding rule described below.
+For example, `0.00003m * 0.5F` currently gives `0.00001m`, while nearest rounding
+would give `0.00002m` under either mode. Money divided by the minimum Integer
+also takes a special path that returns the truncated quotient without applying
+`R`. These exceptions must not be generalized into a nearest-rounding promise.
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_multiply]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_divide_scalar]]
+[[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_multiply]]
+[[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_divide]]
+[[src/codegen/engine/convert/builder_conversions.rs:lower_to_money]]
+[[src/codegen/engine/convert/builder_conversions.rs:lower_to_fixed]]
+
+The Money remainder has the dividend's sign or is zero. A zero divisor raises
+`ErrInvalidArgument`; minimum raw Money `MOD -0.00001m` raises `ErrOverflow`
+because the checked quotient would overflow, even though its mathematical
+remainder is zero. `toInt(Money)` cannot overflow; `toByte(Money)` checks after
+truncation, so `toByte(-0.9m)` is zero while `toByte(-1m)` raises `ErrOverflow`.
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_binary]]
+[[src/codegen/engine/operators/builder_numeric.rs:emit_integer_binary]]
+[[src/codegen/engine/convert/builder_conversions.rs:emit_money_to_int_value]]
+[[src/codegen/engine/convert/builder_conversions.rs:lower_to_byte]]
+
+Money times/divided by Float first converts `m` to binary64, performs binary64
+multiplication/division with the Float operand, then rounds that binary64 result
+to a Money raw carrier under the mode. This can round during conversion and
+arithmetic as well as at final settlement; it is not exact rational arithmetic
+with only one final rounding. Money/Money ratio instead converts each raw
+carrier to binary64 and divides, returning Float; the scale cancels. `DIV`
+converts operands to their numerical Float values before division. A zero
+divisor for a Money result raises `ErrInvalidArgument`; a Float-result ratio
+uses the Float observation-boundary rules.
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_scale_float]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_ratio]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_div_to_float]]
 
 ## The rounding-mode state
 
@@ -46,7 +100,7 @@ discriminants are exactly their stored values:
 | `Commercial` | `0` | round half **away from zero** (the default) |
 | `Banker` | `1` | round half to **even** (banker's rounding) |
 
-`Commercial` is the **default** at program and thread start. `Banker` removes the
+`Commercial` is the **default** at program start; a worker inherits its parent's mode as described below. `Banker` removes the
 small upward bias of always rounding ties away, which matters when many rounded
 amounts are summed. [[src/codegen/builtins/money/mod.rs:Rounding]]
 
@@ -67,7 +121,7 @@ thread owns its own arena and therefore its own mode word. A worker thread
 `Commercial`, then the parent's mode is copied in — and thereafter changes
 independently, exactly parallel to the per-thread RNG and other arena state.
 Setting the mode on one thread never disturbs another.
-[[src/codegen/runtime/thread/runtime_helpers.rs:455]]
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 
 Setting the mode affects **only** `Money` arithmetic. It does not change `Fixed`
 or `Float` rounding, and — importantly — it does **not** change how
@@ -78,7 +132,7 @@ the common workflow of accumulating under one mode and presenting under another.
 
 ## The rounding rule
 
-Every mode-sensitive site reduces to rounding a signed division. Given a
+For exact integer divisions that apply the mode, settlement reduces to rounding a signed division. The Fixed paths excluded above do not call this rule. Given a
 magnitude quotient `q` truncated toward zero, the signed remainder `r`, the
 positive divisor magnitude `|div|`, and the true sign of the result, the decision
 is made on the remainder magnitude:
@@ -96,20 +150,20 @@ if |rem| == half:               ; exact tie
 `-1` when negative. Comparing `|rem|` against `|div| - |rem|` rather than doubling
 `|rem|` avoids overflow near `i64::MAX`. The result carries the true sign, which is
 tracked separately because a truncated quotient of `0` has no sign of its own.
-This is the sole implementation of both modes.
+This is the shared integer quotient/remainder implementation of both modes.
 [[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding]]
 
-The rule is fully **deterministic**: for a given operand, mode, and target scale
-the rounded result is identical on every run and every target, because it is exact
-integer arithmetic with no floating intermediate. (The one inherently inexact
-`Money` operation, `Money * Float`, is inexact only because the `Float` factor is
-itself approximate — the rounding step applied to it is still deterministic.)
+For the same exact quotient, remainder, and mode, this integer rule gives the
+same result on every target. Float scaling instead settles an already-rounded
+binary64 result; its earlier precision loss is not repaired by settlement.
+[[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_scale_float]]
 
 ## `money::round(value, decimals)`
 
 `money::round` explicitly settles a `Money` to `decimals` fractional places under
 the current mode — the "compute at five places, book at two" operation. It stays a
-`Money` (contrast `math::round(Money)`, which exits the currency dimension to a
+`Money` (contrast `math::round(Money)`, which converts the monetary amount to a
 dimensionless whole-unit `Integer`). [[src/codegen/builtins/money/func_round.rs:lower_money_round]]
 
 `decimals` must be in the range `0` through `5`:
@@ -142,7 +196,7 @@ split: rounding to two places yields `0.13` under `Commercial` and `0.12` under
 
 These are consistent with the wider `Money` arithmetic error set (owned by
 `./mfb spec language types`): overflow past the i64 raw range is `ErrOverflow`
-(`77050010`), a non-`Float` divide or `MOD` by zero is `ErrInvalidArgument`
+(`77050010`), a zero divisor in a Money-result division or `MOD` is `ErrInvalidArgument`
 (`77050002`), and a non-finite `Float` operand in a scaling is `ErrInvalidFormat`
 (`77050003`).
 

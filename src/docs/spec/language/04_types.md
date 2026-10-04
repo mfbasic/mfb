@@ -47,9 +47,9 @@ LET z = toFixed("1.25")  ' Fixed, fallible parse
 
 ### `Money`
 
-`Money` is a 64-bit signed integer carrier interpreted as an **exact** base-10 fixed-point value scaled to **5 decimal places** (one unit = `0.00001`; `1.00000` is raw `100000`). Its range is `-92233720368547.75808` through `92233720368547.75807`. Because the scale is base-10, every decimal amount within range is represented exactly — this is the type for auditable cent accounting, where `Fixed`'s binary fractions would drift. The 8-byte storage layout is specified by `./mfb spec memory scalar-storage`; the `.mfp` wire type id is in `./mfb spec package`. A decimal literal acquires type `Money` from an expected `Money` type (`LET a AS Money = 1.25`) or from an `m`/`M` suffix (`1.25m`), mirroring `f`=Float / `F`=Fixed. A literal outside the range is `TYPE_MONEY_LITERAL_OVERFLOW`/`UNDERFLOW`; a literal with more than 5 fractional digits whose extra digits change the stored value warns `TYPE_MONEY_LITERAL_PRECISION` and is rounded half-away-from-zero.
+`Money` is a 64-bit signed integer carrier interpreted as an **exact** base-10 fixed-point value scaled to **5 decimal places** (one unit = `0.00001`; `1.00000` is raw `100000`). Its range is `-92233720368547.75808` through `92233720368547.75807`. Because the scale is base-10, every decimal amount within range with at most five fractional places is represented exactly — this is the type for auditable cent accounting, where `Fixed`'s binary fractions would drift. The 8-byte storage layout is specified by `./mfb spec memory scalar-storage`; the `.mfp` wire type id is in `./mfb spec package`. A decimal literal acquires type `Money` from an expected `Money` type (`LET a AS Money = 1.25`) or from an `m`/`M` suffix (`1.25m`), mirroring `f`=Float / `F`=Fixed. A literal outside the range is `TYPE_MONEY_LITERAL_OVERFLOW`/`UNDERFLOW`; a literal with more than 5 fractional digits whose extra digits change the stored value warns `TYPE_MONEY_LITERAL_PRECISION` and is rounded half-away-from-zero.
 
-`Money` is not "another number format" — it is a **financial quantity with a currency dimension**, and its algebra is *dimensional*:
+`Money` represents a **monetary amount**, distinct from a dimensionless quantity. It does not encode or enforce a currency identity. Its algebra is dimensional:
 
 | Operator | Valid → result | Compile error |
 |----------|----------------|---------------|
@@ -66,11 +66,19 @@ where `k` is any dimensionless numeric (`Integer`, `Byte`, `Float`, `Fixed`). Ev
 
 Three framing points:
 
-- **The dimension is money-vs-dimensionless, not currency safety.** `Money` is a *unitless* currency amount; nothing stops a program from adding a USD amount to a EUR amount. Tracking real-world currencies is the program's job.
+- **The dimension is monetary amount versus dimensionless quantity.** Nothing stops a program from adding a USD amount to a EUR amount. Tracking currency identity and exchange rates is the program's job.
 - **`DIV` is the explicit Float escape.** `M DIV k` and `M DIV M` return `Float` like every other numeric pair (`DIV` is fractional division language-wide); writing `DIV` against a `Money` is a deliberate dimension exit, exactly parallel to calling `toFloat`. `M / M` likewise returns `Float`: a ratio of two amounts is dimensionless and inherently non-terminating (`100.00m / 3.00m` has no exact finite value in *any* type), so the only choice is which inexact type — `Float` wins because it is what margins/growth/percentages feed into and it has the dynamic range.
 - **Division drift & the allocation idiom.** `M / k` rounds to the 5th decimal, so the shares of a split need not re-sum to the total. The standard idiom gives the remainder to the last share: `last = total - share * (n - 1)`. `money::round(value, decimals)` settles an amount to fewer places under the current rounding mode.
 
-`Money` arithmetic rounding (for `M / k`, `M * Float`, `M * Fixed`, and the conversions) follows a **runtime-configurable mode**: the default `Commercial` (round half away from zero) or `Banker` (round half to even), selected via `money::setRounding`. Overflow past the i64 raw range fails with `ErrOverflow` (`77050010`); a non-Float divide/MOD by zero fails with `ErrInvalidArgument` (`77050002`); a non-finite `Float` operand fails with `ErrInvalidFormat` (`77050003`). `Money * Float` is **inherently inexact** (a `Float` rate is approximate; large products lose low digits past f64's 2⁵³ exact-integer range) — callers needing exactness use `Money * Fixed` or `Money * Integer`.
+`Money` rounding state is per-thread: the main thread starts in `Commercial`
+(round half away from zero); workers inherit their parent's mode at spawn and
+subsequently change independently. `Banker` rounds ties to even. The operation
+formulas, overflow checks, and current Fixed-scaling rounding limitations are
+specified in `./mfb spec stdlib money`. In particular, the current Fixed paths
+must not be assumed to obey `money::setRounding`. Exact representation of a
+stored amount does not imply exact representation of a `Float` or `Fixed` rate.
+[[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_multiply]]
 
 Fixed > Float > Integer > Byte
 
@@ -95,9 +103,48 @@ Fixed > Float > Integer > Byte
 
 This promotion table applies only to the four dimensionless numerics. `Money` does **not** promote against them — it obeys the dimensional algebra table in §4.1's `Money` section instead (same-dimension add/subtract, scalar scaling, `M/M` ratio), and every off-table pairing is a compile error.
 
-Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`. `=` and `<>` also accept any two compatible comparable operands. The ordering operators `<`, `>`, `<=`, and `>=` additionally accept two `String` operands, which are ordered lexicographically by Unicode scalar value (see §4.11); mixed `String`/numeric ordering is a type error.
+Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) return `Boolean`. Their current conversion order is `Float > Fixed > Integer > Byte`: the Float/Fixed case differs from the arithmetic table above. This is a current implementation discrepancy, not a widening guarantee; explicitly convert operands when the representation matters. [[src/codegen/engine/operators/builder_numeric.rs:lower_numeric_comparison_binary]] `=` and `<>` also accept any two compatible comparable operands. The ordering operators `<`, `>`, `<=`, and `>=` additionally accept two `String` operands, which are ordered lexicographically by Unicode scalar value (see §4.11); mixed `String`/numeric ordering is a type error.
 
-Numeric edge cases:
+### Promotion failures and equality
+
+Arithmetic promotion selects a representation, not a superset of both ranges.
+Converting an `Integer` to `Fixed` checks `-2147483648..2147483647` and raises
+`ErrOverflow` (`77050010`) outside it. Converting a finite `Float` to `Fixed`
+checks the Fixed range, scales by `2^32`, and rounds to nearest with ties away
+from zero; the Money rounding mode has no effect. A non-finite input to that
+conversion raises `ErrInvalidFormat` (`77050003`). Promotion can therefore fail
+before the arithmetic operator runs, even when its mathematical result would
+fit. Integer/Fixed comparisons can fail for the same reason; Float/Fixed
+comparisons currently take the Float path described above.
+[[src/codegen/engine/convert/builder_conversions.rs:emit_integer_to_fixed_value]]
+[[src/codegen/engine/convert/builder_conversions.rs:emit_float_bits_to_fixed_value]]
+
+A promotion-generated error receives the binary expression's source location,
+not a location selected from the converted operand. An error while evaluating
+an operand retains that operand expression's location. Lowering saves and
+restores the enclosing location around recursive operand evaluation.
+[[src/codegen/engine/value/builder_values.rs:lower_value]]
+
+Numeric equality compares converted values, not exact mathematical values of
+the original operands. For example, an Integer `9007199254740993` compares equal
+to Float `9007199254740992.0`, because Integer-to-Float conversion loses that
+unit. Two Integers with those respective values remain unequal.
+[[src/codegen/engine/operators/builder_numeric.rs:load_numeric_as_double]]
+
+| Context | Equality relation for Float values | `+0.0` versus `-0.0` |
+| --- | --- | --- |
+| `=` / `<>` | IEEE numeric equality after operand conversion | equal |
+| Map lookup | key bytes | distinct |
+| Set deduplication and membership | key equality | distinct |
+| List `collections::contains` | collection element matching, bitwise for Float | distinct |
+
+These collection operations require compatible element/key types; they do not
+apply cross-numeric operator promotion. The collection layout and matching rules
+are owned by `./mfb spec memory collections`.
+[[src/codegen/collection/compare/builder_collection_compare.rs:emit_collection_payload_match_branch]]
+[[src/codegen/builtins/collections/func_contains.rs:lower_contains]]
+
+### Checked arithmetic
 
 - `Integer` arithmetic is checked. Overflow in `+`, `-`, `*`, unary `-`, exponentiation (`^`), and the minimum-integer `MOD -1` case fails with `ErrOverflow` (`77050010`). Integer operations never wrap.
 - `Byte` arithmetic that returns `Byte` is checked. Results above `255` fail with `ErrOverflow` (`77050010`); results below `0` fail with `ErrUnderflow` (`77050011`). Byte operations never wrap.
@@ -105,7 +152,7 @@ Numeric edge cases:
 - `MOD` uses the promoted result type from the table above and is available for every numeric operand pairing in the table. `a MOD b` fails when `b = 0`, with `ErrFloatDomain` (`77050012`) for `Float` results and `ErrInvalidArgument` (`77050002`) otherwise. Otherwise the remainder has the same sign as `a`, and `a = (truncTowardZero(a / b) * b) + (a MOD b)` in the promoted numeric domain.
 - `^` for `Integer` requires a non-negative integer exponent and fails with `ErrInvalidArgument` (`77050002`) for negative exponents. Overflow fails with `ErrOverflow` (`77050010`). `^` for a `Float` result requires a whole, non-negative exponent and fails with `ErrFloatDomain` (`77050012`) otherwise; overflow to infinity is caught at the observation boundary (below), not at the operator.
 - `Float` follows IEEE 754 binary64 representation. MFBASIC guarantees that **no user-accessible `Float` is non-finite**, enforced at *observation boundaries* rather than after each operation: a finiteness check fires only where a `Float` becomes observable — bound to a named local/global, assigned, stored into a collection element or record field, returned, passed as an argument, or printed/converted. An anonymous intermediate expression result may be non-finite transiently and may recover to finite without trapping (for example `1.0 / (1e200 * 1e200)` evaluates to `+0.0`). At a boundary a `NaN` fails with `ErrFloatNaN` (`77050013`) and an infinity fails with `ErrFloatOverflow` (`77050015`, "arithmetic overflow to infinity"), stamped at that statement's location. Built-in math functions that have a genuine domain error still fail at the call: a negative `sqrt`, a non-positive `log`/`log10`, or an out-of-range `asin`/`acos` fail with `ErrFloatDomain` (`77050012`), and a math kernel that produces an infinity (such as `exp` overflow) fails with `ErrFloatInf` (`77050014`). A built-in that folds `Float` values raises at the call as well: `collections::sum` fails with `ErrFloatOverflow` when its total overflows, even as an operand whose expression would otherwise recover. "Passed as an argument" includes every built-in's argument: `math::abs(x * x)` fails when `x * x` overflows. Native `CDouble` results that are NaN or infinity fail with `ErrFloatNaN` (`77050013`) or `ErrFloatInf` (`77050014`), respectively. [[src/codegen/link/thunk/link_thunk.rs:emit_link_support]] A **single-use** `a * b (+|-) c` chain is *contracted* into one fused multiply-add, rounding once from the exact product rather than twice, so the intermediate product is never materialized and cannot itself overflow: with `a = 1.5e308`, `LET r AS Float = a * 2.0 - a` yields a finite `1.5e308` rather than trapping, whereas a product that is separately *observed* still overflows at its own boundary. Contraction is part of this contract, not an optimization — it is not affected by `-O` (see ./mfb spec tooling cli-reference).
-- Float comparisons follow IEEE 754, including for the non-finite intermediates the boundary rule permits (a comparison is not an observation boundary, so comparing a transient non-finite never traps). Any ordered comparison (`<`, `<=`, `>`, `>=`) involving `NaN` is `false`; `=` with a `NaN` operand is `false` (so `NaN = NaN` is `false`) and `<>` is `true`; `+Inf` is greater than every finite value and `-Inf` is less than every finite value. Value equality is IEEE, so `+0.0 = -0.0` is `true`. Map-key equality is a separate, **bitwise** comparison (`+0.0 ≠ -0.0`, `NaN = NaN`) and is unchanged by this rule.
+- Float comparisons follow IEEE 754, including for the non-finite intermediates the boundary rule permits (a comparison is not an observation boundary, so comparing a transient non-finite never traps). Any ordered comparison (`<`, `<=`, `>`, `>=`) involving `NaN` is `false`; `=` with a `NaN` operand is `false` (so `NaN = NaN` is `false`) and `<>` is `true`; `+Inf` is greater than every finite value and `-Inf` is less than every finite value. Value equality is IEEE, so `+0.0 = -0.0` is `true`. Map-key equality is a separate, **bitwise** comparison (`+0.0 ≠ -0.0`; NaN bit patterns match only identical bit patterns) and is unchanged by this rule.
 - `toInt` of a `Float` fails with `ErrOverflow` (`77050010`) when the value is outside the `Integer` range, and `toByte` of an `Integer` outside 0–255 fails the same way. A `Fixed` always fits an `Integer` (its range is about ±2³¹), so `toInt` of a `Fixed` cannot overflow, and `toByte` accepts `Integer`, `Money`, and `Scalar`, but no direct `Float` or `Fixed` conversion. [[src/codegen/builtins/general/mod.rs:resolve_call]] Converting text to a numeric type fails with `ErrInvalidFormat` (`77050003`) when the text is malformed or names a non-finite value such as `NaN` or `Infinity`. [[src/codegen/builtins/general/func_to_int.rs:register]] [[src/codegen/builtins/general/func_to_byte.rs:register]] [[src/codegen/builtins/general/func_to_float.rs:register]]
 
 ## 4.2 Records (product types)
@@ -525,7 +572,18 @@ Numeric **literals** are range-checked statically, as a separate phase from the 
 
 **Float.** A literal stored into a `Float` is parsed as `f64` and checked for finiteness: a value that parses to a non-finite `f64` is rejected. A non-finite negated literal is `TYPE_FLOAT_LITERAL_UNDERFLOW`; a non-finite positive literal is `TYPE_FLOAT_LITERAL_OVERFLOW`. A finite `f64` always passes. [[src/ir/verify/values.rs:check_const_literal]]
 
-**Fixed.** A literal stored into a `Fixed` is parsed as `f64`, the sign applied, and checked against the static binary bound: `value < -2147483648.0` is `TYPE_FIXED_LITERAL_UNDERFLOW` and `value >= 2147483648.0` is `TYPE_FIXED_LITERAL_OVERFLOW`. Values inside `[-2147483648.0, 2147483648.0)` pass. [[src/ir/verify/values.rs:check_const_literal]]
+**Fixed.** The current validation step parses a literal stored into a `Fixed` as `f64`, applies the sign, and checks against the static binary bound: `value < -2147483648.0` is `TYPE_FIXED_LITERAL_UNDERFLOW` and `value >= 2147483648.0` is `TYPE_FIXED_LITERAL_OVERFLOW`. Values inside `[-2147483648.0, 2147483648.0)` pass this check. This is a check
+before the separate decimal-to-carrier conversion, not range checking of that
+conversion's rounded result. Consequently the exactly representable maximum,
+`2147483647.99999999976716935634613037109375F`, is currently rejected: binary64
+rounds its spelling to `2147483648.0`. The decimal converter rounds the signed
+magnitude to Q32.32 with ties away from zero and separately checks the resulting
+i64 carrier. The validation/conversion disagreement is an implementation
+limitation; accepting a literal at this preliminary check alone does not prove
+its rounded carrier is valid.
+[[src/ir/verify/values.rs:check_const_literal]]
+[[src/ir/verify/values.rs:check_negated_const_literal]]
+[[src/numeric.rs:fixed_raw_from_decimal]]
 
 **Money.** A literal stored into a `Money` is converted with the **exact** base-10 converter (no `f64` bound — `Money` is exact decimal), sign applied, and checked against the i64 raw range: a positive magnitude outside `92233720368547.75807` is `TYPE_MONEY_LITERAL_OVERFLOW`; a negated magnitude past `-92233720368547.75808` is `TYPE_MONEY_LITERAL_UNDERFLOW` (the most-negative `Money` has no positive-magnitude literal and is folded from `-92233720368547.75808`). A literal with more than 5 fractional digits whose extra digits change the stored value additionally warns `TYPE_MONEY_LITERAL_PRECISION` (the value is rounded half-away-from-zero); trailing zeros and exactly-representable literals are silent. [[src/ir/verify/values.rs:check_const_literal]]
 

@@ -42,6 +42,28 @@ false, `NaN = NaN` is false (and `NaN <> NaN` is true), and `+0.0 = -0.0` is
 true. (Map-key equality is a separate bitwise comparison and does not follow this
 rule.)
 
+Numeric comparisons use converted values. For example, Integer
+`9007199254740993` compares equal to Float `9007199254740992.0`: converting the
+Integer to Float loses one unit. The same two values stored as Integers remain
+unequal.
+
+Currently a Float/Fixed comparison uses Float, unlike arithmetic's Fixed-first
+rule. For example, `1F = 1.00000000001` is false, while comparing `1F` to
+`toFixed(1.00000000001)` is true. Explicitly convert both operands when that
+representation choice matters.
+
+| Context | Float matching | Positive and negative zero |
+| --- | --- | --- |
+| `=` and `<>` | numerical value | equal |
+| Map lookup | exact bit pattern | distinct |
+| Set deduplication and membership | exact bit pattern | distinct |
+| List `collections::contains` | exact bit pattern | distinct |
+
+Thus a Set can hold both signed zeros, and a List containing only positive
+zero does not contain negative zero according to `collections::contains`.
+Collection lookup requires the collection's key or element type; it does not
+perform the cross-numeric conversions used by comparison operators.
+
 ## Comparable and orderable
 
 Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Money`,
@@ -58,7 +80,10 @@ an orderable element or key type.
 
 ## Errors
 
-No errors.
+An Integer/Fixed comparison converts the Integer to Fixed first and can raise
+`ErrOverflow` if it is outside the Fixed range. Errors while computing either
+operand also propagate. Float comparisons themselves do not reject transient
+NaN or infinity; the observation rules are in `mfb man types numeric`.
 
 ## Examples
 

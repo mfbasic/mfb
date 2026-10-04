@@ -2,7 +2,8 @@
 
 Last updated: 2026-07-20
 Effort: small (<1h)
-Depends on: everything (13-A, 13-B, 13-C, 13-D, 13-E, 13-F, 13-G, 13-J, 13-H, 13-I).
+Depends on: everything (13-A, 13-C, 13-D, 13-E, 13-F, 13-G, 13-J, 13-H, 13-I). 13-B was
+superseded by plan-89 (`AttributedString`), which has landed.
 Feature-wide precondition: plan-13 master §Prerequisites.
 Produces: the calculator example, the `app::` spec topic and man pages, and the remaining
 property polish.

@@ -22,12 +22,15 @@ nearest value it can hold on the way in: `toFixed("0.1")` gives the closest
 which `Float` does not promise. That makes it right for simulation, geometry,
 and anywhere a replay has to match.
 
-For money, use `toMoney` instead: it is exact decimal arithmetic and does not
-round your inputs.
+For monetary amounts, use Money: it represents values with up to five decimal
+places exactly. Conversion of more precise inputs can still round.
 
-`toFixed` is also the way to get a `Fixed` at all where a literal will not do —
-there is no `Fixed` suffix, so the alternative is an annotated binding
-(`LET x AS Fixed = 1.5`)."#;
+Use `toFixed` for values computed at runtime. For constants, write a literal with uppercase `F` (`1.5F`) or an annotated
+binding (`LET x AS Fixed = 1.5`).
+
+Current limitation: conversion from Money truncates toward zero rather than
+applying the Money rounding mode. Other numeric inputs round to the nearest
+Fixed value, with ties away from zero for Float input."#;
 
 const EX: &str = r#"Parse a decimal into a `Fixed`:
 

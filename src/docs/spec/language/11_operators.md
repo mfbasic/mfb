@@ -41,7 +41,51 @@ Operator edge cases:
 - `NOT` is a prefix unary operator that binds tighter than `AND`/`OR`/`XOR` but looser than the comparison operators, so `NOT a = b` parses as `NOT (a = b)`.
 - Checked numeric failures from operators are ordinary failures and therefore auto-propagate unless handled by a `TRAP`.
 - `/`, `MOD`, and `^` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
-- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers to an in-tree exact `fmod` kernel (the IEEE bitwise remainder over GPRs, bit-identical to libm, no platform `fmod` call), guarded by an `ErrFloatDomain` (`77050012`) pre-check on a zero divisor. [[src/codegen/engine/operators/builder_numeric.rs:emit_float_fmod]] A `Fixed`-result `MOD` computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract, failing with `ErrInvalidArgument` (`77050002`) on a zero divisor. [[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_binary]]
+- `MOD` is available for every dimensionless numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers to an in-tree exact `fmod` kernel (the IEEE bitwise remainder over GPRs, bit-identical to libm, no platform `fmod` call), guarded by an `ErrFloatDomain` (`77050012`) pre-check on a zero divisor. [[src/codegen/engine/operators/builder_numeric.rs:emit_float_fmod]] A `Fixed`-result `MOD` computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract, failing with `ErrInvalidArgument` (`77050002`) on a zero divisor. [[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_binary]]
+
+## Numeric edge cases
+
+After promotion, Byte exponentiation uses checked integer power and requires a
+result in `0..255`; a larger result raises `ErrOverflow`. A Fixed exponent must
+be whole and non-negative, otherwise `ErrInvalidArgument` is raised. The `^`
+operator's domain is distinct from `math::pow`; do not infer its domain from
+that function. For Byte, Integer, Fixed, and Float results, `0 ^ 0` is `1` in
+the result type. Negating a runtime Byte other than zero raises `ErrUnderflow`
+(`77050011`); negating Byte zero returns Byte zero. A negative Byte literal is
+instead rejected statically as described in `./mfb spec language types`.
+[[src/codegen/engine/operators/builder_numeric.rs:emit_integer_pow]]
+[[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_pow]]
+[[src/codegen/engine/operators/builder_numeric.rs:emit_float_pow]]
+[[src/codegen/engine/operators/builder_numeric.rs:lower_numeric_unary_negation]]
+
+`MOD`'s quotient is mathematical truncation toward zero, independent of the
+rounding applied by `/`. Money permits only `Money MOD Money`; its exact raw
+remainder and exceptional minimum/-1 case are specified in
+`./mfb spec stdlib money`.
+
+## Float contraction
+
+The eligible direct Float forms are `(a * b) + c`, `c + (a * b)`,
+`(a * b) - c`, and `c - (a * b)`. Grouping parentheses do not observe an
+intermediate value. Each eligible fused operation rounds the exact product and
+add/subtract together once; it does not round a product and then add.
+Contraction runs at every optimization level.
+[[src/codegen/compiler/opt/fma_fusion.rs:fuse_scalar_fma]]
+
+- Eligibility is determined after numeric conversion: a Float product with an
+  Integer or Byte factor can fuse; a Fixed or Integer product does not become
+  a Float product merely because an enclosing addition returns Float.
+- A separately bound product is an observation boundary, even if the binding
+  is read only once. Passing the product to a conversion is also an observation
+  boundary. Neither form contracts across that boundary. Conversions on the
+  factors before multiplication do not themselves prohibit fusion.
+- Nested expressions are not algebraically reassociated to seek a fusion.
+  The current recognizer scans the lowered multiplies in order; once an add or
+  subtract has been replaced with a fused instruction, a second multiply cannot
+  fuse into that same instruction. Thus `a*b + c*d` does not promise one exact
+  sum of two unrounded products. The precise current selection conditions and
+  target requirements are in `./mfb spec architecture native`.
+[[src/codegen/compiler/opt/fma_fusion.rs:fuse_scalar_fma]]
 
 Pipeline (`|>`) notes:
 
