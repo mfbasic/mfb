@@ -130,6 +130,20 @@ parameter-type and return-type overload sets alike, and to an imported package's
 exported overload set (`pkg::name`). Calling the selected value runs that
 declaration. [[src/monomorph/lower.rs:resolve_function_reference]]
 
+**Isolation widens in one direction, everywhere a callable type is matched.**
+An `ISOLATED FUNC` is a `FUNC`; a `FUNC` is not an `ISOLATED FUNC`. Isolation is
+an extra guarantee (no captured environment, safe to run as a thread entry
+point), and dropping that guarantee is always safe, so a plain callable-type
+position accepts either an isolated or a plain concrete, while an
+`ISOLATED FUNC`-typed position (`thread::start`'s worker parameter) accepts only
+an isolated one. This one rule governs every position a callable type is
+matched against another: a `LET`/`MUT`/assignment/return/field/argument
+(`Scope::assignable`), overload selection above, and a built-in's own callback
+parameter (`collections::forEach`/`transform`/`filter`/`reduce`/`sortBy`/…,
+`json::parse`'s reviver) — the registry's structural unifier applies the same
+directional check to a `FUNC`/`FUNC` pair. [[src/ir/verify/compat.rs:Scope::assignable]]
+[[src/codegen/registry/mod.rs:unify_at]]
+
 ```basic
 ' Given overloads of pick for Integer and String:
 LET f AS FUNC(Integer) AS Integer = pick     ' the Integer declaration

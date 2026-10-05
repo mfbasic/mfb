@@ -33,6 +33,8 @@ Template arguments are inferred only from explicit argument, parameter, field, a
 
 A template parameter of a built-in binds `Nothing` like any other type, so `collections::contains(List OF Nothing, NOTHING)` binds `T = Nothing`. Two positions refuse it. The first is a callback's result type (`transform`'s `FUNC(T) AS U`): a `Nothing`-returning callback does not satisfy a value-producing callback parameter (§6). The second is a slot of a thread handle, where a `Nothing` resource plane means "no resource plane". A refused binding is `TYPE_CALL_ARGUMENT_MISMATCH`. [[src/codegen/registry/mod.rs:unify_at]]
 
+A plain `FUNC`-typed callback parameter (`forEach`/`transform`/`filter`/`reduce`/`sortBy`/… , `json::parse`'s reviver) matches an `ISOLATED FUNC` argument of the same shape — isolation widens in one direction, the same rule §6 states for every other callable-type position. A plain `FUNC` argument never satisfies a parameter that itself requires `ISOLATED` (`thread::start`'s worker).
+
 Template predicates such as comparability, copyability, defaultability, or resource restrictions are checked against each concrete instantiation:
 
 ```basic
