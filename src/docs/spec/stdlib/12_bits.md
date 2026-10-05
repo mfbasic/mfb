@@ -49,6 +49,10 @@ reduced modulo the width — an out-of-range shift is an error, not a defined
 no-op, which keeps behavior identical to the native variable-shift instruction
 only over the range where that instruction is unambiguous.
 [[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]]
+A count that is in range by construction — an `Integer` literal in `0..63`, or
+`bits::band(x, m)` with a literal mask `m` in `0..63` — is not re-checked at run
+time; the result is the same, and no such count can raise.
+[[src/codegen/builtins/bits/mod.rs:constant_shift_count]] [[src/codegen/builtins/bits/mod.rs:shift_count_in_range]]
 
 Within the valid range:
 

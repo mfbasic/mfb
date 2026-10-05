@@ -99,6 +99,26 @@ pub(crate) fn lower_bits_sr(
     let count_reg = args[1].location.clone();
     let value_text = &args[0].text;
     let count_text = &args[1].text;
+    if let Some(count) = super::constant_shift_count(&args[1]) {
+        let dst = builder.allocate_register();
+        builder.emit(abi::shift_right_immediate(dst, value_reg, count));
+        return Ok(ValueResult {
+            origin: None,
+            type_: ParameterType::Integer,
+            location: Operand::from(dst),
+            text: format!("bits.sr({value_text}, {count_text})"),
+        });
+    }
+    if super::shift_count_in_range(&args[1]) {
+        let dst = builder.allocate_register();
+        builder.emit(abi::shift_right_variable(dst, value_reg, &count_reg));
+        return Ok(ValueResult {
+            origin: None,
+            type_: ParameterType::Integer,
+            location: Operand::from(dst),
+            text: format!("bits.sr({value_text}, {count_text})"),
+        });
+    }
     let valid = builder.label("bits_shift_valid");
     let out_of_range = builder.label("bits_shift_out_of_range");
     builder.emit(abi::compare_immediate(&count_reg, "0"));
