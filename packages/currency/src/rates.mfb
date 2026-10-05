@@ -1,0 +1,198 @@
+' ---------------------------------------------------------------------------
+' currency/rates.mfb — the rates table.
+'
+' The table is module state: one PRIVATE MUT, so only this file can name it and
+' every write goes through a function that checks the code and the rate. The
+' map is never handed out; exportRates returns a copy and importRates replaces
+' the table wholesale, which is how a caller moves rates between threads (a
+' worker starts with a fresh, empty table -- `mfb spec language threads`).
+'
+' A rate is how many units of the base currency one unit of the code is worth,
+' and the base currency is any code whose rate is exactly 1. Nothing here
+' requires a base to exist: a table is legal while it is being built, and
+' exportRates -> importRates must round-trip whatever the table holds. The
+' requirement is enforced where it matters, in math.mfb, when two different
+' currencies meet.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+
+PRIVATE MUT rates AS Map OF String TO Fixed = Map OF String TO Fixed {}
+
+' A failure naming `rate` unless it is greater than zero.
+PRIVATE FUNC checkRate(code AS String, rate AS Fixed) AS Nothing
+  IF rate <= 0F THEN
+    FAIL error(ErrorInvalidRate, "currency: the rate for " & code & " is " & toString(rate) & ", and a rate must be greater than zero")
+  END IF
+END FUNC
+
+DOC
+  FUNC setRate
+  GROUP Rates
+  DESC Set the rate for `code`, adding it to the table or replacing the rate
+  DESC it already has.
+  DESC
+  DESC A rate is how many units of the base currency one unit of `code` is
+  DESC worth. Give the base currency itself rate `1`. With `USD` as the base,
+  DESC `EUR` at `1.08` means one euro is worth 1.08 dollars, and `JPY` at
+  DESC `0.0067` means one yen is worth 0.0067 dollars.
+  ARG code The currency code, in any case.
+  ARG rate Units of the base currency per unit of `code`; greater than zero.
+  ERROR 93170001 `code` is not a valid currency code.
+  ERROR 93170002 `rate` is zero or negative.
+  EXAMPLE
+    IMPORT currency
+    IMPORT io
+
+    FUNC main() AS Nothing
+      currency::setRate("USD", 1F)
+      currency::setRate("eur", 1.08F)
+      io::print(toString(currency::getRate("EUR"), toByte(2)))   ' 1.08
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC setRate(code AS String, rate AS Fixed) AS Nothing
+  LET key AS String = checkedCode(code)
+  checkRate(key, rate)
+  rates = collections::set(rates, key, rate)
+END FUNC
+
+DOC
+  FUNC removeRate
+  GROUP Rates
+  DESC Remove `code` from the rates table.
+  DESC
+  DESC Removing a code that has no rate does nothing.
+  ARG code The currency code, in any case.
+  ERROR 93170001 `code` is not a valid currency code.
+END DOC
+EXPORT FUNC removeRate(code AS String) AS Nothing
+  LET key AS String = checkedCode(code)
+  IF collections::hasKey(rates, key) THEN
+    rates = collections::removeKey(rates, key)
+  END IF
+END FUNC
+
+DOC
+  FUNC clearRates
+  GROUP Rates
+  DESC Remove every rate from the table.
+END DOC
+EXPORT FUNC clearRates() AS Nothing
+  rates = Map OF String TO Fixed {}
+END FUNC
+
+DOC
+  FUNC hasRate
+  GROUP Rates
+  DESC Whether `code` has a rate in the table.
+  ARG code The currency code, in any case.
+  RET `TRUE` if the table holds a rate for it.
+  ERROR 93170001 `code` is not a valid currency code.
+END DOC
+EXPORT FUNC hasRate(code AS String) AS Boolean
+  RETURN collections::hasKey(rates, checkedCode(code))
+END FUNC
+
+DOC
+  FUNC getRate
+  GROUP Rates
+  DESC The rate the table holds for `code`.
+  ARG code The currency code, in any case.
+  RET Units of the base currency per unit of `code`.
+  ERROR 93170001 `code` is not a valid currency code.
+  ERROR 93170003 `code` has no rate in the table.
+END DOC
+EXPORT FUNC getRate(code AS String) AS Fixed
+  RETURN rateOf(checkedCode(code))
+END FUNC
+
+DOC
+  FUNC hasBaseCurrency
+  GROUP Rates
+  DESC Whether some currency in the table has rate `1`, so that amounts in
+  DESC different currencies can be combined.
+  RET `TRUE` if at least one code has rate exactly `1`.
+END DOC
+EXPORT FUNC hasBaseCurrency() AS Boolean
+  FOR EACH rate IN collections::values(rates)
+    IF rate = 1F THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+DOC
+  FUNC exportRates
+  GROUP Rates
+  DESC A copy of the rates table, keyed by upper-case code.
+  DESC
+  DESC Changing the returned map does not change the table. Pass it to
+  DESC `currency::importRates` to load the same rates somewhere else, such as
+  DESC in a worker thread, which starts with an empty table.
+  RET Every code in the table and its rate.
+  EXAMPLE
+    IMPORT currency
+    IMPORT io
+
+    FUNC main() AS Nothing
+      currency::setRate("USD", 1F)
+      currency::setRate("EUR", 1.08F)
+      LET saved AS Map OF String TO Fixed = currency::exportRates()
+      currency::clearRates()
+      currency::importRates(saved)
+      io::print(toString(currency::hasRate("EUR")))   ' TRUE
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC exportRates() AS Map OF String TO Fixed
+  RETURN rates
+END FUNC
+
+DOC
+  FUNC importRates
+  GROUP Rates
+  DESC Replace the whole rates table with `table`.
+  DESC
+  DESC Every entry is checked first, with the same rules as
+  DESC `currency::setRate`, and codes are upper-cased. If any entry fails, the
+  DESC table is left exactly as it was. Two keys that differ only in case,
+  DESC such as `"eur"` and `"EUR"`, name the same code, and the call fails
+  DESC unless they carry the same rate.
+  DESC
+  DESC The table does not need a base currency to be imported, so whatever
+  DESC `currency::exportRates` returned can always be imported again.
+  ARG table Codes, in any case, and their rates.
+  ERROR 93170001 A key is not a valid currency code, or two keys name the same code with different rates.
+  ERROR 93170002 A rate is zero or negative.
+  EXAMPLE
+    IMPORT currency
+    IMPORT io
+
+    FUNC main() AS Nothing
+      currency::importRates(Map OF String TO Fixed { "USD" := 1F, "jpy" := 0.0067F })
+      io::print(toString(currency::hasRate("JPY")))   ' TRUE
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC importRates(table AS Map OF String TO Fixed) AS Nothing
+  MUT checked AS Map OF String TO Fixed = Map OF String TO Fixed {}
+  FOR EACH entry IN table
+    LET key AS String = checkedCode(entry.key)
+    checkRate(key, entry.value)
+    IF collections::hasKey(checked, key) THEN
+      IF collections::get(checked, key) <> entry.value THEN
+        FAIL error(ErrorInvalidCode, "currency: the table names " & key & " twice, with the rates " & toString(collections::get(checked, key)) & " and " & toString(entry.value))
+      END IF
+    END IF
+    checked = collections::set(checked, key, entry.value)
+  NEXT
+  rates = checked
+END FUNC
+
+' The rate for an already-canonical code, or ErrorUnknownCurrency.
+PUBLIC FUNC rateOf(code AS String) AS Fixed
+  IF NOT collections::hasKey(rates, code) THEN
+    FAIL error(ErrorUnknownCurrency, "currency: " & code & " has no rate; add one with currency::setRate")
+  END IF
+  RETURN collections::get(rates, code)
+END FUNC

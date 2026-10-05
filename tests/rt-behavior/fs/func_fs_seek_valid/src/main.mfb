@@ -1,0 +1,44 @@
+IMPORT fs
+IMPORT io
+
+' fs::seek: an absolute byte offset; buffered output is written at the old
+' position first, and readLine's read-ahead is discarded.
+FUNC trySeek(RES f AS fs::File, position AS Integer) AS String
+  fs::seek(f, position) TRAP(e)
+    RETURN "seek raised " & toString(e.code)
+  END TRAP
+  RETURN "seek ok"
+END FUNC
+
+FUNC main AS Integer
+  LET path AS String = "target/func_fs_seek_valid.txt"
+  fs::writeText(path, "header\nbody line\ntail\n")
+  RES f = fs::openFile(path)
+  io::print(fs::readLine(f))
+  fs::seek(f, 7)
+  io::print(fs::readLine(f))
+  fs::seek(f, 0)
+  io::print(fs::readLine(f))
+  fs::seek(f, 100)
+  io::print("past end eof=" & toString(fs::eof(f)))
+  io::print(trySeek(f, -1))
+  fs::seek(f, 12)
+  io::print("after negative: [" & fs::readLine(f) & "]")
+  fs::close(f)
+  fs::deleteFile(path)
+
+  RES m = fs::openData("", "rw")
+  fs::setBuffered(m, TRUE)
+  fs::writeAll(m, "first\nsecond\n")
+  fs::seek(m, 0)
+  io::print("buffered read back [" & fs::readLine(m) & "]")
+  fs::writeAll(m, "X")
+  fs::seek(m, 0)
+  io::print("overwrite at read position [" & fs::readAll(m) & "]")
+  fs::seek(m, 16)
+  fs::writeAll(m, "Z")
+  io::print("buffered gap write size=" & toString(fs::size(m)))
+  fs::flush(m)
+  io::print("flushed gap write size=" & toString(fs::size(m)))
+  RETURN 0
+END FUNC

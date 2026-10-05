@@ -87,9 +87,8 @@ END FUNC
   [[src/monomorph/lower.rs:into_project]]
   [[src/ir/lower.rs:lower_link_defaults]]
 - **Calls through function values.** The value has an already selected callable
-  type; calling it does not resolve a declaration overload set or recover the
-  original declaration's defaults. All parameters of the callable type must be
-  supplied. [[src/ir/shape.rs:check_call_shape]]
+  type; the selection, named-argument and default-argument rules are collected
+  under "Function-value selection and calls" below.
 - **Parameter passing**: arguments are passed as owned values under the memory model (§14). Copyable values are copied when they remain needed by the caller; movable values are moved when ownership can be transferred. Containers own their contents, so passing a container never passes an aliasable reference.
 - **Resource parameters**: a parameter whose type is a `RESOURCE` is handled by compiler-known resource rules (§15). Ordinary resource operations receive a pointer to the one handle and do not move ownership; close operations consume it. MFBASIC source does not add ownership-annotation parameter keywords such as `MOVE`.
 - **Collection boundaries freeze mutable buffers.** When a `MUT` collection is passed to a function or returned from a function, it crosses the boundary as an immutable, owned collection value (§14). The compiler may move or freeze the existing buffer when ownership permits; the semantic guarantee is that no caller and callee can secretly share a mutable collection.
@@ -109,6 +108,49 @@ END FUNC
 - **Recursion** is allowed. Implementations are not required to perform tail-call optimization. Native calls consume the host thread stack. A call that would run past the thread's stack raises `ErrStackOverflow` (7-701-0002) at the entry of the function being called, before it binds anything: an ordinary failure that the caller's `TRAP` catches and that runs every unwound frame's cleanup — never a host fault. This holds on every thread, including workers and the app-mode program thread, for direct, mutual and function-value recursion. A function whose body makes no call (no `Call`/`CallResult`) skips the check: it cannot recurse, and its frame fits the reserve kept below the limit. Recursion inside native `LINK` code is outside the check. [[src/codegen/runtime/stack_limit.rs:function_needs_stack_check]] [[src/codegen/runtime/stack_limit.rs:emit_stack_check]]
 
   The limit is a per-thread word (`./mfb spec memory arenas`) set once when the thread starts, to its stack bottom plus a reserve of `min(512 KiB, stack / 4)` — the reserve covers the largest frame a function allocates before its check, and the raise. macOS (`pthread_get_stackaddr_np` / `pthread_get_stacksize_np`) and Windows (`GetCurrentThreadStackLimits`) report each thread's exact stack. On Linux a runtime-created worker has its known 8 MiB stack; the main thread reads `RLIMIT_STACK` through the raw `prlimit64` syscall and counts on the three quarters of it the kernel keeps below the entry stack pointer (arguments and environment take at most a quarter), capping an unlimited stack at 256 MiB; the app-mode thread asks `pthread_getattr_np`. [[src/codegen/runtime/stack_limit.rs:emit_limit_from_rlimit]]
+
+## Function-value selection and calls
+
+A callable type records ordered parameter types, a result type, and whether it
+is isolated. Parameter names and default expressions are not part of that type.
+A reference to a single ordinary function uses its declared callable type.
+[[src/types.rs:ParameterType]] [[src/ir/lower.rs:function_types]]
+
+**Current user-overload limitation.** A `FUNC` annotation does not select an
+ordinary overloaded user function name used as a value. This applies both to
+parameter-type overloads and to return-type-only overloads. For a local overload
+set, the current compiler leaves the value's name unrevised while mangling the
+declarations, and reports `SYMBOL_UNKNOWN_IDENTIFIER` for that reference. This
+is a limitation of reference selection, not a restriction on declaring or
+calling the overloads. A typed lambda that directly calls the overload can
+provide a callable value instead:
+[[src/monomorph/lower.rs:lower_expression]]
+[[src/monomorph/lower.rs:resolve_overload]]
+
+```basic
+' Given overloads of pick for Integer and String:
+LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> pick(x)
+```
+
+The contextual reference mechanism for general built-in predicates is separate;
+it does not imply contextual reference selection for user overloads.
+[[src/ir/lower.rs:builtin_predicate_ref_type]]
+
+A call through a function value supplies every parameter **positionally**.
+Declaration defaults are not retained, and missing arguments are
+`TYPE_CALL_ARITY_MISMATCH`. Named arguments are `TYPE_CALL_ARGUMENT_MISMATCH`
+because a callable type preserves no parameter names. Calling the value does
+not perform another overload selection.
+[[src/ir/shape.rs:check_call_shape]]
+
+A declared native `LINK` member can be used as an MFBASIC function value and
+passed to an MFBASIC callback parameter. Its callable type is the declared
+MFBASIC wrapper signature; invocation routes through the generated marshaling
+thunk, rather than treating a C address as a closure. This rule does not provide
+an MFBASIC-to-C callback-pointer conversion. Native ABI declarations are
+specified by `./mfb spec language native-libraries`.
+[[src/ir/lower.rs:function_types]]
+[[src/target/shared/nir/lower.rs:link_routing_imports]]
 
 ## See Also
 

@@ -810,6 +810,25 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
+    /// Create a NEW file at the UTF-8 path in `ARG[0]` (packed open flags in
+    /// `ARG[1]`, exactly as [`Self::emit_open_file`]) that the host itself deletes
+    /// once the last handle to it closes — `fs::openData`'s Windows backing
+    /// (bug-809): `CreateFileW` with `FILE_ATTRIBUTE_TEMPORARY |
+    /// FILE_FLAG_DELETE_ON_CLOSE`. POSIX has no such open flag; its callers unlink
+    /// the name (macOS) or never give the file one (Linux `memfd_create`), so they
+    /// never reach this seam and only the Windows backend implements it.
+    fn emit_open_delete_on_close_file(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err(format!(
+            "emit_open_delete_on_close_file is Windows-only; '{}' backs fs.openData without it",
+            self.target()
+        ))
+    }
     fn emit_read_file(
         &self,
         from: &str,

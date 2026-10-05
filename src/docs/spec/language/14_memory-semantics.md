@@ -8,11 +8,12 @@ MFBASIC separates value ownership, resource cleanup, and callable storage:
   can outlive the lexical scope that created it.
 - **Resources** have shared views and one assigned cleanup scope (§15). Dropping
   a view is not itself a close or a transfer of cleanup responsibility.
-- **Function values** are ordinary data with one owner, like any other value
-  (§14.4): copying one copies its closure object and captured environment, and
-  dropping its holder reclaims them. A non-capturing function reference uses a
-  static descriptor instead of an allocated closure.
-  [[src/codegen/engine/value/builder_values.rs:lower_value]]
+- **Function values** follow ordinary value ownership: each holder owns its
+  capturing closure and environment, and dropping the holder reclaims them
+  (§14.4). A non-capturing function reference uses a static descriptor instead
+  of an allocated closure; copying or dropping that reference allocates or
+  frees nothing.
+  [[src/codegen/memory/arena/closure_ops.rs:lower_closure_copy]]
   [[src/codegen/memory/arena/closure_ops.rs:lower_closure_drop]]
 
 Lexical scope exit deterministically drops that scope's ordinary owned data and

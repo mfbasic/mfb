@@ -3,14 +3,20 @@
 //! `ErrIndexOutOfRange` of the member's own internal list or string read.
 //!
 //! The package records are exported so a program can build one without going
-//! through the package's validating constructor (`datetime::date`,
-//! `csv::parseStream`). bug-698 found two members whose body indexed an internal
-//! list with such a field: `datetime::format`'s month-name tokens read
-//! `names[month - 1]`, and `csv::readRow` walked `chars` up to the record's own
+//! through the package's validating constructor (`datetime::date`). bug-698 found
+//! two members whose body indexed an internal list with such a field:
+//! `datetime::format`'s month-name tokens read `names[month - 1]`, and
+//! `csv::readRow` walked a hand-built `csv::CsvReader`'s `chars` up to its own
 //! `count` from its own `index`. Both leaked `ErrIndexOutOfRange` (77050001), an
 //! error that says nothing about which input was wrong. The owner decision: the
 //! member checks the fields it relies on and raises `ErrInvalidArgument`
 //! (77050002) instead.
+//!
+//! bug-809 removed `csv::CsvReader`: `csv::readRow` now reads from an `fs::File`,
+//! whose only state is the host's position, so there is no record left to build
+//! by hand. The csv probe below keeps the property that test protected — a reader
+//! in an arbitrary state never leaks `ErrIndexOutOfRange` — by starting a read at
+//! EVERY byte offset of a document.
 //!
 //! Each probe also renders/reads a VALID record, so the check cannot be
 //! satisfied by rejecting everything.
@@ -101,53 +107,64 @@ END FUNC
     assert_lines(&run("hand_built_datetime_month", source), &expected);
 }
 
-/// `csv::readRow` on a `CsvReader` whose `count` is not the length of `chars`,
-/// or whose `index` is not a position in `0 .. count`.
+/// `csv::readRow` started at every byte offset of a document (bug-809's
+/// replacement for the hand-built `CsvReader` probe): each start yields a record,
+/// `ErrInvalidFormat` (a start inside a quoted field leaves an unbalanced quote),
+/// or `ErrEndOfFile` at the end — never `ErrIndexOutOfRange`.
 #[test]
-fn csv_read_row_of_an_inconsistent_reader_is_invalid_argument() {
+fn csv_read_row_from_any_position_never_leaks_index_out_of_range() {
     let source = r#"IMPORT csv
+IMPORT fs
 IMPORT io
+IMPORT strings
 
-FUNC show(label AS String, r AS csv::CsvReader) AS Nothing
-  LET row AS csv::CsvRow = csv::readRow(r)
+FUNC show(position AS Integer, RES f AS fs::File) AS Nothing
+  fs::seek(f, position)
+  LET row AS List OF String = csv::readRow(f)
   MUT text AS String = ""
-  FOR EACH f IN row.fields
-    text = text & "[" & f & "]"
+  FOR EACH cell IN row
+    text = text & "[" & strings::replace(cell, "\n", "<LF>") & "]"
   NEXT
-  io::print(label & " " & text & " done=" & toString(row.done) & " next=" & toString(row.reader.index))
+  io::print(toString(position) & " " & text)
   RETURN
 TRAP(e)
-  io::print(label & " raised " & toString(e.code) & " " & e.message)
+  io::print(toString(position) & " raised " & toString(e.code))
   RETURN
 END TRAP
 END FUNC
 
 FUNC main() AS Nothing
-  LET good AS csv::CsvReader = csv::parseStream("a,b\nc,d")
-  LET chars AS List OF Integer = good.chars
-  show("valid", good)
-  show("valid-second", csv::CsvReader[chars, 7, 4, 44, 34])
-  show("valid-end", csv::CsvReader[chars, 7, 7, 44, 34])
-  show("count-long", csv::CsvReader[chars, 50, 0, 44, 34])
-  show("count-long-tail", csv::CsvReader[chars, 50, 4, 44, 34])
-  show("count-short", csv::CsvReader[chars, 3, 0, 44, 34])
-  show("count-neg", csv::CsvReader[chars, -1, 0, 44, 34])
-  show("index-neg", csv::CsvReader[chars, 7, -1, 44, 34])
-  show("index-past", csv::CsvReader[chars, 7, 8, 44, 34])
+  RES f = fs::openData("a,b\n\"x\ny\",z\n", "r")
+  MUT position AS Integer = 0
+  WHILE position <= fs::size(f)
+    show(position, f)
+    position = position + 1
+  END WHILE
 END FUNC
 "#;
-    let count = "raised 77050002 csv: the reader's count field is not the length of its chars";
-    let index = "raised 77050002 csv: the reader's index field is outside 0 .. count";
-    let expected: Vec<String> = vec![
-        "valid [a][b] done=FALSE next=4".to_string(),
-        "valid-second [c][d] done=FALSE next=7".to_string(),
-        "valid-end  done=TRUE next=7".to_string(),
-        format!("count-long {count}"),
-        format!("count-long-tail {count}"),
-        format!("count-short {count}"),
-        format!("count-neg {count}"),
-        format!("index-neg {index}"),
-        format!("index-past {index}"),
-    ];
-    assert_lines(&run("hand_built_csv_reader", source), &expected);
+    let expected: Vec<String> = [
+        "0 [a][b]",
+        "1 [][b]",
+        "2 [b]",
+        "3 []",
+        "4 [x<LF>y][z]",
+        "5 [x]",
+        "6 []",
+        "7 [y\"][z]",
+        "8 raised 77050003",
+        "9 [][z]",
+        "10 [z]",
+        "11 []",
+        "12 raised 77020003",
+    ]
+    .iter()
+    .map(|line| line.to_string())
+    .collect();
+    let actual = run("csv_read_row_any_position", source);
+    assert!(
+        !actual.iter().any(|line| line.contains("77050001")),
+        "csv::readRow leaked ErrIndexOutOfRange:\n{}",
+        actual.join("\n")
+    );
+    assert_lines(&actual, &expected);
 }

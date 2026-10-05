@@ -5,16 +5,21 @@ text and a grid of cells (`List OF List OF String`). The dialect is
 RFC-4180-aligned by default: comma is the delimiter, fields may be double-quoted,
 and the doubled quote character is the in-field escape for a literal quote. The
 delimiter and quote character are configurable per call (plan-77 C3): `csv::parse`
-takes optional `delimiter`/`quote` arguments and `csv::stringify` takes optional
-`delimiter`/`quote`/`newline` arguments, each defaulting to the RFC-4180 value
-(`,`, `"`, and LF). `delimiter` and `quote` must each be a non-empty single
-character; only the first Unicode scalar is used. Record separators on the parse
-side (LF / CRLF) are not configurable. There is no comment syntax.
-[[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/func_stringify.rs:__csv_stringify]]
+and `csv::readRow` take optional `delimiter`/`quote` arguments and
+`csv::stringify` takes optional `delimiter`/`quote`/`newline` arguments, each
+defaulting to the RFC-4180 value (`,`, `"`, and LF). `delimiter` and `quote` must
+each be a non-empty single character; only the first Unicode scalar is used.
+Record separators on the parse side (LF / CRLF) are not configurable. There is no
+comment syntax.
+[[src/codegen/builtins/csv/helper_scan.rs:__csv_scan]] [[src/codegen/builtins/csv/func_stringify.rs:__csv_stringify]]
+
+Input is either a `String` or an open `fs::File` (bug-809): `csv::parse` has one
+overload for each, and `csv::readRow` reads one record from a `File`. All three
+run the same tokenizer, `__csv_scan` (below).
 
 This topic owns the parse/stringify *model* (grammar, separator handling, escape
-rules, error conditions). The per-function API (`csv::parse`, `csv::stringify`)
-is owned by `./mfb man csv`.
+rules, error conditions). The per-function API (`csv::parse`, `csv::readRow`,
+`csv::stringify`) is owned by `./mfb man csv`.
 
 ## Data model
 
@@ -56,13 +61,42 @@ Key dialect points: [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
 
 ## Parse algorithm
 
-`__csv_parse` decodes the input to its Unicode scalars in one pass
-(`encoding::utf32Encode`) and then runs a single forward scan over the scalar-code
-list with a small state set: `inQuotes`, `fieldStarted`, `wasQuoted`, and
-`recordPending`. The configured `delimiter`/`quote` are each converted to their
-first scalar code once (`__csv_firstCode`). It accumulates the current field's
-scalars, the current `row`, and the completed `rows`.
-[[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/helper_first_code.rs:__csv_firstCode]]
+There is ONE tokenizer, `__csv_scan(file, text, delimCode, quoteCode,
+maxRecords)`. It decodes `text` to its Unicode scalars (`encoding::utf32Encode`)
+and runs a single forward scan over the scalar-code list with a small state set:
+`inQuotes`, `fieldStarted`, `wasQuoted`, and `recordPending`. Whenever the list is
+used up it refills it with the next line of `file` — read with the internal
+`fs::readLineRaw`, which returns the line WITH its terminator (`LF` or `CRLF`, or
+none for an unterminated last line) and `""` only at the end of input. `""` ends
+the scan. The configured `delimiter`/`quote` are each converted to their first
+scalar code once (`__csv_firstCode`). It accumulates the current field's scalars,
+the current `row`, and the completed `rows`, and stops right after the record
+that brings the count to `maxRecords` (`0` = no limit), before reading anything
+further.
+[[src/codegen/builtins/csv/helper_scan.rs:__csv_scan]] [[src/codegen/builtins/csv/helper_first_code.rs:__csv_firstCode]] [[src/codegen/builtins/fs/func_read_line_raw.rs:lower_fs_read_line_raw]]
+
+The members are its two input adapters:
+
+| member | `file` | `text` | `maxRecords` |
+|---|---|---|---|
+| `parse(String)` | an empty `fs::openData("", "r")` file — already at its end | the whole document | 0 |
+| `parse(File)` | the caller's file | `""` | 0 |
+| `readRow(File)` | the caller's file | the record's first raw line | 1 |
+
+[[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/func_parse.rs:__csv_parseFile]] [[src/codegen/builtins/csv/func_read_row.rs:__csv_readRow]]
+
+Because a raw line keeps its exact terminator bytes, a quoted field that spans
+lines is rebuilt byte for byte (an embedded `CRLF` stays `CRLF`), and a record
+read from a `File` is identical to the same record parsed from a `String`. A line
+always ends at an `LF`, and an `LF` outside quotes ends the record, so a refill
+only ever happens between records or inside an open quoted field — never in the
+middle of an unquoted field.
+
+The `String` adapter decodes the whole document once instead of copying it into a
+`fs::openData` file and reading it back a line at a time. Both were measured on
+50,000- and 200,000-row documents (macos-aarch64, best of 15 runs): the copy route
+was 6–9% slower than the pre-bug-809 parse, the one-pass decode within 1.5%
+(run-to-run noise at the time).
 
 | State at cursor | Grapheme | Action |
 |-----------------|----------|--------|
@@ -76,48 +110,56 @@ scalars, the current `row`, and the completed `rows`.
 | not quoted | any other char | append to field, set `fieldStarted`, advance 1 |
 
 A field may only open a quote at its **start** (`fieldStarted = FALSE`); a `"`
-appearing after bare data is treated as ordinary data, not a quote opener.
+appearing after bare data is treated as ordinary data, not a quote opener. A
+separator closes a record, and with `maxRecords` reached the scan stops there.
 
 ### Trailing record
 
 After the loop, a final field/row is appended only if `fieldStarted` **or**
 `recordPending` **or** `wasQuoted` is set — i.e. there is genuinely pending
 content. This is what suppresses the trailing-empty-row when the document ends on
-a clean separator (all three flags are cleared by the separator arm).
-[[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
+a clean separator (all three flags are cleared by the separator arm). A scan
+stopped by `maxRecords` is always just past a separator, so it appends nothing
+here either.
+[[src/codegen/builtins/csv/helper_scan.rs:__csv_scan]]
 
-### CRLF peek caveat
+### Separator length
 
-The runtime grapheme splitter does **not** guarantee `\r\n` arrives as one
-grapheme cluster — it may yield `\r` and `\n` as two separate graphemes. The
-scanner therefore never assumes a single cursor step per record separator and
-instead asks `__csv_separatorLength` for the step count:
+The scan works on Unicode scalars, so a CRLF is always two entries (`13`, `10`),
+never one. `__csv_separatorLength` gives the number of scalars a record separator
+at the cursor occupies, and the cursor advances by exactly that:
 [[src/codegen/builtins/csv/helper_separator_length.rs:__csv_separatorLength]]
 
-| Grapheme at index | Next grapheme | Separator length |
-|-------------------|---------------|------------------|
-| `\n` | — | 1 |
-| merged `\r\n` cluster | — | 1 |
-| `\r` | `\n` | 2 (peek-merged CRLF) |
-| `\r` | not `\n` | 0 (bare CR is data) |
+| Scalar at index | Next scalar | Separator length |
+|-----------------|-------------|------------------|
+| `\n` (10) | — | 1 |
+| `\r` (13) | `\n` | 2 (CRLF) |
+| `\r` (13) | not `\n`, or none | 0 (bare CR is data) |
 | anything else | — | 0 |
 
-Because the separator is consumed by its measured length, a CRLF split across two
-graphemes and a CRLF merged into one grapheme both advance the cursor past the
-whole separator and yield identical results.
+A raw line from a `File` ends at its LF, so a CRLF is never split across two
+refills: its CR is always followed by its LF in the same line.
 
-The CR grapheme is the one-character carriage-return (U+000D) string, written
+On the stringify side, the CR is the one-character carriage-return (U+000D) string, written
 directly as a `"\r"` string literal — the lexer decodes the `\r` escape.
 [[src/codegen/builtins/csv/helper_needs_quote.rs:__csv_needsQuote]]
 
 ## Errors
 
-`__csv_parse` fails with `error(77050003, "invalid CSV format")` in two cases:
-[[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
+`__csv_scan` fails with `error(77050003, "invalid CSV format")` in two cases:
+[[src/codegen/builtins/csv/helper_scan.rs:__csv_scan]]
 
 - **Text after a closing quote** within the same field (e.g. `"a"b`) — detected by
   the `wasQuoted` arm.
-- **Unterminated quote** — `inQuotes` still set at end of input.
+- **Unterminated quote** — `inQuotes` still set when the input ends (the last
+  refill returned `""`).
+
+`csv::readRow` reads the record's first line itself and fails
+`error(77020003, …)` (`ErrEndOfFile`) when it is `""` — no record is left — which
+is `fs::readLine`'s end-of-input contract. Reading a `File` can also raise what
+`fs::readLineRaw` raises: `ErrEncoding` for a line that is not UTF-8,
+`ErrReadFailed`, `ErrResourceClosed`, `ErrResourceMoved`, `ErrOutOfMemory`.
+[[src/codegen/builtins/csv/func_read_row.rs:__csv_readRow]]
 
 ## Stringify algorithm
 
@@ -144,35 +186,25 @@ line1\nline2 ' contains LF        → "line1\nline2"  (quoted, LF kept verbatim)
 A field containing only a bare CR is still quoted (CR triggers `needsQuote`), but
 note that bare CR is *data* on the parse side, so stringify→parse preserves it.
 
-## Streaming parse
+## Streaming: `csv::readRow`
 
-`csv::parseStream(value [, delimiter, quote])` returns a `CsvReader` value holding
-the decoded input scalars, a scan cursor, and the dialect codes, without parsing
-any rows. `csv::readRow(reader)` parses exactly one record from the cursor and
-returns a `CsvRow { fields AS List OF String, reader AS CsvReader, done AS Boolean }`
-— the record's cells, a reader advanced past it, and `done = TRUE` when the reader
-was already at end of input. Reading is functional: the passed reader is never
-mutated; each call threads the returned reader into the next.
-[[src/codegen/builtins/csv/func_read_row.rs:__csv_next]]
+`csv::readRow(file [, delimiter, quote])` reads exactly one record starting at the
+file's current position and leaves the file just past it: it is `__csv_scan` with
+`maxRecords = 1`. The reader state is the `File` itself — its host position and
+`fs::readLine`'s per-file read buffer, advanced in place — so a loop over an
+n-record document reads each byte once and costs time linear in n, holding one
+record at a time. A loop `WHILE NOT fs::eof(f)` over `readRow` yields exactly the
+rows `parse` produces for the same text and dialect. Because the read buffer is
+the one `fs::readLine` uses, `readRow`, `fs::readLine` and `parse(File)` can be
+mixed on one file and each starts where the previous one stopped.
+[[src/codegen/builtins/csv/func_read_row.rs:__csv_readRow]]
 
-The per-record scan is the identical state machine `__csv_parse` runs, so a
-`WHILE row.done = FALSE` loop over `readRow` yields exactly the rows `parse`
-produces for the same input and dialect — including quoted fields, doubled quotes,
-CR/LF and CRLF separators, and the trailing-empty-row suppression (a reader whose
-cursor sits just past the final separator returns `done` rather than an empty
-row). An equivalence test pins this over a corpus. The benefit is memory: a caller
-processes arbitrarily large input one row at a time without ever building the
-whole `List OF List OF String`. [[src/codegen/builtins/csv/func_parse_stream.rs:__csv_parseStream]]
-
-`CsvReader` is an exported record, so a program can build one directly. `readRow`
-relies on `count = len(chars)` and `0 <= index <= count` for every `chars` read, so
-it checks both on entry and fails `ErrInvalidArgument` (`77050002`) naming the
-field, instead of leaking the list read's `ErrIndexOutOfRange`; a reader from
-`parseStream` or a previous `readRow` always satisfies them. `index = count` is the
-exhausted reader (`done = TRUE`). `delimCode`/`quoteCode` are only compared, never
-used as an index, so they are not checked; an element of `chars` that is not a
-Unicode scalar value fails `ErrInvalidFormat` when its field is decoded, as for
-`parse`. [[src/codegen/builtins/csv/func_read_row.rs:__csv_next]]
+The pre-bug-809 streaming API (`csv::parseStream` returning a `CsvReader` value,
+`readRow(CsvReader) AS CsvRow`) threaded the whole decoded input through every
+call; a record with a flat `List` field stores it inline and is copied on every
+store, so an n-row loop copied the input n times — measured ×4.47 time per
+doubling (5,000 rows 1.2 s, 50,000 rows 137.5 s). It was removed, not kept
+alongside; `rt_csv_read_row_scaling` pins the linear byte count.
 
 ## Round-trip notes
 
@@ -184,7 +216,8 @@ Unicode scalar value fails `ErrInvalidFormat` when its field is decoded, as for
 
 ## See Also
 
-* ./mfb man csv — the `csv::parse` / `csv::stringify` function API
+* ./mfb man csv — the `csv::parse` / `csv::readRow` / `csv::stringify` function API
+* ./mfb spec stdlib fs-memory-files — `fs::openData`, `fs::seek` and the raw line reader
 * ./mfb spec stdlib json — the sibling text-format package and its escape model
 * ./mfb spec unicode strings-model — `strings::graphemes` and grapheme clustering
 * ./mfb spec language types — `List OF List OF String` and collection typing

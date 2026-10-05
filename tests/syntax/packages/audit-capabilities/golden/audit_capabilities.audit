@@ -44,13 +44,18 @@ Control flow:
   main at src/main.mfb:27
     trap err -> returns value
     fallible call os.getEnv at src/main.mfb:28 -> trap
+    fallible call math.rand at src/main.mfb:30 -> trap
+    fallible call datetime.now at src/main.mfb:31 -> trap
     fallible call tcp.connect at src/main.mfb:32 -> trap
     fallible call tcp.close at src/main.mfb:33 -> trap
     fallible call sql.open at src/main.mfb:34 -> trap
     fallible call sql.close at src/main.mfb:35 -> trap
     fallible call io.print at src/main.mfb:36 -> trap
     fallible call io.print at src/main.mfb:37 -> trap
+    fallible call toString at src/main.mfb:37 -> trap
+    fallible call datetime.toMillis at src/main.mfb:38 -> trap
     fallible call io.print at src/main.mfb:38 -> trap
+    fallible call toString at src/main.mfb:38 -> trap
 
 Findings:
   info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `socket` (tcp.Socket) is closed by lexical drop; explicit `tcp.close` is required to observe a close failure (src/main.mfb:32)
@@ -113,6 +118,18 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
           "capability": "environment"
         },
         {
+          "callee": "math.rand",
+          "line": 30,
+          "propagation": "trap",
+          "capability": "randomness"
+        },
+        {
+          "callee": "datetime.now",
+          "line": 31,
+          "propagation": "trap",
+          "capability": "clock"
+        },
+        {
           "callee": "tcp.connect",
           "line": 32,
           "propagation": "trap",
@@ -149,10 +166,28 @@ $ mfb audit --format json tests/syntax/packages/audit-capabilities
           "capability": "terminal"
         },
         {
+          "callee": "toString",
+          "line": 37,
+          "propagation": "trap",
+          "capability": null
+        },
+        {
+          "callee": "datetime.toMillis",
+          "line": 38,
+          "propagation": "trap",
+          "capability": null
+        },
+        {
           "callee": "io.print",
           "line": 38,
           "propagation": "trap",
           "capability": "terminal"
+        },
+        {
+          "callee": "toString",
+          "line": 38,
+          "propagation": "trap",
+          "capability": null
         }
       ]
     }

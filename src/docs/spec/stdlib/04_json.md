@@ -65,6 +65,32 @@ wherever a `Json` argument is expected — `json::stringify(json::JsonStr["hi"])
 and prints `"hi"`. [[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/json/mod.rs:register]]
 
+### File input: `parse(File)` (bug-815)
+
+`json::parse` has two more overloads taking an open `fs::File` in place of the
+`String` — one for each of the plain and reviver forms. Both adapters read the
+file's remaining text with `fs::readAll` (from the file's current position to
+its end, exactly `fs::readAll`'s own contract) and hand that `String` to the
+untouched `__json_parse`/`__json_parseRevive` bodies below, so there is still
+exactly one parser: a `File`'s result, error codes, and reviver walk are
+identical to parsing the same text as a `String`. The file is left open, at end
+of input; a closed or moved file raises the usual resource error
+(`ErrResourceClosed`/`ErrResourceMoved`), and a file whose remaining bytes are
+not valid UTF-8 raises `ErrEncoding` — both `fs::readAll`'s own codes, reached
+before `__json_parse` ever runs.
+[[src/codegen/builtins/json/func_parse.rs:__json_parseFile]]
+[[src/codegen/builtins/json/func_parse.rs:__json_parseFileRevive]]
+[[src/codegen/builtins/fs/func_read_all.rs:lower_fs_read_all]]
+
+This is a different shape from `csv::parse`'s `File` overload (`./mfb spec
+stdlib csv`): csv shares one *tokenizer* across a String and a File adapter so a
+large document can stream a record at a time without materializing the whole
+text; json has no streaming counterpart (a document is one tree, built whole
+either way), so there is nothing to gain by threading a `File` through the
+scanner itself — reading the text up front and reusing the existing parser is
+both simpler and, because the `String` overload's body is untouched, exactly as
+fast as it already was.
+
 See `./mfb spec architecture frontend` for the injection ordering and
 `./mfb spec architecture monomorphization` for how the generic `List OF Json` /
 `Map OF String TO Json` instantiations are produced.

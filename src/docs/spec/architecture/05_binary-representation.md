@@ -86,8 +86,8 @@ it disagrees.
 ## Re-exporting a Dependency's Type
 
 A package's own exported API may name a type it imported from a declared
-dependency — for example `EXPORT FUNC takesA(a AS A)` where `A` is exported by a
-dependency `pA`. The package does **not** copy `A`'s definition into its own
+dependency — for example `EXPORT FUNC takesA(a AS pA::A) AS Nothing` after
+`IMPORT pA`, where `A` is exported by `pA`. The package does **not** copy `A`'s definition into its own
 `.mfp`; a copied definition would clash with `pA`'s own definition when an
 executable later merges both, and would sever the link to `pA`'s version.
 
@@ -101,17 +101,28 @@ A dependency type is written only when the package actually names it in an
 exported signature; a type reached only through an imported function's own
 signature is not re-exported.
 
-Because the executable decode-and-merge above collapses types by their bare
-name, a consumer that installs the owning dependency resolves every foreign
-reference to that one merged definition. The owner must be declared in the
-consumer's own `packages[]` like any other dependency (the merge set
-is exactly the declared closure — see below) — it is not pulled in merely by
-declaring the intermediary. Importing an intermediary therefore brings the
-re-exported type into scope under the owning package's original identity
-(true namespace re-export), idempotently when several intermediaries surface
-the same type.
-`read_package_type_exports` fills a re-exported type's fields back in from the
-owner's sibling `.mfp`, so an importer sees it with its structure intact.
+A consumer resolves each foreign reference using the declaring package's
+identity. `package_type_owners` preserves `foreign_owner`, and
+`qualify_package_type` / `imported_type_def` qualify nominal types by that owner;
+unrelated packages' types do not unify merely because their leaf names match.
+The owner must be declared in the consumer's own `packages[]` like any other
+dependency (the merge set is exactly the declared closure) — declaring only the
+intermediary does not install the owner implicitly.
+[[src/manifest/package.rs:package_type_owners]]
+[[src/manifest/package.rs:qualify_package_type]]
+[[src/manifest/package.rs:imported_type_def]]
+
+Type references may pass through multiple intermediaries, but this does not bind
+the owner's namespace in the consumer's source. A consumer can infer and pass a
+foreign value without naming its type; to spell `pA::A` it must `IMPORT pA`.
+See `./mfb spec language modules-and-packages` for the source-level example.
+[[src/resolver/resolution.rs:resolve_type]]
+
+`resolve_package_type_exports` fills a foreign type's fields and variants from
+the owner's sibling `.mfp` and includes the reachable user types needed to
+reconstruct that structure. This type-table re-export mechanism must not be
+confused with transitive source imports.
+[[src/binary_repr/mod.rs:resolve_package_type_exports]]
 
 The owning ABI hash is the compatibility gate: when two intermediaries were built
 against ABI-incompatible versions of the shared dependency (or an intermediary's

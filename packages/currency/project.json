@@ -1,0 +1,14 @@
+{
+  "name": "currency",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Money amounts tagged with an ISO 4217 or custom currency code, and a per-thread table of exchange rates that adds, subtracts, compares and converts amounts across currencies. ISO codes and minor units come from the ISO 4217 list committed with the package.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}

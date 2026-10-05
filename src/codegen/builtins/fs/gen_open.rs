@@ -102,7 +102,7 @@ pub(crate) fn o_cloexec(family: PlatformFamily) -> &'static str {
     }
 }
 
-fn emit_branch_if_ascii_literal(
+pub(crate) fn emit_branch_if_ascii_literal(
     instructions: &mut Vec<CodeInstruction>,
     ptr: impl Into<Reg>,
     len: impl Into<Reg>,

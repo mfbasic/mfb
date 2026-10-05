@@ -1,0 +1,79 @@
+{
+  "project": "func_fs_seek_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "trySeek",
+      "line": 6,
+      "params": [
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 6 },
+      { "name": "position", "type": "Integer", "default": null, "line": 6 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 7,
+        "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "position" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "seek raised " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 8 }
+        ]
+      }, "line": 7 },
+      { "kind": "return", "value": { "kind": "string", "value": "seek ok" }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/func_fs_seek_valid.txt" }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "header\nbody line\ntail\n" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "7" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "0" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "100" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "past end eof=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.eof", "arguments": [{ "kind": "identifier", "value": "f" }] }] } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "trySeek", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "number", "value": "12" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after negative: [" }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "f" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "m", "type": null, "value": { "kind": "call", "callee": "fs.openData", "arguments": [{ "kind": "string", "value": "" }, { "kind": "string", "value": "rw" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "boolean", "value": true }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "first\nsecond\n" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "number", "value": "0" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "buffered read back [" }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "m" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "X" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "number", "value": "0" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "overwrite at read position [" }, "right": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "m" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.seek", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "number", "value": "16" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "Z" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "buffered gap write size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "m" }] }] } }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.flush", "arguments": [{ "kind": "identifier", "value": "m" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "flushed gap write size=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.size", "arguments": [{ "kind": "identifier", "value": "m" }] }] } }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
+      ]
+    }
+    ]
+  }
+  ]
+}

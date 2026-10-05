@@ -1,0 +1,62 @@
+$ mfb build -ast -ir tests/syntax/fs/func_fs_openData_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   RES missing = fs::openData("x")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openData` has 1 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   RES missing = fs::openData("x")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   RES missing = fs::openData("x")
+   5 |   RES wrongValue = fs::openData(42, "r")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openData` has argument type(s) (Integer, String), expected String or List OF Byte, String.
+   3 | FUNC main AS Integer
+   4 |   RES missing = fs::openData("x")
+   5 |   RES wrongValue = fs::openData(42, "r")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongValue` does not have a known type.
+   4 |   RES missing = fs::openData("x")
+   5 |   RES wrongValue = fs::openData(42, "r")
+   6 |   RES wrongList = fs::openData([1, 2], "r")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openData` has argument type(s) (List OF Integer, String), expected String or List OF Byte, String.
+   4 |   RES missing = fs::openData("x")
+   5 |   RES wrongValue = fs::openData(42, "r")
+   6 |   RES wrongList = fs::openData([1, 2], "r")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongList` does not have a known type.
+   5 |   RES wrongValue = fs::openData(42, "r")
+   6 |   RES wrongList = fs::openData([1, 2], "r")
+   7 |   RES wrongMode = fs::openData("x", 1)
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openData` has argument type(s) (String, Integer), expected String or List OF Byte, String.
+   5 |   RES wrongValue = fs::openData(42, "r")
+   6 |   RES wrongList = fs::openData([1, 2], "r")
+   7 |   RES wrongMode = fs::openData("x", 1)
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongMode` does not have a known type.
+   6 |   RES wrongList = fs::openData([1, 2], "r")
+   7 |   RES wrongMode = fs::openData("x", 1)
+   8 |   RES tooMany = fs::openData("x", "r", "rw")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openData` has 3 argument(s), expected 2.
+   6 |   RES wrongList = fs::openData([1, 2], "r")
+   7 |   RES wrongMode = fs::openData("x", 1)
+   8 |   RES tooMany = fs::openData("x", "r", "rw")
+     | ^
+tests/syntax/fs/func_fs_openData_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]
