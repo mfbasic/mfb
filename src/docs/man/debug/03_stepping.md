@@ -9,6 +9,7 @@ step [<count>] [<thread>]     s …
 step-all [<count>]            sa …
 disassemble                   dis
 dis <count>
+dis -<back> <count>
 dis <where> [<count>]
 dis <function> [<count>]
 ```
@@ -67,15 +68,22 @@ debug.out`isPrime:
 ->  0x00000001049c4ab0 <+12>: ldr    x8, [sp, #0x10]
 ```
 
+To see both sides, give two counts: `dis -6 8` starts six instructions
+before the current one and shows eight, so the current one and the one after
+it too. When the instructions shown run into another function, its name heads
+them, so the end of the function before this one is not mistaken for this
+one's.
+
 `dis isPrime` or `dis exit` shows a function you name, the same way
 `breakpoint` reads a name, and `dis isPrime 3` its first three instructions.
 `dis` also starts anywhere you name an address, a register or a function, each
 with an offset: `dis pc-8 4` shows four instructions from two before the
 current one, `dis lr 2`, at a breakpoint on a function's first instruction, the
 code it returns to, `dis 0x1049c4ab0+0x40` the code at that address, and
-`dis main+0x110 4` the code at a place `bt` or a stop showed you. A negative count works with all of them, and a count
-that runs back past the start of the function shows those addresses as
-`<-8>`, before the function. Every instruction is 4 bytes, so an address that
+`dis main+0x110 4` the code at a place `bt` or a stop showed you. A negative
+count, or two counts, works with all of them: `dis isPrime -2 4`. A count that
+runs back past the start of the function into code that is in no function
+shows those addresses as `<-8>`, before the function. Every instruction is 4 bytes, so an address that
 is not a multiple of 4 is refused.
 
 The notes after `;` say where a branch goes (`<+68>` is 68 bytes into this
@@ -101,7 +109,7 @@ Launched examples/debug/build/debug.out as process 89969; paused before its firs
 DBG> bp isPrime
 Set a breakpoint at 0x0000000102734aa4 in isPrime.
 DBG> run
-Thread 0 hit a breakpoint at 0x0000000102734aa4 in isPrime.
+--[BP] T: 0 P: 0x0000000102734aa4 F: isPrime
 DBG> step 3
 Stepped 3 instructions; thread 0 is at 0x0000000102734ab0 in isPrime+0xc.
 DBG> dis 5

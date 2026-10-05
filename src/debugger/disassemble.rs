@@ -20,20 +20,45 @@ const MAX_FUNCTION: u64 = 1 << 20;
 /// Where a comment starts, counted from the instruction text.
 const COMMENT_COLUMN: usize = 33;
 
-/// What a `dis` asks for. A count is never 0: a positive count is that many
-/// instructions from the starting point, a negative one that many before it
-/// and then the starting point itself.
+/// The instructions a counted `dis` shows around its starting point: `length`
+/// of them, from `back` instructions before it. `length` is never 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Window {
+    pub(crate) back: u64,
+    pub(crate) length: u64,
+}
+
+impl Window {
+    /// One count, never 0: a positive count is that many instructions from the
+    /// starting point, a negative one that many before it and then the
+    /// starting point itself.
+    pub(crate) fn count(count: i64) -> Window {
+        if count > 0 {
+            Window {
+                back: 0,
+                length: count as u64,
+            }
+        } else {
+            Window {
+                back: count.unsigned_abs(),
+                length: count.unsigned_abs() + 1,
+            }
+        }
+    }
+}
+
+/// What a `dis` asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Request {
     /// The function holding the current thread's `pc`.
     Current,
     /// Instructions around the current thread's `pc`.
-    Count(i64),
+    Count(Window),
     /// Instructions around an address: through the end of its function when
     /// no count is given.
-    At { address: u64, count: Option<i64> },
+    At { address: u64, count: Option<Window> },
     /// Every function with this name: all of it, or a count from its start.
-    Named { name: String, count: Option<i64> },
+    Named { name: String, count: Option<Window> },
 }
 
 /// The size of an AArch64 instruction; every one starts on a multiple of it.
@@ -66,12 +91,20 @@ pub(crate) fn at_offset(symbol: &str, offset: u64, collisions: &Collisions) -> S
     }
 }
 
-/// `image`name:` — or `image`0x…:` for a function the image does not name.
+/// `image`name:` — or `image`0x…:` for a function the image does not name,
+/// or `0x…:` for code no image holds.
 fn header(range: &FunctionRange, collisions: &Collisions) -> String {
     match &range.name {
+        _ if range.image.is_empty() => format!("0x{:016x}:", range.start),
         Some(name) => format!("{}`{}:", range.image, display_name(name, collisions)),
         None => format!("{}`0x{:016x}:", range.image, range.start),
     }
+}
+
+/// Whether `address` is in `range`: at or after its start, and before its end
+/// when its extent is known.
+fn holds(range: &FunctionRange, address: u64) -> bool {
+    range.start <= address && range.size.is_none_or(|size| address - range.start < size)
 }
 
 /// The listing for `request`, with `pc` (the current thread's) marked `->`.
@@ -116,13 +149,13 @@ pub(crate) fn disassemble(
     }
 }
 
-/// The listing around `anchor`, headed by the function holding it: `count`
-/// instructions as `Request` describes, or with none the rest of that
-/// function from `anchor`.
+/// The listing around `anchor`, headed by the function holding it: the
+/// instructions `count` describes, or with none the rest of that function from
+/// `anchor`.
 fn around(
     inferior: &mut dyn Inferior,
     anchor: u64,
-    count: Option<i64>,
+    count: Option<Window>,
     pc: u64,
 ) -> Result<Vec<String>, String> {
     let range = inferior
@@ -140,23 +173,20 @@ fn around(
     }
 }
 
-/// `count` instructions from `anchor`, or before it and then `anchor`.
+/// The instructions `window` picks around `anchor`.
 fn counted(
     inferior: &mut dyn Inferior,
     range: &FunctionRange,
     anchor: u64,
-    count: i64,
+    window: Window,
     pc: u64,
 ) -> Result<Vec<String>, String> {
-    if count > 0 {
-        return listing(inferior, range, anchor, None, Some(count as u64), pc);
-    }
-    let back = count.unsigned_abs();
+    let back = window.back;
     let from = back
         .checked_mul(INSTRUCTION)
         .and_then(|bytes| anchor.checked_sub(bytes))
         .ok_or_else(|| format!("there are not {back} instructions before 0x{anchor:016x}"))?;
-    listing(inferior, range, from, None, Some(back + 1), pc)
+    listing(inferior, range, from, None, Some(window.length), pc)
 }
 
 /// The address of every `ret` in `range`: through its size when known, else
@@ -259,7 +289,10 @@ pub(crate) fn resolve(
 
 /// One listing: the header, then an instruction per line from `from`, through
 /// the function's `size` when known, else `count` instructions, else to the
-/// first `ret` or [`UNSIZED_LIMIT`].
+/// first `ret` or [`UNSIZED_LIMIT`]. A counted listing that runs out of
+/// `range` (before its start, or past its end) heads each other function's
+/// instructions with that function, as lldb does; instructions no function
+/// holds stay under `range`.
 fn listing(
     inferior: &mut dyn Inferior,
     range: &FunctionRange,
@@ -275,6 +308,9 @@ fn listing(
     };
     let code = read_up_to(inferior, from, limit as usize * 4)?;
     let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
+    // The functions the listing shows code of, in order; each row holds the
+    // index of its own.
+    let mut owners = vec![range.clone()];
     let mut rows = Vec::new();
     for (index, word) in code.chunks_exact(4).enumerate() {
         let address = from + index as u64 * 4;
@@ -283,36 +319,70 @@ fn listing(
         let returns = decoded
             .as_ref()
             .is_some_and(|instruction| instruction.flow == Flow::Return);
-        rows.push((address, decoded, word));
+        let last = owners.len() - 1;
+        let owner = if holds(&owners[last], address) {
+            last
+        } else if holds(range, address) {
+            owners.push(range.clone());
+            last + 1
+        } else {
+            match inferior
+                .function_at(address)?
+                .filter(|other| holds(other, address))
+            {
+                Some(other) if other.start == owners[last].start => last,
+                Some(other) => {
+                    owners.push(other);
+                    last + 1
+                }
+                None if owners[last].start == range.start => last,
+                None => {
+                    owners.push(range.clone());
+                    last + 1
+                }
+            }
+        };
+        rows.push((address, owner, decoded, word));
         if returns && count.is_none() && size.is_none() {
             break;
         }
     }
-    let offset = |address: u64| {
-        if range.image.is_empty() && range.name.is_none() {
+    // The first row's function heads the listing, even one before `range`.
+    if rows.first().is_some_and(|(_, owner, ..)| *owner != 0) {
+        owners.remove(0);
+        for (_, owner, ..) in &mut rows {
+            *owner -= 1;
+        }
+    }
+    let offset = |owner: &FunctionRange, address: u64| {
+        if owner.image.is_empty() && owner.name.is_none() {
             String::new()
         } else {
             // An instruction before the function's start (a listing counted
-            // back past it) shows how far before.
-            match address.checked_sub(range.start) {
+            // back past it into code no function holds) shows how far before.
+            match address.checked_sub(owner.start) {
                 Some(after) => format!(" <+{after}>:"),
-                None => format!(" <-{}>:", range.start - address),
+                None => format!(" <-{}>:", owner.start - address),
             }
         }
     };
     let width = rows
         .iter()
-        .map(|(address, _, _)| offset(*address).len())
+        .map(|(address, owner, ..)| offset(&owners[*owner], *address).len())
         .max()
         .unwrap_or(0);
-    // Each register an `adrp` set, and the page it holds, until overwritten.
+    // Each register an `adrp` set, and the page it holds, until overwritten
+    // or the listing moves into another function.
     let mut pages: Vec<(u32, u64)> = Vec::new();
-    let mut lines = vec![if range.image.is_empty() {
-        format!("0x{:016x}:", range.start)
-    } else {
-        header(range, &collisions)
-    }];
-    for (address, decoded, word) in rows {
+    let mut lines = vec![header(&owners[0], &collisions)];
+    let mut shown = 0;
+    for (address, owner, decoded, word) in rows {
+        if owner != shown {
+            lines.push(header(&owners[owner], &collisions));
+            pages.clear();
+            shown = owner;
+        }
+        let owner = &owners[owner];
         let marker = if address == pc { "->  " } else { "    " };
         let text = match &decoded {
             Some(instruction) => instruction.text.clone(),
@@ -332,17 +402,17 @@ fn listing(
                 }
                 match paged {
                     Some(address) => named_address(inferior, address, &collisions),
-                    None => comment(inferior, range, instruction, &collisions),
+                    None => comment(inferior, owner, instruction, &collisions),
                 }
             }
             None => None,
         };
         let mut line = format!(
             "{marker}0x{address:016x}{:<width$} {text}",
-            if offset(address).is_empty() {
+            if offset(owner, address).is_empty() {
                 ":".to_string()
             } else {
-                offset(address)
+                offset(owner, address)
             }
         );
         if let Some(comment) = comment {

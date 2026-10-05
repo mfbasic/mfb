@@ -5,9 +5,9 @@ List the program's functions, threads and registers, and read its memory
 ## Description
 
 ```
-list func            l func
-list thread          l thread
-list reg …           l reg …
+list func [<filter>...]   l func …
+list thread               l thread
+list reg …                l reg …
 show mem <where> [<size>]
 show error [<thread>]
 ```
@@ -49,6 +49,13 @@ started is paused before it has loaded its system libraries, so every `SL`
 function shows `-` there; attach to a running program to see where they are.
 When a program calls a system function from more than one place in the runtime,
 that function is listed once for each.
+
+`list func` lists every function; name a type or a function after it to see
+fewer. `list func MU` lists only the functions you wrote, `list func fib` the
+function named `fib`, and `list func *norm*` every function with `norm` in its
+name, `*` standing for any characters and `?` for any one. A name is matched
+against both the `Symbol` and the `Written name`. Give several to see more:
+`list func MU MB` lists your functions and the built-in packages'.
 
 `SD` functions appear once the program has loaded their library, so a program
 just started has none. Most system frameworks, such as `CoreFoundation` and
@@ -151,7 +158,7 @@ Launched examples/debug/build/debug.out as process 97664; paused before its firs
 DBG> bp isPrime
 Set a breakpoint at 0x0000000104b2caa4 in isPrime.
 DBG> run
-Thread 0 hit a breakpoint at 0x0000000104b2caa4 in isPrime.
+--[BP] T: 0 P: 0x0000000104b2caa4 F: isPrime
 DBG> step 7
 Stepped 7 instructions; thread 0 is at 0x0000000104b2cac0 in isPrime+0x1c.
 DBG> list reg x0, sp, pc

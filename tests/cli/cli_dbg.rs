@@ -556,11 +556,9 @@ mod macos {
         let raised = body(&session.until_prompt());
         assert!(
             raised.len() == 1
-                && raised[0].starts_with(
-                    "Thread 0 raised 77050010 (errorCode::ErrOverflow) at src/main.mfb:10:"
-                )
-                && raised[0].contains(" in main+0x")
-                && raised[0].ends_with(", before a TRAP takes the error."),
+                && raised[0].starts_with("--[BE] T: 0 P: 0x")
+                && raised[0].contains(" F: main+0x")
+                && raised[0].ends_with(" E: errorCode::ErrOverflow (77050010)"),
             "{raised:?}"
         );
         session.send("show error\n");
@@ -584,7 +582,7 @@ mod macos {
             end.iter().any(|line| line == "caught 77050010")
                 && end
                     .last()
-                    .is_some_and(|line| line == "The program exited with status 0."),
+                    .is_some_and(|line| line == "--[EX] Program exit (0)"),
             "{end:?}"
         );
         session.send("q\n");
@@ -925,6 +923,130 @@ mod macos {
         assert_eq!(code, Some(0));
     }
 
+    /// A watchpoint stops the program when a thread changes the watched
+    /// bytes. `countPrimes` opens its frame with `sub sp, sp, #<n>` and then
+    /// saves `lr` at the new `sp`: a watchpoint at `sp - <n>`, set at the
+    /// breakpoint on its first instruction, sees the return address arrive.
+    #[test]
+    fn a_watchpoint_stops_when_a_thread_changes_the_watched_bytes() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bp countPrimes\n");
+        session.until_prompt();
+        session.send("run\n");
+        session.until_prompt();
+        session.send("dis 1\n");
+        let first = body(&session.until_prompt());
+        let frame = first[1]
+            .split("sub    sp, sp, #")
+            .nth(1)
+            .unwrap_or_else(|| panic!("no frame in {first:?}"));
+        session.send("list reg lr\n");
+        let lr = table_rows(&session.until_prompt(), REGISTER_COLUMNS)[0]
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .to_string();
+        session.send(&format!("wp sp-{frame}\n"));
+        let set = body(&session.until_prompt());
+        assert!(
+            set.len() == 1
+                && set[0].starts_with("Set a watchpoint at 0x")
+                && set[0].contains(" (8 bytes): 0x"),
+            "{set:?}"
+        );
+        let address = set[0]
+            .strip_prefix("Set a watchpoint at ")
+            .unwrap()
+            .split(' ')
+            .next()
+            .unwrap()
+            .to_string();
+        session.send("bp r countPrimes\n");
+        session.until_prompt();
+        session.send("run\n");
+        let changed = body(&session.until_prompt());
+        assert!(
+            changed.len() == 1
+                && changed[0].starts_with("--[WP] T: 0 P: 0x")
+                && changed[0].contains(" F: countPrimes+0x4 ")
+                && changed[0].contains(&format!(" M: {address}: 0x"))
+                && changed[0].ends_with(&format!(
+                    " -> {lr} ({})",
+                    i64::from_str_radix(&lr[2..], 16).unwrap()
+                )),
+            "{changed:?} {lr}"
+        );
+        session.send("list watchpoint\n");
+        let listed = table_rows(&session.until_prompt(), &["Address", "Size", "Value"]);
+        assert!(
+            listed.len() == 1 && listed[0].starts_with(&format!("{address} 8    {lr}")),
+            "{listed:?}"
+        );
+        session.send(&format!("wp r {address}\n"));
+        assert_eq!(
+            body(&session.until_prompt()),
+            [format!("Removed the watchpoint at {address} (8 bytes).")]
+        );
+        session.send("run\n");
+        assert_eq!(
+            body(&session.until_prompt()).last().map(String::as_str),
+            Some("--[EX] Program exit (0)")
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
+    /// A breakpoint with commands runs them at each stop and lets the program
+    /// run on, to its end.
+    #[test]
+    fn a_breakpoint_with_commands_runs_them_and_runs_on() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bp countPrimes list reg x1; bt 1\n");
+        let set = body(&session.until_prompt());
+        assert!(
+            set.len() == 1
+                && set[0].ends_with(
+                    " in countPrimes. Each stop runs 'list reg x1; bt 1' and continues."
+                ),
+            "{set:?}"
+        );
+        session.send("run\n");
+        let run = body(&session.until_prompt());
+        let stops = run
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| {
+                line.starts_with("--[BP] T: 0 P: 0x") && line.ends_with(" F: countPrimes")
+            })
+            .map(|(at, _)| at)
+            .collect::<Vec<_>>();
+        assert_eq!(stops.len(), 2, "{run:?}");
+        for at in stops {
+            assert_eq!(
+                run[at + 1],
+                "Register Hex                Decimal",
+                "{run:?}"
+            );
+            assert_eq!(run[at + 2], "x1       0x00000000000001f4 (500)", "{run:?}");
+            assert_eq!(run[at + 3], "* thread #0, task = 'MFB Main'", "{run:?}");
+            assert!(run[at + 4].ends_with(" debug.out`countPrimes"), "{run:?}");
+        }
+        assert_eq!(
+            run.last().map(String::as_str),
+            Some("--[EX] Program exit (0)")
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
     /// Breakpoints by written name and by a system function's symbol (pending
     /// until the libraries load), `run` to each, then to the end.
     #[test]
@@ -956,8 +1078,8 @@ mod macos {
         assert!(
             first.len() == 2
                 && first[0].starts_with("Placed the pending breakpoint on _exit at 0x")
-                && first[1].starts_with("Thread 0 hit a breakpoint at 0x")
-                && first[1].ends_with(" in isPrime."),
+                && first[1].starts_with("--[BP] T: 0 P: 0x")
+                && first[1].ends_with(" F: isPrime"),
             "{first:?}"
         );
 
@@ -1026,8 +1148,8 @@ mod macos {
         let interrupted = body(&session.until_prompt());
         assert!(
             interrupted.len() == 2
-                && interrupted[0].starts_with("Thread 0 hit a breakpoint at 0x")
-                && interrupted[0].ends_with(" in isPrime."),
+                && interrupted[0].starts_with("--[BP] T: 0 P: 0x")
+                && interrupted[0].ends_with(" F: isPrime"),
             "{interrupted:?}"
         );
         assert_eq!(
@@ -1047,10 +1169,9 @@ mod macos {
         session.send("run\n");
         let second = body(&session.until_prompt());
         assert!(
-            second
-                .last()
-                .is_some_and(|line| line.starts_with("Thread 0 hit a breakpoint at 0x")
-                    && line.ends_with(" in exit.")),
+            second.last().is_some_and(
+                |line| line.starts_with("--[BP] T: 0 P: 0x") && line.ends_with(" F: exit")
+            ),
             "{second:?}"
         );
         // The program printed its rounds before reaching `exit`.
@@ -1060,10 +1181,7 @@ mod macos {
         );
 
         session.send("run\n");
-        assert_eq!(
-            body(&session.until_prompt()),
-            ["The program exited with status 0."]
-        );
+        assert_eq!(body(&session.until_prompt()), ["--[EX] Program exit (0)"]);
         // After the end, restart: a new process, the breakpoint on exit
         // pending again until the libraries load.
         session.send("restart\n");
