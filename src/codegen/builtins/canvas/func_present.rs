@@ -20,7 +20,7 @@ animation loop at the display's pace, end each iteration with `canvas::waitFrame
 advance the animation by `canvas::getFrameStats().dt`.
 
 `present` **copies the whole scene**. Everything it reaches — the item fields, a
-`canvas::Polygon`'s point list, a `canvas::Text`'s string, the `canvas::Paint` values — is copied, so
+`canvas::Polygon`'s rings, a `canvas::Text`'s string, the `canvas::Paint` values — is copied, so
 once `present` returns the installed scene is entirely its own. You are free to
 change or discard whatever you built the list from, and the renderer can read
 the scene at any later moment without coordinating with your program.

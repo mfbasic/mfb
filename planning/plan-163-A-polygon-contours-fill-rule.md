@@ -580,21 +580,29 @@ Acceptance: both GPUs draw both rules within tolerance of the software renderer.
   * Vulkan, box 206 (Intel UHD 630): `--target windows-x86_64 --rows
     star301x2nz,fillrules` → star301x2nz worst=1 0.0344%, fillrules worst=2 0.5917%,
     both `gpuFrames=1`.
-Commit: —
+Commit: a04d0db67
 
 ### Phase 4 — Docs and spec
 
-- [ ] `src/docs/spec/app/06_canvas.md`: at :52, "a `Polygon`'s point list" → its
+- [x] `src/docs/spec/app/06_canvas.md`: at :52, "a `Polygon`'s point list" → its
       rings. At :179/:193–197, describe the crossing count under both rules and the
       signed-crossing test, citing `[[…:edgeDistance]]` and the new
       `[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYGON_RULE]]` and
       `[[…:emit_item_polygon_rule]]`. At :324–326, keep "no cap and no join style" and
       reword "the crossing-count fill rule" to name `Polygon.rule`. Add the item-block
       `arc.y` dual use where `ITEM_ARC_REFLEX` is cited (:219).
-- [ ] `func_present.rs:23` (the deep-copy paragraph): "a Polygon's point list" → its
-      rings.
-- [ ] `.ai/canvas-threading.md`: if it documents the item-block words or the header
-      slots, add the `arc.y`/slot-21 polygon use there.
+      (The rings-and-rule contract is a new paragraph after the cap/join one, citing
+      `GEO_LAYOUT`, `GEO_TAIL`, `fill_polygon`, `EDGE_DISTANCE` — the Rust const that
+      holds `__canvas_edgeDistance` — `HEADER_POLYGON_RULE` and both shaders'
+      `edgeCrossing32`.)
+- [x] `func_present.rs:23` (the deep-copy paragraph): "a Polygon's point list" → its
+      rings. (Also the same phrase in the package overview prose, `mod.rs:170`.)
+- [x] ~~`.ai/canvas-threading.md`: if it documents the item-block words or the header
+      slots, add the `arc.y`/slot-21 polygon use there.~~ — moot: it documents neither
+      (`grep -n "arc.y\|ITEM_ARC_REFLEX\|HEADER_AUX1\|slot 21\|reflex"
+      .ai/canvas-threading.md` → no hits); the per-word layout lives in
+      `runtime/canvas/mod.rs`, whose `ITEM_OFFSET_ARC`/`ITEM_ARC_REFLEX` docs now name the
+      polygon use.
 
 Acceptance: the man page and the spec render and cite correctly.
   Check: `mfb man canvas types` shows `FillRule` and the new Polygon fields;
@@ -602,6 +610,11 @@ Acceptance: the man page and the spec render and cite correctly.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min total, guess).
+  Result: `mfb man canvas types` lists `canvas::FillRule` (EvenOdd, NonZero) and
+  Polygon's `contours`/`rule`; `man-census.sh --memory-scope` → `unclassified
+  memory-vocabulary hits: 0`; `man-run-examples.sh canvas --run` → `examples: 32 built:
+  32 ran: 32 … failed: 0`; `spec-census.sh --citations` → MISS-PATH/LINE/SYMBOL 0,
+  `--links` → `unresolved=0`; `cargo test --bin mfb spec` → 46 passed.
 Commit: —
 
 ## Validation Plan

@@ -167,7 +167,7 @@ DO WHILE running
 LOOP
 ```
 
-`present` **copies the whole scene** — item fields, polygon point lists, text
+`present` **copies the whole scene** — item fields, polygon rings, text
 strings, the `canvas::Paint` values. After it returns, the published scene is entirely
 its own, so you are free to change or discard whatever you built the list
 from.

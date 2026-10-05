@@ -49,7 +49,7 @@ therefore one set of guarantees; they differ only in what they copy.
 ## A published scene points at nothing caller-owned
 
 `present` **deep-copies the scene transitively** into runtime-owned storage:
-item fields, a `Polygon`'s point list, a `Text`'s string, the `Paint` values.
+item fields, a `Polygon`'s rings, a `Text`'s string, the `Paint` values.
 After it returns, nothing in the installed scene references anything the caller
 owns.
 
@@ -176,13 +176,15 @@ moves a distance by up to ~1.5e-5 px, so every value a distance reads travels as
 The shader rebuilds each value as a double-float, a pair of floats with about 48 bits,
 and evaluates the oracle's distance for every kind in it, operation for operation: the
 rectangle, circle, segment (round, or butt with its two end planes), arc, ellipse,
-polygon and polyline distances, the even-odd crossing test (multiplied out, no
-division), the inverse transform, the central-difference gradient, the stroke's
+polygon and polyline distances, the polygon's signed crossing test (multiplied out, no
+division) summed under its fill rule, the inverse transform, the central-difference gradient, the stroke's
 half-width and the coverage rounding; the clip's rectangle distance too. The
 quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep test takes
 its direction vectors from its cap endpoints less its centre, a positive multiple of the
 oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
-reflex is decided by the emitter in f64 and carried as a flag. An ellipse runs the
+reflex is decided by the emitter in f64 and carried as a flag, in the item-block word a
+polygon uses for its fill rule instead (`arc.y`; only an arc reads it as the flag). An
+ellipse runs the
 oracle's 24-step bisection with every step in double-float: in fp32 a step whose test
 value lies within fp32's error of zero takes the other branch. The double-float helpers
 need their operations kept in written order: Metal's fast math reassociates them away,
@@ -217,6 +219,7 @@ otherwise narrow to zero, is given a residual of 1.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_SHAPE_LO]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_RESIDUAL_FIELDS]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_ARC_REFLEX]]
+[[src/codegen/runtime/canvas/mod.rs:emit_item_polygon_rule]]
 [[src/codegen/runtime/canvas/mod.rs:emit_item_stroke_sign]]
 [[src/codegen/builtins/canvas/helper_render.rs:__canvas_pushOneDraw]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
@@ -346,9 +349,39 @@ decides which value is the compatible one: a `Line` was round and an `Arc` was b
 construction requires every field, so no item can have a defaulted `cap`, and the zero is
 only a tag number.
 
-`Polygon` has no cap and no **join** style; its corners are whatever the crossing-count
-fill rule produces. `PolyLine`'s joins are always round, and no variant exposes a join
-style.
+`Polygon` has no cap and no **join** style; its stroked corners are whatever the
+distance to its nearest edge produces, under either `Polygon.rule`. `PolyLine`'s joins
+are always round, and no variant exposes a join style.
+
+**A `Polygon` is one or more closed rings filled under its `rule`.** `contours` is a
+`List OF List OF Point`; each ring closes from its own last point back to its own first.
+A ring of fewer than 2 points contributes no edge and no bounds; a 2-point ring
+contributes its two coincident edges, so it has no area and draws only its stroke; an
+item none of whose rings contributes builds the empty header and draws nothing. Every
+contributing ring's edges are one concatenated edge list, ring after ring, with no
+separator and no ring count: the fill sums crossings over all of them and the stroke is a
+minimum over all of them, so neither needs to know where a ring ends. The rule's ordinal
+(0 `EvenOdd`, 1 `NonZero`) is header slot 21, the per-kind aux slot no other polygon
+reader uses. A single-ring `EvenOdd` polygon builds the header and edge tail it built
+before rings existed, slot 21 included (it was always 0).
+
+The sign of a polygon's distance comes from a ray from the pixel centre towards −x. An
+edge **crosses** when it straddles the pixel's row (`(ay > py) ≠ (by > py)`) and passes
+left of the pixel. Under `EvenOdd` each crossing flips inside/outside. Under `NonZero` a
+crossing edge running down the screen (`by > ay`) adds +1 and one running up adds −1,
+and the pixel is inside when the sum is not zero — so a ring inside another is a hole
+when the two run in opposite directions and more fill when they run the same way. The
+sign convention is not observable (only zero-or-not is), but all three renderers use the
+same one; both shaders sum the signed crossings as a winding number and take `EvenOdd`
+as its parity. Stroked `Text` is lowered to a polygon whose header leaves slot 21 at 0,
+so glyph outlines are always filled even-odd.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_TAIL]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
+[[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYGON_RULE]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
+[[src/target/macos_aarch64/app/metal.rs:edgeCrossing32]]
 
 **A `PolyLine` is the union of its segments' round-capped bands.** For `n` points it
 strokes the `n − 1` segments `P[i] → P[i+1]`, and its distance is the minimum of the
