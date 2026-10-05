@@ -441,6 +441,20 @@ Commit: 70f1b9ea6
   golden sha, and the only diff to the fixed dump is those three immediates
   becoming `1048576`. Fixed in the dump path, and the four
   `link-const-pins` `.ncodesum` goldens regenerated.
+- **Final gate (2026-10-05, after merging main at 031f64353).**
+  `scripts/test-accept.sh target/release/mfb /tmp/acc-167-final2` →
+  `acceptance tests passed (1651 test(s) ran)`; `scripts/artifact-gate.sh
+  target/release/mfb all` → `1621 tests, 1800 build(s), 2272 golden(s) checked,
+  0 diff(s)`; `cargo test --no-fail-fast` → 318 binaries ok and 1 failed:
+  `inplace_self_update_census` wanted a `cases.tsv` runtime case for
+  `os::getConfigOr`'s String overload, whose self-update form cannot build.
+  Fixed in e059f0752 by excluding literal-first members, the exclusion tied to
+  the man page's "Both arguments must be literals." (`cargo test --test
+  inplace_self_update_census` → 2 passed). `cargo test` (without
+  `--no-fail-fast`) first stopped at `cli_dbg`, which also failed at main's
+  own HEAD (a detached worktree at 031f64353): its last assertion still
+  expected the pre-031f64353 ` in exit.` stop line. Fixed in a36f6e637
+  (`cargo test --test cli_dbg` → 16 passed).
 - **`NamedConfig.line` and `ProjectConfig.line` added.** The unknown-name
   diagnostic (Phase 1) needs the `config` line, and the case-only config-name
   duplicate needs the config's own line.
