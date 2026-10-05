@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/trap/trap-local-after-unproved-builtin-invalid
+  12 |   io::print(astrings::toMarkdown(a))
+  13 |   RETURN marker
+  14 |   TRAP(e)
+     | ^
+tests/syntax/trap/trap-local-after-unproved-builtin-invalid/src/main.mfb:14 error[2-203-0143 TYPE_TRAP_LOCAL_UNINITIALIZED]: a TRAP handler reads a local that an error can reach before it is declared
+               TRAP `e` reads `marker`, but an error can reach the handler before `marker` is declared: an error in its own initializer, or in any statement before it. Declare `marker` before the first statement that can fail, or do not read it in the handler.
+[exit 1]

@@ -42,7 +42,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 req("high", HIGH, ty.clone(), HIGH_D),
             ],
             ParameterType::Arg(0),
-            vec!["ErrInvalidArgument"],
+            super::list_form_errors(vec!["ErrInvalidArgument"]),
             lower_math_clamp,
         ));
     }

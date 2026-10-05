@@ -34,6 +34,7 @@ pub(crate) mod tcp;
 pub(crate) mod term;
 pub(crate) mod testing;
 pub(crate) mod thread;
+pub(crate) mod totality_proof;
 pub(crate) mod tls;
 pub(crate) mod udp;
 pub(crate) mod vector;
@@ -366,10 +367,13 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
     // `bits` variable shifts (`sl`/`sr`/`sra`) raise `ErrInvalidArgument` on an
     // out-of-range count and so report `Some(true)` here — the census is grounded
     // in registry data, not a `bits.` name predicate.
-    matches!(
-        crate::codegen::registry::native_member_declares_error(target),
-        Some(true)
-    ) || matches!(
+    // plan-165-B: an inline member that is not proven total (it declares an
+    // error, or no raise-checking guard covers it) is captured for real — an
+    // inline `TRAP` on it must not be wrapped always-`Ok`. Its raw lowering runs
+    // the member's ordinary inline body under the capture, so a member that
+    // raises nothing simply always delivers `Ok`.
+    totality_proof::inline_member_is_proven_total(target) == Some(false)
+        || matches!(
         native_builtin_target(target),
         Some(
             "get"
@@ -404,6 +408,11 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// raise), and spec 8 rule 11 makes a declaring member fallible, so the
 /// allocating members (`keys`/`values`/`append`/`prepend`/`removeKey`/`replace`,
 /// Set `add`/`remove`/`toList`) are fallible and their inline-TRAP handler is live.
+///
+/// plan-165-B: a grant needs positive proof — every overload declares no error
+/// AND a raise-checking guard covers the member (`totality_proof`); an empty
+/// `errors` list alone is a claim, and an unproved member stays fallible and is
+/// captured for real ([`inline_builtin_raw_supported`]).
 ///
 /// Infallible: `len`, `typeName`, every total `bits::*` op (all but the variable shifts), the non-allocating pure-query /
 /// default-returning members `contains`, `hasKey` and `getOr`, and `toInt` **on
@@ -457,16 +466,15 @@ pub(crate) fn inline_builtin_is_infallible(
     {
         return true;
     }
-    // A migrated common-native member is infallible when it declares no error and
-    // is not otherwise raw-supported. Every `bits` op qualifies (empty `errors`)
-    // except the three variable shifts, which declare `ErrInvalidArgument`
-    // (`Some(true)`) and are raw-supported instead; the collections callback
-    // members are raw-supported despite an empty `errors` list, so `!raw_supported`
-    // excludes them. Keyed on registry data, not a `bits.` name predicate.
-    if matches!(
-        crate::codegen::registry::native_member_declares_error(target),
-        Some(false)
-    ) && !inline_builtin_raw_supported(target, arg_types)
+    // plan-165-B: an inline registry member is infallible only with positive
+    // proof — every implementation declares no error AND a raise-checking guard
+    // (a declared-errors sweep) covers it (`totality_proof`) — and when it is not
+    // otherwise raw-supported. The collections callback members declare nothing
+    // and are swept, but a failing callback raises through them, so they stay
+    // raw-supported by name and `!raw_supported` excludes them. Missing or
+    // unknown information counts as "can fail" (owner decision 2026-10-04).
+    if totality_proof::inline_member_is_proven_total(target) == Some(true)
+        && !inline_builtin_raw_supported(target, arg_types)
     {
         return true;
     }
@@ -481,17 +489,12 @@ pub(crate) fn inline_builtin_is_infallible(
     // `ARITHMETIC_OPERATORS`'s doc comment there for the owner decision
     // (2026-10-04, bug-814's open question) that keeps `&` out of the
     // TRAP-liveness / declared-errors census.
-    if matches!(target, "len" | "typeName") {
-        return true;
-    }
-    // The pure queries that allocate nothing. `keys`/`values`/`append`/`prepend`/
-    // `removeKey`/`replace` and the Set members `add`/`remove`/`toList` build a new
-    // collection, so they raise (and, since bug-698, declare) `ErrOutOfMemory`: an
-    // inline TRAP handler on them is live, and they are not listed here.
-    matches!(
-        native_builtin_target(target),
-        Some("contains" | "hasKey" | "getOr")
-    )
+    // The `general` intrinsics with a raise-checking row per overload
+    // (`general_declared_errors`) that raises nothing: `len`, `typeName`. The
+    // non-allocating `collections::contains`/`hasKey`/`getOr` are granted by the
+    // registry rule above; a bare-name list here would grant any package's member
+    // of that name, declared errors or not (plan-165-B removed it).
+    !target.contains('.') && totality_proof::builtin_is_raise_checked(target)
 }
 
 /// Resolve a built-in call's return type from its package-qualified `callee`

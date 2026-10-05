@@ -1,0 +1,33 @@
+' plan-165-B: a built-in call is unable to fail only with positive proof.
+' `astrings::fromString` can raise ErrOutOfMemory, so it is a failure edge into
+' the function-level handler and `marker`, declared after it, is not bound on
+' that edge (TYPE_TRAP_LOCAL_UNINITIALIZED). `len` is proven total, so `count`
+' declared after it stays readable.
+IMPORT astrings
+IMPORT io
+
+FUNC readsAfterUnproved() AS Integer
+  LET a AS AttributedString = astrings::fromString("abc")
+  LET marker = 7
+  io::print(astrings::toMarkdown(a))
+  RETURN marker
+  TRAP(e)
+    RETURN marker
+  END TRAP
+END FUNC
+
+FUNC readsAfterProven(s AS String) AS Integer
+  LET n = len(s)
+  LET count = 3
+  io::print(toString(n))
+  RETURN count
+  TRAP(e)
+    RETURN count
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(readsAfterUnproved()))
+  io::print(toString(readsAfterProven("ab")))
+  RETURN 0
+END FUNC

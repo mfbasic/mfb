@@ -214,6 +214,90 @@ fn concretize(ty: &ParameterType) -> ParameterType {
     }
 }
 
+/// plan-165-B: the program context a package's members need to lower. A bare
+/// harness has an empty `TypeModel` and no globals, so a member that builds an
+/// `AttributedString` record, or reads one of `canvas`'s module globals, refused
+/// to lower and had to be skipped — leaving its empty `errors` list unproved. A
+/// package listed here is lowered against the type model and globals of a real
+/// program instead: `(package, program source, build mode)`.
+const PROGRAM_FIXTURES: &[(&str, &str, crate::target::NativeBuildMode)] = &[
+    (
+        "astrings",
+        "IMPORT astrings\n\nTYPE SweepFixture\n  t AS AttributedString\nEND TYPE\n\n\
+         FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        crate::target::NativeBuildMode::Console,
+    ),
+    (
+        "canvas",
+        "IMPORT app\nIMPORT canvas\nIMPORT color\n\n\
+         FUNC main() AS Integer\n  app::setMode(app::Mode.Canvas)\n  \
+         LET c AS color::Color = color::rgb(10, 20, 30)\n  \
+         canvas::present([canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(c)]])\n  \
+         RETURN 0\nEND FUNC\n",
+        crate::target::NativeBuildMode::MacApp,
+    ),
+    (
+        "crypto",
+        "IMPORT crypto\n\nTYPE SweepFixture\n  k AS crypto::KeyPair\nEND TYPE\n\n\
+         FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        crate::target::NativeBuildMode::Console,
+    ),
+];
+
+/// The harness for lowering one member of `call`'s package: [`PROGRAM_FIXTURES`]'
+/// type model and globals when the package has a fixture, else the bare default.
+fn package_harness(call: &str) -> BuilderHarness<'static> {
+    use crate::codegen::engine::builder::{GlobalValue, TypeModel};
+    type Context = (TypeModel, std::collections::HashMap<String, GlobalValue>);
+    thread_local! {
+        static CONTEXTS: std::cell::RefCell<BTreeMap<&'static str, Context>> =
+            const { std::cell::RefCell::new(BTreeMap::new()) };
+    }
+    let package = call.split('.').next().unwrap_or_default();
+    let Some((package, source, mode)) = PROGRAM_FIXTURES
+        .iter()
+        .find(|(name, ..)| *name == package)
+    else {
+        return BuilderHarness::default();
+    };
+    let (type_model, globals) = CONTEXTS.with(|contexts| {
+        contexts
+            .borrow_mut()
+            .entry(package)
+            .or_insert_with(|| {
+                let module = crate::testutil::nir_for_src(
+                    source,
+                    crate::testutil::CodeTarget::MacosAarch64,
+                    *mode,
+                )
+                .unwrap_or_else(|error| panic!("{package}: the fixture program lowers: {error}"));
+                let model = TypeModel::from_module(&module)
+                    .unwrap_or_else(|error| panic!("{package}: the fixture model builds: {error}"));
+                let globals = module
+                    .globals
+                    .iter()
+                    .enumerate()
+                    .map(|(index, global)| {
+                        (
+                            global.name.clone(),
+                            GlobalValue {
+                                type_: global.type_.clone(),
+                                offset: index * 8,
+                            },
+                        )
+                    })
+                    .collect();
+                (model, globals)
+            })
+            .clone()
+    });
+    BuilderHarness {
+        type_model,
+        globals,
+        ..BuilderHarness::default()
+    }
+}
+
 pub(crate) fn lower_body_call(
     call: &str,
     implementation: &Implementation,
@@ -230,7 +314,7 @@ pub(crate) fn lower_body_call(
             origin: None,
         })
         .collect();
-    let mut harness = BuilderHarness::default();
+    let mut harness = package_harness(call);
     let mut last_error = String::new();
     for _ in 0..64 {
         let mut builder = harness.builder("_mfb_rt_probe", platform);

@@ -65,7 +65,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::named("AttributedString"),
-            errors: vec![],
+            // bug-828: builds a new block, so a failed arena allocation raises
+            // ErrOutOfMemory (measured by every_astrings_member_… once the sweep
+            // lowers it against a real AttributedString layout).
+            errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),
         }],
     });

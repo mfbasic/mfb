@@ -5076,6 +5076,37 @@ fn a_call_to_a_total_project_function_is_not_a_failure_edge() {
 }
 
 #[test]
+fn an_unproved_built_in_call_is_a_failure_edge() {
+    // plan-165-B: `isEmpty` declares no error but no raise-checking guard proves
+    // it, so missing proof counts as "can fail" and `value` is unbound on the
+    // edge it adds.
+    let body = vec![
+        call_eval("isEmpty"),
+        bind("value", "Integer", Some(int_const("42")), false, false),
+        ret(IrValue::Local("value".to_string())),
+        trap_returning_local("value"),
+    ];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_TRAP_LOCAL_UNINITIALIZED");
+}
+
+#[test]
+fn a_proven_total_built_in_call_is_not_a_failure_edge() {
+    // `len` and `bits.band` are proven total (`totality_proof`), so `value` is
+    // bound on every edge into the handler.
+    let body = vec![
+        call_eval("len"),
+        call_eval("bits.band"),
+        bind("value", "Integer", Some(int_const("42")), false, false),
+        call_eval("pkg.mightFail"),
+        ret(IrValue::Local("value".to_string())),
+        trap_returning_local("value"),
+    ];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_TRAP_LOCAL_UNINITIALIZED");
+}
+
+#[test]
 fn a_failed_reassignment_keeps_the_mutable_local_readable() {
     // `m` is declared before anything can fail; a later failing `m = …` leaves
     // the earlier value in place (§14.2), so the handler may read it.

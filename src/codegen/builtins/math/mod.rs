@@ -259,6 +259,16 @@ const CONSTANTS: &[(&str, &str, &str)] = &[
 /// bug-486 / bug-533 hazard.
 pub(crate) type ErrorsByType<'a> = &'a [(ParameterType, &'static [&'static str])];
 
+/// bug-828: a `List OF` form builds its result list (`_mfb_simd_alloc_list`), so
+/// it raises `ErrOutOfMemory` when the arena allocation fails — on top of the
+/// per-lane kernel's errors. The scalar forms allocate nothing.
+pub(crate) fn list_form_errors(mut errors: Vec<&'static str>) -> Vec<&'static str> {
+    if !errors.contains(&"ErrOutOfMemory") {
+        errors.push("ErrOutOfMemory");
+    }
+    errors
+}
+
 /// The errors an overload over `ty` declares: the member-wide `shared` set plus
 /// whatever `by_type` names for that operand type, deduped (a member can legitimately
 /// list an error in both, e.g. an error intrinsic to one element type that is also the
@@ -327,8 +337,9 @@ pub(crate) fn preserving_unary_typed_errors(
             )],
             ParameterType::Arg(0),
             // Keyed on the ELEMENT type: `List OF Float` runs the same kernel per
-            // lane as the `Float` scalar form, so it raises the same errors.
-            errors_for(ty, shared, by_type),
+            // lane as the `Float` scalar form, so it raises the same errors, plus
+            // the result list's allocation failure.
+            list_form_errors(errors_for(ty, shared, by_type)),
             lower,
         ));
     }
@@ -387,7 +398,7 @@ pub(crate) fn rounding(
                 value_desc,
             )],
             ParameterType::list_of(ParameterType::Integer),
-            errors_for(ty, shared, by_type),
+            list_form_errors(errors_for(ty, shared, by_type)),
             lower,
         ));
     }
@@ -453,7 +464,7 @@ pub(crate) fn preserving_binary(
                 req(p1.0, p1.1, list, p1.2),
             ],
             ParameterType::Arg(0),
-            declared,
+            list_form_errors(declared),
             lower,
         ));
     }

@@ -4,8 +4,7 @@ Last updated: 2026-10-04
 Effort: small–medium (estimate: 45m–1.5h, excluding full-suite latency; was medium
 1h–2h before the 2026-10-04 owner rule and bug-807/811/814 shrank the scope)
 Depends on: plan-165-A (execution order only; no technical dependency — see A's ledger)
-Status: Not started; rewritten 2026-10-04 to the owner's proof rule; implementation
-awaits the owner's go-ahead
+Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`)
 
 ## Goal
 
@@ -37,6 +36,9 @@ owner's documented exception (2026-10-04, bug-814's open question; spec
 This plan never counts `&` fallible.
 
 ## Prerequisites
+
+Met 2026-10-05: plan-165-A's boxes are all ticked (commits 38d7f2f8b, 954642f39);
+`/follow-plan 165` is the go-ahead.
 
 Plan-165-A complete before implementation (`rg -n '^Commit:|^- \[ \]'
 planning/plan-165-A-handler-contracts.md`, or its archived path) unless the owner
@@ -181,40 +183,83 @@ Byte identity is not the correctness criterion for intentionally retained checks
 
 ### Phase 1 — Coverage test and fail-closed pins (RED)
 
-- [ ] Re-measure the grant list and consumers (`rg -n 'inline_builtin_is_infallible\(' src`).
-- [ ] Add the coverage-enforcing test (Design 3); it must fail at HEAD naming the 25
+- [x] Re-measure the grant list and consumers (`rg -n 'inline_builtin_is_infallible\(' src`).
+      Grants: the coverage test below listed exactly the 25 uncovered grants of the
+      table at `f23af579c`. Consumers unchanged: fallible.rs, verify/resources.rs,
+      verify/trap_init.rs, builder_values.rs, builder_control.rs (+ test asserts).
+- [x] Add the coverage-enforcing test (Design 3); it must fail at HEAD naming the 25
       uncovered grants (`bits` ×14, `astrings` ×2, `canvas` ×3, `json`/`math`/
       `money`/`regex` ×6) and pass the 14 covered ones.
-- [ ] Add a test that a member with a non-declaring inline implementation and a
+      `infallible_proof_coverage::every_inline_builtin_census_grant_is_raise_checked`
+      failed with "25 census grant(s) have no raise-checking guard" listing exactly
+      those members (`cargo test --bin mfb -- inline_builtin`, before Phase 2).
+- [x] Add a test that a member with a non-declaring inline implementation and a
       declaring non-inline one is not granted, and that the `contains`-style name
       route cannot grant a declaring member (a registry-built fixture, not a real
-      member).
-- [ ] Add the fail-closed pins (Design 5); these pass at HEAD and stay passing.
-- [ ] Add a verifier test (alongside bug-797's in `src/ir/verify/tests.rs`) that an
+      member). `an_inline_builtin_with_a_declaring_non_inline_overload_is_not_granted`,
+      `an_inline_builtin_named_like_a_pure_query_is_not_granted_by_name` (fixtures
+      over `totality_proof::member_is_proven_total`).
+- [x] Add the fail-closed pins (Design 5); these pass at HEAD and stay passing.
+      `an_inline_builtin_with_unknown_argument_types_is_not_granted`,
+      `an_inline_builtin_census_never_grants_an_unknown_name`, and
+      `tests/runtime/rt_imported_function_fallibility.rs` (a built `.mfp` import keeps
+      a live handler and is a failure edge; `2 passed`).
+- [x] Add a verifier test (alongside bug-797's in `src/ir/verify/tests.rs`) that an
       unproved built-in call is a failure edge for handler-local readability.
+      `an_unproved_built_in_call_is_a_failure_edge` (`isEmpty`) and the control
+      `a_proven_total_built_in_call_is_not_a_failure_edge` (`len`, `bits.band`).
 
 Acceptance: `cargo test --bin mfb inline_builtin` runs the new tests; only the
 coverage test fails, listing exactly the uncovered grants (estimate: minutes).
-Commit: —
+Met for the coverage test (25 listed). The two registry-fixture tests need the
+factored predicate Phase 2 introduces, so they were written with it and are not
+separately RED (see Corrections).
+Commit: (same commit as Phase 2; see below)
 
 ### Phase 2 — Guards, one proof rule, capture, spec
 
-- [ ] Add the `bits` guard and the `json`/`math`/`money`/`regex` coverage; resolve
-      or drop the five skipped members (Design 2).
-- [ ] Replace the name lists with the registry rule (Design 1) and make unproved
+- [x] Add the `bits` guard and the `json`/`math`/`money`/`regex` coverage; resolve
+      or drop the five skipped members (Design 2). Five whole-package sweeps in
+      `declared_errors_all.rs`; the skip lists are gone entirely —
+      `declared_errors_sweep::PROGRAM_FIXTURES` lowers `astrings`, `canvas` and
+      `crypto` against a real program's type model and globals, so all 15 canvas
+      members, both astrings members and `crypto::generate` are now swept. The
+      sweeps found real undeclared raises, fixed as bug-828 (`json::sciParts`,
+      `astrings::fromString`/`writeSpans`, every `math` list form: ErrOutOfMemory).
+- [x] Replace the name lists with the registry rule (Design 1) and make unproved
       inline members raw-capable (Design 4); add a runtime fixture for any member
       that lost its grant, proving the handler is live and captures.
-- [ ] Update spec `language/08_error-model.md` rule 11's dead-handler sentence to
+      `totality_proof::{member_is_proven_total, inline_member_is_proven_total}`;
+      `len | typeName` → `RAISE_CHECKED_GENERAL_TOTAL`; `contains | hasKey | getOr`
+      deleted. Lost grants: `json::sciParts` (internal-only, not user-callable),
+      `astrings::fromString`, `astrings::writeSpans` (internal-only) — fixture
+      `tests/rt-behavior/trap/inline-trap-unproved-builtin-rt` (no dead-handler
+      warning; builds through the raw capture; prints the value).
+- [x] Update spec `language/08_error-model.md` rule 11's dead-handler sentence to
       state the positive-proof rule and its guard ownership (coordinate wording with
       bug-825's correction of the same rule; do not reintroduce the `&` sentence it
-      fixes); document proof ownership in code.
-- [ ] Add valid/invalid fixtures and run the builtin oracle plus runtime regressions.
+      fixes); document proof ownership in code. Rule 11's "infallible only if"
+      sentence replaced; `&` text untouched; `totality_proof.rs` module docs.
+- [x] Add valid/invalid fixtures and run the builtin oracle plus runtime regressions.
+      Valid `inline-trap-unproved-builtin-rt`, invalid
+      `tests/syntax/trap/trap-local-after-unproved-builtin-invalid`
+      (`TYPE_TRAP_LOCAL_UNINITIALIZED` after `fromString`, none after `len`):
+      `scripts/test-accept.sh … ` on both plus `inline-trap-infallible-builtin-valid`
+      → `acceptance tests passed (3 test(s) ran)`. "Builtin oracle" = the
+      declared-errors guards (`cargo test --bin mfb -- declared_errors mfb_body` green);
+      runtime regressions: see Phase 2 acceptance.
 
 Acceptance: `cargo test --bin mfb inline_builtin`, `cargo test --bin mfb declared_errors`,
 `cargo test --bin mfb census_builtins_are_fallible_exactly_when_they_declare_an_error`
 and the new fixtures pass; the coverage test is green with no allowlist
-(estimate: minutes after build).
-Commit: —
+(estimate: minutes after build). Met: `cargo test --bin mfb -- spec declared_errors
+mfb_body inline_builtin failure_edge builtins::tests census math:: man` →
+`451 passed; 0 failed` (includes the coverage test with an empty
+`RAISE_CHECK_SKIPPED_MEMBERS`, and the audit census test); runtime regressions
+`cargo test --test rt_inline_trap_nested_call --test rt_inline_trap_raising_operator
+--test rt_inline_trap_success_alloc --test rt_imported_function_fallibility --test
+rt_error_model_recovery` → all `ok` (21+20+2+2+4).
+Commit: (next commit)
 
 ## Open decisions
 
@@ -258,3 +303,29 @@ concern (bug-811/814; pinned by
 "audit each proof by hand" phase with a measured 39-grant inventory, guard coverage
 for the 25 uncovered grants, and a coverage-enforcing test. Effort re-estimated from
 1h–2h to 45m–1.5h.
+
+2026-10-05 (implementation):
+- Phase 1's acceptance ("only the coverage test fails") was miscalibrated for the
+  two registry-fixture tests: a fixture cannot be fed to the global-registry census,
+  so they test the factored `totality_proof::member_is_proven_total` that Phase 2
+  introduces and were written with it. Phases 1 and 2 landed in one commit.
+- Design 2 said to file, not fix, mismatches a whole-package sweep surfaces. The
+  repository rule ("never leave a bug you found") outranks that: the `math` list
+  forms' and `json::sciParts`' undeclared ErrOutOfMemory are fixed as bug-828, as
+  are `astrings::fromString`/`writeSpans` (which lost their grant, as Design 2
+  anticipated). `math::log`/`log10`'s unreachable Fixed ErrOverflow is recorded as
+  an `unreachable_own_raise` with its proof.
+- The five skipped members were resolved, not dropped, and so were the other ten
+  canvas members and `crypto::generate`: `declared_errors_sweep::PROGRAM_FIXTURES`
+  lowers a package against a real program's type model and globals. The skip
+  machinery stays (empty) as the place a future gap must be recorded.
+- Adding OOM to `math`'s list forms charged `color`/`vector` `Body::Mfb` bodies the
+  list forms' errors for scalar calls; `mfb_body_declared_errors` now narrows a
+  provably scalar argument to the scalar overloads (sound: no infix operator yields
+  a collection).
+- Design 4's raw path for an unproved, non-declaring inline member is live code
+  but no member takes it today: every such member is now either guarded (granted)
+  or declares an error (`infallible_proof_coverage` enumerates them).
+- "Builtin oracle" in the Phase 2 task read as the declared-errors guards; no other
+  builtin oracle exists for these members (`tools/oracles` covers crypto/compress/
+  aarch64 decode only).

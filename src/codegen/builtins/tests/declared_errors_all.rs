@@ -13,6 +13,36 @@ use super::declared_errors_sweep::{
     assert_package_declares_exactly_the_errors_its_lowering_raises_on, Propagating,
 };
 
+/// plan-165-B: a sweep's skip list is the census's — a skipped member has no
+/// raise-checking proof, so `totality_proof` must know it (see
+/// `infallible_proof_coverage`). `const` so the lists stay named per package.
+const fn raise_check_skipped(package: &str) -> &'static [&'static str] {
+    let lists = crate::codegen::builtins::totality_proof::RAISE_CHECK_SKIPPED_MEMBERS;
+    let mut index = 0;
+    while index < lists.len() {
+        if const_str_eq(lists[index].0, package) {
+            return lists[index].1;
+        }
+        index += 1;
+    }
+    &[]
+}
+
+const fn const_str_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < a.len() {
+        if a[index] != b[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
 const NONE_P: &[(&str, Propagating)] = &[];
 const NONE_U: &[(&str, &str, &str)] = &[];
 
@@ -252,12 +282,10 @@ fn every_collections_member_declares_exactly_the_errors_its_lowering_raises() {
     );
 }
 
-/// `astrings::fromString`/`writeSpans` construct an `AttributedString` record,
-/// which this sweep's bare `TypeModel::empty()` has no layout for -- the same
-/// fixture gap as `canvas`'s `KeyPair`/`Paint`. Repro: run without the skip
-/// and read the "native record type 'AttributedString' does not resolve"
-/// refusal.
-const ASTRINGS_SKIP_MEMBERS: &[&str] = &["fromString", "writeSpans"];
+/// plan-165-B: no astrings member is skipped any more —
+/// `declared_errors_sweep::PROGRAM_FIXTURES` gives `fromString`/`writeSpans` a
+/// real `AttributedString` layout.
+const ASTRINGS_SKIP_MEMBERS: &[&str] = raise_check_skipped("astrings");
 
 const ASTRINGS_RAISES_NOTHING: &[(&str, &str)] = &[
     (
@@ -272,6 +300,12 @@ const ASTRINGS_RAISES_NOTHING: &[(&str, &str)] = &[
     (
         "_mfb_rt_park_error",
         "parks an error the caller already raised",
+    ),
+    // plan-165-B: reached once `fromString` lowers against a real
+    // `AttributedString` layout (`declared_errors_sweep::PROGRAM_FIXTURES`).
+    (
+        "_mfb_rt_drop_owned_collection",
+        "frees one owned collection slot; never fails",
     ),
 ];
 
@@ -632,40 +666,10 @@ fn every_thread_member_declares_exactly_the_errors_its_lowering_raises() {
     );
 }
 
-/// `canvas` internal-only members whose lowering needs a fixture this sweep
-/// does not build: a `DrawItem` union tag for the `Text` variant
-/// (`carriedHashes`/`itemHash`/`sceneHashes`), a `Paint` record layout
-/// (`geoBuild`), and the injected companion source's own globals
-/// (`__CANVAS_GEO_DATA`/`__CANVAS_SNAP_ITEMS`/`__CANVAS_SNAP_LAYERS`/
-/// `__CANVAS_SNAP_HASHES`/`__CANVAS_TOP_OFFSETS` for `geoFind`/`geoInsert`/
-/// `geoForget`/`geoBeginFrame`/`sceneResolve`/`sceneSnapshot`/`snapshotItems`/
-/// `snapshotLayers`/`snapshotHashes`/`sceneDrawsFlat`/`sceneLayout`). These
-/// members are never called from user source directly (`internal_only:
-/// true`, injected-only plumbing for the canvas companion `.mfb`), so no man
-/// page renders an Errors table for them — bug-698's Errors-table motivation
-/// does not reach them, unlike `publishScene`/`publishLayers` below, which
-/// share the same `internal_only: true` flag but DO lower cleanly. Follow-up:
-/// building the type-model/global fixtures these fifteen need is tracked as
-/// remaining scope, not silently dropped — repro: run this test without this
-/// list and read the "the global ... is not declared" / "has no union tag" /
-/// "has no layout in the type model" refusals.
-const CANVAS_SKIP_MEMBERS: &[&str] = &[
-    "carriedHashes",
-    "itemHash",
-    "sceneHashes",
-    "geoBuild",
-    "geoFind",
-    "geoInsert",
-    "geoForget",
-    "geoBeginFrame",
-    "sceneResolve",
-    "sceneSnapshot",
-    "snapshotItems",
-    "snapshotLayers",
-    "snapshotHashes",
-    "sceneDrawsFlat",
-    "sceneLayout",
-];
+/// plan-165-B: no canvas member is skipped any more — the sweep lowers the
+/// injected-only plumbing (`geoFind`, `sceneSnapshot`, …) against the type model
+/// and globals of a real canvas program (`declared_errors_sweep::PROGRAM_FIXTURES`).
+const CANVAS_SKIP_MEMBERS: &[&str] = raise_check_skipped("canvas");
 
 /// `_mfb_make_error_result`/`_mfb_rt_park_error` are the same shared helpers
 /// `fs_declared_errors.rs` classifies (package an already-loaded error code /
@@ -676,6 +680,10 @@ const CANVAS_SKIP_MEMBERS: &[&str] = &[
 /// their `emit_*` definitions (`linux_gtk/bootstrap.rs`, `win_x86_64/app/
 /// mod.rs`, `macos_aarch64/app/{bootstrap,metal}.rs`).
 const CANVAS_RAISES_NOTHING: &[(&str, &str)] = &[
+    (
+        "_mfb_rt_drop_owned_collection",
+        "frees one owned collection slot; never fails",
+    ),
     (
         "_mfb_arena_alloc",
         "returns a null pointer; the caller raises ErrOutOfMemory",
@@ -728,14 +736,9 @@ fn every_canvas_member_declares_exactly_the_errors_its_lowering_raises() {
     );
 }
 
-/// `crypto::generate`'s native lowering constructs a `KeyPair` record, which
-/// this sweep's harness (a bare `TypeModel::empty()`) has no layout for — a
-/// fixture gap like `CANVAS_SKIP_MEMBERS`'s, not a real ambiguity: `generate`
-/// already declares `errors: vec!["ErrOutOfMemory", "ErrUnknown"]` and is
-/// covered by `every_crypto_member_is_admitted_on_every_backend`-style
-/// registry-wide tests elsewhere. Repro: run this test without the skip and
-/// read the "native record type 'KeyPair' does not resolve" refusal.
-const CRYPTO_SKIP_MEMBERS: &[&str] = &["generate"];
+/// plan-165-B: `crypto::generate` lowers against a real `KeyPair` layout
+/// (`declared_errors_sweep::PROGRAM_FIXTURES`), so nothing is skipped.
+const CRYPTO_SKIP_MEMBERS: &[&str] = raise_check_skipped("crypto");
 
 /// `hash`/`seal`/`open`/`sign`/`verify` each dispatch at runtime to a fixed
 /// `_mfb_ifn_crypto_*` symbol — a companion MFBASIC helper (`add_helper`, not
@@ -747,6 +750,27 @@ const CRYPTO_SKIP_MEMBERS: &[&str] = &["generate"];
 /// every helper's own `List OF Byte`/`List OF Integer` result can also raise
 /// `ErrOutOfMemory` regardless.
 const CRYPTO_IFN_PROPAGATING: &[(&str, Propagating)] = &[
+    // plan-165-B: reached once `generate` lowers against a real `KeyPair`
+    // layout. Each `__crypto_generate*` body (`helper_generate_*.rs`) calls
+    // `crypto::randomBytes(<positive literal>)` (ErrOutOfMemory, ErrUnknown — its
+    // ErrInvalidArgument is for a negative count) and allocating byte-list
+    // helpers (ErrOutOfMemory); `generate` declares exactly that pair.
+    (
+        "_mfb_ifn_crypto_5FgenerateEd25519",
+        Propagating::Known(&["ErrOutOfMemory", "ErrUnknown"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5FgenerateEd448",
+        Propagating::Known(&["ErrOutOfMemory", "ErrUnknown"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5FgenerateX25519",
+        Propagating::Known(&["ErrOutOfMemory", "ErrUnknown"]),
+    ),
+    (
+        "_mfb_ifn_crypto_5FgenerateX448",
+        Propagating::Known(&["ErrOutOfMemory", "ErrUnknown"]),
+    ),
     // The nine SHA cores (`grep -n 'FAIL ' src/codegen/builtins/crypto/helper_sha*.rs
     // src/codegen/builtins/crypto/gen_hash.rs` finds none): only the List OF Byte
     // result can fail, with ErrOutOfMemory.
@@ -867,5 +891,127 @@ fn every_tcp_member_declares_exactly_the_errors_its_lowering_raises() {
         &[],
         &[],
         1,
+    );
+}
+
+// plan-165-B: the packages below hold census grants (members the fallibility
+// census proves total from an empty `errors` list), so each needs a sweep before
+// that empty list counts as proof (`totality_proof::RAISE_CHECKED_PACKAGES`).
+
+/// `_mfb_simd_alloc_list` (`memory/arena/arena.rs:lower_simd_alloc_list`) returns
+/// `0` when its arena allocation fails and the caller raises; it has no raise
+/// site of its own.
+const MATH_RAISES_NOTHING: &[(&str, &str)] = &[
+    (
+        "_mfb_arena_alloc",
+        "returns a null pointer; the caller raises ErrOutOfMemory",
+    ),
+    ("_mfb_arena_free", "releases a block; never fails"),
+    (
+        "_mfb_make_error_result",
+        "packages an error code the caller already loaded",
+    ),
+    (
+        "_mfb_rt_park_error",
+        "parks an error the caller already raised",
+    ),
+    (
+        "_mfb_simd_alloc_list",
+        "returns 0 on a failed allocation; the caller raises ErrOutOfMemory",
+    ),
+    (
+        "_mfb_rng_next",
+        "one PCG64 step over arena state (math/gen_rng_pcg64.rs); no raise site",
+    ),
+    (
+        "_mfb_rng_seed_at",
+        "seeds PCG64 state at an arena (math/gen_rng_pcg64.rs); no raise site",
+    ),
+];
+
+/// `_mfb_rt_float_to_string_sci` (`string/format/float_format_sci.rs:lower_sci`)
+/// allocates its digit string and raises `ErrOutOfMemory` itself
+/// (`raise_error_into(symbol, "ErrOutOfMemory", …)`); it raises nothing else.
+const JSON_PROPAGATING: &[(&str, Propagating)] = &[(
+    "_mfb_rt_float_to_string_sci",
+    Propagating::Known(&["ErrOutOfMemory"]),
+)];
+
+#[test]
+fn every_bits_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "bits",
+        ASTRINGS_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        1,
+    );
+}
+
+#[test]
+fn every_json_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "json",
+        ASTRINGS_RAISES_NOTHING,
+        JSON_PROPAGATING,
+        NONE_U,
+        1,
+    );
+}
+
+/// `emit_fixed_log` (`money/gen_fixed_math.rs`) divides `m - 1` by `m + 1` with
+/// `m` normalised into `[1, 2)`, so the quotient is in `[0, 1/3)` and the shared
+/// `emit_fixed_divide`'s overflow raise cannot fire.
+const MATH_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[
+    (
+        "log",
+        "ErrOverflow",
+        "emit_fixed_log's only division is (m-1)/(m+1), m in [1,2): quotient < 1",
+    ),
+    (
+        "log10",
+        "ErrOverflow",
+        "emit_fixed_log's only division is (m-1)/(m+1), m in [1,2): quotient < 1",
+    ),
+];
+
+#[test]
+fn every_math_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises_on(
+        "math",
+        MATH_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        MATH_UNREACHABLE_OWN_RAISE,
+        &[],
+        &[],
+        &[],
+        1,
+    );
+}
+
+#[test]
+fn every_money_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "money",
+        ASTRINGS_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        1,
+    );
+}
+
+/// `regex`'s native members (`genCat`, `scriptOf`) are table lookups that load no
+/// error code and call nothing, so the sweep's "lowered" count — members with a
+/// raise or a callee — is 0; the empty `failures` list is what proves both
+/// lowered on every backend.
+#[test]
+fn every_regex_member_declares_exactly_the_errors_its_lowering_raises() {
+    assert_package_declares_exactly_the_errors_its_lowering_raises(
+        "regex",
+        ASTRINGS_RAISES_NOTHING,
+        NONE_P,
+        NONE_U,
+        0,
     );
 }

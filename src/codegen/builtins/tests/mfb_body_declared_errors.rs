@@ -802,6 +802,50 @@ fn general_override_helper(
         .map(|o| o.helper)
 }
 
+/// Whether `expr`'s outermost node is an arithmetic operator (`+ - * / ^`,
+/// `MOD`, `DIV`) or it is a numeric literal: either way its value is a number,
+/// never a collection or `String` — MFBASIC has no infix operator on `List`,
+/// `Map` or `Set`, and `&` (the one `String` operator) is not counted. Scans
+/// outside parentheses, brackets and string literals only.
+fn is_arithmetic_expression(expr: &str) -> bool {
+    let expr = expr.trim();
+    if expr
+        .trim_start_matches('-')
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit())
+        && expr
+            .trim_start_matches('-')
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+    {
+        return true;
+    }
+    let bytes = expr.as_bytes();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte {
+            b'"' => in_string = !in_string,
+            _ if in_string => {}
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b'+' | b'*' | b'/' | b'^' if depth == 0 => return true,
+            // A binary minus has an operand before it; a leading one is a
+            // negation, which is arithmetic too.
+            b'-' if depth == 0 => return true,
+            b' ' if depth == 0 => {
+                let rest = &expr[index + 1..];
+                if rest.starts_with("MOD ") || rest.starts_with("DIV ") {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 /// The codes one qualified `pkg::name(args)` call can raise, given the member's
 /// whole declared set (bug-814). Two shapes the text fixes are narrowed, both
 /// in the direction that can only drop a code the call provably cannot raise:
@@ -856,6 +900,34 @@ fn qualified_call_codes(
                 .and_then(|param| kind(&param.ty.name()))
         })
         .collect();
+    // bug-828: a member with both collection-kind and scalar first parameters
+    // (`math::sqrt(List OF Float)` beside `math::sqrt(Float)`) called with an
+    // argument proven to be a scalar raises only what its scalar overloads
+    // declare — a scalar cannot match a `List`/`Map`/`Set`/`String` parameter, so
+    // dropping the collection forms' codes (the result list's ErrOutOfMemory) is
+    // sound. An argument of any other or unknown type keeps the rule below.
+    let has_scalar_form = kinds.iter().any(Option::is_none);
+    let has_collection_form = kinds.iter().any(Option::is_some);
+    if has_scalar_form && has_collection_form {
+        let scalar_arg = args.first().is_some_and(|arg| {
+            is_arithmetic_expression(arg)
+                || infer_type(arg, scope, helper_blocks).is_some_and(|ty| {
+                    matches!(
+                        ty.as_str(),
+                        "Integer" | "Float" | "Fixed" | "Money" | "Byte" | "Boolean"
+                    )
+                })
+        });
+        if scalar_arg {
+            return function
+                .implementations()
+                .iter()
+                .zip(&kinds)
+                .filter(|(_, k)| k.is_none())
+                .flat_map(|(implementation, _)| implementation.errors.iter().copied())
+                .collect();
+        }
+    }
     let distinct: BTreeSet<_> = kinds.iter().flatten().collect();
     if kinds.iter().any(Option::is_none) || distinct.len() < 2 {
         return declared.clone();

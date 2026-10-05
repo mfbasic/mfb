@@ -975,6 +975,10 @@ name = "rt_error_model_recovery"
 path = "tests/runtime/rt_error_model_recovery.rs"
 
 [[test]]
+name = "rt_imported_function_fallibility"
+path = "tests/runtime/rt_imported_function_fallibility.rs"
+
+[[test]]
 name = "rt_returned_transform_element_type"
 path = "tests/runtime/rt_returned_transform_element_type.rs"
 

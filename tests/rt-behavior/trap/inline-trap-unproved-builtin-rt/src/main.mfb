@@ -1,0 +1,20 @@
+' plan-165-B: `astrings::fromString` builds a new block and declares
+' ErrOutOfMemory (bug-828), so it is no longer proven total: an inline TRAP on it
+' is a live handler (no TYPE_INLINE_TRAP_DEAD_HANDLER) lowered through the real
+' raw capture, and the success value still flows through.
+IMPORT astrings
+IMPORT io
+
+FUNC main() AS Integer
+  LET a AS AttributedString = astrings::fromString("abc") TRAP(e)
+    io::print("handler " & e.message)
+    RECOVER astrings::fromString("")
+  END TRAP
+  io::print("markdown " & astrings::toMarkdown(a))
+  MUT b AS AttributedString = astrings::fromString("")
+  b = astrings::fromString("xyz") TRAP
+    RECOVER astrings::fromString("recovered")
+  END TRAP
+  io::print("assigned " & astrings::toMarkdown(b))
+  RETURN 0
+END FUNC

@@ -44,6 +44,7 @@ mod fixture_projects;
 mod fs_declared_errors;
 mod general_declared_errors;
 mod harness;
+mod infallible_proof_coverage;
 mod imported_types;
 mod inplace;
 mod inplace_compact;
