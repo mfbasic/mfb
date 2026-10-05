@@ -3,8 +3,7 @@
 Last updated: 2026-10-05
 Effort: medium (estimate: 1h–2h, excluding prerequisites and full-suite latency)
 Depends on: plan-165-C; bug-825; bug-798 (fixed)
-Status: Design accepted by the owner on 2026-10-05 with **Option 1**; not started.
-Implementation awaits a separate go-ahead and plan-165-C
+Status: In progress (go-ahead: `/follow-plan 165`, 2026-10-05)
 
 ## Goal
 
@@ -18,6 +17,9 @@ operator, and attaching it must not create additional numeric observation points
 
 - Met (2026-10-05): the owner accepted the expression/observation contract below
   and chose eligibility **Option 1** (any well-typed expression).
+- Met 2026-10-05: plan-165-C is complete (commits d1fe2cdac, 63eacbbbb; no
+  unticked box); `cargo test --test rt_inline_trap_float_observation` → `1 passed`
+  at the plan-C tip; `/follow-plan 165` is the go-ahead.
 - Plan-165-C is complete: inspect its active/archived task and commit ledger.
 - Met: bug-825 is fixed (commits 58a4e76f7, dbcb17396). Rule 11 now says
   `a & b TRAP(e)` is rejected with `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`; under
@@ -189,42 +191,54 @@ correct.
 
 - [x] Record owner acceptance and the selected eligibility option (2026-10-05,
       Option 1; recorded in this plan).
-- [ ] Add RED runtime cases for division failures in the first, middle and last
+- [x] Add RED runtime cases for division failures in the first, middle and last
       positions of a chain; RECOVER must replace the entire result in every case.
-- [ ] Cover Integer/Byte/Fixed/Money checked operations, Float final overflow,
+      `tests/runtime/rt_inline_trap_expression_boundary.rs:a_chained_division_failure_anywhere_…`.
+- [x] Cover Integer/Byte/Fixed/Money checked operations, Float final overflow,
       transient nonfinite recovery and mandatory FMA parity. Write Fixed/Money
       operands with their own literal suffixes (`1.5F`, `5.00m`) or conversions —
       never a Float-suffixed literal in a Money slot, which bug-820 made a compile
-      error.
-- [ ] Comparisons: Fixed vs out-of-range Integer/Float (`ErrOverflow`) and Fixed vs
+      error. `checked_integer_byte_fixed_and_money_…`, `float_observation_timing_…`.
+- [x] Comparisons: Fixed vs out-of-range Integer/Float (`ErrOverflow`) and Fixed vs
       a non-finite Float, including a transient one (`ErrInvalidFormat`), each enter
       the handler; Float vs Float/Integer/Byte with a non-finite operand does not.
       Under Option 2, an Integer/Integer comparison stays
-      `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`.
-- [ ] `&`: under Option 1, `a & b TRAP(e)` builds with
+      `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`. `comparisons_raise_only_when_…` (Option 1
+      chosen: the Integer/Integer case is a dead handler, in the `&` case below).
+- [x] `&`: under Option 1, `a & b TRAP(e)` builds with
       `TYPE_INLINE_TRAP_DEAD_HANDLER` and runs; under Option 2 it stays
       `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`. Either way a function containing only
-      `&` stays infallible.
-- [ ] Cover parenthesized expressions, assignment to an existing target, call
+      `&` stays infallible. `a_known_total_expression_carries_a_dead_handler`
+      (`a & b`, `n = 3`, `n` — three warnings; `cat` reads a local declared after
+      `a & b` in its function handler).
+- [x] Cover parenthesized expressions, assignment to an existing target, call
       arguments, conditional operators and discarded expressions. Assert that
       failure skips later effects and leaves the target unchanged until recovery.
-- [ ] Allocation parity (bug-778): for an operator-rooted trapped expression and a
+      `every_position_takes_the_whole_value` (call arguments: the `note` operands).
+- [x] Allocation parity (bug-778): for an operator-rooted trapped expression and a
       known-total one, per-evaluation `arena.0.alloc_calls` equals the untrapped twin
       at `-O0`, `-O1`, `-O3` (N/2N-delta method of
       `tests/runtime/rt_inline_trap_success_alloc.rs`), and the failing forms keep
       `arena.0.live_bytes 0` and `arena.0.double_free_skips 0`.
-- [ ] Preserve invalid RECOVER types, invalid handler fallthrough, forbidden trap
+      `operator_rooted_traps_allocate_what_the_plain_expression_does`.
+- [x] Preserve invalid RECOVER types, invalid handler fallthrough, forbidden trap
       positions and testing-assertion call requirements.
-- [ ] Assert a function-level handler may still read a local declared after an
+      `recover_typing_fallthrough_and_testing_assertions_are_unchanged` (passes at
+      HEAD and must stay passing); forbidden positions stay covered by
+      `tests/syntax/trap/inline-bare-trap-illegal-position`.
+- [x] Assert a function-level handler may still read a local declared after an
       operator-only trapped statement (bug-797 census); declare it before any
       counted FOR (bug-816 makes every FOR a failure edge).
-- [ ] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
+      `an_operator_only_trap_is_not_a_function_handler_failure_edge`.
+- [x] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
       existing `tests/runtime/rt_inline_trap_*` targets.
 
 Acceptance: proposed `cargo test --test rt_inline_trap_expression_boundary` has RED
 cases for newly admitted forms and passing controls for existing contracts
-(estimate: minutes after build).
-Commit: —
+(estimate: minutes after build). Met: `1 passed; 8 failed` — the control
+(`recover_typing_…`) passes; the eight fail on `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`
+(26 sites) or its knock-on `TYPE_TRAP_LOCAL_UNINITIALIZED` (the census case).
+Commit: (next commit)
 
 ### Phase 2 — Expression capture and spec
 

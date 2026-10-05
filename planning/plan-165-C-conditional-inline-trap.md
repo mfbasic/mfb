@@ -260,7 +260,7 @@ selection, memory balance and allocation parity; `rt_inline_trap_nested_call`,
 rt_inline_trap_float_observation` → 10+21+20+2+1 passed, plus the STATE case
 (`-- state_target` → 1 passed); `cargo test --bin mfb -- inline_trap_short_circuit
 ir::verify ir::tests` green.
-Commit: (next commit)
+Commit: 63eacbbbb
 
 ## Open decisions
 

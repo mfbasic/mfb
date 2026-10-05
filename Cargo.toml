@@ -979,6 +979,10 @@ name = "rt_inline_trap_short_circuit"
 path = "tests/runtime/rt_inline_trap_short_circuit.rs"
 
 [[test]]
+name = "rt_inline_trap_expression_boundary"
+path = "tests/runtime/rt_inline_trap_expression_boundary.rs"
+
+[[test]]
 name = "rt_imported_function_fallibility"
 path = "tests/runtime/rt_imported_function_fallibility.rs"
 
