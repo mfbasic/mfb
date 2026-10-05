@@ -14,10 +14,10 @@
 //! The fix hoists every fallible call in the trapped expression that is
 //! evaluated unconditionally into its own `CallResult` + `If ResultIsOk` check
 //! ahead of the residual expression, nesting the checks so a `RECOVER` skips the
-//! rest of the expression. The one shape it cannot desugar — a fallible call in
-//! a **short-circuited** operand (the right side of `AND`/`OR`), where hoisting
-//! would call it unconditionally — is rejected with
-//! `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` instead of being silently miscompiled.
+//! rest of the expression. A fallible call in a **short-circuited** operand (the
+//! right side of `AND`/`OR`), where hoisting would call it unconditionally, was
+//! rejected with `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`; plan-165-C lowers it as a
+//! conditional step (`rt_inline_trap_short_circuit.rs`).
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -356,35 +356,40 @@ fn a_trapped_expression_with_no_call_is_still_rejected() {
     );
 }
 
-/// The one shape the desugar cannot cover: hoisting a fallible call out of a
-/// short-circuited operand would call it unconditionally, so it is rejected
-/// instead of silently escaping the handler.
+/// bug-457 rejected a fallible call in a short-circuited operand because the
+/// desugar could only hoist it unconditionally. plan-165-C lowers it as a
+/// conditional step instead (owner-requested semantics): the call runs only
+/// when selected, and its error still reaches this handler, never past it —
+/// the protection bug-457 existed for.
 #[test]
-fn a_fallible_call_in_a_short_circuited_operand_is_rejected() {
+fn a_fallible_call_in_a_short_circuited_operand_is_caught_only_when_selected() {
     let root = unique_root("short_circuit");
-    let out = build_output(
+    let exe = build(
         &root,
         concat!(
             "FUNC positive(n AS Integer) AS Boolean\n",
+            "  io::print(\"positive \" & toString(n))\n",
             "  RETURN inner(n) > 0\n",
             "END FUNC\n\n",
             "FUNC main() AS Integer\n",
-            "  LET ok = TRUE AND positive(-1) TRAP(e)\n",
+            "  MUT yes = TRUE\n",
+            "  MUT no = FALSE\n",
+            "  LET ok = yes AND positive(-1) TRAP(e)\n",
+            "    io::print(\"handled \" & toString(e.code))\n",
             "    RECOVER FALSE\n",
             "  END TRAP\n",
-            "  io::print(\"ok=\" & toString(ok))\n",
+            "  LET skipped = no AND positive(-2) TRAP(e)\n",
+            "    io::print(\"handled skipped\")\n",
+            "    RECOVER TRUE\n",
+            "  END TRAP\n",
+            "  io::print(\"ok=\" & toString(ok) & \" skipped=\" & toString(skipped))\n",
             "  RETURN 0\n",
             "END FUNC\n",
         ),
     );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        !out.status.success() && combined.contains("TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL"),
-        "a fallible call in a short-circuited operand must be diagnosed:\n{combined}"
+    assert_eq!(
+        run(&exe),
+        "positive -1\nhandled 90000001\nok=FALSE skipped=FALSE\n"
     );
 }
 

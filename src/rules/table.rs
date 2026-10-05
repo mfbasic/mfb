@@ -747,17 +747,17 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "inline TRAP requires a fallible call",
     },
-    // bug-457/bug-471: the one nested shape the inline-TRAP desugar cannot cover.
-    // Lifting a fallible call — or a raising operator — out of a short-circuited
-    // operand would evaluate it unconditionally, so it is reported instead of
-    // silently escaping. The name keeps `_CALL` from bug-457: renaming a shipped
-    // rule breaks every diagnostic filter keyed on it, and the widening is in the
-    // message, not the identity.
+    // bug-457/bug-471/bug-825 rejected a fallible call, raising operator or
+    // raising comparison in a short-circuited operand of an inline-TRAP scrutinee.
+    // plan-165-C retired the rule: the desugar now evaluates that operand
+    // conditionally (`ir::lower::wrap_trap_hoists`). Kept as a reserved row so the
+    // number is never recycled for a different meaning — the `2-203-0100`
+    // precedent.
     Rule {
         code: "2-203-0137",
         name: "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL",
         severity: Severity::Error,
-        message: "inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand",
+        message: "reserved; not emitted; code is not reused",
     },
     // plan-114-A: a resource that reaches a thread's DATA plane is a plane
     // mix-up with a specific remedy — declare it on the `RES` plane and move it

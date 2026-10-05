@@ -1,32 +1,25 @@
-//! `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` — the one shape an inline `TRAP`
-//! cannot desugar (bug-457, bug-471).
+//! Inline `TRAP` over a short-circuited operand (plan-165-C).
 //!
 //! An inline `TRAP` covers its whole expression by lifting every fallible node
-//! out ahead of it: a call becomes its own `CallResult` + `If ResultIsOk`, a
-//! raising operator becomes its own `Checked` bind, and both join the shared
-//! `$trap_failed` chain. A node in a **short-circuited** operand — the right
-//! side of `AND`/`OR` — cannot be lifted, because lifting evaluates it
-//! unconditionally and the source said it must not be. The desugar's answer is
-//! to refuse the program and name the node, so the author binds it to its own
-//! `LET … TRAP` first; the alternative is the error escaping the handler
-//! unnoticed, which is bug-457 and bug-471 themselves.
-//!
-//! The rule already had regression tests, but only in `tests/` — subprocess
-//! builds through `mfb_exe()`, whose coverage lands in the child process and
-//! never in `src/**`. The walk that finds the offender
-//! (`Analyzer::find_short_circuited_call`, ~120 lines of expression cases) read
-//! as entirely unexecuted. These run the same checkers in-process, and go
-//! further than the subprocess pair in one respect that matters: they assert
-//! *which* node the message names, not just that some diagnostic fired.
+//! out ahead of it. A node in a **short-circuited** operand — the right side of
+//! `AND`/`OR` — could not be lifted that way, because lifting evaluates it
+//! unconditionally, so bug-457/bug-471/bug-825 refused the program with
+//! `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`. plan-165-C lowers the `AND`/`OR` as a
+//! conditional step instead (`ir::lower::wrap_trap_hoists`): the right
+//! operand's own lifts run only when it is selected, and their failures join the
+//! shared `$trap_failed` chain. The rule is retired, and every shape it refused
+//! is now accepted — these run the checkers in-process over the programs the
+//! refusals named, in every expression position and every comparison promotion,
+//! and demand a clean bill (a program that the IR verifier rejected, because the
+//! lowering left a raise site uncaptured or a `Checked` over a call, would fail
+//! here). The runtime behavior — selected failures caught, unselected operands
+//! never evaluated — is `tests/runtime/rt_inline_trap_short_circuit.rs`.
 
-use crate::testutil::{check_src, check_src_details};
+use crate::testutil::check_src_details;
 
-const RULE: &str = "TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL";
-
-/// Declarations every case draws on. `inner` is fallible so a call can be the
-/// offender; `positive` wraps it so the offender is a plain user function
-/// rather than a builtin; `pick` and `take` are infallible, so anything they
-/// are handed is the only thing in the expression that can fail.
+/// Declarations every case draws on. `inner` is fallible; `positive` wraps it so
+/// the conditional call is a plain user function; `pick` and `take` are
+/// infallible.
 const PRELUDE: &str = "\
 IMPORT io
 
@@ -52,36 +45,18 @@ FUNC take(label AS String, n AS Integer, flag AS Boolean, pt AS Point) AS Intege
   RETURN n + pt.x
 END FUNC
 
+FUNC apply(f AS FUNC(Integer) AS Integer, k AS Integer) AS Integer
+  RETURN f(k)
+END FUNC
+
+FUNC accepts(f AS FUNC(Integer) AS Integer) AS Boolean
+  RETURN TRUE
+END FUNC
+
 ";
 
-/// The detail of the single `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` `body`
-/// raises, or a panic naming what came out instead.
-fn refusal(body: &str) -> String {
-    let source = format!("{PRELUDE}{body}");
-    let diagnostics = check_src_details(&source);
-    let mut matching = diagnostics.iter().filter(|d| d.rule == RULE);
-    let Some(first) = matching.next() else {
-        panic!(
-            "expected {RULE}, got {:?}",
-            diagnostics
-                .iter()
-                .map(|d| (d.rule.as_str(), d.detail.as_str()))
-                .collect::<Vec<_>>()
-        );
-    };
-    assert!(
-        matching.next().is_none(),
-        "the rule reports the FIRST offender only, so a program must raise it \
-         once; it raised {} times",
-        diagnostics.iter().filter(|d| d.rule == RULE).count()
-    );
-    first.detail.clone()
-}
-
-/// Accepted, or a panic naming every diagnostic. Used for the shapes that must
-/// NOT be refused — an exemption asserted only as "the rule did not fire" would
-/// also pass on a program the front end rejected for an unrelated reason, so
-/// these demand a clean bill.
+/// Accepted, or a panic naming every diagnostic. "No diagnostic" also rules out
+/// an unrelated rejection, so these demand a clean bill.
 fn accepted(body: &str) {
     let source = format!("{PRELUDE}{body}");
     let diagnostics = check_src_details(&source);
@@ -95,241 +70,20 @@ fn accepted(body: &str) {
     );
 }
 
-/// A fallible call in a short-circuited operand is refused, and the message
-/// names the call.
-///
-/// `TRUE AND positive(-1)`: `positive` runs only if the left side is true, so
-/// the desugar cannot hoist it. Naming `positive` is what makes the diagnostic
-/// actionable — the expression may hold several calls and only one of them is
-/// in the unliftable position.
-#[test]
-fn a_fallible_call_in_a_short_circuited_operand_names_the_call() {
-    let detail = refusal(
+/// A `main` binding `d` to `expression` under an inline TRAP, with the locals
+/// the expressions below read.
+fn trapped(expression: &str) -> String {
+    format!(
         "\
 FUNC main() AS Integer
-  LET ok = TRUE AND positive(-1) TRAP(e)
-    RECOVER FALSE
-  END TRAP
-  io::print(\"ok=\" & toString(ok))
-  RETURN 0
-END FUNC
-",
-    );
-    assert!(
-        detail.contains("`positive`"),
-        "the refusal must name the call that cannot be lifted; it said {detail:?}"
-    );
-}
-
-/// A raising *operator* in a short-circuited operand is refused too, and the
-/// message names the operator (bug-471).
-///
-/// `t AND (1 / z) > 0` divides only when `t`; the division by zero is exactly
-/// the error the handler was written for, and before bug-471 it propagated
-/// straight past it. `/` is the offender, not the enclosing call — the walk
-/// reports the operator node it found, and a message naming `pick` here would
-/// send the author to the wrong place.
-#[test]
-fn a_raising_binary_operator_in_a_short_circuited_operand_names_the_operator() {
-    let detail = refusal(
-        "\
-FUNC main() AS Integer
+  MUT t AS Boolean = TRUE
+  MUT u AS Boolean = TRUE
   MUT z AS Integer = 0
-  MUT t AS Boolean = TRUE
-  LET d = pick(t AND (1 / z) > 0, 2) TRAP(e)
-    RECOVER -1
-  END TRAP
-  RETURN d
-END FUNC
-",
-    );
-    assert!(
-        detail.contains("`/`"),
-        "the refusal must name the operator that cannot be lifted; it said {detail:?}"
-    );
-}
-
-/// The unary half of the same rule. Negating `Integer::MIN` overflows, so `-n`
-/// over a variable can raise and is refused in a short-circuited operand.
-///
-/// The two arities are separate code paths — before they were split they shared
-/// one `&str` list in which `"-"` meant subtraction and negation at once — so
-/// the binary case above does not stand in for this one.
-#[test]
-fn a_raising_unary_operator_in_a_short_circuited_operand_names_the_operator() {
-    let detail = refusal(
-        "\
-FUNC main() AS Integer
   MUT n AS Integer = 5
-  MUT t AS Boolean = TRUE
-  LET d = pick(t AND (-n) > 0, 2) TRAP(e)
-    RECOVER -1
-  END TRAP
-  RETURN d
-END FUNC
-",
-    );
-    assert!(
-        detail.contains("`-`"),
-        "the refusal must name the operator that cannot be lifted; it said {detail:?}"
-    );
-}
-
-/// `-1` is the spelling of a negative literal, not a negation that can
-/// overflow, so it is exempt — `t AND -1 > 0` compiles.
-///
-/// The exemption reads the same predicate the lift reads
-/// (`fallible::is_total_literal_negation`), so the checker and the desugar
-/// cannot drift into disagreeing about which negations are total. Without it
-/// every `AND`-guarded comparison against a negative constant inside a `TRAP`
-/// would be refused, which is a common enough shape to be a usability bug.
-///
-/// The `TRAP` is warranted independently: `inner(3)` is fallible and sits in an
-/// unconditional argument, so this asserts the exemption rather than the
-/// absence of anything to lift.
-#[test]
-fn a_negative_literal_is_not_a_raising_negation() {
-    accepted(
-        "\
-FUNC main() AS Integer
-  MUT t AS Boolean = TRUE
-  LET d = pick(t AND -1 > 0, inner(3)) TRAP(e)
-    RECOVER -1
-  END TRAP
-  RETURN d
-END FUNC
-",
-    );
-}
-
-/// A fallible call that is *unconditionally* evaluated is lifted, not refused —
-/// including one on the LEFT of an `AND`, which always runs.
-///
-/// This is the rule's other edge. `conditional` turns on only when the walk
-/// descends into a short-circuited operand, and a checker that set it for the
-/// whole `AND` node would refuse the programs the desugar handles correctly.
-#[test]
-fn an_unconditionally_evaluated_call_is_lifted_not_refused() {
-    accepted(
-        "\
-FUNC main() AS Integer
-  LET ok = positive(3) AND TRUE TRAP(e)
-    RECOVER FALSE
-  END TRAP
-  io::print(\"ok=\" & toString(ok))
-  RETURN 0
-END FUNC
-",
-    );
-}
-
-/// A lambda body is not part of this expression's evaluation.
-///
-/// The lambda here is a *value* handed to `accepts`, which never calls it —
-/// whatever it calls would run at some later call site, under whatever error
-/// handling is in force there, so this expression cannot raise it and the
-/// handler has nothing to cover. Walking into the body would find `inner`,
-/// report it, and refuse a program that is correct.
-///
-/// `accepts` has to be a function that does not invoke its argument, which is
-/// the whole subtlety: a `FUNC`-typed parameter that *is* invoked makes the
-/// enclosing function fallible, so a `collections::count`-shaped call in a
-/// short-circuited operand is refused on its own account — under its own name,
-/// not the lambda's. The `TRAP` is still warranted by `inner(3)` in the
-/// unconditional argument.
-#[test]
-fn a_lambda_body_is_not_walked() {
-    accepted(
-        "\
-FUNC accepts(f AS FUNC(Integer) AS Integer) AS Boolean
-  RETURN TRUE
-END FUNC
-
-FUNC main() AS Integer
-  MUT t AS Boolean = TRUE
-  LET d = pick(t AND accepts(LAMBDA(v AS Integer) -> inner(v)), inner(3)) TRAP(e)
-    RECOVER -1
-  END TRAP
-  RETURN d
-END FUNC
-",
-    );
-}
-
-/// A fallible call *through* a `FUNC`-typed parameter in a short-circuited
-/// operand is refused under the enclosing function's name.
-///
-/// The counterpart to the case above, and the reason its `accepts` is written
-/// the way it is: invoking the parameter makes `apply` fallible, so `apply` is
-/// the offender. Naming `apply` rather than `inner` is right — `inner` is not
-/// in this expression at all, and sending the author to a lambda body they
-/// would then have to trace back is the opposite of what the message is for.
-#[test]
-fn a_call_through_a_func_typed_parameter_is_refused_under_its_own_name() {
-    let detail = refusal(
-        "\
-FUNC apply(f AS FUNC(Integer) AS Integer, n AS Integer) AS Integer
-  RETURN f(n)
-END FUNC
-
-FUNC main() AS Integer
-  MUT t AS Boolean = TRUE
-  LET d = pick(t AND apply(LAMBDA(v AS Integer) -> inner(v), 3) > 0, 2) TRAP(e)
-    RECOVER -1
-  END TRAP
-  RETURN d
-END FUNC
-",
-    );
-    assert!(
-        detail.contains("`apply`") && !detail.contains("`inner`"),
-        "the refusal must name the call in the operand, not something inside a \
-         lambda it was handed; it said {detail:?}"
-    );
-}
-
-/// The walk reaches every kind of expression node, so an offender cannot hide
-/// behind one.
-///
-/// Each case buries the same unliftable call one node deeper than the last —
-/// under a constructor argument, a `WITH` update, a list/set/map element, a
-/// member access target, a nested call argument. A walk missing any one of
-/// those arms would accept the program and miscompile it, which is the failure
-/// bug-457 was filed for; the arms are individually load-bearing, and a single
-/// combined program would stop at the first offender and prove only one.
-#[test]
-fn the_walk_finds_an_offender_under_every_expression_kind() {
-    for (what, expression) in [
-        (
-            "a constructor argument",
-            "take(\"t\", 1, TRUE, Point[pick(t AND positive(-1), 1), 2]).x",
-        ),
-        (
-            "a WITH update",
-            "(WITH base { x := pick(t AND positive(-1), 1) }).x",
-        ),
-        ("a list element", "len([pick(t AND positive(-1), 1)])"),
-        (
-            "a set element",
-            "len(Set OF Integer { pick(t AND positive(-1), 1) })",
-        ),
-        (
-            "a map value",
-            "len(Map OF String TO Integer { \"a\" := pick(t AND positive(-1), 1) })",
-        ),
-        (
-            "a member-access target",
-            "Point[pick(t AND positive(-1), 1), 2].y",
-        ),
-        (
-            "a nested call argument",
-            "pick(TRUE, pick(t AND positive(-1), 1))",
-        ),
-    ] {
-        let detail = refusal(&format!(
-            "\
-FUNC main() AS Integer
-  MUT t AS Boolean = TRUE
+  MUT fx AS Fixed = 1F
+  MUT big AS Integer = 3000000000
+  MUT ratio AS Float = 3000000000.0
+  MUT small AS Byte = toByte(3)
   LET base AS Point = Point[1, 2]
   LET d = {expression} TRAP(e)
     RECOVER -1
@@ -337,23 +91,91 @@ FUNC main() AS Integer
   RETURN d
 END FUNC
 "
-        ));
-        assert!(
-            detail.contains("`positive`"),
-            "an offender under {what} must be found and named; it said {detail:?}"
-        );
+    )
+}
+
+/// The Boolean-root form: a fallible call as the whole right operand.
+#[test]
+fn a_fallible_call_in_a_short_circuited_root_is_accepted() {
+    accepted(
+        "\
+FUNC main() AS Integer
+  MUT t AS Boolean = TRUE
+  LET ok = t AND positive(-1) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  LET either = t OR positive(-1) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  io::print(toString(ok) & toString(either))
+  RETURN 0
+END FUNC
+",
+    );
+}
+
+/// Raising binary and unary operators in a short-circuited operand, a call
+/// through a `FUNC`-typed parameter, a lambda value, and a negative literal
+/// (which cannot raise).
+#[test]
+fn raising_operators_and_indirect_calls_in_a_short_circuited_operand_are_accepted() {
+    for expression in [
+        "pick(t AND (1 / z) > 0, 2)",
+        "pick(t AND (-n) > 0, 2)",
+        "pick(t AND -1 > 0, inner(3))",
+        "pick(t AND apply(LAMBDA(v AS Integer) -> inner(v), 3) > 0, 2)",
+        "pick(t AND accepts(LAMBDA(v AS Integer) -> inner(v)), inner(3))",
+    ] {
+        accepted(&trapped(expression));
     }
 }
 
-/// The rule is scoped to inline `TRAP`. The identical expression outside one is
-/// none of its business — a short-circuited fallible call in an ordinary
-/// binding propagates to the function-level handler, which is what it should
-/// do.
+/// The conditional step is found under every kind of expression node — a
+/// constructor argument, a `WITH` update, a list/set/map element, a member
+/// access target, a nested call argument — because the lift reaches it through
+/// the same walk as every other lifted node.
 #[test]
-fn the_rule_only_applies_inside_an_inline_trap() {
-    assert_eq!(
-        check_src(&format!(
-            "{PRELUDE}\
+fn a_conditional_under_every_expression_kind_is_accepted() {
+    for expression in [
+        "take(\"t\", 1, TRUE, Point[pick(t AND positive(-1), 1), 2])",
+        "(WITH base { x := pick(t AND positive(-1), 1) }).x",
+        "len([pick(t AND positive(-1), 1)])",
+        "len(Set OF Integer { pick(t AND positive(-1), 1) })",
+        "len(Map OF String TO Integer { \"a\" := pick(t AND positive(-1), 1) })",
+        "Point[pick(t AND positive(-1), 1), 2].y",
+        "pick(TRUE, pick(t AND positive(-1), 1))",
+        "pick(positive(3) AND TRUE, 1)",
+    ] {
+        accepted(&trapped(expression));
+    }
+}
+
+/// Raising comparisons (bug-816) in every short-circuited position bug-825 named
+/// — right of `AND`, of `OR`, under `NOT`, nested, and the left side of an
+/// `AND` that is itself short-circuited — and the non-raising comparisons.
+#[test]
+fn raising_and_non_raising_comparisons_in_a_short_circuited_operand_are_accepted() {
+    for expression in [
+        "pick(t AND fx < big, 2)",
+        "pick(t AND fx >= ratio, 2)",
+        "pick(t OR big = fx, 2)",
+        "pick(t AND NOT (fx <> big), 2)",
+        "pick(t OR (u AND (fx <= ratio)), 2)",
+        "pick(t AND (fx > big AND u), 2)",
+        "pick(fx < big AND t, inner(3))",
+        "pick(t AND n < 3, inner(3))",
+        "pick(t AND small < fx, inner(3))",
+        "pick(t OR fx = 2F, inner(3))",
+    ] {
+        accepted(&trapped(expression));
+    }
+}
+
+/// Outside an inline `TRAP` the same expression is ordinary propagation.
+#[test]
+fn a_short_circuited_fallible_call_outside_an_inline_trap_is_accepted() {
+    accepted(
+        "\
 FUNC main() AS Integer
   MUT t AS Boolean = TRUE
   LET ok = t AND positive(-1)
@@ -364,96 +186,6 @@ FUNC main() AS Integer
     RETURN 1
   END TRAP
 END FUNC
-"
-        )),
-        Vec::<String>::new(),
-        "a short-circuited fallible call outside an inline TRAP is ordinary \
-         error propagation, not an unliftable lift"
+",
     );
-}
-
-/// A raising **comparison** in a short-circuited operand is refused (bug-825).
-///
-/// A comparison promotes its operands like arithmetic, and promotion into
-/// `Fixed` is checked: `fx < big` raises `ErrOverflow` when `big` is outside the
-/// `Fixed` range, and `fx >= ratio` raises `ErrInvalidFormat` for a non-finite
-/// `ratio`. `lower::trap_hoist_kind` lifts such a comparison on
-/// `fallible::comparison_can_raise` (bug-816), but the short-circuit check asked
-/// only `operator_can_raise`, so `t AND fx < big` compiled and its error escaped
-/// to the function-level handler. Both promotion sources are asserted because
-/// they are separate operand types of the one predicate, and every position the
-/// spec calls short-circuited — the right side of `AND`, of `OR`, nested and
-/// under `NOT` — is a separate path through the walk.
-#[test]
-fn a_raising_comparison_in_a_short_circuited_operand_names_the_operator() {
-    for (what, expression, operator) in [
-        ("Integer promoted into Fixed", "t AND fx < big", "`<`"),
-        ("Float promoted into Fixed", "t AND fx >= ratio", "`>=`"),
-        ("Integer on the left", "t OR big = fx", "`=`"),
-        ("under NOT", "t AND NOT (fx <> big)", "`<>`"),
-        (
-            "nested AND inside an OR operand",
-            "t OR (u AND (fx <= ratio))",
-            "`<=`",
-        ),
-        (
-            "the left side of an AND that is itself short-circuited",
-            "t AND (fx > big AND u)",
-            "`>`",
-        ),
-    ] {
-        let detail = refusal(&format!(
-            "\
-FUNC main() AS Integer
-  MUT t AS Boolean = TRUE
-  MUT u AS Boolean = TRUE
-  MUT fx AS Fixed = 1F
-  MUT big AS Integer = 3000000000
-  MUT ratio AS Float = 3000000000.0
-  LET d = pick({expression}, 2) TRAP(e)
-    RECOVER -1
-  END TRAP
-  RETURN d
-END FUNC
-"
-        ));
-        assert!(
-            detail.contains(operator),
-            "a raising comparison ({what}) in a short-circuited operand must be \
-             refused and named {operator}; it said {detail:?}"
-        );
-    }
-}
-
-/// The comparison rule's other edges: a raising comparison that is evaluated
-/// unconditionally — the LEFT operand of the outermost `AND`/`OR` — is lifted
-/// and caught, not refused; and a comparison that converts nothing into `Fixed`
-/// (`Integer` vs `Integer`, `Byte` vs `Fixed`, `Fixed` vs `Fixed`) cannot raise
-/// and stays legal in a short-circuited operand. The `TRAP`s are warranted
-/// independently by `inner(3)`, so these assert the exemption rather than the
-/// absence of anything to lift.
-#[test]
-fn an_unconditional_or_non_raising_comparison_is_not_refused() {
-    for expression in [
-        "pick(fx < big AND t, inner(3))",
-        "pick(t AND n < 3, inner(3))",
-        "pick(t AND small < fx, inner(3))",
-        "pick(t OR fx = 2F, inner(3))",
-    ] {
-        accepted(&format!(
-            "\
-FUNC main() AS Integer
-  MUT t AS Boolean = TRUE
-  MUT n AS Integer = 1
-  MUT fx AS Fixed = 1F
-  MUT big AS Integer = 3000000000
-  MUT small AS Byte = toByte(3)
-  LET d = {expression} TRAP(e)
-    RECOVER -1
-  END TRAP
-  RETURN d
-END FUNC
-"
-        ));
-    }
 }

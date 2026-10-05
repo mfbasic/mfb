@@ -3,7 +3,7 @@
 Last updated: 2026-10-04
 Effort: medium (estimate: 1h–2h)
 Depends on: plan-165-B; bug-825; bug-798 (fixed)
-Status: In progress (go-ahead: `/follow-plan 165`, 2026-10-05)
+Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`)
 
 ## Goal
 
@@ -169,10 +169,10 @@ Newly accepted programs intentionally change output; byte identity is not the ga
       ran after the lifted `boom` (an ordering bug this plan's lowering fixes).
 - [x] Cover call arguments and Boolean expression roots; use bindings/assignment/
       discard/state targets where valid. Preserve invalid recovery-type fixtures.
-      `conditional_results_reach_every_target` (binding, assignment, discard); the
-      STATE-assign target shares `InlineTrapTarget` delivery and is not separately
-      exercised (no conditional-specific code touches it). No recovery-type fixture
-      is edited.
+      `conditional_results_reach_every_target` (binding, assignment, discard),
+      `a_conditional_result_reaches_a_state_target` (STATE assignment keeps its old
+      state until RECOVER), `a_conditional_inside_a_collection_or_nested_call_is_captured`.
+      No recovery-type fixture is edited.
 - [x] Float cases from bug-798 and bug-816: a transient non-finite compared with a
       Float/Integer/Byte in a selected right operand does not trap; compared with a
       Fixed it raises `ErrInvalidFormat` into the handler; contraction parity holds.
@@ -199,28 +199,68 @@ because the currently rejected semantics are missing (estimate: minutes after bu
 Met: `0 passed; 9 failed` — eight on `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` (with
 `REQUIRES_FALLIBLE` on Boolean roots, `TRAP_LOCAL_UNINITIALIZED` in the census
 case), one on the ordering bug (`marks=0`).
-Commit: (next commit)
+Commit: d1fe2cdac
 
 ### Phase 2 — Structured lowering and documentation
 
-- [ ] Implement conditional steps in `src/ir/lower.rs` using existing structured IR,
+- [x] Implement conditional steps in `src/ir/lower.rs` using existing structured IR,
       asking `trap_hoist_kind` (which already consults `comparison_can_raise`) for
-      right-operand raise sites.
-- [ ] Keep bug-778 slot zeroing dominating every drop of a branch-bound temporary;
-      confirm with the Phase 1 balance and parity assertions.
-- [ ] Remove the obsolete shape rejection and any newly unused helper; retain
-      other inline-trap eligibility and type checking.
-- [ ] Replace only disproved existing rejection assertions using the evidence above.
-- [ ] Update `src/docs/spec/language/08_error-model.md`,
+      right-operand raise sites. `trap_hoist_kind` indexes an `AND`/`OR` whose
+      right operand holds a call or raise site (checked iff it can fail);
+      `rewrite_trap_call` builds a `ConditionalStep` from the right operand's own
+      scan/rewrite; `wrap_trap_hoists` emits `Bind MUT $trap_cond = left`,
+      `If cond` / `If NOT cond` around the right chain, then `If NOT $trap_failed`
+      around the rest; a conditional scrutinee root is lifted the same way.
+- [x] Keep bug-778 slot zeroing dominating every drop of a branch-bound temporary;
+      confirm with the Phase 1 balance and parity assertions. Every right-operand
+      `CallResult`/`Checked` and its `ResultValue` read are bound inside the
+      selected `If` body, so no drop reaches a skipped branch;
+      `right_operand_payloads_balance_the_arena_on_every_path` and
+      `the_trapped_conditional_success_path_allocates_what_the_plain_one_does`
+      pass at -O0/-O1/-O3 (no heap-`Result` fallback: allocation deltas equal).
+- [x] Remove the obsolete shape rejection and any newly unused helper; retain
+      other inline-trap eligibility and type checking. Deleted
+      `ir::shape::{check_trap_short_circuit, note_short_circuited_binary_operator,
+      note_short_circuited_unary_operator, find_short_circuited_call}` and
+      `LowerContext::call_is_fallible` (its only caller); `2-203-0137` kept as a
+      reserved, never-emitted row (not reused).
+- [x] Replace only disproved existing rejection assertions using the evidence above.
+      History: bug-457 (`rt_inline_trap_nested_call`), bug-471
+      (`rt_inline_trap_raising_operator`), bug-825 (`src/ir/tests/
+      inline_trap_short_circuit.rs`, `tests/syntax/trap/
+      inline-trap-fixed-comparison-short-circuit-invalid`). Protected behavior — an
+      error never escapes its inline handler — is kept: each rejection assertion
+      became a runtime/acceptance assertion that the selected failure is caught
+      and the unselected operand never runs; the invalid fixture moved to
+      `tests/rt-behavior/trap/inline-trap-fixed-comparison-short-circuit-selected-rt`
+      (prints `… trapped 77050010` three times, then the unselected forms).
+      Independent evidence: the owner-requested semantics in this plan's Goal.
+- [x] Update `src/docs/spec/language/08_error-model.md`,
       `src/docs/spec/architecture/04_ir.md`, and diagnostic rule documentation.
-- [ ] Remove the unsafe suggestion to pre-evaluate the right operand in a binding;
-      illustrate conditional evaluation directly.
+      §8.4, rule 11, the §8.8 desugar diagram; 04_ir conditional step;
+      `01_rule-codes.md` 2-203-0137 reserved; `cargo test --bin mfb -- spec man
+      rules::` → `382 passed`.
+- [x] Remove the unsafe suggestion to pre-evaluate the right operand in a binding;
+      illustrate conditional evaluation directly. Removed from §8.4 ("bind it to
+      its own TRAP first"), the deleted diagnostic message, and `mfb man errors`;
+      both now show `count(ready AND load(path)) TRAP(e)`.
+- [x] Added: valid/invalid fixtures — `inline-trap-fixed-comparison-short-circuit-selected-rt`
+      (above) and `tests/syntax/trap/inline-trap-conditional-recover-type-invalid`
+      (RECOVER supplies the whole expression's type; fall-through still rejected):
+      `scripts/test-accept.sh … ` → `acceptance tests passed (2 test(s) ran)`; the
+      trap fixture families (`inline-trap-*`, `control-flow-inline-trap*`) →
+      `23 test(s)` passed.
 
 Acceptance: short-circuit runtime tests prove exact effects, results, handler
 selection, memory balance and allocation parity; `rt_inline_trap_nested_call`,
 `rt_inline_trap_raising_operator`, `rt_inline_trap_success_alloc` and
-`rt_inline_trap_float_observation` also pass (estimate: minutes).
-Commit: —
+`rt_inline_trap_float_observation` also pass (estimate: minutes). Met:
+`cargo test --test rt_inline_trap_short_circuit --test rt_inline_trap_nested_call
+--test rt_inline_trap_raising_operator --test rt_inline_trap_success_alloc --test
+rt_inline_trap_float_observation` → 10+21+20+2+1 passed, plus the STATE case
+(`-- state_target` → 1 passed); `cargo test --bin mfb -- inline_trap_short_circuit
+ir::verify ir::tests` green.
+Commit: (next commit)
 
 ## Open decisions
 
@@ -263,3 +303,12 @@ tests; updated the Float rules for bug-816's Float/Fixed conversion
 (`ErrInvalidFormat`); added the bug-778 skipped-branch slot hazard with balance and
 allocation-parity tests; made bug-825 (the escape the review found) a prerequisite
 rather than part of this plan.
+
+2026-10-05 (implementation):
+- Phase 1 found a pre-existing ordering bug the plan's Design anticipated but did
+  not list as present: `pair(yes AND mark(1), boom("later")) TRAP(e)` built at
+  `f23af579c` and ran `mark` AFTER the lifted `boom` (the AND stayed in the
+  residual while `boom` was hoisted), so the handler saw `marks=0`. The
+  conditional step fixes it (an infallible-call right operand is lifted
+  unchecked); `an_infallible_side_effect_stays_ordered_before_a_later_failure`
+  is the regression test. No separate bug doc: it is fixed by this plan's commit.

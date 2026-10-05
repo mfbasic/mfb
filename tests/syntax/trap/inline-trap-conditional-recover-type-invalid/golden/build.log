@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/trap/inline-trap-conditional-recover-type-invalid
+  24 |     RECOVER FALSE
+  25 |   END TRAP
+  26 |   LET c = t AND probe(TRUE) TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-conditional-recover-type-invalid/src/main.mfb:26 error[2-203-0066 TYPE_INLINE_TRAP_FALLS_THROUGH]: inline TRAP handler path neither recovers nor diverges
+               Inline TRAP handler must end every path in RECOVER or a diverging statement (RETURN, FAIL, or PROPAGATE).
+  19 |   MUT t = TRUE
+  20 |   LET a = t AND probe(TRUE) TRAP(e)
+  21 |     RECOVER 5
+     | ^
+tests/syntax/trap/inline-trap-conditional-recover-type-invalid/src/main.mfb:21 error[2-203-0067 TYPE_RECOVER_TYPE_MISMATCH]: RECOVER value does not match the trapped expression's success type
+               RECOVER has type Integer, expected Boolean.
+  22 |   END TRAP
+  23 |   LET b = pick(t OR probe(TRUE), 2) TRAP(e)
+  24 |     RECOVER FALSE
+     | ^
+tests/syntax/trap/inline-trap-conditional-recover-type-invalid/src/main.mfb:24 error[2-203-0067 TYPE_RECOVER_TYPE_MISMATCH]: RECOVER value does not match the trapped expression's success type
+               RECOVER has type Boolean, expected Integer.
+[exit 1]

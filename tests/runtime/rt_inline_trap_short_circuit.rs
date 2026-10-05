@@ -196,6 +196,32 @@ fn nested_conditions_and_failures_skip_exactly_the_rest() {
     );
 }
 
+/// A conditional buried in a list element, a map value or a nested call
+/// argument is captured the same way.
+#[test]
+fn a_conditional_inside_a_collection_or_nested_call_is_captured() {
+    expect_main(
+        "kinds",
+        r#"  MUT yes = TRUE
+  LET a = len([pair(yes AND probe("list", TRUE, TRUE), 1)]) TRAP(e)
+    io::print("caught " & e.message)
+    RECOVER -1
+  END TRAP
+  LET b = len(Map OF String TO Integer { "k" := pair(yes AND probe("map", TRUE, TRUE), 2) }) TRAP(e)
+    io::print("caught " & e.message)
+    RECOVER -2
+  END TRAP
+  LET c = pair(TRUE, pair(yes AND probe("nested-ok", TRUE, FALSE), 3)) TRAP(e)
+    io::print("caught " & e.message)
+    RECOVER -3
+  END TRAP
+  io::print(toString(a) & "," & toString(b) & "," & toString(c))
+"#,
+        "eval list\ncaught list\neval map\ncaught map\neval nested-ok\npair TRUE 3\n\
+         pair TRUE 3\n-1,-2,3\n",
+    );
+}
+
 /// A conditional whose right call cannot fail but has an effect still runs
 /// before a later failing sibling, and the effect is not undone.
 #[test]
@@ -333,6 +359,22 @@ fn conditional_results_reach_every_target() {
         "eval assign\nafter assign FALSE\neval assign-fails\ncaught assign-fails target=FALSE\n\
          after recover TRUE\neval discarded\ncaught discarded\neval discarded-ok\n\
          finish discard-ok TRUE\n",
+    );
+}
+
+/// A resource's `STATE` assignment target takes the conditional result the same
+/// way, and keeps its old state until RECOVER supplies a new one.
+#[test]
+fn a_conditional_result_reaches_a_state_target() {
+    let source = format!(
+        "IMPORT fs\n{}TYPE Flag\n  ok AS Boolean\nEND TYPE\n\nFUNC main() AS Integer\n  MUT yes = TRUE\n  RES f AS fs::File STATE Flag = fs::createTempFile()\n  f.state = WITH f.state {{ ok := yes AND probe(\"state\", TRUE, FALSE) }} TRAP(e)\n    io::print(\"caught \" & e.message)\n    RECOVER WITH f.state {{ ok := FALSE }}\n  END TRAP\n  io::print(\"state \" & toString(f.state.ok))\n  f.state = WITH f.state {{ ok := yes AND probe(\"state-fails\", FALSE, TRUE) }} TRAP(e)\n    io::print(\"caught \" & e.message & \" old=\" & toString(f.state.ok))\n    RECOVER WITH f.state {{ ok := FALSE }}\n  END TRAP\n  io::print(\"state \" & toString(f.state.ok))\n  fs::close(f)\n  RETURN 0\nEND FUNC\n",
+        HEAD
+    );
+    let exe = build("state", &source, &[]);
+    let (stdout, _) = run("state", &exe, &[]);
+    assert_eq!(
+        stdout,
+        "eval state\nstate TRUE\neval state-fails\ncaught state-fails old=TRUE\nstate FALSE\n"
     );
 }
 

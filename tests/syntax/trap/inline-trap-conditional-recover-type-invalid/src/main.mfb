@@ -1,0 +1,31 @@
+' plan-165-C: an inline TRAP over a conditional AND/OR keeps its typed recovery.
+' RECOVER supplies the WHOLE trapped expression's value, so it must be a
+' Boolean for a Boolean root and an Integer for `pick(...)` — not the type of
+' the operand that failed. A handler that falls through is still rejected.
+IMPORT io
+
+FUNC probe(fails AS Boolean) AS Boolean
+  IF fails THEN
+    FAIL error(90000001, "probe")
+  END IF
+  RETURN TRUE
+END FUNC
+
+FUNC pick(flag AS Boolean, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main() AS Integer
+  MUT t = TRUE
+  LET a = t AND probe(TRUE) TRAP(e)
+    RECOVER 5
+  END TRAP
+  LET b = pick(t OR probe(TRUE), 2) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  LET c = t AND probe(TRUE) TRAP(e)
+    io::print("no recover")
+  END TRAP
+  io::print(toString(a) & toString(b) & toString(c))
+  RETURN 0
+END FUNC

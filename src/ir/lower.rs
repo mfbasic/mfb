@@ -370,17 +370,6 @@ impl LowerContext<'_> {
             .or_else(|| self.binding_types.get(&canonical_import_name(name, self)))
     }
 
-    /// Whether a call to `target` can raise an error its caller must handle
-    /// (bug-457). The shape pass asks this to reject a fallible call in a
-    /// short-circuited operand of an inline-`TRAP` scrutinee, which is the one
-    /// nested-call shape [`lower_inline_trap`] cannot lift.
-    /// `arg_types` discriminates the built-ins whose fallibility depends on the
-    /// overload rather than the name (`replace`, bug-533; `toInt`, bug-679).
-    pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
-        self.fallible
-            .call_is_fallible(target, arg_types, self.type_index())
-    }
-
     /// bug-695: whether `type_` names a `RESOURCE` this project declares.
     pub(super) fn is_declared_resource(&self, type_: &ParameterType) -> bool {
         self.type_index.resources.contains(type_)
@@ -1856,6 +1845,7 @@ fn lower_inline_trap(
     // is rejected exactly as before.
     let root_operator_raises = !hoists.is_empty()
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
+        && !is_conditional_root(&root)
         && trap_hoist_kind(
             &root,
             false,
@@ -2063,7 +2053,7 @@ fn lower_inline_trap(
         }
 
         // Innermost: the residual expression, checked or plain.
-        let mut body = match (root_result, root_plain) {
+        let body = match (root_result, root_plain) {
             (Some(call_result), _) => vec![
                 IrOp::Bind {
                     mutable: false,
@@ -2098,62 +2088,7 @@ fn lower_inline_trap(
 
         // Wrap the lifted calls around it, innermost last, so each one's Ok arm
         // carries everything evaluated after it and a failure skips the rest.
-        for hoist in hoists.into_iter().rev() {
-            let TrapHoist {
-                name,
-                type_,
-                value,
-                res,
-                loc,
-            } = hoist;
-            match res {
-                Some(res) => {
-                    let mut then_body = vec![IrOp::Bind {
-                        mutable: false,
-                        name,
-                        type_: type_.clone(),
-                        value: Some(IrValue::ResultValue {
-                            type_: type_.clone(),
-                            value: Box::new(IrValue::Local(res.clone())),
-                        }),
-                        loc,
-                        explicit_type: false,
-                    }];
-                    then_body.append(&mut body);
-                    let else_body = fail_arm(&res);
-                    body = vec![
-                        IrOp::Bind {
-                            mutable: false,
-                            name: res.clone(),
-                            type_: ParameterType::result_of(type_),
-                            value: Some(value),
-                            loc,
-                            explicit_type: false,
-                        },
-                        IrOp::If {
-                            condition: IrValue::ResultIsOk {
-                                value: Box::new(IrValue::Local(res)),
-                            },
-                            then_body,
-                            else_body,
-                            loc,
-                        },
-                    ];
-                }
-                None => {
-                    let mut lifted = vec![IrOp::Bind {
-                        mutable: false,
-                        name,
-                        type_,
-                        value: Some(value),
-                        loc,
-                        explicit_type: false,
-                    }];
-                    lifted.append(&mut body);
-                    body = lifted;
-                }
-            }
-        }
+        let mut body = wrap_trap_hoists(hoists, body, &failed_name, &fail_arm);
         ops.append(&mut body);
 
         // The single handler, reached from whichever check failed.
@@ -2304,6 +2239,175 @@ struct TrapHoist {
     /// The `Result` temp its check binds, when it is checked.
     res: Option<String>,
     loc: IrSourceLoc,
+    /// plan-165-C: a short-circuit `AND`/`OR` lifted as a conditional step. Then
+    /// `name` is the Boolean result local, `value` the (already rewritten) left
+    /// operand, and `res` is `None`; the right operand's own lifts run only when
+    /// the left one does not decide the result.
+    conditional: Option<ConditionalStep>,
+}
+
+/// The right half of a conditional lift (plan-165-C).
+struct ConditionalStep {
+    /// `AND` (right runs when the left is true) or `OR` (when it is false).
+    op: BinaryOp,
+    /// The right operand's lifts, in evaluation order.
+    right: Vec<TrapHoist>,
+    /// The right operand's residual, assigned to the result local once its lifts
+    /// have succeeded.
+    right_value: IrValue,
+}
+
+/// The ops for a chain of lifted steps around `body`: each lift's `Ok` arm
+/// carries everything evaluated after it, so a failure skips the rest, and a
+/// failed check runs `fail_arm` (which records the error behind the shared
+/// failure flag `failed`).
+fn wrap_trap_hoists(
+    hoists: Vec<TrapHoist>,
+    mut body: Vec<IrOp>,
+    failed: &str,
+    fail_arm: &dyn Fn(&str) -> Vec<IrOp>,
+) -> Vec<IrOp> {
+    for hoist in hoists.into_iter().rev() {
+        let TrapHoist {
+            name,
+            type_,
+            value,
+            res,
+            loc,
+            conditional,
+        } = hoist;
+        if let Some(ConditionalStep {
+            op,
+            right,
+            right_value,
+        }) = conditional
+        {
+            // plan-165-C: bind the left operand's value, run the right operand's
+            // own chain only when the left does not decide the result, and
+            // continue only if that chain did not fail. The result local is
+            // initialized on every path, so nothing after the step can read it
+            // unset; a skipped branch binds none of the right's temporaries.
+            let right_can_fail = right.iter().any(TrapHoist::can_fail);
+            let right_body = wrap_trap_hoists(
+                right,
+                vec![IrOp::Assign {
+                    name: name.clone(),
+                    value: right_value,
+                    loc,
+                }],
+                failed,
+                fail_arm,
+            );
+            let guard = match op {
+                BinaryOp::Or => IrValue::Unary {
+                    op: UnaryOp::Not,
+                    operand: Box::new(IrValue::Local(name.clone())),
+                    type_: ParameterType::Boolean,
+                    loc,
+                },
+                _ => IrValue::Local(name.clone()),
+            };
+            let mut step = vec![
+                IrOp::Bind {
+                    mutable: true,
+                    name,
+                    type_,
+                    value: Some(value),
+                    loc,
+                    explicit_type: false,
+                },
+                IrOp::If {
+                    condition: guard,
+                    then_body: right_body,
+                    else_body: Vec::new(),
+                    loc,
+                },
+            ];
+            if right_can_fail && !body.is_empty() {
+                step.push(IrOp::If {
+                    condition: IrValue::Unary {
+                        op: UnaryOp::Not,
+                        operand: Box::new(IrValue::Local(failed.to_string())),
+                        type_: ParameterType::Boolean,
+                        loc,
+                    },
+                    then_body: body,
+                    else_body: Vec::new(),
+                    loc,
+                });
+            } else {
+                step.append(&mut body);
+            }
+            body = step;
+            continue;
+        }
+        match res {
+            Some(res) => {
+                let mut then_body = vec![IrOp::Bind {
+                    mutable: false,
+                    name,
+                    type_: type_.clone(),
+                    value: Some(IrValue::ResultValue {
+                        type_: type_.clone(),
+                        value: Box::new(IrValue::Local(res.clone())),
+                    }),
+                    loc,
+                    explicit_type: false,
+                }];
+                then_body.append(&mut body);
+                let else_body = fail_arm(&res);
+                body = vec![
+                    IrOp::Bind {
+                        mutable: false,
+                        name: res.clone(),
+                        type_: ParameterType::result_of(type_),
+                        value: Some(value),
+                        loc,
+                        explicit_type: false,
+                    },
+                    IrOp::If {
+                        condition: IrValue::ResultIsOk {
+                            value: Box::new(IrValue::Local(res)),
+                        },
+                        then_body,
+                        else_body,
+                        loc,
+                    },
+                ];
+            }
+            None => {
+                let mut lifted = vec![IrOp::Bind {
+                    mutable: false,
+                    name,
+                    type_,
+                    value: Some(value),
+                    loc,
+                    explicit_type: false,
+                }];
+                lifted.append(&mut body);
+                body = lifted;
+            }
+        }
+    }
+    body
+}
+
+impl TrapHoist {
+    /// Whether this step can route an error to the handler: a checked lift, or
+    /// a conditional whose right operand holds one.
+    fn can_fail(&self) -> bool {
+        self.res.is_some()
+            || self
+                .conditional
+                .as_ref()
+                .is_some_and(|step| step.right.iter().any(TrapHoist::can_fail))
+    }
+}
+
+/// Whether `value` is a short-circuit `AND`/`OR` whose right operand holds
+/// something the inline-`TRAP` desugar must keep conditional (plan-165-C).
+fn is_conditional_root(value: &IrValue) -> bool {
+    matches!(value, IrValue::Binary { op, .. } if is_short_circuit_operator(*op))
 }
 
 /// Depth cap for the two inline-`TRAP` scrutinee walks. Mirrors
@@ -2353,17 +2457,43 @@ fn hoist_trap_calls(
     context: &mut LowerContext<'_>,
 ) -> Vec<TrapHoist> {
     // The scrutinee's own outermost node is handled by the caller, so only its
-    // operands are scanned.
+    // operands are scanned — except a conditional root (plan-165-C): an `AND`/
+    // `OR` whose right operand must stay conditional is itself a lifted step, so
+    // it is scanned (and below, rewritten) as a node and the residual becomes a
+    // read of its result local.
+    let root_is_conditional_step = is_conditional_root(root)
+        && trap_hoist_kind(
+            root,
+            false,
+            context.fallible,
+            locals,
+            &context.binding_types,
+            context.type_index,
+        )
+        .is_some();
     let mut fallible = Vec::new();
-    scan_trap_operands(
-        root,
-        context.fallible,
-        locals,
-        &context.binding_types,
-        context.type_index,
-        0,
-        &mut fallible,
-    );
+    if root_is_conditional_step {
+        scan_trap_call(
+            root,
+            false,
+            context.fallible,
+            locals,
+            &context.binding_types,
+            context.type_index,
+            0,
+            &mut fallible,
+        );
+    } else {
+        scan_trap_operands(
+            root,
+            context.fallible,
+            locals,
+            &context.binding_types,
+            context.type_index,
+            0,
+            &mut fallible,
+        );
+    }
     let Some(last_fallible) = fallible.iter().rposition(|f| *f) else {
         return Vec::new();
     };
@@ -2373,6 +2503,7 @@ fn hoist_trap_calls(
     // `len(stringify(parse(a))) + len(stringify(parse(b)))` left the second `len` behind and
     // failed the build with `Checked wraps a call to len`.
     let root_is_checked_operator = matches!(root, IrValue::Binary { .. } | IrValue::Unary { .. })
+        && !root_is_conditional_step
         && trap_hoist_kind(
             root,
             false,
@@ -2388,16 +2519,30 @@ fn hoist_trap_calls(
     };
     let mut hoists = Vec::new();
     let mut index = 0;
-    rewrite_trap_operands(
-        root,
-        &fallible,
-        limit,
-        &mut index,
-        0,
-        &mut hoists,
-        locals,
-        context,
-    );
+    if root_is_conditional_step {
+        rewrite_trap_call(
+            root,
+            false,
+            &fallible,
+            limit,
+            &mut index,
+            0,
+            &mut hoists,
+            locals,
+            context,
+        );
+    } else {
+        rewrite_trap_operands(
+            root,
+            &fallible,
+            limit,
+            &mut index,
+            0,
+            &mut hoists,
+            locals,
+            context,
+        );
+    }
     hoists
 }
 
@@ -2524,6 +2669,17 @@ fn trap_hoist_kind(
             && is_total_literal_negation(*op, type_) =>
         {
             None
+        }
+        // plan-165-C: a short-circuit `AND`/`OR` is lifted as one conditional step
+        // when its right operand holds anything that must stay conditional — a
+        // call (an effect that must neither run when unselected nor move past a
+        // later lift) or a raise site. It is checked when the right operand can
+        // fail. The right operand's own nodes are indexed by their own scan when
+        // the step is built, never in the enclosing expression's index.
+        IrValue::Binary { op, right, .. } if is_short_circuit_operator(*op) => {
+            let mut inner = Vec::new();
+            scan_trap_call(right, true, fallible, locals, globals, kinds, 0, &mut inner);
+            (!inner.is_empty()).then(|| inner.contains(&true))
         }
         // A raising operator is always checked: unlike a call there is no
         // declaration to prove it total, and `operator_can_raise` is already the
@@ -2774,6 +2930,65 @@ fn rewrite_trap_call(
     if position >= limit {
         return;
     }
+    if is_conditional_root(value) {
+        let IrValue::Binary {
+            op,
+            left,
+            right,
+            loc,
+            ..
+        } = std::mem::replace(value, IrValue::Local(String::new()))
+        else {
+            unreachable!("is_conditional_root matched a Binary");
+        };
+        {
+            // plan-165-C: the left operand was rewritten above as part of the
+            // enclosing expression; the right one is lifted on its own, up to its
+            // last fallible node, so its lifts run inside the selected branch.
+            let mut right = *right;
+            let mut inner = Vec::new();
+            scan_trap_call(
+                &right,
+                true,
+                context.fallible,
+                locals,
+                &context.binding_types,
+                context.type_index,
+                0,
+                &mut inner,
+            );
+            let right_limit = inner.iter().rposition(|f| *f).map_or(0, |last| last + 1);
+            let mut right_hoists = Vec::new();
+            let mut right_index = 0;
+            rewrite_trap_call(
+                &mut right,
+                true,
+                &inner,
+                right_limit,
+                &mut right_index,
+                0,
+                &mut right_hoists,
+                locals,
+                context,
+            );
+            let name = make_temp_local_name(context, "trap_cond");
+            locals.insert(name.clone(), ParameterType::Boolean);
+            hoists.push(TrapHoist {
+                name: name.clone(),
+                type_: ParameterType::Boolean,
+                value: *left,
+                res: None,
+                loc,
+                conditional: Some(ConditionalStep {
+                    op,
+                    right: right_hoists,
+                    right_value: right,
+                }),
+            });
+            *value = IrValue::Local(name);
+            return;
+        }
+    }
     let lifted = std::mem::replace(value, IrValue::Local(String::new()));
     let (type_, loc, value_node) = match lifted {
         IrValue::Call {
@@ -2842,6 +3057,7 @@ fn rewrite_trap_call(
         type_,
         value: value_node,
         res,
+        conditional: None,
         loc,
     });
     *value = IrValue::Local(name);

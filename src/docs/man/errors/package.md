@@ -100,11 +100,10 @@ An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an
 assignment, or a bare expression statement, and traps exactly one expression —
 every call and every raising operator inside it. In
 `LET d = divide(total, 1 / count) TRAP(e)` a division by zero runs the handler
-just as a failure of `divide` would. The one exception is the right operand of
-`AND` or `OR`, which runs only when the left side does not already decide the
-result: a call or raising operator there is rejected
-(`TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`), so give it its own statement and trap it
-there. Every path through the handler must `RECOVER` or diverge; falling through to
+just as a failure of `divide` would. The right operand of `AND` or `OR` still
+runs only when the left side does not already decide the result: in
+`LET n = count(ready AND load(path)) TRAP(e)`, `load` is called only when
+`ready` is true, and if it fails the handler runs and `count` is skipped. Every path through the handler must `RECOVER` or diverge; falling through to
 `END TRAP` is a compile error. For a value-less trapped call (a function
 declared `AS Nothing`, yours or a built-in) `RECOVER` takes no operand. Use it for ordinary
 absence too — `RECOVER` the recoverable case and bail on the rest:

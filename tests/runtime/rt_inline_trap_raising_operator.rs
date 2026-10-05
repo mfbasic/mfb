@@ -18,11 +18,10 @@
 //! The fix gives the IR a `Checked` node — "evaluate this value with its
 //! domain-error exits captured, yielding `Result OF T`" — and lifts every
 //! unconditionally-evaluated raising operator into its own checked bind, joining
-//! bug-457's shared `$trap_failed` chain. The one shape it cannot desugar — a
-//! raising operator in a **short-circuited** operand, where hoisting would
-//! evaluate it unconditionally — is rejected with
-//! `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`, exactly as bug-457 rejects a fallible
-//! call there.
+//! bug-457's shared `$trap_failed` chain. A raising operator in a
+//! **short-circuited** operand, where hoisting would evaluate it unconditionally,
+//! was rejected with `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL`; plan-165-C lowers it
+//! as a conditional step.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -594,39 +593,34 @@ fn a_negative_literal_is_not_lifted_but_a_computed_negation_is() {
     );
 }
 
-/// A raising operator in a **short-circuited** operand cannot be lifted —
-/// hoisting would evaluate it unconditionally — so it is reported rather than
-/// left to escape the handler silently, exactly as bug-457 reports a fallible
-/// call there.
+/// bug-471 rejected a raising operator in a **short-circuited** operand because
+/// lifting it would evaluate it unconditionally. plan-165-C keeps it
+/// conditional instead: selected, the division's error reaches the inline
+/// handler; unselected, it is never evaluated and `pick` sees `FALSE`.
 #[test]
-fn a_short_circuited_raising_operator_is_rejected() {
+fn a_short_circuited_raising_operator_is_caught_only_when_selected() {
     let root = unique_root("shortcircuit");
-    let out = build_output(
+    let exe = build(
         &root,
         concat!(
             "FUNC main() AS Integer\n",
             "  MUT z AS Integer = 0\n",
             "  MUT t AS Boolean = true\n",
+            "  MUT f AS Boolean = false\n",
             "  LET d = pick(t AND (1 / z) > 0, 2) TRAP(e)\n",
+            "    io::print(\"caught \" & toString(e.code))\n",
             "    RECOVER -1\n",
             "  END TRAP\n",
-            "  RETURN d\n",
+            "  LET s = pick(f AND (1 / z) > 0, 3) TRAP(e)\n",
+            "    io::print(\"caught skipped\")\n",
+            "    RECOVER -1\n",
+            "  END TRAP\n",
+            "  io::print(toString(d) & \",\" & toString(s))\n",
+            "  RETURN 0\n",
             "END FUNC\n",
         ),
     );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        !out.status.success(),
-        "a short-circuited raising operator must not compile silently:\n{combined}"
-    );
-    assert!(
-        combined.contains("TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL"),
-        "expected TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL, got:\n{combined}"
-    );
+    assert_eq!(run(&exe), "caught 77050002\n-1,3\n");
 }
 
 /// Control (unchanged by this fix): a scrutinee that is a bare operator with

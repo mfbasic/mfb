@@ -309,10 +309,10 @@ pub fn check_src_with_imports(
 ///
 /// [`check_src`] keeps only the rule codes, which is the right default: for
 /// most rules the code IS the contract. It is not enough for a rule whose job
-/// is to name something. `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` tells the author
-/// *which* call or operator cannot be lifted, and a test that asserted only the
-/// code would still pass if the message named the wrong node — which is the
-/// entire value of the diagnostic to the person reading it.
+/// is to name something — a test that asserted only the code would still pass
+/// if the message named the wrong node, which is the entire value of such a
+/// diagnostic to the person reading it — or for a test that must show no
+/// diagnostic at all and print every one it gets.
 pub fn check_src_details(source: &str) -> Vec<crate::rules::PendingDiagnostic> {
     // One source-diagnostic oracle for a pipeline-level test (plan-107):
     // `ir::shape` over the concrete HIR, then `ir::verify` over the lowered IR -

@@ -1,0 +1,55 @@
+' bug-825 / plan-165-C: a comparison promotes like arithmetic, and promotion
+' into Fixed is checked, so `fx < big` (Integer vs Fixed) raises ErrOverflow and
+' `fx >= ratio` (Float vs Fixed) raises ErrOverflow out of range or
+' ErrInvalidFormat for a non-finite Float. In the right operand of AND/OR the
+' comparison runs only when selected. bug-825 rejected these scrutinees with
+' TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL; plan-165-C evaluates the operand
+' conditionally under the inline TRAP, so a selected raise reaches this handler
+' (never the function-level one) and an unselected comparison never runs. The
+' LEFT-operand forms are tests/rt-behavior/trap/inline-trap-fixed-comparison-short-circuit-rt.
+IMPORT io
+FUNC finish(flag AS Boolean) AS Integer
+  io::print("finish " & toString(flag))
+  RETURN 1
+END FUNC
+FUNC viaInteger(selected AS Boolean, fx AS Fixed, big AS Integer) AS Integer
+  LET b = finish(selected AND fx < big) TRAP(e)
+    io::print("viaInteger trapped " & toString(e.code))
+    RECOVER 9
+  END TRAP
+  RETURN b
+  TRAP(f)
+    io::print("viaInteger escaped " & toString(f.code))
+    RETURN 0
+  END TRAP
+END FUNC
+FUNC viaFloat(selected AS Boolean, fx AS Fixed, ratio AS Float) AS Integer
+  LET b = finish(selected OR fx >= ratio) TRAP(e)
+    io::print("viaFloat trapped " & toString(e.code))
+    RECOVER 9
+  END TRAP
+  RETURN b
+  TRAP(f)
+    io::print("viaFloat escaped " & toString(f.code))
+    RETURN 0
+  END TRAP
+END FUNC
+FUNC viaNested(selected AS Boolean, fx AS Fixed, big AS Integer) AS Integer
+  LET b = finish(selected AND NOT (fx = big OR selected)) TRAP(e)
+    io::print("viaNested trapped " & toString(e.code))
+    RECOVER 9
+  END TRAP
+  RETURN b
+  TRAP(f)
+    io::print("viaNested escaped " & toString(f.code))
+    RETURN 0
+  END TRAP
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(viaInteger(TRUE, 1F, 3000000000)))
+  io::print(toString(viaFloat(FALSE, 1F, 3000000000.0)))
+  io::print(toString(viaNested(TRUE, 1F, 3000000000)))
+  io::print(toString(viaInteger(FALSE, 1F, 3000000000)))
+  io::print(toString(viaFloat(TRUE, 1F, 3000000000.0)))
+  RETURN 0
+END FUNC

@@ -2,8 +2,8 @@ IMPORT io
 
 ' bug-825 control: a comparison that promotes an Integer or Float into Fixed
 ' can raise (ErrOverflow out of range, ErrInvalidFormat for a non-finite Float).
-' In the right operand of AND/OR an inline TRAP cannot cover it and the program
-' is rejected (tests/syntax/trap/inline-trap-fixed-comparison-short-circuit-invalid).
+' In the right operand of AND/OR it runs only when selected (plan-165-C:
+' tests/rt-behavior/trap/inline-trap-fixed-comparison-short-circuit-selected-rt).
 ' Everywhere it is evaluated unconditionally the inline handler catches it:
 ' as the trapped call's whole argument, as the LEFT operand of AND/OR, and when
 ' it is bound to its own trapped LET first and the Boolean is then short-circuited.

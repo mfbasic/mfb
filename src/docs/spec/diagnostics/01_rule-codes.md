@@ -477,7 +477,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0133` | `TYPE_STATE_OPAQUE_NARROWING` | error | an opaque resource STATE cannot be narrowed to a concrete STATE type |
 | `2-203-0135` | `TYPE_INSTANTIATION_BUDGET_EXCEEDED` | error | generic instantiation fans out past the total-instantiation budget |
 | `2-203-0136` | `CRYPTO_SHA1_INSECURE` | warn | SHA-1 is not collision-resistant; use it only for legacy interoperability |
-| `2-203-0137` | `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` | error | inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand |
+| `2-203-0137` | `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` | error | reserved; not emitted; code is not reused |
 | `2-203-0138` | `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` | error | a resource cannot cross the thread data plane |
 | `2-203-0139` | `EXPORT_NAMES_NON_EXPORTED_TYPE` | error | an exported declaration names a type the package does not export |
 | `2-203-0140` | `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` | error | a ThreadWorker cannot cross to another thread |
