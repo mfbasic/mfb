@@ -3951,8 +3951,7 @@ impl CodeBuilder<'_> {
                         let else_label = self.label("if_else");
                         let end_label = self.label("if_end");
                         let constants_before_if = self.local_constants();
-                        self.emit(abi::compare_immediate(&condition.location, "0"));
-                        self.emit(abi::branch_eq(&else_label).field("reason", "ifFalse"));
+                        self.emit_branch_unless(&condition.location, &else_label, Some("ifFalse"));
                         self.lower_ops(then_body)?;
                         let then_terminal = self.current_block_returns();
                         if !then_terminal {
@@ -4099,8 +4098,7 @@ impl CodeBuilder<'_> {
                         // body+condition.
                         self.clear_local_constants();
                         let condition = self.lower_loop_condition(condition)?;
-                        self.emit(abi::compare_immediate(&condition, "0"));
-                        self.emit(abi::branch_eq(&end_label));
+                        self.emit_branch_unless(&condition, &end_label, None);
                         self.loop_stack.push(LoopLabels {
                             kind: *kind,
                             continue_label: loop_label.clone(),
@@ -4307,6 +4305,87 @@ impl CodeBuilder<'_> {
                 .map(|(l, depth)| (l.clone(), Some(*depth))),
             _ => None,
         }
+    }
+
+    /// Branch to `target` when the Boolean `condition` is false (bug-774).
+    ///
+    /// When `condition` is the result register of the integer comparison emitter
+    /// that was just lowered — the stream ends `cmp a, b; b.cc T; mov_imm R, false;
+    /// b D; T: mov_imm R, true; D:` with `R == condition` — the Boolean is never
+    /// materialized: the tail is cut back to the `cmp` and its branch becomes
+    /// `b.!cc target`. The six signed integer conditions invert exactly (`cmp` sets
+    /// no unordered state), and `T`/`D` are the emitter's own fresh labels, named
+    /// nowhere else, so dropping them leaves no dangling reference. Anything else —
+    /// a float or `Fixed` compare, a compare whose temps were freed after it, a
+    /// Boolean local or call — takes the general `cmp_imm R, 0; b.eq target`.
+    pub(crate) fn emit_branch_unless(
+        &mut self,
+        condition: &Operand,
+        target: &str,
+        reason: Option<&'static str>,
+    ) {
+        if let Some(inverse) = self.fusable_comparison_tail(condition) {
+            let len = self.instructions.len();
+            self.instructions.truncate(len - 5);
+            let source = self.instructions[len - 6].source;
+            let mut branch = CodeInstruction::new(inverse).field("target", target);
+            if let Some(reason) = reason {
+                branch = branch.field("reason", reason);
+            }
+            branch.source = source;
+            self.instructions[len - 6] = branch;
+            return;
+        }
+        self.emit(abi::compare_immediate(condition, "0"));
+        let branch = abi::branch_eq(target);
+        match reason {
+            Some(reason) => self.emit(branch.field("reason", reason)),
+            None => self.emit(branch),
+        }
+    }
+
+    /// The inverted branch mnemonic when the stream ends in the integer
+    /// comparison shape [`Self::emit_branch_unless`] fuses, with `condition` its
+    /// result register; `None` otherwise.
+    fn fusable_comparison_tail(&self, condition: &Operand) -> Option<&'static str> {
+        use crate::arch::ops::CodeOp;
+        let len = self.instructions.len();
+        if len < 7 {
+            return None;
+        }
+        let tail = &self.instructions[len - 7..];
+        let is_bool = |instruction: &CodeInstruction, value: &str| {
+            instruction.op == CodeOp::MovImm
+                && instruction.operand("dst") == Some(condition)
+                && instruction.get("type").as_deref() == Some("Boolean")
+                && instruction.get("value").as_deref() == Some(value)
+        };
+        let label_named = |instruction: &CodeInstruction, prefix: &str| {
+            (instruction.op == CodeOp::Label)
+                .then(|| instruction.get("name"))
+                .flatten()
+                .filter(|name| name.starts_with(prefix))
+        };
+        if !matches!(tail[0].op, CodeOp::Cmp | CodeOp::CmpImm) {
+            return None;
+        }
+        let inverse = match tail[1].op {
+            CodeOp::BranchEq => "b.ne",
+            CodeOp::BranchNe => "b.eq",
+            CodeOp::BranchLt => "b.ge",
+            CodeOp::BranchGe => "b.lt",
+            CodeOp::BranchGt => "b.le",
+            CodeOp::BranchLe => "b.gt",
+            _ => return None,
+        };
+        let true_label = label_named(&tail[4], "cmp_true_")?;
+        let done_label = label_named(&tail[6], "cmp_done_")?;
+        let fits = tail[1].get("target").as_deref() == Some(true_label.as_str())
+            && is_bool(&tail[2], "false")
+            && tail[3].op == CodeOp::Branch
+            && tail[3].get("target").as_deref() == Some(done_label.as_str())
+            && is_bool(&tail[5], "true");
+        fits.then_some(inverse)
     }
 
     /// Lower a loop body with its reassigned-locals set pushed on
