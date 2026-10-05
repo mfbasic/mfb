@@ -139,7 +139,7 @@ correct. Byte identity is not a runtime correctness gate.
       `an_error_returned_from_an_error_function_is_successful_data` and
       `returning_an_error_from_a_non_error_function_is_a_type_mismatch` (6 cases).
       The Nothing cases were RED: `RETURN error(...)` in `AS Nothing` compiled →
-      bug-927, fixed here (`bugs/completed/bug-927-*`).
+      bug-929, fixed here (`bugs/completed/bug-929-*`).
 - [x] Design the routing fixtures around §8.6a and bug-816: a function handler may
       read only parameters, globals, or locals declared before the first possible
       failure edge — and every counted FOR is one. Declare any local the handler
@@ -156,7 +156,7 @@ correct. Byte identity is not a runtime correctness gate.
       String, record × rec/prop/after × 40 iterations, output checked against a
       Rust mirror) passes.
 - [x] If a route fails, capture a RED reproduction and fix through a bug document.
-      No route failed. The type-check gap found alongside (bug-927) is fixed with
+      No route failed. The type-check gap found alongside (bug-929) is fixed with
       `tests/syntax/functions/func-nothing-returns-value-invalid` and two
       `ir::verify::tests` cases.
 - [x] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
@@ -185,7 +185,7 @@ Commit: 38d7f2f8b
       New §8.5 paragraph.
 - [x] Update related function/type cross-references without duplicating the table.
       `language/06_functions.md`: RETURN/FAIL pointer to §8.5 and the `AS Nothing`
-      RETURN-operand rule (bug-927).
+      RETURN-operand rule (bug-929).
 
 Acceptance: `target/debug/mfb spec language error-model` renders the complete
 contract; `cargo test --bin mfb spec` passes (estimate: minutes). Met: rendered
@@ -245,6 +245,6 @@ recorded that B's revision no longer depends on A's runtime target.
 true at `f23af579c` — `RETURN error(1, "x")`, `RETURN 5` in an `AS Nothing` function
 compiled (`ir::verify::compat::check_return_type` skipped `Nothing`, a leftover
 from when `TYPE_SUB_CANNOT_RETURN_VALUE` policed SUBs; plan-159-D removed it). Filed
-and fixed as bug-927 rather than weakening the test.
+and fixed as bug-929 rather than weakening the test.
 
-2026-10-05 (landing): main filed its own bug-827 and bug-828 while this plan ran, so this plan's two bug documents were renumbered bug-927 and bug-928 (commit messages 38d7f2f8b and 695295c48 still say 827/828).
+2026-10-05 (landing): main filed its own bug-827 and bug-828 while this plan ran, so this plan's two bug documents were renumbered bug-929 and bug-928 (927 was claimed by an uncommitted bug in another session) (commit messages 38d7f2f8b and 695295c48 still say 827/828).

@@ -6174,7 +6174,7 @@ fn rejects_nested_list_mismatch_return() {
 
 #[test]
 fn rejects_value_return_from_nothing_function() {
-    // bug-927: `Nothing` is a success type like any other, so `RETURN <Integer>`
+    // bug-929: `Nothing` is a success type like any other, so `RETURN <Integer>`
     // in an `AS Nothing` function is a mismatch, not a dropped value.
     let body = vec![ret(IrValue::Local("n".to_string()))];
     let f = func_returns("run", "Nothing", vec![param("n", "Integer", None)], body);

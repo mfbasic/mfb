@@ -1,4 +1,4 @@
-' bug-927: `RETURN <value>` in a function declared `AS Nothing` must be
+' bug-929: `RETURN <value>` in a function declared `AS Nothing` must be
 ' assignable to `Nothing`. A non-`Nothing` value — an `Integer`, an `Error` —
 ' is a type error, not a value silently dropped.
 IMPORT io
