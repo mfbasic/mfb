@@ -188,14 +188,15 @@ build_workers_package() {
 	  RETURN len(reply)
 	END FUNC
 
-	EXPORT ISOLATED FUNC patient(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+	' The thread::isCancelled page's own worker. It polls without sleeping: inside
+	' a worker os::sleep fails with ErrInterrupted on cancellation (bug-826).
+	EXPORT ISOLATED FUNC patient(worker AS ThreadWorker OF String TO Integer, unused AS String) AS Integer
 	  MUT spins AS Integer = 0
-	  WHILE NOT thread::isCancelled(w)
-	    os::sleep(10)
-	    spins = spins + 1
-	    IF spins > 500 THEN
-	      RETURN spins
+	  WHILE spins < 2000
+	    IF thread::isCancelled(worker) THEN
+	      RETURN -1
 	    END IF
+	    spins = spins + 1
 	  END WHILE
 	  RETURN spins
 	END FUNC
