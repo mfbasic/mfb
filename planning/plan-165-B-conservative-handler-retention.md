@@ -224,7 +224,7 @@ Commit: 695295c48 (shared with Phase 2)
       `declared_errors_sweep::PROGRAM_FIXTURES` lowers `astrings`, `canvas` and
       `crypto` against a real program's type model and globals, so all 15 canvas
       members, both astrings members and `crypto::generate` are now swept. The
-      sweeps found real undeclared raises, fixed as bug-828 (`json::sciParts`,
+      sweeps found real undeclared raises, fixed as bug-928 (`json::sciParts`,
       `astrings::fromString`/`writeSpans`, every `math` list form: ErrOutOfMemory).
 - [x] Replace the name lists with the registry rule (Design 1) and make unproved
       inline members raw-capable (Design 4); add a runtime fixture for any member
@@ -311,7 +311,7 @@ for the 25 uncovered grants, and a coverage-enforcing test. Effort re-estimated 
   introduces and were written with it. Phases 1 and 2 landed in one commit.
 - Design 2 said to file, not fix, mismatches a whole-package sweep surfaces. The
   repository rule ("never leave a bug you found") outranks that: the `math` list
-  forms' and `json::sciParts`' undeclared ErrOutOfMemory are fixed as bug-828, as
+  forms' and `json::sciParts`' undeclared ErrOutOfMemory are fixed as bug-928, as
   are `astrings::fromString`/`writeSpans` (which lost their grant, as Design 2
   anticipated). `math::log`/`log10`'s unreachable Fixed ErrOverflow is recorded as
   an `unreachable_own_raise` with its proof.

@@ -259,7 +259,7 @@ const CONSTANTS: &[(&str, &str, &str)] = &[
 /// bug-486 / bug-533 hazard.
 pub(crate) type ErrorsByType<'a> = &'a [(ParameterType, &'static [&'static str])];
 
-/// bug-828: a `List OF` form builds its result list (`_mfb_simd_alloc_list`), so
+/// bug-928: a `List OF` form builds its result list (`_mfb_simd_alloc_list`), so
 /// it raises `ErrOutOfMemory` when the arena allocation fails — on top of the
 /// per-lane kernel's errors. The scalar forms allocate nothing.
 pub(crate) fn list_form_errors(mut errors: Vec<&'static str>) -> Vec<&'static str> {

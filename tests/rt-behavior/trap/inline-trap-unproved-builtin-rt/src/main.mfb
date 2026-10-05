@@ -1,5 +1,5 @@
 ' plan-165-B: `astrings::fromString` builds a new block and declares
-' ErrOutOfMemory (bug-828), so it is no longer proven total: an inline TRAP on it
+' ErrOutOfMemory (bug-928), so it is no longer proven total: an inline TRAP on it
 ' is a live handler (no TYPE_INLINE_TRAP_DEAD_HANDLER) lowered through the real
 ' raw capture, and the success value still flows through.
 IMPORT astrings

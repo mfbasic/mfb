@@ -51,7 +51,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            // bug-828: `emit_sci_parts_call` raises ErrOutOfMemory when the
+            // bug-928: `emit_sci_parts_call` raises ErrOutOfMemory when the
             // digit string cannot be allocated.
             errors: vec!["ErrOutOfMemory"],
             body: Body::abi_inline(lower),

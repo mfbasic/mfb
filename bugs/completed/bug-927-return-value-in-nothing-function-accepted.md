@@ -1,11 +1,11 @@
-# bug-827: `RETURN <value>` in an `AS Nothing` function is accepted and dropped
+# bug-927: `RETURN <value>` in an `AS Nothing` function is accepted and dropped
 
 Last updated: 2026-10-05
 Effort: small (measured: one predicate)
 Severity: MEDIUM
 Class: Correctness (type checking)
 
-Status: Fixed (this commit; see `git log -S 'bug-827' -- src/ir/verify/compat.rs`)
+Status: Fixed (38d7f2f8b; filed as bug-827 and renumbered to bug-927 when main took 827 for another bug)
 Regression Test: `tests/syntax/functions/func-nothing-returns-value-invalid`,
 `ir::verify::tests::{rejects_value_return_from_nothing_function,
 accepts_nothing_value_return_from_nothing_function}`, and

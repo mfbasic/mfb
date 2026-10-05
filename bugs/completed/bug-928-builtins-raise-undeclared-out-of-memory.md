@@ -1,11 +1,11 @@
-# bug-828: built-ins raise ErrOutOfMemory without declaring it
+# bug-928: built-ins raise ErrOutOfMemory without declaring it
 
 Last updated: 2026-10-05
 Effort: small (measured: descriptor edits plus one guard narrowing)
 Severity: MEDIUM
 Class: Correctness (declared errors / fallibility census)
 
-Status: Fixed (plan-165-B commit; see `git log -S 'bug-828'`)
+Status: Fixed (695295c48; filed as bug-828 and renumbered to bug-928 when main took 828 for another bug)
 Regression Test: `declared_errors_all::every_{json,math,astrings}_member_declares_exactly_the_errors_its_lowering_raises`
 (new sweeps / newly lowered members) and
 `infallible_proof_coverage::every_inline_builtin_census_grant_is_raise_checked`.

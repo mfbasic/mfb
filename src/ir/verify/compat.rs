@@ -728,7 +728,7 @@ impl TypeEnv {
         if crate::internal_name::is_hidden_default_function(&self.current_function.borrow()) {
             return;
         }
-        // bug-827: `Nothing` is checked like any other success type. `RETURN NOTHING`
+        // bug-927: `Nothing` is checked like any other success type. `RETURN NOTHING`
         // and `RETURN log(x)` (a `Nothing` call) are assignable; `RETURN 5` or
         // `RETURN error(...)` in an `AS Nothing` function is not — it used to be
         // accepted and the value silently dropped, so a returned `Error` read as

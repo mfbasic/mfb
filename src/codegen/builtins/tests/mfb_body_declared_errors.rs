@@ -900,7 +900,7 @@ fn qualified_call_codes(
                 .and_then(|param| kind(&param.ty.name()))
         })
         .collect();
-    // bug-828: a member with both collection-kind and scalar first parameters
+    // bug-928: a member with both collection-kind and scalar first parameters
     // (`math::sqrt(List OF Float)` beside `math::sqrt(Float)`) called with an
     // argument proven to be a scalar raises only what its scalar overloads
     // declare — a scalar cannot match a `List`/`Map`/`Set`/`String` parameter, so
