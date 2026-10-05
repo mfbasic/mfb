@@ -1,0 +1,27 @@
+{
+  "name": "project_config_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"],
+  "config": {
+    "release": {
+      "apiUrl": "https://api.example.com",
+      "retries": 3,
+      "timeout": 2.5,
+      "db.host": "db.internal"
+    },
+    "dev": {
+      "apiUrl": "http://localhost:8080",
+      "retries": -1
+    }
+  }
+}

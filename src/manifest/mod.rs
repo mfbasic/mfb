@@ -1,4 +1,5 @@
 pub mod closure;
+pub(crate) mod config;
 pub mod entry;
 pub mod json_edit;
 pub mod libraries;
@@ -213,7 +214,7 @@ pub(crate) fn validate_project_manifest(
         valid = false;
     }
 
-    if !validate_config(manifest, project_path, &contents) {
+    if !validate_config(project_path, &contents) {
         valid = false;
     }
 
@@ -224,32 +225,36 @@ pub(crate) fn validate_project_manifest(
     }
 }
 
-/// plan-167-A: the runtime tunables moved from `config` to `options`, freeing
-/// `config` for named build configurations. A manifest that still carries
-/// `"config": {"stdinLogCap": N}` gets one actionable diagnostic naming the new
-/// home rather than silently losing its cap.
-fn validate_config(
-    manifest: &HashMap<String, JsonValue>,
-    project_path: &Path,
-    contents: &str,
-) -> bool {
-    let has_moved_option = manifest
-        .get("config")
-        .and_then(|config| config.get::<HashMap<String, JsonValue>>())
-        .is_some_and(|config| config.contains_key("stdinLogCap"));
-    if !has_moved_option {
+/// plan-167-A: validate the named build configurations in `config` (see
+/// [`config::parse_config`]) and render every problem at its key's line. A
+/// manifest still carrying the pre-plan-167 `"config": {"stdinLogCap": N}`
+/// gets `PROJECT_JSON_CONFIG_MOVED_OPTION`, naming `options.stdinLogCap`.
+fn validate_config(project_path: &Path, contents: &str) -> bool {
+    let Err(diagnostics) = config::parse_config(contents) else {
         return true;
+    };
+    for diagnostic in diagnostics {
+        render_config_diagnostic(&diagnostic, project_path, contents);
     }
-    let (line, column) = field_position(contents, "stdinLogCap");
-    rules::show_diagnostic(
-        "PROJECT_JSON_CONFIG_MOVED_OPTION",
-        "Rename this `config` object to `options`; `config` now holds named build configurations.",
-        project_path,
-        line,
-        column,
-        column + "\"stdinLogCap\"".len(),
-    );
     false
+}
+
+/// Render one config diagnostic, underlining its key on its line.
+pub(crate) fn render_config_diagnostic(
+    diagnostic: &config::ConfigDiagnostic,
+    path: &Path,
+    contents: &str,
+) {
+    let line = diagnostic.line.max(1) as usize;
+    let needle = format!("\"{}\"", diagnostic.key);
+    let (column, end) = contents
+        .lines()
+        .nth(line - 1)
+        .filter(|_| !diagnostic.key.is_empty())
+        .and_then(|text| text.find(&needle))
+        .map(|index| (index + 1, index + 1 + needle.len()))
+        .unwrap_or((1, 1));
+    rules::show_diagnostic(diagnostic.rule, &diagnostic.detail, path, line, column, end);
 }
 
 /// The `packages` key, when present, must be an array (per-entry shape is checked

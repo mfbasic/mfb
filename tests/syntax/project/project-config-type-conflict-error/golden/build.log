@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/project-config-type-conflict-error
+  18 |     },
+  19 |     "dev": {
+  20 |       "port": "8080"
+     |       ^^^^^^
+tests/syntax/project/project-config-type-conflict-error/project.json:20 error[2-200-0024 PROJECT_JSON_CONFIG_TYPE_CONFLICT]: a project.json config key has a different type in two named configs
+               Key `port` is Integer in config `release` but String in config `dev`.
+[exit 1]

@@ -1,0 +1,23 @@
+{
+  "name": "project_config_value_error",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"],
+  "config": {
+    "release": {
+      "debug": true,
+      "big": 9223372036854775808,
+      "huge": 1e999,
+      "hosts": ["a", "b"]
+    }
+  }
+}

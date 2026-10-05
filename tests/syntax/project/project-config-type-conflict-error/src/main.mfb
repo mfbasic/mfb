@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-167-A: a key with different types in two configs is PROJECT_JSON_CONFIG_TYPE_CONFLICT (2-200-0024).
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

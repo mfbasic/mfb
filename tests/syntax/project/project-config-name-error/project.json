@@ -1,0 +1,21 @@
+{
+  "name": "project_config_name_error",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"],
+  "config": {
+    "release": {
+      "2fast": 1
+    },
+    "my config": {}
+  }
+}

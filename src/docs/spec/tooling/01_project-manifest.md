@@ -44,6 +44,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** |
 | `maxBuffer` | number | no | ceiling on a single native `OUT CBuffer` allocation, in MiB. Whole number, 1–4096; defaults to **64**. See *Native buffer ceiling* |
 | `options` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
+| `config` | object | no | named build configurations of String/Integer/Float values (see *Named configs*) |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
 manifest inputs: they are outputs of `mfb build --sign`, stamped into
@@ -77,7 +78,7 @@ a malformed `icon` fails either app build.
 
 The manifest validator checks required `name`/`version`/`mfb` strings,
 optional `entry`/`author`/`url`/`icon` strings, `description`, `kind`, `mode`,
-`sources`, `maxBuffer`, `resources`, `libraries`, and the array shape of
+`sources`, `maxBuffer`, `resources`, `libraries`, `config`, and the array shape of
 `packages`. Dependency-entry fields are interpreted by later package stages;
 `ident` and `options` are read lazily. `targets` and per-source `role` are emitted
 by `mfb init` but are not consulted by selection or build stages.
@@ -122,6 +123,57 @@ A native `LINK` wrapper with an `OUT CBuffer` slot sizes its buffer from a `BUFF
 - A `SIZE` above the ceiling (or negative) raises `ErrInvalidArgument` **before** allocating, so an over-large request costs nothing.
 
 It is the **consuming** project's setting. `LINK` thunks are emitted when an executable links, so the application importing a binding decides how much memory one native read may claim; a binding package neither carries a ceiling nor can raise the application's.
+
+## Named configs (`config`)
+
+`config` declares named build configurations. Each named config is a flat object
+of keys to String, Integer or Float values:
+
+```json
+"config": {
+  "release": { "apiUrl": "https://api.example.com", "retries": 3, "timeout": 2.5 },
+  "dev":     { "apiUrl": "http://localhost:8080" }
+}
+```
+
+The section is read with a lossless JSON reader rather than the parser used for
+the rest of the manifest, because these rules depend on what that parser drops:
+a number's spelling, repeated keys, and the line of each key. Every rule below is
+an error, all of them are reported in one run, and each is reported at the line
+of the offending key. [[src/manifest/config.rs:parse_config]]
+[[src/json/lossless.rs:parse_lossless]]
+
+- **Optional.** An absent `config` is one implicit, empty `release` config.
+- **Shape.** `config` must be an object, and each member's value must be an
+  object (`PROJECT_JSON_CONFIG_SHAPE`).
+- **`release` is required.** A present `config` must have a member named exactly
+  `release` (`PROJECT_JSON_CONFIG_RELEASE_MISSING`, at the `config` line). The
+  check is skipped when `config` holds a `stdinLogCap` member, which reports
+  `PROJECT_JSON_CONFIG_MOVED_OPTION` instead, so a pre-plan-167 manifest gets one
+  diagnostic.
+- **Names.** Config names and keys match `[A-Za-z][A-Za-z0-9_.-]*`
+  (`PROJECT_JSON_CONFIG_NAME`). A dotted key such as `db.host` is one key, not a
+  path.
+- **Duplicates.** Two config names, or two keys of one config, that are equal under
+  ASCII case-folding are an error at the later one (`PROJECT_JSON_CONFIG_DUPLICATE`),
+  as is a repeated top-level `config`. Lookup is still exact: only one spelling of a
+  name can be declared.
+- **Values** (`PROJECT_JSON_CONFIG_VALUE`). A JSON string is a String; it may not
+  contain U+0000. A number with no `.`, `e` or `E` is an Integer and must fit `i64`
+  (`9223372036854775808` is an error, not a Float). A number with a `.` or an
+  exponent is a Float, correctly rounded, and must be finite (`1e999` is an
+  error). `-0` is the Integer 0 and `0.0` is a Float. `true`, `false`, `null`,
+  arrays and objects are errors.
+- **One type per key** (`PROJECT_JSON_CONFIG_TYPE_CONFLICT`). A key declared in
+  more than one named config has the same type in all of them, so a program cannot
+  build under one config and fail to build under another. The conflict is
+  reported at the later declaration, naming the first config that declared the key.
+  [[src/manifest/config.rs:check_type_consistency]]
+
+These checks run wherever the manifest is validated: `mfb build`, `mfb test`,
+`mfb fmt`, `mfb doc`, `mfb pkg`, and the build of each source dependency inside a
+consuming project's build. A package's `config` is validated that way, but its
+values never apply to the consuming program. [[src/manifest/mod.rs:validate_config]]
 
 ## Source Entries
 
@@ -389,6 +441,12 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/mod.rs:validate_description]] |
 | `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project [[src/manifest/mod.rs:validate_name]] |
 | `2-200-0018` | `PROJECT_JSON_CONFIG_MOVED_OPTION` | error | the `config` object holds a `stdinLogCap` member; the tunable moved to `options.stdinLogCap` [[src/manifest/mod.rs:validate_config]] |
+| `2-200-0019` | `PROJECT_JSON_CONFIG_SHAPE` | error | `config` is not an object, or a named config's value is not an object (see *Named configs*) [[src/manifest/config.rs:parse_config]] |
+| `2-200-0020` | `PROJECT_JSON_CONFIG_RELEASE_MISSING` | error | `config` is present without a `release` member |
+| `2-200-0021` | `PROJECT_JSON_CONFIG_NAME` | error | a config name or key does not match `[A-Za-z][A-Za-z0-9_.-]*` |
+| `2-200-0022` | `PROJECT_JSON_CONFIG_DUPLICATE` | error | a config name, a key within one config, or the top-level `config` is declared twice, compared case-insensitively |
+| `2-200-0023` | `PROJECT_JSON_CONFIG_VALUE` | error | a config value is not a String, an `i64` Integer, or a finite Float, or is a String containing U+0000 |
+| `2-200-0024` | `PROJECT_JSON_CONFIG_TYPE_CONFLICT` | error | a key has different types in two named configs [[src/manifest/config.rs:check_type_consistency]] |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are

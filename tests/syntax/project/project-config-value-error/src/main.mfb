@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-167-A: a value that is not a String, i64 Integer or finite Float is PROJECT_JSON_CONFIG_VALUE (2-200-0023).
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

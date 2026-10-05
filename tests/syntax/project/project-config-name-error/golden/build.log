@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/project/project-config-name-error
+  15 |   "config": {
+  16 |     "release": {
+  17 |       "2fast": 1
+     |       ^^^^^^^
+tests/syntax/project/project-config-name-error/project.json:17 error[2-200-0021 PROJECT_JSON_CONFIG_NAME]: a project.json config name or key does not match `[A-Za-z][A-Za-z0-9_.-]*`
+               Config `release` key `2fast` must match `[A-Za-z][A-Za-z0-9_.-]*`.
+  17 |       "2fast": 1
+  18 |     },
+  19 |     "my config": {}
+     |     ^^^^^^^^^^^
+tests/syntax/project/project-config-name-error/project.json:19 error[2-200-0021 PROJECT_JSON_CONFIG_NAME]: a project.json config name or key does not match `[A-Za-z][A-Za-z0-9_.-]*`
+               Config name `my config` must match `[A-Za-z][A-Za-z0-9_.-]*`.
+[exit 1]

@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-167-A: a well-formed `config` with two named configs builds exactly as one without it.
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

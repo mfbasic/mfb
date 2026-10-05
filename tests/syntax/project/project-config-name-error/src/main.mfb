@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-167-A: a config name or key outside `[A-Za-z][A-Za-z0-9_.-]*` is PROJECT_JSON_CONFIG_NAME (2-200-0021).
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

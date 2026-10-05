@@ -372,17 +372,20 @@ the same cap.
   → `differ: char 10073`, proving the cap is read. Grep → only the 0018 detector
   (`src/manifest/mod.rs:validate_config`) and its fixture (see Corrections).
   `cargo test --bin mfb -- cli::init manifest:: rules:: spec` → 277 passed.
-Commit: —
+Commit: e96a55c8f
 
 ### Phase 2: Lossless JSON reader
 
 This phase adds the primitive with no callers. It's safe because nothing calls it.
 
-- [ ] Move `src/json.rs` → `src/json/mod.rs` (`git mv`, no content change).
-- [ ] Add `src/json/lossless.rs` per §4: `LosslessValue`, `LosslessMember`,
+- [x] Move `src/json.rs` → `src/json/mod.rs` (`git mv`, no content change).
+      (Plus the `pub(crate) mod lossless;` line, and the one spec citation
+      `[[src/json.rs:json_string]]` in `architecture/20_ir-json-artifact.md`, which
+      `spec_citations_resolve` caught.)
+- [x] Add `src/json/lossless.rs` per §4: `LosslessValue`, `LosslessMember`,
       `parse_lossless`, `LosslessError`, and the depth cap shared with
       `check_json_depth`.
-- [ ] Tests in `src/json/lossless.rs` (`#[cfg(test)]`):
+- [x] Tests in `src/json/lossless.rs` (`#[cfg(test)]`):
   - number lexemes kept exactly (`3`, `3.0`, `-0`, `1e5`, `2E-3`);
   - duplicate keys kept in order;
   - member lines on a multi-line object;
@@ -391,50 +394,52 @@ This phase adds the primitive with no callers. It's safe because nothing calls i
   - depth cap;
   - every `project.json` under `tests/` parses, with the same structure as
     tinyjson. The comparison is a test-only conversion `LosslessValue` →
-    `tinyjson::JsonValue`, run over `find tests -name project.json` (1590 files, 2026-10-03).
+    `tinyjson::JsonValue`, run over `find tests -name project.json` (1590 files, 2026-10-03; 1636 on 2026-10-05,
+    `find tests -name project.json | wc -l`).
 
 Acceptance: the reader agrees with tinyjson on every manifest in the tree, and
 keeps what tinyjson drops.
   Check: `cargo test --bin mfb json::lossless` → all pass (est. 2 min, mostly the
   build).
-Commit: —
+  Result (2026-10-05): `test result: ok. 9 passed; 0 failed`.
+Commit: (lands with Phase 3; see Corrections)
 
 ### Phase 3: `config` model and validator
 
 This phase ends with every §5 rule enforced with a correct line, and a valid
 project builds byte-identically.
 
-- [ ] `src/manifest/config.rs`: `ProjectConfig`, `NamedConfig`, `ConfigEntry`,
+- [x] `src/manifest/config.rs`: `ProjectConfig`, `NamedConfig`, `ConfigEntry`,
       `ConfigValue`, `ConfigType`. Add
       `parse_config(text: &str) -> Result<ProjectConfig, Vec<ConfigDiagnostic>>`,
       which reads the top-level `config` member of the lossless tree and applies
       §5.1–§5.4. `ConfigDiagnostic` holds the rule name, detail and line.
       Implicit `release` when `config` is absent (D6).
-- [ ] Add rule rows 2-200-0019 … 2-200-0024 (§5.5) to `src/rules/table.rs`.
-- [ ] `src/manifest/mod.rs:validate_config`: replace the Phase 1 check with
+- [x] Add rule rows 2-200-0019 … 2-200-0024 (§5.5) to `src/rules/table.rs`.
+- [x] `src/manifest/mod.rs:validate_config`: replace the Phase 1 check with
       `parse_config` over the manifest text, which `validate_project_manifest`
       has already read. Render each `ConfigDiagnostic` with `show_diagnostic` at
       its line, and clear `valid` on any error.
-- [ ] Do not expose `ProjectConfig` to the build in this phase. AGENTS.md forbids
+- [x] Do not expose `ProjectConfig` to the build in this phase. AGENTS.md forbids
       dead code kept for "a later phase". The validator is `parse_config`'s
       production caller, and B adds the build-side accessor along with its caller.
-- [ ] Unit tests in `src/manifest/config.rs`: one per §5.5 rule, each asserting
+- [x] Unit tests in `src/manifest/config.rs`: one per §5.5 rule, each asserting
       the rule name and line; implicit `release`; valid multi-config;
       Integer/Float edge cases (`9223372036854775807` ok, `…808` error, `1e999`
       error, `-0` is Integer 0, `0.0` is Float).
-- [ ] Acceptance fixtures under `tests/syntax/project/` (the existing home of the
+- [x] Acceptance fixtures under `tests/syntax/project/` (the existing home of the
       `project-*` manifest fixtures), each with a golden `build.log`:
       `project-config-valid` (builds, exit 0), plus one `project-config-<rule>-error`
       fixture per §5.5 rule (0019–0024).
-- [ ] Fixture `tests/syntax/project/project-config-dependency-moved-option-error/`:
+- [x] Fixture `tests/syntax/project/project-config-dependency-moved-option-error/`:
       an executable whose source dependency (declared by directory, modelled on
       `source-package-dependency-rt`) still has `"config": {"stdinLogCap": N}`.
       The golden `build.log` shows a single 2-200-0018 diagnostic naming the
       dependency's `project.json`. This pins the §Compatibility consequence.
-- [ ] Spec `tooling/01_project-manifest.md`: state that the `config` checks run
+- [x] Spec `tooling/01_project-manifest.md`: state that the `config` checks run
       wherever the manifest is validated (`mfb build`, `mfb test`, `mfb fmt`,
       `mfb doc`, `mfb pkg`, and each source dependency's build).
-- [ ] Spec `tooling/01_project-manifest.md`: a new `## Named configs (config)`
+- [x] Spec `tooling/01_project-manifest.md`: a new `## Named configs (config)`
       section stating §5.1–§5.4 exactly as implemented, with
       `[[src/manifest/config.rs:parse_config]]`; the new codes in Diagnostic
       Codes. Also the `2-200` table in `diagnostics/01_rule-codes.md`.
@@ -446,6 +451,11 @@ config changes nothing in the output.
   compiler ignores a named-config `config` because `stdin_log_cap` reads only
   `stdinLogCap`) and with the new compiler; `cmp` the executables → identical
   (est. 1 min).
+  Result (2026-10-05): test-accept `'project-config-*'` → `acceptance tests passed (9 test(s) ran)`;
+  `cmp` of `project_config_valid.out` from `/tmp/mfb-167-base` and the new compiler →
+  identical. Coverage loop (Validation Plan) → no output.
+  `cargo test --bin mfb -- manifest:: json:: rules:: spec` → 309 passed; `cargo check
+  --all-targets` and `cargo clippy --bin mfb` → no warnings.
 Commit: —
 
 ## Validation Plan
@@ -494,6 +504,20 @@ Commit: —
   `config.stdinLogCap` and a fixture that carries the old shape. The corrected
   expectation is that the only hits are `src/manifest/mod.rs:validate_config` (and its
   doc comment) and `tests/syntax/project/project-config-moved-option-error/`.
+- **Phases 2 and 3 land as one commit.** Phase 2 alone adds `parse_lossless`
+  with no production caller, which `cargo check --all-targets` reports as dead
+  code, and AGENTS.md forbids suppressing it. Phase 3 supplies the caller
+  (`manifest::config::parse_config`), so the two share one commit.
+- **Diagnostics added beyond §5.5's table.** A repeated top-level `config` member
+  is reported as `PROJECT_JSON_CONFIG_DUPLICATE` (tinyjson keeps the last one
+  silently, which is the ambiguity requirement 2 forbids). A config section that
+  the lossless reader rejects but tinyjson accepted is reported as
+  `PROJECT_JSON_PARSE_FAILED` at the reader's line (none of the 1636 test
+  manifests hits this: `agrees_with_tinyjson_on_every_project_json_under_tests`).
+  The duplicate detail for a config *name* reads "Config `{n}` is already declared
+  on line {l}.", since §5.5's wording names a key.
+- **`ConfigValue::Float` keeps its lexeme** (`Float(f64, String)`), because
+  plan-167-B folds the Float to a constant carrying "the config lexeme".
 - **0018 detail text.** §5.5's detail ("`config.stdinLogCap` moved to
   `options.stdinLogCap`.") repeats the rule message word for word in the rendered
   diagnostic. The detail is now the fix: "Rename this `config` object to `options`;

@@ -1262,6 +1262,42 @@ pub(super) const RULES: &[Rule] = &[
         message: "project.json `config.stdinLogCap` moved to `options.stdinLogCap`",
     },
     Rule {
+        code: "2-200-0019",
+        name: "PROJECT_JSON_CONFIG_SHAPE",
+        severity: Severity::Error,
+        message: "project.json `config` is not an object of named configs, or a named config is not an object of key/value pairs",
+    },
+    Rule {
+        code: "2-200-0020",
+        name: "PROJECT_JSON_CONFIG_RELEASE_MISSING",
+        severity: Severity::Error,
+        message: "project.json `config` does not contain a `release` config",
+    },
+    Rule {
+        code: "2-200-0021",
+        name: "PROJECT_JSON_CONFIG_NAME",
+        severity: Severity::Error,
+        message: "a project.json config name or key does not match `[A-Za-z][A-Za-z0-9_.-]*`",
+    },
+    Rule {
+        code: "2-200-0022",
+        name: "PROJECT_JSON_CONFIG_DUPLICATE",
+        severity: Severity::Error,
+        message: "a project.json config name or key is declared twice (compared case-insensitively)",
+    },
+    Rule {
+        code: "2-200-0023",
+        name: "PROJECT_JSON_CONFIG_VALUE",
+        severity: Severity::Error,
+        message: "a project.json config value is not a String, Integer or Float",
+    },
+    Rule {
+        code: "2-200-0024",
+        name: "PROJECT_JSON_CONFIG_TYPE_CONFLICT",
+        severity: Severity::Error,
+        message: "a project.json config key has a different type in two named configs",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,

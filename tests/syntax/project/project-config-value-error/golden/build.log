@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/project/project-config-value-error
+  15 |   "config": {
+  16 |     "release": {
+  17 |       "debug": true,
+     |       ^^^^^^^
+tests/syntax/project/project-config-value-error/project.json:17 error[2-200-0023 PROJECT_JSON_CONFIG_VALUE]: a project.json config value is not a String, Integer or Float
+               Config `release` key `debug` must be a String, Integer or Float; found `true`.
+  16 |     "release": {
+  17 |       "debug": true,
+  18 |       "big": 9223372036854775808,
+     |       ^^^^^
+tests/syntax/project/project-config-value-error/project.json:18 error[2-200-0023 PROJECT_JSON_CONFIG_VALUE]: a project.json config value is not a String, Integer or Float
+               Config `release` key `big` must be a String, Integer or Float; found an Integer outside the 64-bit range.
+  17 |       "debug": true,
+  18 |       "big": 9223372036854775808,
+  19 |       "huge": 1e999,
+     |       ^^^^^^
+tests/syntax/project/project-config-value-error/project.json:19 error[2-200-0023 PROJECT_JSON_CONFIG_VALUE]: a project.json config value is not a String, Integer or Float
+               Config `release` key `huge` must be a String, Integer or Float; found a Float too large to represent.
+  18 |       "big": 9223372036854775808,
+  19 |       "huge": 1e999,
+  20 |       "hosts": ["a", "b"]
+     |       ^^^^^^^
+tests/syntax/project/project-config-value-error/project.json:20 error[2-200-0023 PROJECT_JSON_CONFIG_VALUE]: a project.json config value is not a String, Integer or Float
+               Config `release` key `hosts` must be a String, Integer or Float; found an array.
+[exit 1]

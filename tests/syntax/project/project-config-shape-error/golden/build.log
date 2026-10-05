@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/project-config-shape-error
+  15 |   "config": {
+  16 |     "release": {},
+  17 |     "dev": "http://localhost"
+     |     ^^^^^
+tests/syntax/project/project-config-shape-error/project.json:17 error[2-200-0019 PROJECT_JSON_CONFIG_SHAPE]: project.json `config` is not an object of named configs, or a named config is not an object of key/value pairs
+               Config `dev` must be an object of key/value pairs.
+[exit 1]
