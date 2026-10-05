@@ -8,6 +8,11 @@ Class: Other (spec/doc accuracy)
 Status: Open
 Regression Test: none (doc-only; `mfb spec` citation sweep)
 
+**Update (2026-10-05):** **Re-checked at HEAD 846aa55fd after plan-165/167.** The five line citations
+(`table.rs:642`, `:480`, `:486`, `:312`, `:318`) are still in `04_types.md` / `08_error-model.md`.
+They now land on bare `},` / `Rule {` lines and name no rule at all. The `next` keyword example
+is unchanged. The bug stands. Use the symbol citation `[[src/rules/table.rs:RULES]]`.
+
 There are three spec defects in the `language` topics. All three are SPEC bugs; the code
 is correct.
 
