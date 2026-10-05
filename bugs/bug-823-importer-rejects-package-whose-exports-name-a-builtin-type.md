@@ -1,4 +1,4 @@
-# bug-822: importing a package whose exports name a builtin type fails unless the importer also imports that builtin
+# bug-823: importing a package whose exports name a builtin type fails unless the importer also imports that builtin
 
 Last updated: 2026-10-04
 Effort: medium (1h–2h)
