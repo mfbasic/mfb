@@ -1319,6 +1319,18 @@ pub(super) const RULES: &[Rule] = &[
         message: "the selected config is not declared in project.json",
     },
     Rule {
+        code: "2-200-0026",
+        name: "PROJECT_LOCAL_JSON_FIELD",
+        severity: Severity::Error,
+        message: "project-local.json may only hold a `config` object",
+    },
+    Rule {
+        code: "2-200-0027",
+        name: "PROJECT_LOCAL_JSON_TYPE_OVERRIDE",
+        severity: Severity::Error,
+        message: "project-local.json overrides a config value with a different type",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,

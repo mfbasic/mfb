@@ -1191,10 +1191,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
 }
 
 /// The named config this build folds `os::getConfigOr` calls from: the one
-/// `--config` names, or `release` (plan-167-C). `validate_project_manifest` has
-/// already accepted the `config` section, so a parse failure here means
-/// `project.json` changed during the build; it is reported the same way. An
-/// undeclared name is `PROJECT_JSON_CONFIG_UNKNOWN` at the `config` line.
+/// `--config` names, or `release` (plan-167-C), after `project-local.json` is
+/// merged over `project.json`'s `config`. Every diagnostic is rendered against
+/// the file it belongs to. An undeclared name is `PROJECT_JSON_CONFIG_UNKNOWN`
+/// at the `config` line.
 fn select_build_config(
     options: &BuildOptions,
     project_path: &Path,
@@ -1210,11 +1210,20 @@ fn select_build_config(
             1,
         );
     })?;
-    let project_config = config::parse_config(&contents).map_err(|diagnostics| {
-        for diagnostic in &diagnostics {
-            crate::manifest::render_config_diagnostic(diagnostic, project_path, &contents);
-        }
-    })?;
+    let project_config =
+        config::load_project_config(&options.location, &contents).map_err(|diagnostics| {
+            for diagnostic in &diagnostics {
+                let (path, text) = match diagnostic.file {
+                    config::ConfigFile::Project => (project_path.to_path_buf(), contents.clone()),
+                    config::ConfigFile::Local => {
+                        let path = options.location.join(config::PROJECT_LOCAL_JSON);
+                        let text = std::fs::read_to_string(&path).unwrap_or_default();
+                        (path, text)
+                    }
+                };
+                crate::manifest::render_config_diagnostic(diagnostic, &path, &text);
+            }
+        })?;
     let name = options.config.as_deref().unwrap_or(config::RELEASE);
     project_config
         .select(name, options.location.clone())

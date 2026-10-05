@@ -276,25 +276,26 @@ build.
   Result (2026-10-05): `cargo test --test cli_build_config` → 4 passed;
   `cargo test --bin mfb -- parse_build_options parse_test_options
   a_refused_build_flag_is_a_usage_error` → 43 passed; `test_targets_registered` → 4 passed.
-Commit: —
+Commit: 9235b44db
 
 ### Phase 2: `project-local.json`
 
 The local file overrides and extends configs, with full validation.
 
-- [ ] `src/manifest/config.rs`: `ConfigDiagnostic.file`; `load_project_config`
+- [x] `src/manifest/config.rs`: `ConfigDiagnostic.file`; `load_project_config`
       per §3.2; the merge per §4. Add rule rows 2-200-0026 and 0027.
-- [ ] `src/cli/build/mod.rs:build_project`: when
+- [x] `src/cli/build/mod.rs:build_project`: when
       `options.package_output_dir.is_none()`, call `load_project_config` (per
       §3.2's "Where it runs") instead of A's `project.json`-only accessor.
       Render each diagnostic against its own file's path, and use the merged
       `ProjectConfig` for selection. `src/manifest/mod.rs:validate_config` is
       unchanged.
-- [ ] Unit or integration test: a source dependency (declared by directory)
+- [x] Unit or integration test: a source dependency (declared by directory)
       whose directory holds a malformed `project-local.json` builds, and the
       consumer's build succeeds. This proves the dependency's local file is never
-      read.
-- [ ] Unit tests in `config.rs`:
+      read. (`cli_build_config::a_dependency_local_file_is_never_read`: the
+      dependency holds `{ not json` and the app still prints `from-app`.)
+- [x] Unit tests in `config.rs`:
       - override keeps type → ok;
       - override changes type → 0027 at the local line;
       - local adds a key;
@@ -306,12 +307,12 @@ The local file overrides and extends configs, with full validation.
       - a locally added key that conflicts with another config's type → 0024;
       - malformed JSON in the local file → a parse error naming
         `project-local.json`.
-- [ ] Extend `tests/cli/cli_build_config.rs`:
+- [x] Extend `tests/cli/cli_build_config.rs`:
       - a local file overriding `dev.apiUrl` and adding `dev.apiKey` → the
         merged values;
       - a local file adding config `mine`, plus `--config=mine` → its values;
       - a bad local file → the build fails with its path in stderr.
-- [ ] Spec `01_project-manifest.md`: a `## Local overrides (project-local.json)`
+- [x] Spec `01_project-manifest.md`: a `## Local overrides (project-local.json)`
       section stating §3.2, §4 and the D4 scope exactly, with
       `[[src/manifest/config.rs:load_project_config]]`; the new codes.
       `01_rule-codes.md`: the 2-200 rows.
@@ -320,6 +321,8 @@ Acceptance: local values override and extend configs, and a bad local file
 stops the build.
   Check: `cargo test --test cli_build_config` → pass (est. 3 min). Then
   `cargo test --bin mfb manifest::config` → pass (est. 2 min).
+  Result (2026-10-05): `cargo test --test cli_build_config` → 8 passed;
+  `cargo test --bin mfb manifest::config` → 19 passed.
 Commit: —
 
 ### Phase 3: `mfb init` `.gitignore` and developer docs
@@ -392,7 +395,23 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Phase 1 commit** is 9235b44db (recorded here because the Phase 1 `Commit:`
+  line is filled in the next commit).
+- **Case-only matches across the two files are duplicates.** §4 says a local key
+  that duplicates a `project.json` key is an override, not a duplicate, and that
+  duplicate detection runs within each file. Overriding is by exact name (lookup
+  is exact, A §5.3), so a local `ApiUrl` beside a declared `apiUrl`, or a local
+  config `Dev` beside `dev`, would add a second spelling, which is the lookalike
+  ambiguity D9 exists to forbid. Both are now `PROJECT_JSON_CONFIG_DUPLICATE` in
+  `project-local.json` (`local_duplicates_and_type_conflicts_are_reported_in_the_local_file`).
+- **`stdinLogCap` in a local file is not the moved-option case.** Only
+  `project.json` ever held the old tunable, so in `project-local.json` a
+  `stdinLogCap` member is just a named config whose value is a number
+  (`PROJECT_JSON_CONFIG_SHAPE`), not a pointer to `options`, which the local
+  file may not hold. `check_named_configs` takes a `legacy_moved_option` flag.
+- **`NamedConfig.line` and `ProjectConfig.line` added.** The unknown-name
+  diagnostic (Phase 1) needs the `config` line, and the case-only config-name
+  duplicate needs the config's own line.
 
 ## Summary
 

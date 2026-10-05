@@ -181,6 +181,47 @@ These checks run wherever the manifest is validated: `mfb build`, `mfb test`,
 consuming project's build. A package's `config` is validated that way, but its
 values never apply to the consuming program. [[src/manifest/mod.rs:validate_config]]
 
+## Local overrides (`project-local.json`)
+
+An optional `project-local.json` beside `project.json` overrides and extends the
+`config` section for one machine: API keys, passwords, and local developer
+settings. It is meant to stay out of source control.
+[[src/manifest/config.rs:load_project_config]]
+
+```json
+{ "config": { "dev": { "apiUrl": "http://localhost:9000", "apiKey": "secret" } } }
+```
+
+- **Scope.** The root must be an object whose only member is an optional
+  `config`. Any other member, or a root that is not an object, is
+  `PROJECT_LOCAL_JSON_FIELD`. The file cannot change `name`, `packages`,
+  `options` or anything else that feeds the lockfile, `projectHash`, or a
+  `mfb pkg` rewrite, none of which ever read it.
+- **Validation.** Its `config` follows every *Named configs* rule except that
+  `release` is not required, since the file is partial. A malformed file is
+  `PROJECT_JSON_PARSE_FAILED`. Every diagnostic names `project-local.json` and
+  the line in it.
+- **Merge.** For each named config in the local file: if `project.json` declares
+  a config with the same name, each local key replaces the same key there or is
+  added to it. A replacement must keep the key's type
+  (`PROJECT_LOCAL_JSON_TYPE_OVERRIDE`, at the local line, naming the
+  `project.json` line). A config `project.json` does not declare is added as a
+  new named config, selectable with `--config` on that machine. Overriding is by
+  exact name, so a local config name or key that matches a `project.json` one only
+  when case is ignored is `PROJECT_JSON_CONFIG_DUPLICATE`, because it would
+  declare a second spelling. Duplicates within the local file are checked the same
+  way as in `project.json`.
+- **After the merge** the one-type-per-key rule runs over the union, so a locally
+  added key that conflicts with another config's type is
+  `PROJECT_JSON_CONFIG_TYPE_CONFLICT` in the local file. Selection
+  (`--config`, `PROJECT_JSON_CONFIG_UNKNOWN`) happens on the merged result.
+- **Who reads it.** Only the build of the invoked project (`mfb build`,
+  `mfb test`, and `mfb pkg`'s publish and ABI-check builds), on every path,
+  executable or package. `validate_project_manifest` checks `project.json` alone,
+  so `mfb fmt` and `mfb doc` never read the local file, and a source dependency's
+  local file is never read, even when the dependency is a local directory that
+  has one. [[src/cli/build/mod.rs:select_build_config]]
+
 ## Source Entries
 
 Each element of `sources[]` is an object describing one source root:
@@ -454,6 +495,8 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0023` | `PROJECT_JSON_CONFIG_VALUE` | error | a config value is not a String, an `i64` Integer, or a finite Float, or is a String containing U+0000 |
 | `2-200-0024` | `PROJECT_JSON_CONFIG_TYPE_CONFLICT` | error | a key has different types in two named configs [[src/manifest/config.rs:check_type_consistency]] |
 | `2-200-0025` | `PROJECT_JSON_CONFIG_UNKNOWN` | error | the config `--config` names (or `release`) is not declared [[src/cli/build/mod.rs:select_build_config]] |
+| `2-200-0026` | `PROJECT_LOCAL_JSON_FIELD` | error | `project-local.json` is not an object, or holds a member other than `config` (see *Local overrides*) [[src/manifest/config.rs:load_project_config]] |
+| `2-200-0027` | `PROJECT_LOCAL_JSON_TYPE_OVERRIDE` | error | `project-local.json` overrides a config value with a different type |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are
