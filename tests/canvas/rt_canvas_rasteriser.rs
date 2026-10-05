@@ -650,6 +650,107 @@ fn a_polygon_hash_covers_its_rings_and_rule() {
     );
 }
 
+/// plan-163-A: the vertices of a {5/2} pentagram of radius 100 about `(cx, cy)`, in the
+/// order that traces the star (every second vertex of the regular pentagon, starting at
+/// the top). The points are the pentagon's at angles -90°, 54°, 198°, 342° and 126°,
+/// written out to four places, so no transcendental runs in the scene.
+const PENTAGRAM: &str = "\nFUNC star(cx AS Float, cy AS Float) AS List OF canvas::Point\n  \
+     RETURN [canvas::Point[x := cx, y := cy - 100.0], \
+     canvas::Point[x := cx + 58.7785, y := cy + 80.9017], \
+     canvas::Point[x := cx - 95.1057, y := cy - 30.9017], \
+     canvas::Point[x := cx + 95.1057, y := cy - 30.9017], \
+     canvas::Point[x := cx - 58.7785, y := cy + 80.9017]]\n\
+     END FUNC\n";
+
+/// plan-163-A: `NonZero` fills by winding number and `EvenOdd` by crossing parity, in the
+/// software renderer — the oracle both GPUs are compared against, so it is checked here
+/// against hand-counted windings rather than against anything else.
+///
+/// A ray from the sample point to the left crosses each ring's left edge once. Under
+/// Y-down, `sq` runs its left edge bottom-to-top (−1) and `sqCcw` top-to-bottom (+1):
+///
+/// * outer `sq` + inner `sq` (same way): the hole's centre has winding −2, so `NonZero`
+///   fills it and `EvenOdd` (two crossings) leaves it a hole;
+/// * outer `sq` + inner `sqCcw` (opposite ways): winding −1 + 1 = 0, a hole under
+///   `NonZero` too;
+/// * the band between the rings has winding −1 and one crossing, so it is filled under
+///   every rule and direction;
+/// * a {5/2} pentagram's inner pentagon is wound twice (winding ±2, two crossings), so
+///   its centre is filled under `NonZero` and a hole under `EvenOdd`; a point's tip is
+///   wound once and filled under both.
+///
+/// Every sample is at least 5 px from every edge, so each is the plain fill or the black
+/// background.
+#[test]
+fn non_zero_fills_by_winding_and_even_odd_by_parity() {
+    let (frame, _) = render(
+        "canvas_polygon_nonzero",
+        &(scene(
+            "  LET blue AS canvas::Paint = canvas::fill(color::rgb(0, 0, 255))\n  \
+             LET same AS canvas::DrawItem = canvas::Polygon[contours := [sq(50.0, 50.0, 150.0), sq(100.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.NonZero, paint := blue]\n  \
+             LET sameEo AS canvas::DrawItem = canvas::Polygon[contours := [sq(250.0, 50.0, 150.0), sq(300.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
+             LET opposite AS canvas::DrawItem = canvas::Polygon[contours := [sq(450.0, 50.0, 150.0), sqCcw(500.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.NonZero, paint := blue]\n  \
+             LET oppositeEo AS canvas::DrawItem = canvas::Polygon[contours := [sq(650.0, 50.0, 150.0), sqCcw(700.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
+             LET starNz AS canvas::DrawItem = canvas::Polygon[contours := [star(225.0, 420.0)], \
+             rule := canvas::FillRule.NonZero, paint := blue]\n  \
+             LET starEo AS canvas::DrawItem = canvas::Polygon[contours := [star(575.0, 420.0)], \
+             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
+             canvas::present([same, sameEo, opposite, oppositeEo, starNz, starEo])\n",
+        ) + RING_HELPERS
+            + PENTAGRAM),
+    );
+
+    let blue = (0, 0, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(pixel(&frame, 125, 125), blue, "NonZero, inner ring wound the same way: filled");
+    assert_eq!(pixel(&frame, 325, 125), black, "EvenOdd, inner ring wound the same way: a hole");
+    assert_eq!(pixel(&frame, 525, 125), black, "NonZero, inner ring wound the other way: a hole");
+    assert_eq!(pixel(&frame, 725, 125), black, "EvenOdd, inner ring wound the other way: a hole");
+    for (x, label) in [(75, "NonZero same"), (275, "EvenOdd same"), (475, "NonZero opposite"), (675, "EvenOdd opposite")] {
+        assert_eq!(pixel(&frame, x, 125), blue, "{label}: the band between the rings");
+        assert_eq!(pixel(&frame, x - 40, 125), black, "{label}: outside the outer ring");
+    }
+    assert_eq!(pixel(&frame, 225, 420), blue, "NonZero pentagram: the centre is wound twice, filled");
+    assert_eq!(pixel(&frame, 575, 420), black, "EvenOdd pentagram: the centre is a hole");
+    assert_eq!(pixel(&frame, 225, 335), blue, "NonZero pentagram: a point's tip");
+    assert_eq!(pixel(&frame, 575, 335), blue, "EvenOdd pentagram: a point's tip");
+}
+
+/// plan-163-A: a single convex ring has winding 0 or ±1 everywhere, so `NonZero` and
+/// `EvenOdd` must draw it identically — edge pixels included. Two separate programs
+/// render the same antialiased, stroked triangle under each rule and the frames are
+/// compared byte for byte. This is a symmetry check on the renderer itself: it needs no
+/// expectation computed by the oracle it is checking.
+#[test]
+fn a_convex_ring_draws_the_same_under_both_rules() {
+    let program = |rule: &str| {
+        scene(&format!(
+            "  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 100.3, y := 120.7], \
+             canvas::Point[x := 610.9, y := 140.2], canvas::Point[x := 330.5, y := 560.1]]], \
+             rule := canvas::FillRule.{rule}, \
+             paint := canvas::fillStroke(color::rgba(30, 140, 250, 200), color::rgb(250, 250, 120), 3.5)]\n  \
+             canvas::present([tri])\n"
+        ))
+    };
+    let (even_odd, _) = render("canvas_convex_evenodd", &program("EvenOdd"));
+    let (non_zero, _) = render("canvas_convex_nonzero", &program("NonZero"));
+    let differing = even_odd
+        .chunks(4)
+        .zip(non_zero.chunks(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        differing, 0,
+        "a convex ring drew differently under NonZero than under EvenOdd in {differing} pixels",
+    );
+    assert_eq!(pixel(&even_odd, 330, 250).3, 255, "the triangle drew at all");
+    assert_ne!(pixel(&even_odd, 330, 250), (0, 0, 0, 255), "the triangle drew at all");
+}
+
 /// A clip cuts a circle in half, leaving the other half untouched.
 ///
 /// The circle is the right shape to clip with, because a clip that were secretly

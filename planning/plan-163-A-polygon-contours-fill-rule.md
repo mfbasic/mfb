@@ -491,19 +491,19 @@ Acceptance: every existing polygon picture is unchanged and the new ring tests p
   (est. 3 min, guess).
   Result: the four binaries → 4 + 22 + 9 + 62 passed (2 ignored), `git status
   tests/golden/canvas` clean; `cargo test --bin mfb canvas` → 110 passed.
-Commit: —
+Commit: 33670189d
 
 ### Phase 2 — Software NonZero (the oracle)
 
 This phase delivers the rule in the software renderer, proven by hand-computed
 pixels. That proof has to exist before the GPUs are compared against it.
 
-- [ ] `helper_draw.rs:__canvas_edgeDistance`: read the rule slot and count windings
+- [x] `helper_draw.rs:__canvas_edgeDistance`: read the rule slot and count windings
       per §6. The EvenOdd statement sequence stays textually unchanged.
-- [ ] Update the doc comment on `__canvas_edgeDistance` and on
+- [x] Update the doc comment on `__canvas_edgeDistance` and on
       `helper_glyph.rs:12–18`. Glyphs still use even-odd, and the sentence must no
       longer say the rasteriser *only* counts even-odd.
-- [ ] Tests (`rt_canvas_rasteriser.rs`, hand-computed pixels):
+- [x] Tests (`rt_canvas_rasteriser.rs`, hand-computed pixels):
       - square with a same-direction inner square, NonZero: the centre is filled;
         under EvenOdd it is a hole;
       - square with an opposite-direction inner square, NonZero: the centre is a hole;
@@ -511,14 +511,19 @@ pixels. That proof has to exist before the GPUs are compared against it.
         under NonZero (winding 2) and a hole under EvenOdd;
       - a NonZero single-ring convex polygon gives the same pixels as EvenOdd
         (a symmetry check that does not rely on the oracle agreeing with itself).
-- [ ] New scene `tests/canvas/scenes/star_301_2_nonzero_on_black.mfb`: a copy of
+      (`non_zero_fills_by_winding_and_even_odd_by_parity` and
+      `a_convex_ring_draws_the_same_under_both_rules` → ok. The first fails on the
+      Phase 1 build, where the "same direction, NonZero" centre is a hole.)
+- [x] New scene `tests/canvas/scenes/star_301_2_nonzero_on_black.mfb`: a copy of
       `star_301_2_on_black.mfb` with `rule := canvas::FillRule.NonZero`, for the GPU
-      rows in Phase 3.
+      rows in Phase 3. Also added to `scripts/test-canvas-gpu-rows.sh` as row
+      `star301x2nz`, beside `star301x2`.
 
 Acceptance: NonZero fills by winding in the software renderer, and EvenOdd output is
 unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden` → pass, with
   goldens exact and unmodified (est. 6 min, guess).
+  Result: 22 + 64 passed (2 ignored); `git status tests/golden/canvas` clean.
 Commit: —
 
 ### Phase 3 — GPU NonZero (Metal and Vulkan; largest blast radius)

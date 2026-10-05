@@ -9,8 +9,11 @@
 //! Fill, stroke, antialiasing and blending come along unchanged, which is also what
 //! keeps a glyph's edge pixels consistent with a circle's.
 //!
-//! The fill rule is the one seam worth naming. TrueType specifies **non-zero winding**
-//! and `__canvas_edgeDistance` counts **even-odd** crossings. They agree on every glyph
+//! The fill rule is the one seam worth naming. TrueType specifies **non-zero winding**,
+//! and glyphs are filled **even-odd**: a glyph's header leaves the polygon rule slot
+//! (`__CANVAS_GEO_POLYGON_RULE`, plan-163-A) at 0, so `__canvas_edgeDistance` flips per
+//! crossing for text, and the glyph-bitmap rasteriser `__canvas_edgeDistanceIn` counts
+//! even-odd crossings only. They agree on every glyph
 //! whose counters are wound opposite their outer contour, which is what the format
 //! requires and what every well-made font does; they differ only where two contours of
 //! one glyph *overlap*, which good fonts avoid because it renders badly everywhere.

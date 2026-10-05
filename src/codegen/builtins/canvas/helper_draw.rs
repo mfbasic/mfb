@@ -131,11 +131,23 @@ END FUNC"#;
 ///
 /// The cost is `O(edges)` per pixel instead of `O(1)`, which is the right trade for a
 /// primitive whose scenes have a handful of vertices.
+///
+/// **The sign follows the polygon's `FillRule`** (plan-163-A), read once from header
+/// slot `__CANVAS_GEO_POLYGON_RULE` at `tail - __CANVAS_GEO_HEADER` (the
+/// `__canvas_polylineScan` precedent). Both rules use the same crossing test — an edge
+/// crosses when it straddles the pixel's row and passes left of the pixel. `EvenOdd`
+/// flips `inside` per crossing, the statement sequence it has always had; `NonZero`
+/// instead adds +1 for a crossing edge running down the screen (`by > ay`) and -1 for
+/// one running up, and the pixel is inside when the sum is not zero. The sign convention
+/// is invisible (only zero-or-not is observed) but both shaders use the same one. Stroked
+/// text is a polygon whose slot 21 is 0, so glyphs stay even-odd.
 #[rustfmt::skip]
 const EDGE_DISTANCE: &str =
 r#"FUNC __canvas_edgeDistance(tail AS Integer, edges AS Integer, px AS Float, py AS Float) AS Float
+  LET nonZero AS Boolean = collections::getOr(__CANVAS_GEO_DATA, tail - __CANVAS_GEO_HEADER + __CANVAS_GEO_POLYGON_RULE, 0.0) <> 0.0
   MUT best AS Float = 1000000.0
   MUT inside AS Boolean = FALSE
+  MUT winding AS Integer = 0
   MUT e AS Integer = 0
   WHILE e < edges
     LET base AS Integer = tail + e * 5
@@ -154,11 +166,22 @@ r#"FUNC __canvas_edgeDistance(tail AS Integer, edges AS Integer, px AS Float, py
     IF (ay > py) <> (by > py) THEN
       LET u AS Float = (py - ay) / dy
       IF px < ax + u * dx THEN
-        inside = NOT inside
+        IF nonZero THEN
+          IF by > ay THEN
+            winding = winding + 1
+          ELSE
+            winding = winding - 1
+          END IF
+        ELSE
+          inside = NOT inside
+        END IF
       END IF
     END IF
     e = e + 1
   END WHILE
+  IF nonZero THEN
+    inside = winding <> 0
+  END IF
   IF inside THEN
     RETURN 0.0 - best
   END IF
