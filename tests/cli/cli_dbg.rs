@@ -1201,7 +1201,9 @@ mod macos {
         session.send("run\n");
         let again = body(&session.until_prompt());
         assert!(
-            again.last().is_some_and(|line| line.ends_with(" in exit.")),
+            again.last().is_some_and(
+                |line| line.starts_with("--[BP] T: 0 P: 0x") && line.ends_with(" F: exit")
+            ),
             "{again:?}"
         );
         session.send("q\n");
