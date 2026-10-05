@@ -5,8 +5,19 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Closed
 Regression Test: tests/rt-behavior/trap/inline-trap-total-call-root-operator-rt (to add)
+
+## STATUS: FIXED (30931bb43, plan-165-D phase 2)
+
+Fixed by plan-165-D ("inline TRAP on any well-typed expression", Option 1), which landed
+while this report was open. Re-measured by the hardening coordinator with a HEAD build
+(846aa55fd): the repro below (`LET c = id(big) + 1 TRAP(e)` with a total `id`) now builds
+and prints `77050010`, matching the expected output. Before the fix (031f64353) it was
+`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`. Legality no longer depends on whether the callee's
+body can fail. Covering test: `tests/runtime/rt_inline_trap_raising_operator.rs`
+(`a_bare_operator_scrutinee_is_trapped`, plan-165-D). There is no dedicated fixture for
+this exact shape (a total user call under a raising root operator).
 
 Take an inline `TRAP` whose scrutinee has a raising operator at its root
 (`+ - * / ^ MOD`, unary `-`) and whose only runtime calls go to callees the census proves
