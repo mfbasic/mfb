@@ -170,6 +170,12 @@ of the offending key. [[src/manifest/config.rs:parse_config]]
   reported at the later declaration, naming the first config that declared the key.
   [[src/manifest/config.rs:check_type_consistency]]
 
+A build selects one named config: the one `--config <name>` names, or `release`
+(`./mfb spec tooling cli-reference`). A name `config` does not declare is
+`PROJECT_JSON_CONFIG_UNKNOWN` at the `config` line (line 1 when the section is
+absent, which declares only the implicit `release`), and the detail lists the
+declared names. [[src/manifest/config.rs:ProjectConfig]]
+
 These checks run wherever the manifest is validated: `mfb build`, `mfb test`,
 `mfb fmt`, `mfb doc`, `mfb pkg`, and the build of each source dependency inside a
 consuming project's build. A package's `config` is validated that way, but its
@@ -447,6 +453,7 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0022` | `PROJECT_JSON_CONFIG_DUPLICATE` | error | a config name, a key within one config, or the top-level `config` is declared twice, compared case-insensitively |
 | `2-200-0023` | `PROJECT_JSON_CONFIG_VALUE` | error | a config value is not a String, an `i64` Integer, or a finite Float, or is a String containing U+0000 |
 | `2-200-0024` | `PROJECT_JSON_CONFIG_TYPE_CONFLICT` | error | a key has different types in two named configs [[src/manifest/config.rs:check_type_consistency]] |
+| `2-200-0025` | `PROJECT_JSON_CONFIG_UNKNOWN` | error | the config `--config` names (or `release`) is not declared [[src/cli/build/mod.rs:select_build_config]] |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are

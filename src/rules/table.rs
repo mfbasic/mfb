@@ -1313,6 +1313,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a project.json config key has a different type in two named configs",
     },
     Rule {
+        code: "2-200-0025",
+        name: "PROJECT_JSON_CONFIG_UNKNOWN",
+        severity: Severity::Error,
+        message: "the selected config is not declared in project.json",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,

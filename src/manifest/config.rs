@@ -25,6 +25,8 @@ pub(crate) const RELEASE: &str = "release";
 /// The validated `config` section.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ProjectConfig {
+    /// The line of the `config` member, or `None` when the section is absent.
+    pub(crate) line: Option<u32>,
     /// The named configs in source order. Always holds `release`: an absent
     /// `config` section is one implicit, empty `release` (Open Decision D6).
     pub(crate) configs: Vec<NamedConfig>,
@@ -44,6 +46,23 @@ impl ProjectConfig {
                 .collect(),
             project_dir,
         })
+    }
+
+    /// `PROJECT_JSON_CONFIG_UNKNOWN` for a selected `name` no config declares,
+    /// at the `config` line (line 1 when the section is absent), listing the
+    /// declared names.
+    pub(crate) fn unknown_name(&self, name: &str) -> ConfigDiagnostic {
+        let mut declared: Vec<&str> = self.configs.iter().map(|c| c.name.as_str()).collect();
+        declared.sort_unstable();
+        ConfigDiagnostic::new(
+            "PROJECT_JSON_CONFIG_UNKNOWN",
+            format!(
+                "No config named `{name}`. Declared: {}.",
+                declared.join(", ")
+            ),
+            self.line.unwrap_or(1),
+            if self.line.is_some() { "config" } else { "" },
+        )
     }
 }
 
@@ -242,7 +261,8 @@ pub(crate) fn parse_config(text: &str) -> Result<ProjectConfig, Vec<ConfigDiagno
         return Err(diagnostics);
     };
 
-    let config = check_named_configs(named, &mut diagnostics);
+    let mut config = check_named_configs(named, &mut diagnostics);
+    config.line = Some(config_member.line);
     let moved_option = named.iter().any(|m| m.key == "stdinLogCap");
     if !moved_option && !named.iter().any(|m| m.key == RELEASE) {
         diagnostics.push(ConfigDiagnostic::new(
@@ -269,6 +289,7 @@ fn finish(
 
 fn implicit_release() -> ProjectConfig {
     ProjectConfig {
+        line: None,
         configs: vec![NamedConfig {
             name: RELEASE.to_string(),
             values: Vec::new(),
@@ -337,7 +358,10 @@ fn check_named_configs(
             values: check_entries(&member.key, entries, diagnostics),
         });
     }
-    ProjectConfig { configs }
+    ProjectConfig {
+        line: None,
+        configs,
+    }
 }
 
 fn check_entries(

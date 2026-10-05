@@ -229,26 +229,30 @@ a project.json key is the override mechanism, not a duplicate.
 `--config` selects among `project.json`'s configs. This phase stands alone,
 before any local file exists.
 
-- [ ] `src/cli/build/mod.rs:BuildOptions`: add `config: Option<String>` with a
+- [x] `src/cli/build/mod.rs:BuildOptions`: add `config: Option<String>` with a
       doc comment. Set `config: None` in the 4 non-parser literals (pkg.rs ×2,
       source_packages.rs, the test helper), each with a one-line reason.
-- [ ] `src/cli/build/options.rs`: `--config <name>` / `--config=<name>` in
+- [x] `src/cli/build/options.rs`: `--config <name>` / `--config=<name>` in
       `parse_build_options` and `parse_test_options`, with the missing-value and
       repeat errors from §3.1. An empty name (`--config=`) is the missing-value
-      error.
-- [ ] `src/cli/build/mod.rs:build_project`: selection per §3.3. Add
+      error. (One `parse_config_option` helper, called from each command
+      parser, not from `parse_common_option`.)
+- [x] `src/cli/build/mod.rs:build_project`: selection per §3.3. Add
       `PROJECT_JSON_CONFIG_UNKNOWN` (2-200-0025) to `rules/table.rs`. Pass the
-      selected config where B passed `release`.
-- [ ] `src/cli/help.rs`: one line in each of `BUILD_HELP` and `TEST_HELP`:
+      selected config where B passed `release`. (`select_build_config` runs once,
+      right after manifest validation, when `package_output_dir.is_none()`; the
+      undeclared-name diagnostic is `ProjectConfig::unknown_name`, which needed a
+      new `ProjectConfig.line`.)
+- [x] `src/cli/help.rs`: one line in each of `BUILD_HELP` and `TEST_HELP`:
       `  --config <name>     Read os::getConfigOr values from the named config in`
       plus a continuation line `                      project.json (default: release)`.
-- [ ] Unit tests in `src/cli/build/mod.rs`, mirroring the `--debug` ones:
+- [x] Unit tests in `src/cli/build/mod.rs`, mirroring the `--debug` ones:
       `parse_build_options_parses_config_both_forms`,
       `parse_build_options_rejects_repeated_config`,
       `parse_build_options_rejects_empty_config`, and the same three for
       `parse_test_options`. Dispatch: in `src/cli/dispatch/tests.rs`,
-      `run(&["build","--config"]) == 2`.
-- [ ] Integration test `tests/cli/cli_build_config.rs` (register a `[[test]]` in
+      `run(&["build","--config"]) == 2` (and `run(&["test","--config="]) == 2`).
+- [x] Integration test `tests/cli/cli_build_config.rs` (register a `[[test]]` in
       `Cargo.toml`), using `tests/common`. The fixture project has `release` and
       `dev` configs that differ for one key of each type. It covers:
       - no flag → the release values;
@@ -258,7 +262,7 @@ before any local file exists.
         lists `dev, release`;
       - `mfb test --config=dev` on a TESTING block that asserts the dev value →
         pass.
-- [ ] Spec `07_cli-reference.md`: add `[--config name]` to the `test` synopsis,
+- [x] Spec `07_cli-reference.md`: add `[--config name]` to the `test` synopsis,
       a `--config name` / `--config=name` row in `## build Flags`, and a prose
       paragraph quoting the three error strings with
       `[[src/cli/build/options.rs:parse_build_options]]`.
@@ -269,6 +273,9 @@ build.
   build and run, which no unit test covers). Then
   `cargo test --bin mfb parse_build_options` and
   `cargo test --bin mfb parse_test_options` → both pass (est. 2 min).
+  Result (2026-10-05): `cargo test --test cli_build_config` → 4 passed;
+  `cargo test --bin mfb -- parse_build_options parse_test_options
+  a_refused_build_flag_is_a_usage_error` → 43 passed; `test_targets_registered` → 4 passed.
 Commit: —
 
 ### Phase 2: `project-local.json`
