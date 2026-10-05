@@ -292,9 +292,9 @@ FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::Dr
     items = collections::append(items, [stem, mercury, bulb])
   ELSE
     LET tint AS color::Color = color::rgb(225, 238, 246)
-    LET north AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy - r * 0.34, x2 := cx + r * 0.42, y2 := cy - r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
-    LET middle AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.38, y1 := cy, x2 := cx + r * 0.58, y2 := cy, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
-    LET south AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy + r * 0.34, x2 := cx + r * 0.25, y2 := cy + r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    LET north AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy - r * 0.34, x2 := cx + r * 0.42, y2 := cy - r * 0.34, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
+    LET middle AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.38, y1 := cy, x2 := cx + r * 0.58, y2 := cy, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
+    LET south AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy + r * 0.34, x2 := cx + r * 0.25, y2 := cy + r * 0.34, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
     items = collections::append(items, [north, middle, south])
   END IF
 

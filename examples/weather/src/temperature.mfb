@@ -86,7 +86,7 @@ FUNC temperatureKey(face AS canvas::Font, size AS Float, left AS Float, top AS F
 
   MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
   LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
-  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }]
   items = collections::append(items, [heading, divider])
 
   LET barLeft AS Float = left + pad

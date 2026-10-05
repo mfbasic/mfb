@@ -646,6 +646,33 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "Extend past the endpoint by a half-disc of the stroke's half-width, so a thick line ends in a dome rather than a corner.",
                 advisory: None,
             },
+            EnumVariant {
+                name: "Square",
+                description: "Extend past the endpoint by half the stroke's width and cut square there, so the stroke ends in a corner a little beyond the point.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
+        name: "JoinStyle",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Round",
+                description: "Round the outside of the corner with an arc of the stroke's half-width. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Miter",
+                description: "Extend the two edges' outlines until they meet in a point. A corner sharp enough that the point would reach past `canvas::Paint.miterLimit` is drawn as `Bevel` instead.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Bevel",
+                description: "Cut the corner off straight across, joining the two edges' outer outlines with one line.",
+                advisory: None,
+            },
         ],
     });
 
@@ -813,11 +840,13 @@ pub(crate) fn register(r: &mut Registry) {
         description: "How an item is filled, stroked, blended, transformed and \
                       clipped. A flat value threaded through each item — there is no \
                       ambient drawing state. Every field's zero value is that \
-                      field's no-op, and `canvas::fill`, `canvas::stroke` and \
+                      field's no-op — `miterLimit` aside, which only a `Miter` join \
+                      reads — and `canvas::fill`, `canvas::stroke` and \
                       `canvas::fillStroke` leave every field they do not name at that \
-                      zero — so `canvas::fill(c)` is a plain filled shape. Building a \
-                      `canvas::Paint` by name must list every field, so start from one \
-                      of those three and refine it with `WITH`.",
+                      zero, apart from a `miterLimit` of `4.0`, so `canvas::fill(c)` is \
+                      a plain filled shape. Building a `canvas::Paint` by name must \
+                      list every field, so start from one of those three and refine it \
+                      with `WITH`.",
         props: vec![
             RecordProp {
                 name: "fill",
@@ -898,6 +927,57 @@ pub(crate) fn register(r: &mut Registry) {
                               is drawn from a cached coverage bitmap rather than from \
                               a distance field.",
             },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How each open end of the stroke is shaped: the two ends \
+                              of a `canvas::Line`, `canvas::Arc` or `canvas::PolyLine`, \
+                              and both ends of every dash. `Butt`, the zero value, \
+                              stops the stroke at the end; `Round` adds a half-disc \
+                              and `Square` half a square. A closed outline with no \
+                              dashes has no ends, so it ignores this.",
+            },
+            RecordProp {
+                name: "join",
+                ty: ParameterType::named("JoinStyle"),
+                description: "How the stroke turns a corner: where two edges of a \
+                              `canvas::Polygon` ring or a `canvas::PolyLine` meet, and \
+                              at the four corners of a `canvas::Rectangle` or \
+                              `canvas::Picture`. `Round`, the zero value, rounds the \
+                              outside of the corner. Circles, ellipses, arcs and \
+                              rounded rectangles have no corners and ignore it.",
+            },
+            RecordProp {
+                name: "miterLimit",
+                ty: ParameterType::Float,
+                description: "How sharp a `Miter` corner may be before it is drawn as \
+                              `Bevel` instead, as the longest the corner's point may \
+                              reach measured in stroke widths: a corner of interior \
+                              angle θ reaches `1 / sin(θ / 2)`. `canvas::fill`, \
+                              `canvas::stroke` and `canvas::fillStroke` set `4.0`, \
+                              which bevels corners sharper than about 29°. A value \
+                              below `1.0`, the zero value included, bevels every \
+                              corner.",
+            },
+            RecordProp {
+                name: "dashes",
+                ty: ParameterType::list_of(ParameterType::Float),
+                description: "Alternating dash and gap lengths along the outline, in \
+                              pixels before `transform`, starting with a dash. An odd \
+                              number of lengths is repeated once to make it even. An \
+                              empty list — the zero value — draws a solid stroke, and \
+                              so does a list whose lengths add up to `0.0` or that \
+                              holds a negative length. `cap` shapes both ends of \
+                              every dash. Each ring of a `canvas::Polygon` starts the \
+                              pattern again at its first point.",
+            },
+            RecordProp {
+                name: "dashOffset",
+                ty: ParameterType::Float,
+                description: "How far into the `dashes` pattern the outline starts, in \
+                              pixels. It may be negative or longer than the pattern; \
+                              the pattern repeats in both directions.",
+            },
         ],
     });
 
@@ -934,7 +1014,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "A straight segment from one point to another. A line has no \
                       interior, so it is drawn from `paint.stroke`/`paint.strokeWidth` \
-                      and ignores `paint.fill`.",
+                      and ignores `paint.fill`; `paint.cap` shapes its two ends.",
         props: vec![
             RecordProp {
                 name: "x1",
@@ -955,13 +1035,6 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "y2",
                 ty: ParameterType::Float,
                 description: "The ending point's Y coordinate in pixels.",
-            },
-            RecordProp {
-                name: "cap",
-                ty: ParameterType::named("CapStyle"),
-                description: "How the two ends are shaped. `Round` extends the \
-                              stroke past each endpoint by a half-disc; `Butt` cuts \
-                              it square there.",
             },
             paint_prop(),
         ],
@@ -1030,7 +1103,8 @@ pub(crate) fn register(r: &mut Registry) {
                       angles. Angles are in **radians, measured clockwise from +X**; \
                       because Y increases downward, a `0.0`..`PI` arc sweeps below \
                       its centre (so that is the smile, not the frown). An arc has \
-                      no interior, so it is drawn from `paint.stroke`.",
+                      no interior, so it is drawn from `paint.stroke`; `paint.cap` \
+                      shapes its two ends.",
         props: vec![
             RecordProp {
                 name: "x",
@@ -1056,13 +1130,6 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "endAngle",
                 ty: ParameterType::Float,
                 description: "Where the arc ends, in radians clockwise from +X.",
-            },
-            RecordProp {
-                name: "cap",
-                ty: ParameterType::named("CapStyle"),
-                description: "How the two ends are shaped. `Butt` cuts the stroke \
-                              along the radius at each end; `Round` caps it with a \
-                              half-disc there.",
             },
             paint_prop(),
         ],
@@ -1271,8 +1338,8 @@ pub(crate) fn register(r: &mut Registry) {
         name: "PolyLine",
         export: true,
         description: "An open path through a list of points, stroked as one item. \
-                      Every corner where two segments meet is rounded, and `cap` \
-                      shapes the two ends. Give `colors` a colour per point and the \
+                      `paint.join` shapes every corner where two segments meet, and \
+                      `paint.cap` the two ends. Give `colors` a colour per point and the \
                       stroke blends from each point's colour to the next along the \
                       segment between them, so a trail that fades out is one item \
                       whose colours' alpha falls to zero, not one `canvas::Line` per \
@@ -1288,7 +1355,7 @@ pub(crate) fn register(r: &mut Registry) {
                               `canvas::Polygon` for a closed shape. A point repeated \
                               in place adds nothing; if every point is the same one, \
                               the path draws what a zero-length `canvas::Line` with \
-                              the same `cap` draws.",
+                              the same `paint.cap` draws.",
             },
             RecordProp {
                 name: "colors",
@@ -1302,14 +1369,6 @@ pub(crate) fn register(r: &mut Registry) {
                               this list takes `paint.stroke`, and colours past the \
                               last point are ignored. With any colours given, the path \
                               draws even when `paint.stroke` is transparent.",
-            },
-            RecordProp {
-                name: "cap",
-                ty: ParameterType::named("CapStyle"),
-                description: "How the two ends are shaped. `Round` extends the \
-                              stroke past the first and last point by a half-disc; \
-                              `Butt` cuts it square there. The corners between \
-                              segments are always round.",
             },
             paint_prop(),
         ],
@@ -1830,6 +1889,7 @@ mod tests {
             "Size",
             "Bounds",
             "FillRule",
+            "JoinStyle",
             "TextMetrics",
             "Transform",
             "BlendMode",

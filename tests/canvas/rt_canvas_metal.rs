@@ -85,12 +85,12 @@ FUNC main() AS Nothing
   LET face AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
-  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
+  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := WITH canvas::stroke(color::rgb(255, 128, 0), 9.0) { cap := canvas::CapStyle.Round }]
   ' plan-154-B: a PolyLine, with a colour per point.
-  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 255), 10.0)]
+  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }]
   LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
@@ -138,13 +138,13 @@ FUNC main() AS Nothing
   ' butt arm is wrong would still match the oracle everywhere the scene looks.
   ' Thick and short, because the cap is a half-width feature: at 24 px wide the two
   ' styles differ over a visibly large region rather than one antialiased pixel.
-  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
-  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
+  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Butt }]
+  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Round }]
   ' And a ROUND-capped arc, for the same reason. `smile` above is butt-capped -- which
   ' is what every arc was before plan-116-D -- so without this the arc's cap-disc arm
   ' is compiled into both shaders and never taken. The sweep stops at 0.6*PI so both
   ' ends are visible rather than one running off the item's own band.
-  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(120, 255, 200), 20.0)]
+  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 20.0) { cap := canvas::CapStyle.Round }]
 
   canvas::present([box, rounded, line, path, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
 END FUNC
@@ -511,8 +511,8 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
-  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 18.0)]
-  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 214, 92), 12.0)]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 18.0) { cap := canvas::CapStyle.Round }]
+  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], paint := WITH canvas::stroke(color::rgb(255, 214, 92), 12.0) { cap := canvas::CapStyle.Butt }]
   MUT wave AS List OF canvas::Point = []
   MUT hues AS List OF color::Color = []
   MUT k AS Integer = 0
@@ -523,7 +523,7 @@ FUNC main() AS Nothing
     hues = collections::append(hues, color::rgba(40 + k * 5, 200 - k * 4, 255, 255 - k * 5))
     k = k + 1
   END WHILE
-  LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 255, 255), 7.0)]
+  LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 7.0) { cap := canvas::CapStyle.Butt }]
   canvas::present([tri, trail, plain, long])
 END FUNC
 "#;

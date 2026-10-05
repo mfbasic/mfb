@@ -208,7 +208,7 @@ FUNC mouthArc(cx AS Float, cy AS Float, r AS Float, down AS Boolean) AS canvas::
   ' would finish in two chisel corners; Round unions a half-disc of the stroke's
   ' half-width at each sweep endpoint, on the same signed distance the rest of the
   ' item is drawn from, so the dome antialiases like every other edge here.
-  RETURN canvas::Arc[x := cx, y := ky, radius := rho, startAngle := mid - theta, endAngle := mid + theta, cap := canvas::CapStyle.Round, paint := canvas::stroke(inkColor(), r * MOUTH_THICK)]
+  RETURN canvas::Arc[x := cx, y := ky, radius := rho, startAngle := mid - theta, endAngle := mid + theta, paint := WITH canvas::stroke(inkColor(), r * MOUTH_THICK) { cap := canvas::CapStyle.Round }]
 END FUNC
 
 ' The whole face for one mood, centred on (cx, cy). Items are drawn in list order

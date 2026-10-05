@@ -161,10 +161,10 @@ LITERALS = {
     "canvas::RoundedRect": "canvas::RoundedRect[x := 1.0, y := 1.0, w := 2.0, h := 2.0, cornerRadius := 0.5, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::Circle": "canvas::Circle[x := 1.0, y := 1.0, radius := 2.0, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::Ellipse": "canvas::Ellipse[x := 1.0, y := 1.0, radiusX := 2.0, radiusY := 1.0, angle := 0.0, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::Line": "canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 1.0, y2 := 1.0, cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::Arc": "canvas::Arc[x := 1.0, y := 1.0, radius := 2.0, startAngle := 0.0, endAngle := 1.0, cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
+    "canvas::Line": "canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 1.0, y2 := 1.0, paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }]",
+    "canvas::Arc": "canvas::Arc[x := 1.0, y := 1.0, radius := 2.0, startAngle := 0.0, endAngle := 1.0, paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }]",
     "canvas::Polygon": "canvas::Polygon[contours := [[canvas::Point[0.0, 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::PolyLine": "canvas::PolyLine[points := [canvas::Point[0.0, 0.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::fill(color::fromName(\"red\"))]",
+    "canvas::PolyLine": "canvas::PolyLine[points := [canvas::Point[0.0, 0.0]], colors := [], paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }]",
     "KFix": "KFix[p := 1, q := 2.5]",
     "KVar": 'KVar[s := "v"]',
 }

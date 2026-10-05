@@ -68,9 +68,9 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 31\n\
     \x20 END TRAP\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(yellow)]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 4.0)]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 4.0) { cap := canvas::CapStyle.Butt }]\n\
     \x20 LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 10.0, h := 10.0, paint := canvas::fill(green)]\n\
-    \x20 LET d AS canvas::DrawItem = canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(green, 1.0)]\n\
+    \x20 LET d AS canvas::DrawItem = canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, paint := WITH canvas::stroke(green, 1.0) { cap := canvas::CapStyle.Round }]\n\
     \x20 LET e AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(yellow)]\n\
     \x20 LET f AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 4.0, h := 4.0, cornerRadius := 1.0, paint := canvas::fill(yellow)]\n\
     \x20 LET g AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green)]\n\
@@ -88,7 +88,7 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 8\n\
     \x20 END IF\n\
     \x20 LET j AS canvas::DrawItem = grp\n\
-    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[points := pts, colors := [yellow, green], cap := canvas::CapStyle.Round, paint := canvas::stroke(green, 2.0)]\n\
+    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[points := pts, colors := [yellow, green], paint := WITH canvas::stroke(green, 2.0) { cap := canvas::CapStyle.Round }]\n\
     \x20 canvas::removeGroup(\"panel\")\n\
     \x20 canvas::removeGroup(\"never-installed\")\n\
     \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i, j, k]\n\

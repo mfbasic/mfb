@@ -561,7 +561,7 @@ FUNC windKey(face AS canvas::Font, size AS Float, left AS Float, top AS Float) A
 
   MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
   LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
-  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }]
   items = collections::append(items, [heading, divider])
 
   LET numberX AS Float = left + pad
@@ -599,7 +599,7 @@ END FUNC
 ' It builds the item and nothing else; the caller appends it to the frame's
 ' items.
 FUNC trailPath(run AS List OF canvas::Point, colors AS List OF color::Color, tint AS color::Color) AS canvas::DrawItem
-  RETURN canvas::PolyLine[points := run, colors := colors, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 1.35)]
+  RETURN canvas::PolyLine[points := run, colors := colors, paint := WITH canvas::stroke(tint, 1.35) { cap := canvas::CapStyle.Round }]
 END FUNC
 
 ' Every particle's trail, in window coordinates, as one PolyLine per unbroken

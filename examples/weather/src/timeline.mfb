@@ -141,7 +141,7 @@ FUNC bar(t AS Track, fromX AS Float, toX AS Float, tint AS color::Color) AS canv
 END FUNC
 
 FUNC tick(x AS Float, y AS Float, reach AS Float, tint AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Line[x1 := x, y1 := y - reach, x2 := x, y2 := y + reach, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 1.2)]
+  RETURN canvas::Line[x1 := x, y1 := y - reach, x2 := x, y2 := y + reach, paint := WITH canvas::stroke(tint, 1.2) { cap := canvas::CapStyle.Round }]
 END FUNC
 
 ' Text centred on x, with its baseline at y.

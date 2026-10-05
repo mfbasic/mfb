@@ -31,7 +31,7 @@ FUNC main() AS Nothing
     LET y AS Float = 32.0 + toFloat((k / 14) * 60) + math::cos(fx) * 0.41
     LET r AS Float = 8.0 + toFloat(k MOD 13) * 1.513
     LET c AS color::Color = color::rgb(250, 250, 120)
-    LET d AS canvas::DrawItem = canvas::PolyLine[points := ring(40, x, y, r), colors := [], cap := canvas::CapStyle.Round, paint := canvas::stroke(c, 2.0)]
+    LET d AS canvas::DrawItem = canvas::PolyLine[points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c, 2.0) { cap := canvas::CapStyle.Round }]
     scene = collections::append(scene, d)
     k = k + 1
   END WHILE

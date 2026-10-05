@@ -103,14 +103,14 @@ fn animating() -> String {
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
-         LET paint AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 1.0)\n  \
+         LET paint AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 1.0) {{ cap := canvas::CapStyle.Butt }}\n  \
          MUT frame AS Integer = 0\n  \
          WHILE frame < {FRAMES}\n    \
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
          LET t AS Float = toFloat(frame * {ITEMS} + i)\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[x1 := t, y1 := toFloat(i), x2 := t + 10.0, y2 := toFloat(i) + 10.0, cap := canvas::CapStyle.Butt, paint := paint]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[x1 := t, y1 := toFloat(i), x2 := t + 10.0, y2 := toFloat(i) + 10.0, paint := paint]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \
@@ -185,13 +185,13 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
         "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
-         LET paint AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 1.0)\n  \
+         LET paint AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 1.0) {{ cap := canvas::CapStyle.Butt }}\n  \
          MUT frame AS Integer = 0\n  \
          WHILE frame < {FRAMES}\n    \
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[x1 := toFloat(i), y1 := 0.0, x2 := toFloat(i), y2 := 100.0, cap := canvas::CapStyle.Butt, paint := paint]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[x1 := toFloat(i), y1 := 0.0, x2 := toFloat(i), y2 := 100.0, paint := paint]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \

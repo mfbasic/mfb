@@ -177,7 +177,7 @@ fn an_arc_swept_to_pi_reaches_its_end_cap() {
         &scene(
             "  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(0, 160, 0), 14.0)]\n  \
+             paint := WITH canvas::stroke(color::rgb(0, 160, 0), 14.0) { cap := canvas::CapStyle.Butt }]\n  \
              canvas::present([smile])\n",
         ),
     );
@@ -267,7 +267,7 @@ fn arc_sweeps_clockwise_from_positive_x() {
         &scene(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
+             paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }]\n  canvas::present([a])\n",
         ),
     );
 
@@ -417,7 +417,7 @@ fn rendering_is_byte_reproducible() {
         "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
          paint := canvas::fill(color::rgb(255, 255, 0))]\n  \
          LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
-         endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(0, 160, 0), 8.0)]\n  \
+         endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }]\n  \
          canvas::present([disc, a])\n",
     );
     let (first, _) = render("canvas_determinism_a", &source);
@@ -1367,8 +1367,8 @@ fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
     let line = |cap: &str| {
         format!(
             "  LET l AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, \
-             x2 := 400.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 20.0)]\n  \
+             x2 := 400.0, y2 := 300.0, \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([l])\n"
         )
     };
@@ -1425,8 +1425,8 @@ fn a_zero_length_line_is_a_dot_only_when_round_capped() {
     let dot = |cap: &str| {
         format!(
             "  LET l AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 300.0, \
-             x2 := 300.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 20.0)]\n  \
+             x2 := 300.0, y2 := 300.0, \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([l])\n"
         )
     };
@@ -1470,8 +1470,7 @@ fn a_round_capped_arc_caps_its_sweep_ends_and_a_butt_one_does_not() {
         format!(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
              radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
-             cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 24.0)]\n  \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([a])\n"
         )
     };
@@ -1528,8 +1527,8 @@ fn a_round_arc_cap_at_the_bounds_extreme_is_not_clipped() {
         &scene(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
              radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
-             cap := canvas::CapStyle.Round, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 24.0)]\n  \
+             \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) { cap := canvas::CapStyle.Round }]\n  \
              canvas::present([a])\n",
         ),
     );
@@ -1554,8 +1553,7 @@ fn a_full_circle_arc_is_identical_with_either_cap() {
         format!(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
              radius := 100.0, startAngle := 0.0, endAngle := 6.283185307179586, \
-             cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 24.0)]\n  \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([a])\n"
         )
     };
@@ -2589,11 +2587,11 @@ fn a_gradients_stroke_stays_a_flat_colour() {
 #[test]
 fn a_gradient_on_a_stroke_only_kind_is_ignored() {
     const PLAIN: &str = "  LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
-         x2 := 360.0, y2 := 60.0, cap := canvas::CapStyle.Butt, \
-         paint := canvas::stroke(color::rgb(255, 240, 120), 9.0)]\n  \
+         x2 := 360.0, y2 := 60.0, \
+         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { cap := canvas::CapStyle.Butt }]\n  \
          LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
-         startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, \
-         paint := canvas::stroke(color::rgb(120, 255, 200), 9.0)]\n  \
+         startAngle := 0.0, endAngle := 3.14159, \
+         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { cap := canvas::CapStyle.Butt }]\n  \
          canvas::present([a, b])\n";
 
     // The same two items, each carrying a DIFFERENT gradient. Different from each other
@@ -2612,11 +2610,11 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
          startPoint := canvas::Point[x := 40.0, y := 0.0], \
          endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s2]\n  \
          LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
-         x2 := 360.0, y2 := 60.0, cap := canvas::CapStyle.Butt, \
-         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { fillGradient := g1 }]\n  \
+         x2 := 360.0, y2 := 60.0, \
+         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { fillGradient := g1, cap := canvas::CapStyle.Butt }]\n  \
          LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
-         startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, \
-         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { fillGradient := g2 }]\n  \
+         startAngle := 0.0, endAngle := 3.14159, \
+         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { fillGradient := g2, cap := canvas::CapStyle.Butt }]\n  \
          canvas::present([a, b])\n";
 
     let (plain, _) = render("canvas_stroke_only_plain", &scene(PLAIN));

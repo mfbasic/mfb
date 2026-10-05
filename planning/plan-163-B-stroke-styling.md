@@ -52,7 +52,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-163-A complete and archived | `ls planning/completed/plan-163-A-*` → match | NOT MET (2026-09-27: A is not started) |
+| plan-163-A complete and archived | `ls planning/completed/plan-163-A-*` → match | MET (2026-10-05: `planning/completed/plan-163-A-polygon-contours-fill-rule.md`) |
 
 Everything below is written against the world where A has landed:
 `Polygon.contours`, `Polygon.rule`, header slot 21 = rule, and item word `arc.y` = rule
@@ -442,36 +442,46 @@ item-hash values (in-process only).
 This phase is behavior-neutral: every header stays byte-identical, and every new field
 is stored but only `cap` is read.
 
-- [ ] `mod.rs`: add the `JoinStyle` enum (mirror `CapStyle`'s descriptor) and five
+- [x] `mod.rs`: add the `JoinStyle` enum (mirror `CapStyle`'s descriptor) and five
       `Paint` props per §1, with man-standard descriptions. Remove the `cap` prop from
       `Line`, `Arc` and `PolyLine`, and reword their descriptions to point at
-      `paint.cap`.
-- [ ] `func_fill_stroke.rs:77` literal and `helper_paint_defaults.rs`: set the §Compat
+      `paint.cap`. (`CapStyle.Square` was added here too, as Phase 1's own literal and
+      descriptions name it; nothing reads tag 2 until Phase 2.)
+- [x] `func_fill_stroke.rs:77` literal and `helper_paint_defaults.rs`: set the §Compat
       defaults. Update the "all seven fields" sentence at `func_fill.rs:24`,
       `func_stroke.rs:24` and `func_fill_stroke.rs:24`.
-- [ ] `__canvas_capTag` callers (`helper_geometry.rs:553–604`, `664–727`) and native
+- [x] `__canvas_capTag` callers (`helper_geometry.rs:553–604`, `664–727`) and native
       twins (`func_geo_build.rs:810–823`, `1155–1175`, `1231–1233`) read `paint.cap`.
-- [ ] `__canvas_hashPaint` (`helper_geometry.rs:1189–1250`): fold the five new
-      fields.
-- [ ] `func_geo_build.rs:emit_paint_supported`: refuse (fall back to MFBASIC) any paint
+- [x] `__canvas_hashPaint` (`helper_geometry.rs:1189–1250`): fold the five new
+      fields. (The Line/Arc/PolyLine arms of `__canvas_hashItem` no longer fold a cap
+      of their own: it is in the paint.)
+- [x] `func_geo_build.rs:emit_paint_supported`: refuse (fall back to MFBASIC) any paint
       with `join ≠ Round` or non-empty `dashes`, until Phases 3 and 5 teach the native
       builder.
-- [ ] Migrate the 105 non-historical `cap :=` sites (§2): `cap := X` →
+- [x] Migrate the 105 non-historical `cap :=` sites (§2): `cap := X` →
       `WITH <paint> { cap := X }`. This includes the 12 split Rust strings and the 4
       `CapStyle.{cap}` format sites in `rt_canvas_rasteriser.rs`, the 4 man examples in
       `src`, and `tests/runtime/inplace_self_update/field_kinds.{tsv,_gen.py}` (3
       each; regenerate the `.tsv` with its generator).
       Check: `grep -rnE "^\s*cap :=|, cap :=" --exclude-dir=target --exclude-dir=.git
       --exclude-dir=planning --exclude-dir=bugs . | grep -v "WITH"` → 0.
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*`
+      (Corrections 1: 109 sites measured at the execution base. The check → 1, the
+      `canvas::Paint[...]` constructor literal itself, which now names `cap`.)
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*`
       (`scripts/regen-native-goldens.sh`; expected, §3). Inspect the `.ir` diff: it
-      should be the type surface only.
+      should be the type surface only. (`4 build(s), 6 golden(s) rewritten, 0
+      failure(s)`; the `.ir` diff is `canvas.JoinStyle`, `Square`, the Paint fields and
+      the helper bodies that read them — `__canvas_hashPaint`'s new steps.)
 
 Acceptance: the move is pixel-neutral.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass, with `git status tests/golden/canvas` clean (est. 10
   min, guess; these three binaries build every capped item in both builders).
   `cargo test --bin mfb canvas` → pass (est. 3 min, guess).
+  Result: 4 + 22 + 64 passed (2 ignored), `git status tests/golden/canvas` clean;
+  `cargo test --bin mfb canvas` → 110 passed. The other suites whose sources were
+  migrated: `cargo test --test rt_canvas_geo_arena --test rt_arena_large_block_reuse
+  --test cli_canvas_package` → 7 + 3 + 4 passed.
 Commit: —
 
 ### Phase 2 — Square cap (all three renderers)
@@ -640,7 +650,16 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **`cap :=` population.** Measured at the execution base (`f858ff14b` + A):
+   `grep -rnE "cap :=" --exclude-dir=target --exclude-dir=planning --exclude-dir=bugs .`
+   → 109 construction sites (the plan's 105 was measured at `8cbd0206a`; tests added
+   since account for the rest). 98 were rewritten by script (`cap := X, …, paint := P`
+   → `paint := WITH P { cap := X }`, merged into an existing `WITH` block where `P`
+   was one), 2 in `func_stroke.rs` likewise, the six `format!` sites by hand (braces
+   doubled), and the three `field_kinds.tsv` rows to match the generator's new setup
+   column. In the two allocation-measuring tests (`rt_canvas_geo_arena.rs`,
+   `rt_arena_large_block_reuse.rs`) the cap went onto the paint the loop already
+   builds, so no `WITH` was added per item.
 
 ## Summary
 

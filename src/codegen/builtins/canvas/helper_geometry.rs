@@ -594,7 +594,7 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = __canvas_strokeAsFill(out)
   out = collections::set(out, 20, a.startAngle)
   out = collections::set(out, 21, a.endAngle)
-  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(__canvas_capTag(a.cap)))
+  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(__canvas_capTag(a.paint.cap)))
   ' plan-116-D: the two sweep endpoints, in surface pixels. Per-shape constants, so
   ' they are computed ONCE here rather than per pixel in each of three renderers --
   ' which is the same reason the sweep vectors are turned into sin/cos here. The two
@@ -724,7 +724,7 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
     maxY = __canvas_maxF(maxY, b.y)
     i = i + 1
   END WHILE
-  LET cap AS Integer = __canvas_capTag(p.cap)
+  LET cap AS Integer = __canvas_capTag(p.paint.cap)
   IF first < 0 THEN
     IF cap = 0 THEN
       RETURN __canvas_emptyHeader()
@@ -1121,7 +1121,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
     CASE Line(l)
-      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
+      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint)
     CASE Arc(a)
       header = __canvas_arcHeader(a)
     CASE Polygon(p)
@@ -1292,7 +1292,28 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
       h = __canvas_hashStep(h, ((toInt(stop.color.red) * 256 + toInt(stop.color.green)) * 256 + toInt(stop.color.blue)) * 256 + toInt(stop.color.alpha))
     NEXT
   END IF
-  RETURN h
+  ' plan-163-B: the stroke's shape -- cap and join as one step, then the miter limit,
+  ' the dash lengths after their count, and the offset.
+  MUT style AS Integer = 0
+  IF paint.cap = CapStyle.Round THEN
+    style = 1
+  END IF
+  IF paint.cap = CapStyle.Square THEN
+    style = 2
+  END IF
+  IF paint.join = JoinStyle.Miter THEN
+    style = style + 4
+  END IF
+  IF paint.join = JoinStyle.Bevel THEN
+    style = style + 8
+  END IF
+  h = __canvas_hashStep(h, style)
+  h = __canvas_hashFloat(h, paint.miterLimit)
+  h = __canvas_hashStep(h, len(paint.dashes))
+  FOR EACH dash IN paint.dashes
+    h = __canvas_hashFloat(h, dash)
+  NEXT
+  RETURN __canvas_hashFloat(h, paint.dashOffset)
 END FUNC
 
 ' A String folds in a codepoint at a time -- a String is not otherwise hashable here --
@@ -1331,13 +1352,11 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     CASE Line(l)
       MUT h AS Integer = __canvas_hashStart(4)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, l.x1), l.y1), l.x2), l.y2)
-      h = __canvas_hashStep(h, __canvas_capTag(l.cap))
       RETURN __canvas_hashPaint(h, l.paint)
     CASE Arc(a)
       MUT h AS Integer = __canvas_hashStart(5)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, a.x), a.y), a.radius)
       h = __canvas_hashFloat(__canvas_hashFloat(h, a.startAngle), a.endAngle)
-      h = __canvas_hashStep(h, __canvas_capTag(a.cap))
       RETURN __canvas_hashPaint(h, a.paint)
     CASE Polygon(p)
       MUT h AS Integer = __canvas_hashStart(6)
@@ -1395,7 +1414,6 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       FOR EACH c IN pl.colors
         h = __canvas_hashStep(h, ((toInt(c.red) * 256 + toInt(c.green)) * 256 + toInt(c.blue)) * 256 + toInt(c.alpha))
       NEXT
-      h = __canvas_hashStep(h, __canvas_capTag(pl.cap))
       RETURN __canvas_hashPaint(h, pl.paint)
   END MATCH
 END FUNC"#;
@@ -1457,7 +1475,7 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
     CASE Line(l)
-      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
+      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint)
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
       IF len(edges) > 0 THEN

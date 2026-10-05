@@ -603,7 +603,8 @@ fn stroke_pad(builder: &mut CodeBuilder, stroke_half: &VirtualRegister) -> Virtu
 }
 
 /// Branch to `unsupported` unless the paint's transform is all zero (float `=`, so a
-/// `-0.0` is zero and a NaN is not — the MFBASIC test) and it has fewer than two stops.
+/// `-0.0` is zero and a NaN is not — the MFBASIC test), it has fewer than two stops,
+/// its join is `Round` and it has no dashes.
 fn emit_paint_supported(
     builder: &mut CodeBuilder,
     view: &PaintView,
@@ -641,6 +642,20 @@ fn emit_paint_supported(
     builder.emit(abi::load_u64(&count, &stops, COLLECTION_OFFSET_COUNT));
     builder.emit(abi::compare_immediate(&count, "2"));
     builder.emit(abi::branch_ge(unsupported));
+    // plan-163-B: a join other than Round, or any dash, is the MFBASIC builders' until
+    // this one emits the join and dash tails.
+    let (join_index, join_type) = field(builder, &view.paint_type, "join")?;
+    let round = enum_ordinal(builder, &join_type, "Round")?;
+    let join = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&join, &view.paint, 8 * join_index));
+    builder.emit(abi::compare_immediate(&join, &round.to_string()));
+    builder.emit(abi::branch_ne(unsupported));
+    let dashes = builder.temporary_vreg();
+    emit_field_block(builder, &dashes, &view.paint, &view.paint_type, "dashes")?;
+    let dash_count = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&dash_count, &dashes, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::compare_immediate(&dash_count, "0"));
+    builder.emit(abi::branch_ne(unsupported));
     Ok(())
 }
 
@@ -809,11 +824,11 @@ fn fill_line(
     put(builder, out, 4, &x2);
     put(builder, out, 5, &y2);
     put(builder, out, 6, &half);
-    // `__canvas_capTag`: Round is 1, anything else 0.
-    let (cap_index, cap_type) = field(builder, record, "cap")?;
+    // `__canvas_capTag(paint.cap)`: Round is 1, anything else 0.
+    let (cap_index, cap_type) = field(builder, &view.paint_type, "cap")?;
     let round = enum_ordinal(builder, &cap_type, "Round")?;
     let cap = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&cap, rec, 8 * cap_index));
+    builder.emit(abi::load_u64(&cap, &view.paint, 8 * cap_index));
     let butt = builder.label("canvas_geo_cap_butt");
     let cap_done = builder.label("canvas_geo_cap_done");
     builder.emit(abi::compare_immediate(&cap, &round.to_string()));
@@ -1228,12 +1243,12 @@ fn emit_polyline_scan(
     builder.emit(abi::branch(&head));
     builder.emit(abi::label(&walked));
 
-    // `__canvas_capTag`, then the no-live-segment rule: nothing for Butt, segment 0 as
+    // `__canvas_capTag(paint.cap)`, then the no-live-segment rule: nothing for Butt, segment 0 as
     // both ends for Round.
-    let (cap_index, cap_type) = field(builder, record, "cap")?;
+    let (cap_index, cap_type) = field(builder, &view.paint_type, "cap")?;
     let round = enum_ordinal(builder, &cap_type, "Round")?;
     let cap_raw = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&cap_raw, rec, 8 * cap_index));
+    builder.emit(abi::load_u64(&cap_raw, &view.paint, 8 * cap_index));
     let cap = builder.temporary_vreg();
     let is_butt = builder.label("canvas_geo_pl_butt");
     let cap_done = builder.label("canvas_geo_pl_cap");

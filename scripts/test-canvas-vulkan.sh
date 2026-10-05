@@ -116,10 +116,10 @@ FUNC main() AS Nothing
   LET head AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
-  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
+  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := WITH canvas::stroke(color::rgb(255, 128, 0), 9.0) { cap := canvas::CapStyle.Round }]
   LET faint AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 620.0, y := 200.0], canvas::Point[x := 740.0, y := 200.0], canvas::Point[x := 680.0, y := 300.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 0, 200))]
   LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(0, 180, 180), color::rgb(20, 20, 20), 6.0)]
@@ -189,12 +189,12 @@ FUNC main() AS Nothing
   ' runs. Without a butt one the branch is compiled into the blob and never taken, and
   ' the oracle comparison would agree everywhere the scene looks. Thick and short,
   ' because the cap is a half-width feature.
-  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
-  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
+  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Butt }]
+  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Round }]
   ' And a ROUND-capped arc: `smile` above is butt, which is what every arc was before
   ' plan-116-D, so without this the cap-disc arm is compiled into the SPIR-V and never
   ' taken.
-  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(120, 255, 200), 20.0)]
+  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 20.0) { cap := canvas::CapStyle.Round }]
   ' plan-116-E: a rotated, eccentric, stroked ellipse -- kind 7 is a brand-new geometry
   ' kind, so without one here the SPIR-V's ellipse arm is compiled and never taken and
   ' a predicate that accepted a kind the shader does not know would render it as

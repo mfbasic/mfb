@@ -10,7 +10,8 @@ const INTRO: &str =
 
 const DESC: &str = r#"`fill` is the common case: a solid shape with no outline. Every other `canvas::Paint`
 field is left at its no-op value — a transparent stroke, zero stroke width,
-`Normal` blend, the identity transform, and no clip.
+`Normal` blend, the identity transform, no clip, no gradient, `Butt` ends, `Round`
+corners and no dashes — with a `miterLimit` of `4.0`.
 
 Use `canvas::stroke` for the outline-only case and `canvas::fillStroke` for both.
 To set blend, transform or clip, update the result:
@@ -21,7 +22,7 @@ LET spun AS Paint = WITH canvas::fill(color::rgb(220, 40, 40)) { transform := ti
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[fill := c]` is a constructor-arity error, not a partial record — so
-without them every item would have to spell out all seven `canvas::Paint` fields."#;
+without them every item would have to spell out all twelve `canvas::Paint` fields."#;
 
 const EX: &str = r#"A solid yellow disc:
 
