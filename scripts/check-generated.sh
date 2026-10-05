@@ -70,4 +70,9 @@ check tools/codepage-index/gen_codepage_tables.py src/codegen/builtins/encoding/
 # makes that true.
 check tools/tzdb/gen_timezones_data.py packages/timezones/src/data.mfb
 
+# The `currency` package's ISO 4217 code table is generated from the vendored
+# ISO 4217 List One. Which codes are valid, and how many minor units each has,
+# must come from that file alone -- this gate is what makes that true.
+check tools/iso4217/gen_currency_data.py packages/currency/src/data.mfb
+
 exit "$status"
