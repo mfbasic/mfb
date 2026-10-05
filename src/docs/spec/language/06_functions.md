@@ -138,10 +138,10 @@ position accepts either an isolated or a plain concrete, while an
 `ISOLATED FUNC`-typed position (`thread::start`'s worker parameter) accepts only
 an isolated one. This one rule governs every position a callable type is
 matched against another: a `LET`/`MUT`/assignment/return/field/argument
-(`Scope::assignable`), overload selection above, and a built-in's own callback
+(`TypeEnv::assignable`), overload selection above, and a built-in's own callback
 parameter (`collections::forEach`/`transform`/`filter`/`reduce`/`sortBy`/…,
 `json::parse`'s reviver) — the registry's structural unifier applies the same
-directional check to a `FUNC`/`FUNC` pair. [[src/ir/verify/compat.rs:Scope::assignable]]
+directional check to a `FUNC`/`FUNC` pair. [[src/ir/verify/compat.rs:assignable]]
 [[src/codegen/registry/mod.rs:unify_at]]
 
 ```basic
