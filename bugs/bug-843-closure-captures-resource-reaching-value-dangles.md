@@ -3,36 +3,29 @@
 Last updated: 2026-10-05
 Effort: medium (1h–2h)
 Severity: HIGH
-Class: Memory-safety (owner-confirmed: adopt resource-owned-scope capture model)
+Class: Memory-safety (owner-confirmed: closure capture = List append semantics)
 
 Status: Open
 Regression Test: tests/rt-behavior/memory/closure-capture-resource-holder-rejected (new, compile-fail) — name suggested
 
-**Owner decision (2026-10-05):** adopt the owner's model; do not just reject the capture. The §14/§15 rule
-that closures cannot capture resources dates from when the `RES` alias owned the scope.
-Today the *Resource* itself owns its scope, and a `RES` binding is only a reference to it,
-so a closure is treated like any other holder:
-- A closure may capture a value that reaches a resource (record field, list/map element,
-  union variant, any depth) **and** a direct `RES` binding.
-- If the closure's scope is wider than the Resource's scope (the closure is returned,
-  stored in a longer-lived value, or bound in an outer scope), the Resource's scope is
-  widened to the closure's scope, the same way any other escaping holder widens it.
-  Otherwise it is unchanged.
-- When the closure is dropped, the Resource is closed/dropped only if the closure's scope
-  and the Resource's scope are the same scope. If the Resource lives in a wider scope, the
-  closure's drop leaves it open.
-- The use-after-free in the repro (the closure reaching a freed resource record and then
-  operating on an unrelated file) must be impossible under this model, and it is the
-  regression test.
+**Owner decision (2026-10-05): capture works exactly like `collections::append` of a resource into a List.**
+A Resource is a single item that owns its own scope. A `RES` is only an alias to it. A
+closure never owns a Resource, and nothing is transferred. Capturing a resource, directly
+or through a value that reaches one, copies a `RES` alias into the closure, the same way
+appending it to a List copies an alias into the List. If the closure's scope is higher
+than the Resource's scope, the Resource's scope is raised to the closure's scope, exactly
+as it is raised when the alias is appended to a longer-lived List. Otherwise nothing
+changes. The Resource is closed once, at the end of its own (possibly raised) scope,
+under the same rules that already apply to a Resource held by a List. Closure copies,
+closures stored in collections, closures returned or passed across threads all follow
+whatever the List rule already does for the same movement. There is no new rule.
 
-The fix updates `mfb spec language memory-semantics` (§14.1, §14.4, §14.8) and
-`resource-management` (§15, "cannot be … captured by a lambda") to describe resource-owned
-scope and closure capture. It also drops the `TYPE_LAMBDA_CAPTURE_UNSUPPORTED` resource
-case, or narrows it to what remains illegal, and updates the diagnostics registry if a rule
-changes. Questions the implementer must bring back to the owner, not decide alone:
-closure copies (do all copies share the one widened Resource scope?) and closures that
-cross a thread boundary (resources are thread-bound; the expected default is a compile
-error unless the resource is explicitly `thread::transfer`ed).
+The §14/§15 statements that a closure cannot capture a resource date from when the `RES`
+alias owned the scope. They are rewritten to describe capture-as-append, and the resource
+case of `TYPE_LAMBDA_CAPTURE_UNSUPPORTED` is removed (diagnostics registry updated). The
+regression test is the repro: the escaped closure must operate on its own file and never on
+a freed record or an unrelated file. A sibling test does the same through a `List OF RES`
+built with `append` to prove the two paths behave identically.
 
 A lambda that captures an ordinary binding whose type *reaches* a resource — a record with a
 `RES` field (`h AS H` where `H.f AS RES fs::File`) or a `List OF RES fs::File` — compiles. If
@@ -116,13 +109,13 @@ the environment's copy dangling.
 
 ## Goal
 
-- A lambda capturing a value that reaches a resource (field, element, map value, union
-  variant, any depth) or a direct `RES` binding compiles. When the closure outlives the
-  Resource's scope, that scope is widened to the closure's, so the repro's escaped closure
-  operates on its own file, never a freed record or an unrelated file.
-- The Resource is closed exactly once, at the end of its (possibly widened) scope. A
-  closure drop closes it only when the two scopes are the same.
-- The spec (§14, §15) and the diagnostics registry describe this model.
+- Capturing a resource in a closure (directly or through a value that reaches one) behaves
+  exactly like appending it to a List. An alias is copied in, the Resource's scope is raised
+  to the closure's scope when that is higher, and nothing is transferred or owned by the
+  closure.
+- The repro's escaped closure operates on its own file. No freed record or unrelated file is
+  ever reached, and the Resource is closed exactly once at the end of its own scope.
+- The spec (§14, §15) and the diagnostics registry describe capture-as-append.
 
 ### Non-goals (must NOT change)
 
