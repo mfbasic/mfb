@@ -14,8 +14,8 @@
 //! anywhere in an enclosing loop body — while keeping the elision for the
 //! straight-line `LET n = len(L)` shape the plan-86-G benchmark (`listchurn`)
 //! relies on, and for a nested loop whose enclosing bodies leave `L`/`n` alone.
-//! The controls below pin both halves: the checked shape carries the two
-//! `list_get_invalid` guard branches, the elided shapes carry none.
+//! The controls below pin both halves: the checked shape carries the
+//! `list_get_invalid` guard branch, the elided shapes carry none.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -72,8 +72,10 @@ FUNC main() AS Integer\n\
   RETURN 0\n\
 END FUNC\n";
 
-/// Branches in `main` that guard a `collections::get` (`b.lt`/`b.ge` to
-/// `list_get_invalid*`): 2 per checked `get`, 0 per elided one.
+/// Branches in `main` that guard a `collections::get` (any conditional branch to
+/// `list_get_invalid*`): 1 per checked `get` — since bug-774 a fixed-width element's
+/// check is the single unsigned `b.ls` (`count <=u index` is `index < 0 || index >=
+/// count`), where it was `b.lt` + `b.ge` — and 0 per elided one.
 fn get_guard_branches(source: &str, name: &str) -> usize {
     let project = temp_project(name, source);
     let ncode = build_ncode(&project, "macos-aarch64", name);
@@ -88,7 +90,7 @@ fn get_guard_branches(source: &str, name: &str) -> usize {
         .expect("instructions")
         .iter()
         .filter(|inst| {
-            matches!(inst["op"].as_str(), Some("b.lt") | Some("b.ge"))
+            inst["op"].as_str().is_some_and(|op| op.starts_with("b."))
                 && inst["target"]
                     .as_str()
                     .is_some_and(|t| t.starts_with("list_get_invalid"))
@@ -116,10 +118,10 @@ fn back_edge_reassignment_keeps_the_bounds_check_and_traps() {
         "program ran to completion with an out-of-bounds read: {stdout}"
     );
     let _ = std::fs::remove_dir_all(&project);
-    // The check is really there (two guard branches per `get`).
+    // The check is really there (one guard branch per `get`).
     assert_eq!(
         get_guard_branches(BACK_EDGE, "codegen_bounds_elim_backedge_checked"),
-        2
+        1
     );
 }
 
