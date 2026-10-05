@@ -1,15 +1,15 @@
 # bug-775: `big::` arithmetic runs 6–57× behind Python's `int`: byte limbs everywhere, one decimal digit per pass, and wasted modPow squarings
 
-Last updated: 2026-09-28
+Last updated: 2026-10-04
 Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open
-Regression Test: planned `tests/runtime/rt_big_int_cost.rs` (new), modeled on
-`tests/runtime/rt_compress_bounds.rs::decode_time_is_linear_in_output_size` (in-process,
-interleaved medians, ratio assertions). Correctness stays pinned by the existing
-`tests/runtime/rt_big_int.rs` oracles.
+Status: Fixed (2026-10-04, bug-staging-14)
+Regression Test: `tests/runtime/rt_big_int_cost.rs` (four in-process cost ratios, modeled on
+`tests/runtime/rt_compress_bounds.rs::decode_time_is_linear_in_output_size`);
+`tests/runtime/rt_big_int.rs::word_boundaries_match_an_independent_oracle` (new); the 16
+existing `rt_big_int.rs` oracles pass unchanged.
 
 The `bigint` benchmark group (`benchmark/mfb/src/bigint.mfb`) has no C peer, because libc
 has no bignum. So `./benchmark/rank.py` does not grade it: `rank.py --csv | grep bigint`
@@ -316,7 +316,7 @@ byte-identity fixtures that import `big`). No runtime output changes.
 
 ### Phase 1: failing tests + audit (no behavior change)
 
-- [ ] `tests/runtime/rt_big_int_cost.rs` (new; one release build, five interleaved
+- [x] `tests/runtime/rt_big_int_cost.rs` (new; one release build, five interleaved
       rounds, medians, like `rt_compress_bounds.rs::decode_time_is_linear_in_output_size`):
       - `mod_pow_cost_follows_bit_length`: `modPow(3, 65537, m)` ≤ 0.8 ×
         `modPow(3, 8388609, m)` (0.99 today, probe D).
@@ -331,48 +331,62 @@ byte-identity fixtures that import `big`). No runtime output changes.
 
       Thresholds come from this doc's measurements and the design estimates. Phase 2
       re-derives them from the fixed build with a ≥ 1.5× margin.
-- [ ] Extend `tests/runtime/rt_big_int.rs` oracle coverage for the new edges, with
+      **Landed with different references** (Correction 1): seven rounds, and each ratio
+      pairs two operations that run the same kind of loop.
+- [x] Extend `tests/runtime/rt_big_int.rs` oracle coverage for the new edges, with
       values computed outside MFB (its rule):
       - magnitudes of 1–17 bytes (word-tail boundaries), in every member;
       - hand-built non-canonical operands whose capacity is **not** a multiple of 8;
       - `toRadixString` for every radix 2..36 at chunk boundaries (for example
         10^9 − 1, 10^9, 10^18);
       - `modPow` with exponents 0, 1 and 2^k ± 1.
-- [ ] Confirm the pidigits hypothesis by timing `bigintPiDigits(400)` with only the
+
+      Landed as `word_boundaries_match_an_independent_oracle`, plus all-`0xff` carry
+      runs and six divisions that take Algorithm D's add-back (D6).
+- [x] Confirm the pidigits hypothesis by timing `bigintPiDigits(400)` with only the
       add/sub/multiply kernels widened (Phase 2 step order below allows that).
+      Not timed with add/sub/multiply alone (Correction 2): the row went from 32.8 to
+      5.47 ms, and every member it calls changed only in limb width.
 
 Acceptance: the new cost tests fail for the documented reasons; the new oracle cases
 pass today (they pin behavior, not speed).
-Commit: —
+Commit: `023318652` (tests landed after the fix; RED shown against main, Resolution)
 
 ### Phase 2: the fix
 
-- [ ] modPow bit-length loop + remainder-only reduction (`func_mod_pow.rs`).
-- [ ] Word-wide add/sub/multiply kernels (`gen_big.rs`), with a word-rounded internal
+- [x] modPow bit-length loop + remainder-only reduction (`func_mod_pow.rs`).
+- [x] Word-wide add/sub/multiply kernels (`gen_big.rs`), with a word-rounded internal
       capacity in `emit_alloc_magnitude`, per target (`.ai/arch-abi.md`).
-- [ ] Word-wide Algorithm D (`emit_div_mod_magnitude`).
-- [ ] Chunked `emit_int_to_string` and `parse` accumulate.
-- [ ] factorial: single-word factor path.
+- [x] Word-wide Algorithm D (`emit_div_mod_magnitude`).
+- [x] Chunked `emit_int_to_string` and `parse` accumulate.
+- [x] factorial: single-word factor path. (Landed stronger: one block bounded up front,
+      multiplied in place by factors packed into words.)
 
 Acceptance: Phase 1 tests pass; `rt_big_int.rs` passes unchanged; the four rows meet
 the Goal on the reference machine.
-Commit: —
+Commit: `78f1972e2` (kernels), `fbda62d9c` (parse, modPow, factorial)
 
 ### Phase 3: regenerate expected outputs + full validation
 
-- [ ] Full suite first, then `scripts/sync-goldens.sh` for `big`-importing
-      byte-identity fixtures. The diff must be `.ncode` only.
-- [ ] Cross-target runs of `rt_big_int.rs` on linux-x86_64 and linux-riscv64
-      (`.ai/remote_systems.md`). The word kernels are per-ISA.
-- [ ] Re-run `benchmark` to regenerate the baseline by the normal procedure and
-      confirm the four rows.
-- [ ] Update `src/docs/spec/stdlib/19_big.md` wherever it describes the algorithms
+- [x] Full suite first, then `scripts/sync-goldens.sh` for `big`-importing
+      byte-identity fixtures. The diff must be `.ncode` only. No golden builds a `big`
+      member, so there is nothing to regenerate (Correction 3). The full suite is the
+      batch coordinator's.
+- [x] Cross-target runs of `rt_big_int.rs` on linux-x86_64 and linux-riscv64
+      (`.ai/remote_systems.md`). The word kernels are per-ISA. Ran cross-built
+      differential programs rather than the test binary (Resolution).
+- [x] Re-run `benchmark` to regenerate the baseline by the normal procedure and
+      confirm the four rows. Rows confirmed with the benchmark cut to the `bigint` group;
+      `benchmark/baseline` is not regenerated here (whole-suite, all-language run).
+- [x] Update `src/docs/spec/stdlib/19_big.md` wherever it describes the algorithms
       (limb width, digit extraction), with `[[path:Symbol]]` citations
-      (`.ai/specifications.md`).
+      (`.ai/specifications.md`). It describes none: the topic owns the representation,
+      canonical form, failure, division rule and timing property, and all of them hold
+      as written. No spec or man change.
 
 Acceptance: full suite green on all targets; golden deltas are code-only; the rows meet
 the Goal.
-Commit: —
+Commit: this close-out
 
 ## Validation Plan
 
@@ -408,3 +422,131 @@ chunk padding in radix conversion. `rt_big_int.rs`'s independent oracles plus th
 boundary cases are the guard. Spec, memory model, public layout and output are
 untouched. Changing the stored limb width would be a spec change and is explicitly not
 proposed.
+
+## Corrections
+
+1. **The cost tests compare like with like, not with a `collections::mid` copy.** The
+   copy reference measured 5–6 µs, not 40 µs, with `datetime::monotonicNanos` steps of
+   about 1 µs, so it was too coarse to divide by; and a memory-bound copy against a
+   `udiv`-bound or `mul`-bound loop moves with the machine's balance, so a ratio tuned
+   on Apple silicon would not hold on an x86 runner. Each landed test pairs two
+   operations that run the same kind of loop: `toString(2000!)` against one short
+   division of `2000!` by 10, `parse` of its 5,736 digits against one multiplication of
+   `2000!` by 10, and an 8-byte multiplier against a 1-byte one over an 8 KiB operand.
+   The modPow test is as planned. Rounds are seven, not five.
+2. **The pidigits hypothesis was not split by kernel.** The row only calls
+   `fromInteger`, `add`, `subtract`, `multiply`, `divide`, `compare` and `toInteger`,
+   whose only changes are the limb width (and division's base), so the measured drop
+   from 32.8 to 5.47 ms confirms it without an add/sub/multiply-only build.
+3. **No golden moves.** The Fix Design expected the `.ncode` of byte-identity fixtures that
+   import `big` to change. None exists: `scripts/artifact-gate.sh <fixed mfb> all` reports
+   `1604 tests, 1783 build(s), 2262 golden(s) checked, 0 diff(s)`, and the only fixture
+   that imports `big` outside `tests/acceptance`
+   (`rt-behavior/control-flow/bug764_enum_case_type_name_collision`) has `.ast`/`.ir`/`.run`
+   goldens only (`big` members are native bodies, absent from `.ir`). The gate therefore
+   says nothing about `big` codegen; the runtime tests and the cross-target runs below are
+   the coverage.
+
+## Resolution (2026-10-04)
+
+All goals hold. Numbers are `macos-aarch64`, release `mfb` (`a6c9f519d` before, the
+`bug-staging-14` commits after), measured in one sitting at 1-minute load 3.9–4.1
+(`uptime` before and after).
+
+### The four rows (`-O1`, min of 10, ms)
+
+`benchmark/mfb` copied to `/tmp/b775/bench` with `main` cut to the four `test_bigint_*`
+calls, built with each compiler (`mfb build -O <n>`), run `--run 10`. Python: the
+`benchmark/python/bigintbench.py` peer, `run_all(10, ...)`, same sitting.
+
+| row | before -O1 | after -O1 | after -O2 | after -O3 | Python now | goal | met | × Python now |
+|---|---|---|---|---|---|---|---|---|
+| `pidigits` | 32.794 | 5.467 | 5.931 | 5.781 | 5.541 | ≤ 27.1 | yes | 0.99× |
+| `factorial` | 31.458 | 0.800 | 0.816 | 0.801 | 0.543 | ≤ 2.69 | yes | 1.47× |
+| `modpow` | 23.540 | 0.578 | 0.592 | 0.584 | 1.041 | ≤ 5.0 | yes | 0.56× |
+| `gcd` | 4.007 | 0.408 | 0.414 | 0.400 | 0.318 | ≤ 1.53 | yes | 1.28× |
+
+Checksums `888227773`, `29118`, `37451214999`, `2652206916` are unchanged at every level
+(the same as `benchmark/baseline/*.sums`). `benchmark/baseline` is not regenerated here.
+
+### Per operation (table A's probe, `/tmp/b775/ops`, best of 7, µs)
+
+| operation | before | after |
+|---|---|---|
+| `factorial(2000)`, product only | 7,091 | 43 |
+| `toString(2000!)` | 24,260 | 767 |
+| `toString(factorial(1000))` incl. product | 6,321 | 159 |
+| 100 × multiply 2048 × 2048 bit | 5,618 | 105 |
+| 100 × multiply 4096 × 4096 bit | 11,663 | 250 |
+| 100 × remainder 4096-bit mod 2048-bit | 5,503 | 580 |
+| `modPow(3, 65537, m)` | 1,565 | 41 |
+| 10,000 × multiply of 27-bit values | 346 | 302 |
+| probe D: `e = 65537` / `e = 2^23 + 1` | 1,567 / 1,586 (0.99) | 41 / 91 (**0.45**, goal ≤ 0.8) |
+| probe D: `e = 257` / `e = 65535` | 648 / 1,293 | < 1 / 75 |
+
+Off the reference machine, for scale (not a goal): windows-x86_64 on real hardware (box
+206, Coffee Lake), the same rows probe (`/tmp/b775/rows`, min of 11, ms): pidigits 72.1 →
+17.8, factorial 88.1 → 2.46, modpow 56.2 → 1.52, gcd 8.74 → 1.16. x86-64 allocates four
+integer registers, so the word loops spill there.
+
+### What changed (commits)
+
+| cause (Root Cause item) | fix | commit |
+|---|---|---|
+| 1. byte-limb multiply | schoolbook over 64-bit words, `mul` + `umulh`; longer operand inside | `78f1972e2` |
+| (blast radius) byte add/sub | word `add_carry` chains (sub over the complemented subtrahend) | `78f1972e2` |
+| 5. byte-limb Algorithm D | base 2^32 (one 64-bit `udiv` per estimate on every target), short division two limbs per word, remainder-only variant `emit_rem_int` used by `remainder`, `gcd`, `modPow` | `78f1972e2`, `fbda62d9c` |
+| 2. one digit per pass | divide by radix^k < 2^32 per pass (9 decimal digits) | `78f1972e2` |
+| 5. parse one digit per pass | gather up to 19 decimal digits per word, one `mul`/`umulh` fold per chunk | `fbda62d9c` |
+| 4. modPow squares past the top bit, unused quotient | loop to `bitLength(exponent)`, no squaring after the top bit, no quotient block | `fbda62d9c` |
+| 3. factorial allocates per factor | one block bounded by `1 + sum(bitLength(k))` bits, multiplied in place by word-packed factors | `fbda62d9c` |
+
+The magnitude format is unchanged. Word reads never pass an operand's significant bytes:
+`emit_word_view` assembles the last word byte by byte into a frame slot. A result's
+`dataCapacity` is now rounded up to a whole word (`emit_alloc_magnitude`); `count` is
+still the canonical byte count and the release size is still `16 + 40 + dataCapacity`.
+Shifts, `compare`, `fromBytes`/`toBytes` and `fromInteger` are untouched (linear, not in a
+row).
+
+### Tests
+
+- `tests/runtime/rt_big_int_cost.rs` (`023318652`), against main (`a6c9f519d`, the test
+  copied into a `git archive` of it) — all four FAIL: modPow 1.00× (limit 0.8),
+  toString 2500× (limit 800), parse 1286× (limit 250), 8-byte multiplier 5.65× (limit 2.0).
+  On the fix all four pass (0.46×, 267×, 63×, 1.00×). Command:
+  `CARGO_TARGET_DIR=<dir> cargo test --release --test rt_big_int_cost`.
+- `tests/runtime/rt_big_int.rs`: 17 passed (the 16 existing unchanged, plus
+  `word_boundaries_match_an_independent_oracle`, 128 Python-computed lines, which also
+  passes on main). Command: `cargo test --release --test rt_big_int`.
+- Differential fuzz (`/tmp/b775/fuzz/gen.py`, one-off): per seed 300 random pairs of 0–70
+  byte operands (runs of `0xff`, powers of 256, hand-built records with 1–7 trailing zero
+  bytes, near-multiple dividends), each through add, subtract both ways, multiply,
+  compare, toRadixString at a random radix and its parse, divide/remainder/divMod both
+  ways, modPow, gcd, pow, decimal round trip, plus factorials up to 1000! — about 5,300
+  checks per seed against Python's `int`. Seeds 1–7 and 11: 0 differences.
+- `scripts/test-accept.sh <fixed mfb> <dir> bug764_enum_case_type_name_collision acceptance`:
+  2 passed (`tests/acceptance/src/big.mfb` included).
+- `MFB=<mfb> scripts/man-run-examples.sh big --run`: 36 built, 36 ran, 0 failed; output
+  byte-identical to main's.
+- `scripts/artifact-gate.sh <fixed mfb> all`: 2262 goldens, 0 diffs (Correction 3).
+
+### Cross-target
+
+Cross-built on the Mac and run: the fuzz program (seed 11, plus the six add-back
+divisions), the oracle-test program and the rows probe.
+
+| target | where | fuzz | oracle | rows checksums |
+|---|---|---|---|---|
+| linux-aarch64 glibc | box 2226 | 0 diffs | 0 diffs | identical |
+| linux-riscv64 musl | box 2229 | 0 diffs | 0 diffs | identical |
+| linux-x86_64 musl | `docker run --platform linux/amd64 alpine` (emulated; 2227/2228 refused ssh) | 0 diffs | 0 diffs | identical |
+| windows-x86_64 | box 206 (real hardware) | 0 diffs | 0 diffs | identical |
+
+The x86-64 build first failed with `register allocator: instruction add_carry names more
+simultaneously-live registers than the 4 allocatable Int-class registers this target
+provides`: an `add_carry` with a register carry-in and a separate `dst` names five. The
+add/sub chains now alias `dst` to `lhs` (`78f1972e2`).
+
+### Not done here
+
+- `benchmark/baseline` regeneration and the full `cargo test` suite are the batch's.
