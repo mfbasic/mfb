@@ -108,8 +108,8 @@ DBG> bt
 * thread #0, task = 'MFB Main'
   * frame #0: 0x00000001005c9ee0 debug.out`summarize
     frame #1: 0x00000001005cff28 debug.out`runRounds + 23728
-    frame #2: 0x00000001005d1040 debug.out`main + 2912
-    frame #3: 0x00000001005c8634 debug.out`main + 348
+    frame #2: 0x00000001005d1040 debug.out`main + 2912 <mfb>
+    frame #3: 0x00000001005c8634 debug.out`main + 348 <native>
 DBG> show type list x0 0..
 Index Address            Bytes Value
 0     0x0000000100644338 8     0x0000000000000025 (37)

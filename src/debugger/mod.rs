@@ -51,7 +51,9 @@ pub(crate) trait Inferior {
     /// implementation also ends an unended session when it is dropped.
     fn end(&mut self) -> Result<Ending, String>;
     /// Every function symbol the executable's symbol table names, in table
-    /// order and with repeats, at its address in the running process.
+    /// order and with repeats, at its address in the running process; then
+    /// every function exported by a library the program loaded while running
+    /// (one no library it was linked against depends on), by address.
     fn functions(&mut self) -> Result<Vec<FunctionSymbol>, String>;
     /// The live address of a data symbol the executable defines, or `None`
     /// when it defines no such symbol (always, in a build without `--debug`).
@@ -109,6 +111,15 @@ pub(crate) enum RunStop {
     Exception { thread: usize, what: String },
     /// The user interrupted the run (Ctrl-C).
     Interrupted,
+    /// A thread raised an error `breakerror` watches for, and stopped in the
+    /// function that raised it as the runtime returned with the error parked
+    /// (`origin` is where in the source, when the error has one). Only the
+    /// session's `run` makes this stop; an [`Inferior`] never answers it.
+    Raised {
+        thread: usize,
+        code: i64,
+        origin: Option<String>,
+    },
     /// The program ended.
     Exited(Exit),
 }
@@ -171,6 +182,9 @@ pub(crate) struct FunctionSymbol {
     /// `true` for a function in a linked library, `false` for one the
     /// executable defines.
     pub(crate) linked: bool,
+    /// `true` for a function (and so `linked`) in a library the program loaded
+    /// while running, which the executable does not import.
+    pub(crate) loaded: bool,
     /// The live address; `None` for a linked function the loader has not bound
     /// yet.
     pub(crate) address: Option<u64>,

@@ -171,6 +171,7 @@ fn symbol(name: &str, linked: bool) -> FunctionSymbol {
     FunctionSymbol {
         name: name.to_string(),
         linked,
+        loaded: false,
         address: None,
         size: None,
     }

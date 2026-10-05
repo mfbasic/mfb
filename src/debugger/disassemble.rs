@@ -5,10 +5,11 @@
 //! function starts. Without one, a listing runs to the first `ret` or 64
 //! instructions. Code is read with every breakpoint's original instruction in
 //! place, and decoded by the decoder for the host's architecture — AArch64, the
-//! only one with a debugger backend, whose decoder knows exactly what the
-//! compiler emits; anything else shows as `.word`.
+//! only one with a debugger backend, whose decoder knows what the compiler
+//! emits and the instructions of dyld and the system libraries; a word it does
+//! not know (SVE, SME, memory tagging) shows as `.word`.
 
-use super::names::classify_defined;
+use super::names::{classify_defined, Collisions};
 use super::{FunctionRange, Inferior};
 use crate::arch::aarch64::decode::{decode, Flow};
 
@@ -40,21 +41,35 @@ const INSTRUCTION: u64 = 4;
 
 /// How a function is named in a listing: what the developer wrote for their
 /// own functions, otherwise the symbol less the leading `_` C adds (as lldb
-/// prints it).
-pub(crate) fn display_name(symbol: &str) -> String {
+/// prints it), tagged when an MFBASIC and a native function share the name
+/// (`main <mfb>`, `main <native>`).
+pub(crate) fn display_name(symbol: &str, collisions: &Collisions) -> String {
+    at_offset(symbol, 0, collisions)
+}
+
+/// [`display_name`] `offset` bytes into the function, as lldb writes it
+/// (`countPrimes + 72`), the tag last (`main + 8 <mfb>`).
+pub(crate) fn at_offset(symbol: &str, offset: u64, collisions: &Collisions) -> String {
     if let Some(import) = symbol.strip_prefix("symbol stub for: ") {
-        return format!("symbol stub for: {}", display_name(import));
+        return format!("symbol stub for: {}", at_offset(import, offset, collisions));
     }
-    if let (_, Some(written)) = classify_defined(symbol) {
-        return written;
+    let (origin, written) = classify_defined(symbol);
+    let name = written.unwrap_or_else(|| symbol.strip_prefix('_').unwrap_or(symbol).to_string());
+    let tag = collisions.tag(&name, origin);
+    let mut shown = name;
+    if offset != 0 {
+        shown = format!("{shown} + {offset}");
     }
-    symbol.strip_prefix('_').unwrap_or(symbol).to_string()
+    match tag {
+        Some(tag) => format!("{shown} {tag}"),
+        None => shown,
+    }
 }
 
 /// `image`name:` — or `image`0x…:` for a function the image does not name.
-fn header(range: &FunctionRange) -> String {
+fn header(range: &FunctionRange, collisions: &Collisions) -> String {
     match &range.name {
-        Some(name) => format!("{}`{}:", range.image, display_name(name)),
+        Some(name) => format!("{}`{}:", range.image, display_name(name, collisions)),
         None => format!("{}`0x{:016x}:", range.image, range.start),
     }
 }
@@ -182,7 +197,10 @@ fn unknown(address: u64) -> FunctionRange {
 /// The functions `name` means: symbols spelled `name` (the executable's, its
 /// imports', the libraries'), or else functions written `name`; one listing
 /// per distinct start.
-fn resolve(inferior: &mut dyn Inferior, name: &str) -> Result<Vec<FunctionRange>, String> {
+pub(crate) fn resolve(
+    inferior: &mut dyn Inferior,
+    name: &str,
+) -> Result<Vec<FunctionRange>, String> {
     let functions = inferior.functions().unwrap_or_default();
     let mut starts = Vec::new();
     let mut unbound = false;
@@ -256,6 +274,7 @@ fn listing(
         (None, None) => UNSIZED_LIMIT as u64,
     };
     let code = read_up_to(inferior, from, limit as usize * 4)?;
+    let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
     let mut rows = Vec::new();
     for (index, word) in code.chunks_exact(4).enumerate() {
         let address = from + index as u64 * 4;
@@ -291,7 +310,7 @@ fn listing(
     let mut lines = vec![if range.image.is_empty() {
         format!("0x{:016x}:", range.start)
     } else {
-        header(range)
+        header(range, &collisions)
     }];
     for (address, decoded, word) in rows {
         let marker = if address == pc { "->  " } else { "    " };
@@ -312,8 +331,8 @@ fn listing(
                     pages.push((register, page));
                 }
                 match paged {
-                    Some(address) => named_address(inferior, address),
-                    None => comment(inferior, range, instruction),
+                    Some(address) => named_address(inferior, address, &collisions),
+                    None => comment(inferior, range, instruction, &collisions),
                 }
             }
             None => None,
@@ -356,33 +375,35 @@ fn read_up_to(inferior: &mut dyn Inferior, address: u64, length: usize) -> Resul
 
 /// The name of what an `adrp` + `add` pair addresses: a data symbol, else a
 /// function, else nothing.
-fn named_address(inferior: &mut dyn Inferior, address: u64) -> Option<String> {
+fn named_address(
+    inferior: &mut dyn Inferior,
+    address: u64,
+    collisions: &Collisions,
+) -> Option<String> {
     if let Some(symbol) = inferior.data_symbol_at(address).ok().flatten() {
-        return Some(display_name(&symbol));
+        return Some(display_name(&symbol, collisions));
     }
     let function = inferior.function_at(address).ok().flatten()?;
-    let name = display_name(function.name.as_deref()?);
-    Some(if address == function.start {
-        name
-    } else {
-        format!("{name} + {}", address - function.start)
-    })
+    Some(at_offset(
+        function.name.as_deref()?,
+        address - function.start,
+        collisions,
+    ))
 }
 
-/// What lldb notes after an instruction: where a branch or call goes (an offset
-/// in this function, else the function there), or a wide immediate's value.
+/// What lldb notes after an instruction: where a branch, call, `adr` or literal
+/// load points (an offset in this function, else the function there), or the
+/// value a `mov` of an immediate sets.
 fn comment(
     inferior: &mut dyn Inferior,
     range: &FunctionRange,
     instruction: &crate::arch::aarch64::decode::Instruction,
+    collisions: &Collisions,
 ) -> Option<String> {
     if let Some(value) = instruction.value {
         return Some(format!("={value}"));
     }
     let target = instruction.target?;
-    if instruction.flow != Flow::Branch && instruction.flow != Flow::Call {
-        return None;
-    }
     let within = range
         .size
         .is_some_and(|size| target >= range.start && target < range.start + size);
@@ -391,15 +412,11 @@ fn comment(
     }
     match inferior.function_at(target).ok().flatten() {
         Some(function) => {
-            let name = function
-                .name
-                .as_deref()
-                .map(display_name)
-                .unwrap_or_else(|| format!("0x{:016x}", function.start));
-            Some(if target == function.start {
-                name
-            } else {
-                format!("{name} + {}", target - function.start)
+            let offset = target - function.start;
+            Some(match function.name.as_deref() {
+                Some(name) => at_offset(name, offset, collisions),
+                None if offset == 0 => format!("0x{:016x}", function.start),
+                None => format!("0x{:016x} + {offset}", function.start),
             })
         }
         None => None,

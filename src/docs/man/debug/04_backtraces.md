@@ -21,15 +21,18 @@ DBG> bt
     frame #1: 0x0000000100d9cfc8 debug.out`countPrimes + 584
     frame #2: 0x0000000100d9d260 debug.out`runRound + 344
     frame #3: 0x0000000100d9f678 debug.out`runRounds + 5120
-    frame #4: 0x0000000100da5040 debug.out`main + 2912
-    frame #5: 0x0000000100d9c634 debug.out`main + 348
+    frame #4: 0x0000000100da5040 debug.out`main + 2912 <mfb>
+    frame #5: 0x0000000100d9c634 debug.out`main + 348 <native>
 ```
 
 Each frame is the address the thread will go on from in that function — for
 every frame but the first, the instruction after the call — then the file and
 function, and how many bytes into the function that is. Functions are named as
-`dis` names them, so the last `main` is the program's entry, which calls your
-`main`.
+`dis` names them. Your `main` and the program's native entry, which calls it,
+are both named `main`, so each carries a tag: `<mfb>` for MFBASIC code (yours or
+a built-in package's), `<native>` for the runtime's or a system library's.
+Every listing tags a name that way when MFBASIC and native code share it, such
+as your own `exit` and the C library's.
 
 `bt 3` shows only the first three frames, `bt 3 2` the first three of thread 2
 (the `<id>` from `list thread`), and `bt all` every thread's, the current one
@@ -65,8 +68,8 @@ DBG> bt all
     frame #1: 0x000000019683409c libsystem_pthread.dylib`_pthread_cond_wait + 984
     frame #2: 0x00000001004335b0 debug.out`thread::waitFor + 96
     frame #3: 0x000000010042715c debug.out`runRounds + 3812
-    frame #4: 0x000000010042d040 debug.out`main + 2912
-    frame #5: 0x0000000100424634 debug.out`main + 348
+    frame #4: 0x000000010042d040 debug.out`main + 2912 <mfb>
+    frame #5: 0x0000000100424634 debug.out`main + 348 <native>
   thread #1, task = 'User Thread'
     frame #0: 0x0000000100424b8c debug.out`isPrime + 232
     frame #1: 0x0000000100424fc8 debug.out`countPrimes + 584

@@ -9,18 +9,22 @@ list func            l func
 list thread          l thread
 list reg …           l reg …
 show mem <where> [<size>]
+show error [<thread>]
 ```
 
 ### Listing functions
 
 `list func` prints one function per line, under the header
-`Type Address Symbol Written name`:
+`Type Address Symbol Written name`, and after the list a legend for the types
+it shows:
 
 | Type | The function is |
 | --- | --- |
-| `MU` | one you wrote, in your program or a package it imports |
-| `MR` | part of the MFBASIC runtime, which every program carries |
-| `LN` | in a system library the program calls, such as `malloc` |
+| `MU` | MFB User: one you wrote, in your program or a package it imports |
+| `MB` | MFB Builtin: part of a built-in package, such as `datetime` |
+| `MR` | MFB Runtime: part of the MFBASIC runtime, which every program carries |
+| `SL` | System Linked: a system library function the program imports, such as `malloc` |
+| `SD` | System Dynamic: in a library the program loaded while it ran |
 
 `Symbol` is the function's name in the executable, the one lldb and gdb use
 (`mfb man debug-external` explains how your names are spelled there).
@@ -29,15 +33,31 @@ show mem <where> [<size>]
 number) shows under the function's own name. A runtime function that does the
 work of a built-in package function shows that function's name, so
 `_mfb_rt_io_io_print` shows as `io::print`; the rest of the runtime shows `-`.
+A built-in package's function shows as the package and the function:
+`color::brighten` for one you can call, and `datetime::#normInstant`, with a
+`#`, for one the package keeps to itself. You cannot call a `#` function, but
+`breakpoint datetime::#normInstant` stops in it.
+
+When one of your functions and a native one have the same name, the written
+name says which is which: `main <mfb>` is your `main`, and `main <native>` the
+program's native entry, which calls it. Breakpoints, stops, `dis` and `bt` tag
+the name the same way. The tag is not part of the name: `breakpoint main` stops
+in both.
 
 `Address` is where the function is in the running program. A program `mfb dbg`
-started is paused before it has loaded its system libraries, so every `LN`
+started is paused before it has loaded its system libraries, so every `SL`
 function shows `-` there; attach to a running program to see where they are.
 When a program calls a system function from more than one place in the runtime,
 that function is listed once for each.
 
+`SD` functions appear once the program has loaded their library, so a program
+just started has none. Most system frameworks, such as `CoreFoundation` and
+`Network`, are loaded with every program, so a library the program asks for
+later is listed as `SD` only when nothing loaded with the program already
+needed it.
+
 Your functions are named only in a program built with `--debug`; in any other,
-`list func` shows only the `LN` functions.
+`list func` shows only the `SL` functions.
 
 ### Listing threads
 
@@ -84,8 +104,9 @@ the address of the value, which `show type` reads (`mfb man debug values`).
 
 ### Reading memory
 
-`show mem` prints raw bytes, 64 unless you give a size. Name an address or a
-register, either with an offset (`0x16b2d0c00+0x10`, `sp-16`): at `-O0` the values a function works with live at
+`show mem` prints raw bytes, 64 unless you give a size. Name an address, a
+register or a function, each with an offset (`0x16b2d0c00+0x10`, `sp-16`,
+`main+0x110`): at `-O0` the values a function works with live at
 offsets from `sp`, so `show mem sp+0x10 24` shows three of them at once. Each
 line starts with the address, then the bytes in hex, then the ones that are
 printable. Numbers are stored lowest byte first, so the 8 bytes
@@ -93,6 +114,27 @@ printable. Numbers are stored lowest byte first, so the 8 bytes
 
 `show mem` reads any memory the program has. To read a value as its type
 instead of as bytes, use `show type` (`mfb man debug values`).
+
+### Reading the current error
+
+When something fails, the error goes in its thread's error slot until a `TRAP`
+catches it. `show error` shows the error the current thread has raised and not
+yet caught, and `show error 2` thread 2's: its code (with the `errorCode` name
+when it is one), its message, and where in your source it was raised.
+
+```
+DBG> show error
+Thread 0's error in flight (the Error at 0x0000000102550050):
+Code: 77050010 (errorCode::ErrOverflow)
+Message: "Arithmetic overflow or numeric conversion outside the destination range."
+Location: src/main.mfb:11:34
+```
+
+Once a `TRAP` has caught the error, the slot is empty again and `show error`
+says `Thread 0 has no error in flight.` A good place to look is a breakpoint on
+`_mfb_rt_park_error`, the runtime function every failure goes through: after
+`finish` the error is in the slot and the `TRAP` has not run yet. `show error`
+needs a `--debug` build.
 
 ## Examples
 
@@ -145,7 +187,7 @@ MU   0x0000000100989374 _mfb_fn_formatLine                                  form
 MU   0x0000000100989824 _mfb_fn_logPath                                     logPath
 MU   0x0000000100989ee0 _mfb_fn_summarize                                   summarize
 MU   0x000000010098a278 _mfb_fn_runRounds                                   runRounds
-MU   0x00000001009904e0 _mfb_fn_main                                        main
+MU   0x00000001009904e0 _mfb_fn_main                                        main <mfb>
 ```
 
 ## See also

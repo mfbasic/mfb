@@ -419,10 +419,104 @@ fn mapped_bytes(inferior: &mut dyn Inferior, state: u64) -> Result<u64, String> 
     ))
 }
 
+/// The error a thread's arena holds in its current-error slot
+/// (`ARENA_CURRENT_ERROR_OFFSET`): the flat `Error` block a failing operation
+/// parks there for whoever catches it (`./mfb spec memory fallible-call-abi`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParkedError {
+    /// The block's address.
+    pub(crate) address: u64,
+    pub(crate) code: i64,
+    pub(crate) message: String,
+    /// `<file>:<line>:<char>`; `None` for an error with no origin.
+    pub(crate) source: Option<String>,
+}
+
+/// The longest text a parked error's message or file name is read to.
+const MAX_ERROR_TEXT: u64 = 4096;
+
+/// The error parked in the arena at `arena`, or `None` when its slot is empty.
+/// The block is a flat `Error` (`./mfb spec memory heap-values`): `+0` the code,
+/// `+8` the message's offset, `+16` the `ErrorLoc`'s offset (0 for none); an
+/// `ErrorLoc` is `+0` its file name's offset from itself, `+8` the line,
+/// `+16` the character; each `String` its length, then its bytes.
+pub(crate) fn current_error(
+    inferior: &mut dyn Inferior,
+    arena: u64,
+) -> Result<Option<ParkedError>, String> {
+    let address = inferior.read_u64(arena + ARENA_CURRENT_ERROR_OFFSET as u64)?;
+    if address == 0 {
+        return Ok(None);
+    }
+    let code = inferior.read_u64(address)? as i64;
+    let message_at = address + inferior.read_u64(address + 8)?;
+    let message = error_text(inferior, message_at)?;
+    let source = match inferior.read_u64(address + 16)? {
+        0 => None,
+        offset => Some(error_origin(inferior, address + offset)?),
+    };
+    Ok(Some(ParkedError {
+        address,
+        code,
+        message,
+        source,
+    }))
+}
+
+/// A `String` in an error: its length, then its bytes (at most
+/// [`MAX_ERROR_TEXT`] of them read).
+fn error_text(inferior: &mut dyn Inferior, at: u64) -> Result<String, String> {
+    let length = inferior.read_u64(at)?.min(MAX_ERROR_TEXT);
+    let bytes = inferior.read_bytes(at + 8, length as usize)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The `ErrorLoc` at `location` as `<file>:<line>:<char>`: `+0` its file
+/// name's offset from itself, `+8` the line, `+16` the character.
+pub(crate) fn error_origin(inferior: &mut dyn Inferior, location: u64) -> Result<String, String> {
+    let file_at = location + inferior.read_u64(location)?;
+    let file = error_text(inferior, file_at)?;
+    let line = inferior.read_u64(location + 8)?;
+    let char = inferior.read_u64(location + 16)?;
+    Ok(format!("{file}:{line}:{char}"))
+}
+
+/// The code an `errorCode` constant names, written `ErrOverflow` or
+/// `errorCode::ErrOverflow`; `None` for any other word.
+pub(crate) fn error_code_by_name(name: &str) -> Option<i64> {
+    let name = name.strip_prefix("errorCode::").unwrap_or(name);
+    crate::codegen::registry::registry()
+        .packages()
+        .iter()
+        .find(|package| package.import_name() == "errorCode")?
+        .constants()
+        .iter()
+        .find(|constant| constant.name == name)?
+        .value?
+        .parse()
+        .ok()
+}
+
+/// The `errorCode` constant a code is, as a program names it
+/// (`errorCode::ErrOverflow`), or `None` for a code the program made up.
+pub(crate) fn error_code_name(code: i64) -> Option<String> {
+    let value = code.to_string();
+    crate::codegen::registry::registry()
+        .packages()
+        .iter()
+        .find(|package| package.import_name() == "errorCode")?
+        .constants()
+        .iter()
+        .find(|constant| constant.value == Some(value.as_str()))
+        .map(|constant| format!("errorCode::{}", constant.name))
+}
+
 /// Where `pc` is, as `<name>+0x<offset>` for a function the executable defines
 /// (the written name when there is one), or the name of a linked function that
-/// starts exactly there; `None` anywhere else.
+/// starts exactly there; `None` anywhere else. A name an MFBASIC and a native
+/// function share carries its tag (`main <mfb>`).
 pub(crate) fn locate(functions: &[super::FunctionSymbol], pc: u64) -> Option<String> {
+    let collisions = super::names::Collisions::of(functions);
     if let Some(function) = functions.iter().find(|function| {
         !function.linked
             && function
@@ -430,18 +524,28 @@ pub(crate) fn locate(functions: &[super::FunctionSymbol], pc: u64) -> Option<Str
                 .is_some_and(|address| address <= pc && pc - address < function.size.unwrap_or(0))
     }) {
         let offset = pc - function.address?;
-        let (_, written) = super::names::classify_defined(&function.name);
+        let (origin, written) = super::names::classify_defined(&function.name);
+        let tag = written
+            .as_deref()
+            .and_then(|written| collisions.tag(written, origin));
         let name = written.unwrap_or_else(|| function.name.clone());
-        return Some(if offset == 0 {
+        let place = if offset == 0 {
             name
         } else {
             format!("{name}+{offset:#x}")
+        };
+        return Some(match tag {
+            Some(tag) => format!("{place} {tag}"),
+            None => place,
         });
     }
     functions
         .iter()
         .find(|function| function.linked && function.address == Some(pc))
-        .map(|function| super::names::linked_name(&function.name))
+        .map(|function| {
+            let (origin, written) = super::names::classify(function);
+            collisions.tagged(written.unwrap_or_default(), origin)
+        })
 }
 
 #[cfg(test)]
@@ -461,6 +565,16 @@ mod tests {
     impl Memory {
         fn put(&mut self, address: u64, value: u64) {
             self.words.insert(address, value);
+        }
+
+        /// A `String` at `address`: its length, then its bytes, 8 to a word.
+        fn put_text(&mut self, address: u64, text: &str) {
+            self.put(address, text.len() as u64);
+            for (index, chunk) in text.as_bytes().chunks(8).enumerate() {
+                let mut word = [0u8; 8];
+                word[..chunk.len()].copy_from_slice(chunk);
+                self.put(address + 8 + index as u64 * 8, u64::from_le_bytes(word));
+            }
         }
     }
 
@@ -489,8 +603,14 @@ mod tests {
         fn library_functions(&mut self, _: &str) -> Result<Vec<FunctionRange>, String> {
             Ok(Vec::new())
         }
-        fn read_bytes(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
-            Err(format!("unmapped {address:#x}"))
+        fn read_bytes(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+            // Bytes from the words that hold them, each word little-endian.
+            (address..address + length as u64)
+                .map(|at| {
+                    let word = self.read_u64(at & !7)?;
+                    Ok(word.to_le_bytes()[(at & 7) as usize])
+                })
+                .collect()
         }
         fn read_u64(&mut self, address: u64) -> Result<u64, String> {
             self.words
@@ -737,6 +857,7 @@ mod tests {
         let function = |name: &str, address, size| FunctionSymbol {
             name: name.to_string(),
             linked: false,
+            loaded: false,
             address: Some(address),
             size: Some(size),
         };
@@ -746,6 +867,7 @@ mod tests {
             FunctionSymbol {
                 name: "_malloc".to_string(),
                 linked: true,
+                loaded: false,
                 address: Some(0x9000),
                 size: None,
             },
@@ -811,5 +933,61 @@ mod tests {
             end = field.offset + if field.name == "flagRhs" { 16 } else { size };
         }
         assert_eq!(end, ARENA_STATE_SIZE);
+    }
+
+    #[test]
+    fn the_error_slot_names_the_parked_error_s_code_message_and_origin() {
+        const ARENA: u64 = 0x10_0000;
+        const ERROR: u64 = 0x20_0000;
+        let slot = ARENA + ARENA_CURRENT_ERROR_OFFSET as u64;
+        let mut memory = Memory::default();
+        memory.put(slot, 0);
+        assert_eq!(current_error(&mut memory, ARENA), Ok(None));
+        // An `Error`: code, message at +0x18, `ErrorLoc` at +0x70, whose file
+        // name is at +0x18 from it.
+        memory.put(slot, ERROR);
+        memory.put(ERROR, 77_050_010);
+        memory.put(ERROR + 8, 0x18);
+        memory.put(ERROR + 16, 0x70);
+        memory.put_text(ERROR + 0x18, "Arithmetic overflow.");
+        memory.put(ERROR + 0x70, 0x18);
+        memory.put(ERROR + 0x78, 11);
+        memory.put(ERROR + 0x80, 34);
+        memory.put_text(ERROR + 0x88, "src/main.mfb");
+        let error = ParkedError {
+            address: ERROR,
+            code: 77_050_010,
+            message: "Arithmetic overflow.".to_string(),
+            source: Some("src/main.mfb:11:34".to_string()),
+        };
+        assert_eq!(current_error(&mut memory, ARENA), Ok(Some(error.clone())));
+        // An error that lost its origin has a zero `ErrorLoc` offset.
+        memory.put(ERROR + 16, 0);
+        assert_eq!(
+            current_error(&mut memory, ARENA),
+            Ok(Some(ParkedError {
+                source: None,
+                ..error
+            }))
+        );
+    }
+
+    #[test]
+    fn an_error_code_is_named_by_its_errorcode_constant() {
+        assert_eq!(
+            error_code_name(77_050_010).as_deref(),
+            Some("errorCode::ErrOverflow")
+        );
+        assert_eq!(
+            error_code_name(77_010_001).as_deref(),
+            Some("errorCode::ErrOutOfMemory")
+        );
+        assert_eq!(error_code_name(42), None);
+        assert_eq!(error_code_by_name("ErrOverflow"), Some(77_050_010));
+        assert_eq!(
+            error_code_by_name("errorCode::ErrOutOfMemory"),
+            Some(77_010_001)
+        );
+        assert_eq!(error_code_by_name("ErrNothing"), None);
     }
 }

@@ -206,15 +206,38 @@ mod macos {
     }
 
     /// The `list func` rows of a reply, split into their four columns.
+    /// The rows of a `list func` reply, which ends with a legend after an
+    /// empty line: one `<type>  <meaning>` line per type the rows show.
     fn function_rows(reply: &str) -> Vec<[String; 4]> {
-        table_rows(reply, FUNCTION_COLUMNS)
+        let (table, legend) = reply
+            .split_once("\n\n")
+            .unwrap_or_else(|| panic!("no legend after the listing in {reply:?}"));
+        let rows = table_rows(table, FUNCTION_COLUMNS)
             .iter()
             .map(|line| {
-                let words = line.split_whitespace().collect::<Vec<_>>();
-                assert_eq!(words.len(), 4, "{line}");
-                [0, 1, 2, 3].map(|at| words[at].to_string())
+                // The written name may carry a tag (`main <mfb>`): it is the
+                // rest of the line after three columns.
+                let mut words = line.split_whitespace();
+                let mut next = || words.next().unwrap_or_else(|| panic!("{line}")).to_string();
+                let cells = [next(), next(), next()];
+                let written = words.collect::<Vec<_>>().join(" ");
+                assert!(!written.is_empty(), "{line}");
+                let [kind, address, symbol] = cells;
+                [kind, address, symbol, written]
             })
-            .collect()
+            .collect::<Vec<_>>();
+        let mut shown = rows.iter().map(|row| row[0].clone()).collect::<Vec<_>>();
+        shown.dedup();
+        let explained = legend
+            .lines()
+            .take_while(|line| !line.starts_with("DBG>"))
+            .map(|line| line.split_whitespace().next().unwrap_or("").to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            explained, shown,
+            "the legend explains the types shown: {reply:?}"
+        );
+        rows
     }
 
     fn is_address(word: &str) -> bool {
@@ -420,20 +443,23 @@ mod macos {
                 && row[3] == "next_tick"),
             "{listing}"
         );
-        assert!(rows.iter().any(|row| row[0] == "MU" && row[3] == "main"));
+        // The program's `main` shares its name with the runtime's `_main`.
+        assert!(rows
+            .iter()
+            .any(|row| row[0] == "MU" && row[3] == "main <mfb>"));
         assert!(rows
             .iter()
             .any(|row| row[0] == "MR" && row[2] == "_main" && row[3] == "-"));
-        let linked = rows.iter().filter(|row| row[0] == "LN").collect::<Vec<_>>();
+        let linked = rows.iter().filter(|row| row[0] == "SL").collect::<Vec<_>>();
         assert!(!linked.is_empty(), "{listing}");
         assert!(
             linked.iter().all(|row| row[1] == "-"),
             "nothing is bound before the loader runs:\n{listing}"
         );
-        // Groups come in order: MU, then MR, then LN.
+        // Groups come in order: MU, MB, MR, then SL.
         let order = rows.iter().map(|row| row[0].clone()).collect::<Vec<_>>();
         let mut sorted = order.clone();
-        sorted.sort_by_key(|code| ["MU", "MR", "LN"].iter().position(|c| c == code));
+        sorted.sort_by_key(|code| ["MU", "MB", "MR", "SL"].iter().position(|c| c == code));
         assert_eq!(order, sorted);
 
         session.send("list reg gpr sys simd\n");
@@ -486,7 +512,7 @@ mod macos {
         session.send("list func\n");
         let listing = session.until_prompt();
         let rows = function_rows(&listing);
-        let linked = rows.iter().filter(|row| row[0] == "LN").collect::<Vec<_>>();
+        let linked = rows.iter().filter(|row| row[0] == "SL").collect::<Vec<_>>();
         assert!(!linked.is_empty(), "{listing}");
         assert!(
             linked.iter().all(|row| is_address(&row[1])),
@@ -506,6 +532,66 @@ mod macos {
         ticker.wait().unwrap();
     }
 
+    /// A program whose comparison overflows inside an inline `TRAP`.
+    const RAISES: &str = "IMPORT io\n\nFUNC check(flag AS Boolean) AS Integer\n  RETURN 1\n\
+        END FUNC\n\nFUNC main() AS Integer\n  MUT fx = 1F\n  MUT big = 3000000000\n  \
+        LET b = check(fx < big) TRAP(e)\n    io::print(\"caught \" & toString(e.code))\n    \
+        RECOVER 9\n  END TRAP\n  RETURN 0\nEND FUNC\n";
+
+    /// `breakerror` stops where an error it watches is raised, before a `TRAP`
+    /// takes it, and `show error` reads it from the thread's error slot.
+    #[test]
+    fn breakerror_stops_where_a_watched_error_is_raised() {
+        let mfb = signed_mfb();
+        let project = temp_project("dbg_raise", RAISES);
+        let binary = build_debug(&project, "dbg_raise");
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap()]);
+        session.until_prompt();
+        session.send("be ErrOverflow\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Stopping when a thread raises 77050010 (errorCode::ErrOverflow)."]
+        );
+        session.send("run\n");
+        let raised = body(&session.until_prompt());
+        assert!(
+            raised.len() == 1
+                && raised[0].starts_with(
+                    "Thread 0 raised 77050010 (errorCode::ErrOverflow) at src/main.mfb:10:"
+                )
+                && raised[0].contains(" in main+0x")
+                && raised[0].ends_with(", before a TRAP takes the error."),
+            "{raised:?}"
+        );
+        session.send("show error\n");
+        let error = body(&session.until_prompt());
+        assert!(
+            error.len() == 4
+                && error[0].starts_with("Thread 0's error in flight (the Error at 0x")
+                && error[1] == "Code: 77050010 (errorCode::ErrOverflow)"
+                && error[2].starts_with("Message: \"Arithmetic overflow")
+                && error[3].starts_with("Location: src/main.mfb:10:"),
+            "{error:?}"
+        );
+        session.send("be clear\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Stopped watching for errors."]
+        );
+        session.send("run\n");
+        let end = body(&session.until_prompt());
+        assert!(
+            end.iter().any(|line| line == "caught 77050010")
+                && end
+                    .last()
+                    .is_some_and(|line| line == "The program exited with status 0."),
+            "{end:?}"
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
     /// Without `--debug` the program names only its imports.
     #[test]
     fn list_func_on_a_normal_build_shows_only_linked_functions() {
@@ -519,7 +605,7 @@ mod macos {
         let listing = session.until_prompt();
         let rows = function_rows(&listing);
         assert!(!rows.is_empty(), "{listing}");
-        assert!(rows.iter().all(|row| row[0] == "LN"), "{listing}");
+        assert!(rows.iter().all(|row| row[0] == "SL"), "{listing}");
         session.send("q\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));
@@ -881,8 +967,9 @@ mod macos {
         let function = body(&session.until_prompt());
         assert_eq!(function[0], "debug.out`isPrime:", "{function:?}");
         assert!(function[1].starts_with("->  0x"), "{function:?}");
+        // The prologue's frame allocation; its size is the compiler's to choose.
         assert!(
-            function[1].ends_with("sub    sp, sp, #0xf0"),
+            function[1].contains(" sub    sp, sp, #0x"),
             "{function:?}"
         );
         assert!(function.last().unwrap().ends_with("ret") || function.len() > 10);
@@ -936,6 +1023,20 @@ mod macos {
                 && returned[0].contains(": x0 = 0x0000000000000000 (0), x1 = 0x"),
             "{returned:?}"
         );
+        // countPrimes calls isPrime again before it returns: the breakpoint
+        // there ends this finish early, and says so.
+        session.send("finish\n");
+        let interrupted = body(&session.until_prompt());
+        assert!(
+            interrupted.len() == 2
+                && interrupted[0].starts_with("Thread 0 hit a breakpoint at 0x")
+                && interrupted[0].ends_with(" in isPrime."),
+            "{interrupted:?}"
+        );
+        assert_eq!(
+            interrupted[1],
+            "The finish from countPrimes did not complete; type 'finish' to run it again from here."
+        );
 
         session.send("list breakpoint\n");
         let listed = table_rows(&session.until_prompt(), BREAKPOINT_COLUMNS);
@@ -975,13 +1076,12 @@ mod macos {
                 && restarted[0].ends_with("; paused before its first instruction."),
             "{restarted:?}"
         );
+        // Only the pending breakpoint is left, so the address column is as
+        // wide as its header (`prompt::table` aligns to the widest entry).
         session.send("list breakpoint\n");
         assert_eq!(
             body(&session.until_prompt()),
-            [
-                "Address            Symbol Written name",
-                "-                  _exit  exit"
-            ]
+            ["Address Symbol Written name", "-       _exit  exit"]
         );
         session.send("run\n");
         let again = body(&session.until_prompt());

@@ -2,7 +2,9 @@
 //! encoded here and decoded back to its expected text. The texts follow the
 //! LLVM disassembler lldb uses (checked against `otool -tV` over the example
 //! programs), and the guard at the end fails when the encoder gains a form
-//! this table does not cover.
+//! this table does not cover. Beyond the encoder's forms, `lldb_words.txt`
+//! holds the decoder to lldb's text for the code of dyld and the system
+//! libraries, and an ignored test compares a whole corpus against lldb.
 
 use super::{decode, Flow};
 use crate::arch::aarch64::encode::encode_instruction;
@@ -572,12 +574,181 @@ fn an_adrp_and_its_add_carry_the_address_they_form() {
     assert_eq!(wide.value, Some(0xde83));
 }
 
+/// `pc`, word and text of each row of an lldb listing in the
+/// `<pc>\t<word>\t<text>` form `tools/oracles/aarch64-decode` writes.
+fn lldb_rows(listing: &str) -> impl Iterator<Item = (u64, u32, &str)> {
+    listing
+        .lines()
+        .filter(|line| !line.starts_with('#') && !line.is_empty())
+        .map(|line| {
+            let mut fields = line.splitn(3, '\t');
+            let mut next = || fields.next().expect("three tab-separated fields");
+            let pc = u64::from_str_radix(next().trim_start_matches("0x"), 16).unwrap();
+            let word = u32::from_str_radix(next(), 16).unwrap();
+            (pc, word, next())
+        })
+}
+
 #[test]
-fn a_word_the_encoder_never_emits_does_not_decode() {
-    // `pacibsp`, `stp x29, x30, [sp, #-16]!`, `cbz w0, …`, `br x16`.
-    for word in [0xd503_237f, 0xa9bf_7bfd, 0x3400_0048, 0xd61f_0200] {
+fn decodes_words_as_lldb_does() {
+    let mut wrong = Vec::new();
+    for (pc, word, text) in lldb_rows(include_str!("lldb_words.txt")) {
+        let decoded = decode(word, pc).map(|instruction| instruction.text);
+        if decoded.as_deref() != Some(text) {
+            wrong.push(format!("{word:#010x}: lldb `{text}`, decoded {decoded:?}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The words `mfb dbg` first met undecoded, at program entry (dyld's start and
+/// `mach_init`) and in a frame record's store.
+#[test]
+fn dyld_entry_code_decodes() {
+    for (word, text) in [
+        (0x927c_ec1f, "and    sp, x0, #0xfffffffffffffff0"),
+        (0xd61f_0060, "br     x3"),
+        (0xd503_237f, "pacibsp"),
+        (0xa9be_4ff4, "stp    x20, x19, [sp, #-0x20]!"),
+        (0xa901_7bfd, "stp    x29, x30, [sp, #0x10]"),
+    ] {
+        assert_eq!(
+            decode(word, PC)
+                .map(|instruction| instruction.text)
+                .as_deref(),
+            Some(text),
+            "{word:#010x}"
+        );
+    }
+}
+
+#[test]
+fn every_way_out_of_a_function_has_its_flow() {
+    let decoded = |word: u32| decode(word, PC).unwrap();
+    for word in [0xd65f_03c0, 0xd65f_0020, 0xd65f_0bff, 0xd65f_0fff] {
+        assert_eq!(decoded(word).flow, Flow::Return, "{word:#010x}");
+    }
+    // `br x16`, `braaz x1`, `braa x4, x3`: jumps to a register.
+    for word in [0xd61f_0200, 0xd61f_083f, 0xd71f_0883] {
+        let jump = decoded(word);
+        assert_eq!(
+            (jump.flow, jump.target),
+            (Flow::Branch, None),
+            "{word:#010x}"
+        );
+    }
+    // `blraaz x2`, `blraa x9, x17`.
+    for word in [0xd63f_085f, 0xd73f_0931] {
+        assert_eq!(decoded(word).flow, Flow::Call, "{word:#010x}");
+    }
+    // `cbz w3, +0x24`, `tbnz x5, #33, -4`, `bc.ne +8`.
+    let cbz = decoded(0x3400_0123);
+    assert_eq!((cbz.flow, cbz.target), (Flow::Branch, Some(PC + 0x24)));
+    let tbnz = decoded(0xb70f_ffe5);
+    assert_eq!(
+        (tbnz.text.as_str(), tbnz.flow, tbnz.target),
+        ("tbnz   x5, #0x21, 0x100000ffc", Flow::Branch, Some(PC - 4))
+    );
+    let bc = decoded(0x5400_0051);
+    assert_eq!(
+        (bc.text.as_str(), bc.flow, bc.target),
+        ("bc.ne  0x100001008", Flow::Branch, Some(PC + 8))
+    );
+}
+
+#[test]
+fn an_adr_and_a_literal_load_carry_the_address_they_name() {
+    // `adr x0, +0x20`; `ldr x0, +0x10`.
+    let adr = decode(0x1000_0100, PC).unwrap();
+    assert_eq!(
+        (adr.text.as_str(), adr.flow, adr.target),
+        ("adr    x0, 0x100001020", Flow::Next, Some(PC + 0x20))
+    );
+    let literal = decode(0x5800_0080, PC).unwrap();
+    assert_eq!(
+        (literal.text.as_str(), literal.flow, literal.target),
+        ("ldr    x0, 0x100001010", Flow::Next, Some(PC + 0x10))
+    );
+}
+
+#[test]
+fn a_mov_of_an_immediate_carries_its_signed_value() {
+    // `movn w0, #1` (`mov w0, #-0x2`), `movz w9, #0x8000, lsl #16`,
+    // `orr x9, xzr, #0xcccccccccccccccc`.
+    for (word, text, value) in [
+        (0x1280_0020, "mov    w0, #-0x2", -2),
+        (0x52b0_0009, "mov    w9, #-0x80000000", -0x8000_0000),
+        (
+            0xb202_e7e9,
+            "mov    x9, #-0x3333333333333334",
+            -0x3333_3333_3333_3334,
+        ),
+    ] {
+        let mov = decode(word, PC).unwrap();
+        assert_eq!(
+            (mov.text.as_str(), mov.value),
+            (text, Some(value)),
+            "{word:#010x}"
+        );
+    }
+}
+
+#[test]
+fn a_word_outside_the_decoded_extensions_does_not_decode() {
+    // SVE `addvl x8, x8, #1`, SME `fmopa`, MTE `stg`, MOPS `setm`, and a
+    // nonzero word in the `udf` space.
+    for word in [
+        0x0428_5028,
+        0x819e_0908,
+        0xd927_95e2,
+        0x19c8_44f5,
+        0x0001_0000,
+    ] {
         assert_eq!(decode(word, PC), None, "{word:#010x}");
     }
+}
+
+/// Compares the decoder with lldb over a corpus written by
+/// `tools/oracles/aarch64-decode` (`DECODE_CORPUS=<file>`): every word must
+/// decode to lldb's text or not decode at all; the words left undecoded are
+/// tallied by mnemonic.
+#[test]
+#[ignore = "needs a corpus from tools/oracles/aarch64-decode"]
+fn decodes_a_corpus_as_lldb_does() {
+    let path = std::env::var("DECODE_CORPUS").expect("DECODE_CORPUS names a corpus file");
+    let corpus = std::fs::read_to_string(path).expect("the corpus reads");
+    let (mut total, mut wrong) = (0usize, Vec::new());
+    let mut undecoded = std::collections::BTreeMap::<&str, usize>::new();
+    for (pc, word, text) in lldb_rows(&corpus) {
+        // lldb shows data in the text section as `.long`.
+        if text.starts_with(".long") {
+            continue;
+        }
+        total += 1;
+        match decode(word, pc) {
+            None => {
+                *undecoded
+                    .entry(text.split(' ').next().unwrap())
+                    .or_default() += 1
+            }
+            Some(instruction) if instruction.text != text => wrong.push(format!(
+                "{word:#010x}: lldb `{text}`, decoded `{}`",
+                instruction.text
+            )),
+            Some(_) => {}
+        }
+    }
+    let mut tally = undecoded.into_iter().collect::<Vec<_>>();
+    tally.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+    let left = tally.iter().map(|(_, count)| count).sum::<usize>();
+    println!(
+        "{total} words, {left} undecoded, {} decoded differently",
+        wrong.len()
+    );
+    for (mnemonic, count) in tally {
+        println!("undecoded {count:8} {mnemonic}");
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// Every mnemonic `emit_instruction` dispatches on appears in the table (or,

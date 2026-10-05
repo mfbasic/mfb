@@ -118,6 +118,17 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   skipped), or `N_UNDF|N_EXT` (an import). Entries keep symbol-table order and
   repeats: each import record has its own undefined entry
   (`./mfb spec linker import-selection`).[[src/debugger/macho.rs:read]]
+  After them come the functions of every library the program loaded while
+  running, in address order: a library is one when its `LC_ID_DYLIB` install
+  name is not reached from the executable's dependencies (`LC_LOAD_DYLIB`,
+  `LC_LOAD_WEAK_DYLIB`, `LC_REEXPORT_DYLIB`, `LC_LOAD_UPWARD_DYLIB`, read from
+  its file by `crate::os::inspect`) through the loaded libraries' own (the same
+  commands, read from each header in memory), or it has no install name (a
+  bundle). Its functions are the `N_EXT` `N_SECT` symbols of its `LC_SYMTAB` in a
+  section with `S_ATTR_PURE_INSTRUCTIONS` or `S_ATTR_SOME_INSTRUCTIONS`. A
+  framework that libSystem's own dependencies reach (CoreFoundation, Security,
+  Network) is loaded with the program, so a `dlopen` of it names no new
+  library. [[src/debugger/macos.rs:loaded_functions]]
 - **Addresses.** A defined function's address is its `n_value` plus the load
   offset: the live address of the first readable region (walking
   `mach_vm_region`) that starts with an `MH_MAGIC_64` header of filetype
@@ -261,11 +272,16 @@ Then, repeatedly:
 | `show type` | prints the `TYPE_USAGE` block |
 | `show type <type> <where> [...]` | prints the arena value at `<where>` read as `<type>` |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
+| `show error [<thread>]` | prints the error thread `<thread>` (default the current thread) has raised and not yet caught |
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
 | `breakpoint <target>`, `bp …` | sets breakpoints at `<target>` |
 | `breakpoint r <target>`, `bp r …` | removes breakpoints at `<target>` |
+| `breakerror <code>...`, `be …` | stops when a thread raises an error whose code is one of `<code>` (a number or an `errorCode` name) |
+| `breakerror any`, `be any` | stops when a thread raises any error |
+| `breakerror clear`, `be clear` | stops watching for errors |
+| `breakerror`, `be` | prints what is watched for |
 | `list breakpoint` | prints the breakpoint listing |
 | `run`, `r` | runs the program to the next stop |
 | `finish`, `f` | runs the current thread until its function returns |
@@ -274,7 +290,7 @@ Then, repeatedly:
 | `restart`, `rs` | starts a launched program again |
 | `disassemble`, `dis` | disassembles the current function |
 | `dis <count>` | disassembles `<count>` instructions from the current `pc`; a negative count, that many before it and then the `pc` |
-| `dis <where> [<count>]` | disassembles from an address or register (either `±<offset>`): to the end of its function, or `<count>` as above |
+| `dis <where> [<count>]` | disassembles from an address, register or function (each `±<offset>`): to the end of its function, or `<count>` as above |
 | `dis <function> [<count>]` | disassembles each function `<function>` names, or `<count>` from its start as above |
 | `quit`, `q` | ends the session |
 
@@ -290,7 +306,7 @@ Then, repeatedly:
 | `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
 | `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for the groups` |
 | `show mem` with no location | `'show mem' needs an address or a register: show mem <where> [<size>]` |
-| `show mem` with a location that is neither `0x…` nor `<register>[±<n>]` | `'<where>' is not an address or a register` |
+| `show mem` with a location that is neither `0x…` nor `<name>[±<n>]` | `'<where>' is not an address, a register or a function` |
 | `show mem` with a size of 0 or over 65536 | `cannot show <size> bytes; give 1 to 65536` |
 | `show mem` at a vector register | `'<name>' is a vector register, not an address` |
 | `show type <type>` with no location | `'show type <type>' needs an address or a register: show type <type> <where>` |
@@ -307,6 +323,9 @@ Then, repeatedly:
 | `step` with three arguments | `'<name>' takes at most two arguments` |
 | `step-all` with two arguments | `'<name>' takes at most one argument` |
 | `breakpoint` or `breakpoint r` with no target | `'<name>' needs an address (0x…) or a function name` |
+| `breakerror` with a word that is no integer and no `errorCode` constant | `'<word>' is not an error code: give its number (77050010) or its errorCode name (ErrOverflow)` |
+| `breakerror` on a program that does not name `_mfb_rt_park_error` (a build without `--debug`) | `'breakerror' stops in the runtime's error function, which only a debug build names; rebuild the program with: mfb build --debug -O0 <project>` |
+| `breakerror clear` with nothing watched | `no errors are being watched for` |
 | `breakpoint` with more than `r <target>` | `too many arguments to '<name>'` |
 | a target starting `0x` that is not hex | `'<target>' is not an address` |
 | `run` with arguments | `'<name>' takes no arguments` |
@@ -320,8 +339,9 @@ Then, repeatedly:
 | an address `0x<hex>±<offset>` below 0 or past `u64::MAX` | `'<word>' is below address 0` / `'<word>' is past the last address` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
 | `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
-| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, or show arena [<id>]` |
-| `show <what>` but `mem`, `type` or `arena` | `cannot show '<what>'; 'show mem', 'show type' and 'show arena' are what can be shown` |
+| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, show arena [<id>], or show error [<thread>]` |
+| `show error` with more than a thread | `too many arguments to 'show error'` |
+| `show <what>` but `mem`, `type`, `arena` or `error` | `cannot show '<what>'; 'show mem', 'show type', 'show arena' and 'show error' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
@@ -348,14 +368,26 @@ unbound import) is shown once; the same name at two addresses is shown twice:
 ```text
 Type Address Symbol Written name
 <type> <address> <symbol> <written name>
+
+<type>  <legend>
 ```
 
-- `<type>` is `MU`, `MR` or `LN`, and lines are grouped in that order; within a
-  group they are in address order with an unbound import last, and ties keep
-  symbol-table order.
+- `<type>` is `MU`, `MB`, `MR`, `SL` or `SD`, and lines are grouped in that
+  order; within a group they are in address order with an unbound import last,
+  and ties keep symbol-table order.
 - `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import.
 - `<symbol>` is the symbol as the executable spells it.
 - `<written name>` is the name the developer wrote, or `-`.
+- After the table, an empty line and one legend line per type the listing
+  shows, in group order: the code, two spaces, and `Origin::legend` —
+  `MU  MFB User: code you wrote, in your program or a package it imports`,
+  `MB  MFB Builtin: a built-in package's code; a #name is internal to the
+  package (you can break on it, not call it)`, `MR  MFB Runtime: the MFBASIC
+  runtime every program carries`, `SL  System Linked: a system library
+  function the program imports (via the linker)`, `SD  System Dynamic: a
+  function in a library the program loaded while running (via the dynamic
+  loader)`.
+  [[src/debugger/names.rs:Origin]]
 
 Classification and the written name come from the symbol alone
 (`src/debugger/names.rs:classify_defined`), inverting
@@ -363,14 +395,28 @@ Classification and the written name come from the symbol alone
 `src/target/shared/runtime/mod.rs:symbol_for_call` over the helper catalog
 (`supported_helper_specs`): [[src/debugger/names.rs:classify_defined]]
 [[src/debugger/names.rs:package_member]]
+[[src/debugger/names.rs:builtin_name]]
 
 | Symbol | Type | Written name |
 | --- | --- | --- |
 | `_mfb_fn_<escaped>` | `MU` | `<escaped>` with each `_XX` (two uppercase hex digits) decoded to its byte, then reduced as below |
 | `_mfb_ifn_<escaped>` decoding to `<16 hex>$<name>` (a file-`PRIVATE` function) | `MU` | `<name>`, reduced as below |
+| `_mfb_ifn_<escaped>` decoding to `<package>_<name>` (less any `$…`), `<package>` a registry package's import name: a built-in package's MFBASIC function, which its source spells `__<package>_<name>` | `MB` | `<package>::<name>` when the package registers a member `<name>` that is not `internal_only`; else `<package>::#<name>` (`#` is `crate::internal_name::INTERNAL_SIGIL`): `_mfb_ifn_datetime_5FnormInstant` is `datetime::#normInstant` |
 | `_mfb_rt_<family>_<call>` that `symbol_for_call` makes from a catalog spec whose `call` is a registry package member (`registry().owning_package` answers) | `MR` | `call` with its first `.` written `::`: `_mfb_rt_io_io_print` is `io::print` |
-| any other defined symbol (`_mfb_ifn_` built-in internals, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
-| an import | `LN` | the symbol less one leading `_` |
+| any other defined symbol (other `_mfb_ifn_*`, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
+| an import | `SL` | the symbol less one leading `_` |
+| a function of a library loaded while the program ran | `SD` | the symbol less one leading `_` |
+
+A name an MFBASIC function (`MU`, `MB`) and a native one (`MR`, `SL`, `SD`)
+share — a function's name being its written name, else its symbol less one
+leading `_`, over every function `Inferior::functions` answers — is shown with
+a tag: ` <mfb>` after the MFBASIC one's, ` <native>` after the native one's, so
+the program's `main` is `main <mfb>` and the runtime's `_main` reads `main
+<native>`. The tag follows any offset (`main+0x24 <mfb>`, `main + 8 <native>`)
+and is applied the same way in `list func`'s written names, `list breakpoint`
+and breakpoint messages, stop and `finish` places, `dis` headers and comments,
+and `bt` frames; it is never part of a name a command looks up.
+[[src/debugger/names.rs:Collisions]]
 
 A trailing `$own<hex>` (a hand-over copy; the mask is not escaped) is dropped
 before decoding. The decoded IR name is reduced: `<16 hex>.<package>.<name>`
@@ -498,11 +544,18 @@ instruction`, `an arithmetic exception`, `a breakpoint instruction`, or
 
 [[src/debugger/prompt.rs:show_memory]] `show mem <where> [<size>]` reads
 `<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at `<where>`:
-an address (`0x…`), or a register of the current thread, either with an
-optional offset (`0x1000-0x10`, `sp`, `sp+0x18`, `x19-16`; a 64-bit register
-only). [[src/debugger/prompt.rs:address]] It prints
+an address (`0x…`), or a name — a register of the current thread when it has
+one so named (a 64-bit register only), else a function, resolved as
+`dis <function>` resolves one to its start — either with an optional offset
+(`0x1000-0x10`, `sp`, `sp+0x18`, `x19-16`, `main+0x110`, `isPrime+16`). A name
+is letters, digits, `_`, `:`, `#`, `$` and `.`, so a place `bt` or a stop prints
+can be typed back. A function name that names several functions fails with
+`'<name>' names <n> functions, at 0x…, 0x…; give one by its address`; one that
+names none (and no register) with `no register or function is named '<name>';
+type 'list reg' or 'list func' for them`. [[src/debugger/prompt.rs:address]]
+[[src/debugger/prompt.rs:function_start]] It prints
 `Memory at 0x<address>:` — with ` (<register>±0x<offset> of thread <t>)` for a
-register — then the bytes as `show arena`'s dump does, each line led by its
+register, ` (<function>±0x<offset>)` for a function — then the bytes as `show arena`'s dump does, each line led by its
 full address (`0x` + 16 digits). [[src/debugger/prompt.rs:memory_lines]]
 
 ### `show type`
@@ -523,6 +576,13 @@ arena block, so it holds no <Type>; 'show mem' reads any memory`; one whose
 bytes run past their block is `not a <Type> at 0x<address>: its <n> bytes run
 past the end of their arena block`. Layouts are `./mfb spec memory
 heap-values`, `scalar-storage` and `collections`.
+
+A `string` view of an address the executable names with a `_mfb_str_*` data
+symbol (`data_symbol_at`) — a `String` literal the compiler emits, laid out as
+an arena `String` (its length, its bytes, a NUL) in the file's data — reads it
+there instead, without the arena check or any arena, and adds ` (the literal
+<symbol less one '_'>)`: `Length: 17 Value: "function handler " (the literal
+mfb_str_2)`. [[src/debugger/values.rs:show_literal]]
 
 | Type | Bytes | Prints |
 | --- | --- | --- |
@@ -623,11 +683,40 @@ grouped in fours by `_` (at least 8 digits), the bytes as two hex digits each
 (a short last line padded), `|`, and each byte as its ASCII character (`.`
 outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
 
+### `show error`
+
+[[src/debugger/prompt.rs:show_error]] `show error [<thread>]` reads the error
+thread `<thread>` (a `list thread` id; default the current thread) has raised
+and not yet caught: the flat `Error` block a failing operation parks in its
+arena's `ARENA_CURRENT_ERROR_OFFSET` slot for its catcher, which takes it and
+clears the slot (`./mfb spec memory fallible-call-abi`, *Parked error
+ownership*). The arena is the `--debug` registry's whose thread is
+`<thread>`, so this needs a `--debug` build (`'show error' reads the thread's
+arena, which needs a debug build; …`); a thread with none fails with `thread
+<t> has no arena: it is running no MFBASIC code`. An empty slot prints `Thread
+<t> has no error in flight.` — as does a loose error (tag `1`, an error with no
+block because building one ran out of memory), which lives only in the
+registers. Otherwise: [[src/debugger/runtime.rs:current_error]]
+
+```text
+Thread <t>'s error in flight (the Error at 0x<address>):
+Code: <code> (errorCode::<name>)
+Message: "<message>"
+Location: <file>:<line>:<char>
+```
+
+The block is read as `./mfb spec memory heap-values` lays out `Error` and
+`ErrorLoc` (each text at most 4096 bytes). `(errorCode::<name>)` names the
+`errorCode` package constant whose value is the code and is left out for any
+other code [[src/debugger/runtime.rs:error_code_name]]; an error with no origin
+(a zero `ErrorLoc` offset) prints `Location: - (the error has no origin)`.
+
 ### Breakpoints
 
 [[src/debugger/breakpoints.rs:Breakpoints]] A `<target>` starting `0x` (or
 `0X`) is an address in hex, perhaps `+` or `-` an offset (decimal, or hex after
-`0x`), as `show mem` reads one; anything else is a name.
+`0x`), as `show mem` reads one; `<name>+<offset>` is a place in a function;
+anything else is a name.
 
 - **By address**: one breakpoint at that address, described by the function
   that holds it (`<symbol>+0x<offset>` and `<written>+0x<offset>`), a linked
@@ -639,6 +728,11 @@ outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
   among them; a linked function not yet bound gives one **pending**
   breakpoint per symbol, unless another record of it is bound. No match:
   `no function is named '<target>'; type 'list func' for the functions`.
+- **By place** (`<name>+<offset>`, the offset decimal or `0x` hex, as `bt` and
+  stops print a place: `main+0x110`, `main+272`): `<name>` matched as by name,
+  then one breakpoint `<offset>` bytes into each bound function it matches,
+  described as by address. None bound: `'<name>' is not loaded yet; run the
+  program until it has loaded its libraries`.
 
 Each new breakpoint prints `Set a breakpoint at <place>.`, where `<place>` is
 `0x<address>` and ` in <written name or symbol>` when it has one; a pending one
@@ -646,7 +740,7 @@ prints `Set a pending breakpoint on <symbol>: it is placed when the program
 has loaded its libraries.` A target whose every breakpoint exists already
 fails with `there is already a breakpoint at <address>` / `on '<target>'`.
 
-`breakpoint r <target>` removes, by address, the breakpoint there; by name, the
+`breakpoint r <target>` removes, by address or by place, the breakpoints there; by name, the
 breakpoints whose symbol is `<target>`, or else whose written name is. Each
 prints `Removed the breakpoint at <place>.`; none fails with `there is no
 breakpoint at <address>` / `on '<target>'`.
@@ -654,6 +748,41 @@ breakpoint at <address>` / `on '<target>'`.
 `list breakpoint` prints `<address> <symbol> <written name>` per breakpoint
 under the header `Address Symbol Written name`, in address order with pending
 ones last (`-` for the address); with none, `no breakpoints`.
+
+### `breakerror`
+
+[[src/debugger/breakpoints.rs:ErrorCodes]] `breakerror <code>...` (`be`) watches
+for errors by code — each `<code>` an integer, or an `errorCode` constant's name
+with or without `errorCode::` (`runtime::error_code_by_name`) — and joins them
+to any already watched; `breakerror any` watches for every error; `breakerror
+clear` ends the watch; `breakerror` alone prints the watch line, or `No errors
+are being watched for.` Setting one prints `Stopping when a thread raises
+<codes>.` (`<codes>` each `<code>[ (errorCode::<name>)]`, comma-separated, or
+`any error`), which `list breakpoint` also prints after its table (alone, in
+place of `no breakpoints`, when there are no breakpoints).
+
+The watch is a breakpoint of the debugger's own at the entry of
+`_mfb_rt_park_error` (`PARK_ERROR`), the runtime function a failing operation
+calls to park its new `Error` block (`./mfb spec memory fallible-call-abi`): its
+code in `x1`, its origin `ErrorLoc` in `x3`, returning to the function that
+raised the error. A stop there by itself is the debugger's: `run` reads `x1`, and
+for a code not watched runs on, unseen; for a watched one it writes a second
+breakpoint of its own at the thread's `lr` and runs until that thread reaches it
+— back in the raising function, the error parked and the `TRAP` dispatch not
+yet taken — and reports the `Raised` stop, the current thread becoming that
+thread. A stop at a breakpoint of the user's before then is reported instead (and
+the raise is not), and a raise by another thread meanwhile is let go. A
+breakpoint of the user's on `_mfb_rt_park_error` shares the address: a stop there
+is theirs, and removing it keeps the watch's. `restart` places the watch again
+in the new process. A `finish` the raise stops ends early, as for any other
+stop. [[src/debugger/breakpoints.rs:Breakpoints]]
+
+Errors the watch cannot see, since they do not pass through the park: an error
+re-raised from an `Error` value (`FAIL e`, a cleanup's re-raise), which stores
+its block in the slot directly; and a loose error (tag `1`), which has no block.
+A worker's error that `thread::waitFor` passes to its caller is parked twice —
+by the worker and again in the caller — so it stops twice. Every raise in the
+program stops the process for the comparison, watched or not.
 
 ### `run`
 
@@ -667,6 +796,7 @@ outcome, `<place>` as in `step`:
 | Stop | Line |
 | --- | --- |
 | a breakpoint (one line per thread) | `Thread <t> hit a breakpoint at <place>.` |
+| a watched error raised (`breakerror`) | `Thread <t> raised <code>[ (errorCode::<name>)][ at <file>:<line>:<char>]; it is at <place>, before a TRAP takes the error.` |
 | another exception | `Thread <t> stopped by <exception> at <place>.` |
 | Ctrl-C | `Paused: thread 0 is at <place>.` |
 | a launched program exited | `The program exited with status <n>.` |
@@ -685,7 +815,7 @@ or the last `step` ran; thread 0 before either, or when it has ended.
   it, then the `pc`'s own.
 - `dis <where> [<count>]`, `<where>` starting `0x`, holding `+` or `-`, or a
   register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it resolves to
-  as `show mem` resolves one, which must be a multiple of 4. With no count, the
+  as `show mem` resolves one (so `dis main+0x110` is a place in `main`), which must be a multiple of 4. With no count, the
   listing runs from there to the end of the function holding it (or to the first
   `ret` or 64 instructions when its extent is unknown); with one, as for
   `dis <count>`. The header names the function holding that address.
@@ -699,8 +829,8 @@ or the last `step` ran; thread 0 before either, or when it has ended.
 
 A function's extent is the first known of: the executable's symbol size
 (`--debug` builds), its import stub's size, the library's function starts.
-With none, the listing runs to the first `ret` or 64 instructions
-(`UNSIZED_LIMIT`). Code is read with `read_code`, which puts each
+With none, the listing runs to the first return (`ret`, `retaa`, `retab`) or 64
+instructions (`UNSIZED_LIMIT`). Code is read with `read_code`, which puts each
 breakpoint's saved instruction back, so a listing never shows the `brk`.
 
 The listing is lldb's: a header `<image>`<name>:` (`<image>`0x<start>:` when
@@ -710,26 +840,38 @@ name for the developer's functions and otherwise the symbol less one leading
 address as `0x` and 16 hex digits, ` <+<offset>>:` (` <-<offset>>:` before the
 function's start, when a count runs back past it) padded to the widest in the listing (omitted
 when no image holds it), and the instruction. A comment follows from column 33
-of the instruction text: `=<decimal>` for a wide `mov` immediate; for a branch
-or call, `<+<offset>>` inside this function, else the function at the target
-(`<name>` or `<name> + <offset>`); for an `add #imm` whose register an earlier
+of the instruction text: `=<decimal>` for a `mov` of an immediate (the value it
+sets, signed at the register's width, `mov w0, #-0x2 ; =-2`); for a branch,
+call, `adr` or literal load (`ldr x0, 0x…`), `<+<offset>>` inside this
+function, else the function at the address it names (`<name>` or
+`<name> + <offset>`); for an `add #imm` whose register an earlier
 `adrp` in the listing set, the data symbol at the address the pair forms, else
 the function there.
 
-Instructions are decoded by `crate::arch::aarch64::decode`, which knows
-exactly the forms `crate::arch::aarch64::encode` emits — a word it does not
-know prints as `.word  0x<word>` — and spells them as LLVM does on macOS,
-NEON in Apple's syntax (`fadd.2d v1, v0, v2`, `mov.16b v24, v0`, `mov.d x8,
-v1[0]`). Its round-trip test encodes every emitter form and decodes it back,
-and fails when the emitter gains a form it does not cover.
+Instructions are decoded by `crate::arch::aarch64::decode`, which knows every
+form `crate::arch::aarch64::encode` emits and, so that code in dyld and the
+system libraries reads too, the A64 base instruction set: integer, loads and
+stores in every addressing mode (pairs, exclusive, ordered, LSE atomics,
+`ldraa`), branches (`br`, `cbz`, `tbz`, `bc.<cond>`), system instructions
+(hints, barriers, `mrs`/`msr` with LLVM's register names, `dc`/`ic`), pointer
+authentication, scalar floating point (half, single, double), Advanced SIMD
+vector and scalar forms, AES, SHA-1, SHA-256, SHA-512 and SHA-3. It does not
+decode SVE, SME, memory tagging or the `cpy`/`set` memory operations; a word it
+does not know prints as `.word  0x<word>`. Text is spelled as lldb prints it on
+macOS, NEON in Apple's syntax (`fadd.2d v1, v0, v2`, `mov.16b v24, v0`,
+`mov.d x8, v1[0]`). Its round-trip test encodes every emitter form and decodes
+it back, and fails when the emitter gains a form it does not cover; a second
+test holds words from dyld and the system libraries to lldb's text for them,
+and an ignored test compares a whole corpus against lldb
+(`tools/oracles/aarch64-decode`).
 [[src/arch/aarch64/decode/mod.rs:decode]]
 
 ### `finish`
 
 [[src/debugger/breakpoints.rs:Breakpoints]] `finish` runs the current thread
-until the function holding its `pc` returns. It finds every `ret` in the
-function (through its extent, or the first within 64 instructions as `dis`
-does, `disassemble::returns`), writes a breakpoint of its own on each that
+until the function holding its `pc` returns. It finds every return
+instruction (`ret`, `retaa`, `retab`) in the function (through its extent, or
+the first within 64 instructions as `dis` does, `disassemble::returns`), writes a breakpoint of its own on each that
 holds none, and runs as `run` does. A stop at one of them by the current
 thread with its stack pointer at or above the one it had (so a deeper,
 recursive call's return does not count) removes them and steps the `ret`,
@@ -738,7 +880,11 @@ then prints
 — MFBASIC returns an error code in `x0` and the value in `x1`, each shown as
 `list reg` shows it. A stop at them by another thread or a deeper frame runs
 on. Any other stop — a user breakpoint, an exception, Ctrl-C, the end —
-removes them and is reported as `run` reports it. With no function at the
+removes them and is reported as `run` reports it, and, unless the program
+ended, followed by `The finish from <function> did not complete; type 'finish'
+to run it again from here.` (`<function>` named as `dis` names it; `The finish
+did not complete; …` when the function has no name).
+[[src/debugger/breakpoints.rs:Finish]] With no function at the
 `pc`: `cannot finish: no known function holds 0x…`; with no `ret` found:
 `cannot finish: no ret instruction found in the function at 0x…`.
 

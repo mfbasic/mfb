@@ -11,9 +11,9 @@
 use std::io::{BufRead, Write};
 
 use super::backtrace;
-use super::breakpoints::{Breakpoints, Finish, Target};
+use super::breakpoints::{self, Breakpoints, ErrorCodes, Finish, Target};
 use super::disassemble::{self, Request};
-use super::names::{classify_defined, linked_name, Origin};
+use super::names::{classify, Collisions};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::values::{self, Region, View};
 use super::{
@@ -28,20 +28,24 @@ pub(crate) const HELP: &str = "\
 Commands:
   help, h         Show this list of commands
   list, l         Show what can be listed
-  show            Show memory: show mem <address|register[+offset]> [<size>]
+  show            Show memory: show mem <address|register|function[+offset]> [<size>]
+                  The error a thread has raised and not yet caught: show error [<thread>]
                   An arena's state and blocks: show arena [<id>]
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
-                  An arena value as a type: show type <type> <address|register[+offset]>
+                  An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)
-  breakpoint, bp  Set a breakpoint: breakpoint <address|function>
-                  Remove one: breakpoint r <address|function>
+  breakpoint, bp  Set a breakpoint: breakpoint <address|function[+offset]>
+                  Remove one: breakpoint r <address|function[+offset]>
+  breakerror, be  Stop when a thread raises an error: be <code|name>... | any
+                  Stop watching: be clear; be alone shows what is watched
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
   disassemble, dis
                   Disassemble the current function; dis <count> instructions
                   from the current one (negative: before it); dis <where>
-                  [<count>] from an address or register (pc-0x20); or
+                  [<count>] from an address, register or function, with an
+                  offset (pc-0x20, main+0x110); or
                   dis <function> [<count>]
   backtrace, bt   Show the current thread's calls: bt [<count>] [<thread>]
                   Every thread's: bt all
@@ -58,8 +62,10 @@ Each listing starts with a line naming its columns.
 
   func          The program's functions, one per line:
                   <type> <address> <symbol> <written name>
-                <type> is MU for a function the program's author wrote, MR for
-                the MFBASIC runtime, LN for a function in a linked library.
+                <type> is MU for a function the program's author wrote, MB
+                for a built-in package's, MR for the MFBASIC runtime, SL for
+                a function the program imports from a system library, SD for
+                one in a library it loaded while running; a legend follows.
                 <address> is - for a linked function the program has not
                 loaded yet, and <written name> is - where the author wrote no
                 name.
@@ -94,17 +100,37 @@ const MAIN_THREAD: usize = 0;
 enum Command {
     Help,
     List(Option<Listing>),
-    Step { count: u64, thread: usize },
+    Step {
+        count: u64,
+        thread: usize,
+    },
     StepAll(u64),
-    ShowArena { id: usize, dump: Option<Dump> },
+    ShowArena {
+        id: usize,
+        dump: Option<Dump>,
+    },
+    /// `show error [<thread>]`: the error parked in a thread's arena.
+    ShowError(Option<usize>),
+    /// `breakerror <code>|any`: stop when a thread raises it.
+    BreakError(ErrorCodes),
+    /// `breakerror clear`.
+    ClearErrors,
+    /// `breakerror` alone: what is being watched for.
+    ErrorWatch,
     SetBreakpoint(Target),
     RemoveBreakpoint(Target),
     Run,
     Disassemble(Disassembly),
     Finish,
     Restart,
-    ShowMemory { location: Location, size: u64 },
-    ShowType { location: Location, view: View },
+    ShowMemory {
+        location: Location,
+        size: u64,
+    },
+    ShowType {
+        location: Location,
+        view: View,
+    },
     TypeUsage,
     Backtrace(Backtrace),
     Quit,
@@ -132,12 +158,17 @@ struct Dump {
     size: u64,
 }
 
-/// Where `show mem` reads: an address, or a register of the current thread
-/// plus an offset.
+/// Where `show mem` reads: an address, or a register of the current thread or
+/// a function, plus an offset.
 #[derive(Debug, PartialEq, Eq)]
 enum Location {
     Address(u64),
-    Register { name: String, offset: i64 },
+    /// A register of the current thread when it has one of this name, else a
+    /// function as `dis <function>` names one (`main+0x110`, `isPrime+16`).
+    Named {
+        name: String,
+        offset: i64,
+    },
 }
 
 /// What a `dis` names, before a location is resolved to an address.
@@ -221,9 +252,15 @@ pub(crate) fn address(word: &str) -> Option<Result<u64, String>> {
     })
 }
 
+/// Whether `byte` can be part of a register's or a function's name: a symbol
+/// (`_mfb_fn_main`) or a written name (`datetime::#normInstant`, `f$own1`).
+fn name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':' | b'#' | b'$' | b'.')
+}
+
 impl Location {
-    /// `0x…`, or `<register>`, `<register>+<n>`, `<register>-<n>` (`n` decimal
-    /// or `0x` hex).
+    /// `0x…`, or `<name>`, `<name>+<n>`, `<name>-<n>` (`n` decimal or `0x`
+    /// hex), where `<name>` is a register or a function.
     fn parse(word: &str) -> Result<Location, String> {
         if let Some(address) = address(word) {
             return address.map(Location::Address);
@@ -237,15 +274,21 @@ impl Location {
             }
             None => (word, 0),
         };
-        if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
-            return Err(format!("'{word}' is not an address or a register"));
+        if name.is_empty() || !name.bytes().all(name_byte) {
+            return Err(format!(
+                "'{word}' is not an address, a register or a function"
+            ));
         }
-        Ok(Location::Register {
+        Ok(Location::Named {
             name: name.to_string(),
             offset,
         })
     }
 }
+
+/// The symbols of the `String` literals the executable carries
+/// (`crate::codegen::memory::data::data_objects`).
+const STRING_LITERAL_PREFIX: &str = "_mfb_str_";
 
 /// How much `show mem` shows when no size is given, and the most it shows.
 const MEMORY_SIZE: u64 = 64;
@@ -365,6 +408,15 @@ fn parse(line: &str) -> Result<Command, String> {
             Ok(Command::RemoveBreakpoint(Target::parse(target)?))
         }
         ("breakpoint" | "bp", [target]) => Ok(Command::SetBreakpoint(Target::parse(target)?)),
+        ("breakerror" | "be", []) => Ok(Command::ErrorWatch),
+        ("breakerror" | "be", ["clear"]) => Ok(Command::ClearErrors),
+        ("breakerror" | "be", ["any"]) => Ok(Command::BreakError(ErrorCodes::Any)),
+        ("breakerror" | "be", words) => Ok(Command::BreakError(ErrorCodes::Codes(
+            words
+                .iter()
+                .map(|word| error_code(word))
+                .collect::<Result<_, _>>()?,
+        ))),
         ("breakpoint" | "bp", _) => Err(format!("too many arguments to '{name}'")),
         ("show", ["arena"]) => Ok(Command::ShowArena {
             id: MAIN_ARENA,
@@ -385,6 +437,9 @@ fn parse(line: &str) -> Result<Command, String> {
             }),
         }),
         ("show", ["arena", ..]) => Err("too many arguments to 'show arena'".to_string()),
+        ("show", ["error"]) => Ok(Command::ShowError(None)),
+        ("show", ["error", thread]) => Ok(Command::ShowError(Some(thread_id(thread)?))),
+        ("show", ["error", ..]) => Err("too many arguments to 'show error'".to_string()),
         ("show", ["mem"]) => {
             Err("'show mem' needs an address or a register: show mem <where> [<size>]".to_string())
         }
@@ -410,12 +465,12 @@ fn parse(line: &str) -> Result<Command, String> {
         )),
         ("show", []) => Err(
             "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-             or show arena [<id>]"
+             show arena [<id>], or show error [<thread>]"
                 .to_string(),
         ),
         ("show", [other, ..]) => Err(format!(
-            "cannot show '{other}'; 'show mem', 'show type' and 'show arena' are what can be \
-             shown"
+            "cannot show '{other}'; 'show mem', 'show type', 'show arena' and 'show error' are \
+             what can be shown"
         )),
         ("disassemble" | "dis", []) => Ok(Command::Disassemble(Disassembly::Current)),
         ("disassemble" | "dis", [word]) if is_count(word) => Ok(Command::Disassemble(
@@ -457,7 +512,7 @@ fn arena_id(word: &str) -> Result<usize, String> {
 }
 
 /// A byte count or offset: decimal, or hex after `0x`.
-fn number(word: &str) -> Result<u64, String> {
+pub(crate) fn number(word: &str) -> Result<u64, String> {
     match word.strip_prefix("0x").or_else(|| word.strip_prefix("0X")) {
         Some(hex) => u64::from_str_radix(hex, 16),
         None => word.parse::<u64>(),
@@ -470,6 +525,20 @@ fn frame_count(word: &str) -> Result<usize, String> {
         .ok()
         .filter(|count| *count > 0)
         .ok_or_else(|| format!("'{word}' is not a number of frames (1 or more), or 'all'"))
+}
+
+/// An error code as `breakerror` takes one: its number, or the name of its
+/// `errorCode` constant (`ErrOverflow`, `errorCode::ErrOverflow`).
+fn error_code(word: &str) -> Result<i64, String> {
+    word.parse::<i64>()
+        .ok()
+        .or_else(|| runtime::error_code_by_name(word))
+        .ok_or_else(|| {
+            format!(
+                "'{word}' is not an error code: give its number (77050010) or its errorCode \
+                 name (ErrOverflow)"
+            )
+        })
 }
 
 fn thread_id(word: &str) -> Result<usize, String> {
@@ -514,14 +583,12 @@ pub(crate) fn table<const N: usize>(headers: [&str; N], rows: Vec<[String; N]>) 
 /// last), symbols that tie in symbol-table order, and a name repeated at the
 /// same address once.
 pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
+    let collisions = Collisions::of(symbols);
     let mut rows = symbols
         .iter()
         .map(|symbol| {
-            let (origin, written) = if symbol.linked {
-                (Origin::Linked, Some(linked_name(&symbol.name)))
-            } else {
-                classify_defined(&symbol.name)
-            };
+            let (origin, written) = classify(symbol);
+            let written = written.map(|name| collisions.tagged(name, origin));
             (origin, symbol.address, &symbol.name, written)
         })
         .collect::<Vec<_>>();
@@ -530,7 +597,9 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
     // records) is shown once; one name at two addresses is shown twice.
     let mut seen = std::collections::HashSet::new();
     rows.retain(|(_, address, name, _)| seen.insert((*address, name.to_string())));
-    table(
+    let mut origins = rows.iter().map(|(origin, ..)| *origin).collect::<Vec<_>>();
+    origins.dedup();
+    let mut lines = table(
         ["Type", "Address", "Symbol", "Written name"],
         rows.into_iter()
             .map(|(origin, address, name, written)| {
@@ -542,7 +611,17 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
                 ]
             })
             .collect(),
-    )
+    );
+    // A legend for the types the listing shows.
+    if !origins.is_empty() {
+        lines.push(String::new());
+        lines.extend(
+            origins
+                .into_iter()
+                .map(|origin| format!("{}  {}", origin.code(), origin.legend())),
+        );
+    }
+    lines
 }
 
 /// The `list reg` lines: one register per line, the value in full-width hex and
@@ -1006,7 +1085,7 @@ fn describe_stop(
                 *current = *thread;
             }
         }
-        RunStop::Exception { thread, .. } => *current = *thread,
+        RunStop::Exception { thread, .. } | RunStop::Raised { thread, .. } => *current = *thread,
         _ => {}
     }
     let place = |inferior: &mut dyn Inferior, thread: usize| -> Result<String, String> {
@@ -1022,6 +1101,20 @@ fn describe_stop(
                 let at = place(inferior, thread).unwrap_or_else(|_| format!("0x{address:016x}"));
                 lines.push(format!("Thread {thread} hit a breakpoint at {at}."));
             }
+        }
+        RunStop::Raised {
+            thread,
+            code,
+            origin,
+        } => {
+            let at = place(inferior, thread)?;
+            let from = origin
+                .map(|origin| format!(" at {origin}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "Thread {thread} raised {}{from}; it is at {at}, before a TRAP takes the error.",
+                breakpoints::code_shown(code)
+            ));
         }
         RunStop::Exception { thread, what } => {
             let at = place(inferior, thread)?;
@@ -1069,9 +1162,10 @@ fn finish(
                     })
                     .unwrap_or_default()
             };
+            let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
             let from = from
                 .as_deref()
-                .map(disassemble::display_name)
+                .map(|name| disassemble::display_name(name, &collisions))
                 .unwrap_or_else(|| "the function".to_string());
             lines.push(format!(
                 "Thread {thread} returned from {from} to {at}: x0 = {}, x1 = {}.",
@@ -1080,8 +1174,24 @@ fn finish(
             ));
             Ok((lines, false))
         }
-        Finish::Stopped(stop) => {
+        Finish::Stopped { stop, from } => {
             let exited = describe_stop(inferior, stop, current, &mut lines)?;
+            // A breakpoint, an exception or a pause (a recursive call hitting
+            // a breakpoint, most often) ends the finish early: say so, since
+            // the stop alone reads like any other.
+            if !exited {
+                let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
+                let what = match from.as_deref() {
+                    Some(name) => format!(
+                        "The finish from {}",
+                        disassemble::display_name(name, &collisions)
+                    ),
+                    None => "The finish".to_string(),
+                };
+                lines.push(format!(
+                    "{what} did not complete; type 'finish' to run it again from here."
+                ));
+            }
             Ok((lines, exited))
         }
     }
@@ -1130,6 +1240,19 @@ fn show_type(
     view: &View,
 ) -> Result<Vec<String>, String> {
     let (address, _) = resolve(inferior, current, location)?;
+    // A `String` literal is no arena value, but is laid out as one.
+    if matches!(view, View::String) {
+        if let Some(symbol) = inferior
+            .data_symbol_at(address)?
+            .filter(|symbol| symbol.starts_with(STRING_LITERAL_PREFIX))
+        {
+            return values::show_literal(
+                &mut |at, length| inferior.read_bytes(at, length),
+                address,
+                &symbol,
+            );
+        }
+    }
     let threads = inferior.threads()?;
     let roles = runtime::roles(inferior, &threads, program.app)?;
     let Some(arenas) = runtime::arenas(inferior, &threads, &roles)? else {
@@ -1161,6 +1284,71 @@ fn show_type(
     )
 }
 
+/// `show error [<thread>]`: the error parked in the thread's arena — the one in
+/// flight, raised and not yet caught — with its code, message and origin.
+fn show_error(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    thread: usize,
+) -> Result<Vec<String>, String> {
+    let threads = inferior.threads()?;
+    if thread >= threads.len() {
+        return Err(no_thread(thread, threads.len()));
+    }
+    let roles = runtime::roles(inferior, &threads, program.app)?;
+    let Some(arenas) = runtime::arenas(inferior, &threads, &roles)? else {
+        return Err(
+            "'show error' reads the thread's arena, which needs a debug build; rebuild the \
+             program with: mfb build --debug -O0 <project>"
+                .to_string(),
+        );
+    };
+    let arena = arenas
+        .iter()
+        .find(|arena| arena.thread == Some(thread))
+        .ok_or_else(|| format!("thread {thread} has no arena: it is running no MFBASIC code"))?;
+    let Some(error) = runtime::current_error(inferior, arena.address)? else {
+        return Ok(vec![format!("Thread {thread} has no error in flight.")]);
+    };
+    let code = match runtime::error_code_name(error.code) {
+        Some(name) => format!("{} ({name})", error.code),
+        None => error.code.to_string(),
+    };
+    Ok(vec![
+        format!(
+            "Thread {thread}'s error in flight (the Error at 0x{:016x}):",
+            error.address
+        ),
+        format!("Code: {code}"),
+        format!("Message: \"{}\"", error.message.escape_debug()),
+        format!(
+            "Location: {}",
+            error
+                .source
+                .as_deref()
+                .unwrap_or("- (the error has no origin)")
+        ),
+    ])
+}
+
+/// The one start of the function `name` names, as `dis <function>` resolves
+/// it; an error when it names none, or several (overloads, copies).
+pub(crate) fn function_start(inferior: &mut dyn Inferior, name: &str) -> Result<u64, String> {
+    let ranges = disassemble::resolve(inferior, name)?;
+    match ranges.as_slice() {
+        [range] => Ok(range.start),
+        _ => Err(format!(
+            "'{name}' names {} functions, at {}; give one by its address",
+            ranges.len(),
+            ranges
+                .iter()
+                .map(|range| format!("0x{:016x}", range.start))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
 /// The address `location` names for thread `current`, and how to describe it
 /// when it came from a register: ` (<register>+<offset> of thread <t>)`.
 fn resolve(
@@ -1170,22 +1358,38 @@ fn resolve(
 ) -> Result<(u64, String), String> {
     match location {
         Location::Address(address) => Ok((*address, String::new())),
-        Location::Register { name, offset } => {
-            let registers = inferior.registers(current)?;
-            let register = registers
-                .iter()
-                .find(|register| &register.name == name)
-                .ok_or_else(|| format!("no register '{name}'; type 'list reg' for the groups"))?;
-            let RegisterValue::Bits64(base) = register.value else {
-                return Err(format!("'{name}' is a vector register, not an address"));
-            };
-            let address = base.wrapping_add(*offset as u64);
+        Location::Named { name, offset } => {
             let shown = match offset {
                 0 => name.clone(),
                 offset if *offset < 0 => format!("{name}-{:#x}", offset.unsigned_abs()),
                 offset => format!("{name}+{offset:#x}"),
             };
-            Ok((address, format!(" ({shown} of thread {current})")))
+            let registers = if is_register(name) {
+                inferior.registers(current)?
+            } else {
+                inferior.registers(current).unwrap_or_default()
+            };
+            if let Some(register) = registers.iter().find(|register| &register.name == name) {
+                let RegisterValue::Bits64(base) = register.value else {
+                    return Err(format!("'{name}' is a vector register, not an address"));
+                };
+                let address = base.wrapping_add(*offset as u64);
+                return Ok((address, format!(" ({shown} of thread {current})")));
+            }
+            let start = function_start(inferior, name).map_err(|error| {
+                if error.starts_with("no function is named") {
+                    format!(
+                        "no register or function is named '{name}'; type 'list reg' or \
+                         'list func' for them"
+                    )
+                } else {
+                    error
+                }
+            })?;
+            let address = start
+                .checked_add_signed(*offset)
+                .ok_or_else(|| format!("'{shown}' is outside the address space"))?;
+            Ok((address, format!(" ({shown})")))
         }
     }
 }
@@ -1217,6 +1421,7 @@ fn backtrace(
         }
     };
     let mut lines = Vec::new();
+    let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
     for thread in chosen {
         let frames = backtrace::frames(inferior, thread, limit)?;
         lines.extend(backtrace::lines(
@@ -1225,6 +1430,7 @@ fn backtrace(
             roles[thread].label(),
             &frames,
             thread == current,
+            &collisions,
         ));
     }
     Ok(lines)
@@ -1338,8 +1544,16 @@ pub(crate) fn run(
                 lines
             }),
             Ok(Command::ShowArena { id, dump }) => show_arena(inferior, program, id, dump),
+            Ok(Command::ShowError(thread)) => {
+                show_error(inferior, program, thread.unwrap_or(current))
+            }
             Ok(Command::SetBreakpoint(target)) => breakpoints.set(inferior, &target),
             Ok(Command::RemoveBreakpoint(target)) => breakpoints.remove(inferior, &target),
+            Ok(Command::BreakError(codes)) => breakpoints.watch_errors(inferior, codes),
+            Ok(Command::ClearErrors) => breakpoints.clear_errors(inferior),
+            Ok(Command::ErrorWatch) => Ok(vec![breakpoints
+                .watch_line()
+                .unwrap_or_else(|| "No errors are being watched for.".to_string())]),
             Ok(Command::Run) => {
                 run_program(inferior, &mut breakpoints, &mut current).map(|(lines, ended)| {
                     exited = ended;
@@ -1386,6 +1600,7 @@ pub(crate) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debugger::names::Origin;
     use crate::debugger::{FunctionRange, Step};
 
     /// An [`Inferior`] answering from fixed tables: two threads, a few
@@ -1421,6 +1636,7 @@ mod tests {
         FunctionSymbol {
             name: name.to_string(),
             linked,
+            loaded: false,
             address,
             size,
         }
@@ -1444,8 +1660,18 @@ mod tests {
                 symbol("_malloc", true, None, None),
                 symbol("_mfb_rt_print", false, Some(0x1008), Some(8)),
                 symbol("_mfb_fn_next_5Fseed", false, Some(0x1004), Some(4)),
+                symbol(
+                    "_mfb_ifn_datetime_5FnormInstant",
+                    false,
+                    Some(0x1020),
+                    Some(8),
+                ),
                 symbol("_free", true, Some(0x9000), None),
                 symbol("_malloc", true, None, None),
+                FunctionSymbol {
+                    loaded: true,
+                    ..symbol("_vkCreateInstance", true, Some(0xa000), None)
+                },
             ])
         }
         fn data_symbol(&mut self, _: &str) -> Result<Option<u64>, String> {
@@ -1657,14 +1883,27 @@ mod tests {
             out,
             format!(
                 "{PROMPT}\
-Type Address            Symbol              Written name
-MU   0x0000000000001004 _mfb_fn_next_5Fseed next_seed
-MU   0x0000000000001010 _mfb_fn_main        main
-MR   0x0000000000001000 _main               -
-MR   0x0000000000001008 _mfb_rt_print       -
-LN   0x0000000000009000 _free               free
-LN   -                  _malloc             malloc
-{PROMPT}Killed process 42.\n"
+Type Address            Symbol                          Written name
+MU   0x0000000000001004 _mfb_fn_next_5Fseed             next_seed
+MU   0x0000000000001010 _mfb_fn_main                    main <mfb>
+MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
+MR   0x0000000000001000 _main                           -
+MR   0x0000000000001008 _mfb_rt_print                   -
+SL   0x0000000000009000 _free                           free
+SL   -                  _malloc                         malloc
+SD   0x000000000000a000 _vkCreateInstance               vkCreateInstance
+
+MU  {MU}
+MB  {MB}
+MR  {MR}
+SL  {SL}
+SD  {SD}
+{PROMPT}Killed process 42.\n",
+                MU = Origin::User.legend(),
+                MB = Origin::Builtin.legend(),
+                MR = Origin::Runtime.legend(),
+                SL = Origin::Linked.legend(),
+                SD = Origin::Dynamic.legend(),
             )
         );
     }
@@ -1821,7 +2060,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show mem sp+0x18 8"),
             Ok(Command::ShowMemory {
-                location: Location::Register {
+                location: Location::Named {
                     name: "sp".to_string(),
                     offset: 0x18
                 },
@@ -1831,7 +2070,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show mem x19-16"),
             Ok(Command::ShowMemory {
-                location: Location::Register {
+                location: Location::Named {
                     name: "x19".to_string(),
                     offset: -16
                 },
@@ -1844,13 +2083,115 @@ x0       0x000000000000002c (44)
                 "'show mem' needs an address or a register: show mem <where> [<size>]",
             ),
             ("show mem sp+zz", "'zz' is not a number"),
-            ("show mem $x", "'$x' is not an address or a register"),
+            (
+                "show mem @x",
+                "'@x' is not an address, a register or a function",
+            ),
             ("show mem sp 8 9", "too many arguments to 'show mem'"),
             ("finish now", "'finish' takes no arguments"),
             ("rs again", "'rs' takes no arguments"),
         ] {
             assert_eq!(parse(line), Err(message.to_string()), "{line}");
         }
+    }
+
+    /// A place `bt` or a stop shows (`main+0x110`) can be typed back: `show`
+    /// and `dis` read a name that is no register as a function, and
+    /// `breakpoint` takes one with an offset.
+    #[test]
+    fn a_function_and_an_offset_name_a_place() {
+        assert_eq!(
+            parse("show mem _mfb_fn_f$own4+8"),
+            Ok(Command::ShowMemory {
+                location: Location::Named {
+                    name: "_mfb_fn_f$own4".to_string(),
+                    offset: 8,
+                },
+                size: MEMORY_SIZE
+            })
+        );
+        assert_eq!(
+            parse("dis datetime::#normInstant+0x10 2"),
+            Ok(Command::Disassemble(Disassembly::At(
+                Location::Named {
+                    name: "datetime::#normInstant".to_string(),
+                    offset: 16,
+                },
+                Some(2)
+            )))
+        );
+        assert_eq!(
+            parse("bp main+272"),
+            Ok(Command::SetBreakpoint(Target::Offset {
+                name: "main".to_string(),
+                offset: 272,
+            }))
+        );
+        // `main` is the program's (`_mfb_fn_main` at 0x1010), so `main+0x10`
+        // is 0x1020; a register keeps its name; nothing else is a place.
+        let (_, err, _) = session(
+            "show mem main+0x10\nshow mem x0+8\nshow mem nothing+4\nq\n",
+            Ending::Killed,
+            false,
+        );
+        assert_eq!(
+            err,
+            "error: unmapped 0x1020\n\
+             error: unmapped 0x32\n\
+             error: no register or function is named 'nothing'; type 'list reg' or 'list func' \
+             for them\n"
+        );
+    }
+
+    #[test]
+    fn breakerror_takes_codes_names_any_or_clear() {
+        assert_eq!(parse("be"), Ok(Command::ErrorWatch));
+        assert_eq!(parse("breakerror clear"), Ok(Command::ClearErrors));
+        assert_eq!(parse("be any"), Ok(Command::BreakError(ErrorCodes::Any)));
+        assert_eq!(
+            parse("be 77050010 errorCode::ErrNotFound ErrOutOfMemory"),
+            Ok(Command::BreakError(ErrorCodes::Codes(vec![
+                77_050_010, 77_050_004, 77_010_001
+            ])))
+        );
+        assert_eq!(
+            parse("be ErrNothing"),
+            Err(
+                "'ErrNothing' is not an error code: give its number (77050010) or its \
+                 errorCode name (ErrOverflow)"
+                    .to_string()
+            )
+        );
+        // The prompt's fake names no error park, as a build without --debug.
+        let (out, err, _) = session("be\nbe any\nbe clear\nq\n", Ending::Killed, false);
+        assert!(out.contains("No errors are being watched for."), "{out}");
+        assert_eq!(
+            err,
+            "error: 'breakerror' stops in the runtime's error function, which only a debug \
+             build names; rebuild the program with: mfb build --debug -O0 <project>\n\
+             error: no errors are being watched for\n"
+        );
+    }
+
+    #[test]
+    fn show_error_takes_a_thread_and_needs_a_debug_build() {
+        assert_eq!(parse("show error"), Ok(Command::ShowError(None)));
+        assert_eq!(parse("show error 2"), Ok(Command::ShowError(Some(2))));
+        assert_eq!(
+            parse("show error x"),
+            Err("'x' is not a thread id; type 'list thread' for the threads".to_string())
+        );
+        assert_eq!(
+            parse("show error 1 2"),
+            Err("too many arguments to 'show error'".to_string())
+        );
+        let (_, err, _) = session("show error\nshow error 9\nq\n", Ending::Killed, false);
+        assert_eq!(
+            err,
+            "error: 'show error' reads the thread's arena, which needs a debug build; rebuild \
+             the program with: mfb build --debug -O0 <project>\n\
+             error: no thread 9: the program has 3 threads; type 'list thread' for them\n"
+        );
     }
 
     #[test]
@@ -1881,7 +2222,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show type string x1"),
             Ok(Command::ShowType {
-                location: Location::Register {
+                location: Location::Named {
                     name: "x1".to_string(),
                     offset: 0
                 },
@@ -1904,7 +2245,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show type map x3 get Grace Hopper"),
             Ok(Command::ShowType {
-                location: Location::Register {
+                location: Location::Named {
                     name: "x3".to_string(),
                     offset: 0
                 },
@@ -2173,12 +2514,12 @@ Thread 2 is at 0x0000000000007004.
             out,
             format!(
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed.\n\
-                 {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2.\n\
+                 {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
                  {PROMPT}\
 Address            Symbol              Written name
 0x0000000000001004 _mfb_fn_next_5Fseed next_seed
-0x0000000000001012 _mfb_fn_main+0x2    main+0x2
-{PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2.\n\
+0x0000000000001012 _mfb_fn_main+0x2    main+0x2 <mfb>
+{PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
                  {PROMPT}Address            Symbol              Written name\n\
                  0x0000000000001004 _mfb_fn_next_5Fseed next_seed\n\
                  {PROMPT}Killed process 42.\n"
@@ -2268,7 +2609,7 @@ Address            Symbol              Written name
 
     #[test]
     fn dis_takes_a_count_a_place_or_a_function_and_counts_back_when_negative() {
-        let register = |name: &str, offset| Location::Register {
+        let register = |name: &str, offset| Location::Named {
             name: name.to_string(),
             offset,
         };
@@ -2484,11 +2825,12 @@ Thread 1 hit a breakpoint at 0x0000000000007000.
             (
                 "show",
                 "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-                 or show arena [<id>]",
+                 show arena [<id>], or show error [<thread>]",
             ),
             (
                 "show it",
-                "cannot show 'it'; 'show mem', 'show type' and 'show arena' are what can be shown",
+                "cannot show 'it'; 'show mem', 'show type', 'show arena' and 'show error' are \
+                 what can be shown",
             ),
             (
                 "show arena x",

@@ -69,21 +69,23 @@ debug.out`isPrime:
 
 `dis isPrime` or `dis exit` shows a function you name, the same way
 `breakpoint` reads a name, and `dis isPrime 3` its first three instructions.
-`dis` also starts anywhere you name an address or a register, either with an
-offset: `dis pc-8 4` shows four instructions from two before the current one,
-`dis lr 2`, at a breakpoint on a function's first instruction, the code it
-returns to, and `dis 0x1049c4ab0+0x40` the code at that address. A negative count works with all of them, and a count
+`dis` also starts anywhere you name an address, a register or a function, each
+with an offset: `dis pc-8 4` shows four instructions from two before the
+current one, `dis lr 2`, at a breakpoint on a function's first instruction, the
+code it returns to, `dis 0x1049c4ab0+0x40` the code at that address, and
+`dis main+0x110 4` the code at a place `bt` or a stop showed you. A negative count works with all of them, and a count
 that runs back past the start of the function shows those addresses as
 `<-8>`, before the function. Every instruction is 4 bytes, so an address that
 is not a multiple of 4 is refused.
 
 The notes after `;` say where a branch goes (`<+68>` is 68 bytes into this
-function), which function a call reaches, and the value of a number. Your
-functions are shown in full only in a `--debug` build; otherwise, and for code
-the debugger knows nothing about, it shows up to the first `ret` or 64
-instructions. `mfb dbg` reads the instructions MFBASIC programs are made of; an
-instruction it does not know, which happens mostly inside system libraries,
-shows as `.word` and its number.
+function), which function a call reaches, where an address an instruction
+names points, and the value of a number. Your functions are shown in full only
+in a `--debug` build; otherwise, and for code the debugger knows nothing about,
+it shows up to the first return or 64 instructions. `mfb dbg` reads the
+instructions of MFBASIC programs and of the system libraries they call, written
+as lldb writes them. The few it does not know, such as the scalable vector
+instructions some system libraries use, show as `.word` and their number.
 
 ## Examples
 
