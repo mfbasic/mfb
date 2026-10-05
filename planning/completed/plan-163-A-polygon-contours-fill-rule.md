@@ -615,7 +615,7 @@ Acceptance: the man page and the spec render and cite correctly.
   memory-vocabulary hits: 0`; `man-run-examples.sh canvas --run` → `examples: 32 built:
   32 ran: 32 … failed: 0`; `spec-census.sh --citations` → MISS-PATH/LINE/SYMBOL 0,
   `--links` → `unresolved=0`; `cargo test --bin mfb spec` → 46 passed.
-Commit: —
+Commit: 88caaa0b4
 
 ## Validation Plan
 
@@ -640,6 +640,8 @@ Commit: —
   from plan-159-D's recorded run) and `bash scripts/artifact-gate.sh
   target/release/mfb all` → 0 diffs outside the predicted
   `tests/syntax/app/app-mouse-surface` set (est. 20 min). Any other diff is a bug hunt.
+  (Corrections 9: run once for the whole of plan-163, after its last letter, with this
+  letter's predictions included.)
 
 ## Open Decisions
 
@@ -689,6 +691,11 @@ Commit: —
    baseline needed no detached build: an EvenOdd polygon's item block is unchanged by
    this letter (slot 21 is 0, so the reflex word stays 0), so the pre-regeneration
    binary with the old `.frag.spv` renders exactly what HEAD did.
+9. **The final gate runs once for plan-163, not per letter.** B, C and D each predict
+   their own final gate over the same two commands, and every letter of this plan is
+   executed in one integration worktree, so the tree-wide `cargo test --no-fail-fast` and
+   `artifact-gate.sh … all` run once after D, against every letter's predictions. A's
+   own acceptance checks above are all run and recorded.
 
 ## Summary
 

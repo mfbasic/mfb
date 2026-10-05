@@ -9,8 +9,8 @@ IMPORT math
 ' coverage is several sRGB levels, so this is where a GPU distance that rounds to a
 ' different coverage step than the software oracle shows past Tolerance::GPU_DEFAULT.
 ' Radius 180. {301/2} winds twice round its centre, so the centre that even-odd
-' leaves as a hole is filled here, and the GPUs' signed crossing count is compared
-' against the oracle's on 602 crossings per row.
+' leaves as a hole is filled here, and the GPUs' signed winding count over its 301
+' short edges is compared against the oracle's.
 FUNC star(n AS Integer, k AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
   MUT points AS List OF canvas::Point = []
   MUT i AS Integer = 0
