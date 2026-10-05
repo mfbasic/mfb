@@ -45,8 +45,8 @@ The feature-wide gate is in plan-167-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-167-A complete | `ls planning/plan-167-A-*` → no match (archived to `planning/completed/`) | NOT MET (2026-10-03) |
-| `os::getConfigOr` does not exist yet | `grep -rn getConfigOr src` → no hits | MET (2026-10-03) |
+| plan-167-A complete | `ls planning/plan-167-A-*` → no match (archived to `planning/completed/`) | MET (2026-10-05; archived in 26a8f38c5's successor commit) |
+| `os::getConfigOr` does not exist yet | `grep -rn getConfigOr src` → no hits | MET (2026-10-05) |
 
 Everything below assumes these hold.
 

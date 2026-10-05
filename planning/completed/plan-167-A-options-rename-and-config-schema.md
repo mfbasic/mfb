@@ -402,7 +402,7 @@ keeps what tinyjson drops.
   Check: `cargo test --bin mfb json::lossless` → all pass (est. 2 min, mostly the
   build).
   Result (2026-10-05): `test result: ok. 9 passed; 0 failed`.
-Commit: (lands with Phase 3; see Corrections)
+Commit: 26a8f38c5 (with Phase 3; see Corrections)
 
 ### Phase 3: `config` model and validator
 
@@ -456,7 +456,7 @@ config changes nothing in the output.
   identical. Coverage loop (Validation Plan) → no output.
   `cargo test --bin mfb -- manifest:: json:: rules:: spec` → 309 passed; `cargo check
   --all-targets` and `cargo clippy --bin mfb` → no warnings.
-Commit: —
+Commit: 26a8f38c5
 
 ## Validation Plan
 
