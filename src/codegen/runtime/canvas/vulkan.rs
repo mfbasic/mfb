@@ -41,7 +41,8 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_residual_field, emit_item_stroke_sign, push_symbol_address,
+    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
+    push_symbol_address,
     BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT,
     CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS,
     FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
@@ -3619,6 +3620,11 @@ fn emit_item_block(
     let set = builder.label("vk_item_reflex_set");
     let done = builder.label("vk_item_reflex_done");
     for instruction in emit_item_arc_flags(header, off_item, &set, &done) {
+        builder.emit(instruction);
+    }
+    // plan-163-A: a polygon's fill rule over that word, which only an arc reads.
+    let rule_done = builder.label("vk_item_rule_done");
+    for instruction in emit_item_polygon_rule(header, off_item, &rule_done) {
         builder.emit(instruction);
     }
 

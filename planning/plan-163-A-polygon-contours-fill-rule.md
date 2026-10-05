@@ -524,29 +524,42 @@ unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden` → pass, with
   goldens exact and unmodified (est. 6 min, guess).
   Result: 22 + 64 passed (2 ignored); `git status tests/golden/canvas` clean.
-Commit: —
+Commit: befde7bb2
 
 ### Phase 3 — GPU NonZero (Metal and Vulkan; largest blast radius)
 
 This phase delivers the rule in both shaders. It is last because it edits two
 hand-kept shader twins and a checked-in binary that no test fully checks.
 
-- [ ] `src/codegen/runtime/canvas/mod.rs`: add `emit_item_polygon_rule` (§6). Call it
+- [x] `src/codegen/runtime/canvas/mod.rs`: add `emit_item_polygon_rule` (§6). Call it
       after `emit_item_arc_flags` in `metal.rs:emit_item_block` and
       `vulkan.rs:emit_item_block`.
-- [ ] `metal.rs:METAL_SHADER_BODY`: add signed-crossing variants of
+- [x] `metal.rs:METAL_SHADER_BODY`: add signed-crossing variants of
       `edgeToggles32`/`dfToggles`, change `edgeDistance` to a winding count with the
       `nonZero` argument, and pass `item.arc.y` at the `kind == 4` dispatch. Update the
       `arc.y` comment (:561, and the struct comment) to "arc reflex / polygon fill
-      rule".
-- [ ] `mfb_canvas.frag`: the same change, line for line with the MSL. Update the
-      `ItemBlock` `arc` comment.
-- [ ] Baseline first: `scripts/test-canvas-vulkan.sh tests/canvas/scenes/star_301_2_on_black.mfb`
+      rule". (Corrections 7: the boolean `edgeToggles32`/`dfToggles` had no other
+      caller, so they became the signed `edgeCrossing32`/`dfCrossing` rather than
+      gaining twins.)
+- [x] `mfb_canvas.frag`: the same change, line for line with the MSL. Update the
+      `ItemBlock` `arc` comment. (The `.vert` struct comment too; its SPIR-V is
+      unchanged.)
+- [x] Baseline first: `scripts/test-canvas-vulkan.sh tests/canvas/scenes/star_301_2_on_black.mfb`
       on box 2228 at HEAD, and record the result here. Then regenerate the SPIR-V with
       `scripts/regen-spirv.sh` (box 2228). Commit only the `.frag.spv` unless the
-      `.vert` changed.
-- [ ] Tests: add the Phase 2 NonZero scenes (ring-with-hole both directions, pentagram,
+      `.vert` changed. (Corrections 8: 2228 was down, so 2226 ran both. Baseline,
+      with the checked-in pre-change `.frag.spv`: `scripts/test-canvas-gpu-rows.sh
+      target/debug/mfb --target linux-aarch64 --rows star301x2` → `ok worst=1
+      differing=0.0319%`. Regenerated with `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`
+      (glslang 11:12.0.0): `.frag.spv` 115,916 → 117,384 bytes, `.vert.spv`
+      byte-identical (`cmp` → equal). `cargo test --bin mfb vulkan` → 9 passed.)
+- [x] Tests: add the Phase 2 NonZero scenes (ring-with-hole both directions, pentagram,
       `star_301_2_nonzero_on_black`) to `rt_canvas_metal.rs`'s scene rows.
+      (`a_short_edge_star_filled_non_zero_matches_the_software_oracle` and
+      `both_fill_rules_match_the_software_oracle_on_metal`, the latter over the new
+      shared scene `tests/canvas/scenes/fill_rules_on_black.mfb` — both ring directions
+      under both rules, both pentagrams, a stroked translucent three-ring item and a
+      transformed one — also row `fillrules` in `scripts/test-canvas-gpu-rows.sh`.)
 
 Acceptance: both GPUs draw both rules within tolerance of the software renderer.
   Check (Metal, local Mac): `cargo test --test rt_canvas_metal` → pass with
@@ -557,6 +570,16 @@ Acceptance: both GPUs draw both rules within tolerance of the software renderer.
   `star_301_2_on_black.mfb` → both within `GPU_DEFAULT` (est. 10 min, guess). Also
   `scripts/test-canvas-gpu-rows.sh tests/canvas/scenes/star_301_2_nonzero_on_black.mfb
   --target windows-x86_64` on box 206, the only real GPU (est. 10 min, guess).
+  Result (Corrections 8 for the command form and the box):
+  * `cargo test --test rt_canvas_metal` → 40 passed; the two new rows assert
+    `gpuFrames≠0` through `assert_metal_draws_like_software`.
+  * Vulkan, box 2226 (lavapipe): `scripts/test-canvas-gpu-rows.sh target/debug/mfb
+    --target linux-aarch64 --rows star301x2,star301x2nz,fillrules,polygonsblack,matrix`
+    → all ok: star301x2 worst=1 0.0319%, star301x2nz worst=1 0.0299%, fillrules
+    worst=2 0.5753%, polygonsblack worst=1 0.1915%, matrix geoVerifyMismatches=0.
+  * Vulkan, box 206 (Intel UHD 630): `--target windows-x86_64 --rows
+    star301x2nz,fillrules` → star301x2nz worst=1 0.0344%, fillrules worst=2 0.5917%,
+    both `gpuFrames=1`.
 Commit: —
 
 ### Phase 4 — Docs and spec
@@ -595,7 +618,10 @@ Commit: —
 - Runtime proof: an `--app` program that draws an "O" (outer ring clockwise, inner
   ring counter-clockwise) under both rules and a same-direction ring under both,
   screenshotted on macOS with `MFB_CANVAS_GPU=1`. The hole is visible in 3 of the 4
-  cases.
+  cases. **Done:** a `--debug` build run headless with `MFB_CANVAS_GPU=1
+  MFB_CANVAS_DUMP=…` (stats `metalReady=TRUE gpuFrames=1`), the Metal frame converted
+  to PNG and viewed: both "O"s and the same-direction pair under EvenOdd show the
+  hole; the same-direction pair under NonZero is filled.
 - Doc sync: Phase 4.
 - Final gate (run ONCE, after Phase 4): `cargo test --no-fail-fast` (est. 40 min,
   from plan-159-D's recorded run) and `bash scripts/artifact-gate.sh
@@ -636,6 +662,20 @@ Commit: —
    separate scene, so every ring case is crossed with every paint the matrix has.
 6. `HEADER_POLYGON_RULE` is referenced only by its pin test until Phase 3's
    `emit_item_polygon_rule` reads it (a `dead_code` warning in the Phase 1–2 commits).
+7. **Signed crossings replace the boolean toggles** rather than sitting beside them:
+   `grep -n "edgeToggles32\|dfToggles"` over both shaders found `edgeDistance` as the
+   only caller, so keeping the boolean pair would have been dead code. The shaders sum a
+   winding number and take EvenOdd as `(winding & 1) != 0`, the same parity.
+8. **Vulkan commands and box.** `scripts/test-canvas-vulkan.sh` takes an mfb executable,
+   not a scene; the per-scene runner is `scripts/test-canvas-gpu-rows.sh <mfb>
+   --rows <name>`, so the two scenes are rows `star301x2nz` and `fillrules` there. Box
+   2228 refused connections for this run (`nc -z 127.0.0.1 2228` → refused) and
+   `utmctl` cannot start it from this session (OSStatus -1743), so the Linux Vulkan
+   rows and the SPIR-V compile ran on 2226 (Debian aarch64, lavapipe), which
+   `.ai/remote_systems.md` names as the fast Vulkan box and a SPIR-V compiler. The
+   baseline needed no detached build: an EvenOdd polygon's item block is unchanged by
+   this letter (slot 21 is 0, so the reflex word stays 0), so the pre-regeneration
+   binary with the old `.frag.spv` renders exactly what HEAD did.
 
 ## Summary
 

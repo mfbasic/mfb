@@ -21,7 +21,8 @@ struct ItemBlock {
     ivec4 fill;
     ivec4 stroke;
     ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
-    ivec4 arc;     // glyph/picture height, arc reflex flag (bug-735), edgeBase, capStyle
+    ivec4 arc;     // glyph/picture height, arc reflex flag (bug-735) / polygon fill rule
+                   //   (plan-163-A, 0 EvenOdd, 1 NonZero), edgeBase, capStyle
     ivec4 surface; // width, height, blendMode, gradient kind (0 linear, 1 radial)
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
@@ -273,10 +274,14 @@ bool edgeUnsure(vec2 p, vec2 a, vec2 b, float slack) {
     float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
     return abs(cross) <= slack * (abs(b.x - a.x) + abs(b.y - a.y) + 2.0 * (abs(p.x - a.x) + abs(p.y - a.y)));
 }
-bool edgeToggles32(vec2 p, vec2 a, vec2 b) {
-    if ((a.y > p.y) == (b.y > p.y)) { return false; }
+// plan-163-A: an edge's signed crossing -- 0 when it does not cross the pixel's row left
+// of the pixel, else +1 for an edge running down the screen (`b.y > a.y`) and -1 for one
+// running up: `__canvas_edgeDistance`'s winding convention. Metal's, line for line.
+int edgeCrossing32(vec2 p, vec2 a, vec2 b) {
+    if ((a.y > p.y) == (b.y > p.y)) { return 0; }
     float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);
-    return b.y > a.y ? cross < 0.0 : cross > 0.0;
+    if (b.y > a.y) { return cross < 0.0 ? 1 : 0; }
+    return cross > 0.0 ? -1 : 0;
 }
 // bug-735: `__canvas_rectDistance` in double-float, from the point's offset to the centre
 // and the half-extents: a shape's rectangle (less its corner radius) and the clip's.
@@ -321,18 +326,22 @@ DfEdge dfEdge(int base, int e) {
 vec2 dfSegmentDistance(DfEdge g, vec2 x, vec2 y) {
     return dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy).d;
 }
-bool dfToggles(DfEdge g, vec2 x, vec2 y) {
-    if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return false; }
+int dfCrossing(DfEdge g, vec2 x, vec2 y) {
+    if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return 0; }
     vec2 lhs = dfMul(dfSub(x, g.ax), g.vy);
     vec2 rhs = dfMul(dfSub(y, g.ay), g.vx);
-    return g.vy.x > 0.0 ? dfLess(lhs, rhs) : dfLess(rhs, lhs);
+    if (g.vy.x > 0.0) { return dfLess(lhs, rhs) ? 1 : 0; }
+    return dfLess(rhs, lhs) ? -1 : 0;
 }
-vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y, float reach) {
+// plan-163-A: `nonZero` is the polygon's fill rule (`arc.y`). The crossings are summed as a
+// winding number; NonZero is inside when it is not zero, EvenOdd when it is odd, which is
+// the parity the toggles it replaced computed.
+vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y, float reach, int nonZero) {
     vec2 p = vec2(x.x, y.x);
     float bound = 1.0e6;
     float low = 1.0e6;
     bool unsure = false;
-    bool inside = false;
+    int winding = 0;
     for (int j = 0; j < count; ++j) {
         int i = (base + (list < 0 ? j : edges.values[list + j])) * 4;
         vec2 a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
@@ -343,8 +352,8 @@ vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y, float reach) {
         low = min(low, d32 - slack);
         if (edgeUnsure(p, a, b, slack)) {
             unsure = true;
-        } else if (edgeToggles32(p, a, b)) {
-            inside = !inside;
+        } else {
+            winding += edgeCrossing32(p, a, b);
         }
     }
     bool distant = low > reach;
@@ -365,8 +374,9 @@ vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y, float reach) {
             vec2 d = dfSegmentDistance(g, x, y);
             if (dfLess(d, best)) { best = d; }
         }
-        if (unsureEdge && dfToggles(g, x, y)) { inside = !inside; }
+        if (unsureEdge) { winding += dfCrossing(g, x, y); }
     }
+    bool inside = nonZero != 0 ? winding != 0 : (winding & 1) != 0;
     return inside ? -best : best;
 }
 
@@ -629,7 +639,7 @@ vec2 polylineDistance(ivec2 band, vec2 x, vec2 y, float reach) {
 // then `dfShapeDistance`. One call site each.
 vec2 sampleDistance(ivec2 band, vec2 x, vec2 y, float reach) {
     int kind = item.misc.x;
-    if (kind == 4) { return edgeDistance(item.arc.z, band.y, band.x, x, y, reach); }
+    if (kind == 4) { return edgeDistance(item.arc.z, band.y, band.x, x, y, reach, item.arc.y); }
     if (kind == 10) { return polylineDistance(band, x, y, reach); }
     float v = farBound(vec2(x.x, y.x));
     if (abs(v) > reach) { return vec2(v, 0.0); }

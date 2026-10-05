@@ -22,7 +22,8 @@ struct ItemBlock {
     ivec4 fill;    // 32: RGBA 0..255
     ivec4 stroke;  // 48: RGBA 0..255
     ivec4 misc;    // 64: kind, radius (16.16), strokeHalf (16.16), edgeCount
-    ivec4 arc;     // 80: glyph/picture height, arc reflex flag (bug-735), edgeBase, capStyle
+    ivec4 arc;     // 80: glyph/picture height, arc reflex flag (bug-735) / polygon fill
+                   //   rule (plan-163-A), edgeBase, capStyle
     ivec4 surface; //  96: width, height, blendMode, unused
     ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // 128: inverse transform ia,ib,ic,id as float32 BITS

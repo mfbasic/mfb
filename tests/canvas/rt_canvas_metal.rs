@@ -1190,6 +1190,34 @@ fn a_short_edge_star_over_black_matches_the_software_oracle() {
     );
 }
 
+/// plan-163-A: the {301/2} star under `NonZero`. It winds twice round its centre, so the
+/// disc even-odd leaves empty is filled — the GPUs' signed winding count, over hundreds
+/// of short edges, against the oracle's.
+const STAR_301_2_NONZERO: &str = include_str!("scenes/star_301_2_nonzero_on_black.mfb");
+
+#[test]
+fn a_short_edge_star_filled_non_zero_matches_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_star_301_2_nonzero",
+        STAR_301_2_NONZERO,
+        "the {301/2} star polygon filled NonZero over black",
+    );
+}
+
+/// plan-163-A: both fill rules where they differ — a ring with a hole wound each way, a
+/// {5/2} pentagram, a stroked translucent three-ring item and a transformed one — at
+/// fractional coordinates, so the rims are antialiased under each rule.
+const FILL_RULES: &str = include_str!("scenes/fill_rules_on_black.mfb");
+
+#[test]
+fn both_fill_rules_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_fill_rules",
+        FILL_RULES,
+        "the NonZero and EvenOdd ring scene over black",
+    );
+}
+
 /// `LARGE_POLYGONS` without its grey ground: filled, translucent, stroked, transformed
 /// and self-intersecting polygons of 300-4,000 edges, every rim over black. bug-688
 /// measured max delta 4 on Vulkan (lavapipe) at (736, 52), the rotated ring's rim.

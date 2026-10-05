@@ -465,7 +465,8 @@ pub(crate) const ITEM_OFFSET_MISC: usize = 64;
 ///
 /// The words are per-kind the same way `HEADER_AUX0` is: an arc never reads the
 /// edge base and a polygon never reads the flag, so one `ivec4` carries both rather
-/// than each taking its own. Both backends carry the edge base since plan-116-A: each
+/// than each taking its own. plan-163-A gives a polygon's copy of the flag word its
+/// fill rule instead ([`emit_item_polygon_rule`]). Both backends carry the edge base since plan-116-A: each
 /// polygon takes a slice of one buffer that serves the whole frame, and this is where
 /// the offset travels.
 pub(crate) const ITEM_OFFSET_ARC: usize = 80;
@@ -613,6 +614,9 @@ pub(crate) const ITEM_OFFSET_MISC_LO: usize = 256;
 /// endpoints (`arcCaps` minus the centre, a positive multiple of `(cos, sin)`), so no
 /// angle reaches either shader and `arc.x` is written 0 for every kind but a glyph or
 /// picture, which put their bitmap height there.
+///
+/// For a polygon (kind 4) the same word is its `FillRule` ordinal, 0 EvenOdd or 1
+/// NonZero (plan-163-A, [`emit_item_polygon_rule`]): only an arc reads it as the flag.
 pub(crate) const ITEM_ARC_REFLEX: usize = 4;
 
 /// bug-735: every item-block field a distance reads, as `(header slot, word offset,
@@ -793,6 +797,33 @@ pub(crate) fn emit_item_arc_flags(
         abi::move_immediate(abi::SCRATCH[1], "Integer", "1"),
         abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), reflex_at),
         abi::label(done),
+    ]
+}
+/// plan-163-A: a polygon's `FillRule` ordinal (`HEADER_POLYGON_RULE`, 0 EvenOdd, 1
+/// NonZero) into `arc.y` (`ITEM_ARC_REFLEX`) of the item block at `block_at` from the
+/// stack pointer. Only an arc reads `arc.y` as its reflex flag, so a polygon's copy of
+/// the word is free; call this AFTER [`emit_item_arc_flags`], which writes the flag for
+/// every kind. Any other kind is skipped and keeps the flag. Stroked text is a polygon
+/// with slot 21 at 0, so it reads EvenOdd. `skip` is a fresh label. Clobbers
+/// `FP_SCRATCH[1]` and `SCRATCH[1]`.
+pub(crate) fn emit_item_polygon_rule(
+    header: abi::Reg,
+    block_at: usize,
+    skip: &str,
+) -> Vec<CodeInstruction> {
+    vec![
+        abi::load_double(abi::FP_SCRATCH[1], header, HEADER_KIND * 8),
+        abi::float_convert_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
+        abi::compare_immediate(abi::SCRATCH[1], GEO_KIND_POLYGON),
+        abi::branch_ne(skip),
+        abi::load_double(abi::FP_SCRATCH[1], header, HEADER_POLYGON_RULE * 8),
+        abi::float_convert_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
+        abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            block_at + ITEM_OFFSET_ARC + ITEM_ARC_REFLEX,
+        ),
+        abi::label(skip),
     ]
 }
 /// The gradient's kind (0 linear, 1 radial) in `surface.w`, which was the block's last

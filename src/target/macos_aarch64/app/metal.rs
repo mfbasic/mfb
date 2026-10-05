@@ -52,7 +52,8 @@ use crate::codegen::error::constants::error_constants::{
 };
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_residual_field, emit_item_stroke_sign, BAND_LIST_PER_EDGE,
+    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
+    BAND_LIST_PER_EDGE,
     BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP,
     ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
@@ -164,7 +165,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 fill;\n",     // RGBA 0..255
     "  int4 stroke;\n",   // RGBA 0..255
     "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    "  int4 arc;\n",      // glyph/picture height, arc reflex flag (bug-735), edgeBase, capStyle
+    // glyph/picture height, arc reflex flag (bug-735) / polygon fill rule (plan-163-A),
+    // edgeBase, capStyle
+    "  int4 arc;\n",
     "  int2 surface;\n",  // width, height (px)
     "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
     "  int gradientKind;\n", // 0 linear, 1 radial (plan-116-F); was the block's pad
@@ -388,10 +391,14 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);\n",
     "  return abs(cross) <= slack * (abs(b.x - a.x) + abs(b.y - a.y) + 2.0 * (abs(p.x - a.x) + abs(p.y - a.y)));\n",
     "}\n",
-    "static bool edgeToggles32(float2 p, float2 a, float2 b) {\n",
-    "  if ((a.y > p.y) == (b.y > p.y)) { return false; }\n",
+    // plan-163-A: an edge's signed crossing -- 0 when it does not cross the pixel's row
+    // left of the pixel, else +1 for an edge running down the screen (`b.y > a.y`) and -1
+    // for one running up: `__canvas_edgeDistance`'s winding convention.
+    "static int edgeCrossing32(float2 p, float2 a, float2 b) {\n",
+    "  if ((a.y > p.y) == (b.y > p.y)) { return 0; }\n",
     "  float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);\n",
-    "  return b.y > a.y ? cross < 0.0 : cross > 0.0;\n",
+    "  if (b.y > a.y) { return cross < 0.0 ? 1 : 0; }\n",
+    "  return cross > 0.0 ? -1 : 0;\n",
     "}\n",
     // bug-735: `__canvas_rectDistance` in double-float, from the point's offset to the centre
     // and the half-extents: a shape's rectangle (less its corner radius) and the clip's.
@@ -436,18 +443,22 @@ const METAL_SHADER_BODY: &str = concat!(
     "static float2 dfSegmentDistance(DfEdge g, float2 x, float2 y) {\n",
     "  return dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy).d;\n",
     "}\n",
-    "static bool dfToggles(DfEdge g, float2 x, float2 y) {\n",
-    "  if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return false; }\n",
+    "static int dfCrossing(DfEdge g, float2 x, float2 y) {\n",
+    "  if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return 0; }\n",
     "  float2 lhs = dfMul(dfSub(x, g.ax), g.vy);\n",
     "  float2 rhs = dfMul(dfSub(y, g.ay), g.vx);\n",
-    "  return g.vy.x > 0.0 ? dfLess(lhs, rhs) : dfLess(rhs, lhs);\n",
+    "  if (g.vy.x > 0.0) { return dfLess(lhs, rhs) ? 1 : 0; }\n",
+    "  return dfLess(rhs, lhs) ? -1 : 0;\n",
     "}\n",
-    "static float2 edgeDistance(constant int *edges, int base, int count, int list, float2 x, float2 y, float reach) {\n",
+    // plan-163-A: `nonZero` is the polygon's fill rule (`arc.y`). The crossings are summed
+    // as a winding number; NonZero is inside when it is not zero, EvenOdd when it is odd,
+    // which is the parity the toggles it replaced computed.
+    "static float2 edgeDistance(constant int *edges, int base, int count, int list, float2 x, float2 y, float reach, int nonZero) {\n",
     "  float2 p = float2(x.x, y.x);\n",
     "  float bound = 1.0e6;\n",
     "  float low = 1.0e6;\n",
     "  bool unsure = false;\n",
-    "  bool inside = false;\n",
+    "  int winding = 0;\n",
     "  for (int j = 0; j < count; ++j) {\n",
     "    int i = (base + (list < 0 ? j : edges[list + j])) * 4 + METAL_EDGE_BASE;\n",
     "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
@@ -458,8 +469,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "    low = min(low, d32 - slack);\n",
     "    if (edgeUnsure(p, a, b, slack)) {\n",
     "      unsure = true;\n",
-    "    } else if (edgeToggles32(p, a, b)) {\n",
-    "      inside = !inside;\n",
+    "    } else {\n",
+    "      winding += edgeCrossing32(p, a, b);\n",
     "    }\n",
     "  }\n",
     "  bool distant = low > reach;\n",
@@ -480,8 +491,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "      float2 d = dfSegmentDistance(g, x, y);\n",
     "      if (dfLess(d, best)) { best = d; }\n",
     "    }\n",
-    "    if (unsureEdge && dfToggles(g, x, y)) { inside = !inside; }\n",
+    "    if (unsureEdge) { winding += dfCrossing(g, x, y); }\n",
     "  }\n",
+    "  bool inside = nonZero != 0 ? winding != 0 : (winding & 1) != 0;\n",
     "  return inside ? -best : best;\n",
     "}\n",
     // plan-116-C: the inverse transform, decoded from the float32 bits the item block
@@ -760,7 +772,7 @@ const METAL_SHADER_BODY: &str = concat!(
     // then `dfShapeDistance`. One call site each.
     "static float2 sampleDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach) {\n",
     "  int kind = item.misc.x;\n",
-    "  if (kind == 4) { return edgeDistance(edges, item.arc.z, band.y, band.x, x, y, reach); }\n",
+    "  if (kind == 4) { return edgeDistance(edges, item.arc.z, band.y, band.x, x, y, reach, item.arc.y); }\n",
     "  if (kind == 10) { return polylineDistance(item, edges, band, x, y, reach); }\n",
     "  float v = farBound(item, float2(x.x, y.x));\n",
     "  if (abs(v) > reach) { return float2(v, 0.0); }\n",
@@ -3719,6 +3731,14 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         OFF_ITEM,
         &format!("{METAL_DRAW_SYMBOL}_{tag}_reflex_set"),
         &format!("{METAL_DRAW_SYMBOL}_{tag}_reflex_done"),
+    ) {
+        asm.push(instruction);
+    }
+    // plan-163-A: a polygon's fill rule over that word, which only an arc reads.
+    for instruction in emit_item_polygon_rule(
+        header,
+        OFF_ITEM,
+        &format!("{METAL_DRAW_SYMBOL}_{tag}_rule_done"),
     ) {
         asm.push(instruction);
     }
