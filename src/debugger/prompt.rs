@@ -58,8 +58,10 @@ Each listing starts with a line naming its columns.
 
   func          The program's functions, one per line:
                   <type> <address> <symbol> <written name>
-                <type> is MU for a function the program's author wrote, MR for
-                the MFBASIC runtime, LN for a function in a linked library.
+                <type> is MU for a function the program's author wrote, MB
+                for a built-in package's, MR for the MFBASIC runtime, SL for
+                a function the program imports from a system library; a
+                legend follows the list.
                 <address> is - for a linked function the program has not
                 loaded yet, and <written name> is - where the author wrote no
                 name.
@@ -530,7 +532,9 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
     // records) is shown once; one name at two addresses is shown twice.
     let mut seen = std::collections::HashSet::new();
     rows.retain(|(_, address, name, _)| seen.insert((*address, name.to_string())));
-    table(
+    let mut origins = rows.iter().map(|(origin, ..)| *origin).collect::<Vec<_>>();
+    origins.dedup();
+    let mut lines = table(
         ["Type", "Address", "Symbol", "Written name"],
         rows.into_iter()
             .map(|(origin, address, name, written)| {
@@ -542,7 +546,17 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
                 ]
             })
             .collect(),
-    )
+    );
+    // A legend for the types the listing shows.
+    if !origins.is_empty() {
+        lines.push(String::new());
+        lines.extend(
+            origins
+                .into_iter()
+                .map(|origin| format!("{}  {}", origin.code(), origin.legend())),
+        );
+    }
+    lines
 }
 
 /// The `list reg` lines: one register per line, the value in full-width hex and
@@ -1444,6 +1458,12 @@ mod tests {
                 symbol("_malloc", true, None, None),
                 symbol("_mfb_rt_print", false, Some(0x1008), Some(8)),
                 symbol("_mfb_fn_next_5Fseed", false, Some(0x1004), Some(4)),
+                symbol(
+                    "_mfb_ifn_datetime_5FnormInstant",
+                    false,
+                    Some(0x1020),
+                    Some(8),
+                ),
                 symbol("_free", true, Some(0x9000), None),
                 symbol("_malloc", true, None, None),
             ])
@@ -1657,14 +1677,24 @@ mod tests {
             out,
             format!(
                 "{PROMPT}\
-Type Address            Symbol              Written name
-MU   0x0000000000001004 _mfb_fn_next_5Fseed next_seed
-MU   0x0000000000001010 _mfb_fn_main        main
-MR   0x0000000000001000 _main               -
-MR   0x0000000000001008 _mfb_rt_print       -
-LN   0x0000000000009000 _free               free
-LN   -                  _malloc             malloc
-{PROMPT}Killed process 42.\n"
+Type Address            Symbol                          Written name
+MU   0x0000000000001004 _mfb_fn_next_5Fseed             next_seed
+MU   0x0000000000001010 _mfb_fn_main                    main
+MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
+MR   0x0000000000001000 _main                           -
+MR   0x0000000000001008 _mfb_rt_print                   -
+SL   0x0000000000009000 _free                           free
+SL   -                  _malloc                         malloc
+
+MU  {MU}
+MB  {MB}
+MR  {MR}
+SL  {SL}
+{PROMPT}Killed process 42.\n",
+                MU = Origin::User.legend(),
+                MB = Origin::Builtin.legend(),
+                MR = Origin::Runtime.legend(),
+                SL = Origin::Linked.legend(),
             )
         );
     }

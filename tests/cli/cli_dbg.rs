@@ -206,15 +206,32 @@ mod macos {
     }
 
     /// The `list func` rows of a reply, split into their four columns.
+    /// The rows of a `list func` reply, which ends with a legend after an
+    /// empty line: one `<type>  <meaning>` line per type the rows show.
     fn function_rows(reply: &str) -> Vec<[String; 4]> {
-        table_rows(reply, FUNCTION_COLUMNS)
+        let (table, legend) = reply
+            .split_once("\n\n")
+            .unwrap_or_else(|| panic!("no legend after the listing in {reply:?}"));
+        let rows = table_rows(table, FUNCTION_COLUMNS)
             .iter()
             .map(|line| {
                 let words = line.split_whitespace().collect::<Vec<_>>();
                 assert_eq!(words.len(), 4, "{line}");
                 [0, 1, 2, 3].map(|at| words[at].to_string())
             })
-            .collect()
+            .collect::<Vec<_>>();
+        let mut shown = rows.iter().map(|row| row[0].clone()).collect::<Vec<_>>();
+        shown.dedup();
+        let explained = legend
+            .lines()
+            .take_while(|line| !line.starts_with("DBG>"))
+            .map(|line| line.split_whitespace().next().unwrap_or("").to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            explained, shown,
+            "the legend explains the types shown: {reply:?}"
+        );
+        rows
     }
 
     fn is_address(word: &str) -> bool {
@@ -424,16 +441,16 @@ mod macos {
         assert!(rows
             .iter()
             .any(|row| row[0] == "MR" && row[2] == "_main" && row[3] == "-"));
-        let linked = rows.iter().filter(|row| row[0] == "LN").collect::<Vec<_>>();
+        let linked = rows.iter().filter(|row| row[0] == "SL").collect::<Vec<_>>();
         assert!(!linked.is_empty(), "{listing}");
         assert!(
             linked.iter().all(|row| row[1] == "-"),
             "nothing is bound before the loader runs:\n{listing}"
         );
-        // Groups come in order: MU, then MR, then LN.
+        // Groups come in order: MU, MB, MR, then SL.
         let order = rows.iter().map(|row| row[0].clone()).collect::<Vec<_>>();
         let mut sorted = order.clone();
-        sorted.sort_by_key(|code| ["MU", "MR", "LN"].iter().position(|c| c == code));
+        sorted.sort_by_key(|code| ["MU", "MB", "MR", "SL"].iter().position(|c| c == code));
         assert_eq!(order, sorted);
 
         session.send("list reg gpr sys simd\n");
@@ -486,7 +503,7 @@ mod macos {
         session.send("list func\n");
         let listing = session.until_prompt();
         let rows = function_rows(&listing);
-        let linked = rows.iter().filter(|row| row[0] == "LN").collect::<Vec<_>>();
+        let linked = rows.iter().filter(|row| row[0] == "SL").collect::<Vec<_>>();
         assert!(!linked.is_empty(), "{listing}");
         assert!(
             linked.iter().all(|row| is_address(&row[1])),
@@ -519,7 +536,7 @@ mod macos {
         let listing = session.until_prompt();
         let rows = function_rows(&listing);
         assert!(!rows.is_empty(), "{listing}");
-        assert!(rows.iter().all(|row| row[0] == "LN"), "{listing}");
+        assert!(rows.iter().all(|row| row[0] == "SL"), "{listing}");
         session.send("q\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));

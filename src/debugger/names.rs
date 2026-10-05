@@ -7,8 +7,14 @@
 //! (`crate::target::shared::nir::symbols::function_symbol`), and
 //! a hand-over copy of it appends a literal `$own<hex mask>` after the escaping.
 //! An IR name that starts with `#` drops the `#` and uses `_mfb_ifn_` instead:
-//! that is a built-in package's internal function, or a file-`PRIVATE` function
-//! whose name carries a 16-hex-digit file hash and a `$`.
+//! that is a built-in package's function, or a file-`PRIVATE` function whose
+//! name carries a 16-hex-digit file hash and a `$`. A built-in package written
+//! in MFBASIC names every function in its source `__<package>_<name>`
+//! (`crate::internal_name`), so `_mfb_ifn_datetime_5FnormInstant` is
+//! `datetime`'s `normInstant`: the public `datetime::<name>` when the package
+//! registers a member of that name, else its internal `datetime::#normInstant`
+//! (`#` is the compiler's internal-name sigil, which MFBASIC source never
+//! contains, so the name cannot be mistaken for anything a developer wrote).
 //!
 //! A built-in package member the runtime implements natively is emitted at
 //! `_mfb_rt_<family>_<call>` (`crate::target::shared::runtime::symbol_for_call`),
@@ -20,9 +26,12 @@
 pub(crate) enum Origin {
     /// `MU`: code the developer wrote, in the program or a package it imports.
     User,
+    /// `MB`: a built-in package's MFBASIC code.
+    Builtin,
     /// `MR`: the MFBASIC runtime and compiler-made support code.
     Runtime,
-    /// `LN`: a function the program calls in a linked system library.
+    /// `SL`: a system library function the program imports, bound by the
+    /// loader as the program starts.
     Linked,
 }
 
@@ -30,8 +39,24 @@ impl Origin {
     pub(crate) fn code(self) -> &'static str {
         match self {
             Origin::User => "MU",
+            Origin::Builtin => "MB",
             Origin::Runtime => "MR",
-            Origin::Linked => "LN",
+            Origin::Linked => "SL",
+        }
+    }
+
+    /// The legend line `list func` prints for this type.
+    pub(crate) fn legend(self) -> &'static str {
+        match self {
+            Origin::User => "MFB User: code you wrote, in your program or a package it imports",
+            Origin::Builtin => {
+                "MFB Builtin: a built-in package's code; a #name is internal to the package \
+                 (you can break on it, not call it)"
+            }
+            Origin::Runtime => "MFB Runtime: the MFBASIC runtime every program carries",
+            Origin::Linked => {
+                "System Linked: a system library function the program imports (via the linker)"
+            }
         }
     }
 }
@@ -50,8 +75,12 @@ pub(crate) fn classify_defined(symbol: &str) -> (Origin, Option<String>) {
         return (Origin::User, Some(written_name(&decode(strip_own(rest)))));
     }
     if let Some(rest) = symbol.strip_prefix(INTERNAL_PREFIX) {
-        if let Some(name) = private_name(&decode(strip_own(rest))) {
+        let decoded = decode(strip_own(rest));
+        if let Some(name) = private_name(&decoded) {
             return (Origin::User, Some(written_name(name)));
+        }
+        if let Some(name) = builtin_name(&decoded) {
+            return (Origin::Builtin, Some(name));
         }
     }
     if symbol.starts_with(RUNTIME_PREFIX) {
@@ -82,6 +111,30 @@ fn package_member(symbol: &str) -> Option<String> {
         })
         .get(symbol)
         .cloned()
+}
+
+/// The name of a built-in package's function from its decoded IR name less the
+/// `#` (`datetime_normInstant`, `collections_drop$LogLine`): `datetime::add`
+/// for a member the package registers, `datetime::#normInstant` for one of its
+/// internal functions; `None` when no package owns the name.
+fn builtin_name(decoded: &str) -> Option<String> {
+    let base = decoded.split_once('$').map_or(decoded, |(base, _)| base);
+    let (package, name) = base.split_once('_')?;
+    let package = crate::codegen::registry::registry()
+        .packages()
+        .iter()
+        .find(|candidate| candidate.import_name() == package)?;
+    if name.is_empty() {
+        return None;
+    }
+    let public = package
+        .function(name)
+        .is_some_and(|function| !function.internal_only);
+    Some(if public {
+        format!("{package}::{name}", package = package.import_name())
+    } else {
+        format!("{package}::#{name}", package = package.import_name())
+    })
 }
 
 /// The name a linked function has in C: the Mach-O symbol less its leading `_`.
@@ -218,9 +271,32 @@ mod tests {
     }
 
     #[test]
+    fn a_built_in_package_s_code_reads_as_package_and_name() {
+        for (symbol, name) in [
+            // Members the package registers.
+            ("_mfb_ifn_color_5Fbrighten", "color::brighten"),
+            ("_mfb_ifn_collections_5Fdrop_24LogLine", "collections::drop"),
+            ("_mfb_ifn_color_5Fbrighten$own1", "color::brighten"),
+            // The package's internal functions.
+            ("_mfb_ifn_datetime_5FnormInstant", "datetime::#normInstant"),
+            (
+                "_mfb_ifn_color_5FbrightenChannel",
+                "color::#brightenChannel",
+            ),
+        ] {
+            assert_eq!(
+                classify_defined(symbol),
+                (Origin::Builtin, Some(name.to_string())),
+                "{symbol}"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_code_has_no_written_name() {
         for symbol in [
-            "_mfb_ifn_json_5Fparse",
+            // `nosuchpkg` is no built-in package.
+            "_mfb_ifn_nosuchpkg_5Fparse",
             "_mfb_rt_print",
             "_mfb_arena_alloc",
             "_mfb_debug_shutdown",
@@ -272,10 +348,13 @@ mod tests {
 
     #[test]
     fn origins_sort_and_print_in_listing_order() {
-        assert!(Origin::User < Origin::Runtime && Origin::Runtime < Origin::Linked);
-        assert_eq!(
-            [Origin::User, Origin::Runtime, Origin::Linked].map(Origin::code),
-            ["MU", "MR", "LN"]
-        );
+        let order = [
+            Origin::User,
+            Origin::Builtin,
+            Origin::Runtime,
+            Origin::Linked,
+        ];
+        assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(order.map(Origin::code), ["MU", "MB", "MR", "SL"]);
     }
 }

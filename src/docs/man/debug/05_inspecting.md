@@ -14,13 +14,15 @@ show mem <where> [<size>]
 ### Listing functions
 
 `list func` prints one function per line, under the header
-`Type Address Symbol Written name`:
+`Type Address Symbol Written name`, and after the list a legend for the types
+it shows:
 
 | Type | The function is |
 | --- | --- |
-| `MU` | one you wrote, in your program or a package it imports |
-| `MR` | part of the MFBASIC runtime, which every program carries |
-| `LN` | in a system library the program calls, such as `malloc` |
+| `MU` | MFB User: one you wrote, in your program or a package it imports |
+| `MB` | MFB Builtin: part of a built-in package, such as `datetime` |
+| `MR` | MFB Runtime: part of the MFBASIC runtime, which every program carries |
+| `SL` | System Linked: a system library function the program imports, such as `malloc` |
 
 `Symbol` is the function's name in the executable, the one lldb and gdb use
 (`mfb man debug-external` explains how your names are spelled there).
@@ -29,15 +31,19 @@ show mem <where> [<size>]
 number) shows under the function's own name. A runtime function that does the
 work of a built-in package function shows that function's name, so
 `_mfb_rt_io_io_print` shows as `io::print`; the rest of the runtime shows `-`.
+A built-in package's function shows as the package and the function:
+`color::brighten` for one you can call, and `datetime::#normInstant`, with a
+`#`, for one the package keeps to itself. You cannot call a `#` function, but
+`breakpoint datetime::#normInstant` stops in it.
 
 `Address` is where the function is in the running program. A program `mfb dbg`
-started is paused before it has loaded its system libraries, so every `LN`
+started is paused before it has loaded its system libraries, so every `SL`
 function shows `-` there; attach to a running program to see where they are.
 When a program calls a system function from more than one place in the runtime,
 that function is listed once for each.
 
 Your functions are named only in a program built with `--debug`; in any other,
-`list func` shows only the `LN` functions.
+`list func` shows only the `SL` functions.
 
 ### Listing threads
 

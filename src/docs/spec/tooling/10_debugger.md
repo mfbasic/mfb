@@ -348,14 +348,24 @@ unbound import) is shown once; the same name at two addresses is shown twice:
 ```text
 Type Address Symbol Written name
 <type> <address> <symbol> <written name>
+
+<type>  <legend>
 ```
 
-- `<type>` is `MU`, `MR` or `LN`, and lines are grouped in that order; within a
-  group they are in address order with an unbound import last, and ties keep
-  symbol-table order.
+- `<type>` is `MU`, `MB`, `MR` or `SL`, and lines are grouped in that order;
+  within a group they are in address order with an unbound import last, and
+  ties keep symbol-table order.
 - `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import.
 - `<symbol>` is the symbol as the executable spells it.
 - `<written name>` is the name the developer wrote, or `-`.
+- After the table, an empty line and one legend line per type the listing
+  shows, in group order: the code, two spaces, and `Origin::legend` —
+  `MU  MFB User: code you wrote, in your program or a package it imports`,
+  `MB  MFB Builtin: a built-in package's code; a #name is internal to the
+  package (you can break on it, not call it)`, `MR  MFB Runtime: the MFBASIC
+  runtime every program carries`, `SL  System Linked: a system library
+  function the program imports (via the linker)`.
+  [[src/debugger/names.rs:Origin]]
 
 Classification and the written name come from the symbol alone
 (`src/debugger/names.rs:classify_defined`), inverting
@@ -363,14 +373,16 @@ Classification and the written name come from the symbol alone
 `src/target/shared/runtime/mod.rs:symbol_for_call` over the helper catalog
 (`supported_helper_specs`): [[src/debugger/names.rs:classify_defined]]
 [[src/debugger/names.rs:package_member]]
+[[src/debugger/names.rs:builtin_name]]
 
 | Symbol | Type | Written name |
 | --- | --- | --- |
 | `_mfb_fn_<escaped>` | `MU` | `<escaped>` with each `_XX` (two uppercase hex digits) decoded to its byte, then reduced as below |
 | `_mfb_ifn_<escaped>` decoding to `<16 hex>$<name>` (a file-`PRIVATE` function) | `MU` | `<name>`, reduced as below |
+| `_mfb_ifn_<escaped>` decoding to `<package>_<name>` (less any `$…`), `<package>` a registry package's import name: a built-in package's MFBASIC function, which its source spells `__<package>_<name>` | `MB` | `<package>::<name>` when the package registers a member `<name>` that is not `internal_only`; else `<package>::#<name>` (`#` is `crate::internal_name::INTERNAL_SIGIL`): `_mfb_ifn_datetime_5FnormInstant` is `datetime::#normInstant` |
 | `_mfb_rt_<family>_<call>` that `symbol_for_call` makes from a catalog spec whose `call` is a registry package member (`registry().owning_package` answers) | `MR` | `call` with its first `.` written `::`: `_mfb_rt_io_io_print` is `io::print` |
-| any other defined symbol (`_mfb_ifn_` built-in internals, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
-| an import | `LN` | the symbol less one leading `_` |
+| any other defined symbol (other `_mfb_ifn_*`, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
+| an import | `SL` | the symbol less one leading `_` |
 
 A trailing `$own<hex>` (a hand-over copy; the mask is not escaped) is dropped
 before decoding. The decoded IR name is reduced: `<16 hex>.<package>.<name>`
