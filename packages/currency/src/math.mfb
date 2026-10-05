@@ -1,0 +1,301 @@
+' ---------------------------------------------------------------------------
+' currency/math.mfb — arithmetic on amounts.
+'
+' Two kinds of operation, with different rules:
+'
+'   * Two amounts (add, subtract, compare, convert). Both codes must have a
+'     rate, even when they are the same code: the table is the list of
+'     currencies the program deals in, so a misspelled code fails here instead
+'     of quietly adding to itself. Then, if the codes differ, some code must
+'     have rate 1. The checks run in that order, so a missing rate is reported
+'     ahead of a missing base -- it names the thing to fix.
+'
+'   * One amount (multiply, divide, negate, round, format). These never read
+'     the table, so they work before any rate is set.
+'
+' Converting `value` from currency F to currency T is value * rate(F) / rate(T):
+' rate(F) takes it to the base currency and dividing by rate(T) takes it out.
+' Multiplying first keeps the full precision of a small rate; the cost is that
+' the intermediate base-currency value must fit Money, or the conversion fails
+' with errorCode::ErrOverflow.
+' ---------------------------------------------------------------------------
+
+IMPORT money
+
+' `value`, in currency `source`, expressed in currency `target`. Both codes are
+' canonical. Applies the two-amount checks described above.
+PRIVATE FUNC inCurrency(value AS Money, source AS String, target AS String) AS Money
+  LET targetRate AS Fixed = rateOf(target)
+  LET sourceRate AS Fixed = rateOf(source)
+  IF source = target THEN RETURN value
+  IF NOT hasBaseCurrency() THEN
+    FAIL error(ErrorNoBaseCurrency, "currency: converting " & source & " to " & target & " needs a base currency, and no currency in the table has rate 1")
+  END IF
+  RETURN value * sourceRate / targetRate
+END FUNC
+
+DOC
+  FUNC convert
+  GROUP Arithmetic
+  DESC `a` expressed in the currency `code`.
+  DESC
+  DESC The value is `a.value * rate(a.code) / rate(code)`, kept at `Money`'s
+  DESC five decimal places. Use `currency::round` to book the result to the
+  DESC target currency's minor units.
+  INFO `Money` times or divided by a `Fixed` currently drops the digits past
+  INFO the fifth place rather than rounding them under the `money::Rounding`
+  INFO mode (see `mfb man money`), so a converted value can be off by 0.00001
+  INFO per step from the correctly rounded one.
+  ARG a The amount to convert.
+  ARG code The currency to convert it to, in any case.
+  RET The same worth, in `code`.
+  ERROR 93170001 `a.code` or `code` is not a valid currency code.
+  ERROR 93170003 `a.code` or `code` has no rate in the table.
+  ERROR 93170004 The codes differ and no currency in the table has rate 1.
+  ERROR 77050010 The converted value, or its worth in the base currency on the way, is outside `Money`'s range (`errorCode::ErrOverflow`).
+  EXAMPLE
+    IMPORT currency
+    IMPORT io
+
+    FUNC main() AS Nothing
+      currency::setRate("USD", 1F)
+      currency::setRate("EUR", 1.25F)
+      LET dollars AS currency::Amount = currency::convert(currency::amount(10m, "EUR"), "USD")
+      io::print(currency::format(dollars))   ' 12.50 USD
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC convert(a AS Amount, code AS String) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  LET target AS String = checkedCode(code)
+  RETURN Amount[value := inCurrency(checked.value, checked.code, target), code := target]
+END FUNC
+
+DOC
+  FUNC add
+  GROUP Arithmetic
+  DESC `a + b`, in `a`'s currency.
+  DESC
+  DESC `b` is converted to `a`'s currency first, as `currency::convert` does.
+  DESC Both currencies need a rate even when they are the same, so adding
+  DESC two `USD` amounts fails until `USD` is in the table.
+  ARG a The first amount; the result is in its currency.
+  ARG b The amount to add.
+  RET The sum, in `a.code`.
+  ERROR 93170001 `a.code` or `b.code` is not a valid currency code.
+  ERROR 93170003 `a.code` or `b.code` has no rate in the table.
+  ERROR 93170004 The codes differ and no currency in the table has rate 1.
+  ERROR 77050010 The result, or `b`'s worth in the base currency on the way, is outside `Money`'s range (`errorCode::ErrOverflow`).
+  EXAMPLE
+    IMPORT currency
+    IMPORT io
+
+    FUNC main() AS Nothing
+      currency::setRate("USD", 1F)
+      currency::setRate("EUR", 1.25F)
+      LET total AS currency::Amount = currency::add(currency::amount(5m, "USD"), currency::amount(4m, "EUR"))
+      io::print(currency::format(total))   ' 10.00 USD
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC add(a AS Amount, b AS Amount) AS Amount
+  LET left AS Amount = checkedAmount(a)
+  LET right AS Amount = checkedAmount(b)
+  RETURN Amount[value := left.value + inCurrency(right.value, right.code, left.code), code := left.code]
+END FUNC
+
+DOC
+  FUNC subtract
+  GROUP Arithmetic
+  DESC `a - b`, in `a`'s currency.
+  DESC
+  DESC `b` is converted to `a`'s currency first, with the same rules as
+  DESC `currency::add`.
+  ARG a The amount to subtract from; the result is in its currency.
+  ARG b The amount to subtract.
+  RET The difference, in `a.code`.
+  ERROR 93170001 `a.code` or `b.code` is not a valid currency code.
+  ERROR 93170003 `a.code` or `b.code` has no rate in the table.
+  ERROR 93170004 The codes differ and no currency in the table has rate 1.
+  ERROR 77050010 The result, or `b`'s worth in the base currency on the way, is outside `Money`'s range (`errorCode::ErrOverflow`).
+END DOC
+EXPORT FUNC subtract(a AS Amount, b AS Amount) AS Amount
+  LET left AS Amount = checkedAmount(a)
+  LET right AS Amount = checkedAmount(b)
+  RETURN Amount[value := left.value - inCurrency(right.value, right.code, left.code), code := left.code]
+END FUNC
+
+DOC
+  FUNC compare
+  GROUP Arithmetic
+  DESC Compare two amounts by worth: -1 if `a` is worth less than `b`, 0 if
+  DESC the same, 1 if more.
+  DESC
+  DESC `b` is converted to `a`'s currency and the two values are compared at
+  DESC `Money`'s five decimal places, with the same rules as `currency::add`.
+  DESC Amounts that are worth the same can compare unequal by a step of
+  DESC 0.00001 when the conversion does not come out exactly; round both to a
+  DESC common precision first if that matters.
+  ARG a The first amount.
+  ARG b The second amount.
+  RET -1, 0 or 1.
+  ERROR 93170001 `a.code` or `b.code` is not a valid currency code.
+  ERROR 93170003 `a.code` or `b.code` has no rate in the table.
+  ERROR 93170004 The codes differ and no currency in the table has rate 1.
+  ERROR 77050010 `b`, or its worth in the base currency on the way, overflows `Money` when converted (`errorCode::ErrOverflow`).
+END DOC
+EXPORT FUNC compare(a AS Amount, b AS Amount) AS Integer
+  LET left AS Amount = checkedAmount(a)
+  LET right AS Amount = checkedAmount(b)
+  LET other AS Money = inCurrency(right.value, right.code, left.code)
+  IF left.value < other THEN RETURN -1
+  IF left.value > other THEN RETURN 1
+  RETURN 0
+END FUNC
+
+DOC
+  FUNC multiply
+  GROUP Arithmetic
+  DESC `a` scaled by `factor`, in the same currency.
+  DESC
+  DESC The scaling is `Money`'s own `*`, so it rounds as `Money` does. It
+  DESC never reads the rates table.
+  ARG a The amount to scale.
+  ARG factor The dimensionless factor: an `Integer`, a `Fixed` or a `Float`.
+  RET The scaled amount, in `a.code`.
+  ERROR 93170001 `a.code` is not a valid currency code.
+  ERROR 77050010 The result is outside `Money`'s range (`errorCode::ErrOverflow`).
+  EXAMPLE
+    IMPORT currency
+    IMPORT io
+
+    FUNC main() AS Nothing
+      LET ticket AS currency::Amount = currency::amount(12.5m, "EUR")
+      io::print(currency::format(currency::multiply(ticket, 3)))   ' 37.50 EUR
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC multiply(a AS Amount, factor AS Integer) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := checked.value * factor, code := checked.code]
+END FUNC
+
+EXPORT FUNC multiply(a AS Amount, factor AS Fixed) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := checked.value * factor, code := checked.code]
+END FUNC
+
+EXPORT FUNC multiply(a AS Amount, factor AS Float) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := checked.value * factor, code := checked.code]
+END FUNC
+
+DOC
+  FUNC divide
+  GROUP Arithmetic
+  DESC `a` divided by `divisor`, in the same currency.
+  DESC
+  DESC The division is `Money`'s own `/`, so it rounds as `Money` does. It
+  DESC never reads the rates table. To split an amount into shares that add
+  DESC back up to it exactly, divide, round each share, and give the
+  DESC remainder to the last one.
+  ARG a The amount to divide.
+  ARG divisor The dimensionless divisor: an `Integer`, a `Fixed` or a `Float`.
+  RET The quotient, in `a.code`.
+  ERROR 93170001 `a.code` is not a valid currency code.
+  ERROR 77050002 `divisor` is zero (`errorCode::ErrInvalidArgument`).
+  ERROR 77050010 The result is outside `Money`'s range (`errorCode::ErrOverflow`).
+END DOC
+EXPORT FUNC divide(a AS Amount, divisor AS Integer) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := checked.value / divisor, code := checked.code]
+END FUNC
+
+EXPORT FUNC divide(a AS Amount, divisor AS Fixed) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := checked.value / divisor, code := checked.code]
+END FUNC
+
+EXPORT FUNC divide(a AS Amount, divisor AS Float) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := checked.value / divisor, code := checked.code]
+END FUNC
+
+DOC
+  FUNC negate
+  GROUP Arithmetic
+  DESC `-a`, in the same currency.
+  ARG a The amount to negate.
+  RET The amount with its sign flipped.
+  ERROR 93170001 `a.code` is not a valid currency code.
+  ERROR 77050010 `a.value` is the most negative `Money`, which has no positive counterpart (`errorCode::ErrOverflow`).
+END DOC
+EXPORT FUNC negate(a AS Amount) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := -checked.value, code := checked.code]
+END FUNC
+
+DOC
+  FUNC round(Amount)
+  GROUP Rounding
+  DESC `a` booked to its currency's minor units: cents for `USD`, whole yen
+  DESC for `JPY`, thousandths for `BHD`.
+  DESC
+  DESC Rounds with `money::round`, so a halfway value follows the calling
+  DESC thread's `money::Rounding` mode. A code with no minor unit (every `_`
+  DESC code, and ISO codes such as `XAU`) keeps all five places, so its value
+  DESC is unchanged.
+  ARG a The amount to round.
+  RET The rounded amount, in `a.code`.
+  ERROR 93170001 `a.code` is not a valid currency code.
+  EXAMPLE
+    IMPORT currency
+    IMPORT io
+
+    FUNC main() AS Nothing
+      io::print(currency::format(currency::round(currency::amount(2.345m, "USD"))))   ' 2.35 USD
+      io::print(currency::format(currency::round(currency::amount(2.5m, "JPY"))))     ' 3 JPY
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC round(a AS Amount) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := money::round(checked.value, minorUnitsOf(checked.code)), code := checked.code]
+END FUNC
+
+DOC
+  FUNC round(Amount, Integer)
+  GROUP Rounding
+  DESC `a` rounded to `decimals` places, whatever its currency.
+  DESC
+  DESC Rounds with `money::round`, under the calling thread's
+  DESC `money::Rounding` mode.
+  ARG a The amount to round.
+  ARG decimals Decimal places to keep, 0 through 5.
+  RET The rounded amount, in `a.code`.
+  ERROR 93170001 `a.code` is not a valid currency code.
+  ERROR 77050002 `decimals` is outside 0 through 5 (`errorCode::ErrInvalidArgument`).
+END DOC
+EXPORT FUNC round(a AS Amount, decimals AS Integer) AS Amount
+  LET checked AS Amount = checkedAmount(a)
+  RETURN Amount[value := money::round(checked.value, decimals), code := checked.code]
+END FUNC
+
+DOC
+  FUNC format
+  GROUP Formatting
+  DESC `a` as text: the value at its currency's minor units, a space, and the
+  DESC code, such as `12.50 USD`, `1500 JPY` or `-0.125 BHD`.
+  DESC
+  DESC Display rounding is `toString(Money)`'s fixed half-away-from-zero rule,
+  DESC independent of the `money::Rounding` mode, so the same value always
+  DESC formats the same way. Round with `currency::round` first to format the
+  DESC booked value instead. A code with no minor unit shows all five places.
+  ARG a The amount to format.
+  RET The formatted amount.
+  ERROR 93170001 `a.code` is not a valid currency code.
+END DOC
+EXPORT FUNC format(a AS Amount) AS String
+  LET checked AS Amount = checkedAmount(a)
+  RETURN toString(checked.value, toByte(minorUnitsOf(checked.code))) & " " & checked.code
+END FUNC

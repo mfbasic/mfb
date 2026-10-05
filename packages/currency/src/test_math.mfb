@@ -1,0 +1,293 @@
+' ---------------------------------------------------------------------------
+' Tests: arithmetic on amounts.
+'
+' Every rate here is exact in binary Fixed (1.25 = 5/4, 1.5 = 3/2,
+' 0.0078125 = 1/128, 64), so each expected value is an exact decimal worked
+' out by hand in the case's comment and does not depend on how Money rounds a
+' Fixed product or quotient.
+' ---------------------------------------------------------------------------
+
+IMPORT errorCode
+IMPORT money
+IMPORT strings
+
+' The table most cases use: USD is the base.
+PRIVATE FUNC standardRates() AS Nothing
+  importRates(Map OF String TO Fixed { "USD" := 1F, "EUR" := 1.25F, "GBP" := 1.5F, "JPY" := 0.0078125F, "_GOLD" := 64F })
+END FUNC
+
+TESTING
+  TGROUP "convert"
+    ' 10 * 1.25 / 1 = 12.5
+    TCASE "into the base currency"
+      standardRates()
+      LET usd AS Amount = convert(amount(10m, "EUR"), "usd")
+      expectString(usd.code, "USD")
+      expectEqual(usd.value, 12.5m)
+    END TCASE
+
+    ' 12.5 * 1 / 1.25 = 10
+    TCASE "out of the base currency"
+      standardRates()
+      expectEqual(convert(amount(12.5m, "USD"), "EUR").value, 10m)
+    END TCASE
+
+    ' 3 * 1.5 / 1.25 = 3.6
+    TCASE "between two non-base currencies"
+      standardRates()
+      expectEqual(convert(amount(3m, "GBP"), "EUR").value, 3.6m)
+    END TCASE
+
+    ' 1000 / 128 = 7.8125, and 1 * 1 / (1/128) = 128
+    TCASE "a small rate in both directions"
+      standardRates()
+      expectEqual(convert(amount(1000m, "JPY"), "USD").value, 7.8125m)
+      expectEqual(convert(amount(1m, "USD"), "JPY").value, 128m)
+    END TCASE
+
+    ' 2 * 64 / 1.25 = 102.4
+    TCASE "a custom code"
+      standardRates()
+      expectEqual(convert(amount(2m, "_gold"), "EUR").value, 102.4m)
+    END TCASE
+
+    ' -10 * 1.25 = -12.5
+    TCASE "a negative amount"
+      standardRates()
+      expectEqual(convert(amount(-10m, "EUR"), "USD").value, -12.5m)
+    END TCASE
+
+    TCASE "to the same currency is the identity"
+      standardRates()
+      expectEqual(convert(amount(1.23456m, "EUR"), "EUR").value, 1.23456m)
+    END TCASE
+
+    TCASE "the target needs a rate"
+      standardRates()
+      expectTrap(convert(amount(1m, "EUR"), "CHF"), ErrorUnknownCurrency)
+    END TCASE
+
+    TCASE "the target code is checked"
+      standardRates()
+      expectTrap(convert(amount(1m, "EUR"), "EURO"), ErrorInvalidCode)
+    END TCASE
+
+    ' 90000000000000 * 1.5 = 1.35e14, past Money's 92233720368547.75807.
+    TCASE "a result outside Money's range overflows"
+      standardRates()
+      expectTrap(convert(amount(90000000000000m, "GBP"), "USD"), errorCode::ErrOverflow)
+    END TCASE
+  END TGROUP
+
+  TGROUP "add and subtract"
+    ' 5 + 4 * 1.25 = 10
+    TCASE "add converts b into a's currency"
+      standardRates()
+      LET total AS Amount = add(amount(5m, "USD"), amount(4m, "EUR"))
+      expectString(total.code, "USD")
+      expectEqual(total.value, 10m)
+    END TCASE
+
+    ' 4 + 5 / 1.25 = 8
+    TCASE "the result is in the first amount's currency"
+      standardRates()
+      LET total AS Amount = add(amount(4m, "EUR"), amount(5m, "USD"))
+      expectString(total.code, "EUR")
+      expectEqual(total.value, 8m)
+    END TCASE
+
+    ' 10 - 5 / 1.25 = 6
+    TCASE "subtract converts b into a's currency"
+      standardRates()
+      LET rest AS Amount = subtract(amount(10m, "EUR"), amount(5m, "USD"))
+      expectString(rest.code, "EUR")
+      expectEqual(rest.value, 6m)
+    END TCASE
+
+    TCASE "same-currency arithmetic is exact"
+      standardRates()
+      expectEqual(add(amount(0.1m, "USD"), amount(0.2m, "USD")).value, 0.3m)
+      expectEqual(subtract(amount(1m, "USD"), amount(1.00001m, "USD")).value, -0.00001m)
+    END TCASE
+
+    TCASE "codes in amounts built directly are upper-cased"
+      standardRates()
+      LET total AS Amount = add(Amount[value := 1m, code := "usd"], Amount[value := 2m, code := "Usd"])
+      expectString(total.code, "USD")
+      expectEqual(total.value, 3m)
+    END TCASE
+
+    TCASE "a malformed code in an amount built directly fails"
+      standardRates()
+      expectTrap(add(Amount[value := 1m, code := "dollars"], amount(1m, "USD")), ErrorInvalidCode)
+      expectTrap(add(amount(1m, "USD"), Amount[value := 1m, code := ""]), ErrorInvalidCode)
+    END TCASE
+
+    TCASE "overflow is Money's own"
+      standardRates()
+      expectTrap(add(amount(92233720368547m, "USD"), amount(1m, "USD")), errorCode::ErrOverflow)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the two-amount rules"
+    TCASE "both currencies need a rate"
+      importRates(Map OF String TO Fixed { "USD" := 1F })
+      expectTrap(add(amount(1m, "USD"), amount(1m, "EUR")), ErrorUnknownCurrency)
+      expectTrap(add(amount(1m, "EUR"), amount(1m, "USD")), ErrorUnknownCurrency)
+    END TCASE
+
+    TCASE "the same currency still needs a rate"
+      clearRates()
+      expectTrap(add(amount(1m, "USD"), amount(2m, "USD")), ErrorUnknownCurrency)
+      expectTrap(compare(amount(1m, "USD"), amount(2m, "USD")), ErrorUnknownCurrency)
+      expectTrap(convert(amount(1m, "USD"), "USD"), ErrorUnknownCurrency)
+    END TCASE
+
+    TCASE "different currencies need a base currency"
+      importRates(Map OF String TO Fixed { "EUR" := 1.25F, "GBP" := 1.5F })
+      expectTrap(add(amount(1m, "EUR"), amount(1m, "GBP")), ErrorNoBaseCurrency)
+      expectTrap(subtract(amount(1m, "EUR"), amount(1m, "GBP")), ErrorNoBaseCurrency)
+      expectTrap(compare(amount(1m, "EUR"), amount(1m, "GBP")), ErrorNoBaseCurrency)
+      expectTrap(convert(amount(1m, "EUR"), "GBP"), ErrorNoBaseCurrency)
+    END TCASE
+
+    TCASE "the same currency does not need a base currency"
+      importRates(Map OF String TO Fixed { "EUR" := 1.25F })
+      expectEqual(add(amount(1m, "EUR"), amount(2m, "EUR")).value, 3m)
+      expectInteger(compare(amount(1m, "EUR"), amount(2m, "EUR")), -1)
+    END TCASE
+
+    TCASE "a missing rate is reported ahead of a missing base"
+      importRates(Map OF String TO Fixed { "EUR" := 1.25F })
+      expectTrap(add(amount(1m, "EUR"), amount(1m, "JPY")), ErrorUnknownCurrency)
+      expectTrap(add(amount(1m, "JPY"), amount(1m, "EUR")), ErrorUnknownCurrency)
+    END TCASE
+
+    TCASE "the messages name the currencies"
+      importRates(Map OF String TO Fixed { "EUR" := 1.25F, "GBP" := 1.5F })
+      expectEqual(strings::contains(addMessage(amount(1m, "EUR"), amount(1m, "JPY")), "JPY"), TRUE)
+      LET noBase AS String = addMessage(amount(1m, "EUR"), amount(1m, "GBP"))
+      expectEqual(strings::contains(noBase, "GBP"), TRUE)
+      expectEqual(strings::contains(noBase, "EUR"), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "compare"
+    ' 12.5 USD = 12.5 / 1.25 = 10 EUR
+    TCASE "equal worth across currencies"
+      standardRates()
+      expectInteger(compare(amount(10m, "EUR"), amount(12.5m, "USD")), 0)
+      expectInteger(compare(amount(12.5m, "USD"), amount(10m, "EUR")), 0)
+    END TCASE
+
+    ' 12.49995 / 1.25 = 9.99996 < 10; 12.50005 / 1.25 = 10.00004 > 10. Both
+    ' quotients fit five places, so no rounding is involved.
+    TCASE "slightly less and slightly more"
+      standardRates()
+      expectInteger(compare(amount(10m, "EUR"), amount(12.49995m, "USD")), 1)
+      expectInteger(compare(amount(10m, "EUR"), amount(12.50005m, "USD")), -1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "one-amount arithmetic"
+    TCASE "multiply by Integer, Fixed and Float"
+      clearRates()
+      LET ticket AS Amount = amount(12.5m, "eur")
+      expectEqual(multiply(ticket, 3).value, 37.5m)
+      expectEqual(multiply(ticket, 0.5F).value, 6.25m)
+      expectEqual(multiply(ticket, 0.5).value, 6.25m)
+      expectString(multiply(ticket, 3).code, "EUR")
+    END TCASE
+
+    TCASE "divide by Integer, Fixed and Float"
+      clearRates()
+      LET bill AS Amount = amount(12.5m, "EUR")
+      expectEqual(divide(bill, 4).value, 3.125m)
+      expectEqual(divide(bill, 0.5F).value, 25m)
+      expectEqual(divide(bill, 0.5).value, 25m)
+    END TCASE
+
+    TCASE "dividing by zero fails"
+      expectTrap(divide(amount(1m, "EUR"), 0), errorCode::ErrInvalidArgument)
+    END TCASE
+
+    TCASE "negate"
+      clearRates()
+      LET owed AS Amount = negate(amount(12.5m, "USD"))
+      expectEqual(owed.value, -12.5m)
+      expectString(owed.code, "USD")
+    END TCASE
+
+    ' Money's range is -92233720368547.75808 through 92233720368547.75807
+    ' (`mfb man types numeric`), so the minimum has no positive counterpart.
+    TCASE "negating the most negative Money overflows"
+      LET lowest AS Money = -92233720368547.75807m - 0.00001m
+      expectTrap(negate(amount(lowest, "USD")), errorCode::ErrOverflow)
+    END TCASE
+
+    TCASE "one-amount operations check the code"
+      expectTrap(multiply(Amount[value := 1m, code := "XYZ"], 2), ErrorInvalidCode)
+      expectTrap(negate(Amount[value := 1m, code := "XYZ"]), ErrorInvalidCode)
+      expectTrap(format(Amount[value := 1m, code := "XYZ"]), ErrorInvalidCode)
+    END TCASE
+  END TGROUP
+
+  TGROUP "round"
+    TCASE "to the currency's minor units, commercial rounding"
+      clearRates()
+      money::setRounding(money::Rounding.Commercial)
+      expectEqual(round(amount(2.345m, "USD")).value, 2.35m)
+      expectEqual(round(amount(2.5m, "JPY")).value, 3m)
+      expectEqual(round(amount(1.2345m, "BHD")).value, 1.235m)
+      expectEqual(round(amount(-2.345m, "USD")).value, -2.35m)
+    END TCASE
+
+    TCASE "to the currency's minor units, banker's rounding"
+      money::setRounding(money::Rounding.Banker)
+      expectEqual(round(amount(2.345m, "USD")).value, 2.34m)
+      expectEqual(round(amount(2.5m, "JPY")).value, 2m)
+      expectEqual(round(amount(3.5m, "JPY")).value, 4m)
+      money::setRounding(money::Rounding.Commercial)
+    END TCASE
+
+    TCASE "a code with no minor unit is unchanged"
+      expectEqual(round(amount(1.23456m, "_GOLD")).value, 1.23456m)
+      expectEqual(round(amount(1.23456m, "XAU")).value, 1.23456m)
+    END TCASE
+
+    TCASE "to a given number of places"
+      money::setRounding(money::Rounding.Commercial)
+      LET r AS Amount = round(amount(1.23456m, "usd"), 1)
+      expectEqual(r.value, 1.2m)
+      expectString(r.code, "USD")
+      expectTrap(round(amount(1m, "USD"), 6), errorCode::ErrInvalidArgument)
+    END TCASE
+  END TGROUP
+
+  TGROUP "format"
+    TCASE "at the currency's minor units"
+      expectString(format(amount(12.5m, "usd")), "12.50 USD")
+      expectString(format(amount(1500m, "JPY")), "1500 JPY")
+      expectString(format(amount(-0.125m, "BHD")), "-0.125 BHD")
+      expectString(format(amount(1.23456m, "_gold")), "1.23456 _GOLD")
+      expectString(format(amount(0m, "EUR")), "0.00 EUR")
+    END TCASE
+
+    TCASE "display rounding is half away from zero in every mode"
+      money::setRounding(money::Rounding.Banker)
+      expectString(format(amount(2.345m, "USD")), "2.35 USD")
+      expectString(format(amount(-2.345m, "USD")), "-2.35 USD")
+      money::setRounding(money::Rounding.Commercial)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' The message add raises for `a` and `b`, or "" if it succeeds.
+PRIVATE FUNC addMessage(a AS Amount, b AS Amount) AS String
+  LET ignored AS Amount = add(a, b)
+  RETURN ""
+
+  TRAP(problem)
+    RETURN problem.message
+  END TRAP
+END FUNC
