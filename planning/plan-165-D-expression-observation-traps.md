@@ -346,3 +346,8 @@ dead-handler branch only.
 - A package-constant root (`math::pi TRAP(e)`) is a known-total expression under
   Option 1 and warns instead of erroring; `check_checked_has_no_call` exempts
   package constants because they fold to their value.
+- The full suite (§5) found `diagnostics::the_syntax_corpus_reproduces_its_goldens_in_process`
+  RED on the two invalid fixtures that now carry a dead-handler warning: its
+  `golden_rules` read only `error[` lines, so a warning the golden records looked
+  unreviewed. It now reads `warn[` lines too (the golden records them; nothing is
+  skipped). `cargo test --bin mfb -- the_syntax_corpus_…` → 1 passed.

@@ -39,11 +39,20 @@ fn golden_rules(fixture: &str) -> Vec<String> {
     let path = fixture_dir(fixture).join("golden").join("build.log");
     let log = std::fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
-    log.split("error[")
-        .skip(1)
-        .filter_map(|rest| rest.split(']').next())
-        .filter_map(|head| head.split_whitespace().nth(1))
-        .map(str::to_string)
+    // Warnings too (`… warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: …`): the
+    // two passes report them in the same stream, and a golden that records one
+    // has reviewed it (plan-165-D made `LET a = 5 TRAP(e)` a dead-handler
+    // warning inside invalid fixtures).
+    ["error[", "warn["]
+        .iter()
+        .flat_map(|marker| {
+            log.split(marker)
+                .skip(1)
+                .filter_map(|rest| rest.split(']').next())
+                .filter_map(|head| head.split_whitespace().nth(1))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
