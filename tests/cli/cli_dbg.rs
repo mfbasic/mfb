@@ -975,13 +975,12 @@ mod macos {
                 && restarted[0].ends_with("; paused before its first instruction."),
             "{restarted:?}"
         );
+        // Only the pending breakpoint is left, so the address column is as
+        // wide as its header (`prompt::table` aligns to the widest entry).
         session.send("list breakpoint\n");
         assert_eq!(
             body(&session.until_prompt()),
-            [
-                "Address            Symbol Written name",
-                "-                  _exit  exit"
-            ]
+            ["Address Symbol Written name", "-       _exit  exit"]
         );
         session.send("run\n");
         let again = body(&session.until_prompt());
