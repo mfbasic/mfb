@@ -5,8 +5,9 @@
 //! function starts. Without one, a listing runs to the first `ret` or 64
 //! instructions. Code is read with every breakpoint's original instruction in
 //! place, and decoded by the decoder for the host's architecture — AArch64, the
-//! only one with a debugger backend, whose decoder knows exactly what the
-//! compiler emits; anything else shows as `.word`.
+//! only one with a debugger backend, whose decoder knows what the compiler
+//! emits and the instructions of dyld and the system libraries; a word it does
+//! not know (SVE, SME, memory tagging) shows as `.word`.
 
 use super::names::classify_defined;
 use super::{FunctionRange, Inferior};
@@ -369,8 +370,9 @@ fn named_address(inferior: &mut dyn Inferior, address: u64) -> Option<String> {
     })
 }
 
-/// What lldb notes after an instruction: where a branch or call goes (an offset
-/// in this function, else the function there), or a wide immediate's value.
+/// What lldb notes after an instruction: where a branch, call, `adr` or literal
+/// load points (an offset in this function, else the function there), or the
+/// value a `mov` of an immediate sets.
 fn comment(
     inferior: &mut dyn Inferior,
     range: &FunctionRange,
@@ -380,9 +382,6 @@ fn comment(
         return Some(format!("={value}"));
     }
     let target = instruction.target?;
-    if instruction.flow != Flow::Branch && instruction.flow != Flow::Call {
-        return None;
-    }
     let within = range
         .size
         .is_some_and(|size| target >= range.start && target < range.start + size);

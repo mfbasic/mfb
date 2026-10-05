@@ -78,12 +78,13 @@ that runs back past the start of the function shows those addresses as
 is not a multiple of 4 is refused.
 
 The notes after `;` say where a branch goes (`<+68>` is 68 bytes into this
-function), which function a call reaches, and the value of a number. Your
-functions are shown in full only in a `--debug` build; otherwise, and for code
-the debugger knows nothing about, it shows up to the first `ret` or 64
-instructions. `mfb dbg` reads the instructions MFBASIC programs are made of; an
-instruction it does not know, which happens mostly inside system libraries,
-shows as `.word` and its number.
+function), which function a call reaches, where an address an instruction
+names points, and the value of a number. Your functions are shown in full only
+in a `--debug` build; otherwise, and for code the debugger knows nothing about,
+it shows up to the first return or 64 instructions. `mfb dbg` reads the
+instructions of MFBASIC programs and of the system libraries they call, written
+as lldb writes them. The few it does not know, such as the scalable vector
+instructions some system libraries use, show as `.word` and their number.
 
 ## Examples
 

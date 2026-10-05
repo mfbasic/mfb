@@ -699,8 +699,8 @@ or the last `step` ran; thread 0 before either, or when it has ended.
 
 A function's extent is the first known of: the executable's symbol size
 (`--debug` builds), its import stub's size, the library's function starts.
-With none, the listing runs to the first `ret` or 64 instructions
-(`UNSIZED_LIMIT`). Code is read with `read_code`, which puts each
+With none, the listing runs to the first return (`ret`, `retaa`, `retab`) or 64
+instructions (`UNSIZED_LIMIT`). Code is read with `read_code`, which puts each
 breakpoint's saved instruction back, so a listing never shows the `brk`.
 
 The listing is lldb's: a header `<image>`<name>:` (`<image>`0x<start>:` when
@@ -710,26 +710,38 @@ name for the developer's functions and otherwise the symbol less one leading
 address as `0x` and 16 hex digits, ` <+<offset>>:` (` <-<offset>>:` before the
 function's start, when a count runs back past it) padded to the widest in the listing (omitted
 when no image holds it), and the instruction. A comment follows from column 33
-of the instruction text: `=<decimal>` for a wide `mov` immediate; for a branch
-or call, `<+<offset>>` inside this function, else the function at the target
-(`<name>` or `<name> + <offset>`); for an `add #imm` whose register an earlier
+of the instruction text: `=<decimal>` for a `mov` of an immediate (the value it
+sets, signed at the register's width, `mov w0, #-0x2 ; =-2`); for a branch,
+call, `adr` or literal load (`ldr x0, 0x…`), `<+<offset>>` inside this
+function, else the function at the address it names (`<name>` or
+`<name> + <offset>`); for an `add #imm` whose register an earlier
 `adrp` in the listing set, the data symbol at the address the pair forms, else
 the function there.
 
-Instructions are decoded by `crate::arch::aarch64::decode`, which knows
-exactly the forms `crate::arch::aarch64::encode` emits — a word it does not
-know prints as `.word  0x<word>` — and spells them as LLVM does on macOS,
-NEON in Apple's syntax (`fadd.2d v1, v0, v2`, `mov.16b v24, v0`, `mov.d x8,
-v1[0]`). Its round-trip test encodes every emitter form and decodes it back,
-and fails when the emitter gains a form it does not cover.
+Instructions are decoded by `crate::arch::aarch64::decode`, which knows every
+form `crate::arch::aarch64::encode` emits and, so that code in dyld and the
+system libraries reads too, the A64 base instruction set: integer, loads and
+stores in every addressing mode (pairs, exclusive, ordered, LSE atomics,
+`ldraa`), branches (`br`, `cbz`, `tbz`, `bc.<cond>`), system instructions
+(hints, barriers, `mrs`/`msr` with LLVM's register names, `dc`/`ic`), pointer
+authentication, scalar floating point (half, single, double), Advanced SIMD
+vector and scalar forms, AES, SHA-1, SHA-256, SHA-512 and SHA-3. It does not
+decode SVE, SME, memory tagging or the `cpy`/`set` memory operations; a word it
+does not know prints as `.word  0x<word>`. Text is spelled as lldb prints it on
+macOS, NEON in Apple's syntax (`fadd.2d v1, v0, v2`, `mov.16b v24, v0`,
+`mov.d x8, v1[0]`). Its round-trip test encodes every emitter form and decodes
+it back, and fails when the emitter gains a form it does not cover; a second
+test holds words from dyld and the system libraries to lldb's text for them,
+and an ignored test compares a whole corpus against lldb
+(`tools/oracles/aarch64-decode`).
 [[src/arch/aarch64/decode/mod.rs:decode]]
 
 ### `finish`
 
 [[src/debugger/breakpoints.rs:Breakpoints]] `finish` runs the current thread
-until the function holding its `pc` returns. It finds every `ret` in the
-function (through its extent, or the first within 64 instructions as `dis`
-does, `disassemble::returns`), writes a breakpoint of its own on each that
+until the function holding its `pc` returns. It finds every return
+instruction (`ret`, `retaa`, `retab`) in the function (through its extent, or
+the first within 64 instructions as `dis` does, `disassemble::returns`), writes a breakpoint of its own on each that
 holds none, and runs as `run` does. A stop at one of them by the current
 thread with its stack pointer at or above the one it had (so a deeper,
 recursive call's return does not count) removes them and steps the `ret`,

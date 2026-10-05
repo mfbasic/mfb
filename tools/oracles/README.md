@@ -8,6 +8,9 @@ dev-dependency (those live in `tests/`; see `tests/interop/rt_crypto_*_interop.r
   MAC/KDF). See `crypto/README.md` for how each is run and what it pins.
 - **compress/** — the `compress` builtin against Python's and Node's zlib, one mode per
   operation. See `compress/README.md`.
+- **aarch64-decode/** — the AArch64 decoder `mfb dbg` disassembles with, against lldb's
+  disassembly of dyld, the system libraries and MFBASIC programs. See
+  `aarch64-decode/README.md`.
 
 The rule for where an oracle goes is in `.ai/testing-gates.md` (the oracle-location
 table).
