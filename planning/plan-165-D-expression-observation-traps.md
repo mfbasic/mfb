@@ -1,9 +1,11 @@
 # plan-165-D: Inline TRAP for the complete expression value (review 3.1)
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Effort: medium (estimate: 1h–2h, excluding prerequisites and full-suite latency)
-Depends on: plan-165-C; bug-798 (fixed)
-Status: Design proposal; awaiting owner acceptance, then a go-ahead to implement
+Depends on: plan-165-C; bug-825; bug-798 (fixed)
+Status: Design proposal; re-verified against main 16df1c451 on 2026-10-04 (still
+valid; none of its goals were met by the 2026-10-04 TRAP fixes); awaiting owner
+acceptance, then a go-ahead to implement
 
 ## Goal
 
@@ -15,9 +17,12 @@ operator, and attaching it must not create additional numeric observation points
 
 ## Prerequisites
 
-- The owner accepts the proposed expression/observation contract below. Their
-  current position is leaning toward assignment observation, not final approval.
+- The owner accepts the proposed expression/observation contract below, including
+  one of the two eligibility options. Their current position is leaning toward
+  assignment observation, not final approval.
 - Plan-165-C is complete: inspect its active/archived task and commit ledger.
+- Bug-825 fixed (Status: Open on 2026-10-04): it corrects spec rule 11's `&`
+  sentence, which this plan's eligibility choice must then agree with.
 - Bug-798 is fixed (commit 526600e93). Before starting, confirm its parity
   matrix still passes: `cargo test --test rt_inline_trap_float_observation`. This
   plan reuses that observation mechanism and must not add a second one.
@@ -27,30 +32,60 @@ operator, and attaching it must not create additional numeric observation points
 
 ## Current state and evidence
 
+Probes re-run on 2026-10-04 with a debug compiler built from main 16df1c451
+(`/tmp/mfb165-target/debug/mfb`; copies under `/tmp/mfb165-probes`).
+
 `src/ast/stmt.rs:maybe_attach_postfix_trap` wraps the already parsed whole
-expression (`sed -n '470,552p' src/ast/stmt.rs`). There is no parser ambiguity
-between the last division and the whole expression.
+expression (`rg -n 'fn maybe_attach_postfix_trap' src/ast/stmt.rs`). There is no
+parser ambiguity between the last division and the whole expression.
 
 `src/ir/lower.rs:lower_inline_trap` gates extraction on
 `scrutinee_has_runtime_call` and only checks a root operator after an operand was
-lifted (`sed -n '1785,1875p' src/ir/lower.rs`). Thus changing eligibility alone
-would miss the single-operator root: both eligibility and capture must change.
+lifted (`rg -n 'scrutinee_has_runtime_call|let root_operator_raises' src/ir/lower.rs`).
+Thus changing eligibility alone would miss the single-operator root: both
+eligibility and capture must change. Bug-779 (fixed, `9f6965ebc`) added that gate so
+a call-free operator chain (`LET v = i * 2 + 3 TRAP(err)`) is rejected; its fixture
+`tests/syntax/trap/inline-trap-call-free-operator-chain-invalid` protects today's rule.
 
 `src/ir/verify/resources.rs:check_inline_trap_scrutinee` permits Checked but rejects
 call-free ordinary values and package constants; it also emits dead-handler
-warnings (`sed -n '980,1085p' src/ir/verify/resources.rs`).
+warnings (`rg -n 'fn check_inline_trap_scrutinee|"TYPE_INLINE_TRAP_DEAD_HANDLER"|"TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"' src/ir/verify/resources.rs`).
 `src/docs/spec/language/04_types.md` distinguishes eager integer failures from
 Float observation and permits transient nonfinite intermediates
-(`rg -n 'observation|intermediate' src/docs/spec/language/04_types.md`). Bug-798
-found inline TRAP violating that distinction; its fix (commit 526600e93) lifts a
-Float `+`, `-`, `*`, `/`, `DIV` or negation only at a boundary (not under another
-operator) as an observing `Checked`, and lifts `MOD`/`^` in place as a
-capture-only `Checked` (`observe = false`, IR tag 23) for their domain errors.
+(`rg -n 'observation|intermediate' src/docs/spec/language/04_types.md`). Bug-798's
+fix (commit 526600e93) lifts a Float `+`, `-`, `*`, `/`, `DIV` or negation only at a
+boundary (not under another operator) as an observing `Checked`, and lifts
+`MOD`/`^` in place as a capture-only `Checked` (`observe = false`, IR tag 23) for
+their domain errors.
+
+Comparisons can raise since bug-816 (commit 02bb44dc0): a `Fixed` compared with an
+`Integer` or `Float` promotes into `Fixed` with a checked conversion — `ErrOverflow`
+out of range, `ErrInvalidFormat` for a non-finite Float
+(`rg -n 'pub\(crate\) fn comparison_can_raise' -A20 src/ir/fallible.rs`; spec
+`language/04_types.md`, `rg -n 'compared with a .Fixed., it is first converted' src/docs/spec/language/04_types.md`).
+Whether a comparison is a raise site therefore depends on operand types.
+
+`&` is never fallible: the owner's 2026-10-04 exception
+(`rg -n 'string concatenation\) is the one case' src/ir/fallible.rs`). Today
+`LET s = a & b TRAP(e)` is rejected with `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`
+(`/tmp/mfb165-probes/d1`), contradicting rule 11's sentence that it is flagged
+`TYPE_INLINE_TRAP_DEAD_HANDLER`; bug-825 corrects that sentence to the rejection.
 
 Bug-797 (commit a5324104b) added a failure-edge census for function-level handler
 locals (`src/ir/verify/trap_init.rs`). It treats any `Checked` or `CallResult` as
 captured by its inline TRAP, so newly admitted operator-only traps must lower to
 those forms to keep handler-local readability unchanged.
+
+Bug-778 (commit 0bc2c56aa) keeps a trap temporary in frame slots, not a heap
+`Result` block, when `function_lowering.rs:unboxed_trap_result_candidates` accepts it;
+every trapped producer ends in `finish_unboxed_trap_result`
+(`rg -n 'fn finish_unboxed_trap_result' src/codegen/error/result/unboxed_trap.rs`).
+`tests/runtime/rt_inline_trap_success_alloc.rs` pins trapped-vs-plain allocation
+parity.
+
+Bug-820 (commit c0ef514ad) made a Float-suffixed literal in a Money slot a compile
+error (`tests/syntax/types/float-suffixed-literal-into-money-invalid`) and converts
+one in a Fixed slot.
 
 ## Proposed language contract
 
@@ -63,6 +98,8 @@ right-hand side with the language's existing precedence and associativity.
 | Call or argument evaluation fails | Enter handler; skip later operands/calls |
 | Float intermediate is nonfinite but becomes finite before observation | Continue; do not invent an intermediate trap |
 | Final Float assignment/argument observation fails | Enter the eligible trap protecting that evaluation |
+| Comparison promotes into Fixed and fails (out of range: `ErrOverflow`; non-finite Float, including a transient intermediate: `ErrInvalidFormat`) | Enter handler at the comparison; skip remaining evaluation |
+| Float compared with Float/Integer/Byte, nonfinite operand | Continue; a comparison is not an observation boundary |
 | Short-circuit right operand is unselected | Do not evaluate it or raise its potential error |
 | RECOVER succeeds | Deliver its value as the complete expression result |
 | Handler fails or diverges | Follow plan-165-A routing; do not commit the failed assignment |
@@ -73,24 +110,41 @@ zero divisor cannot produce a provisional value for later operations. Side effec
 already performed before a failure are not rolled back. For a discarded expression,
 preserve its existing observation rules; discarding must not invent a Float store.
 
-Recommended eligibility: any well-typed expression at the currently supported
-binding/assignment/bare-expression positions. A known-total expression can carry a
-provably unreachable handler, consistent with known-total calls. This avoids making
-syntax legality depend on the precision of fallibility inference. An alternative
-is to admit only potentially failing operators; owner acceptance must settle this
-before implementation. Neither option permits missing required checks.
+**Eligibility — the owner chooses one:**
+
+- **Option 1 (recommended): any well-typed expression** at the currently supported
+  binding/assignment/bare-expression positions. A known-total expression can carry a
+  provably unreachable handler, flagged `TYPE_INLINE_TRAP_DEAD_HANDLER`, consistent
+  with known-total calls. Syntax legality then does not depend on the precision of
+  fallibility inference. Consequence: `a & b TRAP(e)` becomes legal with a
+  dead-handler warning (`&` is never fallible), and rule 11's `&` sentence — set by
+  bug-825 to the rejection — is rewritten to the warning in the same change.
+- **Option 2: only potentially raising operators.** An operator-rooted scrutinee is
+  eligible when it contains a raising arithmetic operator (`operator_can_raise`), a
+  raising unary operator, or a comparison for which
+  `comparison_can_raise(op, left, right)` holds for the operand types; a comparison
+  of two Integers or two Floats is not eligible. `&` is never eligible:
+  `a & b TRAP(e)` stays `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`, matching rule 11 as
+  corrected by bug-825.
+
+Neither option permits missing required checks, and neither treats `&` as fallible.
 
 ## Compiler design
 
 1. Preserve the parser's complete-expression attachment; no precedence change.
 2. Replace the runtime-call requirement in `lower_inline_trap` with the accepted
-   expression eligibility rule. Capture a raising root even when nothing is hoisted.
+   expression eligibility rule. Capture a raising root even when nothing is hoisted;
+   a raising comparison root is captured like a raising arithmetic root.
 3. Use bug-798's representation for Float trees: an observing `Checked` at the
    boundary, capture-only `Checked` for in-tree `MOD`/`^`. A Float root under the
    new eligibility is a boundary. Retain plan-165-C's selected-branch evaluation
    and shared handler.
 4. Produce a correctly typed success result for known-total expressions without
-   evaluating the expression twice. Warning/removal requires plan-165-B proof.
+   evaluating the expression twice and **without a per-evaluation heap `Result`**:
+   an operator-rooted trapped expression must take bug-778's unboxed-slot path
+   (`unboxed_trap_result_candidates` must accept it), and a known-total one must
+   allocate nothing beyond its untrapped twin. Warning/removal requires plan-165-B
+   proof.
 5. Update `check_inline_trap_scrutinee` for the new source contract, accepting both
    observing and capture-only `Checked`, without weakening general Result typing or
    decoded-package safety checks.
@@ -98,16 +152,18 @@ before implementation. Neither option permits missing required checks.
    existing syntactic placement restrictions. Do not broaden RETURN syntax.
 
 Risk concentrates in a root with no lifted children, Float observation timing,
-assignment delivery on failure, and eligibility diagnostics inferred from lowered
-shapes. Do not encode eligibility by the presence of a particular synthetic temp.
+assignment delivery on failure, operand-type-dependent comparison eligibility
+(Option 2), and eligibility diagnostics inferred from lowered shapes. Do not encode
+eligibility by the presence of a particular synthetic temp.
 
 ## Compatibility and non-goals
 
 Previously rejected operator-only forms become valid after approval. Preserve
 arithmetic values, failure codes/origins, side-effect order and result ABI. No
 transactional rollback, exceptions, arbitrary statement-block trapping or changed
-numeric overflow policy. Expected fixture differences are the newly admitted forms
-and any proven-dead warnings; byte identity is not the feature acceptance gate.
+numeric overflow policy. `&` stays outside the fallibility census. Expected fixture
+differences are the newly admitted forms and any proven-dead warnings; byte
+identity is not the feature acceptance gate.
 
 Testing assertions (`expectTrap`/`expectNTrap`) share lowering but have their own
 call-only shape rule. Keep that public assertion API unchanged in this plan; ensure
@@ -117,27 +173,51 @@ its diagnostics remain covered rather than widening it accidentally.
 
 `git log --follow -S 'a_bare_operator_scrutinee_is_still_rejected' --
 tests/runtime/rt_inline_trap_raising_operator.rs` identifies the bug-471 regression
-control. It protects the then-deliberate call-only eligibility policy. Find all
-consumers with `rg -n 'TYPE_INLINE_TRAP_REQUIRES_FALLIBLE|call-free|scrutinee_has_runtime_call'
-src tests`. Owner acceptance of this proposal is the independent contract evidence
-for replacing those rejection assertions; until then they remain correct.
+control. It protects the then-deliberate call-only eligibility policy, as does
+bug-779's `tests/syntax/trap/inline-trap-call-free-operator-chain-invalid`
+(`git log --follow -- tests/syntax/trap/inline-trap-call-free-operator-chain-invalid`).
+Find all consumers with `rg -n 'TYPE_INLINE_TRAP_REQUIRES_FALLIBLE|call-free|scrutinee_has_runtime_call'
+src tests -l` (2026-10-04: 27 files, including spec `language/08_error-model.md`,
+`architecture/04_ir.md`, `package/08_ir-section.md`, `package/12_verifier-rules.md`,
+`diagnostics/01_rule-codes.md`, `src/rules/table.rs`, `src/ir/verify/tests.rs`, and
+the two runtime targets). Owner acceptance of this proposal is the independent
+contract evidence for replacing those rejection assertions; until then they remain
+correct.
 
 ## Phases
 
 ### Phase 1 — Specify and test the accepted boundary
 
-- [ ] Record owner acceptance and the selected total-expression eligibility policy.
+- [ ] Record owner acceptance and the selected eligibility option.
 - [ ] Add RED runtime cases for division failures in the first, middle and last
       positions of a chain; RECOVER must replace the entire result in every case.
 - [ ] Cover Integer/Byte/Fixed/Money checked operations, Float final overflow,
-      transient nonfinite recovery, comparisons and mandatory FMA parity.
+      transient nonfinite recovery and mandatory FMA parity. Write Fixed/Money
+      operands with their own literal suffixes (`1.5F`, `5.00m`) or conversions —
+      never a Float-suffixed literal in a Money slot, which bug-820 made a compile
+      error.
+- [ ] Comparisons: Fixed vs out-of-range Integer/Float (`ErrOverflow`) and Fixed vs
+      a non-finite Float, including a transient one (`ErrInvalidFormat`), each enter
+      the handler; Float vs Float/Integer/Byte with a non-finite operand does not.
+      Under Option 2, an Integer/Integer comparison stays
+      `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`.
+- [ ] `&`: under Option 1, `a & b TRAP(e)` builds with
+      `TYPE_INLINE_TRAP_DEAD_HANDLER` and runs; under Option 2 it stays
+      `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`. Either way a function containing only
+      `&` stays infallible.
 - [ ] Cover parenthesized expressions, assignment to an existing target, call
       arguments, conditional operators and discarded expressions. Assert that
       failure skips later effects and leaves the target unchanged until recovery.
+- [ ] Allocation parity (bug-778): for an operator-rooted trapped expression and a
+      known-total one, per-evaluation `arena.0.alloc_calls` equals the untrapped twin
+      at `-O0`, `-O1`, `-O3` (N/2N-delta method of
+      `tests/runtime/rt_inline_trap_success_alloc.rs`), and the failing forms keep
+      `arena.0.live_bytes 0` and `arena.0.double_free_skips 0`.
 - [ ] Preserve invalid RECOVER types, invalid handler fallthrough, forbidden trap
       positions and testing-assertion call requirements.
 - [ ] Assert a function-level handler may still read a local declared after an
-      operator-only trapped statement (bug-797 census).
+      operator-only trapped statement (bug-797 census); declare it before any
+      counted FOR (bug-816 makes every FOR a failure edge).
 - [ ] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
       existing `tests/runtime/rt_inline_trap_*` targets.
 
@@ -148,14 +228,18 @@ Commit: —
 
 ### Phase 2 — Expression capture and spec
 
-- [ ] Implement accepted eligibility/root capture and typed total-expression success.
-- [ ] Update error-model, operator/Float cross-references, IR lowering and diagnostic
-      rule descriptions together; include the chained-division boundary example.
+- [ ] Implement accepted eligibility/root capture and typed total-expression success
+      on the unboxed-slot path.
+- [ ] Update error-model (rule 11, including the `&` sentence for the chosen
+      option), operator/Float cross-references, IR lowering and diagnostic rule
+      descriptions together; include the chained-division boundary example.
 - [ ] Add valid fixtures under `tests/rt-behavior/trap` and invalid counterparts
-      under `tests/syntax/trap`; revise only independently disproved expectations.
+      under `tests/syntax/trap`; revise only independently disproved expectations
+      (bug-471's and bug-779's controls, with the owner's acceptance as evidence).
 
-Acceptance: the proposed runtime target proves whole-result recovery and unchanged
-observation timing; `cargo test --bin mfb spec` and rendered error-model topic agree
+Acceptance: the proposed runtime target proves whole-result recovery, unchanged
+observation timing and allocation parity; `cargo test --test rt_inline_trap_success_alloc`
+still passes; `cargo test --bin mfb spec` and the rendered error-model topic agree
 (estimate: minutes after build).
 Commit: —
 
@@ -170,9 +254,9 @@ history/contract proof before changing expectations. Full gates may take hours
 
 ## Open decisions
 
-Owner approval of the proposed boundary and whether known-total expressions are
-legal. The recommendation above is fully specified, but neither decision is treated
-as implementation permission.
+Owner approval of the proposed boundary and of Option 1 or Option 2 (which also
+decides whether `a & b TRAP(e)` is legal). The recommendation above is fully
+specified, but neither decision is treated as implementation permission.
 
 ## Corrections
 
@@ -185,3 +269,12 @@ the bug-798 prerequisite met with its regression command, replaced the stale
 named it in compiler-design steps 3 and 5, added the bug-797 census interaction and
 a test for it, added `[[test]]` registration, and replaced the session-specific
 authorization text with a reusable go-ahead condition.
+
+2026-10-04 review (against 85a5f0a29, re-verified at 16df1c451): still valid as a
+proposal; owner acceptance still required. Replaced drifted line ranges
+(`check_inline_trap_scrutinee` moved from ~996 to 1125) with `rg` symbol commands.
+Added: comparison fallibility by operand type (`comparison_can_raise`) in Option 2;
+the `&` consequence of each option and its link to bug-825's rule 11 correction;
+bug-816's raising Float/Fixed comparison rows; bug-778's unboxed-slot requirement
+and allocation-parity tests; bug-820's literal constraint for Fixed/Money cases;
+bug-779's fixture as a consumer; bug-825 as a prerequisite.
