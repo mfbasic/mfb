@@ -1,14 +1,15 @@
 # bug-774: `compress::crc32` is 58× and `compress::inflate` 22× slower than zlib — per-access check overhead, per-byte output appends with spilled loop state
 
-Last updated: 2026-09-28
+Last updated: 2026-10-04
 Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open
-Regression Test: planned `tests/runtime/rt_compress_throughput.rs` (new), modeled on
-`tests/runtime/rt_compress_bounds.rs::decode_time_is_linear_in_output_size` (timing) and
-`tests/runtime/rt_bounds_elim_backedge.rs` (`.ncode` structure)
+Status: Fixed (2026-10-04, bug-staging-13)
+Regression Test: `tests/runtime/rt_compress_throughput.rs` (timing ratios + `.ncode` shape on four
+targets); `tests/runtime/rt_self_slice_append.rs`; `tests/runtime/rt_runtime_helper_callee_saved.rs`;
+`src/codegen/engine/regalloc/tests.rs:audited_runtime_helpers_clobber_only_caller_saved_registers`;
+`src/codegen/engine/util/vreg_frame.rs:tests::required_sp_local_bytes_uses_each_access_width`
 
 The `compress` benchmark group has one F row and one D row (`./benchmark/rank.py` →
 `F LIB compress crc32 13.488 0.232 0.241 58.1x 56.0x`, `D LIB compress inflate 18.208
@@ -550,7 +551,7 @@ code only: no `.out`/`build.log` runtime output may change.
 
 ### Phase 1: failing tests + audit (no behavior change)
 
-- [ ] `tests/runtime/rt_compress_throughput.rs` (new, modeled on
+- [x] `tests/runtime/rt_compress_throughput.rs` (new, modeled on
       `tests/runtime/rt_compress_bounds.rs::decode_time_is_linear_in_output_size`:
       one release build, `datetime::monotonicNanos` around each measured call,
       interleaved over five rounds, medians):
@@ -567,38 +568,39 @@ code only: no `.out`/`build.log` runtime output may change.
 
       Thresholds are placeholders from this doc's numbers. Phase 2 re-derives them
       from the fixed build, keeping a ≥ 1.5× margin to the pre-fix value.
-- [ ] `.ncode` structure tests (modeled on `tests/runtime/rt_bounds_elim_backedge.rs::get_guard_branches`
+- [x] `.ncode` structure tests (modeled on `tests/runtime/rt_bounds_elim_backedge.rs::get_guard_branches`
       via `common::build_ncode`):
       - `#compress_crc32`'s 8-byte loop contains no `bits_shift_out_of_range` label and
         no `list_get_invalid` guard on the table reads;
       - `copyLoop`'s loop-carried counter is not reloaded from a stack slot (no
         `ldr_u64 … sp …` of `k` inside the loop).
-- [ ] Audit `_mfb_arena_alloc`, `_mfb_arena_free` and `_mfb_rt_drop_owned_collection`
+- [x] Audit `_mfb_arena_alloc`, `_mfb_arena_free` and `_mfb_rt_drop_owned_collection`
       emitted bodies on all five targets for callee-saved preservation. Resolve the
       `call_clobber_mask` comment contradiction and write the verdict per helper into
       this doc.
-- [ ] Complete the Blast Radius verdicts for `crypto::` by measuring one SHA-256 loop
+- [x] Complete the Blast Radius verdicts for `crypto::` by measuring one SHA-256 loop
       before and after.
 
 Acceptance: the new tests fail for the documented reasons; the audit table is filled in.
-Commit: —
+Commit: `1d3a2fbbe` (RED test), `9a2a09933` (audit + test). See *Resolution*.
 
 ### Phase 2: the fix
 
-- [ ] A1 constant-count `bits::` shift elision (`src/codegen/builtins/bits/func_sl.rs`,
+- [x] A1 constant-count `bits::` shift elision (`src/codegen/builtins/bits/func_sl.rs`,
       `func_sr.rs`, `func_sra.rs`).
-- [ ] A2/A4 table-length fact or single guard, and LICM of the global load
+- [x] A2/A4 table-length fact or single guard, and LICM of the global load
       (`src/optimizer/opt2/checks.rs`, `licm.rs`, or `helper_crc32.rs` source).
-- [ ] A3 scaled addressing in `lower_get` for fixed-width lists (all targets).
-- [ ] A5 raise blocks out of line.
-- [ ] B1 per-helper clobber table in `src/codegen/engine/regalloc/analysis.rs:call_clobber_mask`
+- [x] A3 scaled addressing in `lower_get` for fixed-width lists (all targets).
+- [x] A5 raise blocks out of line.
+- [x] B1 per-helper clobber table in `src/codegen/engine/regalloc/analysis.rs:call_clobber_mask`
       (per target, after the Phase 1 audit), with a unit test beside
       `call_clobber_masks_match_each_targets_abi` in `regalloc/tests.rs`.
-- [ ] B2–B4 in `helper_inflate_core.rs` / `helper_huffman_table.rs` (private bodies).
+- [x] B2–B4 in `helper_inflate_core.rs` / `helper_huffman_table.rs` (private bodies).
 
 Acceptance: the Phase 1 tests pass; G1–G4 hold on the probes; interop/oracle
 unchanged; nothing in Non-goals changed.
-Commit: —
+Commit: `9a2a09933` B1, `ac558a36f` A3, `35cbc8c7f` A1, `a0567278c` (compare fusion, added),
+`207a6ed31` A5, `cd55d5cf5` (self-slice copy, added), `27b8bf00c` A2/A4 (source) + B2–B4.
 
 ### Phase 3: regenerate expected outputs + full validation
 
@@ -607,12 +609,13 @@ Commit: —
 - [ ] Re-run `benchmark` to regenerate `benchmark/baseline` by the normal procedure,
       and confirm `compress crc32` ≤ 8.5 ms and `compress inflate` ≤ 12.6 ms.
       Re-measure `deflate`/`gzip` and record them.
-- [ ] Update the dated tables in `src/docs/spec/stdlib/20_compress.md` "Measured
+- [x] Update the dated tables in `src/docs/spec/stdlib/20_compress.md` "Measured
       throughput" and the "≈86 MiB/s" CRC figure, via `tools/compress-bench/run.sh`.
-- [ ] `tests/interop/rt_compress_interop.rs` and `tools/oracles/compress` green.
+- [x] `tests/interop/rt_compress_interop.rs` and `tools/oracles/compress` green.
 
 Acceptance: full suite green; golden deltas are code-only; the reproductions meet G1–G3.
-Commit: —
+Commit: — (golden regeneration and the benchmark baseline are left to the batch merge; see
+*Resolution*, "Not done here").
 
 ## Validation Plan
 
@@ -653,3 +656,103 @@ before loosening) and in the golden churn it causes. The decoder source changes
 (B2–B4) are local and output-identical by construction. The spec, the memory model,
 the public API and the output bytes are untouched. The last ~19× to zlib on crc32 is
 hardware acceleration, left as an owner decision.
+
+## Resolution (2026-10-04)
+
+All four goals hold. Every number below is `macos-aarch64`, a release `mfb` built from the commit
+named, `mfb build -O 1`, measured with the 1-minute load average stated (`uptime`, 12-core host).
+
+| goal | probe (best of N, in-process) | before (`e089c1c85`) | after (`27b8bf00c`) | target |
+|---|---|---|---|---|
+| G1 | `/tmp/bs13-probe` "crc32 x64 (8 MiB)" (best of 7, load 4.5) | 13,650 µs | 7,208 µs | ≤ 8,500 |
+| G1 | benchmark row `compress crc32`, min of 10 (best of 2 runs, load 5.4) | 13.754 ms | 7.081 ms | ≤ 8.5 |
+| G2 | `/tmp/bs13-probe` "inflate only x16" (best of 7, load 4.5) | 14,192 µs | 4,614 µs | ≤ 5,000 |
+| G2 | benchmark row `compress inflate`, min of 10 (best of 2 runs, load 5.4) | 17.708 ms | 6.386 ms | ≤ 12.6 |
+| G3 | `/tmp/bs13-probe` "tiny inflate x1000" (best of 7, load 4.5) | 20,452 µs | 974 µs | ≤ 5,000 |
+| G4 | outputs, checksums, errors | — | identical (below) | identical |
+
+`/tmp/bs13-probe` is this doc's reproduction B harness plus reproduction A's `crc32 x64` loop; the
+benchmark rows come from `benchmark/mfb` with `main` cut down to the four `test_compress_*` calls
+(`--run 10`; checksums `test_compress_*` identical to `benchmark/baseline/mfb-O1.sums`). Against the
+committed C `-O0`/zlib baseline (crc32 0.232 ms, inflate 0.841 ms) the rows are now **30.5×** (was
+58.1×, F) and **7.6×** (was 21.7×, D). Throughput: CRC-32 0.86 ns/byte (≈1,160 MB/s; zlib ≈36 GB/s,
+hardware-assisted), inflate 2.2 ns/output byte (≈455 MB/s). At `-O2`/`-O3` (same harness, load 3.6):
+crc32 12.51/12.06 → 5.69/6.43 ms, inflate 14.72/14.54 → 5.72/5.73 ms. The other two rows moved too
+(-O1, same run): `deflate` 43.86 → 32.34 ms, `gzip` 49.64 → 34.43 ms.
+
+`tools/compress-bench/run.sh <mfb> inflate zlibDecode gzipDecode crc32` (load 3.6–5.7, 16 MiB, `-O1`):
+`inflate` 81.4/49.9/69.5 → 319.5/825.3/1,788.5 MiB/s (random/text/zero), CRC-32 ≈86 → ≈1,100 MiB/s;
+`deflate6` text 13.1 → 64.1 MiB/s. The spec's dated tables are re-measured with these figures.
+
+### Root causes, and what fixed each
+
+| # | cause | fix | commit |
+|---|---|---|---|
+| A3 | a fixed-width `get` was `cmp_imm; b.lt; ldr; cmp; b.ge; mov_imm; mul; add_imm; add; ldr` | one unsigned `cmp count, idx; b.ls`, `[lsl_imm]; add; ldr [x, #40]` | `ac558a36f` |
+| A1 | a literal shift count was range-checked at run time | literal (or `band` with a literal ≤ 63) count: immediate shift / no check | `35cbc8c7f` |
+| — | every IF/WHILE materialized a Boolean (7 instructions, 2 branches) | fuse into `cmp; b.!cc` | `a0567278c` |
+| A5 | every check's raise block sat inline, jumped over by the passing path | raise blocks after the body (`emit_cold_block`) | `207a6ed31` |
+| A2/A4 | the CRC table was re-loaded from its module global on every lookup | the loop takes the table as a parameter; indexes by `bits::bor` | `27b8bf00c` |
+| B1 | `_mfb_arena_*`/drop calls modeled as clobbering every register, so a loop's state across a rejoining grow path lived in memory | audited `PCS_CLEAN_RUNTIME_HELPERS` clobber only caller-saved | `9a2a09933` |
+| B2 | 99.7% of the output went through a per-byte checked append + get | `append(out, mid(out, from, chunk))`, lowered as an in-place copy with no temporary | `cd55d5cf5`, `27b8bf00c` |
+| B3 | `MOD 16`/`/ 16` on the bit-buffer chain | `bits::band(e, 15)` / `bits::sr(e, 4)` on non-negative entries | `27b8bf00c` |
+| B4 | the fixed tables were rebuilt on every call (the whole cost of a small inflate) | module globals built once | `27b8bf00c` |
+
+A2's "BCE for the module table" was not implemented: the table reads keep their (now one-compare)
+bounds check; the parameter and A3/A5 made it cheap enough. Hardware CRC stays out (Open Decisions).
+
+### Phase 1 audit: callee-saved preservation (B1)
+
+Read from each target's `-ncode` (`tests/runtime/rt_runtime_helper_callee_saved.rs`, which walks every
+`bl` into another `_mfb_*` body):
+
+| helper (and callees) | macos/linux aarch64 | linux x86_64 | windows x86_64 | linux riscv64 |
+|---|---|---|---|---|
+| `_mfb_arena_alloc` (+ `_fill_random`, `_flush_coalesce`, `_insert_free`) | saves x21–x27 it uses; reads x19 | saves r12/r14; reads r15 | saves r12/r14; reads r15; `VirtualAlloc` (Win64 ABI) | saves s1–s9 it uses; reads s11 |
+| `_mfb_arena_free` | no callee-saved write; reads x19 | saves r12/r14 | saves r12/r14 | saves s1 |
+| `_mfb_rt_drop_owned_collection` | saves x21 | saves r12/r14 | saves r12/r14 | saves s1 |
+
+Verdict: all three are PCS-clean on every target. The comment that `_mfb_arena_alloc` "tramples
+x20–x28" was wrong and is gone; `.ai/compiler.md` was right.
+
+Blast radius, `crypto::`: `crypto::hash(SHA2_256, 1 MiB)` best of 5 went 35.3 → 27.6 ms with no
+change to its source (`/tmp/bs13-sha`, load 20 — indicative only).
+
+### Equivalence evidence (G4)
+
+- A 293-line verification program (`/tmp/bs13-xv`: round trips of 10 payloads at every level in all three formats,
+  every `maxBytes`/truncation/garbage/stored-block error, a 10-variable loop with grows, every new
+  fast path's raise — overflow, index, shift count, `toByte` — and integer/float comparisons) prints
+  byte-identical output under the base and fixed compilers at `-O0`..`-O3`, and on
+  linux-aarch64 glibc (2226), linux-riscv64 musl (2229) and windows-x86_64 (206).
+- 150,000 seeded 1–3-edit mutations of 48 deflate/zlib/gzip streams (with a small `maxBytes` on every
+  fifth): identical verdict hash (1476612783: 23,590 ok, 119,673 ErrInvalidFormat, 6,737 ErrTooLarge,
+  0 other) under the base and fixed compilers locally and on 2226, 2229 and 206.
+- `tools/oracles/compress/run.sh` all modes (1,057 cases) and `mutate` (600): 0 failures.
+- `tests/interop/rt_compress_interop.rs`, `rt_compress_bounds`, `rt_compress_deflate_o3`: green.
+- `scripts/linux-runtime-proof.sh` `FILTER=compress` on 2226 and 2229: 9/9; `FILTER=rt-error/` on
+  2229 154/154 and on 2226 153/154 (the failure, `func_net_ping_range_invalid`, fails identically with
+  the base compiler: the box cannot send ICMP); `FILTER=rt-behavior/collections` on 2229: 66/66.
+- `cargo test --release --bin mfb` (all 4,738 unit tests) green; 37 targeted integration test
+  binaries green.
+
+### Expected golden moves (not regenerated here)
+
+- `.ir` of every fixture that imports `compress` and reaches the changed helper bodies (the injected
+  source changed): the 10 under `rt-behavior/compress`, `rt-error/compress` and
+  `byte-identity/compress` in the targeted `scripts/test-accept.sh` run.
+- `.ncode`/`.mir` of codegen fixtures: tree-wide, since `get`, the shifts, IF/WHILE conditions, the
+  raise layout and the arena-call clobber model all change emitted code. Seen in the targeted run:
+  `collections/func_map_getor_hash_probe` and `collections/list-ops-codegen-rt` (`.ncode`),
+  `control-flow/control-flow-if` (`.ncode`, `.mir`).
+- Every `tests/byte-identity/**` `.ncodesum` on every target (artifact-gate).
+- No runtime output (`build.log`, `.out`) changed in any targeted run; the one `build.log` mismatch
+  (`rt-error/native/native-cbuffer-overrun-rt`) is environmental — it writes under `./target`, absent
+  in this worktree, fails identically with the base compiler, and passes once `target/` exists.
+
+### Not done here
+
+- `benchmark/baseline` is not regenerated (a whole-suite, all-language run); the rows above were
+  measured with the compress-only harness.
+- The golden regeneration and the full suite / artifact gate are left to the batch merge, per the
+  batch instructions.
