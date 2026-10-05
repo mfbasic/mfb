@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT builtin_binding_pkg AS pkg
+
+' Before the fix the package's identity-prefixed `json` bindings were left
+' after its own, so both initializers above failed at startup with
+' "invalid JSON format: nested too deeply".
+FUNC main AS Integer
+  io::print(pkg::show(pkg::DOC))
+  io::print(pkg::hidden())
+  RETURN 0
+END FUNC

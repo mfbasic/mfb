@@ -42,7 +42,7 @@ order within each file. The source-file order is the final ascending display-pat
 sort across all selected files, not filesystem traversal or `sources[]` entry
 order; `./mfb spec tooling source-selection` owns the selection algorithm.
 [[src/ast/manifest.rs:collect_selected_source_files]]
-[[src/ast/manifest.rs:parse_project]] [[src/ir/package.rs:order_bindings_dependencies_first]] A builtin package's own top-level bindings — the tables and limits its injected source declares, such as `json`'s parse-depth limit or `compress`'s CRC table — initialize before all of these, so a top-level initializer may call `json::parse`, `compress::crc32` or `color::fromName`. They are recognized by their internalized names, which no program can spell. [[src/ir/package.rs:order_builtin_bindings_first]] [[src/internal_name.rs:is_builtin_internal]]
+[[src/ast/manifest.rs:parse_project]] [[src/ir/package.rs:order_bindings_dependencies_first]] A builtin package's own top-level bindings — the tables and limits its injected source declares, such as `json`'s parse-depth limit or `compress`'s CRC table — initialize before all of these, so a top-level initializer may call `json::parse`, `compress::crc32` or `color::fromName`. That holds for a package's initializers too: the copy of a builtin that a package carries has its bindings initialized first as well. They are recognized by their internalized names, which no program can spell, with any package identity prefix removed. [[src/ir/package.rs:order_builtin_bindings_first]] [[src/internal_name.rs:is_builtin_internal]]
 
 Initialization is sequential and eager; it does not sort bindings by the
 globals their expressions or called functions read, nor lazily initialize a

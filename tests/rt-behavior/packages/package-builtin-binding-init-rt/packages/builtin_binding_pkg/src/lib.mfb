@@ -1,0 +1,14 @@
+IMPORT json
+
+' Both initializers call into `json`, whose parser reads the builtin's own
+' depth-limit binding. Those bindings must be initialized first.
+EXPORT LET DOC AS json::Json = json::parse("[3]")
+LET HIDDEN AS json::Json = json::parse("{\"k\":true}")
+
+EXPORT FUNC show(doc AS json::Json) AS String
+  RETURN json::stringify(doc)
+END FUNC
+
+EXPORT FUNC hidden() AS String
+  RETURN json::stringify(HIDDEN)
+END FUNC
