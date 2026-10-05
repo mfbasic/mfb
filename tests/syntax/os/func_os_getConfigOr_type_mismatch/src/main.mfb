@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT os
+
+' plan-167-B: the `release` config declares `port` as an Integer and `host` as
+' a String, so calls whose defaults have other types are OS_CONFIG_TYPE_MISMATCH
+' (2-203-0142) at the call.
+FUNC main() AS Integer
+  io::print(os::getConfigOr("port", "80"))
+  io::print(toString(os::getConfigOr("host", 0.5)))
+  RETURN 0
+END FUNC

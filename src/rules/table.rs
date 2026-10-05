@@ -791,7 +791,22 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a ThreadWorker cannot cross to another thread",
     },
-    // bug-797. 2-203-0141 and 2-203-0142 are reserved by plan-167-B.
+    // plan-167-B: `os::getConfigOr` is folded from the build's config, so both
+    // arguments must be literals (ir::shape) and the declared value must have the
+    // default's type (target::shared::config_fold).
+    Rule {
+        code: "2-203-0141",
+        name: "OS_CONFIG_ARGUMENT_NOT_LITERAL",
+        severity: Severity::Error,
+        message: "an os::getConfigOr argument is not a literal",
+    },
+    Rule {
+        code: "2-203-0142",
+        name: "OS_CONFIG_TYPE_MISMATCH",
+        severity: Severity::Error,
+        message: "the selected config declares an os::getConfigOr key with a type other than the default's",
+    },
+    // bug-797.
     Rule {
         code: "2-203-0143",
         name: "TYPE_TRAP_LOCAL_UNINITIALIZED",

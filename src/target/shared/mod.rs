@@ -3,6 +3,7 @@
 /// depend on a specific ISA module; `arch::aarch64` re-exports it for its own
 /// internal callers.
 pub(crate) mod abi;
+pub(crate) mod config_fold;
 pub(crate) mod lower;
 pub(crate) mod nir;
 pub(crate) mod plan;

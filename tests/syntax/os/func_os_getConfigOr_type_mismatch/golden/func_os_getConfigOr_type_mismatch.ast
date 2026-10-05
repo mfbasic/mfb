@@ -1,0 +1,29 @@
+{
+  "project": "func_os_getConfigOr_type_mismatch",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "os", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.getConfigOr", "arguments": [{ "kind": "string", "value": "port" }, { "kind": "string", "value": "80" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.getConfigOr", "arguments": [{ "kind": "string", "value": "host" }, { "kind": "number", "value": "0.5" }] }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

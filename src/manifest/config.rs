@@ -15,6 +15,8 @@
 //! and every diagnostic names the line of the key at fault.
 
 use crate::json::lossless::{parse_lossless, LosslessMember, LosslessValue};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 /// The config name selected when the build names none, and the one every
 /// `config` section must declare.
@@ -26,6 +28,48 @@ pub(crate) struct ProjectConfig {
     /// The named configs in source order. Always holds `release`: an absent
     /// `config` section is one implicit, empty `release` (Open Decision D6).
     pub(crate) configs: Vec<NamedConfig>,
+}
+
+impl ProjectConfig {
+    /// The named config `name`, as the values `os::getConfigOr` calls fold
+    /// from, or `None` when no config has that name. Names match exactly.
+    pub(crate) fn select(&self, name: &str, project_dir: PathBuf) -> Option<SelectedConfig> {
+        let named = self.configs.iter().find(|config| config.name == name)?;
+        Some(SelectedConfig {
+            name: named.name.clone(),
+            values: named
+                .values
+                .iter()
+                .map(|entry| (entry.key.clone(), entry.value.clone()))
+                .collect(),
+            project_dir,
+        })
+    }
+}
+
+/// The one named config a build folds `os::getConfigOr` calls from
+/// (plan-167-B). Carried on `IrProject` like `max_buffer_bytes`: it is the
+/// consuming executable's setting and is never encoded into a `.mfp`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SelectedConfig {
+    pub(crate) name: String,
+    pub(crate) values: BTreeMap<String, ConfigValue>,
+    /// The directory the project's source paths are relative to, so a fold
+    /// diagnostic can name the call's file.
+    pub(crate) project_dir: PathBuf,
+}
+
+impl Default for SelectedConfig {
+    /// An empty `release`: every call yields its default. The selection for an
+    /// IR that no build configured — decoded package IR, which never folds, and
+    /// unit-test projects.
+    fn default() -> Self {
+        Self {
+            name: RELEASE.to_string(),
+            values: BTreeMap::new(),
+            project_dir: PathBuf::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

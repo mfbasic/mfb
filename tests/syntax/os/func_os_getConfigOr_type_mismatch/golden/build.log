@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_getConfigOr_type_mismatch
+Wrote AST to tests/syntax/os/func_os_getConfigOr_type_mismatch/func_os_getConfigOr_type_mismatch.ast
+Wrote IR to tests/syntax/os/func_os_getConfigOr_type_mismatch/func_os_getConfigOr_type_mismatch.ir
+[exit 0]
+$ mfb build tests/syntax/os/func_os_getConfigOr_type_mismatch
+   6 | ' (2-203-0142) at the call.
+   7 | FUNC main() AS Integer
+   8 |   io::print(os::getConfigOr("port", "80"))
+     |             ^^^^^^^^^^^^^^^
+tests/syntax/os/func_os_getConfigOr_type_mismatch/src/main.mfb:8 error[2-203-0142 OS_CONFIG_TYPE_MISMATCH]: the selected config declares an os::getConfigOr key with a type other than the default's
+               Config `release` declares `port` as Integer, but this call's default is String.
+   7 | FUNC main() AS Integer
+   8 |   io::print(os::getConfigOr("port", "80"))
+   9 |   io::print(toString(os::getConfigOr("host", 0.5)))
+     |                      ^^^^^^^^^^^^^^^
+tests/syntax/os/func_os_getConfigOr_type_mismatch/src/main.mfb:9 error[2-203-0142 OS_CONFIG_TYPE_MISMATCH]: the selected config declares an os::getConfigOr key with a type other than the default's
+               Config `release` declares `host` as String, but this call's default is Float.
+error: 2 os::getConfigOr call(s) do not match config `release`
+[exit 1]

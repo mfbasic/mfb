@@ -1,0 +1,20 @@
+IMPORT io
+IMPORT os
+
+' plan-167-B: os::getConfigOr is folded when the program is built, so a key
+' that is not a String literal, or a default that is not a literal, is
+' OS_CONFIG_ARGUMENT_NOT_LITERAL (2-203-0141). Arity and argument type follow
+' the ordinary call rules for every overload.
+FUNC pick() AS Integer
+  RETURN 4
+END FUNC
+
+FUNC main() AS Integer
+  LET name AS String = "retries"
+  io::print(os::getConfigOr(name, "x"))
+  io::print(toString(os::getConfigOr("retries", pick())))
+  io::print(toString(os::getConfigOr("timeout", 1.0 + 2.0)))
+  io::print(os::getConfigOr("apiUrl"))
+  io::print(toString(os::getConfigOr("flag", TRUE)))
+  RETURN 0
+END FUNC

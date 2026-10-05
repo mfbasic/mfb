@@ -504,6 +504,18 @@ fn numeric_literal_type(expression: &HirExpression) -> Option<ParameterType> {
     }
 }
 
+/// Whether an `os::getConfigOr` argument is a literal: a String, a Boolean, or
+/// a number, negated or not (plan-167-B).
+fn is_config_literal(expression: &HirExpression) -> bool {
+    match expression {
+        HirExpression::String(_) | HirExpression::Number(_) | HirExpression::Boolean(_) => true,
+        HirExpression::Unary {
+            operator, operand, ..
+        } => *operator == UnaryOp::Negate && matches!(operand.as_ref(), HirExpression::Number(_)),
+        _ => false,
+    }
+}
+
 /// Whether an argument is a non-negative integer literal that fits in a `Byte`.
 fn expr_is_byte_literal(expression: &HirExpression) -> bool {
     matches!(expression, HirExpression::Number(text)
@@ -2275,6 +2287,14 @@ impl<'a> Walker<'a> {
                 // the enclosing call's.
                 self.call_typed_unknown = false;
                 self.check_call_shape(callee, arguments, *line, locals);
+                // plan-167-B: OS_CONFIG_ARGUMENT_NOT_LITERAL. The fold after the
+                // package merge replaces the call with a constant, so neither
+                // argument may need evaluating. Lowering erases the distinction:
+                // a negative literal and `0 - 5` both become IR operator trees.
+                if !self.current_file_internal && self.canonical_callee(callee) == "os.getConfigOr"
+                {
+                    self.check_config_call_literals(arguments, *line);
+                }
                 self.call_verdicts.insert(
                     expression as *const HirExpression as usize,
                     self.call_typed_unknown,
@@ -3810,6 +3830,34 @@ impl<'a> Walker<'a> {
         self.types
             .get(&union)
             .is_some_and(|info| info.is_union && info.variants.iter().any(|v| *v == variant))
+    }
+
+    /// `os::getConfigOr(key, default)`: each argument must be a literal (a
+    /// negated number counts). Its type is the type rules' concern, and a call
+    /// with the wrong argument count is the arity rule's.
+    fn check_config_call_literals(&mut self, arguments: &[HirCallArg], line: usize) {
+        if arguments.len() != 2 {
+            return;
+        }
+        let mut positional = 0;
+        for argument in arguments {
+            let (name, value) = match argument {
+                HirCallArg::Named { name, value, .. } => (name.as_str(), value),
+                HirCallArg::Positional(value) => {
+                    positional += 1;
+                    (if positional == 1 { "key" } else { "default" }, value)
+                }
+            };
+            if !is_config_literal(value) {
+                self.emit(
+                    "OS_CONFIG_ARGUMENT_NOT_LITERAL",
+                    format!(
+                        "`os::getConfigOr` needs a literal `{name}`; the value is read when the program is built."
+                    ),
+                    line,
+                );
+            }
+        }
     }
 
     fn report_unknown_name(&mut self, callee: &str, name: &str, line: usize) {

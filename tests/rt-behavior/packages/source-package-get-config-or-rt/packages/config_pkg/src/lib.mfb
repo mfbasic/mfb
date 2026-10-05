@@ -1,0 +1,9 @@
+IMPORT os
+
+EXPORT FUNC greeting() AS String
+  RETURN os::getConfigOr("greeting", "pkg-default")
+END FUNC
+
+EXPORT FUNC unset() AS String
+  RETURN os::getConfigOr("unsetInApp", "pkg-default")
+END FUNC

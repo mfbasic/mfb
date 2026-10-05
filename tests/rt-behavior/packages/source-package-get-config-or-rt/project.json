@@ -1,0 +1,23 @@
+{
+  "name": "source_package_get_config_or_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "config_pkg",
+      "version": "=0.1.0",
+      "source": "file:packages/config_pkg",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"],
+  "config": {
+    "release": {
+      "greeting": "from-app"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "func_os_getConfigOr_package_not_literal",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-167-B: a package may not ship an os::getConfigOr call that can never fold.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

@@ -129,12 +129,18 @@ Everything below assumes these hold.
   `declared_errors_sweep.rs:lower_member`: `if !matches!(…, Body::AbiFunction {
   .. } | Body::AbiInline(_)) { continue; }`. Verified.
 - *An unfolded `os.getConfigOr` call that reaches codegen fails the build instead
-  of miscompiling.* **UNVERIFIED.** Task B-0 checks it with a temporary
-  registration and no fold (see Phase 1).
+  of miscompiling.* Verified (2026-10-05, B-0): with the member registered and no
+  fold, `mfb build` of `os::getConfigOr("k", "d")` exits 1 with `error: native
+  backend does not support runtime call 'os.getConfigOr'`
+  (`src/target/shared/validate/capabilities.rs:validate_capabilities`, run on the
+  NIR after `lower_project`). No extra guard is needed.
 - *IR string `Const.value` holds the decoded text (not a quoted or escaped
-  lexeme).* **UNVERIFIED.** Task B-0 reads the IR lowering of a string literal
-  (`src/ir/lower.rs`, the HIR string literal arm) and records the encoding here.
-  The fold must produce the same encoding.
+  lexeme).* Verified (2026-10-05, B-0): `src/lexer.rs`'s string arm pushes each
+  escape's decoded character into the token value, and `ir/lower.rs`'s
+  `HirExpression::String(value) => IrValue::Const { value: value.clone() }` copies
+  it unchanged. The fold stores the config's decoded String the same way; the
+  `func_os_getConfigOr_valid` run prints a quote, a backslash, `café ✓` and a
+  newline intact.
 - *A negative numeric default (`-5`, `-2.5`) is recognizable in `shape.rs`.*
   Verified (2026-10-03): `-5` is a `UnaryOp::Negate` over a literal, not a
   literal on its own. `shape.rs` already matches that shape, e.g. the
@@ -146,14 +152,17 @@ Everything below assumes these hold.
   `src/ir/value.rs:visit_value_mut` visits every nested value, with a test
   (`visit_value_mut_rewrites_every_node_uncapped`). The fold uses it for every
   value reachable from a statement or a global initializer.
-- *The `os.getConfigOr` call target survives `merge_packages`.* **UNVERIFIED.**
-  `src/target/shared/nir/lower.rs:merge_packages` rewrites package symbols to
-  identity-prefixed names. Task B-0 confirms that a builtin call target inside
-  package code keeps its `os.getConfigOr` name after the merge.
-- *Every call position has a file for the diagnostic.* **UNVERIFIED.** A call
-  in a function body takes its file from `IrFunction.file`. Task B-0 records
-  which file a call in a global initializer reports, and which file a call in
-  code merged from a `.mfp` reports (a path that may not exist on this machine).
+- *The `os.getConfigOr` call target survives `merge_packages`.* Moot by design
+  change (see Corrections): each package's IR is folded as it is decoded, before
+  `prefix_package_symbols` runs, so the fold never sees a renamed target. The
+  `source-package-get-config-or-rt` fixture proves package calls fold.
+- *Every call position has a file for the diagnostic.* Verified (2026-10-05,
+  B-0): `IrBinding.file` carries the declaring file for a global initializer, and
+  `IrFunction.file` for a body; both are project-relative and are encoded into a
+  `.mfp` (`src/ir/binary.rs`, `put_str(out, &b.file)` / `&f.file`). The fold joins
+  the executable's own files onto the project directory, and names a package's
+  call as `<package>/<file>` plus "The call is in package `<p>`." in the detail,
+  because a `.mfp` does not record its source directory.
 
 ## 3. Design Overview
 
@@ -263,49 +272,59 @@ This phase ships the typed surface with a front-end rule. Nothing folds yet, so
 Acceptance). Phase 1 exists as a separate checklist so the B-0 facts are settled
 before the fold is written.
 
-- [ ] B-0: re-run the two caller-count commands in "Measured populations". If
+- [x] B-0: re-run the two caller-count commands in "Measured populations". If
       either count moved, record it in Corrections.
-- [ ] B-0: resolve the four UNVERIFIED properties in "Verified properties":
+      → 12 and 6 (2026-10-05), unchanged.
+- [x] B-0: resolve the four UNVERIFIED properties in "Verified properties":
       string `Const.value` encoding, the unfolded-intrinsic behavior, the call
       target name after `merge_packages`, and the diagnostic file for a call in
       a global initializer or in `.mfp` code. For the last one, register the member, build
       `os::getConfigOr("k", "d")` with no fold, and record the exact failure.
       If it builds and runs, that's a missing guard: add a codegen-time
       `Err("os.getConfigOr reached codegen unfolded")` at the intrinsic dispatch
-      as a task here.
-- [ ] `src/codegen/builtins/os/func_get_config_or.rs` per §4, registered in
+      as a task here. → all four recorded under "Verified properties"; the unfolded
+      call fails the build, so no guard task was needed.
+- [x] `src/codegen/builtins/os/func_get_config_or.rs` per §4, registered in
       `os/mod.rs`.
-- [ ] `src/rules/table.rs`: `OS_CONFIG_ARGUMENT_NOT_LITERAL` (2-203-0141).
-- [ ] `src/ir/shape.rs`: the literal check (§3.1). Skip injected `builtins/`
+- [x] `src/rules/table.rs`: `OS_CONFIG_ARGUMENT_NOT_LITERAL` (2-203-0141).
+- [x] `src/ir/shape.rs`: the literal check (§3.1). Skip injected `builtins/`
       source, like `check_enum_member_advisory`.
-- [ ] `src/codegen/builtins/tests/os.rs`: extend the corpus program and
+- [x] `src/codegen/builtins/tests/os.rs`: extend the corpus program and
       `register_publishes_the_whole_os_surface` with `getConfigOr`'s three
-      overloads.
-- [ ] Fixture `tests/syntax/os/func_os_getConfigOr_invalid/`: a non-literal key
+      overloads. (Also `os/mod.rs:os_registered_on_the_clean_room_registry`'s
+      member count, 28 → 29.) `cargo test --bin mfb builtins_codegen::os::` → 8 passed.
+- [x] Fixture `tests/syntax/os/func_os_getConfigOr_invalid/`: a non-literal key
       (a `LET` String) and a non-literal default (a function call), with a golden
       `build.log` showing both 2-203-0141 diagnostics. Also a package-kind
       fixture `tests/syntax/os/func_os_getConfigOr_package_not_literal/`, which
-      proves the rule fires on a package build.
+      proves the rule fires on a package build. (The invalid fixture also pins
+      the wrong-arity and wrong-type forms, per `.ai/compiler.md`'s invalid-fixture
+      rule.)
 
 Acceptance: see Phase 2. This phase is complete only when both are.
-Commit: —
+Commit: (lands with Phase 2)
 
 ### Phase 2: Selected config, fold and type check
 
 This phase makes calls return config values everywhere a program can be built.
 
-- [ ] `src/manifest/config.rs`: `SelectedConfig` and
+- [x] `src/manifest/config.rs`: `SelectedConfig` and
       `ProjectConfig::select(&self, name) -> Option<SelectedConfig>`, plus
       `pub(crate) fn project_config(manifest_text) -> Result<ProjectConfig, …>`
-      for the build (A's validator already proved the text valid).
-- [ ] `src/cli/build/mod.rs:build_project`: on the executable/test path, compute
+      for the build (A's validator already proved the text valid). (No separate
+      `project_config` wrapper: `build_project`'s `selected_config` helper calls
+      `parse_config` directly, so a wrapper would be a second name for it.)
+- [x] `src/cli/build/mod.rs:build_project`: on the executable/test path, compute
       `SelectedConfig` for `release` and pass it to `target::write_executable`
       and to the dump writer.
-- [ ] Thread `&SelectedConfig` through every `write_executable` and
+- [x] ~~Thread `&SelectedConfig` through every `write_executable` and
       `lower_project` caller listed in Measured populations (12 + 6). Non-executable callers (package
       publishing, the ABI check) pass an empty `release` with a comment
-      explaining why; those builds emit `.mfp` and never fold.
-- [ ] `src/target/shared/config_fold.rs:fold_config_calls` per §3.2. It walks
+      explaining why; those builds emit `.mfp` and never fold.~~ — moot: carried
+      on `IrProject.selected_config` instead (see Corrections), so no signature
+      changes; `grep -rn "lower::lower_project(" src` still → 12 and every one reads
+      the config off its `ir`.
+- [x] `src/target/shared/config_fold.rs:fold_config_calls` per §3.2. It walks
       every `IrValue` in every function body, global initializer and nested
       value, using `src/ir/value.rs:visit_value_mut`. Add a test that builds a
       call in each position (statement expression, nested argument, record
@@ -313,23 +332,23 @@ This phase makes calls return config values everywhere a program can be built.
       kind the walk doesn't reach shows up as a failure. The Integer value is the decimal `i64`, the Float
       value is the config lexeme, and the String value uses the encoding B-0
       recorded.
-- [ ] `src/target/shared/lower.rs:lower_project`: call the fold after
+- [x] `src/target/shared/lower.rs:lower_project`: call the fold after
       `merge_packages`, render errors with `OS_CONFIG_TYPE_MISMATCH`
       (2-203-0142, new row in `rules/table.rs`), and return `Err` if any.
-- [ ] Unit tests in `config_fold.rs`: found / missing / mismatch for each of the
+- [x] Unit tests in `config_fold.rs`: found / missing / mismatch for each of the
       three types; an `i64::MIN` value; Floats `0.1`, `1e300`, `5e-324`, `-0.0`;
       a String with `"`, `\`, a newline and non-ASCII text.
-- [ ] Fixture `tests/rt-behavior/os/func_os_getConfigOr_valid/`: a project.json
+- [x] Fixture `tests/rt-behavior/os/func_os_getConfigOr_valid/`: a project.json
       with `config.release` holding a String, Integer and Float. It prints each
       found value, plus defaults for three undeclared keys. Golden `build.log`.
-- [ ] Fixture `tests/syntax/os/func_os_getConfigOr_type_mismatch/`: golden
+- [x] Fixture `tests/syntax/os/func_os_getConfigOr_type_mismatch/`: golden
       showing 2-203-0142 at the call's line and column.
-- [ ] Fixture `tests/rt-behavior/packages/source-package-get-config-or-rt/`,
+- [x] Fixture `tests/rt-behavior/packages/source-package-get-config-or-rt/`,
       modelled on `source-package-dependency-rt`. A source package's function
       calls `os::getConfigOr("greeting", "pkg-default")`. The package's own
       project.json declares `greeting` = "from-package" and the app's declares
       "from-app". The golden shows "from-app".
-- [ ] Spec `stdlib/14_os.md`: a new `### Build-time configuration
+- [x] Spec `stdlib/14_os.md`: a new `### Build-time configuration
       (getConfigOr)` section stating literal-only, fold-after-merge, the
       consuming-executable rule and the two codes, with
       `[[src/target/shared/config_fold.rs:fold_config_calls]]`. Add 2-203-0141
@@ -343,6 +362,12 @@ and non-literals are rejected, and programs without the call are unchanged.
   (est. 2 min). Then rebuild `tests/byte-identity/strings` and confirm its
   `.ncode` sha matches its golden (est. 1 min). That fixture doesn't call
   `getConfigOr`, so a diff there means the threading changed codegen.
+  Result (2026-10-05): test-accept → `acceptance tests passed (5 test(s) ran)`;
+  `cargo test --bin mfb config_fold` → 6 passed; `strings_codegen_cover_rt.ncode`
+  sha `f5cb5cc7…043e` = its `macos-aarch64.ncodesum` golden. Coverage check →
+  3 (≥ 2). Runtime proof: `release.retries` 3 → 41 changes the printed value with
+  no source edit, and `strings` finds no `localhost:8080` (the unselected `dev`
+  value) in the binary.
 Commit: —
 
 ### Phase 3: Man page verification
@@ -350,14 +375,18 @@ Commit: —
 This phase checks that the developer-facing page renders, its example compiles
 and runs, and it uses no banned words.
 
-- [ ] `mfb man os getConfigOr` renders all three overloads, with Synopsis and
+- [x] `mfb man os getConfigOr` renders all three overloads, with Synopsis and
       Parameters filled.
-- [ ] Run the page's example.
+- [x] Run the page's example. → prints `http://localhost:8080`, `1`, `10.00`,
+      `false`; the page's prose first said `2.5`, corrected to `2.50`, which is
+      what `toString` prints.
 
 Acceptance: the page passes the man-content instruments.
   Check: `scripts/man-run-examples.sh os --run` → every example passes
   (est. 3 min). Then `scripts/man-census.sh --memory-scope` → 0 unclassified
   (est. 1 min).
+  Result (2026-10-05): `examples: 28   built: 28   ran: 28   not run: 0   failed: 0`;
+  `unclassified memory-vocabulary hits: 0`.
 Commit: —
 
 ## Validation Plan
@@ -381,7 +410,35 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **The selection rides on `IrProject`, not on 18 signatures.** The plan threaded
+  `&SelectedConfig` through every `lower_project` (12) and `write_executable` (6)
+  caller, plus the five dump writers on each backend. `IrProject.max_buffer_bytes`
+  already solves the same problem: a consuming-executable setting the build sets
+  on the IR, never encoded into a `.mfp`, and the plan's own non-goals cite it.
+  `IrProject.selected_config` follows it. `build_project` sets it on the
+  executable/test path and on the dump path; every other IR (decoded packages,
+  unit tests) carries `SelectedConfig::default()`, an empty `release`.
+- **Fold during the merge, not after it.** The plan folded the merged project
+  after `merge_packages`. By then a package's functions carry identity-prefixed
+  names, and nothing says which package a call came from or where its file
+  lives. `merge_packages` now folds the executable's IR first, then each
+  package's IR as it is decoded, before `prefix_package_symbols`. The outcome
+  is the same (the consumer's config, applied to all code before NIR), and a
+  package-code diagnostic names the package. Every call that cannot fold is
+  reported before the build stops.
+- **The fold also re-checks literals.** `ir::shape` rejects a non-literal
+  argument in source, but decoded `.mfp` IR never passed this compiler's shape
+  pass. The fold reports `OS_CONFIG_ARGUMENT_NOT_LITERAL` for such a call instead
+  of folding it (`non_literal_arguments_from_a_package_are_reported`).
+- **Boolean literals count as literals in the shape rule.** `os::getConfigOr("k",
+  TRUE)` matches no overload, and the type rules report that. Calling `TRUE`
+  "not a literal" as well would be a second, false diagnostic.
+- **New exhaustive walker `IrOp::visit_values_mut`** (`src/ir/op.rs`). No mutable
+  walk over every value of every op existed: `ir/package.rs:visit_op_targets_mut`
+  is private and visits names and types too. The new walker has no wildcard
+  arm, so a new `IrOp` variant fails to compile until it is covered.
+- **`2-203` confirmed** as the family for both codes: it is "semantic checking
+  (typing, …)", and both are call-typing rules.
 
 ## Summary
 

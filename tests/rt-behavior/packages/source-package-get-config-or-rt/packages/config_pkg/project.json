@@ -1,0 +1,14 @@
+{
+  "name": "config_pkg",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-167-B: a source package whose os::getConfigOr call must read the consuming app's config, not its own.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"],
+  "config": {
+    "release": {
+      "greeting": "from-package"
+    }
+  }
+}

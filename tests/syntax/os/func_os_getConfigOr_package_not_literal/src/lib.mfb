@@ -1,0 +1,8 @@
+IMPORT os
+
+' plan-167-B: OS_CONFIG_ARGUMENT_NOT_LITERAL (2-203-0141) fires on a package
+' build too. The calls fold in the consuming executable's build, from the
+' consumer's config, so the package must hand over literals.
+EXPORT FUNC setting(key AS String) AS String
+  RETURN os::getConfigOr(key, "none")
+END FUNC

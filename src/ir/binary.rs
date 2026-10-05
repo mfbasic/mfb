@@ -545,6 +545,7 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         // Not on the wire: the CONSUMING project's project.json sets it, so a
         // decoded package must not carry (or override) a ceiling.
         max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
+        selected_config: Default::default(),
     })
 }
 

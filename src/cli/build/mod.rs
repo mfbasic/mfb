@@ -733,6 +733,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // an EXECUTABLE links — so the ceiling that applies is this project's,
             // and an imported binding cannot raise it on the app's behalf.
             ir.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
+            // plan-167-B: the config `os::getConfigOr` calls fold from. Like the
+            // ceiling above it is this project's, and applies to package code.
+            ir.selected_config = selected_config(&project_path, &options.location)?;
             // A host `mfb test` links the driver into a unique temporary
             // directory (removed after the run) so nothing is ever left in the
             // project directory. A cross `-target` test build has no host binary
@@ -1086,6 +1089,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             if !assemble_native_libraries_for_ir(&mut lowered, &manifest, &options.location) {
                 return Err(());
             }
+            // plan-167-B: fold `os::getConfigOr` exactly as the executable does,
+            // so a native dump shows the values the program will carry.
+            lowered.selected_config = selected_config(&project_path, &options.location)?;
             ir_cache = Some(lowered);
         }
         let ir = ir_cache.as_ref().expect("cached IR");
@@ -1168,6 +1174,34 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     reporter.trace_report();
 
     Ok(())
+}
+
+/// The named config this build folds `os::getConfigOr` calls from: `release`
+/// (plan-167-B). `validate_project_manifest` has already accepted the `config`
+/// section, so a failure here means `project.json` changed during the build;
+/// it is reported the same way.
+fn selected_config(
+    project_path: &Path,
+    project_dir: &Path,
+) -> Result<crate::manifest::config::SelectedConfig, ()> {
+    let contents = std::fs::read_to_string(project_path).map_err(|err| {
+        rules::show_diagnostic(
+            "PROJECT_JSON_READ_FAILED",
+            &err.to_string(),
+            project_path,
+            1,
+            1,
+            1,
+        );
+    })?;
+    let config = crate::manifest::config::parse_config(&contents).map_err(|diagnostics| {
+        for diagnostic in &diagnostics {
+            crate::manifest::render_config_diagnostic(diagnostic, project_path, &contents);
+        }
+    })?;
+    Ok(config
+        .select(crate::manifest::config::RELEASE, project_dir.to_path_buf())
+        .expect("a parsed config always holds `release`, declared or implicit"))
 }
 
 /// The manifest's `libraries` section as an `IrProject::native_libraries` table.

@@ -61,9 +61,9 @@ pub(crate) mod resource_escape;
 mod resource_hoist;
 pub(crate) mod shape;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod types;
 mod value;
 pub(crate) mod verify;
@@ -106,7 +106,7 @@ pub(crate) use types::{
     IrType, IrVariant,
 };
 pub use types::{ExternalDefault, ExternalFunctionParam, ExternalSignature, IrProject};
-pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
+pub(crate) use value::{visit_value_mut, IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;
 pub use verify::collect_source_diagnostics as verify_source_diagnostics;
 pub use verify::ImportedResource;

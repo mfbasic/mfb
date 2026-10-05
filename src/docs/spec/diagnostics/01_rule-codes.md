@@ -82,7 +82,7 @@ densely fill it.
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 26 |
 | `2-201` | imports & symbol resolution | 20 |
-| `2-203` | semantic checking (typing, ownership, native ABI) | 138 |
+| `2-203` | semantic checking (typing, ownership, native ABI) | 140 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
 | `2-208` | test framework (assertion builtins) | 7 |
 | `3-302` | verification | 1 |
@@ -488,6 +488,8 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0138` | `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` | error | a resource cannot cross the thread data plane |
 | `2-203-0139` | `EXPORT_NAMES_NON_EXPORTED_TYPE` | error | an exported declaration names a type the package does not export |
 | `2-203-0140` | `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` | error | a ThreadWorker cannot cross to another thread |
+| `2-203-0141` | `OS_CONFIG_ARGUMENT_NOT_LITERAL` | error | an os::getConfigOr argument is not a literal |
+| `2-203-0142` | `OS_CONFIG_TYPE_MISMATCH` | error | the selected config declares an os::getConfigOr key with a type other than the default's |
 | `2-203-0143` | `TYPE_TRAP_LOCAL_UNINITIALIZED` | error | a TRAP handler reads a local that an error can reach before it is declared |
 | `2-203-0144` | `TYPE_OVERLOAD_NO_MATCH` | error | no overload has the expected callable type |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |

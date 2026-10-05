@@ -127,3 +127,94 @@ impl IrOp {
         }
     }
 }
+
+impl IrOp {
+    /// Call `f` on every value this op holds, and on every value of every op
+    /// nested in it, pre-order through each value tree
+    /// ([`crate::ir::value::visit_value_mut`]). Exhaustive by construction: a new
+    /// `IrOp` variant does not compile until it says where its values are.
+    pub(crate) fn visit_values_mut(&mut self, f: &mut impl FnMut(&mut IrValue)) {
+        use crate::ir::value::visit_value_mut;
+        match self {
+            IrOp::Bind { value, .. } | IrOp::Return { value, .. } => {
+                if let Some(value) = value {
+                    visit_value_mut(value, f);
+                }
+            }
+            IrOp::Assign { value, .. }
+            | IrOp::AssignGlobal { value, .. }
+            | IrOp::StateAssign { value, .. }
+            | IrOp::Eval { value, .. }
+            | IrOp::Fail { error: value, .. }
+            | IrOp::ExitProgram { code: value, .. } => visit_value_mut(value, f),
+            IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
+            IrOp::If {
+                condition,
+                then_body,
+                else_body,
+                ..
+            } => {
+                visit_value_mut(condition, f);
+                for op in then_body.iter_mut().chain(else_body.iter_mut()) {
+                    op.visit_values_mut(f);
+                }
+            }
+            IrOp::Match { value, cases, .. } => {
+                visit_value_mut(value, f);
+                for case in cases {
+                    match &mut case.pattern {
+                        IrMatchPattern::Else => {}
+                        IrMatchPattern::Value(value) => visit_value_mut(value, f),
+                        IrMatchPattern::OneOf(values) => {
+                            for value in values {
+                                visit_value_mut(value, f);
+                            }
+                        }
+                    }
+                    if let Some(guard) = &mut case.guard {
+                        visit_value_mut(guard, f);
+                    }
+                    for op in &mut case.body {
+                        op.visit_values_mut(f);
+                    }
+                }
+            }
+            IrOp::While {
+                condition, body, ..
+            }
+            | IrOp::DoUntil {
+                body, condition, ..
+            } => {
+                visit_value_mut(condition, f);
+                for op in body {
+                    op.visit_values_mut(f);
+                }
+            }
+            IrOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                visit_value_mut(start, f);
+                visit_value_mut(end, f);
+                visit_value_mut(step, f);
+                for op in body {
+                    op.visit_values_mut(f);
+                }
+            }
+            IrOp::ForEach { iterable, body, .. } => {
+                visit_value_mut(iterable, f);
+                for op in body {
+                    op.visit_values_mut(f);
+                }
+            }
+            IrOp::Trap { body, .. } => {
+                for op in body {
+                    op.visit_values_mut(f);
+                }
+            }
+        }
+    }
+}

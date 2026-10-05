@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_getConfigOr_invalid
+  12 | FUNC main() AS Integer
+  13 |   LET name AS String = "retries"
+  14 |   io::print(os::getConfigOr(name, "x"))
+     | ^
+tests/syntax/os/func_os_getConfigOr_invalid/src/main.mfb:14 error[2-203-0141 OS_CONFIG_ARGUMENT_NOT_LITERAL]: an os::getConfigOr argument is not a literal
+               `os::getConfigOr` needs a literal `key`; the value is read when the program is built.
+  13 |   LET name AS String = "retries"
+  14 |   io::print(os::getConfigOr(name, "x"))
+  15 |   io::print(toString(os::getConfigOr("retries", pick())))
+     | ^
+tests/syntax/os/func_os_getConfigOr_invalid/src/main.mfb:15 error[2-203-0141 OS_CONFIG_ARGUMENT_NOT_LITERAL]: an os::getConfigOr argument is not a literal
+               `os::getConfigOr` needs a literal `default`; the value is read when the program is built.
+  14 |   io::print(os::getConfigOr(name, "x"))
+  15 |   io::print(toString(os::getConfigOr("retries", pick())))
+  16 |   io::print(toString(os::getConfigOr("timeout", 1.0 + 2.0)))
+     | ^
+tests/syntax/os/func_os_getConfigOr_invalid/src/main.mfb:16 error[2-203-0141 OS_CONFIG_ARGUMENT_NOT_LITERAL]: an os::getConfigOr argument is not a literal
+               `os::getConfigOr` needs a literal `default`; the value is read when the program is built.
+  15 |   io::print(toString(os::getConfigOr("retries", pick())))
+  16 |   io::print(toString(os::getConfigOr("timeout", 1.0 + 2.0)))
+  17 |   io::print(os::getConfigOr("apiUrl"))
+     | ^
+tests/syntax/os/func_os_getConfigOr_invalid/src/main.mfb:17 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `os.getConfigOr` has 1 argument(s), expected 2.
+  16 |   io::print(toString(os::getConfigOr("timeout", 1.0 + 2.0)))
+  17 |   io::print(os::getConfigOr("apiUrl"))
+  18 |   io::print(toString(os::getConfigOr("flag", TRUE)))
+     | ^
+tests/syntax/os/func_os_getConfigOr_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Unknown), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum.
+  16 |   io::print(toString(os::getConfigOr("timeout", 1.0 + 2.0)))
+  17 |   io::print(os::getConfigOr("apiUrl"))
+  18 |   io::print(toString(os::getConfigOr("flag", TRUE)))
+     | ^
+tests/syntax/os/func_os_getConfigOr_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `os.getConfigOr` has argument type(s) (String, Boolean), expected supported overload.
+[exit 1]
