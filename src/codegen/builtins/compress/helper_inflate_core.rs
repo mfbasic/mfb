@@ -6,11 +6,17 @@
 //! the DEFLATE data appended as 8 little-endian bytes (§4.1 shape (b)); the framing helpers read
 //! and remove it. Both choices were measured in plan-137-B Phase 1 (Corrections).
 //!
-//! Output is written by in-place append to the local `out`; a back-reference copies byte by byte
-//! from `out`, so an overlapping match works by construction. `maxBytes` is checked before every
-//! write, so a stream that would exceed it raises `ErrTooLarge` without first building the larger
-//! result; malformed input raises `ErrInvalidFormat`. The fixed distance table is 32 five-bit
-//! codes (RFC 1951 §3.2.6, zlib `fixedtables`); symbols 30 and 31 are refused when decoded.
+//! Output is written by in-place append to the local `out`. A back-reference appends
+//! `collections::mid(out, from, chunk)` — lowered as one in-place copy from `out`'s own data with
+//! no temporary (bug-774) — where `chunk` is at most what lies between `from` and the end, so an
+//! overlapping match (distance below its length) copies its period, then twice that, until done.
+//! `maxBytes` is checked before every write, so a stream that would exceed it raises
+//! `ErrTooLarge` without first building the larger result; malformed input raises
+//! `ErrInvalidFormat`. The fixed distance table is 32 five-bit
+//! codes (RFC 1951 §3.2.6, zlib `fixedtables`); symbols 30 and 31 are refused when decoded. Both
+//! fixed tables are module globals (`helper_huffman_table.rs`). A table entry is read with
+//! `bits::band(e, 15)` / `bits::sr(e, 4)` where it is known non-negative — the same values as
+//! `MOD 16` / `/ 16` there, with no division on the bit-buffer chain.
 //!
 //! Registered via `add_helper` under [`HelperGate::WhenUsed`] on the decoders. A gated helper
 //! is injected as its own file, so the body carries its own `IMPORT`s.
@@ -33,11 +39,8 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
   MUT final AS Boolean = FALSE
   MUT out AS List OF Byte = []
   MUT outLen AS Integer = 0
-  LET fixedLit AS List OF Integer = __compress_buildTable(__compress_fixedLitLens(), 0, 288, 9, 1)
-  ' 32 five-bit codes, as zlib's fixedtables: a complete set; symbols 30 and 31 are refused when decoded.
-  LET fixedDist AS List OF Integer = __compress_buildTable(__compress_filled(32, 5), 0, 32, 6, 1)
-  MUT litT AS List OF Integer = fixedLit
-  MUT distT AS List OF Integer = fixedDist
+  MUT litT AS List OF Integer = []
+  MUT distT AS List OF Integer = []
   ' ---
   WHILE final = FALSE
     IF bitCount < 48 THEN
@@ -114,8 +117,8 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
       END IF
       outLen = outLen + storedLen
     ELSEIF btype = 1 THEN
-      litT = fixedLit
-      distT = fixedDist
+      litT = __COMPRESS_INFLATE_FIXED_LIT
+      distT = __COMPRESS_INFLATE_FIXED_DIST
       MUT inBlock AS Boolean = TRUE
       WHILE inBlock
         IF bitCount < 48 THEN
@@ -133,15 +136,15 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
         IF symEntry >= 1048576 THEN
           bitBuf = bits::sr(bitBuf, 9)
           bitCount = bitCount - 9
-          LET symSub AS Integer = (symEntry - 1048576) MOD 16
-          symEntry = collections::get(litT, (symEntry - 1048576) / 16 + bits::band(bitBuf, bits::sl(1, symSub) - 1))
+          LET symSub AS Integer = bits::band(symEntry, 15)
+          symEntry = collections::get(litT, (bits::sr(symEntry, 4) - 65536) + bits::band(bitBuf, bits::sl(1, symSub) - 1))
         END IF
         IF symEntry < 0 THEN
           FAIL error(77050003, "compress: invalid code")
         END IF
-        bitBuf = bits::sr(bitBuf, symEntry MOD 16)
-        bitCount = bitCount - symEntry MOD 16
-        LET sym AS Integer = symEntry / 16
+        bitBuf = bits::sr(bitBuf, bits::band(symEntry, 15))
+        bitCount = bitCount - bits::band(symEntry, 15)
+        LET sym AS Integer = bits::sr(symEntry, 4)
         IF sym < 256 THEN
           IF outLen >= maxBytes THEN
             FAIL error(77050027, "compress: output exceeds maxBytes")
@@ -163,15 +166,15 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
           IF dsymEntry >= 1048576 THEN
             bitBuf = bits::sr(bitBuf, 6)
             bitCount = bitCount - 6
-            LET dsymSub AS Integer = (dsymEntry - 1048576) MOD 16
-            dsymEntry = collections::get(distT, (dsymEntry - 1048576) / 16 + bits::band(bitBuf, bits::sl(1, dsymSub) - 1))
+            LET dsymSub AS Integer = bits::band(dsymEntry, 15)
+            dsymEntry = collections::get(distT, (bits::sr(dsymEntry, 4) - 65536) + bits::band(bitBuf, bits::sl(1, dsymSub) - 1))
           END IF
           IF dsymEntry < 0 THEN
             FAIL error(77050003, "compress: invalid code")
           END IF
-          bitBuf = bits::sr(bitBuf, dsymEntry MOD 16)
-          bitCount = bitCount - dsymEntry MOD 16
-          LET dsym AS Integer = dsymEntry / 16
+          bitBuf = bits::sr(bitBuf, bits::band(dsymEntry, 15))
+          bitCount = bitCount - bits::band(dsymEntry, 15)
+          LET dsym AS Integer = bits::sr(dsymEntry, 4)
           IF dsym >= 30 THEN
             FAIL error(77050003, "compress: invalid distance symbol")
           END IF
@@ -186,12 +189,16 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
             FAIL error(77050027, "compress: output exceeds maxBytes")
           END IF
           LET from AS Integer = outLen - dist
-          MUT k AS Integer = 0
-          WHILE k < length
-            out = collections::append(out, collections::get(out, from + k))
-            k = k + 1
+          MUT left AS Integer = length
+          WHILE left > 0
+            MUT chunk AS Integer = outLen - from
+            IF chunk > left THEN
+              chunk = left
+            END IF
+            out = collections::append(out, collections::mid(out, from, chunk))
+            outLen = outLen + chunk
+            left = left - chunk
           END WHILE
-          outLen = outLen + length
         END IF
         IF pos > n THEN
           IF bitCount < (pos - n) * 8 THEN
@@ -251,15 +258,15 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
         IF clEntry >= 1048576 THEN
           bitBuf = bits::sr(bitBuf, 7)
           bitCount = bitCount - 7
-          LET clSub AS Integer = (clEntry - 1048576) MOD 16
-          clEntry = collections::get(clT, (clEntry - 1048576) / 16 + bits::band(bitBuf, bits::sl(1, clSub) - 1))
+          LET clSub AS Integer = bits::band(clEntry, 15)
+          clEntry = collections::get(clT, (bits::sr(clEntry, 4) - 65536) + bits::band(bitBuf, bits::sl(1, clSub) - 1))
         END IF
         IF clEntry < 0 THEN
           FAIL error(77050003, "compress: invalid code")
         END IF
-        bitBuf = bits::sr(bitBuf, clEntry MOD 16)
-        bitCount = bitCount - clEntry MOD 16
-        LET cl AS Integer = clEntry / 16
+        bitBuf = bits::sr(bitBuf, bits::band(clEntry, 15))
+        bitCount = bitCount - bits::band(clEntry, 15)
+        LET cl AS Integer = bits::sr(clEntry, 4)
         IF cl < 16 THEN
           lens = collections::append(lens, cl)
           have = have + 1
@@ -321,15 +328,15 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
         IF symEntry >= 1048576 THEN
           bitBuf = bits::sr(bitBuf, 9)
           bitCount = bitCount - 9
-          LET symSub AS Integer = (symEntry - 1048576) MOD 16
-          symEntry = collections::get(litT, (symEntry - 1048576) / 16 + bits::band(bitBuf, bits::sl(1, symSub) - 1))
+          LET symSub AS Integer = bits::band(symEntry, 15)
+          symEntry = collections::get(litT, (bits::sr(symEntry, 4) - 65536) + bits::band(bitBuf, bits::sl(1, symSub) - 1))
         END IF
         IF symEntry < 0 THEN
           FAIL error(77050003, "compress: invalid code")
         END IF
-        bitBuf = bits::sr(bitBuf, symEntry MOD 16)
-        bitCount = bitCount - symEntry MOD 16
-        LET sym AS Integer = symEntry / 16
+        bitBuf = bits::sr(bitBuf, bits::band(symEntry, 15))
+        bitCount = bitCount - bits::band(symEntry, 15)
+        LET sym AS Integer = bits::sr(symEntry, 4)
         IF sym < 256 THEN
           IF outLen >= maxBytes THEN
             FAIL error(77050027, "compress: output exceeds maxBytes")
@@ -351,15 +358,15 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
           IF dsymEntry >= 1048576 THEN
             bitBuf = bits::sr(bitBuf, 6)
             bitCount = bitCount - 6
-            LET dsymSub AS Integer = (dsymEntry - 1048576) MOD 16
-            dsymEntry = collections::get(distT, (dsymEntry - 1048576) / 16 + bits::band(bitBuf, bits::sl(1, dsymSub) - 1))
+            LET dsymSub AS Integer = bits::band(dsymEntry, 15)
+            dsymEntry = collections::get(distT, (bits::sr(dsymEntry, 4) - 65536) + bits::band(bitBuf, bits::sl(1, dsymSub) - 1))
           END IF
           IF dsymEntry < 0 THEN
             FAIL error(77050003, "compress: invalid code")
           END IF
-          bitBuf = bits::sr(bitBuf, dsymEntry MOD 16)
-          bitCount = bitCount - dsymEntry MOD 16
-          LET dsym AS Integer = dsymEntry / 16
+          bitBuf = bits::sr(bitBuf, bits::band(dsymEntry, 15))
+          bitCount = bitCount - bits::band(dsymEntry, 15)
+          LET dsym AS Integer = bits::sr(dsymEntry, 4)
           IF dsym >= 30 THEN
             FAIL error(77050003, "compress: invalid distance symbol")
           END IF
@@ -374,12 +381,16 @@ FUNC __compress_inflateCore(data AS List OF Byte, start AS Integer, maxBytes AS 
             FAIL error(77050027, "compress: output exceeds maxBytes")
           END IF
           LET from AS Integer = outLen - dist
-          MUT k AS Integer = 0
-          WHILE k < length
-            out = collections::append(out, collections::get(out, from + k))
-            k = k + 1
+          MUT left AS Integer = length
+          WHILE left > 0
+            MUT chunk AS Integer = outLen - from
+            IF chunk > left THEN
+              chunk = left
+            END IF
+            out = collections::append(out, collections::mid(out, from, chunk))
+            outLen = outLen + chunk
+            left = left - chunk
           END WHILE
-          outLen = outLen + length
         END IF
         IF pos > n THEN
           IF bitCount < (pos - n) * 8 THEN

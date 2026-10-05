@@ -1870,14 +1870,17 @@ const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[
     // `ci < hclen <= 19` indexes the 19-entry CL_ORDER; `lens` holds exactly
     // `hlit + hdist >= 258` entries when `lens[256]` is read and `have >= 1` when
     // `lens[have - 1]` is; `clens` is 19 long and CL_ORDER's values are 0 .. 18.
-    // A copy reads `out[from + k]` with `1 <= dist <= outLen` checked, so `from`
-    // is in `0 .. outLen - 1` and `from + k` below the list's growing length.
+    // A copy appends `mid(out, from, chunk)` with `1 <= dist <= outLen` checked
+    // and `outLen = len(out)` throughout, so `from = outLen - dist` is in
+    // `0 .. outLen - 1` and `chunk = min(outLen - from, left)` is at least 1 with
+    // `from + chunk <= outLen` (bug-774).
     // Shifts: a refill shifts a byte by `bitCount <= 48`; every drop is a code
-    // length `entry MOD 16` of an entry checked `>= 0` (0 .. 15), an extra-bit
-    // count from the length/distance tables (0 .. 5 / 0 .. 13), `drop = bitCount
-    // MOD 8` of a non-negative count, or a literal; `bits::sl(1, sub)` takes a
-    // `(entry - 1048576) MOD 16` of an entry checked `>= 1048576`.
+    // length `bits::band(entry, 15)` (0 .. 15), an extra-bit count from the
+    // length/distance tables (0 .. 5 / 0 .. 13), `drop = bitCount MOD 8` of a
+    // non-negative count, or a literal; `bits::sl(1, sub)` takes a
+    // `bits::band(entry, 15)` of an entry checked `>= 1048576`.
     ("__compress_inflateCore", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_inflateCore", "collections::mid", "ErrIndexOutOfRange"),
     ("__compress_inflateCore", "collections::set", "ErrIndexOutOfRange"),
     ("__compress_inflateCore", "bits::sl", "ErrInvalidArgument"),
     ("__compress_inflateCore", "bits::sr", "ErrInvalidArgument"),
@@ -1911,12 +1914,14 @@ const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[
     ("__compress_gzipDecode", "collections::get", "ErrIndexOutOfRange"),
     ("__compress_gzipDecode", "collections::mid", "ErrIndexOutOfRange"),
     ("__compress_le32", "collections::get", "ErrIndexOutOfRange"),
-    // `i + 7 <= n - 1` in the eight-byte loop and `i < n` in the tail; the
-    // 2048-entry slicing table is read at `k * 256 + (a byte)`, k in 0 .. 7: a
+    // `i + 7 <= n - 1` in the eight-byte loop (where `i` is a multiple of 8, so
+    // `bits::bor(i, k)` is `i + k`) and `i < n` in the tail; the 2048-entry
+    // slicing table `t` (`__compress_crc32` passes `__COMPRESS_CRC32_TABLES`) is
+    // read at `bits::bor(k * 256, b)` = `k * 256 + b`, k in 0 .. 7, for `b` a
     // data byte, `bits::band(_, 255)`, or `bits::sr(x, 24)` of `x`, a 32-bit
     // value (the running CRC is checked or derived in 0 .. 2^32 - 1, and every
     // table entry is a 32-bit CRC). Adler-32 reads `data[i]`, `i < n`.
-    ("__compress_crc32", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_crc32Run", "collections::get", "ErrIndexOutOfRange"),
     ("__compress_adler32", "collections::get", "ErrIndexOutOfRange"),
     // --- compress: the deflate encoder ---
     // Every caller rejects a level outside 0 .. 9 first, so the 10-entry

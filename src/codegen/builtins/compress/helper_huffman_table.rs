@@ -7,7 +7,9 @@
 //! `tools/oracles/compress/probe.sh`). Two levels: a primary table indexed by the next `root`
 //! bits, entries `symbol * 16 + length`; codes longer than `root` get a sub-table addressed by a
 //! pointer entry `1048576 + offset * 16 + subBits`; unused slots are -1. Also the fixed
-//! literal/length code lengths (RFC 1951 §3.2.6) and a list-filling helper.
+//! literal/length code lengths (RFC 1951 §3.2.6), a list-filling helper, and the two fixed
+//! decode tables as module globals, built once per program instead of on every decoder call
+//! (bug-774: that rebuild was the whole cost of a small `inflate`).
 //!
 //! Registered via `add_helper` under [`HelperGate::WhenUsed`] on the decoders. A gated helper
 //! is injected as its own file, so the body carries its own `IMPORT`s.
@@ -133,7 +135,13 @@ FUNC __compress_fixedLitLens() AS List OF Integer
     i = i + 1
   END WHILE
   RETURN t
-END FUNC"#;
+END FUNC
+
+' The fixed-Huffman decode tables (RFC 1951 3.2.6), built once at program start rather than on
+' every decoder call. The distance table is 32 five-bit codes, as zlib's fixedtables: a complete
+' set; symbols 30 and 31 are refused when decoded.
+LET __COMPRESS_INFLATE_FIXED_LIT AS List OF Integer = __compress_buildTable(__compress_fixedLitLens(), 0, 288, 9, 1)
+LET __COMPRESS_INFLATE_FIXED_DIST AS List OF Integer = __compress_buildTable(__compress_filled(32, 5), 0, 32, 6, 1)"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {
