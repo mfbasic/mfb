@@ -1,0 +1,144 @@
+IMPORT io
+IMPORT money
+
+' bug-812: `Money * Fixed`, `Money / Fixed`, `toMoney(Fixed)` and `toFixed(Money)`
+' reused the pure-Fixed helpers, which drop the fractional carrier bits: a positive
+' or divided result truncated, a negative product floored, and the Money rounding
+' mode was never read. Each now settles the exact carrier ratio once under the
+' current mode, then range-checks the rounded carrier.
+'
+' Every line compares the result against an exact literal of the expected carrier
+' (`=` compares raw carriers), so a formatting change cannot mask a wrong raw unit.
+TYPE Holding
+  amount AS Money
+  rate AS Fixed
+END TYPE
+
+FUNC m(label AS String, got AS Money, want AS Money) AS Nothing
+  io::print(label & " " & toString(got, toByte(5)) & " " & toString(got = want))
+END FUNC
+
+FUNC f(label AS String, got AS Fixed, want AS Fixed) AS Nothing
+  io::print(label & " " & toString(got = want))
+END FUNC
+
+FUNC productOf(a AS Money, k AS Fixed) AS String
+  LET r = toString(a * k, toByte(5)) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC quotientOf(a AS Money, k AS Fixed) AS String
+  LET r = toString(a / k, toByte(5)) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC fixedOf(a AS Money) AS String
+  LET r = toString(toFixed(a) = -2147483648.0F) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC probe(banker AS Boolean) AS Nothing
+  LET half AS Fixed = 0.5F
+  LET two AS Fixed = 2F
+  LET quarter AS Fixed = 0.25F
+  LET three AS Fixed = 3F
+
+  ' Money * Fixed: 3 * 0.5 = 1.5 and 7 * 0.5 = 3.5 tie toward the same even
+  ' carrier in both modes; 5 * 0.5 = 2.5 is the tie that separates them.
+  m("mul  3*h", 0.00003m * half, 0.00002m)
+  m("mul -3*h", -0.00003m * half, -0.00002m)
+  m("mul  7*h", 0.00007m * half, 0.00004m)
+  IF banker THEN
+    m("mul  5*h", 0.00005m * half, 0.00002m)
+    m("mul -5*h", -0.00005m * half, -0.00002m)
+    m("mul h*5", half * 0.00005m, 0.00002m)
+  ELSE
+    m("mul  5*h", 0.00005m * half, 0.00003m)
+    m("mul -5*h", -0.00005m * half, -0.00003m)
+    m("mul h*5", half * 0.00005m, 0.00003m)
+  END IF
+  ' Non-ties on both sides of the half, both signs, both operand orders.
+  m("mul  3*q", 0.00003m * quarter, 0.00001m)
+  m("mul -3*q", -0.00003m * quarter, -0.00001m)
+  m("mul  1*q", 0.00001m * quarter, 0m)
+  m("mul -1*q", -0.00001m * quarter, 0m)
+  m("mul q*-3", quarter * -0.00003m, -0.00001m)
+  ' Exact products stay exact.
+  m("mul 9.99*1.5", 9.99m * 1.5F, 14.985m)
+
+  ' Money / Fixed.
+  m("div  3/2", 0.00003m / two, 0.00002m)
+  m("div -3/2", -0.00003m / two, -0.00002m)
+  IF banker THEN
+    m("div  5/2", 0.00005m / two, 0.00002m)
+    m("div -5/2", -0.00005m / two, -0.00002m)
+  ELSE
+    m("div  5/2", 0.00005m / two, 0.00003m)
+    m("div -5/2", -0.00005m / two, -0.00003m)
+  END IF
+  m("div  1/3", 0.00001m / three, 0m)
+  m("div  2/3", 0.00002m / three, 0.00001m)
+  m("div -2/3", -0.00002m / three, -0.00001m)
+  m("div 1/-3", 0.00001m / -3F, 0m)
+  m("div 7/-0.5", 0.00007m / -0.5F, -0.00014m)
+
+  ' toMoney(Fixed): 1/65536 = 1.52587890625 raw units; 1/64 = 1562.5 (the tie
+  ' that separates the modes); 3/64 = 4687.5 (both modes reach 4688).
+  m("toMoney 1/65536", toMoney(0.0000152587890625F), 0.00002m)
+  m("toMoney -1/65536", toMoney(-0.0000152587890625F), -0.00002m)
+  m("toMoney 3/64", toMoney(0.046875F), 0.04688m)
+  IF banker THEN
+    m("toMoney 1/64", toMoney(0.015625F), 0.01562m)
+    m("toMoney -1/64", toMoney(-0.015625F), -0.01562m)
+  ELSE
+    m("toMoney 1/64", toMoney(0.015625F), 0.01563m)
+    m("toMoney -1/64", toMoney(-0.015625F), -0.01563m)
+  END IF
+
+  ' toFixed(Money): raw 1 = 42949.67296 Fixed units -> 42950; raw 2 = 85899.34592
+  ' -> 85899. (No Money carrier lands on an exact Fixed half-unit tie.)
+  f("toFixed 0.00001", toFixed(0.00001m), 0.0000100000761449337005615234375F)
+  f("toFixed -0.00001", toFixed(-0.00001m), -0.0000100000761449337005615234375F)
+  f("toFixed 0.00002", toFixed(0.00002m), 0.00001999991945922374725341796875F)
+
+  ' Through record fields.
+  LET h AS Holding = Holding[0.00005m, 0.5F]
+  IF banker THEN
+    m("field *", h.amount * h.rate, 0.00002m)
+    m("field /", h.amount / h.rate, 0.0001m)
+    m("field toMoney", toMoney(h.rate / 32F), 0.01562m)
+  ELSE
+    m("field *", h.amount * h.rate, 0.00003m)
+    m("field /", h.amount / h.rate, 0.0001m)
+    m("field toMoney", toMoney(h.rate / 32F), 0.01563m)
+  END IF
+
+  ' Range is checked after rounding. 61489146912365.17205 * 1.5 is
+  ' 92233720368547.758075: its carrier rounds up to 2^63 in both modes and
+  ' overflows, while the negated product rounds to exactly the Money minimum.
+  io::print("mul max " & productOf(61489146912365.17205m, 1.5F))
+  io::print("mul min " & productOf(-61489146912365.17205m, 1.5F))
+  io::print("mul minimum*1 " & productOf(-92233720368547.75808m, 1F))
+  io::print("mul minimum*-1 " & productOf(-92233720368547.75808m, -1F))
+  io::print("div zero " & quotientOf(1.00m, 0F))
+  io::print("div minimum/1 " & quotientOf(-92233720368547.75808m, 1F))
+  io::print("div minimum/-1 " & quotientOf(-92233720368547.75808m, -1F))
+  io::print("toFixed 2^31 " & fixedOf(2147483648.00m))
+  io::print("toFixed -2^31 " & fixedOf(-2147483648.00m))
+  io::print("toFixed -2^31-1u " & fixedOf(-2147483648.00001m))
+END FUNC
+
+FUNC main() AS Integer
+  io::print("Commercial")
+  probe(FALSE)
+  money::setRounding(money::Rounding.Banker)
+  io::print("Banker")
+  probe(TRUE)
+  RETURN 0
+END FUNC

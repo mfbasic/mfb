@@ -1,0 +1,50 @@
+IMPORT io
+
+' bug-813: the verifier range-checked a Fixed literal through binary64, which
+' rounds the exact maximum 2147483647.99999999976716935634613037109375 (raw
+' i64::MAX) up to 2147483648.0 and rejected it, and rounds a magnitude just past
+' the minimum's half-quantum boundary down to 2147483648.0 and accepted it. The
+' range is now decided on the same exact, signed, rounded carrier the literal is
+' lowered to. The values below are pinned through exact Fixed comparisons and
+' the overflow of one more quantum, not through formatting.
+FUNC plusQuantum(x AS Fixed) AS String
+  LET r = toString(x + 0.00000000023283064365386962890625F, toByte(12)) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC minusQuantum(x AS Fixed) AS String
+  LET r = toString(x - 0.00000000023283064365386962890625F, toByte(12)) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC main() AS Nothing
+  LET maximum AS Fixed = 2147483647.99999999976716935634613037109375F
+  LET annotated AS Fixed = 2147483647.99999999976716935634613037109375
+  LET scientific AS Fixed = 2.14748364799999999976716935634613037109375e9F
+  ' One digit short of the half-quantum tie above the maximum: rounds down.
+  LET belowTie AS Fixed = 2147483647.999999999883584678173065185546874F
+  LET minimum AS Fixed = -2147483648.0F
+  LET belowMinTie AS Fixed = -2147483648.000000000116415321826934814453124F
+  LET negMax AS Fixed = -2147483647.99999999976716935634613037109375F
+  ' The half-quantum tie itself rounds away from zero to one quantum.
+  LET tie AS Fixed = 0.000000000116415321826934814453125F
+  LET tiny AS Fixed = 1e-1000000000F
+
+  io::print("maximum " & toString(maximum, toByte(12)))
+  io::print("maximum + quantum " & plusQuantum(maximum))
+  io::print("maximum - quantum < maximum " & toString(maximum - 0.00000000023283064365386962890625F < maximum))
+  io::print("annotated = maximum " & toString(annotated = maximum))
+  io::print("scientific = maximum " & toString(scientific = maximum))
+  io::print("belowTie = maximum " & toString(belowTie = maximum))
+  io::print("minimum " & toString(minimum, toByte(12)))
+  io::print("minimum - quantum " & minusQuantum(minimum))
+  io::print("belowMinTie = minimum " & toString(belowMinTie = minimum))
+  io::print("negMax = -maximum " & toString(negMax = -maximum))
+  io::print("negMax - quantum = minimum " & toString(negMax - 0.00000000023283064365386962890625F = minimum))
+  io::print("tie = quantum " & toString(tie = 0.00000000023283064365386962890625F))
+  io::print("tiny = 0 " & toString(tiny = 0F))
+END FUNC

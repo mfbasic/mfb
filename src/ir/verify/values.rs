@@ -489,14 +489,26 @@ impl TypeEnv {
                     }
                 }
             }
+            // bug-813: decided on the exact signed, rounded carrier the literal
+            // lowers to (`numeric::fixed_conversion_from_decimal`), not on a
+            // binary64 approximation, which rejected the exact maximum and
+            // accepted magnitudes rounding past the minimum. A signed Const (the
+            // lowering's minimum fold, or decoded package IR) is judged by its
+            // own sign. A malformed spelling has no range to report; the lexer
+            // never produces one.
             ParameterType::Fixed => {
-                if let Ok(f) = value.parse::<f64>() {
-                    if f >= 2147483648.0 {
-                        self.emit(
-                            "TYPE_FIXED_LITERAL_OVERFLOW",
-                            format!("Numeric literal `{value}` is outside the Fixed range."),
-                        );
-                    }
+                if crate::numeric::fixed_conversion_from_decimal(value)
+                    == Err(crate::numeric::FixedDecimalError::OutOfRange)
+                {
+                    let rule = if value.starts_with('-') {
+                        "TYPE_FIXED_LITERAL_UNDERFLOW"
+                    } else {
+                        "TYPE_FIXED_LITERAL_OVERFLOW"
+                    };
+                    self.emit(
+                        rule,
+                        format!("Numeric literal `{value}` is outside the Fixed range."),
+                    );
                 }
             }
             // Scalar is a Unicode scalar value: a codepoint in 0..=0x10FFFF that
@@ -565,14 +577,17 @@ impl TypeEnv {
                     ),
                 );
             }
+            // bug-813: the sign is applied before conversion, so the minimum
+            // `-2147483648` needs no unrepresentable positive intermediate, and
+            // the range is decided on the rounded signed carrier.
             ParameterType::Fixed => {
-                if let Ok(f) = value.parse::<f64>() {
-                    if -f < -2147483648.0 {
-                        self.emit(
-                            "TYPE_FIXED_LITERAL_UNDERFLOW",
-                            format!("Numeric literal `-{value}` is outside the Fixed range."),
-                        );
-                    }
+                if crate::numeric::fixed_conversion_from_decimal(&format!("-{value}"))
+                    == Err(crate::numeric::FixedDecimalError::OutOfRange)
+                {
+                    self.emit(
+                        "TYPE_FIXED_LITERAL_UNDERFLOW",
+                        format!("Numeric literal `-{value}` is outside the Fixed range."),
+                    );
                 }
             }
             // The most-negative Money (`-92233720368547.75808`) has no

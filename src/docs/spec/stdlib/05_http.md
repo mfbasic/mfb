@@ -202,6 +202,14 @@ done(stream)   -> Boolean   ' STATE.err<>0  OR  STATE.closed  OR  frameComplete(
 finish(stream) -> Response   ' FAIL on STATE.err; else parseResponse(STATE.raw)
 ```
 
+`finish` re-raises `STATE.err` only when it is a code a drive records — `tcp::read`/
+`tls::read`'s failures other than `ErrConnectionClosed` (which a read turns into
+`closed`), the readiness wait's `ErrTimeout`, and `pump`'s `ErrOverflow` past the
+64 MiB cap. `PendingState` is an ordinary record the program can write, so any other
+non-zero `STATE.err` is not a transport failure and `finish` raises
+`ErrInvalidArgument` for it rather than a code outside its Errors table.
+[[src/codegen/builtins/http/func_finish.rs:__http_finish]]
+
 A program binds the stream, loops `IF ready(s) THEN pump(s)` until `done(s)` —
 interleaving its own work between pumps — then calls `finish(s)`. Because plan-80
 relocated the union STATE slot to a record offset free in every transport layout,

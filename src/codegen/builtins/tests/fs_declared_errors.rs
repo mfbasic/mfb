@@ -105,7 +105,8 @@ fn every_fs_member_declares_exactly_the_errors_its_lowering_raises() {
         RAISES_NOTHING,
         PROPAGATING,
         UNREACHABLE_VIA_CALLEE,
-        42,
+        // 42 + bug-809's `seek`, `openData` and the internal `readLineRaw`.
+        45,
     );
 }
 

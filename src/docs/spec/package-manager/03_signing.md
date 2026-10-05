@@ -99,8 +99,8 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 | `mfb-repo-org-role-v1\0` | member ident key | an org role grant/removal (org + member + role) |
 | `mfb-repo-token-issue-v1\0` | ident key | a publish-token issuance (owner + token fingerprint + scope) |
 | `mfb-repo-token-revoke-v1\0` | ident key | a publish-token revocation (owner + token fingerprint) |
-| `mfb-repo-transfer-offer-v1\0` | current-owner ident | an ownership-transfer offer (ident + from + to) |
-| `mfb-repo-transfer-accept-v1\0` | recipient ident | an ownership-transfer acceptance (ident + to) |
+| `mfb-repo-transfer-offer-v2\0` | current-owner ident | an ownership-transfer offer (ident + sequence + from owner + from ident fingerprint + to owner + release digest) |
+| `mfb-repo-transfer-accept-v2\0` | recipient ident | an ownership-transfer acceptance (the same six terms as the offer) |
 | `MFP-PROOF-v1\0` | ident key | the build proof JSON |
 | `MFP-ATTEST-v1\0` | server key | the attestation JSON |
 | `MFP-PACKAGE-v2\0` | one-off signing key | `SHA-256(header signed prefix)` — see container-format |
@@ -163,7 +163,9 @@ builds with no intermediate-output selectors; other outputs error.
 every signed build fetches a fresh attestation. [[src/cli/build/signing.rs:load_build_signing_info]]
 
 1. Fix the signed identity: the manifest `ident` when declared (it must be
-   `<owner>#<package>` and belong to the signing owner), else the canonical
+   `<owner>#<package>`, and is used as-is — the registry issues the attestation
+   only to the package's stored owner or, for a new ident, its prefix owner, so
+   a transfer's recipient signs the transferred ident), else the canonical
    `<owner>#<name>`; the version comes from the validated manifest.
    [[src/cli/build/signing.rs:signing_ident]]
 2. Read the local **ident** keypair (`<owner>.ident.{prv,pub}`; register or
@@ -258,13 +260,19 @@ blob's `registry`: the key fingerprints, the proof under `identKey`, the key the
 registry serves at `GET /ident` (which must be the key the attestation's signed
 `repoFingerprint` names — the URL itself is unsigned, so this is what binds it),
 the attestation under that key, and then the owner's current ident from the
-registry's signed name binding (`GET /index/<owner>#<package>`) and rotation chain
-(`GET /idents/<owner>`): still the signing ident, rotated away from it through
-signed links, or replaced with no link. The registry is reached over https
+registry's signed name binding (`GET /index/<owner>#<package>` for the proof's
+ident) and rotation chain (`GET /idents/<owner>`): still the signing ident,
+rotated away from it through signed links, or replaced with no link. When the
+proof's ident names another owner, the signer holds it only through a signed
+ownership transfer: the index's transfer chain must verify from its name
+binding and place the signing ident in the signer's ownership, and the current
+ident is then the signer's server-bound one (`toBinding`); otherwise the chain
+is reported as `proof ident does not belong to the signing owner`
+(`./mfb spec package-manager repository-protocol`). The registry is reached over https
 (plain http only for loopback). It keeps no revocation for signing keys or
 attestations, and release state (yanked/deprecated) exists only for published
 packages, so neither is reported for an executable (`./mfb spec tooling
-cli-reference`). [[src/cli/info.rs:verify_chain]][[repository/src/client.rs:fetch_server_key]][[repository/src/client.rs:fetch_index_with_key]]
+cli-reference`). [[src/cli/info.rs:verify_chain]][[repository/src/client.rs:fetch_server_key]][[repository/src/client.rs:fetch_index_with_key]][[repository/src/trust.rs:verify_chain]]
 
 ## Trust boundary
 

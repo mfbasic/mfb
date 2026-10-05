@@ -22,6 +22,17 @@ r#"' audio::render — render a note to mono s16le PCM at 48 kHz (the frame layo
 FUNC __audio_render(note AS AudioNote) AS List OF Byte
   MUT pcm AS List OF Byte = []
   LET n AS Integer = note.noteFrames
+  ' A non-positive count is the documented empty render. Returning before the loop
+  ' also keeps `n - 1` from overflowing at the most negative Integer.
+  IF n <= 0 THEN
+    RETURN pcm
+  END IF
+  ' Bounded before a frame is rendered (bug-810): `audio::play`'s ten-minute limit,
+  ' 28.8 million frames at 48 kHz (a 57.6 MB result). Unbounded, a huge `noteFrames`
+  ' appended two bytes a frame until memory ran out.
+  IF n > 28800000 THEN
+    FAIL error(77050002, "audio::render: note is longer than the 10 minute limit")
+  END IF
   LET a AS Integer = note.envelope.attackFrames
   LET d AS Integer = note.envelope.decayFrames
   LET r AS Integer = note.envelope.releaseFrames
@@ -55,7 +66,10 @@ const DESC: &str = r#"`audio::render` is a pure MFBASIC tone synthesizer, not a 
 opens hardware and touches no audio stream. It turns one `audio::AudioNote` into raw
 single-channel `s16le` PCM at a fixed 48 kHz sample rate and returns it as a
 `List OF Byte` — the same mono frame layout `audio::write` accepts, so the result can be handed straight to an open `AudioOutput`. The returned list is
-`note.noteFrames * 2` bytes long (empty when `note.noteFrames <= 0`). Each frame is
+`note.noteFrames * 2` bytes long (empty when `note.noteFrames <= 0`). A note longer
+than ten minutes — `note.noteFrames` above 28,800,000 — is refused with
+`ErrInvalidArgument` before anything is rendered, the same limit `audio::play`
+applies to a track. Each frame is
 a sine oscillator shaped by the note's `audio::AudioEnvelope` (linear attack, decay to
 `sustainLevel`, held sustain, linear release), scaled by `gainOverall`, converted to
 an `Integer`, then clamped to the s16 range and encoded little-endian. `render` is
@@ -94,7 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ParameterType::named(AUDIO_NOTE_TYPE),
             )],
             return_type: ParameterType::list_of(ParameterType::Byte),
-            errors: vec!["ErrInvalidFormat", "ErrOverflow", "ErrFloatNaN", "ErrOutOfMemory"],
+            errors: vec!["ErrInvalidArgument", "ErrInvalidFormat", "ErrOverflow", "ErrFloatNaN", "ErrOutOfMemory"],
             body: Body::mfb(BODY, "__audio_render"),
         }],
     });

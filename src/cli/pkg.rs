@@ -17,7 +17,7 @@ use crate::cli::help::PKG_HELP;
 use crate::doc;
 use crate::manifest::package::{
     package_file_url_path, project_json_with_package, project_json_with_updated_version,
-    project_json_without_packages, project_package_dependency, read_mfp_header,
+    project_json_without_packages, project_package_dependency, read_mfp_header, MfpHeader,
     ProjectPackageDependency,
 };
 use crate::manifest::{
@@ -296,16 +296,18 @@ fn upload_vendor_blobs(
     Ok(())
 }
 
-/// `mfb repo transfer <owner>#<package> <to-owner>` (plan-10-D1): the current
-/// owner offers a package to a recipient (signed with the local ident key).
+/// `mfb repo transfer <owner>#<package> <to-owner>` (plan-10-D1): the
+/// package's current owner offers it to a recipient (signed with the local
+/// ident key). The offering account is the current owner the registry's
+/// `/index` names (plan-168-A), which after a transfer is no longer the ident
+/// prefix, so a recipient can pass the package on.
 pub(crate) fn transfer_offer(ident: &str, to_owner: &str) -> Result<(), String> {
-    let Some((from_owner, _)) = ident.split_once('#') else {
+    if ident.split_once('#').is_none() {
         return Err("ident must use <owner>#<package>".to_string());
-    };
+    }
     let repo_url = mfb_repository::client::repo_url_from_env();
     let paths = super::local_paths_for_repo(&repo_url)?;
-    let response =
-        mfb_repository::client::transfer_offer(&repo_url, &paths, ident, from_owner, to_owner)?;
+    let response = mfb_repository::client::transfer_offer(&repo_url, &paths, ident, to_owner)?;
     println!(
         "Offered {} to {}; they must run `mfb repo transfer-accept {}` to accept.",
         response.ident, response.to_owner, response.ident
@@ -1297,6 +1299,34 @@ fn add_package_from_registry(
             header.ident
         ));
     }
+    // plan-168-C: the pin is the identKey of THIS release, verified for its
+    // publisher through the signed transfer chain from the registry's name
+    // binding (trust on first use, as before). Pinning the index's current key
+    // instead refused every release signed before a rotation or a transfer.
+    let ident_key = match verify_registry_release(
+        &repo_url,
+        &paths,
+        &index,
+        chosen,
+        &blob,
+        mfb_repository::trust::Anchor::FirstUse,
+    ) {
+        Ok(Some(trusted)) => {
+            if trusted.crossed_transfer {
+                print_transfer_notice(&full_ident, &trusted.publisher);
+            }
+            metadata_key(&trusted.key)
+        }
+        // An unsigned package carries no key to verify; its pin is never read.
+        Ok(None) => index.ident_key.clone(),
+        Err(err) => {
+            return Err(format!(
+                "{}: refusing to add `{full_ident}`@{}: {err}",
+                err.rule(),
+                chosen.version
+            ))
+        }
+    };
 
     // plan-60-C §4.1: an explicit `@version` implies a pin; an explicit flag
     // always wins. Under `pin: false` the `version` written here is the ABI
@@ -1308,7 +1338,7 @@ fn add_package_from_registry(
         version: header.version.clone(),
         pin,
         source: full_ident,
-        ident_key: index.ident_key.clone(),
+        ident_key,
         direct: Some(true),
         required_by: Some(Vec::new()),
     };
@@ -1339,6 +1369,67 @@ fn add_package_from_registry(
         project_path.display()
     );
     Ok(())
+}
+
+/// plan-168-C: whether a downloaded registry release is trusted for its
+/// publisher, through the signed transfer chain of the verified `index`, from
+/// `anchor`. `None` for an unsigned package, which carries no identKey.
+///
+/// `blob` is the release's bytes as fetched (`fetch_blob` has already checked
+/// them against the content address); the header is read from them, never
+/// from the index.
+// coverage:off — reads the owners' rotation chains from the registry; the
+// verifier itself is `mfb_repository::trust`, unit-tested without a network.
+pub(crate) fn verify_registry_release(
+    repo_url: &str,
+    paths: &mfb_repository::local::LocalPaths,
+    index: &mfb_repository::server::IndexResponse,
+    version: &mfb_repository::server::IndexVersion,
+    blob: &[u8],
+    anchor: mfb_repository::trust::Anchor,
+) -> Result<Option<mfb_repository::trust::Trusted>, mfb_repository::trust::TrustError> {
+    use mfb_repository::trust::{Release, TrustError};
+    let header = mfb_repository::package::parse_mfp_package(blob)
+        .map_err(|err| TrustError::Untrusted(format!("malformed package: {err}")))?;
+    if header.signature_type == 0 || header.ident_key.is_empty() {
+        return Ok(None);
+    }
+    let header_key = mfb_repository::package::decode_metadata_key(&header.ident_key, "identKey")
+        .map_err(TrustError::Untrusted)?;
+    let server_key = mfb_repository::local::read_pinned_server_key(paths)
+        .map_err(|err| TrustError::Untrusted(format!("no pinned registry key: {err}")))?;
+    mfb_repository::trust::verify_release(
+        &server_key,
+        index,
+        &mfb_repository::client::registry_chains(repo_url),
+        anchor,
+        &Release {
+            version,
+            content_hash: &header.content_hash_hex(),
+            header_ident_key: &header_key,
+            header_author: &header.author,
+        },
+    )
+    .map(Some)
+}
+// coverage:on
+
+/// A public key in project-metadata form, `ed25519:<base64url>`.
+pub(crate) fn metadata_key(public_key: &[u8]) -> String {
+    format!(
+        "ed25519:{}",
+        mfb_repository::crypto::encode_bytes(public_key)
+    )
+}
+
+/// The notice printed when a pin moves to a release published by another owner
+/// of the package, through a verified signed transfer (plan-168-C).
+pub(crate) fn print_transfer_notice(ident: &str, publisher: &str) {
+    println!(
+        "notice: ownership of {} moved to {} through a signed transfer",
+        crate::terminal_safe::safe(ident),
+        crate::terminal_safe::safe(publisher)
+    );
 }
 
 /// plan-48-B §4.4: download and place every `vendor` blob a just-verified
@@ -1697,11 +1788,13 @@ fn verify_packages(project_dir: &Path, demand_proof: bool) -> Result<(), String>
             } else {
                 Some(dependency.ident_key.clone())
             };
-            // Pin-follow (plan-23-B2): an installed package naming a NEWER
-            // CHAINED ident updates the pin automatically with a notice; an
-            // ident change with no chain link is a hard error (re-anchor).
+            // Pin-follow (plan-23-B2, plan-168-C): an installed package signed
+            // by a key the pin reaches — through the owner's rotation chain or a
+            // signed ownership transfer — updates the pin automatically with a
+            // notice; an ident change with no chain link is a hard error
+            // (re-anchor).
             if let Some(pinned) = anchor.clone() {
-                match follow_rotated_pin(project_dir, &dependency, &pinned, &package_file) {
+                match follow_identity_pin(project_dir, &dependency, &pinned, &package_file) {
                     Ok(Some(new_pin)) => anchor = Some(new_pin),
                     Ok(None) => {}
                     Err((rule, err)) => rotation_errors.push((rule, err)),
@@ -1808,14 +1901,17 @@ fn report_dependency_closure(
     Ok(issues.is_empty() && conflicts.is_empty())
 }
 
-/// When the installed package's identKey differs from the pin, consult the
-/// registry's signed rotation chain. A verifiable chain from the pin to the
-/// package's key updates `project.json` (with a notice) and returns the new
-/// pin; a missing chain is the re-anchor case and errors loudly.
-// coverage:off — the interesting branches require a live registry ident chain
-// (fetch_ident_chain) reached only after a real key rotation; covered by the
-// tests/ ident-rotation integration harness.
-fn follow_rotated_pin(
+/// When the installed package's identKey differs from the pin, find out
+/// whether the pin reaches it (plan-168-C). A release the registry lists is
+/// verified through its signed transfer chain from the pin — the owner's
+/// rotations and any ownership transfer — and updates `project.json` with a
+/// notice. A release the registry does not list (a locally built package)
+/// consults the pinned owner's signed rotation chain alone, as before
+/// transfers existed. A missing chain is the re-anchor case and errors loudly.
+// coverage:off — the interesting branches require a live registry (the index
+// and the ident chain) reached only after a real key rotation or transfer;
+// covered by the tests/ ident-rotation and transfer integration harnesses.
+fn follow_identity_pin(
     project_dir: &Path,
     dependency: &ProjectPackageDependency,
     pinned: &str,
@@ -1833,6 +1929,21 @@ fn follow_rotated_pin(
     if pinned_raw == header_raw {
         return Ok(None);
     }
+    if let Some(followed) = follow_listed_release(dependency, &header, &pinned_raw, package_file)? {
+        let new_pin = metadata_key(&followed.key);
+        rewrite_pinned_ident_key(project_dir, &dependency.name, &new_pin).map_err(untrusted)?;
+        if followed.crossed_transfer {
+            print_transfer_notice(&dependency.ident, &followed.publisher);
+        } else {
+            println!(
+                "notice: owner `{}` rotated their ident; updated the pinned identKey for `{}` to fingerprint {}",
+                crate::terminal_safe::safe(&followed.publisher),
+                dependency.name,
+                mfb_repository::crypto::fingerprint(&followed.key),
+            );
+        }
+        return Ok(Some(new_pin));
+    }
     let Some((owner, _)) = dependency.ident.split_once('#') else {
         return Ok(None);
     };
@@ -1848,23 +1959,9 @@ fn follow_rotated_pin(
         .map_err(untrusted)?
     {
         Some(newest) if newest == header_raw => {
-            let new_pin = format!(
-                "ed25519:{}",
-                mfb_repository::crypto::encode_bytes(&newest)
-            );
-            let project_path = project_dir.join("project.json");
-            let contents = fs::read_to_string(&project_path).map_err(|err| {
-                untrusted(format!("failed to read '{}': {err}", project_path.display()))
-            })?;
-            let updated = crate::manifest::package::project_json_with_updated_ident_key(
-                &contents,
-                &dependency.name,
-                &new_pin,
-            )
-            .map_err(untrusted)?;
-            fs::write(&project_path, updated).map_err(|err| {
-                untrusted(format!("failed to write '{}': {err}", project_path.display()))
-            })?;
+            let new_pin = metadata_key(&newest);
+            rewrite_pinned_ident_key(project_dir, &dependency.name, &new_pin)
+                .map_err(untrusted)?;
             println!(
                 "notice: owner `{owner}` rotated their ident; updated the pinned identKey for `{}` to fingerprint {}",
                 dependency.name,
@@ -1886,6 +1983,73 @@ fn follow_rotated_pin(
             ),
         )),
     }
+}
+
+/// The registry's verdict on an installed release it lists, from `pinned`
+/// through the signed transfer chain (plan-168-C). `Ok(None)` when the registry
+/// does not list this exact release (a local build, or an unreachable or
+/// unverifiable index), which leaves the rotation-only follow to decide.
+fn follow_listed_release(
+    dependency: &ProjectPackageDependency,
+    header: &MfpHeader,
+    pinned: &[u8],
+    package_file: &Path,
+) -> Result<Option<mfb_repository::trust::Trusted>, (&'static str, String)> {
+    let Some((owner, package)) = dependency.ident.split_once('#') else {
+        return Ok(None);
+    };
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let Ok(paths) = super::local_paths_for_repo(&repo_url) else {
+        return Ok(None);
+    };
+    let Ok(index) = mfb_repository::client::fetch_index(&repo_url, &paths, owner, package) else {
+        return Ok(None);
+    };
+    let Ok(content_hash) = target::package_mfp::package_content_hash_file(package_file) else {
+        return Ok(None);
+    };
+    let content_hash = hex_bytes(&content_hash);
+    let Some(version) = index
+        .versions
+        .iter()
+        .find(|version| version.version == header.version && version.hash == content_hash)
+    else {
+        return Ok(None);
+    };
+    let blob = fs::read(package_file).map_err(|err| {
+        (
+            "PACKAGE_IDENT_KEY_UNTRUSTED",
+            format!("failed to read '{}': {err}", package_file.display()),
+        )
+    })?;
+    verify_registry_release(
+        &repo_url,
+        &paths,
+        &index,
+        version,
+        &blob,
+        mfb_repository::trust::Anchor::Pinned(pinned.to_vec()),
+    )
+    .map_err(|err| {
+        (
+            err.rule(),
+            format!(
+                "package `{}` is signed by an ident key the pinned key does not reach: {err}",
+                dependency.name
+            ),
+        )
+    })
+}
+
+/// Point `name`'s pinned `identKey` in `project.json` at `new_pin`.
+fn rewrite_pinned_ident_key(project_dir: &Path, name: &str, new_pin: &str) -> Result<(), String> {
+    let project_path = project_dir.join("project.json");
+    let contents = fs::read_to_string(&project_path)
+        .map_err(|err| format!("failed to read '{}': {err}", project_path.display()))?;
+    let updated =
+        crate::manifest::package::project_json_with_updated_ident_key(&contents, name, new_pin)?;
+    fs::write(&project_path, updated)
+        .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))
 }
 
 /// `mfb pkg doc <name-or-path> [--out <file>]` — render HTML from a compiled
@@ -2375,6 +2539,8 @@ mod tests {
             state: state.to_string(),
             abi_index: serde_json::Value::Null,
             log_entry: None,
+            publisher: None,
+            epoch: 0,
         }
     }
 
@@ -2389,6 +2555,7 @@ mod tests {
             name_binding_signature: String::new(),
             server_fingerprint: "sf".to_string(),
             versions,
+            transfers: Vec::new(),
         }
     }
 
@@ -2712,6 +2879,8 @@ mod tests {
             state: state.to_string(),
             abi_index: abi,
             log_entry: None,
+            publisher: None,
+            epoch: 0,
         }
     }
 

@@ -1,4 +1,5 @@
 IMPORT csv
+IMPORT fs
 IMPORT collections
 IMPORT strings
 IMPORT errorCode
@@ -6,12 +7,13 @@ IMPORT errorCode
 ' =============================================================================
 ' Full acceptance + security suite for the `csv` import.
 '
-' Covers all four members (parse, stringify, parseStream, readRow) with multiple
-' cases each: RFC-4180 quoting rules, CR/LF/CRLF separators, empty/blank/ragged
-' rows, custom delimiter/quote/newline dialects, Unicode, the streaming API's
-' fields/reader/done contract, and every error path (ErrInvalidFormat) — a
-' malformed quote and an empty delimiter/quote on parse, parseStream, readRow,
-' AND stringify. Expected values were determined independently by probing the
+' Covers all three members (parse — String and File —, stringify, readRow) with
+' multiple cases each: RFC-4180 quoting rules, CR/LF/CRLF separators,
+' empty/blank/ragged rows, custom delimiter/quote/newline dialects, Unicode, the
+' streaming reader's record-at-a-time and end-of-file contract (bug-809), and
+' every error path — a malformed quote and an empty delimiter/quote on parse,
+' readRow, AND stringify (ErrInvalidFormat), and reading past the last record
+' (ErrEndOfFile). Expected values were determined independently by probing the
 ' documented semantics, not harvested to "just pass".
 '
 ' csv::parse is inline-lowered, so it is wrapped in a user FUNC to be
@@ -34,10 +36,29 @@ FUNC parseDQ(text AS String, delim AS String, quote AS String) AS List OF List O
   RETURN csv::parse(text, delim, quote)
 END FUNC
 
-' Read exactly one record from a fresh stream (used to trap malformed input).
+' Read exactly one record from an in-memory file of `text` (used to trap
+' malformed input and the end of input).
 FUNC readFirst(text AS String) AS Integer
-  LET r AS csv::CsvRow = csv::readRow(csv::parseStream(text))
-  RETURN len(r.fields)
+  RES f = fs::openData(text, "r")
+  RETURN len(csv::readRow(f))
+END FUNC
+
+FUNC readFirstDQ(text AS String, delim AS String, quote AS String) AS Integer
+  RES f = fs::openData(text, "r")
+  RETURN len(csv::readRow(f, delim, quote))
+END FUNC
+
+' The second record of `text`, or a trap.
+FUNC readSecond(text AS String) AS Integer
+  RES f = fs::openData(text, "r")
+  LET first AS List OF String = csv::readRow(f)
+  RETURN len(csv::readRow(f))
+END FUNC
+
+' csv::parse over an in-memory file of `text`.
+FUNC parseFile(text AS String) AS List OF List OF String
+  RES f = fs::openData(text, "r")
+  RETURN csv::parse(f)
 END FUNC
 
 ' cell(rows, r, c) — the c-th field of the r-th row.
@@ -190,54 +211,83 @@ TESTING
     END TGROUP
 
     ' -----------------------------------------------------------------------
-    TGROUP "parseStream + readRow"
-      TCASE "reads records in order, then reports done at end of input"
-        MUT row AS csv::CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
-        expectEqual(row.done, FALSE)
-        expectInteger(len(row.fields), 2)
-        expectString(collections::get(row.fields, 0), "a")
-        expectString(collections::get(row.fields, 1), "b")
-        row = csv::readRow(row.reader)
-        expectEqual(row.done, FALSE)
-        expectString(collections::get(row.fields, 0), "c")
-        expectString(collections::get(row.fields, 1), "d")
-        row = csv::readRow(row.reader)
-        expectEqual(row.done, TRUE)
-        expectInteger(len(row.fields), 0)
+    TGROUP "readRow + parse(File)"
+      TCASE "reads records in order and leaves the file at its end"
+        RES f = fs::openData("a,b\nc,d", "r")
+        LET first AS List OF String = csv::readRow(f)
+        expectInteger(len(first), 2)
+        expectString(collections::get(first, 0), "a")
+        expectString(collections::get(first, 1), "b")
+        expectEqual(fs::eof(f), FALSE)
+        LET second AS List OF String = csv::readRow(f)
+        expectString(collections::get(second, 0), "c")
+        expectString(collections::get(second, 1), "d")
+        expectEqual(fs::eof(f), TRUE)
       END TCASE
-      TCASE "empty input is done immediately"
-        LET row AS csv::CsvRow = csv::readRow(csv::parseStream(""))
-        expectEqual(row.done, TRUE)
-        expectInteger(len(row.fields), 0)
+      TCASE "reading past the last record raises ErrEndOfFile"
+        expectTrap(readSecond("a,b\n"), errorCode::ErrEndOfFile)
+        expectTrap(readFirst(""), errorCode::ErrEndOfFile)
       END TCASE
       TCASE "streamed rows match parse (quoting, CRLF, ragged)"
         LET cr AS String = crChar()
         LET src AS String = "name,\"a,b\"" & cr & "\nx\n1,2,3"
-        MUT sr AS csv::CsvRow = csv::readRow(csv::parseStream(src))
-        expectString(collections::get(sr.fields, 1), "a,b")
-        sr = csv::readRow(sr.reader)
-        expectInteger(len(sr.fields), 1)
-        expectString(collections::get(sr.fields, 0), "x")
-        sr = csv::readRow(sr.reader)
-        expectInteger(len(sr.fields), 3)
-        sr = csv::readRow(sr.reader)
-        expectEqual(sr.done, TRUE)
+        RES f = fs::openData(src, "r")
+        LET r1 AS List OF String = csv::readRow(f)
+        expectString(collections::get(r1, 1), "a,b")
+        LET r2 AS List OF String = csv::readRow(f)
+        expectInteger(len(r2), 1)
+        expectString(collections::get(r2, 0), "x")
+        LET r3 AS List OF String = csv::readRow(f)
+        expectInteger(len(r3), 3)
+        expectEqual(fs::eof(f), TRUE)
       END TCASE
-      TCASE "custom delimiter dialect on the stream"
-        LET row AS csv::CsvRow = csv::readRow(csv::parseStream("a;b;c", ";"))
-        expectInteger(len(row.fields), 3)
-        expectString(collections::get(row.fields, 2), "c")
+      TCASE "a quoted field spanning lines keeps its line breaks exactly"
+        LET cr AS String = crChar()
+        RES f = fs::openData("\"one" & cr & "\ntwo\nthree\",x\nnext", "r")
+        LET r1 AS List OF String = csv::readRow(f)
+        expectInteger(len(r1), 2)
+        expectString(collections::get(r1, 0), "one" & cr & "\ntwo\nthree")
+        expectString(collections::get(r1, 1), "x")
+        LET r2 AS List OF String = csv::readRow(f)
+        expectString(collections::get(r2, 0), "next")
+      END TCASE
+      TCASE "custom delimiter dialect on readRow"
+        RES f = fs::openData("a;b;c", "r")
+        LET row AS List OF String = csv::readRow(f, ";")
+        expectInteger(len(row), 3)
+        expectString(collections::get(row, 2), "c")
+      END TCASE
+      TCASE "parse(File) reads from the current position to the end"
+        RES f = fs::openData("h1,h2\n1,2\n3,4\n", "r")
+        LET header AS List OF String = csv::readRow(f)
+        expectString(collections::get(header, 1), "h2")
+        LET rest AS List OF List OF String = csv::parse(f)
+        expectInteger(len(rest), 2)
+        expectString(cell(rest, 1, 0), "3")
+        expectEqual(fs::eof(f), TRUE)
+        expectInteger(len(parseFile("")), 0)
+      END TCASE
+      TCASE "parse(File) equals parse(String) on the same text"
+        LET cr AS String = crChar()
+        LET src AS String = "a,\"q\"\"x\"" & cr & "\n\n\"m\nl\",z\nlast," & cr
+        LET fromText AS List OF List OF String = parse(src)
+        LET fromFile AS List OF List OF String = parseFile(src)
+        expectInteger(len(fromFile), len(fromText))
+        expectString(cell(fromFile, 0, 1), cell(fromText, 0, 1))
+        expectString(cell(fromFile, 2, 0), cell(fromText, 2, 0))
+        expectString(cell(fromFile, 3, 1), cell(fromText, 3, 1))
       END TCASE
       TCASE "security: readRow on malformed input raises ErrInvalidFormat"
         expectTrap(readFirst("\"abc"), errorCode::ErrInvalidFormat)
         expectTrap(readFirst("\"ab\"c"), errorCode::ErrInvalidFormat)
+        expectTrap(readFirst("\"open\nstill open"), errorCode::ErrInvalidFormat)
       END TCASE
-      TCASE "security: parseStream with an empty delimiter/quote raises ErrInvalidFormat"
-        expectTrap(csv::parseStream("a,b", ""), errorCode::ErrInvalidFormat)
-        expectTrap(csv::parseStream("a,b", ",", ""), errorCode::ErrInvalidFormat)
+      TCASE "security: readRow with an empty delimiter/quote raises ErrInvalidFormat"
+        expectTrap(readFirstDQ("a,b", "", "\""), errorCode::ErrInvalidFormat)
+        expectTrap(readFirstDQ("a,b", ",", ""), errorCode::ErrInvalidFormat)
       END TCASE
-      TCASE "opening a valid stream does not trap"
-        expectNTrap(csv::parseStream("a,b\nc,d"))
+      TCASE "reading a valid record does not trap"
+        expectNTrap(readFirst("a,b\nc,d"))
       END TCASE
     END TGROUP
 

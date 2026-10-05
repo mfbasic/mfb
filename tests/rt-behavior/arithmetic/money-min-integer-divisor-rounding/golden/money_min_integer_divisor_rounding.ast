@@ -1,0 +1,119 @@
+{
+  "project": "money_min_integer_divisor_rounding",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "money", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "m",
+      "line": 9,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 9 },
+      { "name": "got", "type": "Money", "default": null, "line": 9 },
+      { "name": "want", "type": "Money", "default": null, "line": 9 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "got" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "5" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "identifier", "value": "want" } }] } }] }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "quotientOf",
+      "line": 13,
+      "params": [
+      { "name": "a", "type": "Money", "default": null, "line": 13 },
+      { "name": "k", "type": "Integer", "default": null, "line": 13 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 14,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "/", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "5" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ERR:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 15 }
+        ]
+      }, "line": 14 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "r" }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "probe",
+      "line": 20,
+      "params": [
+      { "name": "banker", "type": "Boolean", "default": null, "line": 20 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775808" } }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "5e18" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "50000000000000m" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.00001m" } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "-5e18" }, { "kind": "binary", "operator": "/", "left": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "50000000000000m" } }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0.00001m" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "2^62-1" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "46116860184273.87903m" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0m" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "2^62+1" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "46116860184273.87905m" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.00001m" } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "-(2^62+1)" }, { "kind": "binary", "operator": "/", "left": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "46116860184273.87905m" } }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0.00001m" }] }, "line": 28 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "banker" },
+        "line": 29,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "2^62" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "46116860184273.87904m" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0m" }] }, "line": 30 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "-2^62" }, { "kind": "binary", "operator": "/", "left": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "46116860184273.87904m" } }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0m" }] }, "line": 31 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "2^62" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "46116860184273.87904m" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.00001m" } }] }, "line": 33 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "-2^62" }, { "kind": "binary", "operator": "/", "left": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "46116860184273.87904m" } }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0.00001m" }] }, "line": 34 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "zero" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "0m" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0m" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "minimum" }, { "kind": "binary", "operator": "/", "left": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "92233720368547.75808m" } }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "number", "value": "0.00001m" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "maximum" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "92233720368547.75807m" }, "right": { "kind": "identifier", "value": "k" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.00001m" } }] }, "line": 40 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "banker" },
+        "line": 42,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "5/-2" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "0.00005m" }, "right": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.00002m" } }] }, "line": 43 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "5/-2" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "0.00005m" }, "right": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.00003m" } }] }, "line": 45 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "m", "arguments": [{ "kind": "string", "value": "3/2b" }, { "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "0.00003m" }, "right": { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "2" }] } }, { "kind": "number", "value": "0.00002m" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zero divisor " }, "right": { "kind": "call", "callee": "quotientOf", "arguments": [{ "kind": "number", "value": "1.00m" }, { "kind": "number", "value": "0" }] } }] }, "line": 48 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 51,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "Commercial" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "probe", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "money.Rounding" }, "member": "Banker" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "Banker" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "probe", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 56 }
+      ]
+    }
+    ]
+  }
+  ]
+}

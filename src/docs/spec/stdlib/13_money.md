@@ -29,41 +29,53 @@ accounting drifts. With `Money`, the only rounding that ever occurs is the
 integer scaling, and comparison are exact integer operations on the raw i64 and
 never round.
 
-## Operation formulas and current rounding limits
+## Operation formulas
 
 Let `m` and `n` be signed Money raw carriers, `S = 100000`, `Q = 2^32`,
 `f` a signed Fixed raw carrier, and `k` an Integer/Byte value. `trunc` means
 truncation toward zero; `floor` means toward negative infinity. `R` is nearest
-integer rounding under the calling thread's mode. The following describes the
-current implementation, including the Fixed paths' failure to apply `R`.
+integer rounding under the calling thread's mode, applied once to the exact
+rational value. The following describes the current implementation.
 
 | Operation | Result calculation |
 | --- | --- |
 | Money add/subtract | checked `m + n` / `m - n` |
 | Money times Integer/Byte | checked `m * k` |
-| Money divided by Integer/Byte | `R(m / k)` except the minimum-Integer special case below |
+| Money divided by Integer/Byte | `R(m / k)` |
 | Money MOD Money | `m - trunc(m / n) * n`, exact signed remainder |
-| Money times Fixed (either order) | `floor(m * f / Q)` |
-| Money divided by Fixed | `trunc(m * Q / f)` |
-| `toMoney(Fixed)` | `floor(f * S / Q)` |
-| `toFixed(Money)` | `trunc(m * Q / S)` as a Fixed raw carrier |
+| Money times Fixed (either order) | `R(m * f / Q)` |
+| Money divided by Fixed | `R(m * Q / f)` |
+| `toMoney(Fixed)` | `R(f * S / Q)` |
+| `toFixed(Money)` | `R(m * Q / S)` as a Fixed raw carrier |
 | `toInt(Money)` | `trunc(m / S)` |
 | `toByte(Money)` | `trunc(m / S)`, then range check `0..255` |
 
-Integer operations check the signed carrier range. The Fixed multiply uses the
-full signed high/low product before discarding its low 32 bits. Fixed division
-constructs the quotient and 32 fraction bits with integer arithmetic; neither
-path uses a Float intermediate. **The Fixed arithmetic/conversion paths
-currently ignore the Money rounding mode**: their truncation/floor behavior is
-an implementation limitation, not the nearest-rounding rule described below.
-For example, `0.00003m * 0.5F` currently gives `0.00001m`, while nearest rounding
-would give `0.00002m` under either mode. Money divided by the minimum Integer
-also takes a special path that returns the truncated quotient without applying
-`R`. These exceptions must not be generalized into a nearest-rounding promise.
+Integer operations check the signed carrier range. The four Money/Fixed rows
+are exact integer arithmetic with no Float intermediate, and they apply `R` to
+the exact ratio, not to a truncated one: a product forms the full unsigned
+128-bit magnitude `|m| * |f|` (or `|f| * S`) and keeps the 32 low bits it
+divides away as the remainder over `Q`; a quotient builds the integer part and
+32 fraction bits of `|m| * Q / |f|` (or `/ S`) by long division and keeps the
+final remainder over the divisor. The magnitude is rounded once under the mode,
+the sign applied, and the **rounded** carrier range-checked, so a rounding carry
+past the maximum raises `ErrOverflow` while a result rounding to exactly the
+signed minimum is accepted. For example, `0.00003m * 0.5F` is `0.00002m` under
+either mode, and `0.00005m * 0.5F` is `0.00003m` under `Commercial` and
+`0.00002m` under `Banker`. A zero Fixed divisor raises `ErrInvalidArgument`;
+`toMoney(Fixed)` cannot overflow (its magnitude is below `2^48` raw units).
+These rows round under the Money mode because a Money operand or result is
+involved; ordinary `Fixed * Fixed` and `Fixed / Fixed` do not read the mode and
+are unchanged by it. Money divided by Integer/Byte rounds the signed
+quotient/remainder through the rule below; the one divisor whose magnitude a
+signed register cannot hold, the minimum Integer (`2^63`), is rounded on
+unsigned magnitudes instead, so `50000000000000m / -9223372036854775808` is
+`-0.00001m` and raw `2^62` divided by it is the tie (`-0.00001m` under
+`Commercial`, `0m` under `Banker`).
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_multiply]]
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_divide_scalar]]
-[[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_multiply]]
-[[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_divide]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_fixed_multiply]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_fixed_divide]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding_magnitude]]
 [[src/codegen/engine/convert/builder_conversions.rs:lower_to_money]]
 [[src/codegen/engine/convert/builder_conversions.rs:lower_to_fixed]]
 
@@ -132,7 +144,7 @@ the common workflow of accumulating under one mode and presenting under another.
 
 ## The rounding rule
 
-For exact integer divisions that apply the mode, settlement reduces to rounding a signed division. The Fixed paths excluded above do not call this rule. Given a
+For exact integer divisions that apply the mode, settlement reduces to rounding a signed division. Given a
 magnitude quotient `q` truncated toward zero, the signed remainder `r`, the
 positive divisor magnitude `|div|`, and the true sign of the result, the decision
 is made on the remainder magnitude:
@@ -151,7 +163,11 @@ if |rem| == half:               ; exact tie
 `|rem|` avoids overflow near `i64::MAX`. The result carries the true sign, which is
 tracked separately because a truncated quotient of `0` has no sign of its own.
 This is the shared integer quotient/remainder implementation of both modes.
+The Money/Fixed rows and a minimum-Integer divisor apply the same rule to unsigned magnitudes — `q`, `|rem|`
+and `|div|` with the sign applied afterward — comparing unsigned, so a divisor
+magnitude of `2^63` (the Fixed or Integer minimum) is decided exactly.
 [[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding_magnitude]]
 
 For the same exact quotient, remainder, and mode, this integer rule gives the
 same result on every target. Float scaling instead settles an already-rounded

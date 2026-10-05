@@ -167,28 +167,84 @@ pub fn token_revoke_message(owner: &str, token_fingerprint: &str) -> Vec<u8> {
     message
 }
 
-/// Ident-signed ownership-transfer offer (plan-10-D1): the current owner offers
-/// a package to a recipient.
-pub fn transfer_offer_message(ident: &str, from_owner: &str, to_owner: &str) -> Vec<u8> {
+/// The terms one ownership-transfer link binds (plan-168-A §4.1). Both halves
+/// of a transfer sign the SAME terms, under two domains, so neither signature
+/// can stand in for the other.
+///
+/// * `sequence` is the number of accepted transfers of `ident` before this one,
+///   so a recorded link cannot be replayed at another position in the chain
+///   (the v1 messages carried no position, and after alice->bob->alice a stored
+///   alice->bob pair was byte-identical to a third alice->bob transfer).
+/// * `from_ident_fingerprint` names the exact key the offer is signed under.
+/// * `release_digest` is [`release_digest`] over every version of the ident at
+///   offer time, so a release cannot later be withheld or re-dated without
+///   breaking the link.
+///
+/// Owner names are the registered display forms, which is what `/index`
+/// name-binds and serves.
+#[derive(Debug, Clone, Copy)]
+pub struct TransferTermsRef<'a> {
+    pub ident: &'a str,
+    pub sequence: i64,
+    pub from_owner: &'a str,
+    pub from_ident_fingerprint: &'a str,
+    pub to_owner: &'a str,
+    pub release_digest: &'a str,
+}
+
+fn transfer_message_v2(domain: &[u8], terms: TransferTermsRef<'_>) -> Vec<u8> {
     let mut message = Vec::new();
-    message.extend_from_slice(b"mfb-repo-transfer-offer-v1\0");
-    message.extend_from_slice(ident.as_bytes());
-    message.push(0);
-    message.extend_from_slice(from_owner.as_bytes());
-    message.push(0);
-    message.extend_from_slice(to_owner.as_bytes());
+    message.extend_from_slice(domain);
+    let sequence = terms.sequence.to_string();
+    for (index, field) in [
+        terms.ident,
+        &sequence,
+        terms.from_owner,
+        terms.from_ident_fingerprint,
+        terms.to_owner,
+        terms.release_digest,
+    ]
+    .iter()
+    .enumerate()
+    {
+        if index > 0 {
+            message.push(0);
+        }
+        message.extend_from_slice(field.as_bytes());
+    }
     message
 }
 
-/// Ident-signed ownership-transfer acceptance (plan-10-D1): the recipient
-/// accepts the offered package.
-pub fn transfer_accept_message(ident: &str, to_owner: &str) -> Vec<u8> {
-    let mut message = Vec::new();
-    message.extend_from_slice(b"mfb-repo-transfer-accept-v1\0");
-    message.extend_from_slice(ident.as_bytes());
-    message.push(0);
-    message.extend_from_slice(to_owner.as_bytes());
-    message
+/// Ident-signed ownership-transfer offer (plan-168-A): the current owner offers
+/// the package on the given terms, signed under `from_ident_fingerprint`.
+pub fn transfer_offer_message_v2(terms: TransferTermsRef<'_>) -> Vec<u8> {
+    transfer_message_v2(b"mfb-repo-transfer-offer-v2\0", terms)
+}
+
+/// Ident-signed ownership-transfer acceptance (plan-168-A): the recipient
+/// accepts exactly the offered terms, signed under the recipient's ident.
+pub fn transfer_accept_message_v2(terms: TransferTermsRef<'_>) -> Vec<u8> {
+    transfer_message_v2(b"mfb-repo-transfer-accept-v2\0", terms)
+}
+
+/// The cumulative release digest a transfer link binds (plan-168-A §4.1): the
+/// hex SHA-256 of `version || "\0" || hash || "\n"` over every `(version,
+/// hash)` of the ident, sorted by `(version, hash)` so the server and a client
+/// reading `/index` compute the same bytes whatever order they list them in.
+pub fn release_digest<'a, I>(versions: I) -> String
+where
+    I: IntoIterator<Item = (&'a str, &'a str)>,
+{
+    let mut rows: Vec<(&str, &str)> = versions.into_iter().collect();
+    rows.sort_unstable();
+    let mut hasher = Sha256::new();
+    for (version, hash) in rows {
+        hasher.update(version.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(hash.as_bytes());
+        hasher.update(b"\n");
+    }
+    hex::encode(hasher.finalize())
 }
 
 /// Signed-metadata domains (plan-10-C2, TUF-like root of trust). The offline
@@ -484,6 +540,50 @@ mod tests {
         .is_err());
         assert!(pairing_approval_message(&lookup, &auth_public)
             .starts_with(b"mfb-pairing-approve-v1\0"));
+    }
+
+    fn sample_terms(sequence: i64) -> TransferTermsRef<'static> {
+        TransferTermsRef {
+            ident: "alice#toolbox",
+            sequence,
+            from_owner: "alice",
+            from_ident_fingerprint: "fp-a",
+            to_owner: "bob",
+            release_digest: "digest",
+        }
+    }
+
+    #[test]
+    fn transfer_messages_bind_every_term_and_separate_the_two_halves() {
+        let offer = transfer_offer_message_v2(sample_terms(0));
+        assert_eq!(
+            offer,
+            b"mfb-repo-transfer-offer-v2\0alice#toolbox\x000\0alice\0fp-a\0bob\0digest".to_vec()
+        );
+        let accept = transfer_accept_message_v2(sample_terms(0));
+        assert!(accept.starts_with(b"mfb-repo-transfer-accept-v2\0"));
+        assert_ne!(offer, accept);
+        // The sequence is part of the signed bytes: the same pair at another
+        // chain position is a different message.
+        assert_ne!(offer, transfer_offer_message_v2(sample_terms(2)));
+        let mut other = sample_terms(0);
+        other.release_digest = "other";
+        assert_ne!(offer, transfer_offer_message_v2(other));
+    }
+
+    #[test]
+    fn release_digest_is_order_independent_and_covers_every_release() {
+        let a = release_digest([("1.0.0", "h1"), ("2.0.0", "h2")]);
+        let b = release_digest([("2.0.0", "h2"), ("1.0.0", "h1")]);
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64);
+        assert_ne!(a, release_digest([("1.0.0", "h1")]));
+        assert_ne!(a, release_digest([("1.0.0", "h1"), ("2.0.0", "hX")]));
+        // The empty history has a fixed digest (SHA-256 of nothing).
+        assert_eq!(
+            release_digest(std::iter::empty()),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]

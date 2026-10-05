@@ -31,7 +31,8 @@ After the last member, another member is read only if the next two bytes are the
 no harm; bytes that do start with the signature but are not a valid member are refused.
 
 `compress::gzipDecode` is written in MFBASIC itself and uses no system library, so it returns the
-same bytes and raises the same errors on every platform."#;
+same bytes and raises the same errors on every platform. `ErrOutOfMemory` means the program ran out
+of memory."#;
 const EX: &str = r#"Decompress gzip data and print the text inside it:
 
 ```
@@ -104,7 +105,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidFormat", "ErrTooLarge", "ErrInvalidArgument"],
+            errors: vec!["ErrInvalidFormat", "ErrTooLarge", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__compress_gzipDecode"),
         }],
     });

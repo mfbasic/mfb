@@ -30,7 +30,8 @@ to `9` raises `ErrInvalidArgument`.
 The result is valid gzip data, but it is not byte-for-byte what zlib's own compressor would
 produce.
 
-`compress::gzipEncode` is written in MFBASIC itself and uses no system library."#;
+`compress::gzipEncode` is written in MFBASIC itself and uses no system library. `ErrOutOfMemory`
+means the program ran out of memory."#;
 const EX: &str = r#"Compress some repetitive text into gzip data, then decompress it again:
 
 ```
@@ -75,7 +76,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__compress_gzipEncode"),
         }],
     });

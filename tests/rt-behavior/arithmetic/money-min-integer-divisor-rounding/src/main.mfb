@@ -1,0 +1,57 @@
+IMPORT io
+IMPORT money
+
+' bug-817: `Money / Integer` with the divisor i64::MIN returned the truncated
+' quotient (bug-230's guard), so a raw ratio whose magnitude reaches one half was
+' never rounded: 50000000000000m / i64::MIN printed 0.00000 instead of -0.00001.
+' The divisor magnitude 2^63 is now rounded with unsigned magnitudes under the
+' mode. Each line compares the result with an exact Money literal.
+FUNC m(label AS String, got AS Money, want AS Money) AS Nothing
+  io::print(label & " " & toString(got, toByte(5)) & " " & toString(got = want))
+END FUNC
+
+FUNC quotientOf(a AS Money, k AS Integer) AS String
+  LET r = toString(a / k, toByte(5)) TRAP(e)
+    RECOVER "ERR:" & toString(e.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC probe(banker AS Boolean) AS Nothing
+  LET k AS Integer = -9223372036854775808
+  ' Raw 5e18 / 2^63 = 0.542..., past the half in both modes.
+  m("5e18", 50000000000000m / k, -0.00001m)
+  m("-5e18", -50000000000000m / k, 0.00001m)
+  ' Raw 2^62 is the exact tie; 2^62 - 1 and 2^62 + 1 sit either side of it.
+  m("2^62-1", 46116860184273.87903m / k, 0m)
+  m("2^62+1", 46116860184273.87905m / k, -0.00001m)
+  m("-(2^62+1)", -46116860184273.87905m / k, 0.00001m)
+  IF banker THEN
+    m("2^62", 46116860184273.87904m / k, 0m)
+    m("-2^62", -46116860184273.87904m / k, 0m)
+  ELSE
+    m("2^62", 46116860184273.87904m / k, -0.00001m)
+    m("-2^62", -46116860184273.87904m / k, 0.00001m)
+  END IF
+  m("zero", 0m / k, 0m)
+  ' The signed endpoints: the minimum divides exactly (bug-230); the maximum
+  ' is 2^63 - 1 raw units, just short of one whole quotient.
+  m("minimum", -92233720368547.75808m / k, 0.00001m)
+  m("maximum", 92233720368547.75807m / k, -0.00001m)
+  ' Contrast: ordinary Integer and Byte divisors keep their rounding path.
+  IF banker THEN
+    m("5/-2", 0.00005m / -2, -0.00002m)
+  ELSE
+    m("5/-2", 0.00005m / -2, -0.00003m)
+  END IF
+  m("3/2b", 0.00003m / toByte(2), 0.00002m)
+  io::print("zero divisor " & quotientOf(1.00m, 0))
+END FUNC
+
+FUNC main() AS Nothing
+  io::print("Commercial")
+  probe(FALSE)
+  money::setRounding(money::Rounding.Banker)
+  io::print("Banker")
+  probe(TRUE)
+END FUNC

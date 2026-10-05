@@ -1,4 +1,5 @@
 use crate::crypto;
+use crate::validation::fold_owner;
 
 // plan-126-B: the container magic, the fixed-prefix length, the field readers
 // and the signature-header rule come from `mfb_wire::mfp` instead of being
@@ -258,6 +259,29 @@ pub fn verify_payload_hash(package: &MfpPackage) -> Result<(), String> {
     Ok(())
 }
 
+/// The signed `owner` of a proof or attestation must name the release's
+/// publisher, which is the header `author` (plan-168-B). It used to be bound
+/// to the ident's `owner#` prefix, which never moves when ownership does, so a
+/// transferred package's recipient could not sign a verifiable release. The
+/// comparison is case-folded (`fold_owner`, the registry's own rule): a
+/// pre-plan artifact whose prefix differs in case from the registered display
+/// name signs the prefix spelling, and must keep verifying. The ident keeps
+/// its `<owner>#<package>` shape check.
+fn expect_signed_owner(
+    document: &serde_json::Value,
+    package: &MfpPackage,
+    what: &str,
+) -> Result<(), String> {
+    if !package.ident.contains('#') {
+        return Err("package ident must use <owner>#<package>".to_string());
+    }
+    let signed = document.get("owner").and_then(|value| value.as_str());
+    match signed {
+        Some(owner) if fold_owner(owner) == fold_owner(&package.author) => Ok(()),
+        _ => Err(format!("{what} owner does not match the package author")),
+    }
+}
+
 /// Verify the ident-signed proof under the given ident public key and check
 /// that every proof field pins this exact package (plan-23 §3.5 step 3).
 pub fn verify_proof(package: &MfpPackage, ident_public: &[u8]) -> Result<(), String> {
@@ -272,10 +296,7 @@ pub fn verify_proof(package: &MfpPackage, ident_public: &[u8]) -> Result<(), Str
         }
         Ok(())
     };
-    let Some((owner, _)) = package.ident.split_once('#') else {
-        return Err("package ident must use <owner>#<package>".to_string());
-    };
-    expect("owner", owner)?;
+    expect_signed_owner(&proof, package, "proof")?;
     expect("ident", &package.ident)?;
     expect("version", &package.version)?;
     expect("identFingerprint", &package.ident_fingerprint()?)?;
@@ -305,10 +326,7 @@ pub fn verify_attestation(
         Ok(())
     };
     expect("repoFingerprint", repo_fingerprint)?;
-    let Some((owner, _)) = package.ident.split_once('#') else {
-        return Err("package ident must use <owner>#<package>".to_string());
-    };
-    expect("owner", owner)?;
+    expect_signed_owner(&attestation, package, "attestation")?;
     expect("ident", &package.ident)?;
     expect("version", &package.version)?;
     expect("identFingerprint", &package.ident_fingerprint()?)?;
@@ -398,6 +416,12 @@ mod tests {
     }
 
     fn signed_fixture(version: &str) -> Fixture {
+        signed_fixture_for("alice#toolbox", "alice", "alice", version)
+    }
+
+    /// A fully signed package for `ident`, whose header names `author` and
+    /// whose proof and attestation both sign `signed_owner` as the owner.
+    fn signed_fixture_for(ident: &str, author: &str, signed_owner: &str, version: &str) -> Fixture {
         let (ident_public, ident_private) = crypto::generate_keypair();
         let (signing_public, signing_private) = crypto::generate_keypair();
         let (server_public, server_private) = crypto::generate_keypair();
@@ -405,7 +429,7 @@ mod tests {
         let signing_fingerprint = crypto::fingerprint(&signing_public);
         let repo_fingerprint = crypto::fingerprint(&server_public);
         let proof = format!(
-            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
+            "{{\"owner\":\"{signed_owner}\",\"ident\":\"{ident}\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
         );
         let proof_sig = crypto::sign(
             &ident_private,
@@ -413,7 +437,7 @@ mod tests {
         )
         .unwrap();
         let attestation = format!(
-            "{{\"repoFingerprint\":\"{repo_fingerprint}\",\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
+            "{{\"repoFingerprint\":\"{repo_fingerprint}\",\"owner\":\"{signed_owner}\",\"ident\":\"{ident}\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
         );
         let attestation_sig = crypto::sign(
             &server_private,
@@ -422,10 +446,13 @@ mod tests {
         .unwrap();
         let artifact = serialize(
             &TestPackage {
-                name: "toolbox".to_string(),
-                ident: "alice#toolbox".to_string(),
+                name: ident
+                    .split_once('#')
+                    .map_or(ident, |(_, name)| name)
+                    .to_string(),
+                ident: ident.to_string(),
                 version: version.to_string(),
-                author: "alice".to_string(),
+                author: author.to_string(),
                 url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_public)),
@@ -568,6 +595,54 @@ mod tests {
         assert!(verify_attestation(&package, &fx.server_public, "wrong-fp")
             .unwrap_err()
             .contains("repoFingerprint"));
+    }
+
+    /// plan-168-B: the signed owner binds to the release's author, not to the
+    /// ident prefix, so bob's release of a transferred `alice#x` verifies — and
+    /// an alice-signed owner on a bob-authored release does not.
+    #[test]
+    fn proof_owner_binds_to_the_author_not_the_prefix() {
+        let fx = signed_fixture_for("alice#x", "bob", "bob", "2.0.0");
+        let package = parse_mfp_package(&fx.artifact).unwrap();
+        verify_proof(&package, &fx.ident_public).unwrap();
+        verify_attestation(
+            &package,
+            &fx.server_public,
+            &crypto::fingerprint(&fx.server_public),
+        )
+        .unwrap();
+
+        let fx = signed_fixture_for("alice#x", "bob", "alice", "2.0.0");
+        let package = parse_mfp_package(&fx.artifact).unwrap();
+        assert_eq!(
+            verify_proof(&package, &fx.ident_public).unwrap_err(),
+            "proof owner does not match the package author"
+        );
+        assert_eq!(
+            verify_attestation(
+                &package,
+                &fx.server_public,
+                &crypto::fingerprint(&fx.server_public),
+            )
+            .unwrap_err(),
+            "attestation owner does not match the package author"
+        );
+    }
+
+    /// plan-168-B (B-D1): a pre-plan artifact signs the ident prefix's spelling
+    /// as its owner, which may differ in case from the registered display name
+    /// the header's author carries. Fold-equality keeps it verifying.
+    #[test]
+    fn a_case_differing_legacy_prefix_still_verifies() {
+        let fx = signed_fixture_for("Alice#toolbox", "alice", "Alice", "1.0.0");
+        let package = parse_mfp_package(&fx.artifact).unwrap();
+        verify_proof(&package, &fx.ident_public).unwrap();
+        verify_attestation(
+            &package,
+            &fx.server_public,
+            &crypto::fingerprint(&fx.server_public),
+        )
+        .unwrap();
     }
 
     #[test]

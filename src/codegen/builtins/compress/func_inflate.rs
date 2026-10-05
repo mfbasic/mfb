@@ -28,7 +28,8 @@ decoder accepts, so data produced by any conforming compressor decodes, and data
 refuses is refused here too. Bytes after the end of the final block are ignored.
 
 `compress::inflate` is written in MFBASIC itself and uses no system library, so it returns
-the same bytes and raises the same errors on every platform."#;
+the same bytes and raises the same errors on every platform. `ErrOutOfMemory` means the program ran
+out of memory."#;
 const EX: &str = r#"Decompress a short raw DEFLATE stream and print the text inside it:
 
 ```
@@ -89,7 +90,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidFormat", "ErrTooLarge", "ErrInvalidArgument"],
+            errors: vec!["ErrInvalidFormat", "ErrTooLarge", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__compress_inflate"),
         }],
     });

@@ -51,11 +51,11 @@ Bare numeric literals are also range-checked statically before any code runs; a
 literal that cannot be represented in its target type is a compile error in the
 `TYPE_*_LITERAL_*` family, distinct from the runtime conversion errors below.
 
-The current compiler can reject a Fixed literal near the positive limit even
-when the value is representable, because its preliminary range check loses
-precision. In particular the exact maximum Fixed decimal literal is rejected.
-This is a current limitation; see `mfb spec language types` for the precise
-literal acceptance rules.
+A Fixed literal is rounded to the nearest value a Fixed can hold (ties away
+from zero) and is accepted exactly when that rounded value is in range, so the
+largest Fixed, `2147483647.99999999976716935634613037109375F`, and the smallest,
+`-2147483648.0F`, can both be written. See `mfb spec language types` for the
+precise literal acceptance rules.
 
 ## Promotion and result types
 

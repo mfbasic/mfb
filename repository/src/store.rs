@@ -63,6 +63,12 @@ pub struct PublishMetadata {
     /// signed package -- it is simply not recorded. Written inside the same
     /// transaction as the version row.
     pub docs: Option<Vec<u8>>,
+    /// The fingerprint of the publisher's ident key the release header names
+    /// (plan-168-A §4.3), recorded as `package_versions.publisher_ident_key_id`.
+    /// It must be one of the publishing owner's ident keys; an unknown
+    /// fingerprint refuses the publish. `None` records no key (a caller that
+    /// has no validated header, such as a store-level test).
+    pub publisher_ident_fingerprint: Option<String>,
 }
 
 /// One `package_version_targets` row as `Store::target_rows_for_test` yields it:
@@ -452,7 +458,7 @@ impl Store {
     }
 
     pub fn migrate(&self) -> Result<(), String> {
-        let conn = self.conn();
+        let mut conn = self.conn();
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS owners (
@@ -662,6 +668,34 @@ impl Store {
                 UNIQUE(package_id)
             );
 
+            -- plan-168-A §4.2: the append-only, signed ownership history. One
+            -- row per ACCEPTED transfer, numbered from 0 per package. The key,
+            -- digest and signature columns are NULL only for a legacy row
+            -- replayed from the transparency log (`backfill_legacy_transfers`),
+            -- which no client can authenticate and so treats as the end of the
+            -- verifiable chain.
+            CREATE TABLE IF NOT EXISTS transfer_history (
+                id INTEGER PRIMARY KEY,
+                package_id INTEGER NOT NULL REFERENCES packages(id),
+                sequence INTEGER NOT NULL,
+                from_owner_id INTEGER NOT NULL REFERENCES owners(id),
+                from_ident_key_id INTEGER NULL REFERENCES keys(id),
+                to_owner_id INTEGER NOT NULL REFERENCES owners(id),
+                to_ident_key_id INTEGER NULL REFERENCES keys(id),
+                release_digest TEXT NULL,
+                offer_signature BLOB NULL,
+                accept_signature BLOB NULL,
+                offered_at INTEGER NOT NULL,
+                accepted_at INTEGER NOT NULL,
+                UNIQUE(package_id, sequence)
+            );
+            CREATE TRIGGER IF NOT EXISTS transfer_history_no_update
+                BEFORE UPDATE ON transfer_history
+                BEGIN SELECT RAISE(ABORT, 'transfer_history is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS transfer_history_no_delete
+                BEFORE DELETE ON transfer_history
+                BEGIN SELECT RAISE(ABORT, 'transfer_history is append-only'); END;
+
             CREATE TABLE IF NOT EXISTS registry_config (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 registry_id TEXT NOT NULL,
@@ -721,6 +755,59 @@ impl Store {
             "pairing_blobs",
             "approval_key BLOB NOT NULL DEFAULT x''",
         )?;
+        // plan-168-A §4.2: the signed terms of a pending offer. NULL on a row
+        // written before signed transfers, which `accept_transfer` refuses (the
+        // owner must re-offer under the v2 protocol).
+        add_column_if_missing(&conn, "transfer_offers", "sequence INTEGER NULL")?;
+        add_column_if_missing(&conn, "transfer_offers", "from_ident_key_id INTEGER NULL")?;
+        add_column_if_missing(&conn, "transfer_offers", "release_digest TEXT NULL")?;
+        add_column_if_missing(&conn, "transfer_offers", "offer_signature BLOB NULL")?;
+        // plan-168-A §4.2: who published each release, under which ident key,
+        // and in which ownership epoch (the number of accepted transfers before
+        // it). Publisher keys of pre-plan releases are not recorded (NULL): a
+        // client verifies the downloaded header key, never this column.
+        add_column_if_missing(&conn, "package_versions", "publisher_owner_id INTEGER NULL")?;
+        add_column_if_missing(
+            &conn,
+            "package_versions",
+            "publisher_ident_key_id INTEGER NULL",
+        )?;
+        add_column_if_missing(
+            &conn,
+            "package_versions",
+            "transfer_epoch INTEGER NOT NULL DEFAULT 0",
+        )?;
+        // Every pre-plan release was published by its ident-prefix owner:
+        // `/validate` required the session to fold-equal the prefix, and
+        // `publish_package_version` resolves the package row by the session
+        // owner. SQLite's ASCII-only `lower()` equals `fold_owner` because owner
+        // names are ASCII (`validate_owner_name`). Idempotent: only NULL rows
+        // whose prefix owner resolves, and the UPDATE runs only when one exists,
+        // so re-opening an up-to-date database never writes (a deliberately
+        // read-only `0400` database must still open).
+        let publishers_missing: bool = conn
+            .query_row(
+                "SELECT EXISTS (
+                     SELECT 1 FROM package_versions pv
+                     JOIN packages p ON p.id = pv.package_id
+                     JOIN owners o
+                       ON o.owner_folded = lower(substr(p.ident, 1, instr(p.ident, '#') - 1))
+                     WHERE pv.publisher_owner_id IS NULL)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("failed to scan release publishers: {err}"))?;
+        if publishers_missing {
+            conn.execute(
+                "UPDATE package_versions SET publisher_owner_id = (
+                     SELECT o.id FROM owners o JOIN packages p ON p.id = package_versions.package_id
+                     WHERE o.owner_folded = lower(substr(p.ident, 1, instr(p.ident, '#') - 1)))
+                 WHERE publisher_owner_id IS NULL",
+                [],
+            )
+            .map_err(|err| format!("failed to backfill release publishers: {err}"))?;
+        }
+        backfill_legacy_transfers(&mut conn)?;
         Ok(())
     }
 
@@ -1574,9 +1661,12 @@ impl Store {
         let conn = self.conn();
         let mut statement = conn
             .prepare(
-                "SELECT pv.version, pv.hash, pv.created_at, pv.state, pv.abi_index
+                "SELECT pv.version, pv.hash, pv.created_at, pv.state, pv.abi_index,
+                        publisher.owner_display, publisher_key.fingerprint, pv.transfer_epoch
                  FROM package_versions pv
                  JOIN packages p ON p.id = pv.package_id
+                 LEFT JOIN owners publisher ON publisher.id = pv.publisher_owner_id
+                 LEFT JOIN keys publisher_key ON publisher_key.id = pv.publisher_ident_key_id
                  WHERE p.ident = ?1
                  ORDER BY pv.created_at ASC, pv.id ASC",
             )
@@ -1589,6 +1679,9 @@ impl Store {
                     published_at: row.get(2)?,
                     state: row.get(3)?,
                     abi_index: row.get(4)?,
+                    publisher_display: row.get(5)?,
+                    publisher_ident_fingerprint: row.get(6)?,
+                    transfer_epoch: row.get(7)?,
                 })
             })
             .map_err(|err| format!("failed to list package versions: {err}"))?;
@@ -2123,11 +2216,38 @@ impl Store {
             params![hash, blob_path, now],
         )
         .map_err(|err| format!("failed to store package blob metadata: {err}"))?;
+        // plan-168-A §4.3: record who published the release, under which of
+        // their ident keys, and in which ownership epoch. The key is looked up
+        // among the publisher's ident keys of any status: a rotation between
+        // `/validate` and this write retires the key but does not unmake the
+        // signature the header carries.
+        let publisher_ident_key_id: Option<i64> = match &metadata.publisher_ident_fingerprint {
+            Some(fingerprint) => Some(
+                tx.query_row(
+                    "SELECT id FROM keys WHERE owner_id = ?1 AND role = 'ident' AND fingerprint = ?2",
+                    params![owner_id, fingerprint],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|err| format!("failed to load publisher ident key: {err}"))?
+                .ok_or_else(|| {
+                    format!("publisher ident key {fingerprint} is not one of the publisher's keys")
+                })?,
+            ),
+            None => None,
+        };
+        let transfer_epoch: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM transfer_history WHERE package_id = ?1",
+                params![package_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("failed to count transfer history: {err}"))?;
         tx.execute(
             "INSERT INTO package_versions
                  (package_id, version, hash, state, abi_index, author, url, description,
-                  created_at)
-             VALUES (?1, ?2, ?3, 'available', ?4, ?5, ?6, ?7, ?8)",
+                  created_at, publisher_owner_id, publisher_ident_key_id, transfer_epoch)
+             VALUES (?1, ?2, ?3, 'available', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 package_id,
                 version,
@@ -2136,7 +2256,10 @@ impl Store {
                 metadata.author,
                 metadata.url,
                 metadata.description,
-                now
+                now,
+                owner_id,
+                publisher_ident_key_id,
+                transfer_epoch
             ],
         )
         .map_err(|err| {
@@ -2683,13 +2806,31 @@ impl Store {
         .map_err(|err| format!("failed to load package owner: {err}"))
     }
 
-    /// Record a transfer offer: the current owner offers `ident` to `to_owner`.
-    /// Caller verifies the current owner's ident authorization first.
+    /// The terms the next transfer of `ident` must sign (plan-168-A §4.3): the
+    /// number of accepted transfers so far, the stored owner and their current
+    /// ident key, and the cumulative release digest. `None` for an unknown
+    /// package.
+    pub fn transfer_terms(&self, ident: &str) -> Result<Option<TransferTerms>, String> {
+        let conn = self.conn();
+        Ok(transfer_terms_on(&conn, ident)?.map(|(_, terms)| terms))
+    }
+
+    /// Record a signed transfer offer: the current owner offers `ident` to
+    /// `to_owner` on the terms `(sequence, release_digest)`, signed by the
+    /// owner's current ident over `crypto::transfer_offer_message_v2`.
+    ///
+    /// The terms are recomputed and the signature verified inside the writing
+    /// transaction, so an offer whose terms moved under it (a publish or an
+    /// accept in between) is refused rather than recorded with a signature
+    /// over terms that no longer hold.
     pub fn create_transfer_offer(
         &self,
         ident: &str,
         from_owner: &str,
         to_owner: &str,
+        sequence: i64,
+        release_digest: &str,
+        offer_signature: &[u8],
     ) -> Result<(), String> {
         let Some(package_owner) = self.package_owner(ident)? else {
             return Err("unknown package".to_string());
@@ -2728,15 +2869,45 @@ impl Store {
         if current_owner_id != package_owner.id {
             return Err("offering owner does not currently own the package".to_string());
         }
+        let Some((_, terms)) = transfer_terms_on(&tx, ident)? else {
+            return Err("unknown package".to_string());
+        };
+        if terms.sequence != sequence || terms.release_digest != release_digest {
+            return Err(STALE_TRANSFER_TERMS.to_string());
+        }
+        let message = crypto::transfer_offer_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence,
+            from_owner: &terms.current_owner.owner_display,
+            from_ident_fingerprint: &terms.current_ident.fingerprint,
+            to_owner: &to_record.owner_display,
+            release_digest,
+        });
+        crypto::verify(&terms.current_ident.public_key, &message, offer_signature)
+            .map_err(|_| "invalid transfer offer ident signature".to_string())?;
         tx.execute(
-            "INSERT INTO transfer_offers (package_id, from_owner_id, to_owner_id, created_at, accepted_at)
-             VALUES (?1, ?2, ?3, ?4, NULL)
+            "INSERT INTO transfer_offers (package_id, from_owner_id, to_owner_id, created_at,
+                 accepted_at, sequence, from_ident_key_id, release_digest, offer_signature)
+             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8)
              ON CONFLICT(package_id) DO UPDATE SET
                from_owner_id = excluded.from_owner_id,
                to_owner_id = excluded.to_owner_id,
                created_at = excluded.created_at,
-               accepted_at = NULL",
-            params![package_id, package_owner.id, to_record.id, now],
+               accepted_at = NULL,
+               sequence = excluded.sequence,
+               from_ident_key_id = excluded.from_ident_key_id,
+               release_digest = excluded.release_digest,
+               offer_signature = excluded.offer_signature",
+            params![
+                package_id,
+                package_owner.id,
+                to_record.id,
+                now,
+                sequence,
+                terms.current_ident.id,
+                release_digest,
+                offer_signature
+            ],
         )
         .map_err(|err| format!("failed to record transfer offer: {err}"))?;
         append_log_tx(
@@ -2754,10 +2925,18 @@ impl Store {
         Ok(())
     }
 
-    /// Accept a pending transfer: re-bind the package to `to_owner` and log it.
+    /// Accept a pending signed transfer: verify the recipient's signature over
+    /// `crypto::transfer_accept_message_v2` on the package's current terms,
+    /// require those terms to be exactly the pending offer's, then append the
+    /// `transfer_history` link, re-bind the package to `to_owner`, and log it.
     /// Already-published versions keep verifying against the old ident's
     /// proofs (issued facts); new versions publish under the new owner's ident.
-    pub fn accept_transfer(&self, ident: &str, to_owner: &str) -> Result<(), String> {
+    pub fn accept_transfer(
+        &self,
+        ident: &str,
+        to_owner: &str,
+        accept_signature: &[u8],
+    ) -> Result<(), String> {
         let Some(to_record) = self.owner_record(to_owner)? else {
             return Err("unknown recipient account".to_string());
         };
@@ -2766,7 +2945,23 @@ impl Store {
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to start transfer transaction: {err}"))?;
-        let offer: Option<(i64, i64)> = tx
+        let Some((package_id, terms)) = transfer_terms_on(&tx, ident)? else {
+            return Err(NO_PENDING_OFFER.to_string());
+        };
+        let Some(to_ident) = current_ident_key_on(&tx, to_record.id)? else {
+            return Err("recipient has no current ident key".to_string());
+        };
+        let message = crypto::transfer_accept_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence: terms.sequence,
+            from_owner: &terms.current_owner.owner_display,
+            from_ident_fingerprint: &terms.current_ident.fingerprint,
+            to_owner: &to_record.owner_display,
+            release_digest: &terms.release_digest,
+        });
+        crypto::verify(&to_ident.public_key, &message, accept_signature)
+            .map_err(|_| "invalid transfer accept ident signature".to_string())?;
+        let offer: Option<PendingOfferRow> = tx
             .query_row(
                 // `o.from_owner_id = p.owner_id` is the stale-offer guard
                 // (bug-274): an offer is only acceptable while the account that
@@ -2774,19 +2969,69 @@ impl Store {
                 // resurrected after ownership moved — or simply left pending
                 // across a transfer — could re-bind the package on the authority
                 // of an account that no longer holds it.
-                "SELECT o.id, o.package_id
+                "SELECT o.id, o.sequence, o.from_ident_key_id, o.release_digest,
+                        o.offer_signature, o.created_at
                  FROM transfer_offers o
                  JOIN packages p ON p.id = o.package_id
                  WHERE p.ident = ?1 AND o.to_owner_id = ?2 AND o.accepted_at IS NULL
                    AND o.from_owner_id = p.owner_id",
                 params![ident, to_record.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| {
+                    Ok(PendingOfferRow {
+                        id: row.get(0)?,
+                        sequence: row.get(1)?,
+                        from_ident_key_id: row.get(2)?,
+                        release_digest: row.get(3)?,
+                        offer_signature: row.get(4)?,
+                        offered_at: row.get(5)?,
+                    })
+                },
             )
             .optional()
             .map_err(|err| format!("failed to load transfer offer: {err}"))?;
-        let Some((offer_id, package_id)) = offer else {
-            return Err("no pending transfer offer for this account".to_string());
+        let Some(offer) = offer else {
+            return Err(NO_PENDING_OFFER.to_string());
         };
+        let (Some(sequence), Some(from_key_id), Some(digest), Some(offer_signature)) = (
+            offer.sequence,
+            offer.from_ident_key_id,
+            offer.release_digest,
+            offer.offer_signature,
+        ) else {
+            return Err(
+                "this offer predates signed transfers; the owner must re-offer".to_string(),
+            );
+        };
+        // The recipient signed the CURRENT terms; the offer must have been made
+        // on exactly those, under the offerer's still-current ident key, or the
+        // recorded link would pair two signatures over different facts.
+        if sequence != terms.sequence
+            || digest != terms.release_digest
+            || from_key_id != terms.current_ident.id
+        {
+            return Err(STALE_TRANSFER_TERMS.to_string());
+        }
+        tx.execute(
+            "INSERT INTO transfer_history
+                 (package_id, sequence, from_owner_id, from_ident_key_id, to_owner_id,
+                  to_ident_key_id, release_digest, offer_signature, accept_signature,
+                  offered_at, accepted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                package_id,
+                sequence,
+                terms.current_owner.id,
+                from_key_id,
+                to_record.id,
+                to_ident.id,
+                digest,
+                offer_signature,
+                accept_signature,
+                offer.offered_at,
+                now
+            ],
+        )
+        .map_err(|err| format!("failed to record transfer history: {err}"))?;
         tx.execute(
             "UPDATE packages SET owner_id = ?1 WHERE id = ?2",
             params![to_record.id, package_id],
@@ -2794,21 +3039,80 @@ impl Store {
         .map_err(|err| format!("failed to re-bind package owner: {err}"))?;
         tx.execute(
             "UPDATE transfer_offers SET accepted_at = ?1 WHERE id = ?2",
-            params![now, offer_id],
+            params![now, offer.id],
         )
         .map_err(|err| format!("failed to close transfer offer: {err}"))?;
         append_log_tx(
             &tx,
             "transfer-accept",
             &format!(
-                "{{\"ident\":{},\"to\":{}}}",
+                "{{\"ident\":{},\"to\":{},\"sequence\":{}}}",
                 json_value(ident),
                 json_value(&to_record.owner_display),
+                sequence,
             ),
         )?;
         tx.commit()
             .map_err(|err| format!("failed to commit transfer accept: {err}"))?;
         Ok(())
+    }
+
+    /// Whether the package moved through a transfer accepted before signed
+    /// transfers existed (plan-168-B): an unsigned legacy history link, which
+    /// no client can authenticate.
+    pub fn has_legacy_transfer(&self, ident: &str) -> Result<bool, String> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM transfer_history h JOIN packages p ON p.id = h.package_id
+                 WHERE p.ident = ?1 AND h.offer_signature IS NULL)",
+            params![ident],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("failed to read transfer history: {err}"))
+    }
+
+    /// The package's accepted transfers, oldest first (plan-168-A §4.3). A
+    /// legacy link (replayed from the transparency log) has no keys, digest or
+    /// signatures.
+    pub fn transfer_history(&self, ident: &str) -> Result<Vec<TransferRecord>, String> {
+        let conn = self.conn();
+        let mut statement = conn
+            .prepare(
+                "SELECT h.sequence, from_o.owner_display, from_k.public_key,
+                        to_o.owner_display, to_k.public_key, h.release_digest,
+                        h.offer_signature, h.accept_signature, h.offered_at, h.accepted_at
+                 FROM transfer_history h
+                 JOIN packages p ON p.id = h.package_id
+                 JOIN owners from_o ON from_o.id = h.from_owner_id
+                 JOIN owners to_o ON to_o.id = h.to_owner_id
+                 LEFT JOIN keys from_k ON from_k.id = h.from_ident_key_id
+                 LEFT JOIN keys to_k ON to_k.id = h.to_ident_key_id
+                 WHERE p.ident = ?1
+                 ORDER BY h.sequence ASC",
+            )
+            .map_err(|err| format!("failed to prepare transfer history query: {err}"))?;
+        let rows = statement
+            .query_map(params![ident], |row| {
+                Ok(TransferRecord {
+                    sequence: row.get(0)?,
+                    from_owner: row.get(1)?,
+                    from_ident_key: row.get(2)?,
+                    to_owner: row.get(3)?,
+                    to_ident_key: row.get(4)?,
+                    release_digest: row.get(5)?,
+                    offer_signature: row.get(6)?,
+                    accept_signature: row.get(7)?,
+                    offered_at: row.get(8)?,
+                    accepted_at: row.get(9)?,
+                })
+            })
+            .map_err(|err| format!("failed to load transfer history: {err}"))?;
+        let mut history = Vec::new();
+        for row in rows {
+            history.push(row.map_err(|err| format!("failed to read transfer history: {err}"))?);
+        }
+        Ok(history)
     }
 
     /// Operator root ceremony (plan-10-C2): generate the offline root key and
@@ -3543,6 +3847,311 @@ pub struct PackageVersionRow {
     pub state: String,
     /// The per-symbol ABI index JSON string (plan-10-B1), `{}` when absent.
     pub abi_index: String,
+    /// The publishing owner's display name (plan-168-A). `None` only for a
+    /// pre-plan release whose prefix owner no longer resolves.
+    pub publisher_display: Option<String>,
+    /// The publisher's ident-key fingerprint, `None` for a pre-plan release.
+    pub publisher_ident_fingerprint: Option<String>,
+    /// The number of accepted transfers before this release was published.
+    pub transfer_epoch: i64,
+}
+
+/// The terms the next transfer of a package signs (plan-168-A §4.3).
+#[derive(Debug, Clone)]
+pub struct TransferTerms {
+    /// The number of accepted transfers so far: the next link's position.
+    pub sequence: i64,
+    /// The stored (current) owner, who must sign the offer.
+    pub current_owner: OwnerRecord,
+    /// That owner's current ident key, which signs the offer.
+    pub current_ident: KeyRecord,
+    /// `crypto::release_digest` over every version of the package.
+    pub release_digest: String,
+}
+
+/// One accepted transfer, as `/index` serves it (plan-168-A §4.4). Every
+/// `Option` is `None` exactly for a legacy link replayed from the log.
+#[derive(Debug, Clone)]
+pub struct TransferRecord {
+    pub sequence: i64,
+    pub from_owner: String,
+    pub from_ident_key: Option<Vec<u8>>,
+    pub to_owner: String,
+    pub to_ident_key: Option<Vec<u8>>,
+    pub release_digest: Option<String>,
+    pub offer_signature: Option<Vec<u8>>,
+    pub accept_signature: Option<Vec<u8>>,
+    pub offered_at: i64,
+    pub accepted_at: i64,
+}
+
+/// A pending `transfer_offers` row as `accept_transfer` reads it. The four
+/// term columns are NULL on an offer recorded before signed transfers.
+struct PendingOfferRow {
+    id: i64,
+    sequence: Option<i64>,
+    from_ident_key_id: Option<i64>,
+    release_digest: Option<String>,
+    offer_signature: Option<Vec<u8>>,
+    offered_at: i64,
+}
+
+const STALE_TRANSFER_TERMS: &str =
+    "transfer terms are stale (sequence/releases changed); re-run the offer";
+const NO_PENDING_OFFER: &str = "no pending transfer offer for this account";
+
+/// The owner's current ident key, read on the caller's connection or
+/// transaction.
+fn current_ident_key_on(conn: &Connection, owner_id: i64) -> Result<Option<KeyRecord>, String> {
+    conn.query_row(
+        "SELECT id, public_key, fingerprint FROM keys
+         WHERE owner_id = ?1 AND role = 'ident' AND status = 'current'",
+        params![owner_id],
+        |row| {
+            Ok(KeyRecord {
+                id: row.get(0)?,
+                public_key: row.get(1)?,
+                fingerprint: row.get(2)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|err| format!("failed to load ident key: {err}"))
+}
+
+/// [`Store::transfer_terms`] on the caller's connection or transaction, plus
+/// the package row id. `None` for an unknown package.
+fn transfer_terms_on(
+    conn: &Connection,
+    ident: &str,
+) -> Result<Option<(i64, TransferTerms)>, String> {
+    let package: Option<(i64, i64, String)> = conn
+        .query_row(
+            "SELECT p.id, o.id, o.owner_display
+             FROM packages p JOIN owners o ON o.id = p.owner_id
+             WHERE p.ident = ?1",
+            params![ident],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|err| format!("failed to load package owner: {err}"))?;
+    let Some((package_id, owner_id, owner_display)) = package else {
+        return Ok(None);
+    };
+    let sequence: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM transfer_history WHERE package_id = ?1",
+            params![package_id],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("failed to count transfer history: {err}"))?;
+    let Some(current_ident) = current_ident_key_on(conn, owner_id)? else {
+        return Err("package owner has no current ident key".to_string());
+    };
+    let mut statement = conn
+        .prepare("SELECT version, hash FROM package_versions WHERE package_id = ?1")
+        .map_err(|err| format!("failed to prepare release digest query: {err}"))?;
+    let rows = statement
+        .query_map(params![package_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|err| format!("failed to load releases: {err}"))?;
+    let mut releases = Vec::new();
+    for row in rows {
+        releases.push(row.map_err(|err| format!("failed to read release: {err}"))?);
+    }
+    let release_digest = crypto::release_digest(
+        releases
+            .iter()
+            .map(|(version, hash)| (version.as_str(), hash.as_str())),
+    );
+    Ok(Some((
+        package_id,
+        TransferTerms {
+            sequence,
+            current_owner: OwnerRecord {
+                id: owner_id,
+                owner_display,
+            },
+            current_ident,
+            release_digest,
+        },
+    )))
+}
+
+/// Replay the transparency log into `transfer_history` for every package that
+/// has accepted transfers but no history yet (plan-168-A §4.2), and recover
+/// each release's ownership epoch.
+///
+/// `transfer_offers` cannot be the source: it keeps one row per package and a
+/// later offer resets `accepted_at`, so an accepted transfer followed by a new
+/// offer leaves no trace there. The log is append-only and records every
+/// `transfer-offer`, `transfer-accept` and `publish`; walking them in `idx`
+/// order from the ident-prefix owner gives each legacy transfer's position,
+/// owners and timestamps, and each release's epoch (accepts logged before it).
+///
+/// Every replayed link is unsigned: no key, digest or signatures existed, so a
+/// client cannot authenticate it and treats it as the end of the verifiable
+/// chain. The walk must end at the package's stored owner, or `migrate` fails:
+/// a log that disagrees with the tables would otherwise be served as a guessed
+/// chain. Idempotent: a package with any history row is skipped.
+fn backfill_legacy_transfers(conn: &mut Connection) -> Result<(), String> {
+    let candidates: Vec<(i64, String, i64)> = {
+        let mut statement = conn
+            .prepare(
+                "SELECT p.id, p.ident, p.owner_id FROM packages p
+                 WHERE NOT EXISTS (SELECT 1 FROM transfer_history h WHERE h.package_id = p.id)
+                 ORDER BY p.id",
+            )
+            .map_err(|err| format!("failed to prepare legacy transfer scan: {err}"))?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|err| format!("failed to scan packages for legacy transfers: {err}"))?;
+        rows.collect::<rusqlite::Result<_>>()
+            .map_err(|err| format!("failed to read package for legacy transfers: {err}"))?
+    };
+    if candidates.is_empty() {
+        return Ok(());
+    }
+    let mut by_ident: std::collections::HashMap<String, Vec<LegacyLogEvent>> =
+        std::collections::HashMap::new();
+    {
+        let mut statement = conn
+            .prepare(
+                "SELECT idx, kind, payload, created_at FROM log_entries
+                 WHERE kind IN ('transfer-offer', 'transfer-accept', 'publish')
+                 ORDER BY idx ASC",
+            )
+            .map_err(|err| format!("failed to prepare legacy log scan: {err}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(|err| format!("failed to scan the log for legacy transfers: {err}"))?;
+        for row in rows {
+            let (idx, kind, payload, created_at) =
+                row.map_err(|err| format!("failed to read log entry: {err}"))?;
+            let value: serde_json::Value = serde_json::from_str(&payload)
+                .map_err(|err| format!("malformed {kind} log payload at index {idx}: {err}"))?;
+            let field = |name: &str| -> Result<String, String> {
+                value
+                    .get(name)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("{kind} log payload at index {idx} has no {name}"))
+            };
+            let event = match kind.as_str() {
+                "transfer-offer" => LegacyLogEvent::Offer { created_at },
+                "transfer-accept" => LegacyLogEvent::Accept {
+                    to: field("to")?,
+                    created_at,
+                },
+                _ => LegacyLogEvent::Publish {
+                    version: field("version")?,
+                    hash: field("hash")?,
+                },
+            };
+            by_ident.entry(field("ident")?).or_default().push(event);
+        }
+    }
+    for (package_id, ident, stored_owner_id) in candidates {
+        let Some(events) = by_ident.get(&ident) else {
+            continue;
+        };
+        if !events
+            .iter()
+            .any(|event| matches!(event, LegacyLogEvent::Accept { .. }))
+        {
+            continue;
+        }
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start legacy transfer replay: {err}"))?;
+        let owner_by_name = |name: &str| -> Result<Option<(i64, String)>, String> {
+            tx.query_row(
+                "SELECT id, owner_display FROM owners WHERE owner_folded = ?1",
+                params![fold_owner(name)],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load owner: {err}"))
+        };
+        let prefix = ident.split_once('#').map(|(owner, _)| owner).unwrap_or("");
+        let Some((mut owner_id, mut owner_display)) = owner_by_name(prefix)? else {
+            return Err(format!(
+                "transfer log for {ident} starts at unknown owner {prefix}"
+            ));
+        };
+        let mut sequence: i64 = 0;
+        let mut offered_at: Option<i64> = None;
+        for event in events {
+            match event {
+                LegacyLogEvent::Offer { created_at } => offered_at = Some(*created_at),
+                LegacyLogEvent::Accept { to, created_at } => {
+                    let Some((to_id, to_display)) = owner_by_name(to)? else {
+                        return Err(format!("transfer log for {ident} names unknown owner {to}"));
+                    };
+                    tx.execute(
+                        "INSERT INTO transfer_history
+                             (package_id, sequence, from_owner_id, to_owner_id,
+                              offered_at, accepted_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            package_id,
+                            sequence,
+                            owner_id,
+                            to_id,
+                            offered_at.unwrap_or(*created_at),
+                            created_at
+                        ],
+                    )
+                    .map_err(|err| format!("failed to record legacy transfer: {err}"))?;
+                    owner_id = to_id;
+                    owner_display = to_display;
+                    sequence += 1;
+                    offered_at = None;
+                }
+                LegacyLogEvent::Publish { version, hash } => {
+                    tx.execute(
+                        "UPDATE package_versions SET transfer_epoch = ?1
+                         WHERE package_id = ?2 AND version = ?3 AND hash = ?4",
+                        params![sequence, package_id, version, hash],
+                    )
+                    .map_err(|err| format!("failed to record legacy release epoch: {err}"))?;
+                }
+            }
+        }
+        if owner_id != stored_owner_id {
+            let stored_display: String = tx
+                .query_row(
+                    "SELECT owner_display FROM owners WHERE id = ?1",
+                    params![stored_owner_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|err| format!("failed to load owner: {err}"))?
+                .unwrap_or_else(|| format!("unknown owner id {stored_owner_id}"));
+            return Err(format!(
+                "transfer log for {ident} ends at {owner_display} but the package is owned by \
+                 {stored_display}"
+            ));
+        }
+        tx.commit()
+            .map_err(|err| format!("failed to commit legacy transfer replay: {err}"))?;
+    }
+    Ok(())
+}
+
+/// One transparency-log entry the legacy transfer replay reads.
+enum LegacyLogEvent {
+    Offer { created_at: i64 },
+    Accept { to: String, created_at: i64 },
+    Publish { version: String, hash: String },
 }
 
 fn json_value(value: &str) -> String {
@@ -3803,8 +4412,83 @@ pub(crate) mod tests {
         pub(crate) auth_public: Vec<u8>,
         pub(crate) auth_private: Vec<u8>,
         pub(crate) ident_public: Vec<u8>,
-        #[allow(dead_code)]
         pub(crate) ident_private: Vec<u8>,
+    }
+
+    /// Sign a v2 transfer offer of `ident` to `to_owner` on the package's
+    /// current terms with `from`'s ident key; returns `(sequence, digest,
+    /// signature)` ready for `create_transfer_offer`.
+    pub(crate) fn sign_offer_for_test(
+        store: &Store,
+        ident: &str,
+        from: &RegisteredKeys,
+        to_owner: &str,
+    ) -> (i64, String, Vec<u8>) {
+        let terms = store
+            .transfer_terms(ident)
+            .unwrap()
+            .expect("package exists");
+        let to_display = store
+            .owner_record(to_owner)
+            .unwrap()
+            .map(|owner| owner.owner_display)
+            .unwrap_or_else(|| to_owner.to_string());
+        let message = crypto::transfer_offer_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence: terms.sequence,
+            from_owner: &terms.current_owner.owner_display,
+            from_ident_fingerprint: &crypto::fingerprint(&from.ident_public),
+            to_owner: &to_display,
+            release_digest: &terms.release_digest,
+        });
+        let signature = crypto::sign(&from.ident_private, &message).unwrap();
+        (terms.sequence, terms.release_digest, signature)
+    }
+
+    /// Sign a v2 transfer acceptance of `ident` by `to_owner` on the package's
+    /// current terms with `to`'s ident key.
+    pub(crate) fn sign_accept_for_test(
+        store: &Store,
+        ident: &str,
+        to: &RegisteredKeys,
+        to_owner: &str,
+    ) -> Vec<u8> {
+        let terms = store
+            .transfer_terms(ident)
+            .unwrap()
+            .expect("package exists");
+        let to_display = store
+            .owner_record(to_owner)
+            .unwrap()
+            .map(|owner| owner.owner_display)
+            .unwrap_or_else(|| to_owner.to_string());
+        let message = crypto::transfer_accept_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence: terms.sequence,
+            from_owner: &terms.current_owner.owner_display,
+            from_ident_fingerprint: &terms.current_ident.fingerprint,
+            to_owner: &to_display,
+            release_digest: &terms.release_digest,
+        });
+        crypto::sign(&to.ident_private, &message).unwrap()
+    }
+
+    /// The whole two-sided transfer of `ident` from `from_owner` to `to_owner`,
+    /// through the store with real v2 signatures.
+    pub(crate) fn offer_and_accept_for_test(
+        store: &Store,
+        ident: &str,
+        from_owner: &str,
+        from: &RegisteredKeys,
+        to_owner: &str,
+        to: &RegisteredKeys,
+    ) {
+        let (sequence, digest, signature) = sign_offer_for_test(store, ident, from, to_owner);
+        store
+            .create_transfer_offer(ident, from_owner, to_owner, sequence, &digest, &signature)
+            .unwrap();
+        let accept = sign_accept_for_test(store, ident, to, to_owner);
+        store.accept_transfer(ident, to_owner, &accept).unwrap();
     }
 
     pub(crate) fn register_keys(store: &Store, owner: &str) -> RegisteredKeys {
@@ -5726,9 +6410,9 @@ pub(crate) mod tests {
     #[test]
     fn a_stale_offer_cannot_rebind_a_package_after_ownership_moved() {
         let (_temp, store) = test_store();
-        register_keys(&store, "alice");
-        register_keys(&store, "bob");
-        register_keys(&store, "carol");
+        let alice = register_keys(&store, "alice");
+        let bob = register_keys(&store, "bob");
+        let carol = register_keys(&store, "carol");
         let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         store
             .publish_package_version(
@@ -5744,10 +6428,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Ownership legitimately moves alice -> bob.
-        store
-            .create_transfer_offer("alice#toolbox", "alice", "bob")
-            .unwrap();
-        store.accept_transfer("alice#toolbox", "bob").unwrap();
+        offer_and_accept_for_test(&store, "alice#toolbox", "alice", &alice, "bob", &bob);
 
         // Reproduce the resurrection: alice's offer row is re-listed as pending
         // (to carol) with `from_owner_id` still alice, even though bob now owns
@@ -5774,8 +6455,9 @@ pub(crate) mod tests {
         }
 
         // Carol must not be able to accept it: alice no longer owns the package.
+        let carol_accept = sign_accept_for_test(&store, "alice#toolbox", &carol, "carol");
         let err = store
-            .accept_transfer("alice#toolbox", "carol")
+            .accept_transfer("alice#toolbox", "carol", &carol_accept)
             .expect_err("a stale offer must not re-bind the package");
         assert!(
             err.contains("no pending transfer"),
@@ -5792,8 +6474,17 @@ pub(crate) mod tests {
         );
 
         // And the dispossessed owner cannot open a fresh offer either.
+        let (sequence, digest, signature) =
+            sign_offer_for_test(&store, "alice#toolbox", &alice, "carol");
         assert!(store
-            .create_transfer_offer("alice#toolbox", "alice", "carol")
+            .create_transfer_offer(
+                "alice#toolbox",
+                "alice",
+                "carol",
+                sequence,
+                &digest,
+                &signature
+            )
             .unwrap_err()
             .contains("does not currently own"));
     }
@@ -5802,7 +6493,7 @@ pub(crate) mod tests {
     fn transfer_offer_and_accept_error_branches() {
         let (_temp, store) = test_store();
         let alice = register_keys(&store, "alice");
-        register_keys(&store, "bob");
+        let bob = register_keys(&store, "bob");
         let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         store
             .publish_package_version(
@@ -5817,46 +6508,45 @@ pub(crate) mod tests {
             )
             .unwrap();
 
+        let (sequence, digest, offer) = sign_offer_for_test(&store, "alice#toolbox", &alice, "bob");
+        let offer_to = |ident: &str, from: &str, to: &str| {
+            store.create_transfer_offer(ident, from, to, sequence, &digest, &offer)
+        };
         // Unknown package.
-        assert!(store
-            .create_transfer_offer("alice#missing", "alice", "bob")
+        assert!(offer_to("alice#missing", "alice", "bob")
             .unwrap_err()
             .contains("unknown package"));
         // Offering owner mismatch.
-        assert!(store
-            .create_transfer_offer("alice#toolbox", "bob", "alice")
+        assert!(offer_to("alice#toolbox", "bob", "alice")
             .unwrap_err()
             .contains("does not currently own"));
         // Unknown recipient.
-        assert!(store
-            .create_transfer_offer("alice#toolbox", "alice", "nosuch")
+        assert!(offer_to("alice#toolbox", "alice", "nosuch")
             .unwrap_err()
             .contains("unknown recipient"));
         // Cannot transfer to self.
-        assert!(store
-            .create_transfer_offer("alice#toolbox", "alice", "alice")
+        assert!(offer_to("alice#toolbox", "alice", "alice")
             .unwrap_err()
             .contains("current owner"));
 
         // Accept with no pending offer for the account.
+        let accept = sign_accept_for_test(&store, "alice#toolbox", &bob, "bob");
         assert!(store
-            .accept_transfer("alice#toolbox", "bob")
+            .accept_transfer("alice#toolbox", "bob", &accept)
             .unwrap_err()
             .contains("no pending transfer"));
         assert!(store
-            .accept_transfer("alice#toolbox", "nosuch")
+            .accept_transfer("alice#toolbox", "nosuch", &accept)
             .unwrap_err()
             .contains("unknown recipient"));
 
         // A real offer then acceptance re-binds the package.
-        store
-            .create_transfer_offer("alice#toolbox", "alice", "bob")
-            .unwrap();
+        offer_to("alice#toolbox", "alice", "bob").unwrap();
         // Re-offering updates the existing row (ON CONFLICT path).
+        offer_to("alice#toolbox", "alice", "bob").unwrap();
         store
-            .create_transfer_offer("alice#toolbox", "alice", "bob")
+            .accept_transfer("alice#toolbox", "bob", &accept)
             .unwrap();
-        store.accept_transfer("alice#toolbox", "bob").unwrap();
         assert_eq!(
             store
                 .package_owner("alice#toolbox")
@@ -5867,6 +6557,557 @@ pub(crate) mod tests {
         );
         assert!(store.package_owner("alice#missing").unwrap().is_none());
         let _ = alice;
+    }
+
+    // === plan-168-A: signed transfer history =================================
+
+    /// Publish `version` of `alice#toolbox`-style `ident` as `owner`, recording
+    /// `fingerprint` as the publisher key.
+    fn publish_as(
+        store: &Store,
+        owner: &str,
+        ident: &str,
+        version: &str,
+        fingerprint: Option<String>,
+    ) -> Result<PublishedVersion, String> {
+        let owner_id = store.owner_record(owner).unwrap().unwrap().id;
+        store.publish_package_version(
+            owner_id,
+            ident,
+            version,
+            &format!("hash-{version}"),
+            &format!("path-{version}"),
+            "{}",
+            &[],
+            &PublishMetadata {
+                publisher_ident_fingerprint: fingerprint,
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn transfer_history_is_append_only_and_sequenced() {
+        let (_temp, store) = test_store();
+        let alice = register_keys(&store, "alice");
+        let bob = register_keys(&store, "bob");
+        let carol = register_keys(&store, "carol");
+        publish_as(&store, "alice", "alice#toolbox", "1.0.0", None).unwrap();
+        offer_and_accept_for_test(&store, "alice#toolbox", "alice", &alice, "bob", &bob);
+        offer_and_accept_for_test(&store, "alice#toolbox", "bob", &bob, "carol", &carol);
+
+        let history = store.transfer_history("alice#toolbox").unwrap();
+        assert_eq!(history.len(), 2);
+        let digest = crypto::release_digest([("1.0.0", "hash-1.0.0")]);
+        for (record, (sequence, from, from_keys, to, to_keys)) in history.iter().zip([
+            (0, "alice", &alice, "bob", &bob),
+            (1, "bob", &bob, "carol", &carol),
+        ]) {
+            assert_eq!(record.sequence, sequence);
+            assert_eq!(record.from_owner, from);
+            assert_eq!(record.to_owner, to);
+            assert_eq!(
+                record.from_ident_key.as_ref(),
+                Some(&from_keys.ident_public)
+            );
+            assert_eq!(record.to_ident_key.as_ref(), Some(&to_keys.ident_public));
+            assert_eq!(record.release_digest.as_deref(), Some(digest.as_str()));
+            // Both recorded signatures verify over the v2 terms of THEIR link.
+            let from_fp = crypto::fingerprint(&from_keys.ident_public);
+            let terms = crypto::TransferTermsRef {
+                ident: "alice#toolbox",
+                sequence,
+                from_owner: from,
+                from_ident_fingerprint: &from_fp,
+                to_owner: to,
+                release_digest: &digest,
+            };
+            crypto::verify(
+                &from_keys.ident_public,
+                &crypto::transfer_offer_message_v2(terms),
+                record.offer_signature.as_ref().unwrap(),
+            )
+            .unwrap();
+            crypto::verify(
+                &to_keys.ident_public,
+                &crypto::transfer_accept_message_v2(terms),
+                record.accept_signature.as_ref().unwrap(),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            store
+                .transfer_terms("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .sequence,
+            2
+        );
+
+        // The history cannot be rewritten or erased, even by direct SQL.
+        let conn = store.conn();
+        let update = conn
+            .execute(
+                "UPDATE transfer_history SET to_owner_id = from_owner_id",
+                [],
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(update.contains("append-only"), "{update}");
+        let delete = conn
+            .execute("DELETE FROM transfer_history", [])
+            .unwrap_err()
+            .to_string();
+        assert!(delete.contains("append-only"), "{delete}");
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM transfer_history", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 2);
+    }
+
+    #[test]
+    fn stale_terms_refuse_offer_and_accept() {
+        let (_temp, store) = test_store();
+        let alice = register_keys(&store, "alice");
+        let bob = register_keys(&store, "bob");
+        publish_as(&store, "alice", "alice#toolbox", "1.0.0", None).unwrap();
+
+        // An offer naming the wrong position is refused outright.
+        let (sequence, digest, signature) =
+            sign_offer_for_test(&store, "alice#toolbox", &alice, "bob");
+        assert!(store
+            .create_transfer_offer(
+                "alice#toolbox",
+                "alice",
+                "bob",
+                sequence + 1,
+                &digest,
+                &signature
+            )
+            .unwrap_err()
+            .contains("transfer terms are stale"));
+
+        // A release published between the offer and the accept: bob signs the
+        // terms as they now stand, which are not the terms alice offered.
+        store
+            .create_transfer_offer(
+                "alice#toolbox",
+                "alice",
+                "bob",
+                sequence,
+                &digest,
+                &signature,
+            )
+            .unwrap();
+        publish_as(&store, "alice", "alice#toolbox", "2.0.0", None).unwrap();
+        let accept = sign_accept_for_test(&store, "alice#toolbox", &bob, "bob");
+        let err = store
+            .accept_transfer("alice#toolbox", "bob", &accept)
+            .unwrap_err();
+        assert!(err.contains("transfer terms are stale"), "{err}");
+        // Re-signing the OLD terms does not help: they are not the current ones.
+        let old_terms = crypto::transfer_accept_message_v2(crypto::TransferTermsRef {
+            ident: "alice#toolbox",
+            sequence,
+            from_owner: "alice",
+            from_ident_fingerprint: &crypto::fingerprint(&alice.ident_public),
+            to_owner: "bob",
+            release_digest: &digest,
+        });
+        let old_accept = crypto::sign(&bob.ident_private, &old_terms).unwrap();
+        assert!(store
+            .accept_transfer("alice#toolbox", "bob", &old_accept)
+            .unwrap_err()
+            .contains("invalid transfer accept ident signature"));
+        assert_eq!(
+            store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "alice"
+        );
+        assert!(store.transfer_history("alice#toolbox").unwrap().is_empty());
+
+        // Re-offering on the current terms goes through.
+        offer_and_accept_for_test(&store, "alice#toolbox", "alice", &alice, "bob", &bob);
+        assert_eq!(
+            store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "bob"
+        );
+    }
+
+    #[test]
+    fn legacy_pending_offer_cannot_be_accepted() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let bob = register_keys(&store, "bob");
+        publish_as(&store, "alice", "alice#toolbox", "1.0.0", None).unwrap();
+        let alice_id = store.owner_record("alice").unwrap().unwrap().id;
+        let bob_id = store.owner_record("bob").unwrap().unwrap().id;
+        {
+            // The row a pre-plan offer left behind: no terms, no signature.
+            let conn = store.conn();
+            conn.execute(
+                "INSERT INTO transfer_offers (package_id, from_owner_id, to_owner_id, created_at)
+                 SELECT id, ?1, ?2, 1 FROM packages WHERE ident = 'alice#toolbox'",
+                params![alice_id, bob_id],
+            )
+            .unwrap();
+        }
+        let accept = sign_accept_for_test(&store, "alice#toolbox", &bob, "bob");
+        let err = store
+            .accept_transfer("alice#toolbox", "bob", &accept)
+            .unwrap_err();
+        assert!(err.contains("predates signed transfers"), "{err}");
+        assert_eq!(
+            store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "alice"
+        );
+    }
+
+    #[test]
+    fn publish_records_publisher_and_epoch() {
+        let (_temp, store) = test_store();
+        let alice = register_keys(&store, "alice");
+        let bob = register_keys(&store, "bob");
+        let alice_fp = crypto::fingerprint(&alice.ident_public);
+        let bob_fp = crypto::fingerprint(&bob.ident_public);
+        publish_as(
+            &store,
+            "alice",
+            "alice#toolbox",
+            "1.0.0",
+            Some(alice_fp.clone()),
+        )
+        .unwrap();
+        offer_and_accept_for_test(&store, "alice#toolbox", "alice", &alice, "bob", &bob);
+        publish_as(
+            &store,
+            "bob",
+            "alice#toolbox",
+            "2.0.0",
+            Some(bob_fp.clone()),
+        )
+        .unwrap();
+        // A fingerprint that is not one of the publisher's keys refuses the
+        // publish: bob cannot record alice's key as his.
+        let err = publish_as(
+            &store,
+            "bob",
+            "alice#toolbox",
+            "3.0.0",
+            Some(alice_fp.clone()),
+        )
+        .unwrap_err();
+        assert!(err.contains("not one of the publisher's keys"), "{err}");
+
+        let versions = store.list_package_versions("alice#toolbox").unwrap();
+        let summary: Vec<_> = versions
+            .iter()
+            .map(|row| {
+                (
+                    row.version.as_str(),
+                    row.publisher_display.as_deref(),
+                    row.publisher_ident_fingerprint.as_deref(),
+                    row.transfer_epoch,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("1.0.0", Some("alice"), Some(alice_fp.as_str()), 0),
+                ("2.0.0", Some("bob"), Some(bob_fp.as_str()), 1),
+            ]
+        );
+    }
+
+    /// Append a raw transparency-log entry, as a pre-plan registry wrote it.
+    pub(crate) fn legacy_log(store: &Store, kind: &str, payload: serde_json::Value) {
+        let mut conn = store.conn();
+        let tx = conn.transaction().unwrap();
+        append_log_tx(&tx, kind, &payload.to_string()).unwrap();
+        tx.commit().unwrap();
+    }
+
+    /// A pre-plan transfer: the two v1 log entries, the `owner_id` rewrite, and
+    /// the single `transfer_offers` row (UPSERTed, as the old code did). No
+    /// `transfer_history` row — that is what the migration has to recover.
+    pub(crate) fn legacy_transfer(store: &Store, ident: &str, from: &str, to: &str) {
+        legacy_log(
+            store,
+            "transfer-offer",
+            serde_json::json!({"ident": ident, "from": from, "to": to}),
+        );
+        legacy_log(
+            store,
+            "transfer-accept",
+            serde_json::json!({"ident": ident, "to": to}),
+        );
+        let from_id = store.owner_record(from).unwrap().unwrap().id;
+        let to_id = store.owner_record(to).unwrap().unwrap().id;
+        let conn = store.conn();
+        conn.execute(
+            "UPDATE packages SET owner_id = ?1 WHERE ident = ?2",
+            params![to_id, ident],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO transfer_offers (package_id, from_owner_id, to_owner_id, created_at,
+                 accepted_at)
+             SELECT id, ?1, ?2, 1, 2 FROM packages WHERE ident = ?3
+             ON CONFLICT(package_id) DO UPDATE SET from_owner_id = excluded.from_owner_id,
+               to_owner_id = excluded.to_owner_id, accepted_at = excluded.accepted_at",
+            params![from_id, to_id, ident],
+        )
+        .unwrap();
+    }
+
+    fn history_summary(store: &Store, ident: &str) -> Vec<(i64, String, String, bool)> {
+        store
+            .transfer_history(ident)
+            .unwrap()
+            .into_iter()
+            .map(|record| {
+                let signed = record.offer_signature.is_some()
+                    || record.accept_signature.is_some()
+                    || record.release_digest.is_some()
+                    || record.from_ident_key.is_some()
+                    || record.to_ident_key.is_some();
+                (record.sequence, record.from_owner, record.to_owner, signed)
+            })
+            .collect()
+    }
+
+    fn epochs(store: &Store, ident: &str) -> Vec<(String, i64)> {
+        store
+            .list_package_versions(ident)
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.version, row.transfer_epoch))
+            .collect()
+    }
+
+    /// A database written before plan-168: no history table, no offer terms,
+    /// no publisher columns. Migrating it replays its one logged transfer into
+    /// an unsigned seq-0 link and backfills the publisher as the prefix owner.
+    #[test]
+    fn migrating_a_legacy_database_records_legacy_transfers_and_publishers() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("legacy.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE owners (
+                    id INTEGER PRIMARY KEY,
+                    owner_display TEXT NOT NULL,
+                    owner_folded TEXT NOT NULL UNIQUE,
+                    created_at INTEGER NOT NULL,
+                    status TEXT NOT NULL
+                );
+                CREATE TABLE packages (
+                    id INTEGER PRIMARY KEY,
+                    ident TEXT NOT NULL UNIQUE,
+                    owner_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE package_versions (
+                    id INTEGER PRIMARY KEY,
+                    package_id INTEGER NOT NULL,
+                    version TEXT NOT NULL,
+                    hash TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(package_id, version)
+                );
+                CREATE TABLE transfer_offers (
+                    id INTEGER PRIMARY KEY,
+                    package_id INTEGER NOT NULL,
+                    from_owner_id INTEGER NOT NULL,
+                    to_owner_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    accepted_at INTEGER NULL,
+                    UNIQUE(package_id)
+                );
+                CREATE TABLE log_entries (
+                    idx INTEGER PRIMARY KEY CHECK (idx >= 0),
+                    kind TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    leaf_hash BLOB NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                INSERT INTO owners VALUES (1, 'Alice', 'alice', 1, 'active');
+                INSERT INTO owners VALUES (2, 'bob', 'bob', 1, 'active');
+                INSERT INTO packages VALUES (1, 'alice#pkg', 2, 100);
+                INSERT INTO package_versions (package_id, version, hash, state, created_at)
+                    VALUES (1, '1.0.0', 'legacyhash', 'available', 100);
+                INSERT INTO transfer_offers VALUES (1, 1, 1, 2, 150, 160);
+                INSERT INTO log_entries VALUES
+                    (0, 'publish', '{"ident":"alice#pkg","version":"1.0.0","hash":"legacyhash"}', x'00', 100),
+                    (1, 'transfer-offer', '{"ident":"alice#pkg","from":"Alice","to":"bob"}', x'00', 150),
+                    (2, 'transfer-accept', '{"ident":"alice#pkg","to":"bob"}', x'00', 160);
+                "#,
+            )
+            .unwrap();
+        }
+
+        let opened =
+            Store::open_repository(&db_path, &temp.path().join("data")).expect("legacy migration");
+        let store = opened.store;
+        let history = store.transfer_history("alice#pkg").unwrap();
+        assert_eq!(history.len(), 1);
+        let link = &history[0];
+        assert_eq!(
+            (
+                link.sequence,
+                link.from_owner.as_str(),
+                link.to_owner.as_str()
+            ),
+            (0, "Alice", "bob")
+        );
+        assert_eq!((link.offered_at, link.accepted_at), (150, 160));
+        assert!(link.offer_signature.is_none() && link.accept_signature.is_none());
+        assert!(link.from_ident_key.is_none() && link.to_ident_key.is_none());
+        assert!(link.release_digest.is_none());
+
+        let versions = store.list_package_versions("alice#pkg").unwrap();
+        assert_eq!(versions[0].publisher_display.as_deref(), Some("Alice"));
+        assert_eq!(versions[0].publisher_ident_fingerprint, None);
+        assert_eq!(versions[0].transfer_epoch, 0);
+
+        // Re-running the migration is a no-op.
+        store.migrate().unwrap();
+        store.migrate().unwrap();
+        assert_eq!(store.transfer_history("alice#pkg").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migrating_recovers_an_accepted_transfer_hidden_by_a_later_offer() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        register_keys(&store, "carol");
+        publish_as(&store, "alice", "alice#toolbox", "1.0.0", None).unwrap();
+        legacy_transfer(&store, "alice#toolbox", "alice", "bob");
+        // bob's pending offer to carol reset the one `transfer_offers` row, so
+        // that table no longer shows the accepted alice -> bob transfer at all.
+        legacy_log(
+            &store,
+            "transfer-offer",
+            serde_json::json!({"ident": "alice#toolbox", "from": "bob", "to": "carol"}),
+        );
+        {
+            let conn = store.conn();
+            conn.execute(
+                "UPDATE transfer_offers SET from_owner_id = to_owner_id, to_owner_id = ?1,
+                     accepted_at = NULL",
+                params![store_owner_id_unlocked(&conn, "carol")],
+            )
+            .unwrap();
+        }
+        store.migrate().unwrap();
+        assert_eq!(
+            history_summary(&store, "alice#toolbox"),
+            vec![(0, "alice".to_string(), "bob".to_string(), false)]
+        );
+    }
+
+    fn store_owner_id_unlocked(conn: &Connection, owner: &str) -> i64 {
+        conn.query_row(
+            "SELECT id FROM owners WHERE owner_folded = ?1",
+            params![fold_owner(owner)],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn migrating_replays_a_multi_hop_legacy_chain() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        register_keys(&store, "carol");
+        publish_as(&store, "alice", "alice#toolbox", "1.0.0", None).unwrap();
+        legacy_transfer(&store, "alice#toolbox", "alice", "bob");
+        legacy_transfer(&store, "alice#toolbox", "bob", "carol");
+        store.migrate().unwrap();
+        assert_eq!(
+            history_summary(&store, "alice#toolbox"),
+            vec![
+                (0, "alice".to_string(), "bob".to_string(), false),
+                (1, "bob".to_string(), "carol".to_string(), false),
+            ]
+        );
+        // The next signed transfer continues the numbering.
+        assert_eq!(
+            store
+                .transfer_terms("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .sequence,
+            2
+        );
+    }
+
+    #[test]
+    fn migrating_recovers_epochs_after_a_legacy_round_trip() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        publish_as(&store, "alice", "alice#toolbox", "1.0.0", None).unwrap();
+        legacy_transfer(&store, "alice#toolbox", "alice", "bob");
+        legacy_transfer(&store, "alice#toolbox", "bob", "alice");
+        publish_as(&store, "alice", "alice#toolbox", "2.0.0", None).unwrap();
+        publish_as(&store, "alice", "alice#toolbox", "3.0.0", None).unwrap();
+        store.migrate().unwrap();
+        assert_eq!(
+            epochs(&store, "alice#toolbox"),
+            vec![
+                ("1.0.0".to_string(), 0),
+                ("2.0.0".to_string(), 2),
+                ("3.0.0".to_string(), 2),
+            ]
+        );
+        assert_eq!(history_summary(&store, "alice#toolbox").len(), 2);
+    }
+
+    #[test]
+    fn migrating_refuses_a_log_that_disagrees_with_the_owner() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        register_keys(&store, "carol");
+        publish_as(&store, "alice", "alice#toolbox", "1.0.0", None).unwrap();
+        legacy_transfer(&store, "alice#toolbox", "alice", "bob");
+        {
+            // The tables say carol owns it; the log never reaches carol.
+            let conn = store.conn();
+            let carol_id = store_owner_id_unlocked(&conn, "carol");
+            conn.execute(
+                "UPDATE packages SET owner_id = ?1 WHERE ident = 'alice#toolbox'",
+                params![carol_id],
+            )
+            .unwrap();
+        }
+        let err = store.migrate().unwrap_err();
+        assert_eq!(
+            err,
+            "transfer log for alice#toolbox ends at bob but the package is owned by carol"
+        );
+        // Nothing was half-written.
+        assert!(store.transfer_history("alice#toolbox").unwrap().is_empty());
     }
 
     // === plan-126-A: latest-active-version selection ======================
@@ -6859,7 +8100,7 @@ pub(crate) mod tests {
         rows.map(|row| row.unwrap()).collect()
     }
 
-    fn drop_tables(store: &Store, tables: &[&str]) {
+    pub(crate) fn drop_tables(store: &Store, tables: &[&str]) {
         let conn = store.conn();
         conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
         for table in tables {
@@ -6943,7 +8184,7 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to load owner"));
         assert!(store
-            .accept_transfer("alice#toolbox", "bob")
+            .accept_transfer("alice#toolbox", "bob", &[0u8; 64])
             .unwrap_err()
             .contains("failed to load owner"));
         assert!(store
@@ -6951,7 +8192,7 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to load package owner"));
         assert!(store
-            .create_transfer_offer("alice#toolbox", "alice", "bob")
+            .create_transfer_offer("alice#toolbox", "alice", "bob", 0, "digest", &[0u8; 64])
             .unwrap_err()
             .contains("failed to load package owner"));
         assert!(store
@@ -7253,8 +8494,8 @@ pub(crate) mod tests {
     fn losing_the_org_and_transfer_tables_errors_membership_and_handover() {
         let (_temp, store) = test_store();
         register_keys(&store, "acme");
-        register_keys(&store, "alice");
-        register_keys(&store, "bob");
+        let alice_keys = register_keys(&store, "alice");
+        let bob_keys = register_keys(&store, "bob");
         let alice = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         store
             .publish_package_version(
@@ -7283,12 +8524,15 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to remove org member"));
 
+        let (sequence, digest, offer) =
+            sign_offer_for_test(&store, "alice#toolbox", &alice_keys, "bob");
         assert!(store
-            .create_transfer_offer("alice#toolbox", "alice", "bob")
+            .create_transfer_offer("alice#toolbox", "alice", "bob", sequence, &digest, &offer)
             .unwrap_err()
             .contains("failed to record transfer offer"));
+        let accept = sign_accept_for_test(&store, "alice#toolbox", &bob_keys, "bob");
         assert!(store
-            .accept_transfer("alice#toolbox", "bob")
+            .accept_transfer("alice#toolbox", "bob", &accept)
             .unwrap_err()
             .contains("failed to load transfer offer"));
         // Ownership never moved.

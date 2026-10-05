@@ -27,7 +27,8 @@ damaged still decompresses; the four checksum bytes must still be there, and eve
 still applies. Bytes after the checksum are ignored.
 
 `compress::zlibDecode` is written in MFBASIC itself and uses no system library, so it returns
-the same bytes and raises the same errors on every platform."#;
+the same bytes and raises the same errors on every platform. `ErrOutOfMemory` means the program ran
+out of memory."#;
 const EX: &str = r#"Decompress zlib data and print the text inside it:
 
 ```
@@ -100,7 +101,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidFormat", "ErrTooLarge", "ErrInvalidArgument"],
+            errors: vec!["ErrInvalidFormat", "ErrTooLarge", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__compress_zlibDecode"),
         }],
     });

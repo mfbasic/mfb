@@ -29,7 +29,7 @@ below it converts to zero rather than failing.
 
 The name `Fixed` is retained for deterministic binary fixed-point arithmetic. For exact base-10 financial arithmetic, use `Money` (see below), whose decimal scale, rounding, and overflow rules are specified separately.
 
-Numeric literals are initially untyped. Integer-looking literals default to `Integer` when there is no expected type. Decimal-looking literals default to `Float` when there is no expected type. When the expected type is `Fixed`, a decimal literal is rounded to the nearest representable `Fixed` value. The suffix `F` makes a literal intrinsically `Fixed` (`1.25F`); lowercase `f` selects `Float`. An annotation or conversion also supplies the type. [[src/lexer.rs:lex_number]]
+Numeric literals are initially untyped. Integer-looking literals default to `Integer` when there is no expected type. Decimal-looking literals default to `Float` when there is no expected type. When the expected type is `Fixed`, a decimal literal is rounded exactly to the nearest representable `Fixed` value, ties away from zero (§4.12 range-checks the rounded value). [[src/numeric.rs:fixed_raw_from_decimal]] The suffix `F` makes a literal intrinsically `Fixed` (`1.25F`); lowercase `f` selects `Float`. An annotation or conversion also supplies the type. [[src/lexer.rs:lex_number]]
 
 ```basic
 LET x = 1.25             ' inferred Float
@@ -72,10 +72,11 @@ Three framing points:
 
 `Money` rounding state is per-thread: the main thread starts in `Commercial`
 (round half away from zero); workers inherit their parent's mode at spawn and
-subsequently change independently. `Banker` rounds ties to even. The operation
-formulas, overflow checks, and current Fixed-scaling rounding limitations are
-specified in `./mfb spec stdlib money`. In particular, the current Fixed paths
-must not be assumed to obey `money::setRounding`. Exact representation of a
+subsequently change independently. `Banker` rounds ties to even. `M / k`,
+`M * Fixed`, `M / Fixed`, `toMoney(Fixed)`, and `toFixed(Money)` compute the
+exact ratio of the carriers and round it once under the mode before checking the
+destination range; `M * Float` and `M / Float` round a binary64 result. The
+operation formulas and overflow checks are specified in `./mfb spec stdlib money`. Exact representation of a
 stored amount does not imply exact representation of a `Float` or `Fixed` rate.
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_multiply]]
@@ -572,20 +573,13 @@ Numeric **literals** are range-checked statically, as a separate phase from the 
 
 **Float.** A literal stored into a `Float` is parsed as `f64` and checked for finiteness: a value that parses to a non-finite `f64` is rejected. A non-finite negated literal is `TYPE_FLOAT_LITERAL_UNDERFLOW`; a non-finite positive literal is `TYPE_FLOAT_LITERAL_OVERFLOW`. A finite `f64` always passes. [[src/ir/verify/values.rs:check_const_literal]]
 
-**Fixed.** The current validation step parses a literal stored into a `Fixed` as `f64`, applies the sign, and checks against the static binary bound: `value < -2147483648.0` is `TYPE_FIXED_LITERAL_UNDERFLOW` and `value >= 2147483648.0` is `TYPE_FIXED_LITERAL_OVERFLOW`. Values inside `[-2147483648.0, 2147483648.0)` pass this check. This is a check
-before the separate decimal-to-carrier conversion, not range checking of that
-conversion's rounded result. Consequently the exactly representable maximum,
-`2147483647.99999999976716935634613037109375F`, is currently rejected: binary64
-rounds its spelling to `2147483648.0`. The decimal converter rounds the signed
-magnitude to Q32.32 with ties away from zero and separately checks the resulting
-i64 carrier. The validation/conversion disagreement is an implementation
-limitation; accepting a literal at this preliminary check alone does not prove
-its rounded carrier is valid.
+**Fixed.** A literal stored into a `Fixed` is validated by the same exact decimal converter that materializes it — there is no `f64` step, so validation and the stored value cannot disagree. The sign is applied first (a negated literal `-N` is converted as the signed text `-N`, so the minimum `-2147483648` needs no unrepresentable positive intermediate); the exact decimal value, scientific notation included, is rounded to the nearest Q32.32 carrier (`value * 2^32`) with ties away from zero; then the **rounded** carrier is checked against the i64 range. A carrier above `i64::MAX` is `TYPE_FIXED_LITERAL_OVERFLOW` and one below `i64::MIN` is `TYPE_FIXED_LITERAL_UNDERFLOW` (a signed constant, such as one in decoded package IR, is judged by its own sign). So the exact maximum `2147483647.99999999976716935634613037109375F` (carrier `i64::MAX`) and minimum `-2147483648.0F` are accepted, as is any spelling that rounds to them, while the half-quantum tie just past either end (`2147483647.999999999883584678173065185546875`, `-2147483648.000000000116415321826934814453125`) rounds out of range and is rejected. Rounding is decided on the first 33 fractional digits, which is exact: a half quantum (`2^-33`) has 33 decimal places, and later digits cannot cross a tie. A literal whose magnitude is below half a quantum — including a scientific exponent too extreme to expand, such as `1e-1000000000` — is `0`; a too-extreme positive exponent is out of range. The `.mfp` constant-pool encoder uses the same converter.
 [[src/ir/verify/values.rs:check_const_literal]]
 [[src/ir/verify/values.rs:check_negated_const_literal]]
+[[src/numeric.rs:fixed_conversion_from_decimal]]
 [[src/numeric.rs:fixed_raw_from_decimal]]
 
-**Money.** A literal stored into a `Money` is converted with the **exact** base-10 converter (no `f64` bound — `Money` is exact decimal), sign applied, and checked against the i64 raw range: a positive magnitude outside `92233720368547.75807` is `TYPE_MONEY_LITERAL_OVERFLOW`; a negated magnitude past `-92233720368547.75808` is `TYPE_MONEY_LITERAL_UNDERFLOW` (the most-negative `Money` has no positive-magnitude literal and is folded from `-92233720368547.75808`). A literal with more than 5 fractional digits whose extra digits change the stored value additionally warns `TYPE_MONEY_LITERAL_PRECISION` (the value is rounded half-away-from-zero); trailing zeros and exactly-representable literals are silent. [[src/ir/verify/values.rs:check_const_literal]]
+**Money.** A literal stored into a `Money` is converted with the **exact** base-10 converter (no `f64` bound — `Money` is exact decimal), sign applied, and checked against the i64 raw range: a positive magnitude outside `92233720368547.75807` is `TYPE_MONEY_LITERAL_OVERFLOW`; a negated magnitude past `-92233720368547.75808` is `TYPE_MONEY_LITERAL_UNDERFLOW` (the most-negative `Money` has no positive-magnitude literal and is folded from `-92233720368547.75808`). A literal with more than 5 fractional digits whose extra digits change the stored value additionally warns `TYPE_MONEY_LITERAL_PRECISION` (the value is rounded half-away-from-zero); trailing zeros and exactly-representable literals are silent. A scientific exponent too extreme to expand is decided without expanding it: a negative one (`1e-1000000000`) is a nonzero magnitude that rounds to `0` with the precision warning, a positive one is out of range. [[src/ir/verify/values.rs:check_const_literal]] [[src/numeric.rs:money_conversion_from_decimal]]
 
 **Scalar.** A backtick scalar literal `` `x` `` is validated at **lex** time: it must contain exactly one Unicode scalar. An empty literal is `TYPE_SCALAR_LITERAL_EMPTY`, more than one scalar is `TYPE_SCALAR_LITERAL_TOO_MANY`, and an unterminated literal or an invalid escape is `TYPE_SCALAR_LITERAL_INVALID`; a `\u{...}` escape naming a surrogate or a value above `U+10FFFF` reuses the shared `MFB_LEX_INVALID_UNICODE_ESCAPE`. For source programs the lexer is the sole rejecter. A merged package decoded from a `.mfp`, however, never passes through the lexer, so `verify_semantics` independently range-checks every `Scalar` const: a value that fails to parse, exceeds `U+10FFFF`, or is a UTF-16 surrogate (`0xD800..=0xDFFF`) is `TYPE_SCALAR_LITERAL_INVALID`, mirroring the `Byte`/`Money` literal-range checks. [[src/lexer.rs:lex_scalar]] [[src/ir/verify/values.rs:check_const_literal]]
 

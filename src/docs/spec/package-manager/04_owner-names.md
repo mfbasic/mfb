@@ -80,9 +80,12 @@ are the *same* owner — whichever is registered first wins, and a later attempt
 register the other case fails with `owner name '<owner>' is already in use`.
 [[repository/src/store.rs:register_owner]] [[repository/src/store.rs:owner_with_auth_key]]
 
-At publish time the owner segment parsed out of the package ident
+At a package's first publish the owner segment parsed out of the package ident
 (`<owner>#<package>`) is folded and compared against the folded session subject;
-a mismatch yields `session owner does not match package ident owner`.
+a mismatch yields `session owner does not match package ident owner`. Once the
+package exists, `/validate` and `/publish` compare the session against the
+package's stored owner instead, including after a transfer (`session owner is
+not the package's current owner`).
 [[repository/src/server.rs:validate_package_request]]
 
 One endpoint is an exception: `/signing` compares the requested owner against

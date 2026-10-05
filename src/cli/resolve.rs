@@ -65,6 +65,27 @@ struct Node {
     requested: String,
     requirers: BTreeMap<String, Requirer>,
     selected: Option<String>,
+    /// The `identKey` `project.json` pins for this dependency: the anchor the
+    /// selected release is verified from (plan-168-C). Empty for no pin.
+    pinned_ident_key: String,
+}
+
+/// A dependency whose verified `identKey` differs from the one `project.json`
+/// pins: the owner rotated, or the selected release was published by another
+/// owner through a signed transfer (plan-168-C).
+pub(crate) struct PinChange {
+    pub(crate) name: String,
+    pub(crate) ident: String,
+    pub(crate) ident_key: String,
+    pub(crate) ident_fingerprint: String,
+    pub(crate) publisher: String,
+    pub(crate) crossed_transfer: bool,
+}
+
+/// What [`resolve`] produces: the lock, and the pins it moves.
+pub(crate) struct Resolution {
+    pub(crate) lock: Lock,
+    pub(crate) pin_changes: Vec<PinChange>,
 }
 
 /// `mfb pkg update`: close the dependency set (bug-628), re-resolve the registry
@@ -156,7 +177,9 @@ pub(crate) fn apply_manifest_change(
     let mut changes = ClosureChanges::default();
     let mut contents = close_dependency_set(project_dir, new_contents, &mut changes)?;
     for _ in 0..MAX_CLOSURE_ROUNDS {
-        apply_closed_manifest(project_dir, &contents)?;
+        // The committed text can differ from `contents` by the pins resolution
+        // moved (plan-168-C); the next round starts from what was written.
+        contents = apply_closed_manifest(project_dir, &contents)?;
         let closed = close_dependency_set(project_dir, &contents, &mut changes)?;
         if closed == contents {
             for (name, requirer) in &changes.added {
@@ -239,10 +262,12 @@ fn close_dependency_set(
 }
 
 /// The `packages[]` entry for a registry package another declared package
-/// imports: its requirer's version and pin, and the registry-vouched identKey
-/// (trust-on-first-use, as `mfb pkg add` pins it).
-// coverage:off — fetches `/index`; covered by the tests/ package-add integration
-// harness.
+/// imports: its requirer's version and pin, and the identKey of that release
+/// verified for its publisher through the signed transfer chain from the
+/// registry's name binding (trust-on-first-use, as `mfb pkg add` pins it;
+/// plan-168-C).
+// coverage:off — fetches `/index` and a blob; covered by the tests/ package-add
+// integration harness.
 fn registry_dependency_for(
     need: &crate::manifest::closure::Requirement,
 ) -> Result<crate::manifest::package::ProjectPackageDependency, String> {
@@ -253,20 +278,51 @@ fn registry_dependency_for(
     let repo_url = client::repo_url_from_env();
     let paths = super::local_paths_for_repo(&repo_url)?;
     let index = client::fetch_index(&repo_url, &paths, owner, package)?;
+    let version = need.version.trim_start_matches('=').to_string();
+    let release = index
+        .versions
+        .iter()
+        .find(|entry| entry.version == version)
+        .ok_or_else(|| {
+            format!(
+                "registry has no version `{version}` of `{}` to anchor resolution",
+                need.ident
+            )
+        })?;
+    let blob = client::fetch_blob(&repo_url, &release.hash)?;
+    let ident_key = match super::pkg::verify_registry_release(
+        &repo_url,
+        &paths,
+        &index,
+        release,
+        &blob,
+        mfb_repository::trust::Anchor::FirstUse,
+    ) {
+        Ok(Some(trusted)) => super::pkg::metadata_key(&trusted.key),
+        Ok(None) => index.ident_key.clone(),
+        Err(err) => {
+            return Err(format!(
+                "{}: refusing to declare `{}`@{version}: {err}",
+                err.rule(),
+                need.ident
+            ))
+        }
+    };
     Ok(crate::manifest::package::ProjectPackageDependency {
         name: need.name.clone(),
         ident: need.ident.clone(),
-        version: need.version.trim_start_matches('=').to_string(),
+        version,
         pin: need.pin,
         source: need.ident.clone(),
-        ident_key: index.ident_key.clone(),
+        ident_key,
         direct: Some(false),
         required_by: Some(Vec::new()),
     })
 }
 
-/// Commit an already-closed manifest (plan-60-B §4.2).
-fn apply_closed_manifest(project_dir: &Path, new_contents: &str) -> Result<(), String> {
+/// Commit an already-closed manifest (plan-60-B §4.2). Returns the text
+/// written, which differs from `new_contents` by the pins resolution moved.
+fn apply_closed_manifest(project_dir: &Path, new_contents: &str) -> Result<String, String> {
     let project_path = project_dir.join("project.json");
     let manifest = parse_project_json(new_contents, &project_path)?;
 
@@ -282,7 +338,7 @@ fn apply_closed_manifest(project_dir: &Path, new_contents: &str) -> Result<(), S
             fs::remove_file(&lock)
                 .map_err(|err| format!("failed to remove '{}': {err}", lock.display()))?;
         }
-        return Ok(());
+        return Ok(new_contents.to_string());
     }
 
     // Read the previous lock *before* resolving, so the diff below can compare
@@ -290,14 +346,41 @@ fn apply_closed_manifest(project_dir: &Path, new_contents: &str) -> Result<(), S
     let previous = read_lock(project_dir)?;
 
     // 3. Resolve. THIS MUST PRECEDE EVERY WRITE — it is the guarantee.
-    let lock = resolve(&manifest)?;
+    let Resolution { lock, pin_changes } = resolve(&manifest)?;
+
+    // plan-168-C: a pin is the verified identKey of the release it selects.
+    // When the owner rotated, or the selected release comes from another owner
+    // through a signed transfer, the pin moves with it — in the text, before
+    // anything is written, so an offline `mfb build` checks the same key the
+    // lock does.
+    let mut contents = new_contents.to_string();
+    for change in &pin_changes {
+        contents = crate::manifest::package::project_json_with_updated_ident_key(
+            &contents,
+            &change.name,
+            &change.ident_key,
+        )?;
+    }
 
     // 4-7. Resolution succeeded, so the change is viable; commit it.
     print_lock_diff(previous.as_ref(), &lock);
-    fs::write(&project_path, new_contents)
+    fs::write(&project_path, &contents)
         .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
     write_lock(project_dir, &lock)?;
-    install(project_dir)
+    for change in &pin_changes {
+        if change.crossed_transfer {
+            super::pkg::print_transfer_notice(&change.ident, &change.publisher);
+        } else {
+            println!(
+                "notice: owner `{}` rotated their ident; updated the pinned identKey for `{}` to fingerprint {}",
+                crate::terminal_safe::safe(&change.publisher),
+                crate::terminal_safe::safe(&change.name),
+                change.ident_fingerprint
+            );
+        }
+    }
+    install(project_dir)?;
+    Ok(contents)
 }
 
 /// How a single dependency's `project.json` entry differs from its `mfb.lock`
@@ -623,7 +706,7 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
 // full resolve is covered by the tests/ package-resolution integration harness.
 pub(crate) fn resolve(
     manifest: &std::collections::HashMap<String, JsonValue>,
-) -> Result<Lock, String> {
+) -> Result<Resolution, String> {
     let project_name = manifest
         .get("name")
         .and_then(|value| value.get::<String>())
@@ -683,6 +766,7 @@ pub(crate) fn resolve(
                 requested: dep.version.clone(),
                 requirers,
                 selected: None,
+                pinned_ident_key: dep.ident_key.clone(),
             },
         );
     }
@@ -692,6 +776,8 @@ pub(crate) fn resolve(
     // pathological graph errors instead of spinning.
     let mut blob_cache: BTreeMap<String, Vec<(String, BTreeMap<String, String>, Option<String>)>> =
         BTreeMap::new();
+    // The selected releases' bytes, by hash, for the trust check below.
+    let mut release_blobs: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let node_idents: Vec<String> = nodes.keys().cloned().collect();
     let mut converged = false;
     for _ in 0..(node_idents.len() * node_idents.len() + 4) {
@@ -712,7 +798,12 @@ pub(crate) fn resolve(
                     nodes.get_mut(other).unwrap().requirers.remove(ident);
                 }
             }
-            let imports = load_import_edges(&repo_url, &selection.hash, &mut blob_cache)?;
+            let imports = load_import_edges(
+                &repo_url,
+                &selection.hash,
+                &mut blob_cache,
+                &mut release_blobs,
+            )?;
             for (imported_ident, required, pin) in imports {
                 if imported_ident == *ident {
                     continue;
@@ -749,6 +840,7 @@ pub(crate) fn resolve(
 
     // Every node must have converged to a selection.
     let mut packages = Vec::new();
+    let mut pin_changes = Vec::new();
     for ident in &node_idents {
         let node = nodes.get(ident).unwrap();
         let selection = select_node(node)?;
@@ -758,14 +850,72 @@ pub(crate) fn resolve(
             .iter()
             .find(|version| version.version == selection.version)
             .expect("selected version exists");
+        // plan-168-C: the lock records the identKey of THIS release, verified
+        // for its publisher from the project's pin (or, with none, the
+        // registry's name binding) through the signed transfer chain. The
+        // index's current key is the wrong anchor for any release signed before
+        // a rotation or by another owner.
+        let blob = match release_blobs.get(&selection.hash) {
+            Some(blob) => blob.clone(),
+            None => client::fetch_blob(&repo_url, &selection.hash)?,
+        };
+        let anchor = if node.pinned_ident_key.is_empty() {
+            mfb_repository::trust::Anchor::FirstUse
+        } else {
+            mfb_repository::trust::Anchor::Pinned(
+                mfb_repository::package::decode_metadata_key(&node.pinned_ident_key, "identKey")
+                    .map_err(|err| {
+                        format!(
+                            "the identKey pinned for `{}` is malformed: {err}",
+                            node.name
+                        )
+                    })?,
+            )
+        };
+        let (ident_key, ident_fingerprint) = match super::pkg::verify_registry_release(
+            &repo_url,
+            &paths,
+            &node.index,
+            version,
+            &blob,
+            anchor,
+        ) {
+            Ok(Some(trusted)) => {
+                let ident_key = super::pkg::metadata_key(&trusted.key);
+                if ident_key != node.pinned_ident_key {
+                    pin_changes.push(PinChange {
+                        name: node.name.clone(),
+                        ident: node.ident.clone(),
+                        ident_key: ident_key.clone(),
+                        ident_fingerprint: mfb_repository::crypto::fingerprint(&trusted.key),
+                        publisher: trusted.publisher.clone(),
+                        crossed_transfer: trusted.crossed_transfer,
+                    });
+                }
+                (ident_key, mfb_repository::crypto::fingerprint(&trusted.key))
+            }
+            // An unsigned release carries no key; `install` classifies it.
+            Ok(None) => (
+                node.index.ident_key.clone(),
+                node.index.ident_fingerprint.clone(),
+            ),
+            Err(err) => {
+                return Err(format!(
+                    "{}: refusing to lock `{}`@{}: {err}",
+                    err.rule(),
+                    node.ident,
+                    selection.version
+                ))
+            }
+        };
         packages.push(LockedPackage {
             name: node.name.clone(),
             ident: node.ident.clone(),
             requested: node.requested.clone(),
             selected: selection.version.clone(),
             hash: selection.hash.clone(),
-            ident_key: node.index.ident_key.clone(),
-            ident_fingerprint: node.index.ident_fingerprint.clone(),
+            ident_key,
+            ident_fingerprint,
             state: version.state.clone(),
         });
     }
@@ -784,12 +934,15 @@ pub(crate) fn resolve(
         .map(|node| node.index.server_fingerprint.clone())
         .unwrap_or_default();
 
-    Ok(Lock {
-        project_hash: crate::audit::project_hash(manifest),
-        repo_fingerprint,
-        checkpoint_size: checkpoint.size,
-        checkpoint_root: checkpoint.root_hash,
-        packages,
+    Ok(Resolution {
+        lock: Lock {
+            project_hash: crate::audit::project_hash(manifest),
+            repo_fingerprint,
+            checkpoint_size: checkpoint.size,
+            checkpoint_root: checkpoint.root_hash,
+            packages,
+        },
+        pin_changes,
     })
 }
 
@@ -902,11 +1055,13 @@ fn load_import_edges(
     repo_url: &str,
     hash: &str,
     cache: &mut BTreeMap<String, Vec<(String, BTreeMap<String, String>, Option<String>)>>,
+    blobs: &mut BTreeMap<String, Vec<u8>>,
 ) -> Result<Vec<(String, BTreeMap<String, String>, Option<String>)>, String> {
     if let Some(edges) = cache.get(hash) {
         return Ok(edges.clone());
     }
     let blob = client::fetch_blob(repo_url, hash)?;
+    blobs.insert(hash.to_string(), blob.clone());
     // Read the edges straight out of the blob. Staging it at a `hash`-derived
     // path in the shared temp dir was both predictable (a pre-planted symlink
     // there is written through) and traversable (a non-hex `hash` from the
@@ -1256,6 +1411,8 @@ mod tests {
             state: state.to_string(),
             abi_index: serde_json::Value::Null,
             log_entry: None,
+            publisher: None,
+            epoch: 0,
         }
     }
 
@@ -1278,10 +1435,12 @@ mod tests {
                 name_binding_signature: String::new(),
                 server_fingerprint: "sf".to_string(),
                 versions,
+                transfers: Vec::new(),
             },
             requested: "1.0.0".to_string(),
             requirers: map,
             selected: None,
+            pinned_ident_key: String::new(),
         }
     }
 

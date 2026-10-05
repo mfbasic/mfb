@@ -1327,6 +1327,67 @@ fn rejects_fixed_underflow() {
     expect_rule(&project(vec![f], vec![]), "TYPE_FIXED_LITERAL_UNDERFLOW");
 }
 
+/// bug-813: the Fixed literal range check decides on the converter's signed,
+/// rounded carrier, not on a binary64 approximation of the spelling.
+fn fixed_bind(value: IrValue) -> IrProject {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("x", "Fixed", Some(value), true, false)],
+    );
+    project(vec![f], vec![])
+}
+
+fn negated_fixed(magnitude: &str) -> IrValue {
+    unary(UnaryOp::Negate, const_of("Fixed", magnitude), "Fixed")
+}
+
+#[test]
+fn accepts_fixed_exact_maximum_and_minimum() {
+    // binary64 rounds this spelling to 2147483648.0; its carrier is i64::MAX.
+    accept(&fixed_bind(const_of(
+        "Fixed",
+        "2147483647.99999999976716935634613037109375",
+    )));
+    accept(&fixed_bind(const_of(
+        "Fixed",
+        "2147483647.999999999883584678173065185546874",
+    )));
+    accept(&fixed_bind(negated_fixed("2147483648")));
+    accept(&fixed_bind(negated_fixed(
+        "2147483648.000000000116415321826934814453124",
+    )));
+    // The lowering fold's signed minimum, and a tiny extreme exponent (0).
+    accept(&fixed_bind(const_of("Fixed", "-2147483648.0")));
+    accept(&fixed_bind(const_of("Fixed", "1e-1000000000")));
+}
+
+#[test]
+fn rejects_fixed_literal_rounding_past_either_end() {
+    // Exact half-quantum ties beyond each end round away from zero, out of range.
+    expect_rule(
+        &fixed_bind(const_of(
+            "Fixed",
+            "2147483647.999999999883584678173065185546875",
+        )),
+        "TYPE_FIXED_LITERAL_OVERFLOW",
+    );
+    // binary64 rounds this magnitude to 2147483648.0, which the old check
+    // accepted; the carrier is one below i64::MIN.
+    expect_rule(
+        &fixed_bind(negated_fixed(
+            "2147483648.000000000116415321826934814453125",
+        )),
+        "TYPE_FIXED_LITERAL_UNDERFLOW",
+    );
+    // A signed Const (decoded package IR) is judged by its own sign.
+    expect_rule(
+        &fixed_bind(const_of("Fixed", "-3000000000")),
+        "TYPE_FIXED_LITERAL_UNDERFLOW",
+    );
+}
+
 #[test]
 fn accepts_byte_in_range() {
     let f = func_returns(

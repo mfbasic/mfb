@@ -71,6 +71,15 @@
 //! without `TRAP` awareness. See [`resolve`]/[`resolve_inline_traps`]/
 //! [`scan_calls_and_fails`] for the three-layer implementation.
 
+//!
+//! **`Body::Rewrite` is covered too (bug-814).** A `Rewrite` implementation's
+//! call becomes a call to a fixed `__`-symbol whose body is a package helper
+//! `FUNC`; [`rewrite_sweep`] resolves that block exactly as above and compares it
+//! with the one implementation's own `errors`. Qualified calls are narrowed where
+//! the text fixes the answer ([`qualified_call_codes`]), and a code a helper's
+//! call cannot raise from its arguments' ranges is proven per helper `FUNC` in
+//! [`UNREACHABLE_QUALIFIED_CALL`] / [`UNREACHABLE_GENERAL_CALL`].
+
 use crate::codegen::registry::{registry, Body};
 use crate::types::ParameterType;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -132,9 +141,10 @@ fn preceded_by_case(chars: &[char], start: usize) -> bool {
     word == "CASE"
 }
 
-/// Every `pkg::name(` call in `text` (package, member name) that is not a
+/// Every `pkg::name(` call in `text` (package, member name, top-level argument
+/// texts — empty when the parenthesis never closes in `text`) that is not a
 /// `CASE pkg::Variant(binding)` pattern match (see [`preceded_by_case`]).
-fn qualified_calls(text: &str) -> Vec<(String, String)> {
+fn qualified_calls_with_arguments(text: &str) -> Vec<(String, String, Vec<String>)> {
     let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -156,7 +166,8 @@ fn qualified_calls(text: &str) -> Vec<(String, String)> {
                 && chars[end] == '('
                 && !preceded_by_case(&chars, start)
             {
-                out.push((pkg, name));
+                let args = call_arguments(&chars, end).unwrap_or_default();
+                out.push((pkg, name, args));
             }
             i = end.max(i + 2);
             continue;
@@ -193,7 +204,7 @@ fn internal_calls(text: &str) -> Vec<String> {
 
 /// Every bare call to a `general` member (`toString(`, `toInt(`, `toByte(`, …)
 /// in `text`, with its top-level argument texts — the unqualified globals a
-/// body writes with no package prefix, which [`qualified_calls`]/
+/// body writes with no package prefix, which [`qualified_calls_with_arguments`]/
 /// [`internal_calls`] cannot see (bug-807). A name counts only as a call: not
 /// part of a longer identifier, not qualified (`x.len`/`pkg::len`), not inside
 /// a string literal, and not the `error(` of a `FAIL error(` statement, which is
@@ -791,6 +802,86 @@ fn general_override_helper(
         .map(|o| o.helper)
 }
 
+/// The codes one qualified `pkg::name(args)` call can raise, given the member's
+/// whole declared set (bug-814). Two shapes the text fixes are narrowed, both
+/// in the direction that can only drop a code the call provably cannot raise:
+///
+/// - **A literal shift count.** `bits::sl`/`sr`/`sra` raise ErrInvalidArgument
+///   only for a count outside 0 .. 63, so a literal count inside it cannot.
+/// - **Overload selection by the collection argument.** A member whose
+///   implementations differ in the kind of their first parameter (`List`,
+///   `Map`, `Set`, `String`) — `collections::get` raises ErrIndexOutOfRange for
+///   a List index and ErrNotFound for a missing Map key — raises only what the
+///   implementations of the first argument's inferred kind declare. An argument
+///   [`infer_type`] cannot type counts every implementation.
+fn qualified_call_codes(
+    pkg: &str,
+    name: &str,
+    args: &[String],
+    declared: &BTreeSet<&'static str>,
+    scope: &Scope,
+    helper_blocks: &HashMap<String, &'static str>,
+) -> BTreeSet<&'static str> {
+    if pkg == "bits"
+        && matches!(name, "sl" | "sr" | "sra")
+        && args.len() == 2
+        && args[1]
+            .replace('_', "")
+            .parse::<i64>()
+            .is_ok_and(|count| (0..=63).contains(&count))
+    {
+        let mut raised = declared.clone();
+        raised.remove("ErrInvalidArgument");
+        return raised;
+    }
+    let Some(function) = registry()
+        .resolve_package(pkg)
+        .and_then(|package| package.functions().iter().find(|f| f.name == name))
+    else {
+        return declared.clone();
+    };
+    let kind = |ty: &str| -> Option<&'static str> {
+        ["List OF ", "Map OF ", "Set OF "]
+            .into_iter()
+            .find(|prefix| ty.starts_with(prefix))
+            .or((ty == "String").then_some("String"))
+    };
+    let kinds: Vec<Option<&'static str>> = function
+        .implementations()
+        .iter()
+        .map(|implementation| {
+            implementation
+                .params
+                .first()
+                .and_then(|param| kind(&param.ty.name()))
+        })
+        .collect();
+    let distinct: BTreeSet<_> = kinds.iter().flatten().collect();
+    if kinds.iter().any(Option::is_none) || distinct.len() < 2 {
+        return declared.clone();
+    }
+    let Some(arg_kind) = args
+        .first()
+        .and_then(|arg| infer_type(arg, scope, helper_blocks))
+        .and_then(|ty| kind(&ty))
+    else {
+        return declared.clone();
+    };
+    let selected: Vec<_> = function
+        .implementations()
+        .iter()
+        .zip(&kinds)
+        .filter(|(_, k)| **k == Some(arg_kind))
+        .collect();
+    if selected.is_empty() {
+        return declared.clone();
+    }
+    selected
+        .into_iter()
+        .flat_map(|(implementation, _)| implementation.errors.iter().copied())
+        .collect()
+}
+
 /// The codes one bare `general` call can raise: the matching per-overload row
 /// of `general_declared_errors.rs`'s [`OVERLOADS`] when every argument's type is
 /// known ([`infer_type`]), narrowed further for an in-range literal; otherwise
@@ -1095,9 +1186,21 @@ fn scan_calls_and_fails(
             )),
         }
     }
-    for (pkg, name) in qualified_calls(text) {
+    for (pkg, name, args) in qualified_calls_with_arguments(text) {
         match member_declared.get(&(pkg.clone(), name.clone())) {
-            Some(declared) => out.extend(declared.iter().copied()),
+            Some(declared) => {
+                let mut raised =
+                    qualified_call_codes(&pkg, &name, &args, declared, scope, helper_blocks);
+                let callee = format!("{pkg}::{name}");
+                raised.retain(|code| {
+                    !UNREACHABLE_QUALIFIED_CALL
+                        .iter()
+                        .any(|(func, member, unreachable)| {
+                            *func == scope.func && *member == callee && unreachable == code
+                        })
+                });
+                out.extend(raised)
+            }
             None => failures.push(format!(
                 "call `{pkg}::{name}` does not resolve to a registered member"
             )),
@@ -1360,8 +1463,8 @@ pub(crate) struct MfbSweepResult {
 /// package's same-named member. Coordinator correction, 2026-10-03.
 const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("astrings", "toMarkdown", "ErrIndexOutOfRange"),
-    // audio
-    ("audio", "render", "ErrInvalidArgument"),
+    // audio (`render`'s ErrInvalidArgument row is gone: since bug-810 render
+    // raises it itself, for a note past the ten-minute limit)
     ("audio", "play", "ErrFloatInf"),
     ("audio", "play", "ErrFloatNaN"),
     ("audio", "play", "ErrOverflow"),
@@ -1409,15 +1512,19 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("csv", "stringify", "ErrIndexOutOfRange"),
     ("csv", "stringify", "ErrNotFound"),
     ("csv", "stringify", "ErrInvalidArgument"),
-    ("csv", "parseStream", "ErrIndexOutOfRange"),
-    ("csv", "parseStream", "ErrNotFound"),
+    // bug-809: parse(String)'s only `fs::openData` call passes the literal mode
+    // "r", one of the four the mode check accepts, so its ErrInvalidArgument
+    // (an unknown mode) cannot fire.
+    ("csv", "parse", "ErrInvalidArgument"),
     ("csv", "readRow", "ErrNotFound"),
-    // readRow (`__csv_next`) first FAILs ErrInvalidArgument unless `count =
-    // len(chars)` and `0 <= index <= count`; every later read is
-    // `collections::get(chars, i)` with `i` in `index .. count - 1` (the `WHILE
-    // index < count` loop, `__csv_isDoubledQuote`/`__csv_separatorLength`'s own
-    // `index + 1 < count` guards) or `__csv_decodeRange` over `fieldStart ..
-    // index`, a sub-range of the same bounds.
+    // readRow's reads are `__csv_scan`'s: every `collections::get(chars, i)` has
+    // `i` in `0 .. count - 1` (the `WHILE index < count` loop,
+    // `__csv_isDoubledQuote`/`__csv_separatorLength`'s own `index + 1 < count`
+    // guards), `__csv_decodeRange` runs over `fieldStart .. index`, a sub-range of
+    // the same bounds, and `count` is re-read with every new `chars`. Its
+    // `collections::get(<rows>, 0)` reads a scan of a non-empty line, which yields
+    // a record (a separator ends one; otherwise the end of input flushes the
+    // started field) or FAILs first.
     ("csv", "readRow", "ErrIndexOutOfRange"),
     // crypto
     ("crypto", "uuid7", "ErrIndexOutOfRange"),
@@ -1452,11 +1559,11 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("regex", "split", "ErrIndexOutOfRange"),
     // `__encoding_fromCodepoint` encodes a surrogate (55296 .. 57343) as three
     // bytes `toString` rejects with ErrEncoding (bug-807); these callers never
-    // pass one. csv's `__csv_decodeRange` and `utf32Decode` FAIL on a surrogate
-    // first; `utf16Decode` passes either a paired scalar (>= 65536) or a unit it
-    // has checked is not a surrogate; `codepageDecode` passes only `n < 128`.
-    ("csv", "parse", "ErrEncoding"),
-    ("csv", "readRow", "ErrEncoding"),
+    // pass one. `utf16Decode` passes either a paired scalar (>= 65536) or a unit
+    // it has checked is not a surrogate; `codepageDecode` passes only `n < 128`.
+    // (csv's `parse`/`readRow` used to be listed here too; since bug-809 they read
+    // a `File` through `fs::readLineRaw`, which really raises ErrEncoding for a
+    // line that is not UTF-8, so they declare it.)
     ("encoding", "utf16Decode", "ErrEncoding"),
     ("encoding", "utf32Decode", "ErrEncoding"),
     ("encoding", "codepageDecode", "ErrEncoding"),
@@ -1709,6 +1816,341 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
     // `point` is a code point below 128 (checked), and `strings::find` in a
     // 128-scalar codepage table returns a scalar index 0 .. 127.
     ("__encoding_codepageEncode", "toByte", "ErrOverflow"),
+    // bug-814. Each value is `bits::band(_, 255)` bound to a name first, a
+    // decoded literal symbol `0 <= sym < 256`, `endPos MOD 256` of a
+    // non-negative position, `bits::sr(c, 8)` of `0 <= c <= 65535`, a zlib header
+    // byte of a value below 31000, or the gzip XFL 0/2/4.
+    ("__compress_inflateCore", "toByte", "ErrOverflow"),
+    ("__compress_deflateCore", "toByte", "ErrOverflow"),
+    ("__compress_zlibEncode", "toByte", "ErrOverflow"),
+    ("__compress_gzipEncode", "toByte", "ErrOverflow"),
+    ("__crypto_appendBeWord", "toByte", "ErrOverflow"),
+    ("__crypto_appendBeWord64", "toByte", "ErrOverflow"),
+    ("__crypto_pad512", "toByte", "ErrOverflow"),
+    // `bits::bxor`/`bits::bor` of two bytes, or of a byte and 128 / the pad 54/92,
+    // stays a byte; `bits::sl(parity, 7)` of a parity bit is 0 or 128; `clampScalar`'s
+    // `(b AND 127) OR 64` is at most 127; the sponge suffix is 6 or 31 at every call.
+    ("__crypto_xorPad", "toByte", "ErrOverflow"),
+    ("__crypto_xorBytes", "toByte", "ErrOverflow"),
+    ("__crypto_keccakSponge", "toByte", "ErrOverflow"),
+    ("__crypto_clampScalar", "toByte", "ErrOverflow"),
+    ("__crypto_clampScalar448", "toByte", "ErrOverflow"),
+    ("__crypto_ed448Prune", "toByte", "ErrOverflow"),
+    ("__crypto_ed448Encode", "toByte", "ErrOverflow"),
+    ("__crypto_packPoint", "toByte", "ErrOverflow"),
+    // `counter <= ceil(length / L) <= 255`: `crypto::hkdf` rejects `length > 255
+    // * L`, and HPKE's LabeledExpand asks at most 64 bytes of a 32/64-byte HMAC.
+    ("__crypto_hkdfExpand", "toByte", "ErrOverflow"),
+    // `uuid4`'s version/variant bytes are `(b AND 15) OR 64 <= 79` and `(b AND 63)
+    // OR 128 <= 191`; `randomIntBig`'s top byte is a byte `MOD 2^topBits`, topBits
+    // in 1 .. 8.
+    ("__crypto_uuid4", "toByte", "ErrOverflow"),
+    ("__crypto_randomIntBig", "toByte", "ErrOverflow"),
+];
+
+/// A code a qualified `pkg::member(` call can raise that no call of that member
+/// in that one `FUNC` (a private helper or a rewrite target) can actually raise,
+/// keyed `(FUNC, "pkg::member", code)` and applied where the call is, so every
+/// member that reaches the `FUNC` inherits the proof — the qualified-call
+/// counterpart of [`UNREACHABLE_GENERAL_CALL`] (bug-814), with the same bar: the
+/// proof covers every call of that member in the `FUNC`, from its arguments'
+/// ranges, and a proof that depends on the callers names them. One entry per
+/// line (`rustfmt::skip`), so a FUNC's entries read as one block under its proof.
+#[rustfmt::skip]
+const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[
+    // --- compress: the inflate core (RFC 1951 decoder) ---
+    // Every `data` read is `IF pos < n` guarded (`pos` starts at the caller's
+    // `start`: 0, 2 after a zlib header checked `n >= 2`, or a gzip header end
+    // checked `<= n`) or a stored-block copy after `pos + remaining > n` FAILs.
+    // `litT`/`distT`/`clT` come from `__compress_buildTable` with roots 9/6/7, so
+    // they hold at least 512/64/128 entries for the `bits::band(bitBuf, 511/63/127)`
+    // lookups; a sub-table index is `off + (bits below 2^subBits)`, inside the
+    // sub-table buildTable appended at `off`. `li` is checked `< 29` and `dsym <
+    // 30` before indexing the 29-entry length and 30-entry distance tables;
+    // `ci < hclen <= 19` indexes the 19-entry CL_ORDER; `lens` holds exactly
+    // `hlit + hdist >= 258` entries when `lens[256]` is read and `have >= 1` when
+    // `lens[have - 1]` is; `clens` is 19 long and CL_ORDER's values are 0 .. 18.
+    // A copy reads `out[from + k]` with `1 <= dist <= outLen` checked, so `from`
+    // is in `0 .. outLen - 1` and `from + k` below the list's growing length.
+    // Shifts: a refill shifts a byte by `bitCount <= 48`; every drop is a code
+    // length `entry MOD 16` of an entry checked `>= 0` (0 .. 15), an extra-bit
+    // count from the length/distance tables (0 .. 5 / 0 .. 13), `drop = bitCount
+    // MOD 8` of a non-negative count, or a literal; `bits::sl(1, sub)` takes a
+    // `(entry - 1048576) MOD 16` of an entry checked `>= 1048576`.
+    ("__compress_inflateCore", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_inflateCore", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_inflateCore", "bits::sl", "ErrInvalidArgument"),
+    ("__compress_inflateCore", "bits::sr", "ErrInvalidArgument"),
+    // `bl`/`nextCode` are 16 long and indexed by a code length 0 .. 15 (every
+    // caller's lengths are a fixed 5/7/8/9, or a decoded 3-bit or `cl < 16`
+    // length) or by `bitLen`/`maxLen` in 0 .. 15. `lens[start + i]` with `i <
+    // count` stays inside every caller's list: (0, 288) of 288, (0, 32) of 32,
+    // (0, 19) of 19, (0, hlit) and (hlit, hdist) of `hlit + hdist`. The table
+    // starts `2^root` long (root 9/6/7 from every caller); a direct entry is
+    // written at `rev + k * 2^l < 2^root`, and a long code's sub-table entry at
+    // `off + sj`, `sj < 2^subBits`, inside the sub-table appended at `off` — a
+    // prefix-free code (over-subscription FAILs; an incomplete code is only
+    // accepted with `maxLen = 1`, which has no long codes) never finds a direct
+    // entry at a long code's root prefix. Shifts are by `root`, `l`, `b < l`,
+    // `l - root` and `maxLen - root`, all in 0 .. 15 where evaluated.
+    ("__compress_buildTable", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_buildTable", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_buildTable", "bits::sl", "ErrInvalidArgument"),
+    // The inflate core always appends its 8-byte end position, so `withEnd`
+    // holds at least 8 bytes: `last - k` is in range and `len - 8 >= 0`.
+    ("__compress_endPosition", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_stripEnd", "collections::mid", "ErrIndexOutOfRange"),
+    ("__compress_inflate", "collections::mid", "ErrIndexOutOfRange"),
+    // `data[0]`/`data[1]` after `n < 2` FAILs; `data[endPos + k]`, k < 4, after
+    // `endPos + 4 > n` FAILs.
+    ("__compress_zlibDecode", "collections::get", "ErrIndexOutOfRange"),
+    // Every header read follows a `pos + 10 > n` / `p + 2 > n` / `p >= n` FAIL;
+    // the header CRC covers `pos .. p` with `p <= n`; `__compress_le32` reads
+    // `endPos .. endPos + 7` after `endPos + 8 > n` FAILs; `member[k]`, k < its
+    // length.
+    ("__compress_gzipDecode", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_gzipDecode", "collections::mid", "ErrIndexOutOfRange"),
+    ("__compress_le32", "collections::get", "ErrIndexOutOfRange"),
+    // `i + 7 <= n - 1` in the eight-byte loop and `i < n` in the tail; the
+    // 2048-entry slicing table is read at `k * 256 + (a byte)`, k in 0 .. 7: a
+    // data byte, `bits::band(_, 255)`, or `bits::sr(x, 24)` of `x`, a 32-bit
+    // value (the running CRC is checked or derived in 0 .. 2^32 - 1, and every
+    // table entry is a 32-bit CRC). Adler-32 reads `data[i]`, `i < n`.
+    ("__compress_crc32", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_adler32", "collections::get", "ErrIndexOutOfRange"),
+    // --- compress: the deflate encoder ---
+    // Every caller rejects a level outside 0 .. 9 first, so the 10-entry
+    // configuration lists are in range. `head` has 32768 entries indexed by a
+    // 15-bit hash; `prev` has `min(n, 32768)` indexed by `bits::band(p, 32767)` of
+    // a position `p < n`. A match compares `data[cand + k]`/`data[pos + k]` only
+    // while `k < maxLen <= n - pos` (`AND` short-circuits) with `cand < pos`, and
+    // `data[pos + bestLen]` while `bestLen < maxLen` (a match reaching `maxLen`
+    // exits). `pos - 1` is read only after `pos` advanced. LEN_SYM (259 entries)
+    // is indexed by a match length 3 .. 258, DIST_CODE (512) by `d1 < 256` or `256
+    // + bits::sr(d1, 7)` with `d1 = dist - 1 <= 32767`; LEN/DIST tables by a
+    // `li <= 28` / `dsym <= 29` read off them; `litFreq` (286) at a literal, 256 or
+    // `257 + li`, `distFreq` (30) at `dsym`; the code lists (288/286 and 30) at
+    // the same symbols. The bit writer flushes to `bitCount < 8` after every
+    // symbol, so a shift count is at most 10 + 15 + 5 + 15 = 45.
+    ("__compress_deflateCore", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_deflateCore", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_deflateCore", "bits::sl", "ErrInvalidArgument"),
+    // `freqs`/`lens` are equal-length (`__compress_codeLengths` returns one length
+    // per frequency); `litFreq` (286) is shorter than FIXED_LIT (288); `i < len`.
+    ("__compress_treeBits", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_fixedLitBits", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_headerBits", "collections::get", "ErrIndexOutOfRange"),
+    // `lens[0]` and `lens[n + 1]` with `n + 1 < codes`, `codes` (hlit <= 286 /
+    // hdist <= 30) at most the list's length.
+    ("__compress_treeRle", "collections::get", "ErrIndexOutOfRange"),
+    // `litLens[hlit - 1]`/`distLens[hdist - 1]` with hlit in 258 .. 286 and hdist
+    // in 2 .. 30; `clFreq`/`clLens`/`clCodes` are 19 long and indexed by a
+    // code-length symbol `entry MOD 32` in 0 .. 18 (zlib's send_tree invariant:
+    // a repeat count is decremented only when it is >= 4, so every `count - 3`
+    // and `count - 11` is >= 0), or by a CL_ORDER value 0 .. 18.
+    ("__compress_dynamicHeader", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_dynamicHeader", "collections::set", "ErrIndexOutOfRange"),
+    // Package-merge over `count` (19, 30 or 286) symbols: `f[node]`, node 0 .. 2;
+    // the insertion sort reads `keys[j - 1]` only for `j > 0` (`AND`
+    // short-circuits); pool indices are pool entries created earlier; `cur` holds
+    // at least `2n - 2` items after `limit - 1` merges because `n <= 2^limit` (286 <
+    // 2^15, 30 < 2^15, 19 < 2^7); the stack is read and removed at `top`, its
+    // last index; `lens[sym]` with `sym < count`.
+    ("__compress_codeLengths", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_codeLengths", "collections::set", "ErrIndexOutOfRange"),
+    ("__compress_codeLengths", "collections::removeAt", "ErrIndexOutOfRange"),
+    // Code lengths are 1 .. 15 (package-merge with limit 15 or 7), indexing the
+    // 16-entry `blCount`/`nextCode`; `b - 1` is 0 .. 14.
+    ("__compress_canonicalCodes", "collections::get", "ErrIndexOutOfRange"),
+    ("__compress_canonicalCodes", "collections::set", "ErrIndexOutOfRange"),
+    // --- crypto: shared byte-list helpers ---
+    // Each reads index `i < len` of its own argument (`concat`'s `b`,
+    // `concatInt`'s `b`, `isAllZero`'s `b`, `xorPad`'s `data`), `0 .. len(data)`
+    // (`copyBytes`), or the shorter length (`constantTimeEqual`).
+    ("__crypto_concat", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_concatInt", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_isAllZero", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_xorPad", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_constantTimeEqual", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_copyBytes", "collections::mid", "ErrIndexOutOfRange"),
+    // `xorBytes(a, b)` reads `b[i]`, `i < len(a)`: its callers pass equal-length
+    // lists (`__crypto_gcmTag`: two 16-byte blocks; `__crypto_pbkdf2Block`: two
+    // outputs of the same HMAC).
+    ("__crypto_xorBytes", "collections::get", "ErrIndexOutOfRange"),
+    // `slice(data, start, stop)` / `truncate(data, n)`: every caller passes `0 <=
+    // start <= stop <= len(data)` / `0 <= n <= len(data)` — fixed digests and
+    // seeds (a SHA-512 64, a SHAKE256-114 or ChaCha20 64-byte block cut at 32/57,
+    // an HPKE key schedule's 44 bytes cut at 32/44, a length-checked 64/114-byte
+    // signature), `__crypto_decrypt`'s box after `total < nenc + 16` FAILs, the
+    // sponge's `off <= n`, and output loops that run until `len(okm) >= length`.
+    ("__crypto_slice", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_truncate", "collections::mid", "ErrIndexOutOfRange"),
+    // --- crypto: SHA-1 / SHA-2 ---
+    // `pad512`/`pad1024` leave a multiple of 64/128 bytes, and each block loop
+    // runs `base < total`, so a schedule's `beWord`/`beWord64` reads `base .. base
+    // + 63/127`; the other `beWord64` callers read a 16-byte GCM subkey block at
+    // 0/8, GHASH data (a multiple of 16) at `o`/`o + 8`, `beWords64`'s
+    // multiple-of-8 hex constants and the 192-byte Keccak RC table at `t * 8`, t
+    // < 24. The schedules index their own 80/64-entry `w` at `t - 2 .. t - 16`
+    // for `t >= 16`; the cores read `w`/K256 (64) or K512 (80) at `t` below the
+    // round count and their 8-word IV at 0 .. 7.
+    ("__crypto_beWord", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_beWord64", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha1Schedule", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha256Schedule", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha512Schedule", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha1_bytes", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha2_32", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_sha2_64", "collections::get", "ErrIndexOutOfRange"),
+    // Shift counts `56 - i * 8` / `i * 8` for `i < 8`, and `__crypto_shr32`'s
+    // count from its only callers, `ssig0` (3) and `ssig1` (10).
+    ("__crypto_pad512", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_appendBeWord64", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_appendLeLane", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_shr32", "bits::sr", "ErrInvalidArgument"),
+    // --- crypto: Keccak-f[1600] ---
+    // The state is always 25 lanes (`__crypto_keccakZero`, then `set`s and
+    // rounds that return 25); `lane`/`fl`/`sq < rateLanes <= 18`. An absorb
+    // reads `off + rate <= n`; the padded tail is exactly `rate` bytes (the tail
+    // is `n - off < rate` bytes plus the suffix byte), so `last = rate - 1` and
+    // `fl * 8 + 7` are in it. A round reads `c` (5) at `MOD 5`, `a`/`t`/`b`/`out`
+    // (25) at `x + 5y < 25`, and the 25-entry RHO/PI tables, whose PI values are
+    // 0 .. 24; `keccakF` reads the 24 round constants at `round < 24`.
+    // `leLane(data, o)` reads `o .. o + 7`: the sponge's checked offsets above,
+    // BLAKE2b's 128-byte blocks at `base + i * 8`, i < 16, and Argon2's 1024-byte
+    // H' output at `k * 8`, k < 128; its shift `i * 8` is at most 56.
+    ("__crypto_keccakSponge", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_keccakSponge", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_keccakRound", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_keccakRound", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_keccakF", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_leLane", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_leLane", "bits::sl", "ErrInvalidArgument"),
+    // --- crypto: Curve25519 / Ed25519 (16 limbs) ---
+    // Every field element is 16 limbs (`gf0`/`gf1`/`unpack25519` build 16, and
+    // `edA`/`edZ`/`edM`/`sel25519`/`car25519` map 16 to 16), so the limb loops'
+    // `i, j, k < 16` and `car25519`'s `i + 1` (for `i < 15`) are in range. A point
+    // is four elements (64 limbs; `gfAt(p, 0 .. 3)`), a ladder pair two
+    // (128; `first64`/`last64`/`cswap128` read `i` and `64 + i`, i < 64).
+    // `unpack25519`/`clampScalar` read 32 bytes; every caller passes 32: a key
+    // length-checked by `__crypto_exchange`/`__crypto_hpkeRecipientPub`/
+    // `__crypto_ed25519Verify`, `crypto::randomBytes(32)`, a 32-byte truncated
+    // SHA-512, a `pack25519` output (32), the 32-byte X25519 base, or HPKE's
+    // `enc` (`nenc` = 32). The ladders index the 32-byte scalar at `bits::sr(i, 3)`
+    // / `i / 8` for `i <= 255`, and shift by `bits::band(i, 7)`.
+    ("__crypto_sel25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_edA", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_edZ", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_edM", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_par25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gfAt", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_first64", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_last64", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_car25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_car25519", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_pack25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_pack25519", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_unpack25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_unpack25519", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_packPoint", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_packPoint", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_cswap128", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_cswap128", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gf1", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gf121665", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_x25519", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_x25519", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_scalarmult", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_scalarmult", "bits::sr", "ErrInvalidArgument"),
+    // --- crypto: Curve448 / Ed448 (16 limbs of 28 bits) ---
+    // As for Curve25519: every `gf448` value is 16 limbs, a product's `c` is 31
+    // (`n + 16 <= 30` for `n <= 14`, `n + 24 <= 30` for `n <= 6`), a point 48 limbs
+    // (`ed448PointAt(p, 0 .. 2)`) and a ladder pair 96 (`ed448Cswap` reads `i`,
+    // `48 + i`; the ladder cuts it at 0/48). `gf448Unpack`/`clampScalar448` read 56
+    // bytes: a length-checked 56-byte key, `crypto::randomBytes(56)`, a 56-byte
+    // SHAKE256 output, a `gf448Pack` output (56), the 56-byte base, a 57-byte Ed448
+    // key cut to 56, or the two 56-byte hex constants of the Ed448 base point.
+    // `ed448Prune` reads 0/55/56 of a 57-byte truncated SHAKE256 output, and
+    // `ed448Encode` byte 0 of a 56-byte pack. The ladders index the 56/57-byte
+    // scalar at `bits::sr(i, 3)` for `i <= 447`; shifts are `i * 8`/`k * 8` for `i,
+    // k < 7` and `bits::band(i, 7)`.
+    ("__crypto_gf448Add", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Sub", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Mul", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448MulSmall", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Select", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Encode", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Carry", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Carry", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar448", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_clampScalar448", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Prune", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Prune", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Cswap", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Cswap", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Unpack", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Unpack", "bits::sl", "ErrInvalidArgument"),
+    ("__crypto_gf448Pack", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_gf448Pack", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_x448", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_x448", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_ed448Scalarmult", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Scalarmult", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_ed448Scalarmult", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_ed448PointAt", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_ed448PubToX448", "collections::mid", "ErrIndexOutOfRange"),
+    // --- crypto: BLAKE2b and Argon2id ---
+    // BLAKE2b's chain `h` is 8 words and the IV 8; the working vector `v` 16 and
+    // the message `m` 16, read at SIGMA values 0 .. 15; SIGMA holds 12 rounds of 16
+    // (`s + 15 <= 191`); `blake2bG`'s four indices are literals 0 .. 15 at every
+    // call; the digest loop reads `h[i / 8]`, `i < outLen <= 64` (H0 asks 64, H'
+    // asks `outLen <= 64` or 64, or its last `outLen - 32r` in 33 .. 64), shifting
+    // by `(i MOD 8) * 8 <= 56`. `gather3` reads each of its three lists below that
+    // list's length, from `i < stop <= n`.
+    ("__crypto_blake2b3", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_blake2b3", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_blake2b3", "bits::sr", "ErrInvalidArgument"),
+    ("__crypto_blake2bCompress", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_blake2bCompress", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_blake2bG", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_blake2bG", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_gather3", "collections::get", "ErrIndexOutOfRange"),
+    // Argon2id: `mem` holds `blocks + 4` blocks of 128 words (`blocks >= 8 *
+    // parallelism` after the range checks), and every offset is a block number
+    // times 128 plus `k < 128`: a lane's first two blocks, the current block
+    // `curr` and its predecessor `prev` (both inside the current lane), the
+    // reference block (`refLane = (rnd >> 32) MOD parallelism`, `refIdx` reduced
+    // `MOD laneLen`), the last column, or the four scratch blocks past the matrix
+    // (`inputOff + 6`, `addrOff + idx MOD 128`). The fill reads three such 128-word
+    // blocks, its `r`/`tmp` are 128 words (`2g + 16k + 1 <= 127`), and the
+    // permutation takes and returns 16 words. `argon2Le32` shifts by `i * 8`, i < 4.
+    ("__crypto_argon2id", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_argon2id", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Fill", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Fill", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Fill", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_argon2P", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_argon2P", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_argon2P", "collections::mid", "ErrIndexOutOfRange"),
+    ("__crypto_argon2Le32", "bits::sr", "ErrInvalidArgument"),
+    // --- crypto: random draws ---
+    // `crypto::randomBytes(8)`/`(16)` is a literal count inside 0 .. 16 MiB, and
+    // the result is exactly that many bytes: `rand62`/`rand63` read 0 .. 7,
+    // `uuid4` reads and writes 6 and 8 and cuts its 32-character hex string at
+    // 0 .. 32. `randomIntBig` draws `byteCount = (width + 7) / 8 >= 1` bytes
+    // (`max > min`, so the span is at least 2) and reads/writes `byteCount - 1`.
+    ("__crypto_rand62", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_rand62", "crypto::randomBytes", "ErrInvalidArgument"),
+    ("__crypto_rand63", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_rand63", "crypto::randomBytes", "ErrInvalidArgument"),
+    ("__crypto_uuid4", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_uuid4", "collections::set", "ErrIndexOutOfRange"),
+    ("__crypto_uuid4", "strings::mid", "ErrIndexOutOfRange"),
+    ("__crypto_uuid4", "crypto::randomBytes", "ErrInvalidArgument"),
+    ("__crypto_randomIntBig", "collections::get", "ErrIndexOutOfRange"),
+    ("__crypto_randomIntBig", "collections::set", "ErrIndexOutOfRange"),
 ];
 
 /// The mirror image of [`UNREACHABLE_VIA_CALLEE`]: a code this sweep's model
@@ -1718,27 +2160,10 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
 /// that a real build does raise"). `encoding::htmlUnescape`/`punycodeDecode`'s
 /// ErrEncoding used to be carried here; since bug-807 this guard sees the bare
 /// `toString(<List OF Byte>)` call in `__encoding_fromCodepoint` that raises it.
+/// `http::finish`'s eight transport codes used to be carried here too, because
+/// it re-raised the code VALUE in `s.state.err`; since bug-808 it raises each
+/// one from a literal `FAIL error(<code>, …)`, which this guard sees.
 const DECLARED_EXTRA: &[(&str, &str, &str)] = &[
-    // `http::finish`'s `FAIL error(s.state.err, "http stream transport
-    // failed")` (func_finish.rs) re-raises a CODE VALUE stored in a field —
-    // `s.state.err`, not a digit literal — so `fail_codes`' `FAIL error(`
-    // scan cannot see it (by design: it is a text scan, not an evaluator).
-    // That field is set only by `__http_pump` (via `__http_readNet`/
-    // `__http_readTls`'s TRAP handlers, which store `e.code` for every
-    // propagated code except `ErrConnectionClosed`, which they turn into the
-    // `closed` flag instead), by `__http_waitReadable` (`ErrTimeout`), or by
-    // `__http_pump`'s own hard-coded `77050010` (`ErrOverflow`) once the
-    // response exceeds `__HTTP_MAX_RESPONSE`. The real reachable set is
-    // `tcp::read`/`tls::read`'s own declared errors minus `ErrConnectionClosed`
-    // (diverted to `closed`), plus `ErrTimeout` and `ErrOverflow`.
-    ("http", "finish", "ErrInvalidArgument"),
-    ("http", "finish", "ErrNetworkFailed"),
-    ("http", "finish", "ErrOutOfMemory"),
-    ("http", "finish", "ErrOverflow"),
-    ("http", "finish", "ErrResourceClosed"),
-    ("http", "finish", "ErrResourceMoved"),
-    ("http", "finish", "ErrTimeout"),
-    ("http", "finish", "ErrTlsFailed"),
     // Pre-existing, correct `ErrOverflow`/`ErrOutOfMemory`/etc. declarations
     // on members whose only raise site is an IMPLICIT checked-arithmetic
     // operator (`+`/`-`/`*` on Integer, a MOD/divide) in their own Mfb
@@ -1770,16 +2195,20 @@ const DECLARED_EXTRA: &[(&str, &str, &str)] = &[
     ("datetime", "formatDuration", "ErrOverflow"),
 ];
 
-/// Sweep every `Body::Mfb` member across the whole registry (unlike
-/// `declared_errors_sweep.rs`'s per-package entry points, one `Mfb` body can
-/// call a sibling member in ANOTHER package — `collections::sort` calling
-/// `collections::get`/`set` is same-package, but nothing in the source shape
-/// guarantees that in general — so this guard is whole-registry, not
-/// parameterized per package).
-pub(crate) fn sweep() -> MfbSweepResult {
-    let codes = codes_by_value();
-    let reg = registry();
+/// The whole-registry lookup tables both sweeps resolve calls against.
+struct SweepTables {
+    /// Every member's declared `errors`, unioned across its implementations.
+    member_declared: HashMap<(String, String), BTreeSet<&'static str>>,
+    /// A `Body::Mfb` rewrite symbol -> the `(package, member)` that owns it.
+    rewrite_to_owner: HashMap<String, (String, String)>,
+    /// Every `Body::Mfb` member's body strings.
+    mfb_bodies: HashMap<(String, String), Vec<&'static str>>,
+    /// Every `FUNC` block in a `RegistryHelper` or `Body::Mfb` string, by name.
+    helper_blocks: HashMap<String, &'static str>,
+}
 
+fn sweep_tables() -> SweepTables {
+    let reg = registry();
     let mut member_declared: HashMap<(String, String), BTreeSet<&'static str>> = HashMap::new();
     let mut rewrite_to_owner: HashMap<String, (String, String)> = HashMap::new();
     let mut mfb_bodies: HashMap<(String, String), Vec<&'static str>> = HashMap::new();
@@ -1824,6 +2253,29 @@ pub(crate) fn sweep() -> MfbSweepResult {
             member_declared.insert((pkg_name.to_string(), function.name.to_string()), errs);
         }
     }
+    SweepTables {
+        member_declared,
+        rewrite_to_owner,
+        mfb_bodies,
+        helper_blocks,
+    }
+}
+
+/// Sweep every `Body::Mfb` member across the whole registry (unlike
+/// `declared_errors_sweep.rs`'s per-package entry points, one `Mfb` body can
+/// call a sibling member in ANOTHER package — `collections::sort` calling
+/// `collections::get`/`set` is same-package, but nothing in the source shape
+/// guarantees that in general — so this guard is whole-registry, not
+/// parameterized per package).
+pub(crate) fn sweep() -> MfbSweepResult {
+    let codes = codes_by_value();
+    let reg = registry();
+    let SweepTables {
+        member_declared,
+        rewrite_to_owner,
+        mfb_bodies,
+        helper_blocks,
+    } = sweep_tables();
 
     let mut failures = Vec::new();
     let mut mismatched = Vec::new();
@@ -1905,6 +2357,138 @@ fn every_body_mfb_member_declares_exactly_the_errors_its_source_can_raise() {
         "{} Body::Mfb member(s) declare errors that differ from what their source can raise \
          (fix the descriptor `errors` in src/codegen/builtins/<pkg>/func_*.rs):\n  {}",
         result.mismatched.len(),
+        result.mismatched.join("\n  ")
+    );
+}
+
+/// A `Body::Rewrite` implementation's call becomes a call to a fixed `__`-symbol
+/// whose MFBASIC body is a package `RegistryHelper` `FUNC` block (bug-814). The
+/// block is resolved exactly as a `Body::Mfb` body is ([`resolve`]: its own
+/// `FAIL`s, its calls, `TRAP` modeled), and compared with that one
+/// implementation's own `errors` — not the member's union, because a member can
+/// mix a `Rewrite` overload with a native one (`crypto::hash`'s `String` form
+/// next to its `List OF Byte` `AbiFunction`), and `declared_errors_all.rs`
+/// answers for the native overloads.
+///
+/// A call back into the member itself (`__crypto_hashText` re-entering
+/// `crypto::hash` over the encoded bytes) counts the member's OTHER
+/// implementations only: counting the implementation under test would let any
+/// code it declares justify itself.
+pub(crate) struct RewriteSweepResult {
+    pub(crate) failures: Vec<String>,
+    pub(crate) mismatched: Vec<String>,
+    pub(crate) measured_implementations: usize,
+}
+
+/// A code a `Body::Rewrite` member's resolved body reaches that a human reading
+/// the source has proven can never fire, keyed `(package, member, code)` and
+/// applied to every `Rewrite` implementation of that member — the `Rewrite`
+/// counterpart of [`UNREACHABLE_VIA_CALLEE`], with the same evidentiary bar.
+const REWRITE_UNREACHABLE: &[(&str, &str, &str)] = &[];
+
+/// The mirror image of [`REWRITE_UNREACHABLE`], the `Rewrite` counterpart of
+/// [`DECLARED_EXTRA`]: a code the text scan cannot see (an implicit
+/// checked-arithmetic raise) but that the member really raises.
+const REWRITE_DECLARED_EXTRA: &[(&str, &str, &str)] = &[];
+
+pub(crate) fn rewrite_sweep() -> RewriteSweepResult {
+    let codes = codes_by_value();
+    let reg = registry();
+    let tables = sweep_tables();
+    let mut failures = Vec::new();
+    let mut mismatched = Vec::new();
+    let mut measured_implementations = 0usize;
+
+    for package in reg.packages() {
+        let pkg_name = package.import_name();
+        for function in package.functions() {
+            for (index, implementation) in function.implementations().iter().enumerate() {
+                let Body::Rewrite(target) = implementation.body else {
+                    continue;
+                };
+                measured_implementations += 1;
+                let Some(block) = tables.helper_blocks.get(target).copied() else {
+                    failures.push(format!(
+                        "{pkg_name}::{}: rewrite target `{target}` is not a registered helper FUNC",
+                        function.name
+                    ));
+                    continue;
+                };
+                let key = (pkg_name.to_string(), function.name.to_string());
+                let others: BTreeSet<&'static str> = function
+                    .implementations()
+                    .iter()
+                    .enumerate()
+                    .filter(|(other, _)| *other != index)
+                    .flat_map(|(_, other)| other.errors.iter().copied())
+                    .collect();
+                let mut member_declared = tables.member_declared.clone();
+                member_declared.insert(key, others);
+                let mut expected = resolve(
+                    block,
+                    &codes,
+                    &tables.rewrite_to_owner,
+                    &member_declared,
+                    &tables.helper_blocks,
+                    &mut BTreeSet::new(),
+                    &mut HashMap::new(),
+                    &mut failures,
+                );
+                expected.retain(|code| {
+                    !REWRITE_UNREACHABLE
+                        .iter()
+                        .any(|(pkg, member, unreachable)| {
+                            *pkg == pkg_name && *member == function.name && unreachable == code
+                        })
+                });
+                for (pkg, member, extra) in REWRITE_DECLARED_EXTRA {
+                    if *pkg == pkg_name && *member == function.name {
+                        expected.insert(extra);
+                    }
+                }
+                let declared: BTreeSet<&'static str> =
+                    implementation.errors.iter().copied().collect();
+                if declared != expected {
+                    let missing: Vec<_> = expected.difference(&declared).collect();
+                    let extra: Vec<_> = declared.difference(&expected).collect();
+                    mismatched.push(format!(
+                        "{pkg_name}::{} ({target}): undeclared {missing:?}, declared but never \
+                         raised {extra:?}",
+                        function.name
+                    ));
+                }
+            }
+        }
+    }
+
+    RewriteSweepResult {
+        failures,
+        mismatched,
+        measured_implementations,
+    }
+}
+
+#[test]
+fn every_body_rewrite_implementation_declares_exactly_the_errors_its_target_can_raise() {
+    let result = rewrite_sweep();
+    assert!(
+        result.failures.is_empty(),
+        "the Body::Rewrite sweep could not classify every call:\n  {}",
+        result.failures.join("\n  ")
+    );
+    assert!(
+        result.measured_implementations >= 34,
+        "the sweep found only {} Body::Rewrite implementations; there were 34 (29 members) \
+         when this was written",
+        result.measured_implementations
+    );
+    assert!(
+        result.mismatched.is_empty(),
+        "{} of {} Body::Rewrite implementation(s) declare errors that differ from what their \
+         target can raise (fix the implementation's `errors` in \
+         src/codegen/builtins/<pkg>/func_*.rs):\n  {}",
+        result.mismatched.len(),
+        result.measured_implementations,
         result.mismatched.join("\n  ")
     );
 }

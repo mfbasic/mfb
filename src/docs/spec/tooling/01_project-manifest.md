@@ -37,7 +37,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `description` | string | yes⁵ | one-line summary shown on the registry; at most **4096 bytes**. Carried inside the signed `.mfp` payload as `PACKAGE_META` section 18 (./mfb spec package package-meta-section) |
 | `author` | string | no | package author metadata |
 | `url` | string | no | package homepage/source URL |
-| `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
+| `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires that shape (any owner prefix — after a transfer the recipient signs the transferred ident, and the registry decides who may) and defaults it to `<owner>#<name>` |
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
 | `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
 | `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |
@@ -151,7 +151,7 @@ Each element of `packages[]` declares one dependency:
 | `version` | string | `""` | requested version |
 | `pin` | bool | `false` | when true, the installed `.mfp` must match `version` exactly |
 | `source` | string | `""` | origin URL the dependency was added from |
-| `identKey` | string | `""` | the pinned owner ident public key — the trust anchor. Written by `pkg add` on first add of a signed package (trust-on-first-use); every later build verifies the installed `.mfp` against this pin, never against the file-embedded key. Snake_case `ident_key` is accepted on read. |
+| `identKey` | string | `""` | the pinned ident public key — the trust anchor: the verified `identKey` of the installed release. Written by `pkg add` on first add of a signed package (trust-on-first-use, verified for the release's publisher through the registry's signed transfer chain); every later build verifies the installed `.mfp` against this pin, never against the file-embedded key. `pkg update`/`pkg verify` move it when the pin reaches a new release's key through the owner's rotation chain or a signed ownership transfer, with a notice. Snake_case `ident_key` is accepted on read. |
 | `direct` | bool | none | true when the user declared this dependency themselves; false when `mfb pkg` added it because another declared package's import table names it. Absent on an entry the closure rule below flags as inconsistent. |
 | `requiredBy` | array of strings | none | the idents of the declared packages whose import tables name this dependency; empty for a package nothing else requires. Order-insensitive; `mfb pkg` writes it sorted. Absent has the same inconsistency treatment as a missing `direct`. |
 

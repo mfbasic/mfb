@@ -70,7 +70,7 @@ Ed448→X448 conversions (RFC 8032 / RFC 7748), the HPKE labeled HKDF-SHA256 /
 HKDF-SHA512 (RFC 9180 / RFC 5869), and the AEAD are all pure MFBASIC software
 cores computed over the `bits` package — no platform cryptographic library — so
 decryption is byte-identical on every target (macOS, Linux, Windows; aarch64,
-x86-64)."#;
+x86-64). `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"```
 IMPORT crypto
 
@@ -126,7 +126,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrAuthenticationFailed", "ErrInvalidArgument"],
+            errors: vec!["ErrAuthenticationFailed", "ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__crypto_decrypt"),
         }],
     });

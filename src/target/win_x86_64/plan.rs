@@ -521,7 +521,7 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.close" => vec![import("CloseHandle", KERNEL32, required_by)],
-            "fs.readLine" | "fs.eof" | "fs.size" | "fs.readBytesAt" => vec![
+            "fs.readLine" | "fs.readLineRaw" | "fs.eof" | "fs.size" | "fs.readBytesAt" => vec![
                 import("ReadFile", KERNEL32, required_by),
                 import("SetFilePointerEx", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
@@ -532,6 +532,29 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.flush" => vec![import("FlushFileBuffers", KERNEL32, required_by)],
+            // bug-809: seek drains buffered output (WriteFile) before
+            // SetFilePointerEx; emit_write also references GetStdHandle.
+            "fs.seek" => vec![
+                import("GetStdHandle", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("SetFilePointerEx", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            // bug-809: openData builds a random name in the temp directory
+            // (GetTempPathW + BCryptGenRandom), creates it delete-on-close and
+            // re-opens it with the mode's access (CreateFileW twice), copies the
+            // value in (WriteFile), and closes the scratch handle.
+            "fs.openData" | "fs.openDataBytes" => vec![
+                import("GetTempPathW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("BCryptGenRandom", BCRYPT, required_by),
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetStdHandle", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             // Terminal queries (plan-47-G): GetConsoleMode succeeding IS isatty;
             // GetConsoleScreenBufferInfo gives the window size.
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => vec![

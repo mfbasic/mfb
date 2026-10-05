@@ -1,0 +1,10 @@
+IMPORT fs
+
+FUNC main AS Integer
+  RES f = fs::openData("x", "r")
+  fs::seek(f)
+  fs::seek("path", 0)
+  fs::seek(f, "0")
+  fs::seek(f, 0, 1)
+  RETURN 0
+END FUNC

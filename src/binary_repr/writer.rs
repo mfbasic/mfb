@@ -1044,61 +1044,12 @@ pub(super) fn put_field_payload(
     );
 }
 
+/// The `.mfp` constant-pool encoding of a `Fixed` constant: exactly the carrier
+/// source lowering materializes, from the one shared converter. This was a
+/// second hand-copied converter without scientific-notation support, so a
+/// package parameter default spelled `2.5e2F` failed to encode (bug-813).
 pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
-    const SCALE: i128 = 1_i128 << 32;
-
-    let (negative, digits) = value
-        .strip_prefix('-')
-        .map(|rest| (true, rest))
-        .unwrap_or((false, value));
-    let (whole, fractional) = digits.split_once('.').unwrap_or((digits, ""));
-    if whole.is_empty() && fractional.is_empty() {
-        return Err(format!("invalid Fixed constant `{value}`"));
-    }
-    let mut whole_value = if whole.is_empty() {
-        0_i128
-    } else {
-        whole
-            .parse::<i128>()
-            .map_err(|_| format!("invalid Fixed constant `{value}`"))?
-    };
-    let mut fractional_value = 0_i128;
-    if !fractional.is_empty() {
-        // Cap fractional accumulation at 28 digits — the 32.32 layout resolves
-        // only 2^-32, so digits past that sit below one ULP and cannot change the
-        // round-half-up result. This keeps `fractional_value * SCALE` inside i128
-        // instead of rejecting a long literal (bug-91). Mirrors
-        // `numeric::fixed_raw_from_decimal`.
-        const MAX_FRACTIONAL_DIGITS: usize = 28;
-        let mut denominator = 1_i128;
-        for digit in fractional.bytes().take(MAX_FRACTIONAL_DIGITS) {
-            if !digit.is_ascii_digit() {
-                return Err(format!("invalid Fixed constant `{value}`"));
-            }
-            fractional_value = fractional_value * 10 + (digit - b'0') as i128;
-            denominator *= 10;
-        }
-        for digit in fractional.bytes().skip(MAX_FRACTIONAL_DIGITS) {
-            if !digit.is_ascii_digit() {
-                return Err(format!("invalid Fixed constant `{value}`"));
-            }
-        }
-        let scaled = fractional_value * SCALE;
-        fractional_value = scaled / denominator;
-        if (scaled % denominator) * 2 >= denominator {
-            fractional_value += 1;
-        }
-        if fractional_value == SCALE {
-            whole_value += 1;
-            fractional_value = 0;
-        }
-    }
-    let raw = whole_value
-        .checked_mul(SCALE)
-        .and_then(|current| current.checked_add(fractional_value))
-        .ok_or_else(|| format!("Fixed constant `{value}` is out of range"))?;
-    let raw = if negative { -raw } else { raw };
-    i64::try_from(raw).map_err(|_| format!("Fixed constant `{value}` is out of range"))
+    crate::numeric::fixed_raw_from_decimal(value)
 }
 
 /// The `RESOURCE_TABLE` flags for a standard built-in resource, including the

@@ -30,6 +30,7 @@ Control flow:
     fallible call tls.write at src/main.mfb:13 -> return
     fallible call tls.close at src/main.mfb:14 -> return
     fallible call io.print at src/main.mfb:15 -> return
+    fallible call toString at src/main.mfb:15 -> return
 
 Findings:
   info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `s` (tls.Socket) is closed by lexical drop; explicit `tls.close` is required to observe a close failure (src/main.mfb:11)
@@ -106,6 +107,12 @@ $ mfb audit --format json tests/syntax/security/bug96_audit_tls_http_crypto
           "line": 15,
           "propagation": "return",
           "capability": "terminal"
+        },
+        {
+          "callee": "toString",
+          "line": 15,
+          "propagation": "return",
+          "capability": null
         }
       ]
     }

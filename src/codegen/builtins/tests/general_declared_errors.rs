@@ -214,22 +214,6 @@ const UNREACHABLE: &[(&str, &[&str], &str, &str)] = &[
          the argument is finite for the same reason as toInt(Float) (lower_to_money's \
          observe_float).",
     ),
-    (
-        "toMoney",
-        &["Fixed"],
-        "ErrOverflow",
-        "lower_to_money's Fixed arm is emit_fixed_multiply(raw, 100000), whose range check \
-         fires only when the product leaves the Money range. A Fixed's magnitude is below \
-         2^31, so the result is below 2^31 * 100000 < 2^48 raw units, far inside i64.",
-    ),
-    (
-        "toFixed",
-        &["Money"],
-        "ErrInvalidArgument",
-        "emit_fixed_divide's emit_nonzero_or_invalid guards its divisor, and \
-         lower_to_fixed's Money arm passes the constant 100000 as its divisor \
-         (an Integer immediate), which is never zero.",
-    ),
 ];
 
 /// The shared runtime helpers a conversion calls that never raise a code of

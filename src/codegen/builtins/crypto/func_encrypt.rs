@@ -117,7 +117,8 @@ Ed448→X448 public-key conversions (RFC 8032 / RFC 7748), the HPKE labeled
 HKDF-SHA256 / HKDF-SHA512 (RFC 9180 / RFC 5869), and the AEAD are all pure MFBASIC
 software cores computed over the `bits` package — no platform cryptographic
 library — so a box is byte-for-byte wire-compatible across every target (macOS,
-Linux, Windows; aarch64, x86-64)."#;
+Linux, Windows; aarch64, x86-64). The ephemeral key is drawn from `crypto::randomBytes`, so an
+entropy failure there raises `ErrUnknown`; `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"```
 IMPORT crypto
 
@@ -181,7 +182,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     aad_param(),
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrUnknown"],
                 body: Body::Rewrite("__crypto_encrypt"),
             },
             Implementation {
@@ -198,7 +199,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     aad_param(),
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrUnknown"],
                 body: Body::Rewrite("__crypto_encryptText"),
             },
         ],

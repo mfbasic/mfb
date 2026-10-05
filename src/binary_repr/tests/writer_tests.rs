@@ -164,6 +164,27 @@ fn fixed_raw_from_decimal_covers_signs_fractions_and_rounding() {
     assert_eq!(quarter, 1i64 << 30);
 }
 
+/// bug-813: a package parameter default spelled in scientific notation
+/// (`x AS Fixed = 2.5e2F`) reaches the constant pool as `2.5e2`; the writer must
+/// encode the same carrier as source lowering instead of failing the build.
+#[test]
+fn fixed_raw_from_decimal_matches_the_numeric_converter() {
+    for literal in [
+        "2.5e2",
+        "-1e1",
+        "1e-1000000000",
+        "2147483647.99999999976716935634613037109375",
+        "0.000000000116415321826934814453125",
+    ] {
+        assert_eq!(
+            fixed_raw_from_decimal(literal),
+            crate::numeric::fixed_raw_from_decimal(literal),
+            "{literal}"
+        );
+    }
+    assert_eq!(fixed_raw_from_decimal("2.5e2").unwrap(), 250_i64 << 32);
+}
+
 #[test]
 fn fixed_raw_from_decimal_rejects_malformed() {
     assert!(fixed_raw_from_decimal("").is_err());

@@ -16,15 +16,25 @@ FUNC __crypto_randomInt(min AS Integer, max AS Integer) AS Integer
   IF min = max THEN
     RETURN min
   END IF
-  LET span AS Integer = max - min
-  LET range AS Integer = span + 1
-  IF range <= 0 THEN
-    FAIL error(77050002, "randomInt range too large")
+  ' bug-814: `max - min` overflows exactly when `min` is negative and `max` is past
+  ' `9223372036854775807 + min` (which cannot overflow for a negative `min`); the
+  ' checked `-` would raise ErrOverflow, which this member does not declare.
+  IF min < 0 THEN
+    IF max > 9223372036854775807 + min THEN
+      FAIL error(77050002, "randomInt range too large")
+    END IF
   END IF
+  LET span AS Integer = max - min
+  ' A span of 2^63 - 1 has 2^63 outcomes, which `range` cannot hold: a uniform
+  ' 63-bit draw is exactly that many, so it needs no rejection at all.
+  IF span = 9223372036854775807 THEN
+    RETURN min + __crypto_rand63()
+  END IF
+  LET range AS Integer = span + 1
   LET maxVal AS Integer = 4611686018427387904
   ' bug-305: when `range > maxVal` (2^62), `maxVal MOD range` is `maxVal`, so
   ' `limit` was 0 and `WHILE v >= limit` never terminated -- `v` is always >= 0.
-  ' The `range <= 0` guard above only catches i64 overflow, not the band
+  ' The guards above only reject a span that overflows, not the band
   ' (2^62, 2^63-1]. Such a range needs more entropy than a 62-bit draw provides,
   ' so draw 63 bits instead.
   '

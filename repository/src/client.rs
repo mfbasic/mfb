@@ -4,12 +4,13 @@ use crate::server::{
     ChallengeRequest, ChallengeResponse, CheckpointResponse, ConsistencyProofResponse,
     ErrorResponse, IdentChainResponse, InclusionProofResponse, IndexResponse, LinkFetchRequest,
     LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest, LoginResponse,
-    OrgMemberRequest, OrgMemberResponse, PackageArtifactRequest, PublishPackageResponse,
-    RegisterProofs, RegisterRequest, RegisterResponse, ReleaseStateRequest, ReleaseStateResponse,
-    RevokeChallengeRequest, RevokeRequest, RevokeResponse, RootResponse, RotateRequest,
-    RotateResponse, ServerIdentResponse, SignedMetadataResponse, SigningRequest, SigningResponse,
-    TokenIssueRequest, TokenIssueResponse, TokenRevokeRequest, TokenRevokeResponse,
-    TransferAcceptRequest, TransferOfferRequest, TransferResponse, ValidatePackageResponse,
+    OrgMemberRequest, OrgMemberResponse, OwnerBinding, PackageArtifactRequest,
+    PublishPackageResponse, RegisterProofs, RegisterRequest, RegisterResponse, ReleaseStateRequest,
+    ReleaseStateResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse, RootResponse,
+    RotateRequest, RotateResponse, ServerIdentResponse, SignedMetadataResponse, SigningRequest,
+    SigningResponse, TokenIssueRequest, TokenIssueResponse, TokenRevokeRequest,
+    TokenRevokeResponse, TransferAcceptRequest, TransferOfferRequest, TransferResponse,
+    ValidatePackageResponse,
 };
 use crate::validation::{fold_owner, validate_owner_name};
 use crate::DEFAULT_REPO_URL;
@@ -769,6 +770,15 @@ pub fn fetch_ident_chain(repo_url: &str, owner: &str) -> Result<IdentChainRespon
     get_json::<IdentChainResponse>(repo_url, &format!("/idents/{owner}"))
 }
 
+/// The owners' rotation chains as plan-168-C's verifier (`crate::trust`) takes
+/// them, read from `GET /idents/<owner>` on `repo_url`. The chain needs no
+/// server signature: each link is signed by the key it retires.
+pub fn registry_chains(
+    repo_url: &str,
+) -> impl Fn(&str) -> Result<Vec<crate::server::IdentChainLink>, String> + '_ {
+    move |owner: &str| fetch_ident_chain(repo_url, owner).map(|response| response.chain)
+}
+
 /// Walk a signed ident chain from `pinned` (plan-23-B2 pin-follow): verify
 /// each link's old-key signature over the rotation message and follow
 /// old→new until the chain is exhausted. Returns the newest chained
@@ -780,11 +790,25 @@ pub fn follow_ident_chain(
     pinned: &[u8],
     chain: &[crate::server::IdentChainLink],
 ) -> Result<Option<Vec<u8>>, String> {
-    let mut current = pinned.to_vec();
-    let mut advanced = false;
+    let mut path = chain_path(owner, pinned, chain)?;
+    Ok(if path.len() > 1 { path.pop() } else { None })
+}
+
+/// Every key on `owner`'s signed rotation chain from `start` forward, `start`
+/// first (plan-168-C): each successor is accepted only through a link signed by
+/// the key it retires, over the owner-bound rotation message. The chain is read
+/// once, oldest link first, so the walk is bounded by its length. A key `K` is
+/// "forward-reachable" from `start` exactly when it is on this path. A `start`
+/// the chain never names yields just `[start]`.
+pub fn chain_path(
+    owner: &str,
+    start: &[u8],
+    chain: &[crate::server::IdentChainLink],
+) -> Result<Vec<Vec<u8>>, String> {
+    let mut path = vec![start.to_vec()];
     for link in chain {
         let old_key = crypto::decode_bytes(&link.old_key, "oldKey")?;
-        if old_key != current {
+        if Some(&old_key) != path.last() {
             continue;
         }
         let new_key = crypto::decode_bytes(&link.new_key, "newKey")?;
@@ -793,10 +817,9 @@ pub fn follow_ident_chain(
             crypto::ident_rotation_message(owner, &crypto::fingerprint(&old_key), &new_key);
         crypto::verify(&old_key, &message, &signature)
             .map_err(|_| "invalid ident chain link signature".to_string())?;
-        current = new_key;
-        advanced = true;
+        path.push(new_key);
     }
-    Ok(if advanced { Some(current) } else { None })
+    Ok(path)
 }
 
 /// Revoke a (lost) machine's auth key. Authority is the ident key alone: the
@@ -1384,51 +1407,172 @@ pub fn revoke_publish_token(
     )
 }
 
-/// `POST /packages/transfer/offer` (plan-10-D1): the current owner offers a
-/// package to a recipient, signed by the current owner's ident.
+/// Verify a server-signed name binding (plan-168-A) under `server_key` and
+/// return the bound ident public key: the key must hash to the bound
+/// fingerprint and the signature must cover `name_binding_message(owner,
+/// fingerprint)`.
+pub fn verify_owner_binding(server_key: &[u8], binding: &OwnerBinding) -> Result<Vec<u8>, String> {
+    let public = crypto::decode_bytes(
+        binding
+            .ident_key
+            .strip_prefix("ed25519:")
+            .unwrap_or(&binding.ident_key),
+        "identKey",
+    )?;
+    if crypto::fingerprint(&public) != binding.ident_fingerprint {
+        return Err(format!(
+            "registry binding for {} names a key that does not match its fingerprint",
+            sanitize_server_text(&binding.owner)
+        ));
+    }
+    let signature = crypto::decode_bytes(&binding.name_binding_signature, "nameBindingSignature")?;
+    crypto::verify(
+        server_key,
+        &crypto::name_binding_message(&binding.owner, &binding.ident_fingerprint),
+        &signature,
+    )
+    .map_err(|_| {
+        format!(
+            "registry binding for {} does not verify under the registry server key",
+            sanitize_server_text(&binding.owner)
+        )
+    })?;
+    Ok(public)
+}
+
+/// The package's current owner as a verified `/index` states it (plan-168-A
+/// §4.5): the last transfer's `toBinding`, or the index's own binding for a
+/// package that never moved. Returns `(owner display, ident fingerprint)`.
+fn current_owner_binding(
+    server_key: &[u8],
+    index: &IndexResponse,
+) -> Result<(String, String), String> {
+    match index.transfers.last() {
+        Some(link) => {
+            verify_owner_binding(server_key, &link.to_binding)?;
+            Ok((
+                link.to_binding.owner.clone(),
+                link.to_binding.ident_fingerprint.clone(),
+            ))
+        }
+        None => Ok((index.owner.clone(), index.ident_fingerprint.clone())),
+    }
+}
+
+/// The v2 transfer terms the next link of an ident signs (plan-168-A §4.5),
+/// computed from a verified `/index` exactly as the registry computes them
+/// from its tables: the sequence is the number of served links and the digest
+/// covers every served version.
+struct ClientTransferTerms {
+    current_owner: String,
+    current_fingerprint: String,
+    sequence: i64,
+    release_digest: String,
+    to_owner: String,
+}
+
+fn client_transfer_terms(
+    repo_url: &str,
+    paths: &LocalPaths,
+    ident: &str,
+    to_owner: &str,
+) -> Result<ClientTransferTerms, String> {
+    let Some((owner, package)) = ident.split_once('#') else {
+        return Err("ident must use <owner>#<package>".to_string());
+    };
+    validate_owner_name(to_owner)?;
+    let server_key = ensure_server_key(repo_url, paths)?;
+    verify_pinned_metadata(repo_url, paths)?;
+    let index = fetch_index_with_key(repo_url, &server_key, owner, package)?;
+    let (current_owner, current_fingerprint) = current_owner_binding(&server_key, &index)?;
+    // The signed bytes carry the recipient's REGISTERED display name, which is
+    // what the registry records and `/index` later serves.
+    let recipient = fetch_ident_chain(repo_url, to_owner)?.owner;
+    Ok(ClientTransferTerms {
+        current_owner,
+        current_fingerprint,
+        sequence: i64::try_from(index.transfers.len())
+            .map_err(|_| "registry index serves too many transfers".to_string())?,
+        release_digest: crypto::release_digest(
+            index
+                .versions
+                .iter()
+                .map(|version| (version.version.as_str(), version.hash.as_str())),
+        ),
+        to_owner: recipient,
+    })
+}
+
+/// `POST /packages/transfer/offer` (plan-10-D1, v2 since plan-168-A): the
+/// package's CURRENT owner — the last transfer's recipient, or the ident
+/// prefix owner for a package that never moved — offers it to a recipient,
+/// signing the v2 terms read from `/index` with the local ident key.
 pub fn transfer_offer(
     repo_url: &str,
     paths: &LocalPaths,
     ident: &str,
-    from_owner: &str,
     to_owner: &str,
 ) -> Result<TransferResponse, String> {
-    validate_owner_name(from_owner)?;
-    ensure_server_key(repo_url, paths)?;
-    let ident_private = local::read_ident_private_key(paths, from_owner)?;
-    let session_token = local::read_session(paths, from_owner)?;
+    let terms = client_transfer_terms(repo_url, paths, ident, to_owner)?;
+    validate_owner_name(&terms.current_owner)?;
+    let ident_private = local::read_ident_private_key(paths, &terms.current_owner)?;
+    if crypto::fingerprint(&crypto::public_from_private(&ident_private)?)
+        != terms.current_fingerprint
+    {
+        return Err(format!(
+            "this machine does not hold {}'s current ident",
+            terms.current_owner
+        ));
+    }
+    let session_token = local::read_session(paths, &terms.current_owner)?;
     let signature = crypto::sign(
         &ident_private,
-        &crypto::transfer_offer_message(ident, from_owner, to_owner),
+        &crypto::transfer_offer_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence: terms.sequence,
+            from_owner: &terms.current_owner,
+            from_ident_fingerprint: &terms.current_fingerprint,
+            to_owner: &terms.to_owner,
+            release_digest: &terms.release_digest,
+        }),
     )?;
     post_json::<TransferResponse>(
         repo_url,
         "/packages/transfer/offer",
         &TransferOfferRequest {
             ident: ident.to_string(),
-            from_owner: from_owner.to_string(),
-            to_owner: to_owner.to_string(),
+            from_owner: terms.current_owner,
+            to_owner: terms.to_owner,
+            sequence: terms.sequence,
+            release_digest: terms.release_digest,
             session_token,
             ident_signature: crypto::encode_bytes(&signature),
         },
     )
 }
 
-/// `POST /packages/transfer/accept` (plan-10-D1): the recipient accepts a
-/// pending offer, signed by the recipient's ident.
+/// `POST /packages/transfer/accept` (plan-10-D1, v2 since plan-168-A): the
+/// recipient accepts a pending offer by signing the same v2 terms, read from
+/// `/index`, with the local ident key.
 pub fn transfer_accept(
     repo_url: &str,
     paths: &LocalPaths,
     ident: &str,
     to_owner: &str,
 ) -> Result<TransferResponse, String> {
-    validate_owner_name(to_owner)?;
-    ensure_server_key(repo_url, paths)?;
+    let terms = client_transfer_terms(repo_url, paths, ident, to_owner)?;
     let ident_private = local::read_ident_private_key(paths, to_owner)?;
     let session_token = local::read_session(paths, to_owner)?;
     let signature = crypto::sign(
         &ident_private,
-        &crypto::transfer_accept_message(ident, to_owner),
+        &crypto::transfer_accept_message_v2(crypto::TransferTermsRef {
+            ident,
+            sequence: terms.sequence,
+            from_owner: &terms.current_owner,
+            from_ident_fingerprint: &terms.current_fingerprint,
+            to_owner: &terms.to_owner,
+            release_digest: &terms.release_digest,
+        }),
     )?;
     post_json::<TransferResponse>(
         repo_url,
@@ -2591,6 +2735,8 @@ mod tests {
             state: "available".to_string(),
             abi_index: serde_json::json!({"greet": "aa", "bad": 3}),
             log_entry: None,
+            publisher: None,
+            epoch: 0,
         };
         let map = with_abi.abi_map();
         assert_eq!(map.get("greet").unwrap(), "aa");
@@ -2767,7 +2913,7 @@ mod tests {
         assert!(set_org_member(DEAD_URL, &paths, "acme", "std", "m", "admin", false).is_err());
         assert!(issue_publish_token(DEAD_URL, &paths, "std", "scope", 60).is_err());
         assert!(revoke_publish_token(DEAD_URL, &paths, "std", "fp").is_err());
-        assert!(transfer_offer(DEAD_URL, &paths, "a#p", "std", "bob").is_err());
+        assert!(transfer_offer(DEAD_URL, &paths, "a#p", "std").is_err());
         assert!(transfer_accept(DEAD_URL, &paths, "a#p", "std").is_err());
         assert!(set_release_state(DEAD_URL, &paths, "std", "a#p", "1.0.0", "yanked").is_err());
         assert!(fetch_index(DEAD_URL, &paths, "std", "pkg").is_err());
@@ -4630,33 +4776,58 @@ mod tests {
         );
     }
 
-    /// Both halves of a transfer are ident-signed, each over its own message.
+    /// Both halves of a transfer are ident-signed, each over its own message:
+    /// the v2 terms (plan-168-A) read from the verified `/index` — the next
+    /// sequence, the current owner and their bound key, the recipient's
+    /// registered name, and the digest of every served release.
     #[test]
     fn transfer_offer_and_accept_are_each_ident_signed() {
         let registry = Registry::new();
         let body = serde_json::json!({"ident": "alice#pkg", "toOwner": "bob", "accepted": false})
             .to_string();
+        let bob_chain = serde_json::json!({
+            "owner": "bob", "identKey": "", "identFingerprint": "", "chain": [],
+        })
+        .to_string();
 
         let (_temp, paths) = temp_paths();
         let alice_ident = seed_ident(&paths, "alice");
+        let alice_key = format!("ed25519:{}", crypto::encode_bytes(&alice_ident));
+        let alice_fingerprint = crypto::fingerprint(&alice_ident);
+        let index = index_body(&registry, &alice_key, &alice_fingerprint);
+        let digest = crypto::release_digest([("1.0.0", "h")]);
+        let terms = crypto::TransferTermsRef {
+            ident: "alice#pkg",
+            sequence: 0,
+            from_owner: "alice",
+            from_ident_fingerprint: &alice_fingerprint,
+            to_owner: "bob",
+            release_digest: &digest,
+        };
         let offer = registry
             .routes()
+            .ok("/index/", index.clone())
+            .ok("/idents/bob", bob_chain.clone())
             .ok("/packages/transfer/offer", body.clone())
             .serve();
-        let response =
-            transfer_offer(&offer.url, &paths, "alice#pkg", "alice", "bob").expect("offer");
+        let response = transfer_offer(&offer.url, &paths, "alice#pkg", "bob").expect("offer");
         assert_eq!(response.to_owner, "bob");
+        let request = offer.request_to("/packages/transfer/offer");
         assert_signed(
-            &offer.request_to("/packages/transfer/offer"),
+            &request,
             "identSignature",
             &alice_ident,
-            &crypto::transfer_offer_message("alice#pkg", "alice", "bob"),
+            &crypto::transfer_offer_message_v2(terms),
         );
+        assert_eq!(field(&request, "fromOwner"), "alice");
+        assert_eq!(field(&request, "releaseDigest"), digest);
 
         let (_temp2, paths2) = temp_paths();
         let bob_ident = seed_ident(&paths2, "bob");
         let accept = registry
             .routes()
+            .ok("/index/", index)
+            .ok("/idents/bob", bob_chain)
             .ok(
                 "/packages/transfer/accept",
                 serde_json::json!({"ident": "alice#pkg", "toOwner": "bob", "accepted": true})
@@ -4669,8 +4840,15 @@ mod tests {
             &accept.request_to("/packages/transfer/accept"),
             "identSignature",
             &bob_ident,
-            &crypto::transfer_accept_message("alice#pkg", "bob"),
+            &crypto::transfer_accept_message_v2(terms),
         );
+
+        // A machine whose local alice key is not the bound current ident cannot
+        // offer, and is told whose ident it lacks.
+        let (_temp3, paths3) = temp_paths();
+        seed_ident(&paths3, "alice");
+        let err = transfer_offer(&offer.url, &paths3, "alice#pkg", "bob").unwrap_err();
+        assert!(err.contains("does not hold alice's current ident"), "{err}");
     }
 
     /// A release-state change carries both credentials: the session (auth) and
@@ -4750,6 +4928,27 @@ mod tests {
             }],
         })
         .to_string()
+    }
+
+    /// plan-168-A: an index from a registry that predates the transfer wire
+    /// has no `transfers`, `publisher` or `epoch`. It still parses, and reads
+    /// as "never transferred, published by the origin, epoch 0" — exactly what
+    /// such a registry's data means.
+    #[test]
+    fn an_older_index_without_transfer_fields_deserializes() {
+        let registry = Registry::new();
+        let (ident_public, _) = crypto::generate_keypair();
+        let body = index_body(
+            &registry,
+            &format!("ed25519:{}", crypto::encode_bytes(&ident_public)),
+            &crypto::fingerprint(&ident_public),
+        );
+        assert!(!body.contains("transfers") && !body.contains("epoch"));
+        let index: IndexResponse = serde_json::from_str(&body).expect("older shape parses");
+        assert!(index.transfers.is_empty());
+        assert_eq!(index.versions.len(), 1);
+        assert!(index.versions[0].publisher.is_none());
+        assert_eq!(index.versions[0].epoch, 0);
     }
 
     /// The index's `identKey` is only pinnable because the name binding is

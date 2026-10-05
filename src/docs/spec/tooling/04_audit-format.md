@@ -286,29 +286,33 @@ fallible, the call's `capability` field).
 
 ### Fallible-call table
 
-A call is fallible if its callee's package is a known-fallible builtin namespace,
-or if it names a user function already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
+A call is fallible if its callee is a built-in that declares an error, or if it
+names a user function already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
 
 ```text
-fallible builtin packages: fs, io, json, net, thread, tls, http, tcp, udp
-per-builtin fallible sets: the raising members of crypto, datetime, audio, os,
-                           regex, csv and encoding, plus the bare conversions
-                           toInt / toFloat / toFixed / toMoney / toScalar / toByte
-otherwise:                 callee ∈ fallible-user-function set
+toInt(<enum>):  total (checked first)
+any built-in:   fallible iff some overload declares an error
+otherwise:      callee ∈ fallible-user-function set
 ```
 
-The per-builtin sets exist because those packages mix total and raising
-operations, so a coarse package match would over-report — `audio::xruns` is a
-counter read, most of `crypto` is computation over caller-supplied bytes, and
-`datetime` arithmetic is total. The membership is a manually maintained table; it is not computed from
-registry error descriptors.[[src/audit/collect/source.rs:is_fallible_builtin]]
+The declared-error rule is the one the inline-`TRAP` census applies (`./mfb spec
+language error-model`, rule 11), read off the same registry descriptors, so for
+the built-ins that census answers for — the bare `general` names and the
+inline-lowered members — `mfb audit` and the dead-handler warning agree by
+construction: every `toString` overload is fallible (each can raise
+`ErrOutOfMemory`), `len` and `typeName` are total, and an allocating
+`collections`/`strings` member is fallible.[[src/audit/collect/source.rs:builtin_declares_error]]
+
+The rule is exact, not an approximation, because every member's declared errors
+are held to what it raises by the compiler's own test sweeps: native lowerings,
+MFBASIC-source bodies (`Body::Mfb` and `Body::Rewrite` members alike) and the
+per-overload `general` conversions. So a total member in an otherwise fallible
+package — `io::isBuffered`, `thread::isCancelled` — is reported total.
+[[src/codegen/builtins/tests/mfb_body_declared_errors.rs:rewrite_sweep]]
 
 `toInt` of a provably enum-valued argument is treated as total. The collector
 tracks declared enum types, enum parameters and enum-valued local bindings for
-this exception. `tcp` and `udp` are whole-package entries because every member
-declares at least one error. A unit test keeps that true, so a total member added
-later would have to move both packages to the per-builtin table.
-[[src/audit/collect/source.rs:is_fallible_call]]
+this exception.[[src/audit/collect/source.rs:is_fallible_call]]
 
 A call whose error is fully handled by an enclosing inline `TRAP … RECOVER` does
 not make its function fallible, and its `propagation` is reported as `trap`. A

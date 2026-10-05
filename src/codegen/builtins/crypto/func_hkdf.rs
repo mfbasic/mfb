@@ -47,7 +47,7 @@ here layered over HMAC of the selected hash. The derivation is computed
 in-process by a portable MFBASIC software core over the `bits` package — no platform
 cryptographic library is called — so the output is **byte-identical on macOS, Linux,
 and Windows** (and across aarch64/x86-64). The core is hash-generic over the `crypto::Hash`
-enum, so a future `crypto::Hash` variant is supported without new code."#;
+enum, so a future `crypto::Hash` variant is supported without new code. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Derive a 32-byte key from input keying material:
 
 ```
@@ -113,7 +113,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__crypto_hkdf"),
         }],
     });

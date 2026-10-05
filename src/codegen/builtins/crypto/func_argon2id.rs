@@ -80,7 +80,7 @@ macOS, Linux, and Windows** and across aarch64/x86-64. It is pinned against RFC 
 §5.3's test vector and RFC 7693 Appendix A's BLAKE2b vector.
 
 To derive keys from already-high-entropy input use `crypto::hkdf`; to authenticate a
-message use `crypto::hmac`."#;
+message use `crypto::hmac`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Hash a password for storage, then check a guess against it:
 
 ```
@@ -160,7 +160,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     length_param(),
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
                 body: Body::Rewrite("__crypto_argon2id"),
             },
             Implementation {
@@ -177,7 +177,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     length_param(),
                 ],
                 return_type: bytes(),
-                errors: vec!["ErrInvalidArgument"],
+                errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
                 body: Body::Rewrite("__crypto_argon2idProfile"),
             },
         ],

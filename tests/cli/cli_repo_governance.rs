@@ -756,6 +756,15 @@ fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
             .len(),
         1
     );
+    // plan-168-D: the registry's /index serves the accepted transfer as a
+    // signed link.
+    let server_key = mfb_repository::client::fetch_server_key(&repo.url).unwrap();
+    let index =
+        mfb_repository::client::fetch_index_with_key(&repo.url, &server_key, "alice", "xfer_pkg")
+            .unwrap();
+    assert_eq!(index.transfers.len(), 1);
+    assert_eq!(index.transfers[0].to_owner, "bob");
+    assert!(index.transfers[0].accept_signature.is_some());
 }
 
 #[test]
@@ -866,4 +875,261 @@ fn repo_release_state_yank_excludes_floating_but_allows_pin() {
         String::from_utf8_lossy(&pinned.stderr)
     );
     assert!(pin_dir.join("packages/state_pkg.mfp").is_file());
+}
+
+/// plan-168-C Phase 1: a fresh registry `pkg add` of a release published
+/// before its owner rotated their ident. The index binds the CURRENT ident, the
+/// release header carries the OLD one; the add must still install it verified.
+#[test]
+fn repo_registry_add_of_a_pre_rotation_release_installs() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+    let pkg_dir = work.path().join("rot_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#rot_pkg\",\n",
+    );
+    std::fs::write(&manifest, &base).unwrap();
+    let publish = run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg]);
+    assert!(
+        publish.status.success(),
+        "publish failed: {}",
+        String::from_utf8_lossy(&publish.stderr)
+    );
+    let rotate = run_mfb(&repo, home.path(), &["key", "rotate", "alice"]);
+    assert!(
+        rotate.status.success(),
+        "key rotate failed: {}",
+        String::from_utf8_lossy(&rotate.stderr)
+    );
+
+    let app_dir = work.path().join("rot_consumer");
+    assert!(run_mfb_plain(&["init", app_dir.to_str().unwrap()])
+        .status
+        .success());
+    let run_in_consumer = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in consumer")
+    };
+    let add = run_in_consumer(&["pkg", "add", "alice#rot_pkg@0.1.0"]);
+    assert!(
+        add.status.success(),
+        "registry add of a pre-rotation release failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&add.stdout),
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let build = run_in_consumer(&["build"]);
+    assert!(
+        String::from_utf8_lossy(&build.stdout).contains("uses rot_pkg - [Verified]"),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+/// plan-168-D / bug-792 end to end, through the shipped `mfb` and `mfb-repo`:
+/// after a signed transfer the recipient builds, signs and publishes a new
+/// release under the unchanged ident; consumers pinned to the original owner
+/// follow it with a transfer notice, fresh consumers still install the
+/// original owner's release, the former owner can no longer publish, and the
+/// chain keeps verifying across the recipient's rotation and a second transfer.
+#[test]
+fn repo_transfer_recipient_publishes_and_consumers_verify_both_owners() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+    let ok = |output: std::process::Output, what: &str| {
+        assert!(
+            output.status.success(),
+            "{what} failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    for owner in ["alice", "bob", "carol"] {
+        ok(
+            run_mfb(&repo, home.path(), &["repo", "register", owner]),
+            "register",
+        );
+        ok(
+            run_mfb(&repo, home.path(), &["repo", "auth", owner]),
+            "auth",
+        );
+    }
+
+    // 1. alice publishes alice#xfer_pkg 0.1.0.
+    let pkg_dir = work.path().join("xfer_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    ok(run_mfb_plain(&["init-pkg", pkg_arg]), "init-pkg");
+    let manifest = pkg_dir.join("project.json");
+    let template = std::fs::read_to_string(&manifest).unwrap();
+    let set_version = |version: &str| {
+        let text = template.replace(
+            "  \"version\": \"0.1.0\",\n",
+            &format!("  \"version\": \"{version}\",\n  \"ident\": \"alice#xfer_pkg\",\n"),
+        );
+        std::fs::write(&manifest, text).unwrap();
+    };
+    set_version("0.1.0");
+    ok(
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg]),
+        "alice publishes 0.1.0",
+    );
+
+    // 2. A consumer adds it, pinning alice's key.
+    let consumer = work.path().join("consumer");
+    ok(
+        run_mfb_plain(&["init", consumer.to_str().unwrap()]),
+        "init consumer",
+    );
+    let in_dir = |dir: &std::path::Path, args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in project")
+    };
+    ok(
+        in_dir(&consumer, &["pkg", "add", "alice#xfer_pkg"]),
+        "consumer add",
+    );
+    let pin_of = |dir: &std::path::Path| {
+        let text = std::fs::read_to_string(dir.join("project.json")).unwrap();
+        let start = text.find("\"identKey\": \"").expect("an identKey pin") + 13;
+        text[start..start + text[start..].find('"').unwrap()].to_string()
+    };
+    let alice_pin = pin_of(&consumer);
+    let key_of = |owner: &str| {
+        let public = std::fs::read_to_string(
+            mfb_repo_home(&repo, home.path()).join(format!("keys/{owner}.ident.pub")),
+        )
+        .unwrap();
+        format!("ed25519:{}", public.trim())
+    };
+    assert_eq!(alice_pin, key_of("alice"));
+
+    // 3. alice transfers to bob; bob accepts.
+    ok(
+        run_mfb(
+            &repo,
+            home.path(),
+            &["repo", "transfer", "alice#xfer_pkg", "bob"],
+        ),
+        "transfer offer",
+    );
+    ok(
+        run_mfb(
+            &repo,
+            home.path(),
+            &["repo", "transfer-accept", "alice#xfer_pkg@bob"],
+        ),
+        "transfer accept",
+    );
+
+    // 4. bob builds, signs and publishes 0.2.0 under the unchanged ident.
+    set_version("0.2.0");
+    ok(
+        run_mfb(&repo, home.path(), &["repo", "publish", "bob", pkg_arg]),
+        "bob publishes 0.2.0",
+    );
+
+    // 5. The consumer updates to bob's release with a transfer notice, the pin
+    //    follows to bob's key, and the build verifies (no registry contact).
+    let update = ok(in_dir(&consumer, &["pkg", "update"]), "consumer update");
+    assert!(
+        update
+            .contains("notice: ownership of alice#xfer_pkg moved to bob through a signed transfer"),
+        "{update}"
+    );
+    assert_eq!(pin_of(&consumer), key_of("bob"));
+    let lock = std::fs::read_to_string(consumer.join("mfb.lock")).unwrap();
+    assert!(lock.contains("\"selected\": \"0.2.0\""), "{lock}");
+    let build = ok(in_dir(&consumer, &["build"]), "consumer build");
+    assert!(build.contains("uses xfer_pkg - [Verified]"), "{build}");
+
+    // 6. A fresh consumer still installs alice's release, verified.
+    let old = work.path().join("old_consumer");
+    ok(run_mfb_plain(&["init", old.to_str().unwrap()]), "init old");
+    ok(
+        in_dir(&old, &["pkg", "add", "alice#xfer_pkg@0.1.0"]),
+        "add 0.1.0",
+    );
+    assert_eq!(pin_of(&old), key_of("alice"));
+    let build = ok(in_dir(&old, &["build"]), "old consumer build");
+    assert!(build.contains("uses xfer_pkg - [Verified]"), "{build}");
+
+    // 7. alice can no longer publish the package she gave away.
+    set_version("0.3.0");
+    let refused = run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg]);
+    assert!(!refused.status.success(), "alice must not publish 0.3.0");
+
+    // 8. bob rotates his ident and publishes 0.3.0; the consumer follows.
+    ok(
+        run_mfb(&repo, home.path(), &["key", "rotate", "bob"]),
+        "bob rotates",
+    );
+    ok(
+        run_mfb(&repo, home.path(), &["repo", "publish", "bob", pkg_arg]),
+        "bob publishes 0.3.0",
+    );
+    let update = ok(in_dir(&consumer, &["pkg", "update"]), "update to 0.3.0");
+    assert!(update.contains("rotated their ident"), "{update}");
+    assert_eq!(pin_of(&consumer), key_of("bob"));
+    let build = ok(in_dir(&consumer, &["build"]), "build 0.3.0");
+    assert!(build.contains("uses xfer_pkg - [Verified]"), "{build}");
+
+    // 9. bob passes the package to carol, who publishes 0.4.0; the consumer
+    //    follows a second signed transfer.
+    ok(
+        run_mfb(
+            &repo,
+            home.path(),
+            &["repo", "transfer", "alice#xfer_pkg", "carol"],
+        ),
+        "second transfer offer",
+    );
+    ok(
+        run_mfb(
+            &repo,
+            home.path(),
+            &["repo", "transfer-accept", "alice#xfer_pkg@carol"],
+        ),
+        "second transfer accept",
+    );
+    set_version("0.4.0");
+    ok(
+        run_mfb(&repo, home.path(), &["repo", "publish", "carol", pkg_arg]),
+        "carol publishes 0.4.0",
+    );
+    let update = ok(in_dir(&consumer, &["pkg", "update"]), "update to 0.4.0");
+    assert!(
+        update.contains("moved to carol through a signed transfer"),
+        "{update}"
+    );
+    assert_eq!(pin_of(&consumer), key_of("carol"));
+    let verify = ok(in_dir(&consumer, &["pkg", "verify"]), "verify 0.4.0");
+    assert!(verify.contains("[Verified]"), "{verify}");
+    let build = ok(in_dir(&consumer, &["build"]), "build 0.4.0");
+    assert!(build.contains("uses xfer_pkg - [Verified]"), "{build}");
 }

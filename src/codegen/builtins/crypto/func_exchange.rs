@@ -46,7 +46,7 @@ material straight in.
 28-bit-limb GF(2^448−2^224−1) field): a fixed 255-/448-iteration Montgomery ladder
 whose conditional swap is branch-free, so the output is byte-identical on every
 target and no control flow depends on the private key. Verified against the RFC 7748
-§5.2 and §6 vectors."#;
+§5.2 and §6 vectors. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Two parties agree on a secret over X448 and derive a key from it:
 
 ```
@@ -97,7 +97,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory"],
             body: Body::Rewrite("__crypto_exchange"),
         }],
     });

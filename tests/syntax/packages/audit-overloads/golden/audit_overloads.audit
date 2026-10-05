@@ -24,8 +24,10 @@ Control flow:
     trap err -> returns value
     fallible call io.print at src/main.mfb:16 -> trap
     fallible call parse at src/main.mfb:16 -> trap
+    fallible call toString at src/main.mfb:16 -> trap
     fallible call io.print at src/main.mfb:17 -> trap
     fallible call parse at src/main.mfb:17 -> trap
+    fallible call toString at src/main.mfb:17 -> trap
 
 Findings:
   info AUDIT-PERM-FILESYSTEM project uses host capability: filesystem
@@ -111,6 +113,12 @@ $ mfb audit --format json tests/syntax/packages/audit-overloads
           "capability": null
         },
         {
+          "callee": "toString",
+          "line": 16,
+          "propagation": "trap",
+          "capability": null
+        },
+        {
           "callee": "io.print",
           "line": 17,
           "propagation": "trap",
@@ -118,6 +126,12 @@ $ mfb audit --format json tests/syntax/packages/audit-overloads
         },
         {
           "callee": "parse",
+          "line": 17,
+          "propagation": "trap",
+          "capability": null
+        },
+        {
+          "callee": "toString",
           "line": 17,
           "propagation": "trap",
           "capability": null

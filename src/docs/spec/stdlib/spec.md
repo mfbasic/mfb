@@ -22,7 +22,8 @@ built-in injection chain.
   preference order, supported syntax, flags, and scalar-based matching.
 - `datetime` — the Instant/Duration/Date/Time model, civil-calendar math, the OS
   clock/zone seam, and parse/format rules.
-- `csv` — the RFC-4180-aligned dialect (delimiters, quoting, record separators).
+- `csv` — the RFC-4180-aligned dialect (delimiters, quoting, record separators),
+  the one tokenizer behind `parse` and `readRow`, and streaming from an `fs::File`.
 - `json` — the `Json` union data model and parse/stringify behavior.
 - `http` — the HTTP/1.1 client model (the `Response` record, header handling,
   caps, transport selection).
@@ -89,6 +90,10 @@ built-in injection chain.
   each reader takes and skips, the two ways a line is read, the kitty keyboard
   protocol `term::on` switches a terminal to, and the one key encoding every
   `--app` window writes.
+- `fs-memory-files` — `fs::openData`'s in-memory `File` (the per-OS backing, the
+  copy, and the mode enforced by a second open), `fs::seek`'s buffer settling, and
+  the line readers' read buffer, terminator rules and the raw reader the `csv`
+  package streams through.
 
 ## See Also
 

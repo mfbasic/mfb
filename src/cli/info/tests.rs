@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use mfb_repository::crypto;
-use mfb_repository::server::IdentChainLink;
+use mfb_repository::server::{IdentChainLink, IndexResponse, OwnerBinding, TransferLink};
 
 use super::*;
 use crate::arch::image::{
@@ -135,6 +135,9 @@ struct FakeRegistry {
     server_key: Result<Vec<u8>, String>,
     current_ident: Result<Vec<u8>, String>,
     chain: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)>,
+    /// The `/index` answers a transferred ident's check reads (plan-168-C),
+    /// by `owner#package`; anything else is an unknown package.
+    indexes: Vec<IndexResponse>,
 }
 
 impl FakeRegistry {
@@ -144,6 +147,7 @@ impl FakeRegistry {
             server_key: Err("connection refused".to_string()),
             current_ident: Err("connection refused".to_string()),
             chain: Vec::new(),
+            indexes: Vec::new(),
         }
     }
 }
@@ -171,7 +175,16 @@ impl RegistryLookup for FakeRegistry {
     }
 
     fn ident_chain(&self, registry: &str, owner: &str) -> Result<Vec<IdentChainLink>, String> {
-        assert_eq!((registry, owner), (REGISTRY, "alice"));
+        assert_eq!(registry, REGISTRY);
+        if owner != "alice" {
+            // Only the transfer tests ask for another owner's chain, and none
+            // of their owners rotated.
+            assert!(
+                !self.indexes.is_empty(),
+                "a chain lookup for `{owner}` outside a transfer test"
+            );
+            return Ok(Vec::new());
+        }
         Ok(self
             .chain
             .iter()
@@ -182,6 +195,35 @@ impl RegistryLookup for FakeRegistry {
                 issued: 0,
             })
             .collect())
+    }
+
+    fn index(
+        &self,
+        registry: &str,
+        server_key: &[u8],
+        owner: &str,
+        package: &str,
+    ) -> Result<IndexResponse, String> {
+        self.index_for(registry, server_key, owner, package)
+    }
+}
+
+impl FakeRegistry {
+    fn index_for(
+        &self,
+        registry: &str,
+        server_key: &[u8],
+        owner: &str,
+        package: &str,
+    ) -> Result<IndexResponse, String> {
+        assert_eq!(registry, REGISTRY);
+        assert_eq!(Ok(server_key), self.server_key.as_deref().map_err(|_| ()));
+        let ident = format!("{owner}#{package}");
+        self.indexes
+            .iter()
+            .find(|index| index.ident == ident)
+            .cloned()
+            .ok_or_else(|| "unknown package".to_string())
     }
 }
 
@@ -383,14 +425,20 @@ struct Chain {
 
 impl Chain {
     fn new() -> Self {
+        Chain::signed_by("alice", "alice#probe")
+    }
+
+    /// A chain `owner` signed for `ident` — the ident's prefix may name another
+    /// owner, the shape of an ident that reached `owner` by transfer.
+    fn signed_by(owner: &str, ident: &str) -> Self {
         let (ident_public, ident_private) = crypto::generate_keypair();
         let (signing_public, signing_private) = crypto::generate_keypair();
         let (server_public, server_private) = crypto::generate_keypair();
         let ident_fingerprint = crypto::fingerprint(&ident_public);
         let signing_fingerprint = crypto::fingerprint(&signing_public);
         let proof = serde_json::json!({
-            "owner": "alice",
-            "ident": "alice#probe",
+            "owner": owner,
+            "ident": ident,
             "version": "1.2.3",
             "identFingerprint": ident_fingerprint,
             "signingFingerprint": signing_fingerprint,
@@ -399,8 +447,8 @@ impl Chain {
         .to_string();
         let attestation = serde_json::json!({
             "repoFingerprint": crypto::fingerprint(&server_public),
-            "owner": "alice",
-            "ident": "alice#probe",
+            "owner": owner,
+            "ident": ident,
             "version": "1.2.3",
             "identFingerprint": ident_fingerprint,
             "signingFingerprint": signing_fingerprint,
@@ -414,8 +462,8 @@ impl Chain {
             signing_private,
             server_private,
             server_public,
-            owner: "alice".to_string(),
-            author: "alice".to_string(),
+            owner: owner.to_string(),
+            author: owner.to_string(),
             registry: Some(REGISTRY.to_string()),
             ident_fingerprint,
             signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
@@ -432,6 +480,7 @@ impl Chain {
             server_key: Ok(self.server_public.clone()),
             current_ident: Ok(self.ident_public.clone()),
             chain: Vec::new(),
+            indexes: Vec::new(),
         }
     }
 
@@ -804,6 +853,119 @@ fn the_ident_key_is_checked_against_the_owner_s_current_key() {
     let (_, ident_key, trust) = verdicts(&chain.blob(), Some(DIGEST), &silent);
     assert_eq!(ident_key, "unknown (unknown owner)");
     assert!(trust.starts_with("verified (repoFingerprint "), "{trust}");
+}
+
+/// The `/index` of `alice#probe` as the registry serves it, with alice's own
+/// key and, when `transfer_to` is given, a signed alice -> recipient transfer
+/// (plan-168-A) accepted under the recipient's ident.
+fn probe_index(chain: &Chain, transfer_to: Option<(&str, &[u8], &[u8])>) -> IndexResponse {
+    let binding = |owner: &str, public: &[u8]| {
+        let fingerprint = crypto::fingerprint(public);
+        let signature = crypto::sign(
+            &chain.server_private,
+            &crypto::name_binding_message(owner, &fingerprint),
+        )
+        .unwrap();
+        OwnerBinding {
+            owner: owner.to_string(),
+            ident_key: format!("ed25519:{}", crypto::encode_bytes(public)),
+            ident_fingerprint: fingerprint,
+            name_binding_signature: crypto::encode_bytes(&signature),
+        }
+    };
+    let (alice_public, alice_private) = crypto::generate_keypair();
+    let origin = binding("alice", &alice_public);
+    let transfers = transfer_to
+        .map(|(to, to_public, to_private)| {
+            let digest = crypto::release_digest(std::iter::empty());
+            let alice_fingerprint = crypto::fingerprint(&alice_public);
+            let terms = crypto::TransferTermsRef {
+                ident: "alice#probe",
+                sequence: 0,
+                from_owner: "alice",
+                from_ident_fingerprint: &alice_fingerprint,
+                to_owner: to,
+                release_digest: &digest,
+            };
+            vec![TransferLink {
+                sequence: 0,
+                from_owner: "alice".to_string(),
+                from_ident_key: Some(origin.ident_key.clone()),
+                to_owner: to.to_string(),
+                to_ident_key: Some(format!("ed25519:{}", crypto::encode_bytes(to_public))),
+                release_digest: Some(digest.clone()),
+                offer_signature: Some(crypto::encode_bytes(
+                    &crypto::sign(&alice_private, &crypto::transfer_offer_message_v2(terms))
+                        .unwrap(),
+                )),
+                accept_signature: Some(crypto::encode_bytes(
+                    &crypto::sign(to_private, &crypto::transfer_accept_message_v2(terms)).unwrap(),
+                )),
+                offered_at: 0,
+                accepted_at: 0,
+                to_binding: binding(to, to_public),
+            }]
+        })
+        .unwrap_or_default();
+    IndexResponse {
+        ident: "alice#probe".to_string(),
+        owner: "alice".to_string(),
+        ident_key: origin.ident_key,
+        ident_fingerprint: origin.ident_fingerprint,
+        name_binding_signature: origin.name_binding_signature,
+        server_fingerprint: crypto::fingerprint(&chain.server_public),
+        versions: Vec::new(),
+        transfers,
+    }
+}
+
+/// plan-168-C: an executable bob signed for `alice#probe` after alice
+/// transferred it to him verifies — the registry's signed transfer chain shows
+/// bob's signing ident in his ownership — and reports bob as its owner.
+#[test]
+fn a_transferred_executable_reports_the_new_owner() {
+    let chain = Chain::signed_by("bob", "alice#probe");
+    let registry = FakeRegistry {
+        indexes: vec![probe_index(
+            &chain,
+            Some(("bob", &chain.ident_public, &chain.ident_private)),
+        )],
+        ..chain.registry()
+    };
+    let lines = signing_lines(&chain.blob(), Some(DIGEST), &registry);
+    assert_eq!(signed_line(&lines, "owner"), "bob");
+    assert_eq!(signed_line(&lines, "ident"), "alice#probe");
+    assert_eq!(signed_line(&lines, "ident key"), "current");
+    let trust = signed_line(&lines, "trust chain");
+    assert!(trust.starts_with("verified (repoFingerprint "), "{trust}");
+}
+
+/// plan-168-C: without a signed transfer to the signer, an ident whose prefix
+/// names another owner is not the signer's — whatever the registry attested.
+#[test]
+fn a_foreign_ident_without_a_chain_is_refused() {
+    let chain = Chain::signed_by("bob", "alice#probe");
+    let untransferred = FakeRegistry {
+        indexes: vec![probe_index(&chain, None)],
+        ..chain.registry()
+    };
+    assert_eq!(
+        trust_chain(&chain.blob(), &untransferred),
+        "NOT VERIFIED (proof ident does not belong to the signing owner)"
+    );
+    // A transfer accepted by some OTHER key of "bob" does not vouch for this one.
+    let (other_public, other_private) = crypto::generate_keypair();
+    let elsewhere = FakeRegistry {
+        indexes: vec![probe_index(
+            &chain,
+            Some(("bob", &other_public, &other_private)),
+        )],
+        ..chain.registry()
+    };
+    assert_eq!(
+        trust_chain(&chain.blob(), &elsewhere),
+        "NOT VERIFIED (proof ident does not belong to the signing owner)"
+    );
 }
 
 #[test]
