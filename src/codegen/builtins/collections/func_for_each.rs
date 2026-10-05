@@ -132,7 +132,10 @@ pub(crate) fn lower_for_each(
         ));
     };
     let action = args[1].clone();
-    if !matches!(action.type_, ParameterType::Func(_, _, false)) {
+    // bug-824: accept either isolation, exactly like
+    // `CodeBuilder::require_direct_callable` (`gen_flow.rs`) — an `ISOLATED FUNC`
+    // is the same capture-free closure shape as a plain `FUNC` at this level.
+    if !matches!(action.type_, ParameterType::Func(_, _, _)) {
         return Err(format!(
             "native collection forEach action must be a function, got {}",
             action.type_

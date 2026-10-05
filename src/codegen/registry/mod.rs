@@ -2819,9 +2819,14 @@ fn unify_at(
             ParameterType::Func(params, ret, isolated),
             ParameterType::Func(concrete_params, concrete_ret, concrete_isolated),
         ) => {
-            // An isolated worker entry (`thread::start`) only accepts an isolated
-            // concrete, and a plain callback param only a plain concrete.
-            isolated == concrete_isolated
+            // bug-824 / owner rule (2026-10-04): "an ISOLATED FUNC is a FUNC. a
+            // FUNC is NOT an ISOLATED FUNC." Isolation is an extra guarantee, not
+            // part of the callable's shape, so it widens in exactly one direction
+            // — the same direction `compat::Scope::assignable` already applies to
+            // a `LET`/argument/return/field (bug-786): a plain pattern accepts
+            // either an isolated or a plain concrete, but an isolated pattern
+            // (`thread::start`'s worker) accepts only an isolated concrete.
+            (!isolated || *concrete_isolated)
                 && params.len() == concrete_params.len()
                 && params
                     .iter()
@@ -5783,6 +5788,62 @@ mod tests {
                 })
                 .is_none(),
             "start rejects a non-isolated worker"
+        );
+    }
+
+    #[test]
+    fn bug_824_plain_callback_param_accepts_isolated_concrete() {
+        use ParameterType::{Boolean, Integer, Nothing};
+        // Shaped exactly like `collections::forEach(List OF T, FUNC(T) AS Nothing)`:
+        // a plain (non-isolated) callback parameter. The owner rule (2026-10-04),
+        // "an ISOLATED FUNC is a FUNC. a FUNC is NOT an ISOLATED FUNC," is bug-786's
+        // rule for user calls; this is the same rule applied to a built-in's
+        // registry dispatch, which `unify_at`'s `Func`/`Func` arm used to refuse by
+        // requiring `isolated == concrete_isolated` exactly.
+        let for_each = func(
+            "forEach",
+            vec![Implementation {
+                params: vec![
+                    param("value", ParameterType::list_of(ParameterType::var("T"))),
+                    param(
+                        "action",
+                        ParameterType::func(vec![ParameterType::var("T")], Nothing),
+                    ),
+                ],
+                return_type: Nothing,
+                errors: vec![],
+                body: Body::Intrinsic,
+            }],
+        );
+        let isolated_action = ParameterType::func_isolated(vec![Integer], Nothing);
+        assert!(
+            for_each
+                .resolve(&CallShape {
+                    args: vec![ParameterType::list_of(Integer), isolated_action.clone()]
+                })
+                .is_some(),
+            "a plain FUNC callback parameter accepts an ISOLATED FUNC of the same shape"
+        );
+        assert!(
+            for_each
+                .dispatch(&CallShape {
+                    args: vec![ParameterType::list_of(Integer), isolated_action]
+                })
+                .is_some(),
+            "dispatch also accepts the ISOLATED FUNC concrete"
+        );
+        // The reverse direction is untouched: a plain FUNC still never satisfies an
+        // ISOLATED FUNC parameter (pinned independently by
+        // `thread_probe_start_extraction_and_resource_echo`'s "start rejects a
+        // non-isolated worker" assertion above).
+        let plain_action = ParameterType::func(vec![Boolean], Nothing);
+        assert!(
+            for_each
+                .resolve(&CallShape {
+                    args: vec![ParameterType::list_of(Boolean), plain_action]
+                })
+                .is_some(),
+            "sanity: a plain FUNC still satisfies a plain FUNC parameter"
         );
     }
 
