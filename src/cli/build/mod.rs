@@ -1103,6 +1103,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             if !assemble_native_libraries_for_ir(&mut lowered, &manifest, &options.location) {
                 return Err(());
             }
+            // The `OUT CBuffer` ceiling the executable path sets (plan-58-C).
+            // Without it a dump baked the 64 MiB default whatever `maxBuffer`
+            // said, so `--ncode` disagreed with the program it claims to show.
+            lowered.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
             // plan-167-B: fold `os::getConfigOr` exactly as the executable does,
             // so a native dump shows the values the program will carry.
             lowered.selected_config = selected_config.clone();
