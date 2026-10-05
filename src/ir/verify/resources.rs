@@ -1165,11 +1165,12 @@ impl TypeEnv {
                     );
                 } else if builtins::inline_builtin_is_infallible(
                     target,
-                    // bug-486: with the argument types. `toString(<List OF Byte>)`
-                    // decodes UTF-8 and really can fail, so advising the author to
-                    // delete its handler was advising them to delete the only thing
-                    // standing between a non-UTF-8 input and a dead process.
-                    // Typed only for the names whose verdict can turn on them.
+                    // bug-486: with the argument types, so an overload whose
+                    // verdict differs from its name's is judged as the overload it
+                    // is — advising the author to delete a live handler is advising
+                    // them to delete the only thing between the error and a dead
+                    // process. Typed only for the names whose verdict can turn on
+                    // them.
                     &if builtins::inline_builtin_fallibility_depends_on_args(target) {
                         args.iter()
                             .map(|arg| {
@@ -1183,12 +1184,12 @@ impl TypeEnv {
                     // bug-679: `self` IS the declared-kind oracle (`impl TypeKinds
                     // for TypeEnv`, plan-140-A), so `toInt(<enum>)` is recognised
                     // as the one infallible `toInt` overload and its dead handler
-                    // is reported, matching `toString(<enum>)`. Every other `toInt`
+                    // is reported. Every other `toInt`
                     // can really fail and keeps its handler.
                     self,
                 ) {
-                    // A provably-infallible inline built-in (`len`, `toString`,
-                    // every `bits::*`, …) under a TRAP compiles and runs; its
+                    // A provably-infallible inline built-in (`len`, `typeName`,
+                    // every total `bits::*`, …) under a TRAP compiles and runs; its
                     // handler is dead code — an advisory warning, not an error
                     // (plan-26-A).
                     self.emit(

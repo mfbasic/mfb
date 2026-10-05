@@ -232,50 +232,43 @@ pub(crate) fn inline_trap_unsupported(
 }
 
 /// The inline built-ins whose fallibility depends on their **argument type**
-/// rather than their name (bug-486, bug-533).
+/// rather than their name (bug-533, bug-679).
 ///
-/// Three names are listed: `toString` (bug-486), `replace` (bug-533) and `toInt`
-/// (bug-679). The first two have a name-keyed infallibility that ONE overload
-/// takes away, and this function applies that subtraction. `toInt` is the mirror
-/// — fallible by name, with one overload that is total — so it appears in the
-/// shared list (its verdict does turn on an argument type, which is what
-/// [`inline_builtin_fallibility_depends_on_args`] gates on) but this function
-/// answers `false` for it and the grant happens in
+/// Two names are listed: `replace` (bug-533) and `toInt` (bug-679). `replace`'s
+/// rule takes away a name-keyed infallibility from every overload that is not
+/// provably the `List` one; this function applies that subtraction. `toInt` is
+/// the mirror — fallible by name, with one overload that is total — so it
+/// appears in the shared list (its verdict does turn on an argument type, which
+/// is what [`inline_builtin_fallibility_depends_on_args`] gates on) but this
+/// function answers `false` for it and the grant happens in
 /// [`inline_builtin_is_infallible`], where the `TypeKinds` oracle is in scope.
 ///
-/// `toString` is overloaded across every type, and exactly one of those overloads
-/// can fail: `List OF Byte → String` decodes UTF-8 and raises `ErrEncoding`
-/// (`77020004`) on an ill-formed sequence
-/// (`builder_strings.rs:emit_byte_list_to_string_value`, the `invalid` label). Every
-/// other overload — `Integer`, `Float`, `Boolean`, `Scalar`, `AttributedString`,
-/// a record — is total, which is why the name-keyed verdict looked safe and why
-/// deleting `"toString"` from the census outright is the wrong fix: it would make
-/// `toString(42)` fallible and force `Result` plumbing through every interpolation.
+/// `toString` is **not** listed. bug-486 once put it here because only its
+/// `List OF Byte` overload (a UTF-8 decode raising `ErrEncoding`) could fail;
+/// since bug-807 every overload builds a new `String`, declares
+/// `ErrOutOfMemory`, and is fallible by the owner's rule (2026-10-04: a call
+/// that can run out of memory is fallible), so its verdict no longer turns on
+/// its argument type and [`inline_builtin_is_infallible`] answers `false` for
+/// it by name.
 ///
-/// `len` and `typeName`, the other two name-keyed general built-ins, were audited
-/// for the same hazard and have none: `lower_len`'s two arms (String, collection)
-/// emit no error return at all, and `typeName` folds to a string constant at
-/// compile time.
+/// `len` and `typeName`, the name-keyed infallible general built-ins, were
+/// audited for the argument-type hazard and have none: `lower_len`'s two arms
+/// (String, collection) emit no error return at all, and `typeName` folds to a
+/// string constant at compile time.
 ///
-/// `replace` is the second entry (bug-533), and it is the same hazard from the
-/// other side. `strings::replace` and `collections::replace` dequalify to the one
-/// bare native target `replace` (`native_builtin_target`), and since bug-533 the
-/// `String` overload refuses an empty `old` with `ErrInvalidArgument` while the
-/// `List` overload cannot fail — an empty *element* in a list is an ordinary
-/// value, not a degenerate needle, and its lowering returns before the guard.
-/// Leaving `replace` on the name-keyed infallible list made the front-end warn
-/// `TYPE_INLINE_TRAP_DEAD_HANDLER` on a live handler and drop the error on the
-/// floor; the guarded call then aborted the program instead of recovering.
+/// `replace` (bug-533): `strings::replace` and `collections::replace` dequalify
+/// to the one bare native target `replace` (`native_builtin_target`), so the
+/// registry cannot answer for it by name. The `String` overload refuses an empty
+/// `old` with `ErrInvalidArgument`; leaving `replace` on the name-keyed
+/// infallible list made the front-end warn `TYPE_INLINE_TRAP_DEAD_HANDLER` on a
+/// live handler and drop the error on the floor. Since bug-698 the `List`
+/// overload allocates and declares `ErrOutOfMemory` too, so both overloads are
+/// fallible either way (`inline_builtin_raw_supported` lists `replace`); this
+/// rule is the fail-closed half of that verdict: anything that is not provably
+/// the `List` overload counts as fallible.
 ///
-/// Its rule **fails closed**: anything that is not provably the `List` overload
-/// counts as fallible. Over-approximating only ever keeps a handler that could
-/// not have run; the other direction is the miscompile above.
-///
-/// A caller that cannot type its arguments passes an empty slice (or `Unknown`),
-/// which for `toString` answers the name-keyed verdict — the same answer as
-/// before this existed, and the *under*-approximating side, so every site that
-/// can type its arguments must. For `replace` the untyped answer is "fallible",
-/// the safe side, by the same fail-closed rule.
+/// A caller that cannot type its arguments passes an empty slice (or `Unknown`);
+/// for `replace` that answers "fallible", the safe side, by the fail-closed rule.
 /// [`inline_builtin_is_infallible`]'s consumers act on this to decide whether an
 /// inline `TRAP`'s handler is live.
 pub(crate) fn arg_type_makes_inline_builtin_fallible(
@@ -302,8 +295,8 @@ pub(crate) fn arg_type_makes_inline_builtin_fallible(
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ArgFallibility {
     ReplaceOverAnythingButAList,
-    /// bug-679, and the one entry that points the other way. The two above
-    /// *remove* infallibility from a name that has it; this one *grants* it to a
+    /// bug-679, and the one entry that points the other way. The one above
+    /// *removes* infallibility from a name that has it; this one *grants* it to a
     /// single overload of a name that does not. It is listed here because the
     /// list's job is "whose verdict turns on an argument type" — which is what
     /// [`inline_builtin_fallibility_depends_on_args`] gates on, and a caller that
@@ -412,17 +405,20 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
 /// allocating members (`keys`/`values`/`append`/`prepend`/`removeKey`/`replace`,
 /// Set `add`/`remove`/`toList`) are fallible and their inline-TRAP handler is live.
 ///
-/// Infallible: `len`, `typeName`, `toString` on every argument type **except**
-/// `List OF Byte` (bug-486 — that overload decodes UTF-8 and raises
-/// `ErrEncoding`; see [`arg_type_makes_inline_builtin_fallible`]), every total
-/// `bits::*` op (all but the variable shifts), the non-allocating pure-query /
+/// Infallible: `len`, `typeName`, every total `bits::*` op (all but the variable shifts), the non-allocating pure-query /
 /// default-returning members `contains`, `hasKey` and `getOr`, and `toInt` **on
 /// a single enum argument** (bug-679 — the ordinal the value already holds, a
 /// register move that declares no error; plan-140-B).
 ///
-/// That last entry is the only one that runs the other way: the `toString`
-/// entry above takes infallibility AWAY from a name that has it by default, while `toInt` is
-/// fallible by default and one overload is granted an exception. It is therefore
+/// `toString` is **fallible on every overload** (bug-807; owner decision
+/// 2026-10-04): each one builds a new `String` and can raise `ErrOutOfMemory`,
+/// and `toString(<List OF Byte>)` also raises `ErrEncoding` (bug-486). Its
+/// handler is live and never flagged `TYPE_INLINE_TRAP_DEAD_HANDLER`.
+///
+/// That last infallible entry is the only one that runs the other way: the
+/// `replace` rule in [`arg_type_makes_inline_builtin_fallible`] takes
+/// infallibility AWAY from a name, while `toInt` is fallible by default and one
+/// overload is granted an exception. It is therefore
 /// the only entry that needs `kinds`, because an enum is not its own
 /// `ParameterType` — see [`TypeKinds`]. `NoTypeKinds` answers `false`, which is
 /// the over-approximating side, so a caller that cannot supply a real oracle
@@ -440,9 +436,9 @@ pub(crate) fn inline_builtin_is_infallible(
     arg_types: &[ParameterType],
     kinds: &dyn TypeKinds,
 ) -> bool {
-    // bug-486: the verdict is name-keyed *except* for the overloads
-    // `arg_type_makes_inline_builtin_fallible` names — today only
-    // `toString(<List OF Byte>)`, whose UTF-8 decode raises `ErrEncoding`.
+    // The verdict is name-keyed *except* for the overloads
+    // `arg_type_makes_inline_builtin_fallible` names — today only a `replace`
+    // that is not provably the `List` overload (bug-533).
     if arg_type_makes_inline_builtin_fallible(target, arg_types) {
         return false;
     }
@@ -1577,8 +1573,9 @@ mod tests {
     }
 
     /// bug-679: `toInt(<enum>)` is the ordinal the value already holds — a
-    /// register move that declares no error (plan-140-B) — so it is infallible,
-    /// exactly as `toString(<enum>)` is. Every other `toInt` overload really can
+    /// register move that declares no error (plan-140-B) — so it is infallible.
+    /// (`toString(<enum>)` is not its twin: since bug-807 every `toString`
+    /// overload allocates and is fallible.) Every other `toInt` overload really can
     /// fail (bad parse, overflow) and must stay fallible: the name is fallible by
     /// default and this one overload is the exception, which is the mirror of
     /// bug-486's rule rather than a copy of it.
@@ -1886,7 +1883,7 @@ mod tests {
             "bits.sl",               // raw-supported fallible bits shift
             "bits.band",             // infallible bits op
             "len",                   // infallible general builtin
-            "toString",              // infallible general builtin
+            "toString",              // raw-supported fallible general builtin (bug-807)
             "typeName",              // infallible general builtin
             "collections.contains",  // infallible collection query
             "collections.transform", // raw-supported callback member (plan-26-B)

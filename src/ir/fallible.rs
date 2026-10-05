@@ -90,11 +90,14 @@ impl Fallibility {
     /// dumping the `-ir` of that shape, not assumed.
     ///
     /// `arg_types` carries the call site's argument types so the built-in census
-    /// can answer for an overload rather than a name (bug-486): `toString` is
-    /// infallible on every argument type except `List OF Byte`, whose UTF-8 decode
-    /// raises `ErrEncoding`. A site that cannot type its arguments passes an empty
-    /// slice and gets the name-keyed verdict — the answer this had before, so such
-    /// a site *under*-approximates and must be fixed rather than relied on.
+    /// can answer for an overload rather than a name, for the names listed in
+    /// `builtins::inline_builtin_fallibility_depends_on_args` (`replace`, bug-533;
+    /// `toInt`, bug-679). `toString` is no longer one of them: bug-486 made its
+    /// `List OF Byte` overload fallible (`ErrEncoding`), and since bug-807 every
+    /// overload is fallible by name — each builds a new `String` and can raise
+    /// `ErrOutOfMemory` (owner decision 2026-10-04). A site that cannot type its
+    /// arguments passes an empty slice and gets the name-keyed verdict, which for
+    /// both listed names is the fallible (over-approximating) side.
     ///
     /// `kinds` is the declared-kind oracle (plan-140-A), needed because one
     /// overload's verdict turns on the argument being an `ENUM` rather than on its
@@ -127,9 +130,10 @@ impl Fallibility {
 /// already marked is still judged on its own body.
 ///
 /// `context` is the type oracle. It is needed because the built-in census answers
-/// per *overload* now, not per name (bug-486): `toString(<List OF Byte>)` raises
-/// `ErrEncoding` where every other `toString` is total, so a function whose only
-/// failure path is a byte decode is fallible and this pass has to see that. The
+/// per *overload* for a few names (`builtins::inline_builtin_fallibility_depends_on_args`):
+/// `toInt(<enum>)` is total where every other `toInt` can fail (bug-679), and a
+/// comparison raises only on the operand types `comparison_can_raise` names
+/// (bug-816), so this pass has to type what it walks. The
 /// context is positioned on each function's own file before its body is walked,
 /// so a package-qualified name resolves through that file's import bindings.
 pub(super) fn analyze(hir: &HirProject, context: &mut LowerContext<'_>) -> Fallibility {
@@ -529,8 +533,9 @@ fn statement_escapes(statement: &HirStatement, scope: &mut EscapeScope<'_, '_>) 
             ..
         } => {
             let escapes = expression_escapes(iterable, scope);
-            // The element binding, so a `toString(b)` over a `List OF Byte` inside
-            // the loop is typed like one over a parameter.
+            // The element binding, so an overload-sensitive call or a raising
+            // comparison over it inside the loop is typed like one over a
+            // parameter.
             let element = match scope.type_of(iterable) {
                 ParameterType::ListOf(element) | ParameterType::SetOf(element) => *element,
                 _ => ParameterType::Unknown,

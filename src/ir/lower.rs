@@ -375,7 +375,7 @@ impl LowerContext<'_> {
     /// short-circuited operand of an inline-`TRAP` scrutinee, which is the one
     /// nested-call shape [`lower_inline_trap`] cannot lift.
     /// `arg_types` discriminates the built-ins whose fallibility depends on the
-    /// overload rather than the name (bug-486 — `toString(<List OF Byte>)`).
+    /// overload rather than the name (`replace`, bug-533; `toInt`, bug-679).
     pub(super) fn call_is_fallible(&self, target: &str, arg_types: &[ParameterType]) -> bool {
         self.fallible
             .call_is_fallible(target, arg_types, self.type_index())
@@ -1866,10 +1866,12 @@ fn lower_inline_trap(
         ) == Some(true);
     let check_root = match &root {
         // bug-486: the census is asked with the root call's ARGUMENT types, not
-        // its name alone. `toString` is infallible on every argument type but
-        // `List OF Byte`, whose UTF-8 decode raises `ErrEncoding`; answering by
-        // name left `toString(<bytes>)` a plain `Call` whenever the scrutinee
-        // also hoisted, and the raise walked straight past the handler.
+        // its name alone, because some verdicts turn on the overload
+        // (`builtins::inline_builtin_fallibility_depends_on_args`). bug-486's case
+        // was `toString(<bytes>)`, then the one fallible `toString`: answering by
+        // name left it a plain `Call` whenever the scrutinee also hoisted, and the
+        // raise walked straight past the handler. (Since bug-807 every `toString`
+        // is fallible by name; `replace` and `toInt` still turn on the overload.)
         IrValue::Call { target, args, .. } => {
             hoists.is_empty()
                 || context.fallible.call_is_fallible(
