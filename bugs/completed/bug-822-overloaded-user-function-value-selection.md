@@ -4,9 +4,11 @@ Last updated: 2026-10-04
 Effort: medium (guess; includes contextual propagation and imported-name audit)
 Severity: MEDIUM
 Class: Correctness
-Status: Open
-Regression Test: proposed — `tests/runtime/rt_overloaded_function_values.rs`, plus
-valid/invalid fixtures under `tests/rt-behavior/functions/` and `tests/syntax/functions/`.
+Status: Closed (2026-10-04)
+Regression Test: `tests/runtime/rt_overloaded_function_values.rs`, plus
+`tests/rt-behavior/functions/func_overload_value_valid`,
+`tests/syntax/functions/func_overload_value_ambiguous_invalid` and
+`tests/syntax/functions/func_overload_value_no_match_invalid`.
 
 A declared overloaded user function cannot be selected as a value by a complete
 `FUNC` annotation: the compiler reports that its name is undeclared. The correct
@@ -142,44 +144,46 @@ corrected diagnostics; the existing direct-call and closure ABI are unchanged.
 
 ### Phase 1 — failing tests and context audit
 
-- [ ] Add `tests/runtime/rt_overloaded_function_values.rs`: separate RED cases
+- [x] Add `tests/runtime/rt_overloaded_function_values.rs`: separate RED cases
       for parameter-type and return-type overloads, plus single/direct/lambda
       controls. Require runtime `5\n`, not only compilation.
-- [ ] Add typed local/global, assignment, callback-argument, return and aggregate
+- [x] Add typed local/global, assignment, callback-argument, return and aggregate
       cases; audit imported overloads with visibility and aliases.
-- [ ] Add ambiguity, no-match and isolation mismatch diagnostics fixtures under
+- [x] Add ambiguity, no-match and isolation mismatch diagnostics fixtures under
       `tests/syntax/functions/`; record a verdict for every blast-radius row.
 
 Acceptance: `cargo test --test rt_overloaded_function_values` fails on the
 recorded overload reference cases, with controls passing.
-Commit: —
+Commit: 76e791fcb (test and fix land together; RED measured against the parent)
 
 ### Phase 2 — contextual reference selection
 
-- [ ] Implement expected-callable propagation and reference rewriting in
+- [x] Implement expected-callable propagation and reference rewriting in
       `src/monomorph/lower.rs`, with any required signature metadata in
       `src/monomorph/mod.rs` / `helpers.rs`.
-- [ ] Preserve visibility and imported nominal identity; add function-level
+- [x] Preserve visibility and imported nominal identity; add function-level
       valid/invalid fixtures for each changed function as required by `.ai/compiler.md`.
-- [ ] Replace the current limitation in `language/06_functions.md` and document
+- [x] Replace the current limitation in `language/06_functions.md` and document
       the algorithm in `architecture/12_monomorphization.md` and type-inference.
 
 Acceptance: `cargo test --test rt_overloaded_function_values` passes, including
 exact runtime outputs and diagnostic controls.
-Commit: —
+Commit: 76e791fcb
 
 ### Phase 3 — complete validation
 
 - [ ] Run `cargo test --workspace` and
-      `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-- [ ] Inspect any unexpected artifact delta by localizing one fixture; never
+      `scripts/test-accept.sh target/debug/mfb target/accept-actual`. (Not run
+      here by instruction: a full gate was running. Targeted runs and the reach
+      check below stand in; see Resolution.)
+- [x] Inspect any unexpected artifact delta by localizing one fixture; never
       re-baseline existing tests without the AGENTS.md proof requirements.
-- [ ] Run the standalone reproduction; render the changed spec topics and run
+- [x] Run the standalone reproduction; render the changed spec topics and run
       `scripts/spec-census.sh --citations language architecture` and `--links`.
 
 Acceptance: suites pass; reproduction prints `5\n` for each matching reference;
 only intended artifacts differ.
-Commit: —
+Commit: — (full suite pending)
 
 ## Validation Plan
 
@@ -193,3 +197,79 @@ the documentation commit that files this work order.
 Prefer the existing `TYPE_OVERLOAD_AMBIGUOUS` family for ambiguous references;
 choose the no-match diagnostic after checking existing source-level callable
 mismatch diagnostics. Neither outcome may claim a declared name is undeclared.
+
+## Resolution (2026-10-04)
+
+**Root cause** as recorded above: monomorph mangled every member of an overload
+set but cloned a bare `HirExpression::Identifier` unchanged, so the resolver
+after monomorph found no declaration named `pick`.
+
+**The rule.** `Monomorphizer::resolve_function_reference`
+(`src/monomorph/lower.rs`) rewrites a bare name naming an overload set — the
+project's ≥2 declarations, or an imported package's `EXPORT` set
+(`imported_overloads`, which now records each member's return type and
+isolation) — to the one member whose complete callable type equals the expected
+type: same parameter count, each parameter type equal up to a top-level `RES`,
+equal return type, and `ISOLATED` whenever the expected type is (an isolated
+member satisfies a plain `FUNC` slot, never the reverse). Both sides go through
+`concrete_type` first, so a generic body's `FUNC(T) AS T` and a user generic's
+instantiated nominal compare correctly. Outcomes:
+
+| Reference | Result |
+|---|---|
+| exactly one member has the expected type | rewritten to its concrete symbol; runs that declaration |
+| no expected type (`LET f = pick`, a callback to an overloaded/package/built-in callee) | `TYPE_OVERLOAD_AMBIGUOUS`, listing the members' callable types |
+| expected `FUNC` type no member has (parameters, return, arity or isolation differ) | `TYPE_OVERLOAD_NO_MATCH` (new, `2-203-0144`), listing the members |
+| expected non-callable type (`LET x AS Integer = pick`) | `TYPE_OVERLOAD_NO_MATCH` |
+| a local binding of the same name in scope | the local; never rewritten |
+| overridable built-in name with a user override | gap-fill rule, as a call: the override only when the built-in rejects the parameter types (`resolve_builtin_override_reference`) |
+
+Diagnostics use the public spelling (`display_name`, `pkg::name`) and the
+reference's line. Expected types reach a bare name at: annotated local/global
+`LET`/`MUT`, assignment, single-signature argument slot (positional and named),
+`RETURN`, record constructor field (positional and named), list element,
+map-literal value, `WITH` field.
+
+**Blast-radius verdicts.** Annotated local/global, assignment: fixed, tested.
+Return operands and argument slots: fixed (`consults_expected` admits a bare
+name), tested. Typed record/collection initializers: fixed (constructor, list,
+map value, `WITH`), tested. `resolve_imported_overload`/`ImportedOverload`:
+failure proved (`TYPE_UNKNOWN_VALUE` at the parent), return type and isolation
+added, tested direct and through an alias. `resolve_overload` direct calls:
+control passes; `builtin_predicate_ref_type`: control (`isEven` as a value and as
+a `filter` callback) passes; native LINK references: untouched (already
+concrete signatures).
+
+**Found and fixed in the same seam.**
+- A call through a local or parameter named like an overloaded function was
+  rewritten to the overload — a silent wrong value (`3`, not `200`).
+  `FunctionContext::bound` now tracks every in-scope binding name; neither calls
+  nor references through it are rewritten.
+- `substitute_type_params` did not descend into `FUNC` types, so a generic
+  body's `LET f AS FUNC(T) AS T = make()` could never select a return-type
+  overload of `make`.
+- A call through an `ISOLATED FUNC` value failed native lowering (commit
+  88f4c099c, fixture `rt-behavior/functions/isolated-callable-call-rt`).
+- Monomorph lowered functions in `HashMap` order, so diagnostics from several
+  functions came out in a different order per build (commit 4cba8ae6f,
+  `tests/runtime/rt_monomorph_diagnostic_order.rs`).
+
+**Not changed (design question, not a silent fault).** The registry's
+`unify_at` deliberately refuses an `ISOLATED FUNC` argument for a built-in's
+plain callback parameter (`collections::forEach(xs, isolatedFn)` is
+`TYPE_CALL_ARGUMENT_MISMATCH`), while bug-786 widens isolated callables into
+plain slots for user calls. Whether built-in callbacks should widen too is an
+owner decision.
+
+**Validation.** `cargo test --test rt_overloaded_function_values`: 27 passed
+(24 fail on the parent `bug-staging-12` compiler; the 3 controls pass on both).
+`cargo test --bin mfb monomorph`: 67 passed. `scripts/test-accept.sh` over the
+new fixtures and the `*overload* *isolated* *lambda* *closure* *func* *generic*
+*template* *callable* *callback* *thread*` globs: 669 ran, passed (one earlier
+identical run reported one mismatch that did not reproduce). Reach check: every
+project under `tests/` and `examples/` (1648) built with the parent and the fixed
+compiler (`mfb build -q -ast -ir`); no existing build log, AST or IR changed —
+only the three new fixtures appear. The bug's standalone reproduction prints
+`5` for the `parameter`, `return` and `single-control` cases. Expected golden
+moves: none.
+
