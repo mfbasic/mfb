@@ -799,6 +799,33 @@ pub(crate) fn emit_item_arc_flags(
         abi::label(done),
     ]
 }
+/// `std::f64::consts::SQRT_2` as its IEEE-754 bit pattern, for `float_move_d_from_x`.
+const SQRT_2_F64_BITS: u64 = 0x3FF6_A09E_667F_3BCD;
+
+/// plan-163-B: widen a band reach's half-width in `half` to `half * sqrt(2)` when the
+/// item's cap tag (`HEADER_CAP`) is Square (2): a square end's corners lie a diagonal
+/// half-width from its endpoint, so an edge that far from a row can still cover a pixel
+/// on it. Any other tag leaves `half` unchanged, so every other item's band index is
+/// what it was. `skip` is a fresh label; clobbers `int_scratch` and `fp_scratch`.
+pub(crate) fn emit_square_cap_reach(
+    header: abi::Reg,
+    half: abi::Reg,
+    int_scratch: abi::Reg,
+    fp_scratch: abi::Reg,
+    skip: &str,
+) -> Vec<CodeInstruction> {
+    vec![
+        abi::load_double(fp_scratch, header, HEADER_CAP * 8),
+        abi::float_convert_to_signed_x(int_scratch, fp_scratch),
+        abi::compare_immediate(int_scratch, "2"),
+        abi::branch_ne(skip),
+        abi::move_immediate(int_scratch, "Integer", &SQRT_2_F64_BITS.to_string()),
+        abi::float_move_d_from_x(fp_scratch, int_scratch),
+        abi::float_multiply_d(half, half, fp_scratch),
+        abi::label(skip),
+    ]
+}
+
 /// plan-163-A: a polygon's `FillRule` ordinal (`HEADER_POLYGON_RULE`, 0 EvenOdd, 1
 /// NonZero) into `arc.y` (`ITEM_ARC_REFLEX`) of the item block at `block_at` from the
 /// stack pointer. Only an arc reads `arc.y` as its reflex flag, so a polygon's copy of

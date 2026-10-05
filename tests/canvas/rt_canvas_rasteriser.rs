@@ -751,6 +751,75 @@ fn a_convex_ring_draws_the_same_under_both_rules() {
     assert_ne!(pixel(&even_odd, 330, 250), (0, 0, 0, 255), "the triangle drew at all");
 }
 
+/// plan-163-B: a `Square` cap extends the stroke `half` past each end and cuts it square,
+/// on a `Line`, an `Arc` and a `PolyLine`, and a zero-length square end is an axis-aligned
+/// square (SVG 2 §13.5.2).
+///
+/// Every stroke is white, 20 px wide (`half` = 10), over black, so a fully covered pixel is
+/// `(255, 255, 255)` and an empty one `(0, 0, 0)`. The distance of a square end is
+/// `max(perp - half, -t·len - half, (t-1)·len - half)` (`__canvas_segmentDistanceSquare`):
+///
+/// * the horizontal line (200..400, 300): the pixel centre (190.5, 300.5) is 9.5 px before
+///   the start, `9.5 - 10 = -0.5`, fully covered; (189.5, 300.5) is `+0.5`, empty. The
+///   CORNER pixel (190.5, 290.5) is `max(9.5 - 10, 9.5 - 10) = -0.5`, fully covered — a
+///   round end gives it `sqrt(9.5² + 9.5²) - 10 = +3.4` and a butt end leaves it out;
+/// * the 45° line from (300, 100) towards (400, 200): its start's square has a corner at
+///   `half·√2 = 14.14` px along −x, (285.86, 100). The pixel centre (286.5, 100.5) has
+///   `perp = 14/√2 = 9.8995` and `t·len = −13/√2`, so `d = 9.8995 - 10 = −0.1005`:
+///   coverage `int((0.5 + 0.1005)·255 + 0.5) = 153`, white at 153 over black is linear
+///   `65535·153/255`, sRGB 203. (288.5, 100.5) is fully covered and (284.5, 100.5) empty;
+/// * the zero-length line at (500, 500): its corner pixel (490.5, 490.5) is
+///   `max(9.5, 9.5) - 10 = -0.5`, covered, where a round dot leaves it empty;
+/// * the arc of radius 100 about (650, 300) swept `0..π`: its start (750, 300) runs down
+///   the screen, so the square end is the box above it, x 740..760, y 290..300. Its corner
+///   pixel (759.5, 291.5) is `max(9.5 - 10, 8.5 - 10)`, covered; (759.5, 289.5) is
+///   `10.5 - 10`, empty. The arc's end (550, ~300) runs up the screen too, so (541.5,
+///   291.5) is covered likewise;
+/// * the polyline (100, 500) → (200, 500) → (200, 600): square OUTER ends — the corners
+///   (90.5, 490.5) and (209.5, 609.5) are `-0.5`, covered — and a still-round turn: the
+///   corner's outer pixel (209.5, 491.5) is `sqrt(9.5² + 8.5²) - 10 = +2.7` from both
+///   segments, empty.
+#[test]
+fn a_square_cap_extends_the_stroke_square_past_each_end() {
+    let (frame, _) = render(
+        "canvas_square_caps",
+        &scene(
+            "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Square }\n  \
+             LET flat AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, x2 := 400.0, y2 := 300.0, paint := ink]\n  \
+             LET slant AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 100.0, x2 := 400.0, y2 := 200.0, paint := ink]\n  \
+             LET dot AS canvas::DrawItem = canvas::Line[x1 := 500.0, y1 := 500.0, x2 := 500.0, y2 := 500.0, paint := ink]\n  \
+             LET bow AS canvas::DrawItem = canvas::Arc[x := 650.0, y := 300.0, radius := 100.0, startAngle := 0.0, \
+             endAngle := 3.141592653589793, paint := ink]\n  \
+             LET bend AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 100.0, y := 500.0], \
+             canvas::Point[x := 200.0, y := 500.0], canvas::Point[x := 200.0, y := 600.0]], colors := [], paint := ink]\n  \
+             canvas::present([flat, slant, dot, bow, bend])\n",
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(pixel(&frame, 190, 300), white, "half a stroke past the line's start");
+    assert_eq!(pixel(&frame, 189, 300), black, "more than half a stroke past it");
+    assert_eq!(pixel(&frame, 190, 290), white, "the square end's corner");
+    assert_eq!(pixel(&frame, 409, 309), white, "the far end's corner");
+    assert_eq!(pixel(&frame, 410, 300), black, "past the far end");
+
+    assert_eq!(pixel(&frame, 286, 100), (203, 203, 203, 255), "the 45° end's corner tip, coverage 153");
+    assert_eq!(pixel(&frame, 288, 100), white, "inside the 45° end's square");
+    assert_eq!(pixel(&frame, 284, 100), black, "past the 45° end's corner");
+
+    assert_eq!(pixel(&frame, 490, 490), white, "a zero-length square end is an axis-aligned square");
+    assert_eq!(pixel(&frame, 509, 509), white, "its opposite corner");
+    assert_eq!(pixel(&frame, 489, 500), black, "outside it");
+
+    assert_eq!(pixel(&frame, 759, 291), white, "the arc start's square corner");
+    assert_eq!(pixel(&frame, 759, 289), black, "past the arc start's square");
+    assert_eq!(pixel(&frame, 541, 291), white, "the arc end's square corner");
+
+    assert_eq!(pixel(&frame, 90, 490), white, "the polyline's square start corner");
+    assert_eq!(pixel(&frame, 209, 609), white, "the polyline's square end corner");
+    assert_eq!(pixel(&frame, 209, 491), black, "the polyline's turn stays round");
+}
+
 /// A clip cuts a circle in half, leaving the other half untouched.
 ///
 /// The circle is the right shape to clip with, because a clip that were secretly

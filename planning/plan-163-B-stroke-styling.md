@@ -482,24 +482,42 @@ Acceptance: the move is pixel-neutral.
   `cargo test --bin mfb canvas` → 110 passed. The other suites whose sources were
   migrated: `cargo test --test rt_canvas_geo_arena --test rt_arena_large_block_reuse
   --test cli_canvas_package` → 7 + 3 + 4 passed.
-Commit: —
+Commit: 3d401ef4a
 
 ### Phase 2 — Square cap (all three renderers)
 
-- [ ] Make every cap-tag reader (§2 "Cap", 13 lines, recounted first) an explicit test
+- [x] Make every cap-tag reader (§2 "Cap", 13 lines, recounted first) an explicit test
       for 0/1/2, in software, the frag and Metal. Make the tag builders map `Square` → 2.
-- [ ] Software Square distances per §5 (segment, arc end, polyline outer ends) in
+      (Recount: `grep -nE "cap *(==|!=|=|<>) *[012]|arc\.w *(==|!=) *[01]"` over the
+      three renderers → 3 software, 8 frag, 8 Metal lines. Each now tests 2 explicitly
+      where it decides an end's shape; the `!= 0` "has an end shape" tests stay, with
+      the square arm inside them. Tag builders: `__canvas_capTag` and the native
+      `emit_cap_tag`.)
+- [x] Software Square distances per §5 (segment, arc end, polyline outer ends) in
       `helper_shapes.rs`/`helper_draw.rs`. Shader twins are line for line.
-- [ ] Bounds padding and band reach for Square (§5), in both builders and both
-      `emit_band_index`.
-- [ ] Regenerate `mfb_canvas.frag.spv` (`scripts/regen-spirv.sh`, box 2228).
-- [ ] Tests (hand-computed pixels, `rt_canvas_rasteriser.rs`):
+      (`__canvas_segmentDistanceSquare`, `__canvas_arcSquareCap`, and the polyline's
+      outer ends measured to the segment's line past the endpoint; the shaders'
+      `segmentDistanceSquare` (fp32 bound), and the double-float arms of
+      `dfShapeDistance` and `polylineDistance`.)
+- [x] Bounds padding and band reach for Square (§5), in both builders and both
+      `emit_band_index`. (`__canvas_capReach` / native `cap_pad`; the emitters'
+      `emit_square_cap_reach`. The GEO_VERIFY matrix gained square Line, zero-length
+      Line, PolyLine and all-coincident PolyLine items → `geoVerifyMismatches=0`.)
+- [x] Regenerate `mfb_canvas.frag.spv` (`scripts/regen-spirv.sh`, box 2228). (Box 2228
+      down — plan-163-A Corrections 8 — so `MFB_SPIRV_PORT=2226`: `.frag.spv` 117,384 →
+      132,184 bytes, `.vert.spv` byte-identical; `cargo test --bin mfb vulkan` → 9
+      passed.)
+- [x] Tests (hand-computed pixels, `rt_canvas_rasteriser.rs`):
       - a horizontal Square-capped line covers `half` past each end with square
         corners;
       - a 45° Square-capped line's corner pixel lies at `half·√2` along x;
       - a zero-length Square end is an axis-aligned square;
       - Square ends on an Arc and on a PolyLine.
       Add the same scenes as `rt_canvas_metal.rs` rows.
+      (`a_square_cap_extends_the_stroke_square_past_each_end` → ok, including the 45°
+      tip pixel at the hand-computed coverage 153 → sRGB 203. Metal row
+      `square_caps_match_the_software_oracle_on_metal` over the new shared scene
+      `tests/canvas/scenes/square_caps_on_black.mfb`, also gpu-rows row `squarecaps`.)
 
 Acceptance: Square caps draw per SVG, and Butt/Round pixels are unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
@@ -507,6 +525,11 @@ Acceptance: Square caps draw per SVG, and Butt/Round pixels are unchanged.
   `scripts/test-canvas-vulkan.sh <the new square-cap scene>` on box 2228 → within
   `GPU_DEFAULT` (est. 10 min, guess; 2228 is the Linux Vulkan lane,
   `.ai/remote_systems.md:112–137`).
+  Result: 65 + 22 + 41 passed, goldens unmodified. Vulkan on 2226 (2228 down):
+  `scripts/test-canvas-gpu-rows.sh target/debug/mfb --target linux-aarch64 --rows
+  squarecaps,linesblack,arcsblack,polylinesblack,strokedblack,matrix` → all ok
+  (squarecaps worst=1 1.1936%; the four regression rows worst=1); box 206 `--target
+  windows-x86_64 --rows squarecaps,polylinesblack` → ok (worst=1 1.1318%, 1.0231%).
 Commit: —
 
 ### Phase 3 — Joins in software (the oracle)
@@ -660,6 +683,10 @@ Commit: —
    column. In the two allocation-measuring tests (`rt_canvas_geo_arena.rs`,
    `rt_arena_large_block_reuse.rs`) the cap went onto the paint the loop already
    builds, so no `WITH` was added per item.
+2. **Box 2228 is down for this plan's run** (plan-163-A Corrections 8): every Linux
+   Vulkan row and SPIR-V regeneration runs on 2226 (Debian aarch64 lavapipe), and the
+   Vulkan commands are `scripts/test-canvas-gpu-rows.sh <mfb> --rows <row>` over a
+   shared scene file, not `scripts/test-canvas-vulkan.sh <scene>`.
 
 ## Summary
 

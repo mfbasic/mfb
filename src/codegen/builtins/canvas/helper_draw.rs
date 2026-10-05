@@ -80,6 +80,11 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     IF cap = 1 THEN
       RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3) - radius
     END IF
+    ' plan-163-B: Square (2) is the butt cut moved out by the half-width, measured as a
+    ' rectangle so its corners stay square (`__canvas_segmentDistanceSquare`).
+    IF cap = 2 THEN
+      RETURN __canvas_segmentDistanceSquare(px, py, p0, p1, p2, p3, radius)
+    END IF
     RETURN __canvas_segmentDistanceButt(px, py, p0, p1, p2, p3, radius)
   END IF
   IF kind = __CANVAS_GEO_ARC THEN
@@ -94,6 +99,12 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     ' one that returns here, and a butt arc is byte-for-byte what it was.
     IF cap = 0 THEN
       RETURN arcD
+    END IF
+    ' plan-163-B: Square unions a half-width box past each sweep endpoint, along the
+    ' tangent there (`__canvas_arcSquareCap`).
+    IF cap = 2 THEN
+      arcD = __canvas_minF(arcD, __canvas_arcSquareCap(px, py, capSX, capSY, p0, p1, radius, FALSE))
+      RETURN __canvas_minF(arcD, __canvas_arcSquareCap(px, py, capEX, capEY, p0, p1, radius, TRUE))
     END IF
     ' Round unions a disc of the stroke's half-width at each sweep endpoint. A union of
     ' SDFs is their `min`, and the endpoints are per-shape constants the header carries
@@ -238,9 +249,34 @@ r#"FUNC __canvas_polylineScan(tail AS Integer, edges AS Integer, px AS Float, py
         t = (wx * vx + wy * vy) / len2
       END IF
       LET clamped AS Float = __canvas_minF(__canvas_maxF(t, 0.0), 1.0)
-      LET dx AS Float = wx - vx * clamped
-      LET dy AS Float = wy - vy * clamped
+      ' plan-163-B: a square OUTER end measures past its endpoint to the segment's line
+      ' (an unclamped `t` there), so its corners are not rounded; an inner end stays
+      ' round, which is the corner's join.
+      MUT at AS Float = clamped
+      IF cap = 2 THEN
+        IF e = first AND t < 0.0 THEN
+          at = t
+        END IF
+        IF e = last AND t > 1.0 THEN
+          at = t
+        END IF
+      END IF
+      LET dx AS Float = wx - vx * at
+      LET dy AS Float = wy - vy * at
       MUT d AS Float = math::sqrt(dx * dx + dy * dy) - half
+      IF cap = 2 THEN
+        IF len2 > 0.0 THEN
+          LET length AS Float = math::sqrt(len2)
+          IF e = first THEN
+            d = __canvas_maxF(d, 0.0 - t * length - half)
+          END IF
+          IF e = last THEN
+            d = __canvas_maxF(d, (t - 1.0) * length - half)
+          END IF
+        ELSE
+          d = __canvas_maxF(__canvas_absF(wx), __canvas_absF(wy)) - half
+        END IF
+      END IF
       IF cap = 0 THEN
         LET length AS Float = math::sqrt(len2)
         IF e = first THEN

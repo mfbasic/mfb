@@ -241,7 +241,20 @@ FUNC __canvas_capTag(cap AS CapStyle) AS Integer
   IF cap = CapStyle.Round THEN
     RETURN 1
   END IF
+  IF cap = CapStyle.Square THEN
+    RETURN 2
+  END IF
   RETURN 0
+END FUNC
+
+' plan-163-B: how far a stroke of half-width `half` reaches past its outline with this
+' cap tag: `half`, or `half * sqrt(2)` for Square, whose corners are a diagonal half
+' away from the endpoint.
+FUNC __canvas_capReach(half AS Float, cap AS Integer) AS Float
+  IF cap = 2 THEN
+    RETURN half * 1.4142135623730951
+  END IF
+  RETURN half
 END FUNC
 
 ' Where a record's gradient stops begin, in slots from its offset (plan-116-F).
@@ -571,7 +584,7 @@ FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, 
   out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
   out = __canvas_paintHeader(out, paint)
   out = __canvas_strokeAsFill(out)
-  LET pad AS Float = half + 1.0
+  LET pad AS Float = __canvas_capReach(half, cap) + 1.0
   RETURN __canvas_boundsHeader(out, __canvas_minF(x1, x2) - pad, __canvas_minF(y1, y2) - pad, __canvas_maxF(x1, x2) + pad, __canvas_maxF(y1, y2) + pad)
 END FUNC
 
@@ -604,7 +617,7 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_CAPSTARTY, a.y + a.radius * __canvas_sin(a.startAngle))
   out = collections::set(out, __CANVAS_GEO_CAPENDX, a.x + a.radius * __canvas_cos(a.endAngle))
   out = collections::set(out, __CANVAS_GEO_CAPENDY, a.y + a.radius * __canvas_sin(a.endAngle))
-  LET reach AS Float = a.radius + half + 1.0
+  LET reach AS Float = a.radius + __canvas_capReach(half, __canvas_capTag(a.paint.cap)) + 1.0
   RETURN __canvas_boundsHeader(out, a.x - reach, a.y - reach, a.x + reach, a.y + reach)
 END FUNC
 
@@ -750,7 +763,7 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_POLYLINE_LAST, toFloat(last))
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, 0.0)
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, 0.0)
-  LET pad AS Float = half + 1.0
+  LET pad AS Float = __canvas_capReach(half, cap) + 1.0
   RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC"#;
 

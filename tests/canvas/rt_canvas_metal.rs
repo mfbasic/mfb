@@ -1218,6 +1218,19 @@ fn both_fill_rules_match_the_software_oracle_on_metal() {
     );
 }
 
+/// plan-163-B: Square caps on lines (several angles and a zero-length one), arcs and
+/// polylines, at fractional coordinates, plus a transformed line.
+const SQUARE_CAPS: &str = include_str!("scenes/square_caps_on_black.mfb");
+
+#[test]
+fn square_caps_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_square_caps",
+        SQUARE_CAPS,
+        "the Square-capped lines, arcs and polylines over black",
+    );
+}
+
 /// `LARGE_POLYGONS` without its grey ground: filled, translucent, stroked, transformed
 /// and self-intersecting polygons of 300-4,000 edges, every rim over black. bug-688
 /// measured max delta 4 on Vulkan (lavapipe) at (736, 52), the rotated ring's rim.

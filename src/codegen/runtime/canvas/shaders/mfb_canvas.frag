@@ -133,6 +133,21 @@ float segmentDistanceButt(vec2 p, vec2 a, vec2 b, float half_) {
     return max(d, (t - 1.0) * length_);
 }
 
+// plan-163-B: the same segment with SQUARE ends -- `__canvas_segmentDistanceSquare`: the
+// rectangle `half` wider than the segment on every side, `max(perp - half, -t|v| - half,
+// (t-1)|v| - half)`; a zero-length one is the axis-aligned square of side 2*half.
+float segmentDistanceSquare(vec2 p, vec2 a, vec2 b, float half_) {
+    vec2 v = b - a;
+    vec2 w = p - a;
+    float len2 = dot(v, v);
+    if (len2 <= 0.0) { return max(abs(w.x), abs(w.y)) - half_; }
+    float length_ = sqrt(len2);
+    float t = dot(w, v) / len2;
+    float d = abs(w.x * v.y - w.y * v.x) / length_ - half_;
+    d = max(d, -t * length_ - half_);
+    return max(d, (t - 1.0) * length_ - half_);
+}
+
 // bug-687: double-float arithmetic — a value as an unevaluated sum `hi + lo` of two
 // floats, about 48 bits. A polygon's distance is evaluated in it because fp32 is not the
 // oracle's f64: where the exact distance lies within ~1e-5 px of a coverage quantisation
@@ -423,6 +438,7 @@ vec2 polylineScan(ivec2 band, vec2 p) {
     int last = item.gradient.y;
     float halfW = fx(item.misc.y);
     bool butt = item.arc.w == 0;
+    bool square = item.arc.w == 2;
     float best = 1.0e6;
     float param = 0.0;
     for (int j = 0; j < band.y; ++j) {
@@ -436,11 +452,23 @@ vec2 polylineScan(ivec2 band, vec2 p) {
         vec2 w = p - a;
         float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;
         float c = clamp(t, 0.0, 1.0);
-        float d = length(w - v * c) - halfW;
+        // plan-163-B: a square OUTER end measures to the segment's line past its endpoint.
+        float at = c;
+        if (square && ((e == first && t < 0.0) || (e == last && t > 1.0))) { at = t; }
+        float d = length(w - v * at) - halfW;
         if (butt) {
             float len_ = sqrt(len2);
             if (e == first) { d = max(d, -t * len_); }
             if (e == last) { d = max(d, (t - 1.0) * len_); }
+        }
+        if (square) {
+            if (len2 > 0.0) {
+                float len_ = sqrt(len2);
+                if (e == first) { d = max(d, -t * len_ - halfW); }
+                if (e == last) { d = max(d, (t - 1.0) * len_ - halfW); }
+            } else {
+                d = max(abs(w.x), abs(w.y)) - halfW;
+            }
         }
         if (d < best) { best = d; param = (float(e) + c) / float(item.misc.w); }
     }
@@ -472,6 +500,14 @@ vec2 dfShapeDistance(vec2 x, vec2 y) {
     if (kind == 2) {
         DfSegment s = dfSegment(dx, dy, dfSub(ex, cx), dfSub(ey, cy));
         if (item.arc.w == 1) { return dfSub(s.d, radius); }
+        // plan-163-B: Square -- `__canvas_segmentDistanceSquare`.
+        if (item.arc.w == 2) {
+            if (!(s.len2.x > 0.0)) { return dfSub(dfMax(dfAbs(dx), dfAbs(dy)), radius); }
+            vec2 sl = dfSqrt(s.len2);
+            vec2 perp = dfDiv(dfAbs(dfSub(dfMul(dx, dfSub(ey, cy)), dfMul(dy, dfSub(ex, cx)))), sl);
+            vec2 sd = dfMax(dfSub(perp, radius), dfSub(-dfMul(s.t, sl), radius));
+            return dfMax(sd, dfSub(dfMul(dfSub(s.t, vec2(1.0, 0.0)), sl), radius));
+        }
         if (!(s.len2.x > 0.0)) { return vec2(1.0e6, 0.0); }
         vec2 len_ = dfSqrt(s.len2);
         vec2 d = dfMax(dfSub(s.d, radius), -dfMul(s.t, len_));
@@ -488,9 +524,25 @@ vec2 dfShapeDistance(vec2 x, vec2 y) {
         vec2 band = inSweep ? dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius) : vec2(1.0e6, 0.0);
         if (item.arc.w == 0) { return band; }
         for (int k = 0; k < 2; ++k) {
-            vec2 ox = dfSub(dx, k == 0 ? sx : tx);
-            vec2 oy = dfSub(dy, k == 0 ? sy : ty);
-            band = dfMin(band, dfSub(dfLength(ox, oy), radius));
+            vec2 rx = k == 0 ? sx : tx;
+            vec2 ry = k == 0 ? sy : ty;
+            vec2 ox = dfSub(dx, rx);
+            vec2 oy = dfSub(dy, ry);
+            if (item.arc.w == 2) {
+                // plan-163-B: `__canvas_arcSquareCap` -- the half-width box past the end,
+                // along the tangent; `along` is measured outward from the end.
+                vec2 rl = dfLength(rx, ry);
+                if (!(rl.x > 0.0)) { continue; }
+                vec2 ux = dfDiv(rx, rl);
+                vec2 uy = dfDiv(ry, rl);
+                vec2 along = dfSub(dfMul(ox, uy), dfMul(oy, ux));
+                if (k == 1) { along = -along; }
+                vec2 across = dfAdd(dfMul(ox, ux), dfMul(oy, uy));
+                vec2 box = dfMax(dfMax(dfSub(dfAbs(across), radius), dfSub(along, radius)), -along);
+                band = dfMin(band, box);
+            } else {
+                band = dfMin(band, dfSub(dfLength(ox, oy), radius));
+            }
         }
         return band;
     }
@@ -550,7 +602,10 @@ float farBound(vec2 p) {
         vec2 cs = vec2(fx(item.arcCaps.x), fx(item.arcCaps.y));
         vec2 ce = vec2(fx(item.arcCaps.z), fx(item.arcCaps.w));
         float m = abs(length(p - c) - e.x) - r;
-        if (item.arc.w != 0) { m = min(m, min(length(p - cs), length(p - ce)) - r); }
+        // plan-163-B: a Square end lies within `r * sqrt(2)` of its endpoint (1.4143 > sqrt 2,
+        // so this stays a lower bound).
+        float capR = item.arc.w == 2 ? r * 1.4143 : r;
+        if (item.arc.w != 0) { m = min(m, min(length(p - cs), length(p - ce)) - capR); }
         slack += (abs(cs.x) + abs(cs.y) + abs(ce.x) + abs(ce.y)) * (1.0 / 262144.0);
         return max(m - slack, 0.0);
     }
@@ -561,7 +616,8 @@ float farBound(vec2 p) {
         d = length(p - c) - e.x - r;
     } else if (kind == 2) {
         if (item.arc.w != 1 && !(dot(e - c, e - c) > 0.0)) { return 0.0; }
-        d = item.arc.w == 1 ? segmentDistance(p, c, e) - r : segmentDistanceButt(p, c, e, r);
+        d = item.arc.w == 1 ? segmentDistance(p, c, e) - r
+            : (item.arc.w == 2 ? segmentDistanceSquare(p, c, e, r) : segmentDistanceButt(p, c, e, r));
     } else {
         return 1.0e6;
     }
@@ -587,11 +643,23 @@ float polylineSegment32(int e, vec2 p, float halfW, out float slack) {
     float len2 = dot(v, v);
     vec2 w = p - a;
     float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;
-    float d = length(w - v * clamp(t, 0.0, 1.0)) - halfW;
+    float at = clamp(t, 0.0, 1.0);
+    bool square = item.arc.w == 2;
+    if (square && ((e == first && t < 0.0) || (e == last && t > 1.0))) { at = t; }
+    float d = length(w - v * at) - halfW;
     if (item.arc.w == 0 && len2 > 0.0) {
         float len_ = sqrt(len2);
         if (e == first) { d = max(d, -t * len_); }
         if (e == last) { d = max(d, (t - 1.0) * len_); }
+    }
+    if (square) {
+        if (len2 > 0.0) {
+            float len_ = sqrt(len2);
+            if (e == first) { d = max(d, -t * len_ - halfW); }
+            if (e == last) { d = max(d, (t - 1.0) * len_ - halfW); }
+        } else {
+            d = max(abs(w.x), abs(w.y)) - halfW;
+        }
     }
     slack = len2 > 0.0 ? edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0) : 1.0e30;
     return d;
@@ -622,12 +690,30 @@ vec2 polylineDistance(ivec2 band, vec2 x, vec2 y, float reach) {
         float d32 = polylineSegment32(e, p, halfW, slack);
         if (slack < 0.0 || d32 - slack > bound) { continue; }
         DfEdge g = dfEdge(item.arc.z, e);
-        DfSegment s = dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy);
+        vec2 wx = dfSub(x, g.ax);
+        vec2 wy = dfSub(y, g.ay);
+        DfSegment s = dfSegment(wx, wy, g.vx, g.vy);
         vec2 d = dfSub(s.d, half2);
         if (item.arc.w == 0 && s.len2.x > 0.0) {
             vec2 len_ = dfSqrt(s.len2);
             if (e == first) { d = dfMax(d, -dfMul(s.t, len_)); }
             if (e == last) { d = dfMax(d, dfMul(dfSub(s.t, vec2(1.0, 0.0)), len_)); }
+        }
+        // plan-163-B: a square OUTER end -- to the line past the endpoint, then the end
+        // plane moved out by the half-width; a lone zero-length segment is the square.
+        if (item.arc.w == 2) {
+            if (s.len2.x > 0.0) {
+                vec2 len_ = dfSqrt(s.len2);
+                bool before = e == first && dfLess(s.t, vec2(0.0));
+                bool after = e == last && dfLess(vec2(1.0, 0.0), s.t);
+                if (before || after) {
+                    d = dfSub(dfDiv(dfAbs(dfSub(dfMul(wx, g.vy), dfMul(wy, g.vx))), len_), half2);
+                }
+                if (e == first) { d = dfMax(d, dfSub(-dfMul(s.t, len_), half2)); }
+                if (e == last) { d = dfMax(d, dfSub(dfMul(dfSub(s.t, vec2(1.0, 0.0)), len_), half2)); }
+            } else {
+                d = dfSub(dfMax(dfAbs(wx), dfAbs(wy)), half2);
+            }
         }
         if (dfLess(d, best)) { best = d; }
     }

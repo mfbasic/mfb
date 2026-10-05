@@ -594,6 +594,53 @@ fn put_bounds(builder: &mut CodeBuilder, out: &VirtualRegister, bounds: [&Virtua
     }
 }
 
+/// `__canvas_capTag(paint.cap)` as a whole number: Round 1, Square 2, Butt 0.
+fn emit_cap_tag(builder: &mut CodeBuilder, view: &PaintView) -> Result<VirtualRegister, String> {
+    let (cap_index, cap_type) = field(builder, &view.paint_type, "cap")?;
+    let round = enum_ordinal(builder, &cap_type, "Round")?;
+    let square = enum_ordinal(builder, &cap_type, "Square")?;
+    let raw = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&raw, &view.paint, 8 * cap_index));
+    let cap = builder.temporary_vreg();
+    let not_round = builder.label("canvas_geo_cap_not_round");
+    let not_square = builder.label("canvas_geo_cap_not_square");
+    let done = builder.label("canvas_geo_cap_tag_done");
+    builder.emit(abi::compare_immediate(&raw, &round.to_string()));
+    builder.emit(abi::branch_ne(&not_round));
+    builder.emit(abi::move_immediate(&cap, "Integer", "1"));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&not_round));
+    builder.emit(abi::compare_immediate(&raw, &square.to_string()));
+    builder.emit(abi::branch_ne(&not_square));
+    builder.emit(abi::move_immediate(&cap, "Integer", "2"));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&not_square));
+    builder.emit(abi::move_immediate(&cap, "Integer", "0"));
+    builder.emit(abi::label(&done));
+    Ok(cap)
+}
+
+/// `__canvas_capReach(half, cap) + 1.0`: the bounds pad of a stroke-as-fill kind, with a
+/// Square cap's corner a diagonal half-width out (`half * 1.4142135623730951`).
+fn cap_pad(
+    builder: &mut CodeBuilder,
+    half: &VirtualRegister,
+    cap: &VirtualRegister,
+) -> VirtualRegister {
+    let reach = builder.temporary_fp_vreg();
+    builder.emit(abi::float_move_d_from_d(&reach, half));
+    let plain = builder.label("canvas_geo_cap_reach_plain");
+    builder.emit(abi::compare_immediate(cap, "2"));
+    builder.emit(abi::branch_ne(&plain));
+    let root2 = fconst(builder, std::f64::consts::SQRT_2);
+    let wide = builder.temporary_fp_vreg();
+    builder.emit(abi::float_multiply_d(&wide, half, &root2));
+    builder.emit(abi::float_move_d_from_d(&reach, &wide));
+    builder.emit(abi::label(&plain));
+    let one = fconst(builder, 1.0);
+    fadd(builder, &reach, &one)
+}
+
 /// `pad = __canvas_maxF(__canvas_strokeHalf(paint), 0.0) + 1.0`.
 fn stroke_pad(builder: &mut CodeBuilder, stroke_half: &VirtualRegister) -> VirtualRegister {
     let zero = fconst(builder, 0.0);
@@ -824,20 +871,11 @@ fn fill_line(
     put(builder, out, 4, &x2);
     put(builder, out, 5, &y2);
     put(builder, out, 6, &half);
-    // `__canvas_capTag(paint.cap)`: Round is 1, anything else 0.
-    let (cap_index, cap_type) = field(builder, &view.paint_type, "cap")?;
-    let round = enum_ordinal(builder, &cap_type, "Round")?;
-    let cap = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&cap, &view.paint, 8 * cap_index));
-    let butt = builder.label("canvas_geo_cap_butt");
-    let cap_done = builder.label("canvas_geo_cap_done");
-    builder.emit(abi::compare_immediate(&cap, &round.to_string()));
-    builder.emit(abi::branch_ne(&butt));
-    put_const(builder, out, SLOT_CAP, 1.0);
-    builder.emit(abi::branch(&cap_done));
-    builder.emit(abi::label(&butt));
-    put_const(builder, out, SLOT_CAP, 0.0);
-    builder.emit(abi::label(&cap_done));
+    // `__canvas_capTag(paint.cap)`: Round 1, Square 2, Butt 0.
+    let cap = emit_cap_tag(builder, view)?;
+    let cap_f = builder.temporary_fp_vreg();
+    builder.emit(abi::signed_convert_to_float_d(&cap_f, &cap));
+    put(builder, out, SLOT_CAP, &cap_f);
     emit_paint_header(builder, out, view, &half)?;
     // `__canvas_strokeAsFill`: the stroke colour into the fill slots, half = -1.
     for k in 0..4 {
@@ -845,8 +883,7 @@ fn fill_line(
         put(builder, out, 8 + k, &v);
     }
     put_const(builder, out, 7, -1.0);
-    let one = fconst(builder, 1.0);
-    let pad = fadd(builder, &half, &one);
+    let pad = cap_pad(builder, &half, &cap);
     let min_x = fmin(builder, &x1, &x2);
     let bx0 = fsub(builder, &min_x, &pad);
     let min_y = fmin(builder, &y1, &y2);
@@ -1093,7 +1130,8 @@ struct PolylineScan {
     given: VirtualRegister,
     /// `__canvas_polylineHalf`: positive, or the scan branched to `empty`.
     half: VirtualRegister,
-    /// The first and last segments with length, and the cap tag (Round 1, Butt 0).
+    /// The first and last segments with length, and the cap tag (Round 1, Square 2,
+    /// Butt 0).
     first: VirtualRegister,
     last: VirtualRegister,
     cap: VirtualRegister,
@@ -1243,22 +1281,9 @@ fn emit_polyline_scan(
     builder.emit(abi::branch(&head));
     builder.emit(abi::label(&walked));
 
-    // `__canvas_capTag(paint.cap)`, then the no-live-segment rule: nothing for Butt, segment 0 as
-    // both ends for Round.
-    let (cap_index, cap_type) = field(builder, &view.paint_type, "cap")?;
-    let round = enum_ordinal(builder, &cap_type, "Round")?;
-    let cap_raw = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&cap_raw, &view.paint, 8 * cap_index));
-    let cap = builder.temporary_vreg();
-    let is_butt = builder.label("canvas_geo_pl_butt");
-    let cap_done = builder.label("canvas_geo_pl_cap");
-    builder.emit(abi::compare_immediate(&cap_raw, &round.to_string()));
-    builder.emit(abi::branch_ne(&is_butt));
-    builder.emit(abi::move_immediate(&cap, "Integer", "1"));
-    builder.emit(abi::branch(&cap_done));
-    builder.emit(abi::label(&is_butt));
-    builder.emit(abi::move_immediate(&cap, "Integer", "0"));
-    builder.emit(abi::label(&cap_done));
+    // `__canvas_capTag(paint.cap)`, then the no-live-segment rule: nothing for Butt,
+    // segment 0 as both ends for Round and Square.
+    let cap = emit_cap_tag(builder, view)?;
     let has_live = builder.label("canvas_geo_pl_has_live");
     builder.emit(abi::compare_registers(&first, &count));
     builder.emit(abi::branch_ne(&has_live));
@@ -1364,8 +1389,7 @@ fn fill_polyline(
     put(builder, out, SLOT_POLYLINE_LAST, &last_f);
     put_const(builder, out, 45, 0.0);
     put_const(builder, out, 46, 0.0);
-    let one = fconst(builder, 1.0);
-    let pad = fadd(builder, &scan.half, &one);
+    let pad = cap_pad(builder, &scan.half, &scan.cap);
     let bx0 = fsub(builder, &min_x, &pad);
     let by0 = fsub(builder, &min_y, &pad);
     let bx1 = fadd(builder, &max_x, &pad);

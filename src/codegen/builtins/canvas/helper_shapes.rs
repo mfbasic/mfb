@@ -168,6 +168,67 @@ r#"FUNC __canvas_segmentDistanceButt(px AS Float, py AS Float, ax AS Float, ay A
   RETURN d
 END FUNC"#;
 
+/// The same segment with **square** ends (plan-163-B): the stroke continues `half` past
+/// each endpoint and is cut square there, so the stroke is a rectangle `half` wider than
+/// the segment on every side.
+///
+/// ```text
+/// d = max( |perp| - half , -t*|v| - half , (t-1)*|v| - half )
+/// ```
+///
+/// with `perp` the distance to the segment's LINE and `t` the unclamped projection. It
+/// is **not** the butt planes moved out by `half` over the round band: that band is
+/// round past the endpoint, so it would round the square's corners. Each term is a true
+/// signed distance to one of the rectangle's sides, so the edges antialias like a butt
+/// end's; the corners are the `max` of two sides, the butt cap's rule.
+///
+/// A zero-length segment has no direction, and SVG 2 draws a zero-length square cap as
+/// an axis-aligned square of side `2 * half` centred on the point — `max(|wx|, |wy|) -
+/// half`.
+#[rustfmt::skip]
+const SEGMENT_DISTANCE_SQUARE: &str =
+r#"FUNC __canvas_segmentDistanceSquare(px AS Float, py AS Float, ax AS Float, ay AS Float, bx AS Float, by AS Float, half AS Float) AS Float
+  LET vx AS Float = bx - ax
+  LET vy AS Float = by - ay
+  LET wx AS Float = px - ax
+  LET wy AS Float = py - ay
+  LET len2 AS Float = vx * vx + vy * vy
+  IF len2 <= 0.0 THEN
+    RETURN __canvas_maxF(__canvas_absF(wx), __canvas_absF(wy)) - half
+  END IF
+  LET length AS Float = math::sqrt(len2)
+  LET t AS Float = (wx * vx + wy * vy) / len2
+  MUT d AS Float = __canvas_absF(wx * vy - wy * vx) / length - half
+  d = __canvas_maxF(d, 0.0 - t * length - half)
+  d = __canvas_maxF(d, (t - 1.0) * length - half)
+  RETURN d
+END FUNC
+
+' plan-163-B: an arc's square cap at one sweep endpoint `(ex, ey)` of the arc centred on
+' `(cx, cy)` -- the `half` x `2 * half` box past the end, along the arc's tangent there:
+' `max(|across| - half, along - half, -along)`, `along` measured outward from the end and
+' `across` along the radius. The radial direction is the endpoint less the centre,
+' normalised; `isEnd` turns the outward tangent from the start's (against the sweep) to
+' the end's (with it). A zero radial vector has no direction and adds nothing.
+FUNC __canvas_arcSquareCap(px AS Float, py AS Float, ex AS Float, ey AS Float, cx AS Float, cy AS Float, half AS Float, isEnd AS Boolean) AS Float
+  LET rx AS Float = ex - cx
+  LET ry AS Float = ey - cy
+  LET rl AS Float = math::sqrt(rx * rx + ry * ry)
+  IF rl <= 0.0 THEN
+    RETURN 1000000.0
+  END IF
+  LET ux AS Float = rx / rl
+  LET uy AS Float = ry / rl
+  LET ox AS Float = px - ex
+  LET oy AS Float = py - ey
+  MUT along AS Float = ox * uy - oy * ux
+  IF isEnd THEN
+    along = oy * ux - ox * uy
+  END IF
+  LET across AS Float = ox * ux + oy * uy
+  RETURN __canvas_maxF(__canvas_maxF(__canvas_absF(across) - half, along - half), 0.0 - along)
+END FUNC"#;
+
 /// Signed distance to a rotated ellipse — the `Ellipse` primitive's distance function
 /// (plan-116-E).
 ///
@@ -384,6 +445,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always(
         "canvas_ellipseDistance",
         ELLIPSE_DISTANCE,
+    ));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_segmentDistanceSquare",
+        SEGMENT_DISTANCE_SQUARE,
     ));
     pkg.add_helper(RegistryHelper::always("canvas_trig", TRIG));
     pkg.add_helper(RegistryHelper::always("canvas_arcSweep", ARC_SWEEP));

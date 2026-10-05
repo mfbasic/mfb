@@ -41,7 +41,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
+    emit_item_arc_flags, emit_item_polygon_rule, emit_square_cap_reach, emit_item_residual_field, emit_item_stroke_sign,
     push_symbol_address,
     BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT,
     CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS,
@@ -4341,6 +4341,11 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
     // `fmaxnm`: a NaN half-width reads as 0 rather than poisoning the reach.
     builder.emit(abi::float_max_d(f[1], f[1], f[2]));
+    // plan-163-B: a Square cap reaches `half * sqrt(2)` past its endpoint.
+    let square_reach = builder.label("vk_band_square_reach");
+    for instruction in emit_square_cap_reach(s[0], f[1], s[4], f[2], &square_reach) {
+        builder.emit(instruction);
+    }
     builder.emit(abi::move_immediate(s[4], "Integer", "3"));
     builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
     builder.emit(abi::move_immediate(s[4], "Integer", "2"));
