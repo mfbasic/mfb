@@ -69,10 +69,11 @@ debug.out`isPrime:
 
 `dis isPrime` or `dis exit` shows a function you name, the same way
 `breakpoint` reads a name, and `dis isPrime 3` its first three instructions.
-`dis` also starts anywhere you name an address or a register, either with an
-offset: `dis pc-8 4` shows four instructions from two before the current one,
-`dis lr 2`, at a breakpoint on a function's first instruction, the code it
-returns to, and `dis 0x1049c4ab0+0x40` the code at that address. A negative count works with all of them, and a count
+`dis` also starts anywhere you name an address, a register or a function, each
+with an offset: `dis pc-8 4` shows four instructions from two before the
+current one, `dis lr 2`, at a breakpoint on a function's first instruction, the
+code it returns to, `dis 0x1049c4ab0+0x40` the code at that address, and
+`dis main+0x110 4` the code at a place `bt` or a stop showed you. A negative count works with all of them, and a count
 that runs back past the start of the function shows those addresses as
 `<-8>`, before the function. Every instruction is 4 bytes, so an address that
 is not a multiple of 4 is refused.

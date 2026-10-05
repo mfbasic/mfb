@@ -103,8 +103,9 @@ the address of the value, which `show type` reads (`mfb man debug values`).
 
 ### Reading memory
 
-`show mem` prints raw bytes, 64 unless you give a size. Name an address or a
-register, either with an offset (`0x16b2d0c00+0x10`, `sp-16`): at `-O0` the values a function works with live at
+`show mem` prints raw bytes, 64 unless you give a size. Name an address, a
+register or a function, each with an offset (`0x16b2d0c00+0x10`, `sp-16`,
+`main+0x110`): at `-O0` the values a function works with live at
 offsets from `sp`, so `show mem sp+0x10 24` shows three of them at once. Each
 line starts with the address, then the bytes in hex, then the ones that are
 printable. Numbers are stored lowest byte first, so the 8 bytes

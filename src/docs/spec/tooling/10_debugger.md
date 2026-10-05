@@ -285,7 +285,7 @@ Then, repeatedly:
 | `restart`, `rs` | starts a launched program again |
 | `disassemble`, `dis` | disassembles the current function |
 | `dis <count>` | disassembles `<count>` instructions from the current `pc`; a negative count, that many before it and then the `pc` |
-| `dis <where> [<count>]` | disassembles from an address or register (either `±<offset>`): to the end of its function, or `<count>` as above |
+| `dis <where> [<count>]` | disassembles from an address, register or function (each `±<offset>`): to the end of its function, or `<count>` as above |
 | `dis <function> [<count>]` | disassembles each function `<function>` names, or `<count>` from its start as above |
 | `quit`, `q` | ends the session |
 
@@ -301,7 +301,7 @@ Then, repeatedly:
 | `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
 | `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for the groups` |
 | `show mem` with no location | `'show mem' needs an address or a register: show mem <where> [<size>]` |
-| `show mem` with a location that is neither `0x…` nor `<register>[±<n>]` | `'<where>' is not an address or a register` |
+| `show mem` with a location that is neither `0x…` nor `<name>[±<n>]` | `'<where>' is not an address, a register or a function` |
 | `show mem` with a size of 0 or over 65536 | `cannot show <size> bytes; give 1 to 65536` |
 | `show mem` at a vector register | `'<name>' is a vector register, not an address` |
 | `show type <type>` with no location | `'show type <type>' needs an address or a register: show type <type> <where>` |
@@ -535,11 +535,18 @@ instruction`, `an arithmetic exception`, `a breakpoint instruction`, or
 
 [[src/debugger/prompt.rs:show_memory]] `show mem <where> [<size>]` reads
 `<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at `<where>`:
-an address (`0x…`), or a register of the current thread, either with an
-optional offset (`0x1000-0x10`, `sp`, `sp+0x18`, `x19-16`; a 64-bit register
-only). [[src/debugger/prompt.rs:address]] It prints
+an address (`0x…`), or a name — a register of the current thread when it has
+one so named (a 64-bit register only), else a function, resolved as
+`dis <function>` resolves one to its start — either with an optional offset
+(`0x1000-0x10`, `sp`, `sp+0x18`, `x19-16`, `main+0x110`, `isPrime+16`). A name
+is letters, digits, `_`, `:`, `#`, `$` and `.`, so a place `bt` or a stop prints
+can be typed back. A function name that names several functions fails with
+`'<name>' names <n> functions, at 0x…, 0x…; give one by its address`; one that
+names none (and no register) with `no register or function is named '<name>';
+type 'list reg' or 'list func' for them`. [[src/debugger/prompt.rs:address]]
+[[src/debugger/prompt.rs:function_start]] It prints
 `Memory at 0x<address>:` — with ` (<register>±0x<offset> of thread <t>)` for a
-register — then the bytes as `show arena`'s dump does, each line led by its
+register, ` (<function>±0x<offset>)` for a function — then the bytes as `show arena`'s dump does, each line led by its
 full address (`0x` + 16 digits). [[src/debugger/prompt.rs:memory_lines]]
 
 ### `show type`
@@ -664,7 +671,8 @@ outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
 
 [[src/debugger/breakpoints.rs:Breakpoints]] A `<target>` starting `0x` (or
 `0X`) is an address in hex, perhaps `+` or `-` an offset (decimal, or hex after
-`0x`), as `show mem` reads one; anything else is a name.
+`0x`), as `show mem` reads one; `<name>+<offset>` is a place in a function;
+anything else is a name.
 
 - **By address**: one breakpoint at that address, described by the function
   that holds it (`<symbol>+0x<offset>` and `<written>+0x<offset>`), a linked
@@ -676,6 +684,11 @@ outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
   among them; a linked function not yet bound gives one **pending**
   breakpoint per symbol, unless another record of it is bound. No match:
   `no function is named '<target>'; type 'list func' for the functions`.
+- **By place** (`<name>+<offset>`, the offset decimal or `0x` hex, as `bt` and
+  stops print a place: `main+0x110`, `main+272`): `<name>` matched as by name,
+  then one breakpoint `<offset>` bytes into each bound function it matches,
+  described as by address. None bound: `'<name>' is not loaded yet; run the
+  program until it has loaded its libraries`.
 
 Each new breakpoint prints `Set a breakpoint at <place>.`, where `<place>` is
 `0x<address>` and ` in <written name or symbol>` when it has one; a pending one
@@ -683,7 +696,7 @@ prints `Set a pending breakpoint on <symbol>: it is placed when the program
 has loaded its libraries.` A target whose every breakpoint exists already
 fails with `there is already a breakpoint at <address>` / `on '<target>'`.
 
-`breakpoint r <target>` removes, by address, the breakpoint there; by name, the
+`breakpoint r <target>` removes, by address or by place, the breakpoints there; by name, the
 breakpoints whose symbol is `<target>`, or else whose written name is. Each
 prints `Removed the breakpoint at <place>.`; none fails with `there is no
 breakpoint at <address>` / `on '<target>'`.
@@ -722,7 +735,7 @@ or the last `step` ran; thread 0 before either, or when it has ended.
   it, then the `pc`'s own.
 - `dis <where> [<count>]`, `<where>` starting `0x`, holding `+` or `-`, or a
   register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it resolves to
-  as `show mem` resolves one, which must be a multiple of 4. With no count, the
+  as `show mem` resolves one (so `dis main+0x110` is a place in `main`), which must be a multiple of 4. With no count, the
   listing runs from there to the end of the function holding it (or to the first
   `ret` or 64 instructions when its extent is unknown); with one, as for
   `dis <count>`. The header names the function holding that address.

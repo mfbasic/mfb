@@ -21,7 +21,9 @@ function name:
   is named the same way: `bp io::print` stops each time your program prints.
 - a name exactly as `list func` shows it in its `Symbol` column, such as
   `_mfb_fn_isPrime` or `_exit`;
-- `exit`, `write` and the other system functions by their C names.
+- `exit`, `write` and the other system functions by their C names;
+- any of these with `+` and an offset, a place inside the function, written
+  the way `bt` and a stop show one: `bp main+0x110` or `bp main+272`.
 
 A name sets a breakpoint at every function it matches. `breakpoint r` takes the
 same forms and removes what they name. `list breakpoint` lists them.

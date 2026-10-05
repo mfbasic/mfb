@@ -40,17 +40,66 @@ pub(crate) struct Breakpoint {
 pub(crate) enum Target {
     Address(u64),
     Name(String),
+    /// `<function>+<offset>`: that many bytes into each function the name
+    /// names, as `bt` and stops show a place (`main+0x110`, `main+272`).
+    Offset {
+        name: String,
+        offset: u64,
+    },
 }
 
 impl Target {
     /// `0x` and hex digits, perhaps with `+`/`-` an offset, is an address;
-    /// anything else is a name.
+    /// `<name>+<n>` (`n` decimal or `0x` hex) a place in a function; anything
+    /// else is a name.
     pub(crate) fn parse(word: &str) -> Result<Target, String> {
-        match super::prompt::address(word) {
-            Some(address) => address.map(Target::Address),
-            None => Ok(Target::Name(word.to_string())),
+        if let Some(address) = super::prompt::address(word) {
+            return address.map(Target::Address);
+        }
+        match word.split_once('+') {
+            Some((name, offset)) if !name.is_empty() => Ok(Target::Offset {
+                name: name.to_string(),
+                offset: super::prompt::number(offset)?,
+            }),
+            _ => Ok(Target::Name(word.to_string())),
         }
     }
+
+    /// How the target reads in a message: `0x…`, `isPrime`, `main+0x110`.
+    fn shown(&self) -> String {
+        match self {
+            Target::Address(address) => format!("0x{address:016x}"),
+            Target::Name(name) => name.clone(),
+            Target::Offset { name, offset } => format!("{name}+{offset:#x}"),
+        }
+    }
+}
+
+/// The addresses `offset` bytes into each loaded function `name` names.
+fn offsets(functions: &[FunctionSymbol], name: &str, offset: u64) -> Result<Vec<u64>, String> {
+    let found = find(functions, name);
+    if found.is_empty() {
+        return Err(format!(
+            "no function is named '{name}'; type 'list func' for the functions"
+        ));
+    }
+    let starts = found
+        .iter()
+        .filter_map(|breakpoint| breakpoint.address)
+        .collect::<Vec<_>>();
+    if starts.is_empty() {
+        return Err(format!(
+            "'{name}' is not loaded yet; run the program until it has loaded its libraries"
+        ));
+    }
+    starts
+        .into_iter()
+        .map(|start| {
+            start
+                .checked_add(offset)
+                .ok_or_else(|| format!("'{name}+{offset:#x}' is past the last address"))
+        })
+        .collect()
 }
 
 #[derive(Debug, Default)]
@@ -200,6 +249,10 @@ impl Breakpoints {
                 }
                 found
             }
+            Target::Offset { name, offset } => offsets(&functions, name, *offset)?
+                .into_iter()
+                .map(|address| describe(&functions, address))
+                .collect(),
         };
         let mut lines = Vec::new();
         for breakpoint in wanted {
@@ -225,10 +278,8 @@ impl Breakpoints {
         }
         if lines.is_empty() {
             return Err(match target {
-                Target::Address(address) => {
-                    format!("there is already a breakpoint at 0x{address:016x}")
-                }
                 Target::Name(name) => format!("there is already a breakpoint on '{name}'"),
+                other => format!("there is already a breakpoint at {}", other.shown()),
             });
         }
         Ok(lines)
@@ -246,6 +297,19 @@ impl Breakpoints {
                 .filter(|breakpoint| breakpoint.address == Some(*address))
                 .cloned()
                 .collect::<Vec<_>>(),
+            Target::Offset { name, offset } => {
+                let functions = inferior.functions().unwrap_or_default();
+                let addresses = offsets(&functions, name, *offset)?;
+                self.list
+                    .iter()
+                    .filter(|breakpoint| {
+                        breakpoint
+                            .address
+                            .is_some_and(|address| addresses.contains(&address))
+                    })
+                    .cloned()
+                    .collect()
+            }
             Target::Name(name) => {
                 let by_symbol = self
                     .list
@@ -266,8 +330,8 @@ impl Breakpoints {
         };
         if chosen.is_empty() {
             return Err(match target {
-                Target::Address(address) => format!("there is no breakpoint at 0x{address:016x}"),
                 Target::Name(name) => format!("there is no breakpoint on '{name}'"),
+                other => format!("there is no breakpoint at {}", other.shown()),
             });
         }
         let mut lines = Vec::new();
@@ -723,6 +787,52 @@ mod tests {
         );
         assert_eq!(
             breakpoints.set(&mut program, &name("nothing")),
+            Err("no function is named 'nothing'; type 'list func' for the functions".to_string())
+        );
+    }
+
+    #[test]
+    fn a_function_and_an_offset_is_a_place_in_each_function_so_named() {
+        let mut program = Program::new(Vec::new());
+        let mut breakpoints = Breakpoints::default();
+        // `isPrime` is two functions, the original and a hand-over copy.
+        assert_eq!(
+            breakpoints
+                .set(&mut program, &name("isPrime+0x24"))
+                .unwrap(),
+            [
+                "Set a breakpoint at 0x0000000000001124 in isPrime+0x24.",
+                "Set a breakpoint at 0x0000000000001224 in isPrime+0x24.",
+            ]
+        );
+        // A symbol, with a decimal offset.
+        assert_eq!(
+            breakpoints
+                .set(&mut program, &name("_mfb_fn_exit+4"))
+                .unwrap(),
+            ["Set a breakpoint at 0x0000000000001304 in exit+0x4 <mfb>."]
+        );
+        assert_eq!(
+            breakpoints.set(&mut program, &name("_mfb_fn_exit+4")),
+            Err("there is already a breakpoint at _mfb_fn_exit+0x4".to_string())
+        );
+        assert_eq!(
+            breakpoints
+                .remove(&mut program, &name("_mfb_fn_isPrime+0x24"))
+                .unwrap(),
+            ["Removed the breakpoint at 0x0000000000001124 in isPrime+0x24."]
+        );
+        assert_eq!(program.inserted, [0x1224, 0x1304]);
+        // `_exit` is not bound until the program reaches its entry point.
+        assert_eq!(
+            breakpoints.set(&mut program, &name("_exit+8")),
+            Err(
+                "'_exit' is not loaded yet; run the program until it has loaded its libraries"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            breakpoints.set(&mut program, &name("nothing+8")),
             Err("no function is named 'nothing'; type 'list func' for the functions".to_string())
         );
     }

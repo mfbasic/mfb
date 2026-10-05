@@ -28,20 +28,21 @@ pub(crate) const HELP: &str = "\
 Commands:
   help, h         Show this list of commands
   list, l         Show what can be listed
-  show            Show memory: show mem <address|register[+offset]> [<size>]
+  show            Show memory: show mem <address|register|function[+offset]> [<size>]
                   An arena's state and blocks: show arena [<id>]
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
-                  An arena value as a type: show type <type> <address|register[+offset]>
+                  An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)
-  breakpoint, bp  Set a breakpoint: breakpoint <address|function>
-                  Remove one: breakpoint r <address|function>
+  breakpoint, bp  Set a breakpoint: breakpoint <address|function[+offset]>
+                  Remove one: breakpoint r <address|function[+offset]>
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
   disassemble, dis
                   Disassemble the current function; dis <count> instructions
                   from the current one (negative: before it); dis <where>
-                  [<count>] from an address or register (pc-0x20); or
+                  [<count>] from an address, register or function, with an
+                  offset (pc-0x20, main+0x110); or
                   dis <function> [<count>]
   backtrace, bt   Show the current thread's calls: bt [<count>] [<thread>]
                   Every thread's: bt all
@@ -134,12 +135,17 @@ struct Dump {
     size: u64,
 }
 
-/// Where `show mem` reads: an address, or a register of the current thread
-/// plus an offset.
+/// Where `show mem` reads: an address, or a register of the current thread or
+/// a function, plus an offset.
 #[derive(Debug, PartialEq, Eq)]
 enum Location {
     Address(u64),
-    Register { name: String, offset: i64 },
+    /// A register of the current thread when it has one of this name, else a
+    /// function as `dis <function>` names one (`main+0x110`, `isPrime+16`).
+    Named {
+        name: String,
+        offset: i64,
+    },
 }
 
 /// What a `dis` names, before a location is resolved to an address.
@@ -223,9 +229,15 @@ pub(crate) fn address(word: &str) -> Option<Result<u64, String>> {
     })
 }
 
+/// Whether `byte` can be part of a register's or a function's name: a symbol
+/// (`_mfb_fn_main`) or a written name (`datetime::#normInstant`, `f$own1`).
+fn name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':' | b'#' | b'$' | b'.')
+}
+
 impl Location {
-    /// `0x…`, or `<register>`, `<register>+<n>`, `<register>-<n>` (`n` decimal
-    /// or `0x` hex).
+    /// `0x…`, or `<name>`, `<name>+<n>`, `<name>-<n>` (`n` decimal or `0x`
+    /// hex), where `<name>` is a register or a function.
     fn parse(word: &str) -> Result<Location, String> {
         if let Some(address) = address(word) {
             return address.map(Location::Address);
@@ -239,10 +251,12 @@ impl Location {
             }
             None => (word, 0),
         };
-        if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
-            return Err(format!("'{word}' is not an address or a register"));
+        if name.is_empty() || !name.bytes().all(name_byte) {
+            return Err(format!(
+                "'{word}' is not an address, a register or a function"
+            ));
         }
-        Ok(Location::Register {
+        Ok(Location::Named {
             name: name.to_string(),
             offset,
         })
@@ -459,7 +473,7 @@ fn arena_id(word: &str) -> Result<usize, String> {
 }
 
 /// A byte count or offset: decimal, or hex after `0x`.
-fn number(word: &str) -> Result<u64, String> {
+pub(crate) fn number(word: &str) -> Result<u64, String> {
     match word.strip_prefix("0x").or_else(|| word.strip_prefix("0X")) {
         Some(hex) => u64::from_str_radix(hex, 16),
         None => word.parse::<u64>(),
@@ -1190,6 +1204,24 @@ fn show_type(
     )
 }
 
+/// The one start of the function `name` names, as `dis <function>` resolves
+/// it; an error when it names none, or several (overloads, copies).
+pub(crate) fn function_start(inferior: &mut dyn Inferior, name: &str) -> Result<u64, String> {
+    let ranges = disassemble::resolve(inferior, name)?;
+    match ranges.as_slice() {
+        [range] => Ok(range.start),
+        _ => Err(format!(
+            "'{name}' names {} functions, at {}; give one by its address",
+            ranges.len(),
+            ranges
+                .iter()
+                .map(|range| format!("0x{:016x}", range.start))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
 /// The address `location` names for thread `current`, and how to describe it
 /// when it came from a register: ` (<register>+<offset> of thread <t>)`.
 fn resolve(
@@ -1199,22 +1231,38 @@ fn resolve(
 ) -> Result<(u64, String), String> {
     match location {
         Location::Address(address) => Ok((*address, String::new())),
-        Location::Register { name, offset } => {
-            let registers = inferior.registers(current)?;
-            let register = registers
-                .iter()
-                .find(|register| &register.name == name)
-                .ok_or_else(|| format!("no register '{name}'; type 'list reg' for the groups"))?;
-            let RegisterValue::Bits64(base) = register.value else {
-                return Err(format!("'{name}' is a vector register, not an address"));
-            };
-            let address = base.wrapping_add(*offset as u64);
+        Location::Named { name, offset } => {
             let shown = match offset {
                 0 => name.clone(),
                 offset if *offset < 0 => format!("{name}-{:#x}", offset.unsigned_abs()),
                 offset => format!("{name}+{offset:#x}"),
             };
-            Ok((address, format!(" ({shown} of thread {current})")))
+            let registers = if is_register(name) {
+                inferior.registers(current)?
+            } else {
+                inferior.registers(current).unwrap_or_default()
+            };
+            if let Some(register) = registers.iter().find(|register| &register.name == name) {
+                let RegisterValue::Bits64(base) = register.value else {
+                    return Err(format!("'{name}' is a vector register, not an address"));
+                };
+                let address = base.wrapping_add(*offset as u64);
+                return Ok((address, format!(" ({shown} of thread {current})")));
+            }
+            let start = function_start(inferior, name).map_err(|error| {
+                if error.starts_with("no function is named") {
+                    format!(
+                        "no register or function is named '{name}'; type 'list reg' or \
+                         'list func' for them"
+                    )
+                } else {
+                    error
+                }
+            })?;
+            let address = start
+                .checked_add_signed(*offset)
+                .ok_or_else(|| format!("'{shown}' is outside the address space"))?;
+            Ok((address, format!(" ({shown})")))
         }
     }
 }
@@ -1877,7 +1925,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show mem sp+0x18 8"),
             Ok(Command::ShowMemory {
-                location: Location::Register {
+                location: Location::Named {
                     name: "sp".to_string(),
                     offset: 0x18
                 },
@@ -1887,7 +1935,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show mem x19-16"),
             Ok(Command::ShowMemory {
-                location: Location::Register {
+                location: Location::Named {
                     name: "x19".to_string(),
                     offset: -16
                 },
@@ -1900,13 +1948,64 @@ x0       0x000000000000002c (44)
                 "'show mem' needs an address or a register: show mem <where> [<size>]",
             ),
             ("show mem sp+zz", "'zz' is not a number"),
-            ("show mem $x", "'$x' is not an address or a register"),
+            (
+                "show mem @x",
+                "'@x' is not an address, a register or a function",
+            ),
             ("show mem sp 8 9", "too many arguments to 'show mem'"),
             ("finish now", "'finish' takes no arguments"),
             ("rs again", "'rs' takes no arguments"),
         ] {
             assert_eq!(parse(line), Err(message.to_string()), "{line}");
         }
+    }
+
+    /// A place `bt` or a stop shows (`main+0x110`) can be typed back: `show`
+    /// and `dis` read a name that is no register as a function, and
+    /// `breakpoint` takes one with an offset.
+    #[test]
+    fn a_function_and_an_offset_name_a_place() {
+        assert_eq!(
+            parse("show mem _mfb_fn_f$own4+8"),
+            Ok(Command::ShowMemory {
+                location: Location::Named {
+                    name: "_mfb_fn_f$own4".to_string(),
+                    offset: 8,
+                },
+                size: MEMORY_SIZE
+            })
+        );
+        assert_eq!(
+            parse("dis datetime::#normInstant+0x10 2"),
+            Ok(Command::Disassemble(Disassembly::At(
+                Location::Named {
+                    name: "datetime::#normInstant".to_string(),
+                    offset: 16,
+                },
+                Some(2)
+            )))
+        );
+        assert_eq!(
+            parse("bp main+272"),
+            Ok(Command::SetBreakpoint(Target::Offset {
+                name: "main".to_string(),
+                offset: 272,
+            }))
+        );
+        // `main` is the program's (`_mfb_fn_main` at 0x1010), so `main+0x10`
+        // is 0x1020; a register keeps its name; nothing else is a place.
+        let (_, err, _) = session(
+            "show mem main+0x10\nshow mem x0+8\nshow mem nothing+4\nq\n",
+            Ending::Killed,
+            false,
+        );
+        assert_eq!(
+            err,
+            "error: unmapped 0x1020\n\
+             error: unmapped 0x32\n\
+             error: no register or function is named 'nothing'; type 'list reg' or 'list func' \
+             for them\n"
+        );
     }
 
     #[test]
@@ -1937,7 +2036,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show type string x1"),
             Ok(Command::ShowType {
-                location: Location::Register {
+                location: Location::Named {
                     name: "x1".to_string(),
                     offset: 0
                 },
@@ -1960,7 +2059,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show type map x3 get Grace Hopper"),
             Ok(Command::ShowType {
-                location: Location::Register {
+                location: Location::Named {
                     name: "x3".to_string(),
                     offset: 0
                 },
@@ -2324,7 +2423,7 @@ Address            Symbol              Written name
 
     #[test]
     fn dis_takes_a_count_a_place_or_a_function_and_counts_back_when_negative() {
-        let register = |name: &str, offset| Location::Register {
+        let register = |name: &str, offset| Location::Named {
             name: name.to_string(),
             offset,
         };

@@ -197,7 +197,10 @@ fn unknown(address: u64) -> FunctionRange {
 /// The functions `name` means: symbols spelled `name` (the executable's, its
 /// imports', the libraries'), or else functions written `name`; one listing
 /// per distinct start.
-fn resolve(inferior: &mut dyn Inferior, name: &str) -> Result<Vec<FunctionRange>, String> {
+pub(crate) fn resolve(
+    inferior: &mut dyn Inferior,
+    name: &str,
+) -> Result<Vec<FunctionRange>, String> {
     let functions = inferior.functions().unwrap_or_default();
     let mut starts = Vec::new();
     let mut unbound = false;
