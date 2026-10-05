@@ -16,7 +16,8 @@
 //! no longer exists, at a frame whose function is not known, or when the next
 //! frame would not be further up the stack.
 
-use super::disassemble::display_name;
+use super::disassemble::at_offset;
+use super::names::Collisions;
 use super::{FunctionRange, Inferior, Register, RegisterValue};
 
 /// The most frames a backtrace shows.
@@ -530,6 +531,7 @@ pub(crate) fn lines(
     task: &str,
     frames: &[Frame],
     current: bool,
+    collisions: &Collisions,
 ) -> Vec<String> {
     let mark = if current { "*" } else { " " };
     let mut header = format!("{mark} thread #{thread}");
@@ -541,7 +543,7 @@ pub(crate) fn lines(
     for (number, frame) in frames.iter().enumerate() {
         let mark = if current && number == 0 { "*" } else { " " };
         let mut line = format!("  {mark} frame #{number}: 0x{:016x}", frame.pc);
-        if let Some(place) = place(frame) {
+        if let Some(place) = place(frame, collisions) {
             line.push(' ');
             line.push_str(&place);
         }
@@ -552,22 +554,18 @@ pub(crate) fn lines(
 
 /// `image`function + offset`, as lldb names a frame's place; `None` for code
 /// no image names.
-fn place(frame: &Frame) -> Option<String> {
+fn place(frame: &Frame, collisions: &Collisions) -> Option<String> {
     let function = frame.function.as_ref()?;
-    let name = match &function.name {
-        Some(name) => display_name(name),
-        None => format!("0x{:016x}", function.start),
-    };
     let offset = frame.pc - function.start;
-    let at = if offset == 0 {
-        String::new()
-    } else {
-        format!(" + {offset}")
+    let name = match &function.name {
+        Some(name) => at_offset(name, offset, collisions),
+        None if offset == 0 => format!("0x{:016x}", function.start),
+        None => format!("0x{:016x} + {offset}", function.start),
     };
     Some(if function.image.is_empty() {
-        format!("{name}{at}")
+        name
     } else {
-        format!("{}`{name}{at}", function.image)
+        format!("{}`{name}", function.image)
     })
 }
 
@@ -707,8 +705,9 @@ mod tests {
                 function: None,
             },
         ];
+        let none = Collisions::default();
         assert_eq!(
-            lines(0, None, "MFB Main", &frames, true),
+            lines(0, None, "MFB Main", &frames, true, &none),
             [
                 "* thread #0, task = 'MFB Main'",
                 "  * frame #0: 0x0000000000001000 debug.out`isPrime",
@@ -718,10 +717,44 @@ mod tests {
             ]
         );
         assert_eq!(
-            lines(2, Some("worker"), "User Thread", &frames[..1], false),
+            lines(2, Some("worker"), "User Thread", &frames[..1], false, &none),
             [
                 "  thread #2, name = 'worker', task = 'User Thread'",
                 "    frame #0: 0x0000000000001000 debug.out`isPrime",
+            ]
+        );
+    }
+
+    /// The program's `main` and the runtime's `_main` both read `main`, so
+    /// each is tagged with its side.
+    #[test]
+    fn two_functions_of_one_name_are_told_apart() {
+        let symbol = |name: &str| crate::debugger::FunctionSymbol {
+            name: name.to_string(),
+            linked: false,
+            loaded: false,
+            address: None,
+            size: None,
+        };
+        let collisions = Collisions::of(&[symbol("_mfb_fn_main"), symbol("_main")]);
+        let frame = |name: &str, start, pc| Frame {
+            pc,
+            function: Some(FunctionRange {
+                image: "debug.out".to_string(),
+                name: Some(name.to_string()),
+                start,
+                size: None,
+            }),
+        };
+        let frames = [
+            frame("_mfb_fn_main", 0x1000, 0x1010),
+            frame("_main", 0x2000, 0x2000),
+        ];
+        assert_eq!(
+            lines(0, None, "MFB Main", &frames, false, &collisions)[1..],
+            [
+                "    frame #0: 0x0000000000001010 debug.out`main + 16 <mfb>",
+                "    frame #1: 0x0000000000002000 debug.out`main <native>",
             ]
         );
     }

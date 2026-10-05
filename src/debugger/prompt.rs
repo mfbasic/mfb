@@ -13,7 +13,7 @@ use std::io::{BufRead, Write};
 use super::backtrace;
 use super::breakpoints::{Breakpoints, Finish, Target};
 use super::disassemble::{self, Request};
-use super::names::{classify_defined, linked_name, Origin};
+use super::names::{classify, Collisions};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::values::{self, Region, View};
 use super::{
@@ -516,16 +516,12 @@ pub(crate) fn table<const N: usize>(headers: [&str; N], rows: Vec<[String; N]>) 
 /// last), symbols that tie in symbol-table order, and a name repeated at the
 /// same address once.
 pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
+    let collisions = Collisions::of(symbols);
     let mut rows = symbols
         .iter()
         .map(|symbol| {
-            let (origin, written) = if symbol.loaded {
-                (Origin::Dynamic, Some(linked_name(&symbol.name)))
-            } else if symbol.linked {
-                (Origin::Linked, Some(linked_name(&symbol.name)))
-            } else {
-                classify_defined(&symbol.name)
-            };
+            let (origin, written) = classify(symbol);
+            let written = written.map(|name| collisions.tagged(name, origin));
             (origin, symbol.address, &symbol.name, written)
         })
         .collect::<Vec<_>>();
@@ -1085,9 +1081,10 @@ fn finish(
                     })
                     .unwrap_or_default()
             };
+            let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
             let from = from
                 .as_deref()
-                .map(disassemble::display_name)
+                .map(|name| disassemble::display_name(name, &collisions))
                 .unwrap_or_else(|| "the function".to_string());
             lines.push(format!(
                 "Thread {thread} returned from {from} to {at}: x0 = {}, x1 = {}.",
@@ -1233,6 +1230,7 @@ fn backtrace(
         }
     };
     let mut lines = Vec::new();
+    let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
     for thread in chosen {
         let frames = backtrace::frames(inferior, thread, limit)?;
         lines.extend(backtrace::lines(
@@ -1241,6 +1239,7 @@ fn backtrace(
             roles[thread].label(),
             &frames,
             thread == current,
+            &collisions,
         ));
     }
     Ok(lines)
@@ -1402,6 +1401,7 @@ pub(crate) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debugger::names::Origin;
     use crate::debugger::{FunctionRange, Step};
 
     /// An [`Inferior`] answering from fixed tables: two threads, a few
@@ -1686,7 +1686,7 @@ mod tests {
                 "{PROMPT}\
 Type Address            Symbol                          Written name
 MU   0x0000000000001004 _mfb_fn_next_5Fseed             next_seed
-MU   0x0000000000001010 _mfb_fn_main                    main
+MU   0x0000000000001010 _mfb_fn_main                    main <mfb>
 MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
 MR   0x0000000000001000 _main                           -
 MR   0x0000000000001008 _mfb_rt_print                   -
@@ -2213,12 +2213,12 @@ Thread 2 is at 0x0000000000007004.
             out,
             format!(
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed.\n\
-                 {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2.\n\
+                 {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
                  {PROMPT}\
 Address            Symbol              Written name
 0x0000000000001004 _mfb_fn_next_5Fseed next_seed
-0x0000000000001012 _mfb_fn_main+0x2    main+0x2
-{PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2.\n\
+0x0000000000001012 _mfb_fn_main+0x2    main+0x2 <mfb>
+{PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
                  {PROMPT}Address            Symbol              Written name\n\
                  0x0000000000001004 _mfb_fn_next_5Fseed next_seed\n\
                  {PROMPT}Killed process 42.\n"

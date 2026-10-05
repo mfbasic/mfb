@@ -421,8 +421,10 @@ fn mapped_bytes(inferior: &mut dyn Inferior, state: u64) -> Result<u64, String> 
 
 /// Where `pc` is, as `<name>+0x<offset>` for a function the executable defines
 /// (the written name when there is one), or the name of a linked function that
-/// starts exactly there; `None` anywhere else.
+/// starts exactly there; `None` anywhere else. A name an MFBASIC and a native
+/// function share carries its tag (`main <mfb>`).
 pub(crate) fn locate(functions: &[super::FunctionSymbol], pc: u64) -> Option<String> {
+    let collisions = super::names::Collisions::of(functions);
     if let Some(function) = functions.iter().find(|function| {
         !function.linked
             && function
@@ -430,18 +432,28 @@ pub(crate) fn locate(functions: &[super::FunctionSymbol], pc: u64) -> Option<Str
                 .is_some_and(|address| address <= pc && pc - address < function.size.unwrap_or(0))
     }) {
         let offset = pc - function.address?;
-        let (_, written) = super::names::classify_defined(&function.name);
+        let (origin, written) = super::names::classify_defined(&function.name);
+        let tag = written
+            .as_deref()
+            .and_then(|written| collisions.tag(written, origin));
         let name = written.unwrap_or_else(|| function.name.clone());
-        return Some(if offset == 0 {
+        let place = if offset == 0 {
             name
         } else {
             format!("{name}+{offset:#x}")
+        };
+        return Some(match tag {
+            Some(tag) => format!("{place} {tag}"),
+            None => place,
         });
     }
     functions
         .iter()
         .find(|function| function.linked && function.address == Some(pc))
-        .map(|function| super::names::linked_name(&function.name))
+        .map(|function| {
+            let (origin, written) = super::names::classify(function);
+            collisions.tagged(written.unwrap_or_default(), origin)
+        })
 }
 
 #[cfg(test)]

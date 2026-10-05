@@ -398,6 +398,17 @@ Classification and the written name come from the symbol alone
 | an import | `SL` | the symbol less one leading `_` |
 | a function of a library loaded while the program ran | `SD` | the symbol less one leading `_` |
 
+A name an MFBASIC function (`MU`, `MB`) and a native one (`MR`, `SL`, `SD`)
+share — a function's name being its written name, else its symbol less one
+leading `_`, over every function `Inferior::functions` answers — is shown with
+a tag: ` <mfb>` after the MFBASIC one's, ` <native>` after the native one's, so
+the program's `main` is `main <mfb>` and the runtime's `_main` reads `main
+<native>`. The tag follows any offset (`main+0x24 <mfb>`, `main + 8 <native>`)
+and is applied the same way in `list func`'s written names, `list breakpoint`
+and breakpoint messages, stop and `finish` places, `dis` headers and comments,
+and `bt` frames; it is never part of a name a command looks up.
+[[src/debugger/names.rs:Collisions]]
+
 A trailing `$own<hex>` (a hand-over copy; the mask is not escaped) is dropped
 before decoding. The decoded IR name is reduced: `<16 hex>.<package>.<name>`
 becomes `<package>::<name>`; `$lambda<N>` becomes `lambda`;

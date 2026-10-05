@@ -215,9 +215,15 @@ mod macos {
         let rows = table_rows(table, FUNCTION_COLUMNS)
             .iter()
             .map(|line| {
-                let words = line.split_whitespace().collect::<Vec<_>>();
-                assert_eq!(words.len(), 4, "{line}");
-                [0, 1, 2, 3].map(|at| words[at].to_string())
+                // The written name may carry a tag (`main <mfb>`): it is the
+                // rest of the line after three columns.
+                let mut words = line.split_whitespace();
+                let mut next = || words.next().unwrap_or_else(|| panic!("{line}")).to_string();
+                let cells = [next(), next(), next()];
+                let written = words.collect::<Vec<_>>().join(" ");
+                assert!(!written.is_empty(), "{line}");
+                let [kind, address, symbol] = cells;
+                [kind, address, symbol, written]
             })
             .collect::<Vec<_>>();
         let mut shown = rows.iter().map(|row| row[0].clone()).collect::<Vec<_>>();
@@ -437,7 +443,10 @@ mod macos {
                 && row[3] == "next_tick"),
             "{listing}"
         );
-        assert!(rows.iter().any(|row| row[0] == "MU" && row[3] == "main"));
+        // The program's `main` shares its name with the runtime's `_main`.
+        assert!(rows
+            .iter()
+            .any(|row| row[0] == "MU" && row[3] == "main <mfb>"));
         assert!(rows
             .iter()
             .any(|row| row[0] == "MR" && row[2] == "_main" && row[3] == "-"));

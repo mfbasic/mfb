@@ -14,7 +14,7 @@
 //! function's `ret`s, then steps the `ret`.
 
 use super::disassemble::returns;
-use super::names::{classify_defined, linked_name};
+use super::names::{classify, Collisions};
 use super::prompt::table;
 use super::{FunctionSymbol, Inferior, RunStop, StepStop};
 
@@ -27,6 +27,9 @@ pub(crate) struct Breakpoint {
     pub(crate) symbol: Option<String>,
     /// The name the developer wrote (likewise), if any.
     pub(crate) written: Option<String>,
+    /// `<mfb>` or `<native>` when an MFBASIC and a native function share the
+    /// written name; shown after it, never matched.
+    pub(crate) tag: Option<&'static str>,
     /// The function symbol it is in and its offset there, by which a restart
     /// finds it again; `None` for an address no function holds.
     pub(crate) anchor: Option<(String, u64)>,
@@ -59,11 +62,13 @@ pub(crate) struct Breakpoints {
 
 /// The written name of a function symbol, if it has one.
 fn written(function: &FunctionSymbol) -> Option<String> {
-    if function.linked {
-        Some(linked_name(&function.name))
-    } else {
-        classify_defined(&function.name).1
-    }
+    classify(function).1
+}
+
+/// The tag of `function`'s written name, when an MFBASIC and a native function
+/// share it (`exit <mfb>`).
+fn tag(function: &FunctionSymbol, collisions: &Collisions) -> Option<&'static str> {
+    collisions.tag(&written(function)?, classify(function).0)
 }
 
 /// A name as `list breakpoint` prints it: `-` for none.
@@ -74,6 +79,7 @@ fn shown(name: &Option<String>) -> &str {
 /// The breakpoints a name asks for: symbols spelled `name`, or else functions
 /// written `name`; one per distinct address, and one per symbol not yet bound.
 fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
+    let collisions = Collisions::of(functions);
     let mut matches = functions
         .iter()
         .filter(|function| function.name == name)
@@ -99,6 +105,7 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
                 address: function.address,
                 symbol: Some(function.name.clone()),
                 written: written(function),
+                tag: tag(function, &collisions),
                 anchor: Some((function.name.clone(), 0)),
             });
         }
@@ -109,6 +116,7 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
 /// The breakpoint for `address`: named by the function that holds it (with the
 /// offset into it), a linked function bound there, or neither.
 fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
+    let collisions = Collisions::of(functions);
     let offset = |name: Option<String>, start: u64| {
         name.map(|name| {
             if address == start {
@@ -130,6 +138,7 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             address: Some(address),
             symbol: offset(Some(function.name.clone()), start),
             written: offset(written(function), start),
+            tag: tag(function, &collisions),
             anchor: Some((function.name.clone(), address - start)),
         };
     }
@@ -141,12 +150,14 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             address: Some(address),
             symbol: Some(function.name.clone()),
             written: written(function),
+            tag: tag(function, &collisions),
             anchor: Some((function.name.clone(), 0)),
         },
         None => Breakpoint {
             address: Some(address),
             symbol: None,
             written: None,
+            tag: None,
             anchor: None,
         },
     }
@@ -154,12 +165,21 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
 
 /// How a breakpoint reads in a sentence: `0x… in isPrime`.
 fn place(breakpoint: &Breakpoint) -> String {
-    let name = breakpoint.written.as_ref().or(breakpoint.symbol.as_ref());
+    let name = written_shown(breakpoint).or_else(|| breakpoint.symbol.clone());
     match (breakpoint.address, name) {
         (Some(address), None) => format!("0x{address:016x}"),
         (Some(address), Some(name)) => format!("0x{address:016x} in {name}"),
         (None, _) => shown(&breakpoint.symbol).to_string(),
     }
+}
+
+/// A breakpoint's written name with its tag, if any.
+fn written_shown(breakpoint: &Breakpoint) -> Option<String> {
+    let written = breakpoint.written.clone()?;
+    Some(match breakpoint.tag {
+        Some(tag) => format!("{written} {tag}"),
+        None => written,
+    })
 }
 
 impl Breakpoints {
@@ -279,7 +299,7 @@ impl Breakpoints {
                             .address
                             .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}")),
                         shown(&breakpoint.symbol).to_string(),
-                        shown(&breakpoint.written).to_string(),
+                        shown(&written_shown(breakpoint)).to_string(),
                     ]
                 })
                 .collect(),
@@ -682,7 +702,7 @@ mod tests {
             breakpoints
                 .set(&mut program, &name("_mfb_fn_exit"))
                 .unwrap(),
-            ["Set a breakpoint at 0x0000000000001300 in exit."]
+            ["Set a breakpoint at 0x0000000000001300 in exit <mfb>."]
         );
         assert_eq!(program.inserted, [0x1100, 0x1200, 0x1300]);
         assert_eq!(
@@ -728,7 +748,7 @@ mod tests {
         assert_eq!(
             breakpoints.set(&mut program, &name("exit")).unwrap(),
             [
-                "Set a breakpoint at 0x0000000000001300 in exit.",
+                "Set a breakpoint at 0x0000000000001300 in exit <mfb>.",
                 "Set a pending breakpoint on _exit: it is placed when the program has loaded \
                  its libraries.",
             ]
@@ -737,8 +757,8 @@ mod tests {
             breakpoints.lines(),
             [
                 "Address            Symbol       Written name",
-                "0x0000000000001300 _mfb_fn_exit exit",
-                "-                  _exit        exit",
+                "0x0000000000001300 _mfb_fn_exit exit <mfb>",
+                "-                  _exit        exit <native>",
             ]
         );
         let (notes, stop) = breakpoints.run(&mut program).unwrap();

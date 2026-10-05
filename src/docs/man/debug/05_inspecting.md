@@ -37,6 +37,12 @@ A built-in package's function shows as the package and the function:
 `#`, for one the package keeps to itself. You cannot call a `#` function, but
 `breakpoint datetime::#normInstant` stops in it.
 
+When one of your functions and a native one have the same name, the written
+name says which is which: `main <mfb>` is your `main`, and `main <native>` the
+program's native entry, which calls it. Breakpoints, stops, `dis` and `bt` tag
+the name the same way. The tag is not part of the name: `breakpoint main` stops
+in both.
+
 `Address` is where the function is in the running program. A program `mfb dbg`
 started is paused before it has loaded its system libraries, so every `SL`
 function shows `-` there; attach to a running program to see where they are.
@@ -158,7 +164,7 @@ MU   0x0000000100989374 _mfb_fn_formatLine                                  form
 MU   0x0000000100989824 _mfb_fn_logPath                                     logPath
 MU   0x0000000100989ee0 _mfb_fn_summarize                                   summarize
 MU   0x000000010098a278 _mfb_fn_runRounds                                   runRounds
-MU   0x00000001009904e0 _mfb_fn_main                                        main
+MU   0x00000001009904e0 _mfb_fn_main                                        main <mfb>
 ```
 
 ## See also
