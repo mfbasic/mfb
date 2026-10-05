@@ -615,7 +615,7 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       LET below AS Float = TRIANGLE_BELOW * s.scale
       LET above AS Float = TRIANGLE_ABOVE * s.scale
       LET points AS List OF canvas::Point = [turnedPoint(s, -half, below), turnedPoint(s, half, below), turnedPoint(s, 0.0, -above)]
-      RETURN canvas::Polygon[points := points, paint := paint]
+      RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]
     CASE ShapeKind.Circle
       RETURN canvas::Circle[x := s.x, y := s.y, radius := CIRCLE_RADIUS * s.scale, paint := paint]
     CASE ShapeKind.Ellipse
@@ -625,7 +625,7 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       FOR k = 0 TO STAR_POINTS * 2 - 1
         points = collections::append(points, turnedPoint(s, starCornerX(k) * s.scale, starCornerY(k) * s.scale))
       NEXT
-      RETURN canvas::Polygon[points := points, paint := paint]
+      RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]
   END MATCH
 END FUNC
 

@@ -68,6 +68,11 @@ LET __CANVAS_GEO_CAPENDY AS Integer = 38
 LET __CANVAS_GEO_TEXT AS Integer = 6
 LET __CANVAS_GEO_NONE AS Integer = 5
 LET __CANVAS_GEO_POLYGON AS Integer = 4
+' plan-163-A. A polygon's `FillRule` as its ordinal (0 EvenOdd, 1 NonZero), in the
+' per-kind aux slot 21 no polygon otherwise writes or reads -- the POLYLINE_FIRST/LAST
+' aliasing precedent. Stroked text is also a polygon and leaves it 0, so text stays
+' even-odd.
+LET __CANVAS_GEO_POLYGON_RULE AS Integer = 21
 LET __CANVAS_GEO_ARC AS Integer = 3
 ' plan-116-G. 8 is the next free value; a Group's header carries this rather than
 ' NONE so the deferred-hash path and the renderers can tell "a group node" from
@@ -603,31 +608,54 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   RETURN __canvas_boundsHeader(out, a.x - reach, a.y - reach, a.x + reach, a.y + reach)
 END FUNC
 
-FUNC __canvas_polygonHeader(p AS Polygon) AS List OF Float
-  LET count AS Integer = len(p.points)
-  IF count < 2 THEN
+' plan-163-A: a polygon's rings. A ring of fewer than 2 points contributes no edge and
+' no bounds; the others contribute every point, so the edge count is the sum of their
+' lengths. The bounds start from the first contributing ring's first point and take
+' minF/maxF over every later point in order -- for one ring exactly the walk this had
+' before rings, so a single-ring EvenOdd polygon's header is unchanged (slot 21 is 0 for
+' EvenOdd). `func_geo_build.rs:fill_polygon` is the native twin, in the same order.
+FUNC __canvas_polygonHeader(rings AS List OF List OF Point, rule AS FillRule, paint AS Paint) AS List OF Float
+  LET origin AS Point = Point[x := 0.0, y := 0.0]
+  MUT count AS Integer = 0
+  MUT minX AS Float = 0.0
+  MUT maxX AS Float = 0.0
+  MUT minY AS Float = 0.0
+  MUT maxY AS Float = 0.0
+  FOR EACH ring IN rings
+    LET n AS Integer = len(ring)
+    IF n >= 2 THEN
+      MUT i AS Integer = 0
+      IF count = 0 THEN
+        LET first AS Point = collections::getOr(ring, 0, origin)
+        minX = first.x
+        maxX = first.x
+        minY = first.y
+        maxY = first.y
+        i = 1
+      END IF
+      WHILE i < n
+        LET q AS Point = collections::getOr(ring, i, origin)
+        minX = __canvas_minF(minX, q.x)
+        maxX = __canvas_maxF(maxX, q.x)
+        minY = __canvas_minF(minY, q.y)
+        maxY = __canvas_maxF(maxY, q.y)
+        i = i + 1
+      END WHILE
+      count = count + n
+    END IF
+  NEXT
+  IF count = 0 THEN
     RETURN __canvas_emptyHeader()
   END IF
   MUT out AS List OF Float = __canvas_blankHeader()
-  LET first AS Point = collections::getOr(p.points, 0, Point[x := 0.0, y := 0.0])
-  MUT minX AS Float = first.x
-  MUT maxX AS Float = first.x
-  MUT minY AS Float = first.y
-  MUT maxY AS Float = first.y
-  MUT i AS Integer = 1
-  WHILE i < count
-    LET q AS Point = collections::getOr(p.points, i, first)
-    minX = __canvas_minF(minX, q.x)
-    maxX = __canvas_maxF(maxX, q.x)
-    minY = __canvas_minF(minY, q.y)
-    maxY = __canvas_maxF(maxY, q.y)
-    i = i + 1
-  END WHILE
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYGON))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + count * 5))
-  out = __canvas_paintHeader(out, p.paint)
+  out = __canvas_paintHeader(out, paint)
   out = collections::set(out, 20, toFloat(count))
-  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(p.paint), 0.0) + 1.0
+  IF rule = FillRule.NonZero THEN
+    out = collections::set(out, __CANVAS_GEO_POLYGON_RULE, 1.0)
+  END IF
+  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(paint), 0.0) + 1.0
   RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC
 
@@ -735,28 +763,37 @@ END FUNC"#;
 /// the projection parameter clamp to the endpoint rather than dividing by zero.
 #[rustfmt::skip]
 const GEO_TAIL: &str =
-r#"FUNC __canvas_polygonEdges(points AS List OF Point) AS List OF Float
+r#"' plan-163-A: every contributing ring's edges, one ring after another, each ring closing
+' from its own last point back to its own first. No separator and no ring count: the
+' fill sums crossings over all edges and the stroke is a min over all of them, so
+' neither needs to know where a ring ends (the stroked-text precedent,
+' `__canvas_textEdges`). A ring of fewer than 2 points adds nothing, as the header says.
+FUNC __canvas_polygonEdges(rings AS List OF List OF Point) AS List OF Float
   MUT out AS List OF Float = []
-  LET count AS Integer = len(points)
   LET origin AS Point = Point[x := 0.0, y := 0.0]
-  MUT i AS Integer = 0
-  WHILE i < count
-    LET a AS Point = collections::getOr(points, i, origin)
-    LET b AS Point = collections::getOr(points, (i + 1) MOD count, origin)
-    LET dx AS Float = b.x - a.x
-    LET dy AS Float = b.y - a.y
-    LET lenSq AS Float = dx * dx + dy * dy
-    out = collections::append(out, a.x)
-    out = collections::append(out, a.y)
-    out = collections::append(out, dx)
-    out = collections::append(out, dy)
-    IF lenSq > 0.0 THEN
-      out = collections::append(out, 1.0 / lenSq)
-    ELSE
-      out = collections::append(out, 0.0)
+  FOR EACH points IN rings
+    LET count AS Integer = len(points)
+    IF count >= 2 THEN
+      MUT i AS Integer = 0
+      WHILE i < count
+        LET a AS Point = collections::getOr(points, i, origin)
+        LET b AS Point = collections::getOr(points, (i + 1) MOD count, origin)
+        LET dx AS Float = b.x - a.x
+        LET dy AS Float = b.y - a.y
+        LET lenSq AS Float = dx * dx + dy * dy
+        out = collections::append(out, a.x)
+        out = collections::append(out, a.y)
+        out = collections::append(out, dx)
+        out = collections::append(out, dy)
+        IF lenSq > 0.0 THEN
+          out = collections::append(out, 1.0 / lenSq)
+        ELSE
+          out = collections::append(out, 0.0)
+        END IF
+        i = i + 1
+      END WHILE
     END IF
-    i = i + 1
-  END WHILE
+  NEXT
   RETURN out
 END FUNC
 
@@ -1088,10 +1125,11 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     CASE Arc(a)
       header = __canvas_arcHeader(a)
     CASE Polygon(p)
-      IF len(p.points) >= 2 THEN
-        tail = __canvas_appendGradientTail(__canvas_polygonEdges(p.points), p.paint)
+      LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
+      IF len(edges) > 0 THEN
+        tail = __canvas_appendGradientTail(edges, p.paint)
       END IF
-      header = __canvas_polygonHeader(p)
+      header = __canvas_polygonHeader(p.contours, p.rule, p.paint)
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
     CASE Ellipse(e)
@@ -1303,10 +1341,18 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       RETURN __canvas_hashPaint(h, a.paint)
     CASE Polygon(p)
       MUT h AS Integer = __canvas_hashStart(6)
-      h = __canvas_hashStep(h, len(p.points))
-      FOR EACH q IN p.points
-        h = __canvas_hashPoint(h, q)
+      h = __canvas_hashStep(h, len(p.contours))
+      FOR EACH ring IN p.contours
+        h = __canvas_hashStep(h, len(ring))
+        FOR EACH q IN ring
+          h = __canvas_hashPoint(h, q)
+        NEXT
       NEXT
+      IF p.rule = FillRule.NonZero THEN
+        h = __canvas_hashStep(h, 1)
+      ELSE
+        h = __canvas_hashStep(h, 0)
+      END IF
       RETURN __canvas_hashPaint(h, p.paint)
     CASE Picture(pic)
       ' The image by its backend id: a destroyed image answers 0, so the item's key
@@ -1413,10 +1459,11 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
     CASE Line(l)
       header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.cap), l.paint)
     CASE Polygon(p)
-      IF len(p.points) >= 2 THEN
-        tail = __canvas_appendGradientTail(__canvas_polygonEdges(p.points), p.paint)
+      LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
+      IF len(edges) > 0 THEN
+        tail = __canvas_appendGradientTail(edges, p.paint)
       END IF
-      header = __canvas_polygonHeader(p)
+      header = __canvas_polygonHeader(p.contours, p.rule, p.paint)
     CASE Arc(a)
       header = __canvas_arcHeader(a)
     CASE Picture(pic)

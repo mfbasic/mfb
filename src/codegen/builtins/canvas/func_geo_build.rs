@@ -39,7 +39,7 @@
 //! **Layout comes from the type model, never from reading source.** A data union is
 //! `{tag@0, size@8, variant record@16}`; a record field is one 8-byte word; a field the
 //! model inlines (`record_field_is_inlined`: a nested record such as `Paint`, `Color`,
-//! `Bounds`, or a flat list such as `Polygon.points`) holds an OFFSET from the record's
+//! `Bounds`, or a flat list such as `Polygon.contours`) holds an OFFSET from the record's
 //! own base to its sub-block. A nested list's data region starts past `capacity` lookup
 //! entries (`.ai/collections.md`), never `count`. Variant tags come from
 //! `union_variant_tags` and enum ordinals from `enum_members`.
@@ -70,6 +70,8 @@ pub(super) const KIND_POLYLINE: f64 = 10.0;
 const SLOT_GRADIENT_COUNT: usize = 41;
 const SLOT_GRADIENT_KIND: usize = 42;
 const SLOT_CAP: usize = 34;
+/// `__CANVAS_GEO_POLYGON_RULE` (plan-163-A): a polygon's fill rule, 1.0 for NonZero.
+const SLOT_POLYGON_RULE: usize = 21;
 /// `__CANVAS_GEO_POLYLINE_FIRST` / `_LAST`: a polyline's first and last segments with
 /// length, in the gradient axis slots it does not otherwise use.
 const SLOT_POLYLINE_FIRST: usize = 43;
@@ -846,7 +848,28 @@ fn fill_line(
     Ok(())
 }
 
-/// `__canvas_polygonHeader` and `__canvas_polygonEdges`.
+/// The `x`/`y` offsets of a point in a polygon ring of type `ring_type`
+/// (`List OF Point`).
+fn ring_point_offsets(
+    builder: &CodeBuilder,
+    ring_type: &ParameterType,
+) -> Result<(usize, usize), String> {
+    let ParameterType::ListOf(point) = ring_type else {
+        return Err(format!("canvas: a polygon ring '{ring_type}' is not a list"));
+    };
+    let point_type = record_type(builder, point)?;
+    Ok((
+        scalar_offset(builder, &point_type, "x")?,
+        scalar_offset(builder, &point_type, "y")?,
+    ))
+}
+
+/// `__canvas_polygonHeader` and `__canvas_polygonEdges` (plan-163-A: rings and a rule).
+///
+/// Two walks over `contours`, each skipping a ring of fewer than 2 points: the bounds
+/// and the edge total, then every contributing ring's edges with the wrap inside the
+/// ring. Each walk is the MFBASIC builder's loop in its order, so the record is
+/// bit-identical to it.
 fn fill_polygon(
     builder: &mut CodeBuilder,
     out: &VirtualRegister,
@@ -856,37 +879,58 @@ fn fill_polygon(
     done: &str,
 ) -> Result<(), String> {
     let empty = builder.label("canvas_geo_poly_empty");
-    let points = builder.temporary_vreg();
-    let points_type = emit_field_block(builder, &points, rec, record, "points")?;
-    let count = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&count, &points, COLLECTION_OFFSET_COUNT));
-    builder.emit(abi::compare_immediate(&count, "2"));
-    builder.emit(abi::branch_lt(&empty));
-    let list = emit_list_view(builder, &points, &points_type)?;
-    let point_type = record_type(builder, &list.element)?;
-    let xo = scalar_offset(builder, &point_type, "x")?;
-    let yo = scalar_offset(builder, &point_type, "y")?;
+    let rings = builder.temporary_vreg();
+    let rings_type = emit_field_block(builder, &rings, rec, record, "contours")?;
+    let ring_count = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&ring_count, &rings, COLLECTION_OFFSET_COUNT));
+    let outer = emit_list_view(builder, &rings, &rings_type)?;
+    let ring_type = outer.element.clone();
+    let (xo, yo) = ring_point_offsets(builder, &ring_type)?;
 
-    // The bounds: the first point, then minF/maxF over the rest, in order.
+    // The bounds: `0.0` until the first contributing ring's first point, then
+    // minF/maxF over every later point in order. `total` is the edge count so far.
+    let total = builder.temporary_vreg();
+    let r = builder.temporary_vreg();
+    let ring = builder.temporary_vreg();
+    let n = builder.temporary_vreg();
     let i = builder.temporary_vreg();
     let q = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&i, "Integer", "0"));
-    emit_list_element(builder, &q, &list, &i);
     let min_x = builder.temporary_fp_vreg();
     let max_x = builder.temporary_fp_vreg();
     let min_y = builder.temporary_fp_vreg();
     let max_y = builder.temporary_fp_vreg();
+    let zero = fconst(builder, 0.0);
+    for v in [&min_x, &max_x, &min_y, &max_y] {
+        builder.emit(abi::float_move_d_from_d(v, &zero));
+    }
+    builder.emit(abi::move_immediate(&total, "Integer", "0"));
+    builder.emit(abi::move_immediate(&r, "Integer", "0"));
+    let ring_head = builder.label("canvas_geo_poly_ring");
+    let ring_next = builder.label("canvas_geo_poly_ring_next");
+    let rings_done = builder.label("canvas_geo_poly_rings_done");
+    let head = builder.label("canvas_geo_poly_bounds");
+    let bounds_done = builder.label("canvas_geo_poly_bounds_done");
+    builder.emit(abi::label(&ring_head));
+    builder.emit(abi::compare_registers(&r, &ring_count));
+    builder.emit(abi::branch_ge(&rings_done));
+    emit_list_element(builder, &ring, &outer, &r);
+    builder.emit(abi::load_u64(&n, &ring, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::compare_immediate(&n, "2"));
+    builder.emit(abi::branch_lt(&ring_next));
+    let list = emit_list_view(builder, &ring, &ring_type)?;
+    builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    builder.emit(abi::compare_immediate(&total, "0"));
+    builder.emit(abi::branch_ne(&head));
+    emit_list_element(builder, &q, &list, &i);
     let fx = fload(builder, &q, xo);
     let fy = fload(builder, &q, yo);
     builder.emit(abi::float_move_d_from_d(&min_x, &fx));
     builder.emit(abi::float_move_d_from_d(&max_x, &fx));
     builder.emit(abi::float_move_d_from_d(&min_y, &fy));
     builder.emit(abi::float_move_d_from_d(&max_y, &fy));
-    let head = builder.label("canvas_geo_poly_bounds");
-    let bounds_done = builder.label("canvas_geo_poly_bounds_done");
     builder.emit(abi::move_immediate(&i, "Integer", "1"));
     builder.emit(abi::label(&head));
-    builder.emit(abi::compare_registers(&i, &count));
+    builder.emit(abi::compare_registers(&i, &n));
     builder.emit(abi::branch_ge(&bounds_done));
     emit_list_element(builder, &q, &list, &i);
     let qx = fload(builder, &q, xo);
@@ -902,9 +946,17 @@ fn fill_polygon(
     builder.emit(abi::add_immediate(&i, &i, 1));
     builder.emit(abi::branch(&head));
     builder.emit(abi::label(&bounds_done));
+    builder.emit(abi::add_registers(&total, &total, &n));
+    builder.emit(abi::label(&ring_next));
+    builder.emit(abi::add_immediate(&r, &r, 1));
+    builder.emit(abi::branch(&ring_head));
+    builder.emit(abi::label(&rings_done));
+    builder.emit(abi::compare_immediate(&total, "0"));
+    builder.emit(abi::branch_eq(&empty));
 
     // Header: kind, the record length `toFloat(47 + count * 5)`, the paint, the edge
-    // count in slot 20, then the padded bounds.
+    // count in slot 20, the rule in slot 21 (1.0 for NonZero; the slot was zeroed),
+    // then the padded bounds.
     put_const(builder, out, 0, KIND_POLYGON);
     let length = builder.temporary_vreg();
     let five = builder.temporary_vreg();
@@ -913,7 +965,7 @@ fn fill_polygon(
         "Integer",
         &EDGE_FLOATS.to_string(),
     ));
-    builder.emit(abi::multiply_registers(&length, &count, &five));
+    builder.emit(abi::multiply_registers(&length, &total, &five));
     builder.emit(abi::add_immediate(&length, &length, GEO_HEADER));
     let length_f = builder.temporary_fp_vreg();
     builder.emit(abi::signed_convert_to_float_d(&length_f, &length));
@@ -921,8 +973,17 @@ fn fill_polygon(
     let stroke_half = emit_stroke_half(builder, view)?;
     emit_paint_header(builder, out, view, &stroke_half)?;
     let count_f = builder.temporary_fp_vreg();
-    builder.emit(abi::signed_convert_to_float_d(&count_f, &count));
+    builder.emit(abi::signed_convert_to_float_d(&count_f, &total));
     put(builder, out, 20, &count_f);
+    let (rule_index, rule_type) = field(builder, record, "rule")?;
+    let non_zero = enum_ordinal(builder, &rule_type, "NonZero")?;
+    let rule = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&rule, rec, 8 * rule_index));
+    let rule_done = builder.label("canvas_geo_poly_rule_done");
+    builder.emit(abi::compare_immediate(&rule, &non_zero.to_string()));
+    builder.emit(abi::branch_ne(&rule_done));
+    put_const(builder, out, SLOT_POLYGON_RULE, 1.0);
+    builder.emit(abi::label(&rule_done));
     let pad = stroke_pad(builder, &stroke_half);
     let bx0 = fsub(builder, &min_x, &pad);
     let by0 = fsub(builder, &min_y, &pad);
@@ -930,21 +991,33 @@ fn fill_polygon(
     let by1 = fadd(builder, &max_y, &pad);
     put_bounds(builder, out, [&bx0, &by0, &bx1, &by1]);
 
-    // The edges: `x0, y0, dx, dy, invLenSq` for point i to point (i + 1) MOD count.
+    // The edges: `x0, y0, dx, dy, invLenSq` for point i to point (i + 1) MOD count of
+    // each contributing ring, the rings one after another.
     let cursor = builder.temporary_vreg();
     builder.emit(abi::add_immediate(&cursor, out, GEO_HEADER * 8));
     let j = builder.temporary_vreg();
     let a = builder.temporary_vreg();
     let b = builder.temporary_vreg();
+    let edge_ring = builder.label("canvas_geo_poly_edge_ring");
+    let edge_ring_next = builder.label("canvas_geo_poly_edge_ring_next");
     let edge_head = builder.label("canvas_geo_poly_edge");
     let edge_wrap = builder.label("canvas_geo_poly_wrap");
     let edge_done = builder.label("canvas_geo_poly_edges_done");
+    builder.emit(abi::move_immediate(&r, "Integer", "0"));
+    builder.emit(abi::label(&edge_ring));
+    builder.emit(abi::compare_registers(&r, &ring_count));
+    builder.emit(abi::branch_ge(&edge_done));
+    emit_list_element(builder, &ring, &outer, &r);
+    builder.emit(abi::load_u64(&n, &ring, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::compare_immediate(&n, "2"));
+    builder.emit(abi::branch_lt(&edge_ring_next));
+    let list = emit_list_view(builder, &ring, &ring_type)?;
     builder.emit(abi::move_immediate(&i, "Integer", "0"));
     builder.emit(abi::label(&edge_head));
-    builder.emit(abi::compare_registers(&i, &count));
-    builder.emit(abi::branch_ge(&edge_done));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_ge(&edge_ring_next));
     builder.emit(abi::add_immediate(&j, &i, 1));
-    builder.emit(abi::compare_registers(&j, &count));
+    builder.emit(abi::compare_registers(&j, &n));
     builder.emit(abi::branch_lt(&edge_wrap));
     builder.emit(abi::move_immediate(&j, "Integer", "0"));
     builder.emit(abi::label(&edge_wrap));
@@ -986,6 +1059,9 @@ fn fill_polygon(
     builder.emit(abi::add_immediate(&cursor, &cursor, EDGE_FLOATS * 8));
     builder.emit(abi::add_immediate(&i, &i, 1));
     builder.emit(abi::branch(&edge_head));
+    builder.emit(abi::label(&edge_ring_next));
+    builder.emit(abi::add_immediate(&r, &r, 1));
+    builder.emit(abi::branch(&edge_ring));
     builder.emit(abi::label(&edge_done));
     builder.emit(abi::branch(done));
 
@@ -1428,21 +1504,37 @@ pub(super) fn emit_record_size(
         };
         emit_paint_supported(builder, &view, &unsupported)?;
         builder.emit(abi::move_immediate(n, "Integer", &GEO_HEADER.to_string()));
+        // plan-163-A: five floats per point of every ring of at least 2 points.
         if *kind == Kind::Polygon {
-            let points = builder.temporary_vreg();
-            emit_field_block(builder, &points, &rec, record, "points")?;
+            let rings = builder.temporary_vreg();
+            let rings_type = emit_field_block(builder, &rings, &rec, record, "contours")?;
+            let ring_count = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&ring_count, &rings, COLLECTION_OFFSET_COUNT));
+            let outer = emit_list_view(builder, &rings, &rings_type)?;
+            let r = builder.temporary_vreg();
+            let ring = builder.temporary_vreg();
             let count = builder.temporary_vreg();
-            builder.emit(abi::load_u64(&count, &points, COLLECTION_OFFSET_COUNT));
-            builder.emit(abi::compare_immediate(&count, "2"));
-            builder.emit(abi::branch_lt(&sized));
             let five = builder.temporary_vreg();
             builder.emit(abi::move_immediate(
                 &five,
                 "Integer",
                 &EDGE_FLOATS.to_string(),
             ));
+            let head = builder.label("canvas_geo_size_ring");
+            let next = builder.label("canvas_geo_size_ring_next");
+            builder.emit(abi::move_immediate(&r, "Integer", "0"));
+            builder.emit(abi::label(&head));
+            builder.emit(abi::compare_registers(&r, &ring_count));
+            builder.emit(abi::branch_ge(&sized));
+            emit_list_element(builder, &ring, &outer, &r);
+            builder.emit(abi::load_u64(&count, &ring, COLLECTION_OFFSET_COUNT));
+            builder.emit(abi::compare_immediate(&count, "2"));
+            builder.emit(abi::branch_lt(&next));
             builder.emit(abi::multiply_registers(&count, &count, &five));
             builder.emit(abi::add_registers(n, n, &count));
+            builder.emit(abi::label(&next));
+            builder.emit(abi::add_immediate(&r, &r, 1));
+            builder.emit(abi::branch(&head));
         }
         // plan-154-A: a polyline the header would answer empty for is 47 floats, and
         // the scan branches straight to `sized` with `n` already 47.
@@ -1729,5 +1821,9 @@ mod tests {
             SLOT_GRADIENT_KIND as f64
         );
         assert_eq!(value("__CANVAS_GEO_CAP"), SLOT_CAP as f64);
+        assert_eq!(
+            value("__CANVAS_GEO_POLYGON_RULE"),
+            SLOT_POLYGON_RULE as f64
+        );
     }
 }

@@ -345,7 +345,7 @@ fn polygon_fills_its_interior() {
              pts = collections::append(pts, canvas::Point[x := 100.0, y := 100.0])\n  \
              pts = collections::append(pts, canvas::Point[x := 300.0, y := 100.0])\n  \
              pts = collections::append(pts, canvas::Point[x := 200.0, y := 300.0])\n  \
-             LET tri AS canvas::DrawItem = canvas::Polygon[points := pts, \
+             LET tri AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, \
              paint := canvas::fill(color::rgb(0, 0, 255))]\n  canvas::present([tri])\n",
         ),
     );
@@ -454,7 +454,7 @@ fn cache_hit_skips_geometry_generation() {
              pts = collections::append(pts, canvas::Point[x := x, y := 20.0])\n  \
              pts = collections::append(pts, canvas::Point[x := x + 60.0, y := 20.0])\n  \
              pts = collections::append(pts, canvas::Point[x := x + 30.0, y := 90.0])\n  \
-             RETURN canvas::Polygon[points := pts, paint := canvas::fill(color::rgb(200, 30, 30))]\n\
+             RETURN canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 30, 30))]\n\
              END FUNC\n"),
     );
 
@@ -497,9 +497,9 @@ fn polygons_sharing_a_header_keep_their_own_points() {
              up = collections::append(up, canvas::Point[x := 100.0, y := 300.0])\n  \
              up = collections::append(up, canvas::Point[x := 300.0, y := 300.0])\n  \
              up = collections::append(up, canvas::Point[x := 200.0, y := 100.0])\n  \
-             LET a AS canvas::DrawItem = canvas::Polygon[points := down, \
+             LET a AS canvas::DrawItem = canvas::Polygon[contours := [down], rule := canvas::FillRule.EvenOdd, \
              paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
-             LET b AS canvas::DrawItem = canvas::Polygon[points := up, \
+             LET b AS canvas::DrawItem = canvas::Polygon[contours := [up], rule := canvas::FillRule.EvenOdd, \
              paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
              canvas::present([a, b])\n",
         ),
@@ -529,6 +529,125 @@ fn polygons_sharing_a_header_keep_their_own_points() {
         })
         .expect("stats line with entries=");
     assert_eq!(entries, "2", "one cache entry per distinct polygon");
+}
+
+/// `sq(x, y, s)`: the `s`-sided square at `(x, y)`, its corners clockwise under Y-down
+/// (top-left, top-right, bottom-right, bottom-left). `sqCcw` is the same square run the
+/// other way. Shared by the plan-163-A ring tests below.
+const RING_HELPERS: &str = "\nFUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n  \
+     RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x + s, y := y], \
+     canvas::Point[x := x + s, y := y + s], canvas::Point[x := x, y := y + s]]\n\
+     END FUNC\n\
+     FUNC sqCcw(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n  \
+     RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x, y := y + s], \
+     canvas::Point[x := x + s, y := y + s], canvas::Point[x := x + s, y := y]]\n\
+     END FUNC\n";
+
+/// plan-163-A: one `Polygon` holds several rings, and each ring closes on itself.
+///
+/// Every sampled pixel is a whole pixel inside or outside every ring — each ring's
+/// edges are on integer coordinates and every sample is at least 20 px from one — so
+/// each expectation is the plain fill colour or the black background:
+///
+/// * a 200 px square with a concentric 100 px square inside it, under `EvenOdd`: the
+///   inner ring is a hole, so its centre (200, 200) is background and the band between
+///   the rings (125, 200), (275, 200), (200, 125) is the fill;
+/// * two disjoint rings in one item both fill, and the gap between them does not;
+/// * a 1-point ring beside a real ring adds nothing. The item is `fillStroke`d, so a
+///   1-point ring turned into a zero-length edge would stroke a dot at (700, 500);
+/// * a 2-point ring has no area and draws only its stroke: the stroke straddles the
+///   segment y = 560 by 2 px each side, so rows 559 and 560 (centres 0.5 px from it,
+///   distance −1.5 to the stroke's edge) are fully covered white, row 570 is not, and
+///   the yellow fill is nowhere;
+/// * `contours := []` draws nothing and does not trap (the program reaches its
+///   `rendered` marker, which `render` requires).
+#[test]
+fn a_polygon_draws_each_of_its_rings() {
+    let (frame, _) = render(
+        "canvas_polygon_rings",
+        &(scene(
+            "  LET donut AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 100.0, 200.0), \
+             sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+             LET pair AS canvas::DrawItem = canvas::Polygon[contours := [sq(400.0, 100.0, 50.0), \
+             sq(500.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+             LET lone AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 700.0, y := 500.0]], \
+             sq(600.0, 400.0, 50.0)], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fillStroke(color::rgb(255, 0, 0), color::rgb(255, 255, 255), 4.0)]\n  \
+             LET flat AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 100.0, y := 560.0], \
+             canvas::Point[x := 300.0, y := 560.0]]], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fillStroke(color::rgb(255, 255, 0), color::rgb(255, 255, 255), 4.0)]\n  \
+             LET empty AS canvas::DrawItem = canvas::Polygon[contours := [], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fillStroke(color::rgb(255, 0, 255), color::rgb(255, 0, 255), 4.0)]\n  \
+             canvas::present([donut, pair, lone, flat, empty])\n",
+        ) + RING_HELPERS),
+    );
+
+    let blue = (0, 0, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(pixel(&frame, 200, 200), black, "the hole's centre");
+    assert_eq!(pixel(&frame, 160, 200), black, "inside the hole, near its edge");
+    assert_eq!(pixel(&frame, 125, 200), blue, "the band left of the hole");
+    assert_eq!(pixel(&frame, 275, 200), blue, "the band right of the hole");
+    assert_eq!(pixel(&frame, 200, 125), blue, "the band above the hole");
+    assert_eq!(pixel(&frame, 200, 320), black, "outside the outer ring");
+
+    let green = (0, 255, 0, 255);
+    assert_eq!(pixel(&frame, 425, 125), green, "the first disjoint ring");
+    assert_eq!(pixel(&frame, 525, 125), green, "the second disjoint ring");
+    assert_eq!(pixel(&frame, 475, 125), black, "between the two rings");
+
+    assert_eq!(pixel(&frame, 625, 425), (255, 0, 0, 255), "the real ring beside a 1-point one");
+    assert_eq!(pixel(&frame, 700, 500), black, "a 1-point ring draws no dot");
+    assert_eq!(pixel(&frame, 699, 499), black, "nor next to it");
+
+    let white = (255, 255, 255, 255);
+    assert_eq!(pixel(&frame, 200, 559), white, "a 2-point ring's stroke, above the line");
+    assert_eq!(pixel(&frame, 200, 560), white, "a 2-point ring's stroke, below the line");
+    assert_eq!(pixel(&frame, 200, 570), black, "a 2-point ring has no fill");
+    assert_eq!(pixel(&frame, 200, 550), black, "nor above it");
+}
+
+/// plan-163-A: a polygon's ring structure and its fill rule are part of its cache key.
+///
+/// A geometry-cache hit is trusted on the item hash alone (`.ai/canvas-threading.md`
+/// §14), and the rule lives only in header slot 21 while the ring split lives only in
+/// where one ring's wrap edge goes — so two items that fold the same points must still
+/// hash apart when either differs, or the second is drawn with the first's record. Three
+/// presents of the same eight points: two rings under `EvenOdd`, the same two rings under
+/// `NonZero`, and all eight as one ring. Each is new geometry, so each costs exactly one
+/// generation (`generations=1,2,3`); a hash that skipped the rule or the ring counts
+/// would hit the cache and report 1 or 2 for a later frame.
+#[test]
+fn a_polygon_hash_covers_its_rings_and_rule() {
+    let (_, stats) = render(
+        "canvas_polygon_ring_hash",
+        &(scene(
+            "  LET outer AS List OF canvas::Point = sq(100.0, 100.0, 200.0)\n  \
+             LET inner AS List OF canvas::Point = sq(150.0, 150.0, 100.0)\n  \
+             canvas::present([canvas::Polygon[contours := [outer, inner], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fill(color::rgb(0, 0, 255))]])\n  \
+             canvas::present([canvas::Polygon[contours := [outer, inner], rule := canvas::FillRule.NonZero, \
+             paint := canvas::fill(color::rgb(0, 0, 255))]])\n  \
+             canvas::present([canvas::Polygon[contours := [collections::flatten([outer, inner])], \
+             rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255))]])\n",
+        ) + RING_HELPERS),
+    );
+    let generations: Vec<i64> = stats
+        .iter()
+        .map(|line| {
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix("generations="))
+                .unwrap_or_else(|| panic!("no generations field in {line:?}"))
+                .parse()
+                .expect("generations is a number")
+        })
+        .collect();
+    assert_eq!(
+        generations,
+        vec![1, 2, 3],
+        "changing only the rule, then only the ring split, must each build new \
+         geometry: {stats:?}",
+    );
 }
 
 /// A clip cuts a circle in half, leaving the other half untouched.
@@ -3237,8 +3356,8 @@ fn a_polygon_inside_a_translated_group_draws_at_the_offset() {
     let (frame, stats) = render(
         "canvas_group_polygon",
         &scene(
-            "  LET up AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 100.0, y := 0.0], canvas::Point[x := 50.0, y := 100.0]], paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET down AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 0.0, y := 100.0], canvas::Point[x := 100.0, y := 100.0], canvas::Point[x := 50.0, y := 0.0]], paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET up AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 100.0, y := 0.0], canvas::Point[x := 50.0, y := 100.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+             LET down AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 0.0, y := 100.0], canvas::Point[x := 100.0, y := 100.0], canvas::Point[x := 50.0, y := 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
              canvas::setGroup(\"tri\", [up])\n  \
              canvas::setGroup(\"tri2\", [down])\n  \
              canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := \"tri\"], canvas::Group[dx := 500.0, dy := 200.0, name := \"tri2\"]])\n",

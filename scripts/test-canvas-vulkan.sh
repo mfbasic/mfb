@@ -121,8 +121,8 @@ FUNC main() AS Nothing
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
   LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
   LET faint AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
-  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 620.0, y := 200.0], canvas::Point[x := 740.0, y := 200.0], canvas::Point[x := 680.0, y := 300.0]], paint := canvas::fill(color::rgb(200, 0, 200))]
-  LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fillStroke(color::rgb(0, 180, 180), color::rgb(20, 20, 20), 6.0)]
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 620.0, y := 200.0], canvas::Point[x := 740.0, y := 200.0], canvas::Point[x := 680.0, y := 300.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 0, 200))]
+  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(0, 180, 180), color::rgb(20, 20, 20), 6.0)]
   ' TRANSLUCENT, deliberately (plan-116-A). The fixture glyph is an axis-aligned opaque
   ' square, so its coverage is binary -- and compositing an opaque square over itself is
   ' idempotent, which means a renderer that drew every glyph TWICE produced a
@@ -222,7 +222,7 @@ FUNC main() AS Nothing
   LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 820.0, y := 300.0], endPoint := canvas::Point[x := 865.0, y := 300.0], stops := orbStops]
   LET gradOrb AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 42.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gRad }]
   LET gPoly AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 120.0], endPoint := canvas::Point[x := 40.0, y := 210.0], stops := rampStops]
-  LET gradTri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]], paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gPoly }]
+  LET gradTri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]]], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gPoly }]
   ' bug-484: pictures. Their texels ride the glyph region one packed RGBA word each, and
   ' each block names its own slice -- so there are several, placed AFTER the text so their
   ' slices start past the glyphs' (a base never written, or a cursor the two kinds do not

@@ -91,12 +91,12 @@ FUNC main() AS Nothing
   LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
   ' plan-154-B: a PolyLine, with a colour per point.
   LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 255), 10.0)]
-  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
   ' nearest-edge magnitude on a shape that is not convex -- so a wrong base here shows as
   ' a wrong FILL, not merely a shifted outline.
-  LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fill(color::rgba(0, 180, 180, 200))]
+  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 180, 180, 200))]
 
   ' plan-116-B: one item per non-Normal BlendMode, and one clipped item.
   '
@@ -272,7 +272,7 @@ FUNC main() AS Nothing
     points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
     i = i + 1
   END WHILE
-  LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 200, 255))]
+  LET ring AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 200, 255))]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]
   canvas::present([box, ring])
 END FUNC
@@ -314,7 +314,7 @@ FUNC main() AS Nothing
       points = collections::append(points, canvas::Point[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
       i = i + 1
     END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
+    LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE
@@ -510,7 +510,7 @@ IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 18.0)]
   LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 214, 92), 12.0)]
   MUT wave AS List OF canvas::Point = []

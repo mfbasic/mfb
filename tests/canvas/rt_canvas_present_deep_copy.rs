@@ -128,7 +128,7 @@ const SOURCE: &str = "IMPORT app\n\
      FUNC scene(RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
-    \x20 LET a AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(c)]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c)]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := f, size := 9.0, paint := canvas::fill(c)]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
@@ -464,4 +464,74 @@ fn the_group_table_is_absent_from_a_program_that_does_not_use_canvas() {
              notice.",
         );
     }
+}
+
+/// plan-163-A: `Polygon.contours` is the first `List OF List` field a `DrawItem` has, so
+/// the publish copies are run against one rather than assumed to cover it.
+///
+/// The program installs a two-ring polygon with `setGroup`, then rewrites the polygon
+/// it published IN PLACE — the hole moved to a 20 px square at (110, 110) and a third
+/// ring appended — and only then presents, through `presentLayers`, a scene naming the
+/// group plus a second layer holding a two-ring polygon built in a callee's frame. The
+/// frame must draw the rings as they were PUBLISHED: an aliased or shallow copy draws
+/// the moved hole (and the extra ring) instead. Every sample is a whole pixel inside or
+/// outside every ring (integer edges, samples at least 10 px from one), so each is the
+/// plain fill colour or the black background.
+#[test]
+fn published_polygon_rings_are_copied_not_aliased() {
+    let source = "IMPORT app\n\
+         IMPORT canvas\n\
+         IMPORT color\n\
+         IMPORT collections\n\
+         IMPORT io\n\
+         FUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n\
+        \x20 RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x + s, y := y], canvas::Point[x := x + s, y := y + s], canvas::Point[x := x, y := y + s]]\n\
+         END FUNC\n\
+         FUNC layer() AS canvas::DrawLayer\n\
+        \x20 LET p AS canvas::DrawItem = canvas::Polygon[contours := [sq(500.0, 100.0, 200.0), sq(550.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n\
+        \x20 RETURN canvas::DrawLayer[items := [p]]\n\
+         END FUNC\n\
+         FUNC main() AS Nothing\n\
+        \x20 app::setMode(app::Mode.Canvas)\n\
+        \x20 MUT p AS canvas::Polygon = canvas::Polygon[contours := [sq(100.0, 100.0, 200.0), sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255))]\n\
+        \x20 LET held AS canvas::DrawItem = p\n\
+        \x20 canvas::setGroup(\"held\", [held])\n\
+        \x20 p = WITH p { contours := collections::set(p.contours, 1, sq(110.0, 110.0, 20.0)) }\n\
+        \x20 p = WITH p { contours := collections::append(p.contours, sq(400.0, 400.0, 50.0)) }\n\
+        \x20 io::print(toString(len(p.contours)))\n\
+        \x20 LET g AS canvas::DrawItem = canvas::Group[name := \"held\", dx := 0.0, dy := 0.0]\n\
+        \x20 canvas::presentLayers([canvas::DrawLayer[items := [g]], layer()])\n\
+        \x20 io::print(\"rendered\")\n\
+         END FUNC\n";
+    let project = common::temp_project("canvas_rings_deep_copy", source);
+    let frame = project.join("frame.rgba");
+    let binary = common::build_app_debug(&project, "canvas_rings_deep_copy");
+    let run = Command::new(&binary)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_DUMP", &frame)
+        .env("MFB_CANVAS_SYNC", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let stdout = String::from_utf8_lossy(&run.stdout).to_string();
+    assert!(
+        run.status.success() && stdout.contains("3\nrendered"),
+        "program {}:\n{stdout}\n{}",
+        common::exit_description(&run.status),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    let pixels = std::fs::read(&frame).expect("canvas dump written");
+    let _ = std::fs::remove_dir_all(&project);
+    let pixel = |x: usize, y: usize| {
+        let i = (y * 900 + x) * 4;
+        (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3])
+    };
+    let (blue, green, black) = ((0, 0, 255, 255), (0, 255, 0, 255), (0, 0, 0, 255));
+    assert_eq!(pixel(200, 200), black, "the published hole, at (150..250)");
+    assert_eq!(pixel(120, 120), blue, "where the mutated hole would be");
+    assert_eq!(pixel(125, 200), blue, "the band of the published polygon");
+    assert_eq!(pixel(425, 425), black, "where the appended ring would be");
+    assert_eq!(pixel(600, 200), black, "the callee-built layer's hole");
+    assert_eq!(pixel(525, 200), green, "the callee-built layer's band");
 }

@@ -281,7 +281,7 @@ FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::Dr
     ' disc along its tangents so the outline has no corner.
     LET drop AS color::Color = color::rgb(96, 158, 250)
     LET body AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.18, radius := r * 0.34, paint := canvas::fill(drop)]
-    LET tip AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := cx, y := cy - r * 0.58], canvas::Point[x := cx + r * 0.304, y := cy + r * 0.028], canvas::Point[x := cx - r * 0.304, y := cy + r * 0.028]], paint := canvas::fill(drop)]
+    LET tip AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := cx, y := cy - r * 0.58], canvas::Point[x := cx + r * 0.304, y := cy + r * 0.028], canvas::Point[x := cx - r * 0.304, y := cy + r * 0.028]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(drop)]
     items = collections::append(items, [body, tip])
   ELSEIF layer = Layer.Temperature THEN
     LET stemWidth AS Float = r * 0.26

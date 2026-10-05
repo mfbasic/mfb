@@ -649,6 +649,30 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    pkg.add_enum(RegistryEnum {
+        name: "FillRule",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "EvenOdd",
+                description: "A point is inside when a line from it out to infinity \
+                              crosses the rings an odd number of times. A ring \
+                              inside another is a hole, whichever way either runs. \
+                              The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "NonZero",
+                description: "A point is inside when the rings wind around it a \
+                              non-zero number of times. A ring inside another is \
+                              more of the fill when both run the same way, and a \
+                              hole when they run opposite ways. SVG paths and \
+                              TrueType outlines are drawn this way.",
+                advisory: None,
+            },
+        ],
+    });
+
     pkg.add_record(RegistryRecord {
         name: "Transform",
         export: true,
@@ -946,14 +970,30 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Polygon",
         export: true,
-        description: "A closed polygon through the given points, in order. Fewer \
-                      than three points has no area and draws only its stroke.",
+        description: "A filled shape bounded by one or more closed rings of \
+                      points. Several rings make one shape: a ring inside another \
+                      can be a hole (an \"O\", a donut) or more of the fill, as \
+                      `rule` decides. The stroke outlines every ring. A ring of \
+                      fewer than three points has no area and adds only its \
+                      stroke; a ring of fewer than two adds nothing.",
         props: vec![
             RecordProp {
-                name: "points",
-                ty: ParameterType::list_of(ParameterType::named("Point")),
-                description: "The vertices in order. The polygon closes from the \
-                              last point back to the first automatically.",
+                name: "contours",
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
+                    "Point",
+                ))),
+                description: "The rings, each a list of vertices in order. Every \
+                              ring closes from its own last point back to its own \
+                              first point automatically. The direction a ring runs \
+                              in matters only under `FillRule.NonZero`.",
+            },
+            RecordProp {
+                name: "rule",
+                ty: ParameterType::named("FillRule"),
+                description: "Which points the rings enclose: `EvenOdd` makes a ring \
+                              inside another a hole whichever way it runs, and \
+                              `NonZero` makes it a hole only when it runs the \
+                              opposite way to the ring around it.",
             },
             paint_prop(),
         ],
@@ -1789,6 +1829,7 @@ mod tests {
             "Point",
             "Size",
             "Bounds",
+            "FillRule",
             "TextMetrics",
             "Transform",
             "BlendMode",

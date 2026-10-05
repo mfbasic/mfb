@@ -62,7 +62,7 @@ None. plan-163-A depends on no other plan or bug.
 
 | Must be true | Command | Status |
 |---|---|---|
-| No other plan-163 file claims the number | `ls planning/plan-163-* planning/completed/plan-163-*` → only this file | MET (2026-09-27) |
+| No other plan-163 file claims the number | `ls planning/plan-163-* planning/completed/plan-163-*` → only plan-163 letters | MET (2026-10-05: A, B, C, D — all letters of this plan, no foreign plan-163; see Corrections 1) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > every command before you continue, and again before you decide to stop.
@@ -409,56 +409,77 @@ This phase delivers the new record, rings and hashing. Every existing picture st
 byte-identical. It can land alone: after it, EvenOdd is the only rule that draws
 differently from HEAD, and it draws the same.
 
-- [ ] `mod.rs`: add the `FillRule` enum (mirror `CapStyle`'s descriptor, with a
+- [x] `mod.rs`: add the `FillRule` enum (mirror `CapStyle`'s descriptor, with a
       description per variant per §4). Replace Polygon's `points` prop with
       `contours: list_of(list_of(named("Point")))` and add `rule: named("FillRule")`
       before `paint_prop()`. Rewrite the record `description` for rings and rules
       (developer-facing, `.ai/man-content.md` bans apply).
-- [ ] `helper_geometry.rs:GEO_LAYOUT`: add `__CANVAS_GEO_POLYGON_RULE = 21`.
+- [x] `helper_geometry.rs:GEO_LAYOUT`: add `__CANVAS_GEO_POLYGON_RULE = 21`.
       `src/codegen/runtime/canvas/mod.rs`: add `HEADER_POLYGON_RULE`. Extend the two
       pin tests (`helper_geometry/tests/mod.rs:33–87`,
       `func_geo_build.rs:1690–1732`) to pin the new pair.
-- [ ] `helper_geometry.rs`: `__canvas_polygonHeader` and `__canvas_polygonEdges`
+      (`cargo test --bin mfb canvas` → 110 passed, both pins included.)
+- [x] `helper_geometry.rs`: `__canvas_polygonHeader` and `__canvas_polygonEdges`
       take the rings (and the rule, for the header) per §5. Update the three
       `CASE Polygon` arms (:1082, :1296, :1407). The hash arm folds
       `len(p.contours)`, then per ring `len` and its points, then `rule`, then paint.
-- [ ] `func_geo_build.rs`: `fill_polygon` iterates the outer list and each ring,
+- [x] `func_geo_build.rs`: `fill_polygon` iterates the outer list and each ring,
       wrapping within the ring. `emit_record_size`'s Polygon arm sums the contributing
       ring lengths. The rule ordinal is written to slot 21 (via `enum_ordinal`).
       Keep every per-edge instruction sequence unchanged (bit-identity with the
       MFBASIC builder).
-- [ ] `func_item_hash.rs:fold_list`: add an arm for an element that is itself a list
+      (`cargo test --test rt_canvas_geo_native` → 4 passed, `geoVerifyMismatches=0` over
+      the matrix with the six ring items g8–g13 added.)
+- [x] `func_item_hash.rs:fold_list`: add an arm for an element that is itself a list
       (recurse into `fold_list` per element). Keep the error for anything else.
-- [ ] Resolve the UNVERIFIED hash-parity item: `grep -rn "hashItem"
+- [x] Resolve the UNVERIFIED hash-parity item: `grep -rn "hashItem"
       tests src/codegen/builtins/canvas` for a native-vs-MFBASIC hash comparison. If
       one exists, it must pass for a two-ring polygon. If none exists, record that
-      here.
-- [ ] `src/codegen/collection/assign/self_update.rs:2502` (`("canvas.Polygon",
+      here. **None exists** (the grep finds only doc comments and the `.ir` golden), and
+      none can: `func_item_hash.rs` hashes every kind but Text/Group, and "a kind is
+      hashed by exactly one of the two paths, so their keys never have to agree". What
+      the cache needs instead — that the rings and the rule are in the key — is pinned
+      by the new `a_polygon_hash_covers_its_rings_and_rule` (`generations=1,2,3` → ok).
+- [x] `src/codegen/collection/assign/self_update.rs:2502` (`("canvas.Polygon",
       SIZE_VARIES)`), `tests/runtime/inplace_self_update/field_kinds.tsv:35`, and
       `field_kinds_gen.py:164` (`len(before.points)` → `len(before.contours)`).
       Regenerate the `.tsv` with the generator the file names rather than by hand.
-- [ ] Migrate every construction site in §2's table (59 = 65 minus 6 historical docs):
+      (Corrections 3: only the Polygon row is taken from the generator; the
+      `self_update.rs` row needed no change. `MFB_SELF_UPDATE_FILTER=canvas::Polygon
+      cargo test --release --test rt_inplace_self_update every_field_kind_meets_its_expectation
+      -- --ignored` → ok.)
+- [x] Migrate every construction site in §2's table (59 = 65 minus 6 historical docs):
       `points := X` → `contours := [X], rule := canvas::FillRule.EvenOdd`. This covers
       `tests/canvas/scenes/*.mfb`, the five Rust test files, the scripts and tools,
       and the `examples/`.
       Check: `grep -rnE "canvas::Polygon\[points" --exclude-dir=target
       --exclude-dir=.git --exclude-dir=planning --exclude-dir=bugs .` → 0.
-- [ ] Tests (new, in `tests/canvas/rt_canvas_rasteriser.rs`, hand-computed pixels
+      (57 sites rewritten by script + the generator line + the `.tsv` row = 59; the
+      check grep → 0.)
+- [x] Tests (new, in `tests/canvas/rt_canvas_rasteriser.rs`, hand-computed pixels
       from `MFB_CANVAS_DUMP`):
       - a square ring with a concentric square hole, EvenOdd: the hole's centre pixel
         is the background, and the band between the rings is the fill;
       - two disjoint rings in one item both fill;
       - a ring with 1 point next to a normal ring draws only the normal ring;
       - `contours := []` draws nothing and does not trap.
-- [ ] Test: a two-ring polygon published through `canvas::presentLayers` and
+      (`a_polygon_draws_each_of_its_rings` → ok; it also covers the 2-point ring.)
+- [x] Test: a two-ring polygon published through `canvas::presentLayers` and
       `canvas::setGroup`, then mutated after publish, still draws the published
       rings. This extends `rt_canvas_present_deep_copy.rs` (the first `List OF List`
       field through `copy_flat_block`).
-- [ ] Test: the same two-ring scene under `--debug` with `MFB_CANVAS_GEO_VERIFY=1`
+      (`published_polygon_rings_are_copied_not_aliased` → ok; Corrections 4.)
+- [x] Test: the same two-ring scene under `--debug` with `MFB_CANVAS_GEO_VERIFY=1`
       reports no `geoSame` mismatch (native builder == MFBASIC builder).
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` with
+      (Corrections 5: the ring items g8–g13 joined the GEO_VERIFY matrix, crossed with
+      every paint → `geoVerifyMismatches=0`.)
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` with
       `scripts/regen-native-goldens.sh` (expected to diff, §3). Before committing,
       inspect the `.ir` diff and confirm it is only the Polygon/FillRule type surface.
+      (`regen-native-goldens: 4 build(s), 6 golden(s) rewritten, 0 failure(s)`; the
+      `.ir` by `mfb build -ast -ir`, `.ast` unchanged. The `.ir` diff is the new
+      `canvas.FillRule` enum, the Polygon record, and the rewritten polygon helper
+      bodies — the helpers are in the IR, so their change is the predicted surface.)
 
 Acceptance: every existing polygon picture is unchanged and the new ring tests pass.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
@@ -468,6 +489,8 @@ Acceptance: every existing polygon picture is unchanged and the new ring tests p
   that build polygon geometry; nothing smaller covers both builders and the deep copy.
   Also `cargo test --bin mfb canvas` → pass (the pin tests and the frozen-variant test)
   (est. 3 min, guess).
+  Result: the four binaries → 4 + 22 + 9 + 62 passed (2 ignored), `git status
+  tests/golden/canvas` clean; `cargo test --bin mfb canvas` → 110 passed.
 Commit: —
 
 ### Phase 2 — Software NonZero (the oracle)
@@ -585,7 +608,29 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **Prerequisites row.** Written when A was the only file; B, C and D are now letters
+   of the same plan, so "only this file" is read as "no foreign plan-163". Re-measured
+   2026-10-05: `ls planning/plan-163-*` → A, B, C, D.
+2. **Line numbers moved** between `8cbd0206a` and the execution base `f858ff14b`: the
+   self-update row is `self_update.rs:2735` (`("canvas.Polygon", SIZE_VARIES)`,
+   unchanged by this plan — a ring list is still size-varying), and the generator line is
+   `field_kinds_gen.py:166`.
+3. **`field_kinds.tsv` is not regenerated wholesale.** Running the generator
+   (`python3 tests/runtime/inplace_self_update/field_kinds_gen.py target/debug/mfb`)
+   rewrites 144 expectation tokens that bug-766 D flipped by hand (`b309807ec`; the
+   file's own header: "a letter that lands a kind flips its sites by hand"), so a
+   wholesale regeneration would re-baseline unrelated rows. Only the Polygon row's
+   setup and check columns were taken from the generator; its expectations are
+   unchanged and pass (filtered `--ignored` run → ok).
+4. **The deep-copy test is a runtime test.** `rt_canvas_present_deep_copy.rs` held only
+   build-only `-ncode` checks; the new test renders (its own small `MFB_CANVAS_DUMP`
+   harness) because "still draws the published rings" is a pixel claim. MFBASIC has no
+   record field assignment, so the in-place rewrite is `p = WITH p { contours := … }`.
+5. **GEO_VERIFY coverage** went into the existing matrix
+   (`tests/canvas/scenes/canvas_geo_native_matrix.mfb`, items g8–g13) rather than a
+   separate scene, so every ring case is crossed with every paint the matrix has.
+6. `HEADER_POLYGON_RULE` is referenced only by its pin test until Phase 3's
+   `emit_item_polygon_rule` reads it (a `dead_code` warning in the Phase 1–2 commits).
 
 ## Summary
 

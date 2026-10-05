@@ -275,7 +275,7 @@ FUNC seg(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, w AS Float, c AS co
 END FUNC
 
 FUNC poly(points AS List OF canvas::Point, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Polygon[points := points, paint := canvas::fill(c)]
+  RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c)]
 END FUNC
 
 FUNC slab(px AS Float, py AS Float, w AS Float, h AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem

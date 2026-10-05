@@ -587,7 +587,7 @@ FUNC planeItems(plane AS List OF Plane, v AS View, clip AS Box, paint AS canvas:
   FOR EACH p IN cut
     points = collections::append(points, toScreen(v, p))
   NEXT
-  RETURN [canvas::Polygon[points := points, paint := paint]]
+  RETURN [canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]]
 END FUNC
 
 ' Closed ring r at one level of detail, as the copy `shift` degrees round the

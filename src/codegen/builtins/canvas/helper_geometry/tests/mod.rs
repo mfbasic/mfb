@@ -2,7 +2,8 @@ use super::*;
 use crate::codegen::runtime::canvas::{
     GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
     HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
-    HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_SLOTS, PICTURE_SHADOW_SPLIT_BITS,
+    HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_SLOTS,
+    PICTURE_SHADOW_SPLIT_BITS,
 };
 
 /// The decimal literal `GEO_LAYOUT` binds to `name`.
@@ -84,6 +85,9 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
         HEADER_POLYLINE_FIRST
     );
     assert_eq!(declared("__CANVAS_GEO_POLYLINE_LAST"), HEADER_POLYLINE_LAST);
+    // plan-163-A: both emitters copy a polygon's fill rule out of this slot into the
+    // item block; a mismatch draws every NonZero polygon even-odd, or the reverse.
+    assert_eq!(declared("__CANVAS_GEO_POLYGON_RULE"), HEADER_POLYGON_RULE);
 }
 
 /// bug-484: a picture's pixel-block slots and split equal what the emitters rebuild

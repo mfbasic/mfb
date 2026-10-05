@@ -396,8 +396,8 @@ FUNC main() AS Nothing
   ' A 30 degree shear in x.
   LET shearT AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5773502691896258, d := 1.0, tx := 660.0, ty := 480.0]
   LET tri AS List OF canvas::Point = [canvas::Point[x := 0.0 - 60.0, y := 50.0], canvas::Point[x := 60.0, y := 50.0], canvas::Point[x := 0.0, y := 0.0 - 50.0]]
-  LET plainPoly AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 200.0, y := 590.0], canvas::Point[x := 320.0, y := 590.0], canvas::Point[x := 260.0, y := 490.0]], paint := canvas::fill(color::rgb(220, 120, 220))]
-  LET shearPoly AS canvas::DrawItem = canvas::Polygon[points := tri, paint := WITH canvas::fill(color::rgb(220, 120, 220)) { transform := shearT }]
+  LET plainPoly AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 200.0, y := 590.0], canvas::Point[x := 320.0, y := 590.0], canvas::Point[x := 260.0, y := 490.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(220, 120, 220))]
+  LET shearPoly AS canvas::DrawItem = canvas::Polygon[contours := [tri], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fill(color::rgb(220, 120, 220)) { transform := shearT }]
 
   ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
@@ -811,7 +811,7 @@ FUNC main() AS Nothing
   ' directly after the header, where a base computed either way agrees — so a polygon
   ' is the only shape that can tell a correct base from a lucky one.
   LET gTri AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 330.0, y := 240.0], endPoint := canvas::Point[x := 330.0, y := 400.0], stops := warm]
-  LET triBar AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 330.0, y := 240.0], canvas::Point[x := 450.0, y := 240.0], canvas::Point[x := 390.0, y := 400.0]], paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gTri }]
+  LET triBar AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 330.0, y := 240.0], canvas::Point[x := 450.0, y := 240.0], canvas::Point[x := 390.0, y := 400.0]]], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := gTri }]
 
   ' Row 3 -- four stops, the third given OUT OF ORDER at 0.4 after 0.75. It clamps up
   ' to 0.75 rather than sorting, so the picture has a hard edge there and no fourth

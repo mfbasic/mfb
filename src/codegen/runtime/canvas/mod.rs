@@ -951,6 +951,10 @@ pub(crate) const HEADER_BOUNDS: usize = 16;
 /// `kind` selects.
 pub(crate) const HEADER_AUX0: usize = 20;
 pub(crate) const HEADER_AUX1: usize = 21;
+/// A polygon's `canvas::FillRule` ordinal (0 EvenOdd, 1 NonZero) — `HEADER_AUX1`
+/// under its polygon meaning (plan-163-A, `__CANVAS_GEO_POLYGON_RULE`). Stroked text
+/// is a polygon too and leaves it 0.
+pub(crate) const HEADER_POLYGON_RULE: usize = HEADER_AUX1;
 /// The item's clip rectangle, **resolved** to `x0, y0, x1, y1` in surface pixels
 /// (plan-116-B).
 ///
