@@ -5511,6 +5511,18 @@ fn nir_value_context(value: &NirValue) -> String {
     }
 }
 
+/// bug-778: whether `name` is one of the inline-`TRAP` desugar's delivery slots
+/// (`ir::lower::lower_inline_trap`): `$trap_valN`, which carries the value on the
+/// `Ok` and `RECOVER` paths, or `$trap_errN`, a check chain's shared error. Both
+/// are declared without an initializer and assigned before every read. The `$`
+/// cannot begin a source identifier, so only the desugar mints these names.
+pub(crate) fn is_inline_trap_delivery_slot(name: &str) -> bool {
+    ["$trap_val", "$trap_err"].iter().any(|prefix| {
+        name.strip_prefix(prefix)
+            .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
 #[cfg(test)]
 mod transfer_temp_classification_tests {
     //! bug-567: the pending-temp disposition vocabulary must stay TOTAL.
@@ -5644,16 +5656,4 @@ mod transfer_temp_classification_tests {
             );
         }
     }
-}
-
-/// bug-778: whether `name` is one of the inline-`TRAP` desugar's delivery slots
-/// (`ir::lower::lower_inline_trap`): `$trap_valN`, which carries the value on the
-/// `Ok` and `RECOVER` paths, or `$trap_errN`, a check chain's shared error. Both
-/// are declared without an initializer and assigned before every read. The `$`
-/// cannot begin a source identifier, so only the desugar mints these names.
-pub(crate) fn is_inline_trap_delivery_slot(name: &str) -> bool {
-    ["$trap_val", "$trap_err"].iter().any(|prefix| {
-        name.strip_prefix(prefix)
-            .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
-    })
 }
