@@ -1,0 +1,46 @@
+IMPORT json
+IMPORT datetime
+IMPORT crypto
+
+' Each export below names a builtin type. This package imports those builtins,
+' but it does not export their types (bug-750), so an importer has to resolve
+' them without the dependency's help.
+EXPORT TYPE Box
+  doc AS json::Json
+END TYPE
+
+EXPORT FUNC answer() AS Integer
+  RETURN 42
+END FUNC
+
+EXPORT FUNC weigh(doc AS json::Json) AS Integer
+  RETURN len(json::stringify(doc))
+END FUNC
+
+EXPORT FUNC make() AS json::Json
+  RETURN json::parse("{\"a\":7}")
+END FUNC
+
+EXPORT FUNC show(doc AS json::Json) AS String
+  RETURN json::stringify(doc)
+END FUNC
+
+EXPORT FUNC box(text AS String) AS Box
+  RETURN Box[doc := json::parse(text)]
+END FUNC
+
+EXPORT FUNC unbox(value AS Box) AS String
+  RETURN json::stringify(value.doc)
+END FUNC
+
+EXPORT FUNC leapDay() AS datetime::DateTime
+  RETURN datetime::civil(datetime::date(2024, 2, 29), datetime::time(12, 0, 0), datetime::utc())
+END FUNC
+
+EXPORT FUNC iso(at AS datetime::DateTime) AS String
+  RETURN datetime::toIso(at)
+END FUNC
+
+EXPORT FUNC hasKeys(pair AS crypto::KeyPair) AS Boolean
+  RETURN len(pair.publicKey) > 0
+END FUNC

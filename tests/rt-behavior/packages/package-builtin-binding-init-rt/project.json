@@ -1,0 +1,19 @@
+{
+  "name": "package_builtin_binding_init_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-673 for packages: a package's top-level initializer that calls a builtin (`json::parse`) runs after that builtin's own bindings (its depth limit), even though the package's copy of the builtin is identity-prefixed.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "builtin_binding_pkg",
+      "version": "=0.1.0",
+      "source": "file:packages/builtin_binding_pkg",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

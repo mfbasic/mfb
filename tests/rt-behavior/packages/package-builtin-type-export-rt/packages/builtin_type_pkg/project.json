@@ -1,0 +1,9 @@
+{
+  "name": "builtin_type_pkg",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-823: the source-directory dependency consumed by `../../` -- its exports name builtin types its importer does not import.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

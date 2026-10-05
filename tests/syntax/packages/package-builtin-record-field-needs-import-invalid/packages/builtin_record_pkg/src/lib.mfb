@@ -1,0 +1,5 @@
+IMPORT datetime
+
+EXPORT FUNC leapDay() AS datetime::DateTime
+  RETURN datetime::civil(datetime::date(2024, 2, 29), datetime::time(12, 0, 0), datetime::utc())
+END FUNC

@@ -90,6 +90,12 @@ per distinct cleanup-stack prefix. [[src/codegen/engine/control/builder_exits.rs
 The pads are placed after the function body, deepest prefix first, so every
 branch into a pad and between pads is forward. A backward branch would read as
 a loop to the live-range analyses. [[src/codegen/engine/control/builder_exits.rs:append_error_return_pads]]
+A check's own raise block (a bounds, overflow or shift-count check in a compiled
+function) that leaves by `ret` or by a branch to a pad is placed out of line too,
+between the body and the pads, so the passing path falls through a check that is
+one untaken branch and every branch into or out of the block stays forward. A
+raise block that branches anywhere else — a `TRAP` handler, an inline `TRAP`'s
+capture point — stays inline. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_cold_block]]
 The trap route keeps its per-site walk. The one exception to all of this is
 the trap route's own out-of-memory fallback. It re-enters the raise while that
 route is still dropping, so it returns directly instead of starting a second

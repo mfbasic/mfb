@@ -106,7 +106,9 @@ crc = (crc >> 8) XOR T0[(crc XOR b) AND 255]
 
 `T0..T7` are one module-level `List OF Integer`, `__COMPRESS_CRC32_TABLES`, of 2,048
 entries with table `k` at indices `k*256 .. k*256+255`, so every lookup is a single
-`collections::get`. `T0[i]` is `i` shifted right eight times, XORing in `0xEDB88320`
+`collections::get`. `__compress_crc32` passes the list to the loop, `__compress_crc32Run`,
+as a parameter, and the loop builds every index with `bits::bor` (table `k`'s base is a
+multiple of 256 and the byte below it; `i` is a multiple of 8 in the eight-byte step). `T0[i]` is `i` shifted right eight times, XORing in `0xEDB88320`
 after each shift whose outgoing bit was 1; `T_k[i] = (T_(k-1)[i] >> 8) XOR T0[T_(k-1)[i] AND 255]`.
 [[src/codegen/builtins/compress/helper_crc32_table.rs:BODY]]
 
@@ -165,13 +167,19 @@ and is operated with `bits::bor`/`sl`/`band`/`sr`.
   `LEN` bytes.
 - **Fixed blocks** use the RFC 1951 §3.2.6 lengths: literal/length codes 0–143 are 8 bits, 144–255 are 9,
   256–279 are 7, and 280–287 are 8; the distance table is **32** five-bit codes, as zlib's `fixedtables`,
-  with symbols 30 and 31 refused when decoded. Both tables are built once per call.
+  with symbols 30 and 31 refused when decoded. Both tables are built once per program, at start, as
+  module globals, so a small decode pays no table build.
+  [[src/codegen/builtins/compress/helper_huffman_table.rs:BODY]]
 - **Dynamic blocks** read `HLIT` (≤ 286), `HDIST` (≤ 30) and `HCLEN`, build the code-length table, expand
   the combined length sequence with repeat codes 16/17/18 (a 16 with no previous length, or any repeat
   past `HLIT + HDIST`, is refused), require a length for end-of-block (256), then build the two tables.
 
-Literal and length/distance symbols are decoded until end-of-block. A back-reference copies byte by
-byte from the output list itself, so a match that overlaps its own output works by construction. The
+Literal and length/distance symbols are decoded until end-of-block. A back-reference appends
+`collections::mid(out, from, chunk)` to the output list itself, where `chunk` is at most what lies
+between `from` and the end: a match no longer than its distance is one copy, and a match that overlaps its
+own output copies its period, then twice that, until its length is reached, so the bytes are the
+byte-by-byte copy's. The self-slice append copies from the output's own data with no temporary list
+(`./mfb spec memory collections`, Self-updates). The
 length base/extra and distance base/extra tables are built at program start from the RFC 1951 §3.2.5
 formula and pinned against the RFC table by a unit test.
 [[src/codegen/builtins/compress/helper_deflate_tables.rs:BODY]]
@@ -243,28 +251,31 @@ more per block — the per-block table build.
 
 ### Measured throughput
 
-`tools/compress-bench/run.sh target/release/mfb`, 2026-09-14, macos-aarch64: Python zlib 1.2.12 level-6
-output of three corpora (pseudo-random, repetitive text, all zeros) at 1, 4 and 16 MiB; the median of three
-interleaved rounds of five in-process runs; MiB/s over the decompressed size. Every result equals Python's
-and every 16 MiB / 4 MiB time ratio is 3.74–4.03.
+`tools/compress-bench/run.sh target/release/mfb inflate zlibDecode gzipDecode crc32`, 2026-10-04,
+macos-aarch64 (after bug-774): Python zlib 1.2.12 level-6 output of three corpora (pseudo-random,
+repetitive text, all zeros) at 1, 4 and 16 MiB; the median of three interleaved rounds of five in-process
+runs; MiB/s over the decompressed size. Every result equals Python's and every 16 MiB / 4 MiB time ratio is
+3.51–4.03.
 
 | Member | corpus | `-O1` MiB/s (16 MiB) | `-O3` MiB/s (16 MiB) |
 |---|---|---|---|
-| `inflate` | random | 81.4 | 92.8 |
-| `inflate` | text | 49.9 | 62.8 |
-| `inflate` | zero | 69.5 | 84.8 |
-| `zlibDecode` | random | 55.1 | 60.6 |
-| `zlibDecode` | text | 38.6 | 46.1 |
-| `zlibDecode` | zero | 48.7 | 56.0 |
-| `gzipDecode` | random | 41.1 | 47.6 |
-| `gzipDecode` | text | 31.4 | 38.6 |
-| `gzipDecode` | zero | 38.3 | 46.1 |
+| `inflate` | random | 319.5 | 331.6 |
+| `inflate` | text | 825.3 | 892.4 |
+| `inflate` | zero | 1,788.5 | 1,571.2 |
+| `zlibDecode` | random | 237.7 | 226.9 |
+| `zlibDecode` | text | 424.9 | 385.7 |
+| `zlibDecode` | zero | 578.0 | 470.8 |
+| `gzipDecode` | random | 229.8 | 240.8 |
+| `gzipDecode` | text | 409.8 | 431.0 |
+| `gzipDecode` | zero | 547.5 | 550.6 |
 
 `zlibDecode` and `gzipDecode` do more than `inflate` over the same DEFLATE data: they compute the
-checksum of the whole output (Adler-32, or CRC-32 at ≈86 MiB/s) and copy the output once to drop the
-core's end-position trailer. With `ignoreChecksum := TRUE` the checksum pass is skipped. Python's `zlib`
-decodes the same streams at roughly 2,400–8,900 MiB/s. Speed is not part of the contract; these are
-dated measurements.
+checksum of the whole output (Adler-32, or CRC-32 at ≈1,100 MiB/s at `-O1`, ≈1,330 MiB/s at `-O3`) and
+copy the output once to drop the core's end-position trailer. With `ignoreChecksum := TRUE` the checksum
+pass is skipped. Python's `zlib` decodes the same streams at roughly 2,500–9,800 MiB/s and checksums them
+at ≈33,000 MiB/s (a hardware-assisted CRC). Speed is not part of the contract; these are dated
+measurements. The 2026-09-14 figures before bug-774 were 31–82 MiB/s for the decoders and ≈86 MiB/s for
+CRC-32.
 
 Against the decoder it replaces: on a 4096×4096 RGBA8 PNG's single IDAT (Python `zlib.compress(raw, 6)`,
 38,120,016 B → 67,112,960 B), `compress::zlibDecode` at `-O1` takes 3,847.0 ms (median of three,
@@ -388,21 +399,23 @@ linux-riscv64 (`mfb build --ncode` of a program calling all three encoders, 2026
 ### Measured throughput and size
 
 `OPT_LEVELS=1 ROUNDS=1 tools/compress-bench/run.sh target/release/mfb deflate1 deflate6 deflate9`,
-2026-09-14, macos-aarch64: the bench corpora at 16 MiB, `-O1`, the median of five in-process runs; MiB/s
-over the input size; size relative to Python zlib 1.2.12 raw DEFLATE at the same level. Every output
-decodes back to its input, and every 16 MiB / 4 MiB time ratio is 3.92–4.05.
+2026-10-04, macos-aarch64 (after bug-774): the bench corpora at 16 MiB, `-O1`, the median of five in-process
+runs; MiB/s over the input size; size relative to Python zlib 1.2.12 raw DEFLATE at the same level. Every
+output decodes back to its input, and every 16 MiB / 4 MiB time ratio is 3.82–4.02. bug-774 changed the
+code that runs, not the encoder's choices: the compressed bytes equal the previous build's (2026-09-14:
+7.1–97.8 MiB/s).
 
 | level | corpus | `compress` MiB/s | Python zlib MiB/s | size vs zlib |
 |---|---|---|---|---|
-| 1 | random | 7.1 | 58.2 | 1.000× |
-| 1 | text | 38.4 | 496.6 | 1.004× |
-| 1 | zero | 97.8 | 918.4 | 1.046× |
-| 6 | random | 7.2 | 56.3 | 1.000× |
-| 6 | text | 13.1 | 182.9 | 1.005× |
-| 6 | zero | 29.6 | 395.0 | 1.193× |
-| 9 | random | 7.2 | 55.8 | 1.000× |
-| 9 | text | 2.5 | 63.1 | 1.005× |
-| 9 | zero | 29.4 | 434.4 | 1.193× |
+| 1 | random | 22.9 | 59.1 | 1.000× |
+| 1 | text | 189.9 | 494.8 | 1.004× |
+| 1 | zero | 455.0 | 765.3 | 1.046× |
+| 6 | random | 22.7 | 55.8 | 1.000× |
+| 6 | text | 64.1 | 178.5 | 1.005× |
+| 6 | zero | 124.2 | 436.0 | 1.193× |
+| 9 | random | 22.8 | 55.9 | 1.000× |
+| 9 | text | 11.2 | 62.7 | 1.005× |
+| 9 | zero | 124.9 | 432.3 | 1.193× |
 
 At every corpus size (1, 4 and 16 MiB), level 9's output is no larger than level 1's.
 Speed and size are not part of the contract; these are dated measurements.

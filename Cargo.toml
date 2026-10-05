@@ -931,6 +931,14 @@ name = "rt_imported_overload_imported_field_argument"
 path = "tests/runtime/rt_imported_overload_imported_field_argument.rs"
 
 [[test]]
+name = "rt_overloaded_function_values"
+path = "tests/runtime/rt_overloaded_function_values.rs"
+
+[[test]]
+name = "rt_monomorph_diagnostic_order"
+path = "tests/runtime/rt_monomorph_diagnostic_order.rs"
+
+[[test]]
 name = "rt_imported_type_name_collision"
 path = "tests/runtime/rt_imported_type_name_collision.rs"
 
@@ -1001,6 +1009,18 @@ path = "tests/runtime/rt_json_parse_file.rs"
 [[test]]
 name = "rt_compress_bounds"
 path = "tests/runtime/rt_compress_bounds.rs"
+
+[[test]]
+name = "rt_runtime_helper_callee_saved"
+path = "tests/runtime/rt_runtime_helper_callee_saved.rs"
+
+[[test]]
+name = "rt_compress_throughput"
+path = "tests/runtime/rt_compress_throughput.rs"
+
+[[test]]
+name = "rt_self_slice_append"
+path = "tests/runtime/rt_self_slice_append.rs"
 
 [[test]]
 name = "rt_compress_deflate_o3"

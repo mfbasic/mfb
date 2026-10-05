@@ -80,9 +80,13 @@ Other call properties are derived at their owning layer:
   [[src/target/shared/abi.rs:mfb_arg]]
 - **The clobber model is owned by the register allocator.** Internal
   `_mfb_*` calls other than compiled `_mfb_fn_*`/`_mfb_ifn_*` functions
-  conservatively clobber every allocatable integer register. FP clobbers
-  use the target's caller-saved set. There is no per-spec clobber list.
+  conservatively clobber every allocatable integer register, except the
+  helpers audited to preserve the callee-saved registers on every target —
+  `_mfb_arena_alloc`, `_mfb_arena_free` and `_mfb_rt_drop_owned_collection` —
+  which clobber only the caller-saved set, as a compiled function does. FP
+  clobbers use the target's caller-saved set. There is no per-spec clobber list.
   [[src/codegen/engine/regalloc/analysis.rs:call_clobber_mask]]
+  [[src/codegen/engine/regalloc/analysis.rs:PCS_CLEAN_RUNTIME_HELPERS]]
 
 ### Worked example: `io.print`
 

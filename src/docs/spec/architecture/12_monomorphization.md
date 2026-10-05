@@ -239,6 +239,13 @@ A call is lowered in `lower_expression`'s `Call` arm, which tries, in order:
 5. <unchanged callee>            (bare name; codegen/builtins dispatch)
 ```
 
+None of the four runs when the callee names a binding in scope — a parameter,
+`LET`/`MUT`, loop variable, `CASE` or `TRAP` binding, or lambda parameter. A local
+shadows a top-level function of the same name, so `pick(2)` through a local
+`pick` calls the local even when `pick` is also an overloaded function. The
+scope's bound names are tracked in `FunctionContext::bound` whether or not the
+binding's type is known.
+
 ### `resolve_overload`
 
 `resolve_overload(name, arg_types, expected, line)`: [[src/monomorph/lower.rs:resolve_overload]]
@@ -275,26 +282,77 @@ its gap-fill dispatch.
 overridable built-in is *always* force-mangled at registration so its codegen
 symbol never equals the built-in's dispatch name.
 
+### Function-value references
+
+A bare name in value position (`HirExpression::Identifier`) that names an
+overload set is rewritten to one member's concrete symbol by
+`resolve_function_reference`; it has no arguments, so the expected type alone
+selects. [[src/monomorph/lower.rs:resolve_function_reference]]
+
+- The set is the one a direct call resolves against: the project's declarations
+  of the name with ≥2 members (`function_overloads`), or an imported package's
+  `EXPORT` members of `binding.name` (`imported_overloads`). A single
+  declaration, an unknown name, or a name a local binding shadows is left
+  unchanged.
+- An overridable built-in name follows the gap-fill rule instead
+  (`resolve_builtin_override_reference`): its user overrides are always
+  force-mangled, so the reference is rewritten to the one override whose callable
+  type is the expected one, but only when the built-in rejects that type's
+  parameter types; otherwise the bare name stays for IR lowering's built-in
+  reference handling, and nothing is reported here.
+  [[src/monomorph/lower.rs:resolve_builtin_override_reference]]
+- The expected type and each member's callable type are first made concrete with
+  `concrete_type`, so a generic body's `FUNC(T) AS T` is compared after
+  substitution and a user generic compares by its instantiated nominal. A member
+  without an `AS` clause has the callable type `… AS Nothing`.
+  [[src/monomorph/helpers.rs:reference_signature]]
+- A member is selected when its parameter count, each parameter type (ignoring a
+  top-level `RES` marker), and its return type equal the expected `FUNC` type's,
+  and it is `ISOLATED` whenever the expected type is (an isolated member may stand
+  in a plain `FUNC` slot, never the reverse). Imported members compare their
+  package types with `types_compatible` over `normalize_type`, as an imported call
+  does. [[src/monomorph/helpers.rs:callable_matches]]
+- Exactly one selected member → the identifier becomes its concrete symbol (the
+  `overload_names` entry, or the package-qualified mangled export name).
+- No expected type → `TYPE_OVERLOAD_AMBIGUOUS`, listing the members' callable
+  types. An expected type no member has — a different `FUNC` type or a non-callable
+  type — → `TYPE_OVERLOAD_NO_MATCH`. Both are reported here, while the set is
+  visible; the bare name left behind would otherwise reach the post-monomorph
+  resolver after every member was mangled and read as undeclared.
+
+Parameter names and defaults are not part of the comparison, and the reference
+never coerces: the selected member's type is exactly the expected one (or its
+isolated form).
+
 ### Expected-type propagation
 
-The expected (contextual) type that selects among return-type overloads is
-threaded through `lower_expression`'s `expected_type` parameter and set at these
-sites:
+The expected (contextual) type that selects among return-type overloads, and
+among the members of an overloaded function referenced as a value, is threaded
+through `lower_expression`'s `expected_type` parameter and set at these sites:
 
 | Site | Source of expected type |
 |------|-------------------------|
-| `LET … AS T = …` | the declared type `T` |
-| `RETURN <call>` | the enclosing function's return type (only when the operand is a call) |
-| call argument slot | the selected parameter's declared type — **only when the argument is itself a call** [[src/monomorph/helpers.rs:arg_slot_expected]] |
-| list literal element | the `List OF` element of the surrounding expected type |
+| `LET … AS T = …`, top-level `LET`/`MUT … AS T` | the declared type `T` (template parameters substituted, inside `FUNC(...)` types too) [[src/monomorph/helpers.rs:substitute_type_params]] |
+| assignment `x = …` | the target local's type |
+| `h.state = …` | the handle's `STATE` type |
+| `RETURN <call>` / `RETURN <name>` | the enclosing function's return type (only when the operand is a call or a bare name) |
+| call argument slot | the selected parameter's declared type — **only when the argument is a call or a bare name** [[src/monomorph/helpers.rs:arg_slot_expected]] |
+| list / set literal element | the `List OF` / `Set OF` element of the surrounding expected type |
+| map literal key / value | the literal's spelled key / value type — only for a call or bare-name operand |
 | typed constructor field | the field's declared type |
+| `WITH` update field | the updated field's declared type — only for a call or bare-name operand |
 
 The argument-slot expectation is supplied only when the callee names **exactly
 one** user function (`single_signature_params` returns `None` for an overloaded,
-package, or unknown callee), because that is the only place a return-type set
-nested as an argument can resolve. [[src/monomorph/lower.rs:single_signature_params]]
-Literals always keep their own inferred typing, never an expected type, in the
-argument-slot and return positions.
+package, or unknown callee, and a callee that is a local binding supplies none),
+because that is the only place a return-type set nested as an argument, or an
+overloaded function passed as a callback, can resolve.
+[[src/monomorph/lower.rs:single_signature_params]] Literals always keep their own
+inferred typing, never an expected type, in the argument-slot, return, map-entry
+and `WITH` positions. [[src/monomorph/helpers.rs:consults_expected]] A callback
+passed to an overloaded, package or built-in callee therefore has no expected
+type; an overloaded function passed there is `TYPE_OVERLOAD_AMBIGUOUS` and is
+written through an annotated binding instead.
 
 ## Imported overloads across the package boundary
 
@@ -309,8 +367,11 @@ metadata, since the importer has no AST for them.
    normalization.
 2. Reads the package's exports.[[src/binary_repr/]]
 3. Keeps only `Func`/`Sub` exports, groups them by base name (split on `$`).
-4. Records `(param_types, package.mangledName)` **only** for a base name with
-   ≥2 exports — a non-overloaded import resolves by its bare name and is skipped.
+4. Records `(param_types, package.mangledName, return_type, isolated)` **only**
+   for a base name with ≥2 exports — a non-overloaded import resolves by its bare
+   name and is skipped. A call selects by `param_types`; a value reference to the
+   set (`LET f AS FUNC(…) AS … = pkg::name`) also needs the return type and
+   isolation (see "Function-value references").
 
 `resolve_imported_overload(callee, arg_types)` then finds the candidate whose
 arity and per-position `types_compatible` match, returning the

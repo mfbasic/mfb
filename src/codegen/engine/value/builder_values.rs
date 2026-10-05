@@ -2189,7 +2189,13 @@ impl CodeBuilder<'_> {
                 // zip migrated to Implementation::Mfb.fast_path (func_zip.rs),
                 // consulted by try_mfb_fast_path below.
                 if let Some(local) = self.locals.get(target).cloned() {
-                    if matches!(local.type_, ParameterType::Func(_, _, false)) {
+                    // Any callable, `ISOLATED` included: an isolated function value
+                    // is the same capture-free code pointer, and it is called the
+                    // same way. Matching only the plain form sent a call through an
+                    // `ISOLATED FUNC` local down the direct-call path, which emitted
+                    // a relocation to a function named like the local (found with
+                    // bug-822).
+                    if matches!(local.type_, ParameterType::Func(..)) {
                         let return_type_typed = typed_callable_return_type(&local.type_)
                             .expect("guarded by the Func match above")
                             .clone();
@@ -2220,7 +2226,7 @@ impl CodeBuilder<'_> {
                 // indirectly too (bug-198): load the function pointer from the
                 // global's arena slot, mirroring the local FUNC-value path above.
                 if let Some(global) = self.globals.get(target).cloned() {
-                    if matches!(global.type_, ParameterType::Func(_, _, false)) {
+                    if matches!(global.type_, ParameterType::Func(..)) {
                         let return_type = typed_callable_return_type(&global.type_)
                             .expect("guarded by the Func match above")
                             .name()
@@ -2361,7 +2367,7 @@ impl CodeBuilder<'_> {
             }
             NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
-                    if matches!(local.type_, ParameterType::Func(_, _, false)) {
+                    if matches!(local.type_, ParameterType::Func(..)) {
                         let return_type_typed = typed_callable_return_type(&local.type_)
                             .expect("guarded by the Func match above")
                             .clone();

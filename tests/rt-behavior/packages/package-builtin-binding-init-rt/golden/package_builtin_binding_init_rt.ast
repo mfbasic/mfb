@@ -1,0 +1,29 @@
+{
+  "project": "package_builtin_binding_init_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "builtin_binding_pkg", "alias": "pkg", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "pkg.show", "arguments": [{ "kind": "identifier", "value": "pkg.DOC" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "pkg.hidden", "arguments": [] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

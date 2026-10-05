@@ -55,6 +55,11 @@ impl CodeBuilder<'_> {
         // single cost in a native build, and the split is what says which of the
         // four is responsible.
         let _span = crate::trace::span("register allocation");
+        // bug-774: the cold raise blocks set aside during lowering go after the
+        // body (which ends in its own return, so nothing falls into them); each
+        // ends in its own exit, so nothing falls out of one either.
+        let cold = std::mem::take(&mut self.cold_instructions);
+        self.instructions.extend(cold);
         // bug-695: the inline-raise landing pads go after the body, before anything
         // reads the stream as final.
         self.append_error_return_pads();

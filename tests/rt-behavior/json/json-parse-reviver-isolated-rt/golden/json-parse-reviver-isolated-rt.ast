@@ -1,0 +1,66 @@
+{
+  "project": "json-parse-reviver-isolated-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 9 },
+    { "module": "json", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "revive",
+      "line": 12,
+      "params": [
+      { "name": "key", "type": "String", "default": null, "line": 12 },
+      { "name": "value", "type": "json.Json", "default": null, "line": 12 }
+      ],
+      "returnType": "json.Json",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "value" },
+        "line": 13,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "json.JsonNum", "binding": "n" },
+          "guard": null,
+          "line": 14,
+          "body": [
+          { "kind": "return", "value": { "kind": "constructor", "type": "json.JsonNum", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "n" }, "member": "value" }, "right": { "kind": "number", "value": "1.0" } }] }, "line": 15 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 16,
+          "body": [
+          { "kind": "return", "value": { "kind": "identifier", "value": "value" }, "line": 17 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "parsed", "type": "json.Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[1,2,3]" }, { "kind": "identifier", "value": "revive" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "parsed" }] }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}

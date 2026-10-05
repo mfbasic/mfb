@@ -1,0 +1,19 @@
+{
+  "name": "package_builtin_type_export_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-823: a package whose exported functions and record fields name builtin types (`json::Json`, `datetime::DateTime`, `crypto::KeyPair`) is importable by a file that imports none of those builtins.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "builtin_type_pkg",
+      "version": "=0.1.0",
+      "source": "file:packages/builtin_type_pkg",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

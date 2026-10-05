@@ -1,0 +1,25 @@
+' bug-824: `json::parse`'s reviver parameter is declared as a plain
+' `FUNC(String, Json) AS Json`; before the fix an `ISOLATED FUNC` of that shape
+' was `TYPE_CALL_ARGUMENT_MISMATCH` at the `json::parse` call (the registry
+' dispatch), exactly like every collections HOF. Internally the reviver call
+' itself (`__json_revive`) is an ordinary function-value call through
+' `builder_values.rs`, already isolated-aware since bug-822; only the registry's
+' `unify_at` gated the outer call. Adds 1 to every number in the document;
+' prints [2,3,4].
+IMPORT io
+IMPORT json
+
+ISOLATED FUNC revive(key AS String, value AS json::Json) AS json::Json
+  MATCH value
+    CASE json::JsonNum(n)
+      RETURN json::JsonNum[n.value + 1.0]
+    CASE ELSE
+      RETURN value
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  LET parsed AS json::Json = json::parse("[1,2,3]", revive)
+  io::print(json::stringify(parsed))
+  RETURN 0
+END FUNC

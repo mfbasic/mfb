@@ -762,6 +762,13 @@ read `byteLength` bytes and hand on the tight form.
     pass frees only the removed elements' graphs.
     [[src/codegen/collection/list/list_compact.rs:emit_compact_range_truncate]]
     [[src/codegen/collection/list/list_compact.rs:lower_list_compact_in_place]]
+  - `x = append(x, mid(x, start, count))` on a fixed-width list (`Byte`,
+    `Boolean`, `Scalar`, `Integer`, `Float`, `Fixed`, `Money`), with `start` and
+    `count` built from literals, other locals and `+`/`-`, copies the slice
+    straight from `x`'s own data into its tail: it costs the `count` elements,
+    plus at most one grow, and builds no temporary list. `mid`'s range checks run
+    first and raise exactly what `mid` raises.
+    [[src/codegen/collection/list/list_mutate.rs:lower_list_self_slice_append_in_place]]
   - `repeat` costs the `count` positions it writes, plus at most one grow — which,
     like any grow, copies `x` — when the run passes the end or the tail cannot
     take `count` more payloads. For an element type that reaches a type cycle it

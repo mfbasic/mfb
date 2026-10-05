@@ -1,0 +1,18 @@
+$ mfb build -ast -ir tests/rt-behavior/packages/package-builtin-type-export-rt
+Wrote package to tests/rt-behavior/packages/package-builtin-type-export-rt/build/packages/builtin_type_pkg.mfp
+uses builtin_type_pkg - [Unsigned]
+Wrote AST to tests/rt-behavior/packages/package-builtin-type-export-rt/package_builtin_type_export_rt.ast
+Wrote IR to tests/rt-behavior/packages/package-builtin-type-export-rt/package_builtin_type_export_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/packages/package-builtin-type-export-rt
+Wrote package to tests/rt-behavior/packages/package-builtin-type-export-rt/build/packages/builtin_type_pkg.mfp
+uses builtin_type_pkg - [Unsigned]
+Wrote executable to tests/rt-behavior/packages/package-builtin-type-export-rt/build/package_builtin_type_export_rt.out
+[exit 0]
+$ tests/rt-behavior/packages/package-builtin-type-export-rt/build/package_builtin_type_export_rt.out
+42
+{"a":7}
+7
+[1,2]
+2024-02-29T12:00:00.000Z
+[exit 0]

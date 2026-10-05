@@ -1,0 +1,24 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/builtin-callback-isolated-widening-rt
+Wrote AST to tests/rt-behavior/collections/builtin-callback-isolated-widening-rt/builtin-callback-isolated-widening-rt.ast
+Wrote IR to tests/rt-behavior/collections/builtin-callback-isolated-widening-rt/builtin-callback-isolated-widening-rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/builtin-callback-isolated-widening-rt
+Wrote executable to tests/rt-behavior/collections/builtin-callback-isolated-widening-rt/build/builtin-callback-isolated-widening-rt.out
+[exit 0]
+$ tests/rt-behavior/collections/builtin-callback-isolated-widening-rt/build/builtin-callback-isolated-widening-rt.out
+1
+2
+3
+4
+2
+4
+6
+8
+2
+4
+10
+4
+3
+2
+1
+[exit 0]

@@ -22,7 +22,10 @@
 //! fallibility census now reads off this registry data rather than a `bits.` name
 //! predicate.
 
+use crate::codegen::engine::builder::ValueResult;
 use crate::codegen::registry::{Registry, RegistryPackage};
+use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 mod func_band;
 mod func_bnot;
@@ -41,6 +44,44 @@ mod func_rr64;
 mod func_sl;
 mod func_sr;
 mod func_sra;
+
+/// bug-774: the shift count of `bits::sl`/`sr`/`sra` when it is an `Integer`
+/// literal in `0..=63`, or `None`. Such a count is proven in range at compile
+/// time, so the shift lowers to one immediate-count instruction with no range
+/// check; any other count — a variable, an expression, or a literal outside the
+/// range — keeps the runtime check and its `ErrInvalidArgument`.
+pub(crate) fn constant_shift_count(count: &ValueResult) -> Option<u8> {
+    count.origin.as_ref().and_then(literal_in_shift_range)
+}
+
+/// bug-774: whether a variable shift `count` is proven in `0..=63` by its shape:
+/// `bits::band(x, m)` (either operand order) with `m` an `Integer` literal in
+/// `0..=63`. A non-negative mask clears the sign bit and every bit above `m`'s, so
+/// the result lies in `0..=m` whatever `x` is. The shift then keeps its variable
+/// form and drops only the range check.
+pub(crate) fn shift_count_in_range(count: &ValueResult) -> bool {
+    match &count.origin {
+        Some(NirValue::Call { target, args, .. }) if target == "bits.band" && args.len() == 2 => {
+            args.iter().any(|arg| literal_in_shift_range(arg).is_some())
+        }
+        _ => false,
+    }
+}
+
+/// An `Integer` literal in `0..=63`.
+fn literal_in_shift_range(value: &NirValue) -> Option<u8> {
+    match value {
+        NirValue::Const {
+            type_: ParameterType::Integer,
+            value,
+        } => value
+            .parse::<i64>()
+            .ok()
+            .filter(|count| (0..=63).contains(count))
+            .map(|count| count as u8),
+        _ => None,
+    }
+}
 
 const MODULE_INTRO: &str = r#"Integer bitwise, shift, and rotate operations"#;
 const MODULE_DESC: &str = r#"The `bits` package provides the bitwise integer operations the language operator

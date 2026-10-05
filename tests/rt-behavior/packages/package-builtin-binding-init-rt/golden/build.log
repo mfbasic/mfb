@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/packages/package-builtin-binding-init-rt
+Wrote package to tests/rt-behavior/packages/package-builtin-binding-init-rt/build/packages/builtin_binding_pkg.mfp
+uses builtin_binding_pkg - [Unsigned]
+Wrote AST to tests/rt-behavior/packages/package-builtin-binding-init-rt/package_builtin_binding_init_rt.ast
+Wrote IR to tests/rt-behavior/packages/package-builtin-binding-init-rt/package_builtin_binding_init_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/packages/package-builtin-binding-init-rt
+Wrote package to tests/rt-behavior/packages/package-builtin-binding-init-rt/build/packages/builtin_binding_pkg.mfp
+uses builtin_binding_pkg - [Unsigned]
+Wrote executable to tests/rt-behavior/packages/package-builtin-binding-init-rt/build/package_builtin_binding_init_rt.out
+[exit 0]
+$ tests/rt-behavior/packages/package-builtin-binding-init-rt/build/package_builtin_binding_init_rt.out
+[3]
+{"k":true}
+[exit 0]

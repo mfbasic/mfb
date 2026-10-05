@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/functions/func_overload_value_ambiguous_invalid
+  23 | FUNC main AS Integer
+  24 |   ' An untyped binding: a parameter-type overload set.
+  25 |   LET f = pick
+     | ^
+tests/syntax/functions/func_overload_value_ambiguous_invalid/src/main.mfb:25 error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be resolved without an expected type
+               `pick` names 2 overloaded functions (`FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`); a reference to it as a value needs an expected `FUNC` type to select one — annotate it (e.g. `LET f AS FUNC(…) AS … = pick`).
+  25 |   LET f = pick
+  26 |   ' An untyped binding: a return-type overload set.
+  27 |   LET g = conv
+     | ^
+tests/syntax/functions/func_overload_value_ambiguous_invalid/src/main.mfb:27 error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be resolved without an expected type
+               `conv` names 2 overloaded functions (`FUNC(Integer) AS Integer`, `FUNC(Integer) AS String`); a reference to it as a value needs an expected `FUNC` type to select one — annotate it (e.g. `LET f AS FUNC(…) AS … = conv`).
+  27 |   LET g = conv
+  28 |   ' A position with no callable expected type.
+  29 |   io::print(typeName(pick))
+     | ^
+tests/syntax/functions/func_overload_value_ambiguous_invalid/src/main.mfb:29 error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be resolved without an expected type
+               `pick` names 2 overloaded functions (`FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`); a reference to it as a value needs an expected `FUNC` type to select one — annotate it (e.g. `LET f AS FUNC(…) AS … = pick`).
+[exit 1]

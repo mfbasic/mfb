@@ -1,0 +1,105 @@
+{
+  "project": "isolated-callable-call-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 9 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "scaled",
+      "line": 11,
+      "params": [
+      { "name": "x", "type": "String", "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "x" }] }, "right": { "kind": "number", "value": "10" } }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "strict",
+      "line": 15,
+      "params": [
+      { "name": "x", "type": "String", "default": null, "line": 15 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "string", "value": "" } },
+        "line": 16,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050009" }, { "kind": "string", "value": "empty" }] }, "line": 17 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 19 }
+      ]
+    },
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "shared", "type": "ISOLATED FUNC(String) AS Integer", "value": { "kind": "identifier", "value": "scaled" }, "line": 22 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "run",
+      "line": 24,
+      "params": [
+      { "name": "f", "type": "ISOLATED FUNC(String) AS Integer", "default": null, "line": 24 },
+      { "name": "x", "type": "String", "default": null, "line": 24 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "f", "type": "ISOLATED FUNC(String) AS Integer", "value": { "kind": "identifier", "value": "scaled" }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "f", "arguments": [{ "kind": "string", "value": "ab" }] }] }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "shared", "arguments": [{ "kind": "string", "value": "abc" }] }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "run", "arguments": [{ "kind": "identifier", "value": "scaled" }, { "kind": "string", "value": "abcd" }] }] }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "ISOLATED FUNC(String) AS Integer", "value": { "kind": "identifier", "value": "strict" }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "ok", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 34,
+        "expression": { "kind": "call", "callee": "g", "arguments": [{ "kind": "string", "value": "abcd" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 35 }
+        ]
+      }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "failed", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 38,
+        "expression": { "kind": "call", "callee": "g", "arguments": [{ "kind": "string", "value": "" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9" } }, "line": 39 }
+        ]
+      }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "failed" }] }] }, "line": 41 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 42 }
+      ]
+    }
+    ]
+  }
+  ]
+}

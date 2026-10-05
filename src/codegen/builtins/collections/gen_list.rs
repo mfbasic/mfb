@@ -11,6 +11,7 @@
 //! the copies they replaced.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::builder_collection_layout::kind2_payload_size;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
@@ -71,6 +72,49 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
+        // bug-774: a fixed-width (kind 2) element lives at `block + HEADER +
+        // index * size` with no lookup entry, so the read is one bounds check and
+        // one load. The check is a single UNSIGNED compare: a negative index is,
+        // as a u64, at least 2^63 — above any count — so `count <=u index` is
+        // exactly `index < 0 || index >= count`. The element address is a shift
+        // (none for a 1-byte element) and an add, and the header offset rides in
+        // the load's immediate, instead of `mov_imm size; mul; add_imm; add; ldr`.
+        if let Some(size) = kind2_payload_size(element_type) {
+            if !unchecked {
+                self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+                self.emit(abi::compare_registers(&count, &index));
+                self.emit(abi::branch_ls(&miss));
+            }
+            if size == 1 {
+                self.emit(abi::add_registers(&entry, &collection, &index));
+            } else {
+                self.emit(abi::shift_left_immediate(
+                    &value_offset,
+                    &index,
+                    size.trailing_zeros() as u8,
+                ));
+                self.emit(abi::add_registers(&entry, &collection, &value_offset));
+            }
+            let result = self.allocate_register();
+            match size {
+                1 => self.emit(abi::load_u8(&result, &entry, COLLECTION_HEADER_SIZE)),
+                4 => self.emit(abi::load_u32(&result, &entry, COLLECTION_HEADER_SIZE)),
+                8 => self.emit(abi::load_u64(&result, &entry, COLLECTION_HEADER_SIZE)),
+                other => {
+                    return Err(format!(
+                        "native list get has no {other}-byte fixed-width element load"
+                    ))
+                }
+            }
+            return self.finish_list_get(
+                result,
+                &miss,
+                &done,
+                default_slot,
+                collection_type,
+                element_type,
+            );
+        }
         // plan-86 G1: skip the `0 <= index < count` bounds check when the caller has
         // PROVEN the index in range (induction var over `len(L)-k`, L unmodified).
         // `count` is still loaded below by `emit_element_value_offset` as needed.
@@ -96,14 +140,40 @@ impl CodeBuilder<'_> {
             value_offset,
             value_length,
         )?;
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&miss));
+        self.finish_list_get(
+            result,
+            &miss,
+            &done,
+            default_slot,
+            collection_type,
+            element_type,
+        )
+    }
+
+    /// The common tail of a list `get`/`getOr` once `result` holds the found
+    /// element: `get`'s miss raises out of line; `getOr`'s miss loads the default
+    /// into `result` inline, behind a jump the found path takes, and joins.
+    fn finish_list_get(
+        &mut self,
+        result: VirtualRegister,
+        miss: &str,
+        done: &str,
+        default_slot: Option<usize>,
+        collection_type: &ParameterType,
+        element_type: &ParameterType,
+    ) -> Result<ValueResult, String> {
         let text = match default_slot {
+            // bug-774: the miss raises and leaves, so it goes out of line and the
+            // found path falls straight through.
             None => {
-                self.raise_error("collections.get", "ErrIndexOutOfRange")?;
+                self.emit_cold_block(miss, |builder| {
+                    builder.raise_error("collections.get", "ErrIndexOutOfRange")
+                })?;
                 format!("get({collection_type}, Integer)")
             }
             Some(default_slot) => {
+                self.emit(abi::branch(done));
+                self.emit(abi::label(miss));
                 if *element_type == ParameterType::String {
                     // See `lower_map_get_or`: the found path materializes a fresh
                     // owned string, so the default must be copied too — returning
@@ -119,10 +189,10 @@ impl CodeBuilder<'_> {
                 } else {
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
                 }
+                self.emit(abi::label(done));
                 format!("getOr({collection_type}, Integer, {element_type})")
             }
         };
-        self.emit(abi::label(&done));
         self.mark_fresh_element_result(element_type, &result);
 
         Ok(ValueResult {

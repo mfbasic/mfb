@@ -1,0 +1,43 @@
+' A call THROUGH a value typed `ISOLATED FUNC(...)` -- a local, a parameter, a
+' top-level binding, and under an inline TRAP (the `CallResult` arm).
+'
+' Native lowering recognised a callable local or global only when its type was
+' the plain `FUNC(...)`, so a call through an `ISOLATED FUNC` value fell through
+' to the direct-call path: it failed to build ("native code internal relocation
+' target 'f' is not defined", or a `toString` of an `Unknown` result). Found while
+' fixing bug-822. Prints 20 / 30 / 40 / 4 / -9.
+IMPORT io
+
+ISOLATED FUNC scaled(x AS String) AS Integer
+  RETURN len(x) * 10
+END FUNC
+
+ISOLATED FUNC strict(x AS String) AS Integer
+  IF x = "" THEN
+    FAIL error(77050009, "empty")
+  END IF
+  RETURN len(x)
+END FUNC
+
+LET shared AS ISOLATED FUNC(String) AS Integer = scaled
+
+FUNC run(f AS ISOLATED FUNC(String) AS Integer, x AS String) AS Integer
+  RETURN f(x)
+END FUNC
+
+FUNC main AS Integer
+  LET f AS ISOLATED FUNC(String) AS Integer = scaled
+  io::print(toString(f("ab")))
+  io::print(toString(shared("abc")))
+  io::print(toString(run(scaled, "abcd")))
+  LET g AS ISOLATED FUNC(String) AS Integer = strict
+  LET ok = g("abcd") TRAP(e)
+    RECOVER 0
+  END TRAP
+  io::print(toString(ok))
+  LET failed = g("") TRAP(e)
+    RECOVER -9
+  END TRAP
+  io::print(toString(failed))
+  RETURN 0
+END FUNC

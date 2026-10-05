@@ -1,0 +1,44 @@
+' bug-822: an overloaded function named as a value selects the declaration whose
+' complete callable type -- parameter types, return type and isolation -- is the
+' expected one. When none is, the reference is TYPE_OVERLOAD_NO_MATCH, listing
+' the declared overloads.
+FUNC pick(x AS Integer) AS Integer
+  RETURN x + 1
+END FUNC
+
+FUNC pick(x AS String) AS Integer
+  RETURN len(x)
+END FUNC
+
+FUNC conv(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC conv(x AS Integer) AS String
+  RETURN toString(x)
+END FUNC
+
+FUNC takes(f AS FUNC(Boolean) AS Integer) AS Integer
+  RETURN f(TRUE)
+END FUNC
+
+FUNC chooser() AS FUNC(Integer) AS Boolean
+  ' Return position: no overload of conv returns Boolean.
+  RETURN conv
+END FUNC
+
+FUNC main AS Integer
+  ' No overload takes a Boolean.
+  LET a AS FUNC(Boolean) AS Integer = pick
+  ' No overload of pick returns a String.
+  LET b AS FUNC(Integer) AS String = pick
+  ' Arity differs.
+  LET c AS FUNC(Integer, Integer) AS Integer = pick
+  ' No overload is ISOLATED, so none satisfies an ISOLATED FUNC type.
+  LET d AS ISOLATED FUNC(Integer) AS Integer = pick
+  ' A non-callable expected type.
+  LET e AS Integer = pick
+  ' Argument position.
+  LET n = takes(pick)
+  RETURN 0
+END FUNC

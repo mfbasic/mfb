@@ -228,10 +228,14 @@ A value must avoid every register a call clobbers if it is live across that
 call: an ordinary MFB call preserves the callee-saved registers, so such a value
 can stay in one, while the allocator conservatively treats internal `_mfb_*` helpers other
 than `_mfb_fn_*` and `_mfb_ifn_*` as clobbering every allocatable integer
-register, so an integer value live across one is spilled. FP clobbers use the
-target's caller-saved set. This is a compiler model, not a claim that each
-helper physically overwrites every register.
-[[src/codegen/engine/regalloc/analysis.rs:call_clobber_mask]] At `-O1` and above only the
+register, so an integer value live across one is spilled. The exceptions are the
+arena allocator's `_mfb_arena_alloc` and `_mfb_arena_free` and the owned-collection
+drop `_mfb_rt_drop_owned_collection`: each is audited, on every target, to save every
+callee-saved register it uses, so across them a value keeps a callee-saved register
+as it does across an MFB call. FP clobbers use the target's caller-saved set. This is
+a compiler model, not a claim that each helper physically overwrites every register.
+[[src/codegen/engine/regalloc/analysis.rs:call_clobber_mask]]
+[[src/codegen/engine/regalloc/analysis.rs:PCS_CLEAN_RUNTIME_HELPERS]] At `-O1` and above only the
 calls a value is **live across** (still needed after the call, by the dataflow)
 constrain it; a call inside its interval at which it is dead — the inline raise
 path of a checked operation, which calls the error builders and returns — does
