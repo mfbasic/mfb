@@ -3275,13 +3275,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&capture));
         // bug-566: a `Checked` operand is lowered by `lower_value`, which
         // registered its own pending temp — the statement-scope drop frees it, and
-        // a second free here would be a double free.
-        self.materialize_current_result(
-            success_type,
-            "checked".to_string(),
-            false,
-            RawSuccessBlock::OwnedElsewhere,
-        )
+        // a second free here would be a double free. plan-165-D: on bug-778's
+        // unboxed path a fresh block result (`a & b TRAP(e)`) is instead taken over
+        // by the temporary, exactly as a raw member's is, so the trapped form
+        // copies nothing the untrapped binding does not.
+        let raw_success = if self.claim_raw_member_result_for_unboxed_trap(&success) {
+            RawSuccessBlock::OwnedByThisFrame
+        } else {
+            RawSuccessBlock::OwnedElsewhere
+        };
+        self.materialize_current_result(success_type, "checked".to_string(), false, raw_success)
     }
 
     /// Lower an inline conversion built-in (`toInt`/`toFloat`/`toFixed`/`toByte`)

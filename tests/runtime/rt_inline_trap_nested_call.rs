@@ -328,12 +328,14 @@ fn non_call_root_with_a_nested_fallible_call_is_trapped() {
     assert_eq!(stdout, "caught binary code=90000001\nc=0\n");
 }
 
-/// A trapped expression with no call at all is still rejected: there is nothing
-/// to trap, so `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` must survive the fix.
+/// A trapped expression with no call at all was rejected
+/// (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`) before plan-165-D. Under the owner's
+/// review-3.1 decision (Option 1, any well-typed expression) it is trapped as a
+/// whole: `1 + 1` is checked, never fails, and delivers its value.
 #[test]
-fn a_trapped_expression_with_no_call_is_still_rejected() {
+fn a_trapped_expression_with_no_call_delivers_its_value() {
     let root = unique_root("no_call");
-    let out = build_output(
+    let exe = build(
         &root,
         concat!(
             "FUNC main() AS Integer\n",
@@ -345,15 +347,7 @@ fn a_trapped_expression_with_no_call_is_still_rejected() {
             "END FUNC\n",
         ),
     );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        !out.status.success() && combined.contains("TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
-        "a call-free trapped expression must still be rejected:\n{combined}"
-    );
+    assert_eq!(run(&exe), "c=2\n");
 }
 
 /// bug-457 rejected a fallible call in a short-circuited operand because the

@@ -623,35 +623,28 @@ fn a_short_circuited_raising_operator_is_caught_only_when_selected() {
     assert_eq!(run(&exe), "caught 77050002\n-1,3\n");
 }
 
-/// Control (unchanged by this fix): a scrutinee that is a bare operator with
-/// nothing fallible nested in it is still rejected — an inline `TRAP` traps a
-/// call, and `1 / z` alone is not one. The fix widens what is *covered* inside a
-/// trapped expression, not what may *be* one.
+/// bug-471's control rejected a scrutinee that is a bare operator with nothing
+/// fallible nested in it (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`). plan-165-D
+/// (review 3.1, Option 1) admits it: `1 / z` alone is trapped, and its
+/// division by zero runs the handler exactly as `f(1 / z)`'s does.
 #[test]
-fn a_bare_operator_scrutinee_is_still_rejected() {
+fn a_bare_operator_scrutinee_is_trapped() {
     let root = unique_root("bare");
-    let out = build_output(
+    let exe = build(
         &root,
         concat!(
             "FUNC main() AS Integer\n",
             "  MUT z AS Integer = 0\n",
             "  LET d = 1 / z TRAP(e)\n",
+            "    io::print(\"caught \" & toString(e.code))\n",
             "    RECOVER -1\n",
             "  END TRAP\n",
-            "  RETURN d\n",
+            "  io::print(toString(d))\n",
+            "  RETURN 0\n",
             "END FUNC\n",
         ),
     );
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(!out.status.success(), "expected a diagnostic:\n{combined}");
-    assert!(
-        combined.contains("TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"),
-        "expected TYPE_INLINE_TRAP_REQUIRES_FALLIBLE, got:\n{combined}"
-    );
+    assert_eq!(run(&exe), "caught 77050002\n-1\n");
 }
 
 /// Control (bug-457's shape): a nested fallible call with no operator in sight

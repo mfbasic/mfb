@@ -108,10 +108,10 @@ FUNC main() AS Integer
   ' zero is the error the handler exists for, and before bug-471 it propagated
   ' straight past one.
   '
-  ' An inline TRAP requires a CALL somewhere in the expression
-  ' (TYPE_INLINE_TRAP_REQUIRES_FALLIBLE), so the dividend is one -- which is
-  ' also the realistic shape: the operator is at the ROOT, above the call the
-  ' trap was written for.
+  ' Since plan-165-D a call-free `50 / z` may be trapped too; the dividend is a
+  ' call here because that is the realistic shape: the operator is at the
+  ' ROOT, above the call the trap was written for (before plan-165-D a call was
+  ' required, TYPE_INLINE_TRAP_REQUIRES_FALLIBLE).
   MUT z AS Integer = 5
   LET dOk AS Integer = risky(50) / z TRAP(e)
     RECOVER 0 - 1

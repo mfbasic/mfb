@@ -1816,18 +1816,26 @@ fn lower_inline_trap(
     // lift this is a no-op and the lowering below is byte-for-byte the one that
     // shipped before.
     //
-    // bug-779: only a scrutinee that contains a runtime call is lifted at all. The
-    // lift also takes nested raising *operators* (bug-471), and a lifted operator
-    // is a `Checked` bind that `ir::verify` reads as a fallible scrutinee — so a
-    // call-free `i * 2 + 3` used to slip past `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`
-    // while `i * 2`, with nothing nested to lift, was rejected. Rule 11: a raising
-    // operator widens what a TRAP covers, not what may be one. Left unlifted, the
-    // call-free scrutinee reaches the verifier as the bare bind it reports on.
-    let hoists = if scrutinee_has_runtime_call(&root) {
-        hoist_trap_calls(&mut root, locals, context)
-    } else {
-        Vec::new()
-    };
+    // plan-165-D (review 3.1, Option 1): any well-typed expression may be
+    // trapped, so every scrutinee is lifted — a call-free `i * 2 + 3` included
+    // (bug-779 used to leave it unlifted so `ir::verify` would reject it).
+    let hoists = hoist_trap_calls(&mut root, locals, context);
+    // Whether anything lifted can route an error to the handler. When nothing
+    // can, the scrutinee's own node is the one check (see `check_root`), and any
+    // lift is an unchecked call kept only for evaluation order.
+    let chain_can_fail = hoists.iter().any(TrapHoist::can_fail);
+    // plan-165-D: a package constant is a `Call` node but not a runtime call; as a
+    // root it is checked like any other non-call value.
+    let root_is_runtime_call = matches!(
+        &root,
+        IrValue::Call { target, .. } if !builtins::is_package_constant(target)
+    );
+    // plan-165-D: a discarded `Float` value has no observation boundary (an
+    // untrapped `f * f` statement does not observe it), so its root check
+    // captures domain errors only; every other target observes the value it
+    // delivers, as the untrapped binding or assignment does.
+    let root_observes = !(matches!(target, InlineTrapTarget::Discard)
+        && matches!(success_type, ParameterType::Float));
 
     // Whether the scrutinee's own outermost node still gets a `Result` check.
     // With nothing lifted it always does, including when it is not a call —
@@ -1843,7 +1851,7 @@ fn lower_inline_trap(
     // `ir::verify` reports `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` on, and an
     // inline `TRAP` still traps a *call* — a scrutinee that is only an operator
     // is rejected exactly as before.
-    let root_operator_raises = !hoists.is_empty()
+    let root_operator_raises = chain_can_fail
         && matches!(&root, IrValue::Binary { .. } | IrValue::Unary { .. })
         && !is_conditional_root(&root)
         && trap_hoist_kind(
@@ -1862,15 +1870,19 @@ fn lower_inline_trap(
         // name left it a plain `Call` whenever the scrutinee also hoisted, and the
         // raise walked straight past the handler. (Since bug-807 every `toString`
         // is fallible by name; `replace` and `toInt` still turn on the overload.)
-        IrValue::Call { target, args, .. } => {
-            hoists.is_empty()
+        IrValue::Call { target, args, .. } if root_is_runtime_call => {
+            !chain_can_fail
                 || context.fallible.call_is_fallible(
                     target,
                     &ir_call_arg_types(target, args, locals, &context.binding_types),
                     context.type_index,
                 )
         }
-        _ => hoists.is_empty() || root_operator_raises,
+        // plan-165-D: with nothing lifted that can fail, a non-call root is the
+        // one check — a raising operator captured, a known-total expression
+        // wrapped in a `Checked` that cannot fail (its dead handler is
+        // `ir::verify`'s `TYPE_INLINE_TRAP_DEAD_HANDLER`).
+        _ => !chain_can_fail || root_operator_raises,
     };
     // Allocated before the value slot so the no-hoist lowering keeps its
     // historical temp numbering.
@@ -1880,21 +1892,21 @@ fn lower_inline_trap(
         let checked = match root {
             IrValue::Call {
                 target, args, loc, ..
-            } => IrValue::CallResult {
+            } if root_is_runtime_call => IrValue::CallResult {
                 target,
                 args,
                 // The fallible form's success type is the call's own result type.
                 type_: success_type.clone(),
                 loc,
             },
-            // A raising operator has no callee to return a `Result`, so it is
-            // wrapped instead (bug-471).
-            other if root_operator_raises => IrValue::Checked {
+            // A non-call root has no callee to return a `Result`, so it is
+            // wrapped instead (bug-471; plan-165-D for a root nothing was lifted
+            // from, raising or total).
+            other => IrValue::Checked {
                 type_: success_type.clone(),
                 value: Box::new(other),
-                observe: true,
+                observe: root_observes,
             },
-            other => other,
         };
         (Some(checked), None)
     } else {
@@ -1946,8 +1958,9 @@ fn lower_inline_trap(
     };
 
     let mut ops = Vec::new();
-    if hoists.is_empty() {
-        let call_result = root_result.expect("a scrutinee with nothing lifted is always checked");
+    if !chain_can_fail {
+        let call_result =
+            root_result.expect("a scrutinee with nothing lifted that can fail is always checked");
         ops.push(IrOp::Bind {
             mutable: false,
             name: res_name.clone(),
@@ -1987,6 +2000,12 @@ fn lower_inline_trap(
             then_body: root_then,
             else_body,
             loc: stmt_loc,
+        });
+        // plan-165-D: calls lifted only to keep evaluation order (none of them can
+        // fail) run ahead of the one check, as plain binds; with nothing lifted
+        // this is a no-op.
+        ops = wrap_trap_hoists(hoists, ops, "", &|_| {
+            unreachable!("an unchecked lift has no failure arm")
         });
     } else {
         // The shared failure flag and error slot the whole chain reports through.
@@ -2418,9 +2437,9 @@ const TRAP_SCRUTINEE_MAX_DEPTH: usize = super::value::VALUE_VISIT_MAX_DEPTH;
 
 /// Whether `op` only evaluates its right operand when the left one does not
 /// already decide the result (`mfb spec language operators`). A call in that
-/// position cannot be lifted — hoisting evaluates it unconditionally — so it is
-/// left in place, and `ir::shape` rejects a *fallible* one with
-/// `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` rather than letting its error escape.
+/// position cannot be hoisted whole — that would evaluate it unconditionally —
+/// so an `AND`/`OR` holding one is lifted as a conditional step instead
+/// (plan-165-C, [`wrap_trap_hoists`]).
 pub(super) fn is_short_circuit_operator(op: BinaryOp) -> bool {
     matches!(op, BinaryOp::And | BinaryOp::Or)
 }
@@ -2436,21 +2455,8 @@ pub(super) fn is_short_circuit_operator(op: BinaryOp) -> bool {
 /// the fallible ones: the lifted binds all run before the residual expression,
 /// so a side-effecting infallible call left behind would move *after* a fallible
 /// call it used to precede. Calls past the last fallible one need no such care
-/// and stay in the expression.
-/// Whether an inline-`TRAP` scrutinee contains a runtime call anywhere in it —
-/// the thing `mfb spec language error-model` rule 11 requires. A package
-/// constant is a `Call` in the IR but not a runtime call. A lambda's body is not
-/// part of the scrutinee (`visit_value` visits only its captures).
-fn scrutinee_has_runtime_call(root: &IrValue) -> bool {
-    let mut found = false;
-    crate::ir::value::visit_value(root, &mut |value| {
-        if let IrValue::Call { target, .. } | IrValue::CallResult { target, .. } = value {
-            found |= !builtins::is_package_constant(target);
-        }
-    });
-    found
-}
-
+/// and stay in the expression — except under a root that becomes a `Checked`,
+/// which may hold no call, where every indexed node is lifted.
 fn hoist_trap_calls(
     root: &mut IrValue,
     locals: &mut HashMap<String, ParameterType>,
@@ -2494,9 +2500,6 @@ fn hoist_trap_calls(
             &mut fallible,
         );
     }
-    let Some(last_fallible) = fallible.iter().rposition(|f| *f) else {
-        return Vec::new();
-    };
     // A raising operator at the root is wrapped in `Checked` once something is lifted
     // (bug-471), and a `Checked` may hold no call (`ir::verify`): a call past the last
     // fallible one would stay inside it. So under such a root every indexed node is lifted —
@@ -2512,10 +2515,24 @@ fn hoist_trap_calls(
             &context.binding_types,
             context.type_index,
         ) == Some(true);
-    let limit = if root_is_checked_operator {
-        fallible.len()
-    } else {
-        last_fallible + 1
+    let limit = match fallible.iter().rposition(|f| *f) {
+        Some(_) if root_is_checked_operator => fallible.len(),
+        Some(last_fallible) => last_fallible + 1,
+        // plan-165-D: nothing can fail. A runtime-call root is the one check and
+        // evaluates its own arguments in order, so nothing is lifted (the
+        // historical shape). Any other root becomes a `Checked`, which may hold no
+        // call either, so every indexed node — each an unchecked call or
+        // conditional — is lifted ahead of it.
+        None => {
+            let root_is_runtime_call = matches!(
+                root,
+                IrValue::Call { target, .. } if !builtins::is_package_constant(target)
+            );
+            if root_is_runtime_call || fallible.is_empty() {
+                return Vec::new();
+            }
+            fallible.len()
+        }
     };
     let mut hoists = Vec::new();
     let mut index = 0;

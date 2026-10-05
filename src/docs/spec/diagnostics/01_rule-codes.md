@@ -425,7 +425,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0067` | `TYPE_RECOVER_TYPE_MISMATCH` | error | RECOVER value does not match the trapped expression's success type |
 | `2-203-0068` | `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` | error | RECOVER is valid only inside an inline TRAP handler |
 | `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a fallible call |
-| `2-203-0104` | `TYPE_INLINE_TRAP_DEAD_HANDLER` | warn | inline TRAP handler is unreachable — the guarded call cannot fail |
+| `2-203-0104` | `TYPE_INLINE_TRAP_DEAD_HANDLER` | warn | inline TRAP handler is unreachable — the guarded expression cannot fail |
 | `2-203-0103` | `EXPORT_IN_EXECUTABLE` | error | EXPORT is only valid in a package project; use PUBLIC (the default) in an executable |
 | `2-203-0105` | `TYPE_MONEY_LITERAL_OVERFLOW` | error | numeric literal is outside the Money range |
 | `2-203-0106` | `TYPE_MONEY_LITERAL_UNDERFLOW` | error | numeric literal is outside the Money range |

@@ -3,7 +3,7 @@ $ mfb build -ast -ir tests/rt-behavior/strings/strings-inline-trap-fallible-rt
   80 |   ' the proof the fix is narrow: it did not make every strings member fallible.
   81 |   LET i AS Integer = strings::byteLen("ok") TRAP(err)
      | ^
-tests/rt-behavior/strings/strings-inline-trap-fallible-rt/src/main.mfb:81 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
+tests/rt-behavior/strings/strings-inline-trap-fallible-rt/src/main.mfb:81 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded expression cannot fail
                Inline TRAP handler is unreachable — `strings.byteLen` cannot fail, so the handler is dead code.
 Wrote AST to tests/rt-behavior/strings/strings-inline-trap-fallible-rt/strings_inline_trap_fallible_rt.ast
 Wrote IR to tests/rt-behavior/strings/strings-inline-trap-fallible-rt/strings_inline_trap_fallible_rt.ir
@@ -13,7 +13,7 @@ $ mfb build tests/rt-behavior/strings/strings-inline-trap-fallible-rt
   80 |   ' the proof the fix is narrow: it did not make every strings member fallible.
   81 |   LET i AS Integer = strings::byteLen("ok") TRAP(err)
      | ^
-tests/rt-behavior/strings/strings-inline-trap-fallible-rt/src/main.mfb:81 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded call cannot fail
+tests/rt-behavior/strings/strings-inline-trap-fallible-rt/src/main.mfb:81 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded expression cannot fail
                Inline TRAP handler is unreachable — `strings.byteLen` cannot fail, so the handler is dead code.
 Wrote executable to tests/rt-behavior/strings/strings-inline-trap-fallible-rt/build/strings_inline_trap_fallible_rt.out
 [exit 0]

@@ -303,7 +303,11 @@ impl TypeEnv {
         crate::ir::value::visit_value(value, &mut |node| {
             if offender.is_none() {
                 if let IrValue::Call { target, .. } | IrValue::CallResult { target, .. } = node {
-                    offender = Some(target.clone());
+                    // plan-165-D: a package constant is a `Call` node that folds
+                    // to its value — no runtime call, no error return to miss.
+                    if !crate::codegen::builtins::is_package_constant(target) {
+                        offender = Some(target.clone());
+                    }
                 }
             }
         });

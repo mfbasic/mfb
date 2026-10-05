@@ -741,6 +741,10 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "RECOVER is valid only inside an inline TRAP handler",
     },
+    // plan-165-D (Option 1): source never draws this any more — any well-typed
+    // expression may be trapped, and one that cannot fail is the dead-handler
+    // warning. `ir::verify` still emits it for a decoded package whose inline-TRAP
+    // temporary is bound to something that is not a `Result` producer.
     Rule {
         code: "2-203-0069",
         name: "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
@@ -814,7 +818,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0104",
         name: "TYPE_INLINE_TRAP_DEAD_HANDLER",
         severity: Severity::Warn,
-        message: "inline TRAP handler is unreachable — the guarded call cannot fail",
+        message: "inline TRAP handler is unreachable — the guarded expression cannot fail",
     },
     Rule {
         code: "2-203-0136",

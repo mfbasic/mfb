@@ -3,7 +3,7 @@
 Last updated: 2026-10-05
 Effort: medium (estimate: 1h–2h, excluding prerequisites and full-suite latency)
 Depends on: plan-165-C; bug-825; bug-798 (fixed)
-Status: In progress (go-ahead: `/follow-plan 165`, 2026-10-05)
+Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`)
 
 ## Goal
 
@@ -238,24 +238,56 @@ cases for newly admitted forms and passing controls for existing contracts
 (estimate: minutes after build). Met: `1 passed; 8 failed` — the control
 (`recover_typing_…`) passes; the eight fail on `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`
 (26 sites) or its knock-on `TYPE_TRAP_LOCAL_UNINITIALIZED` (the census case).
-Commit: (next commit)
+Commit: c7d048193
 
 ### Phase 2 — Expression capture and spec
 
-- [ ] Implement accepted eligibility/root capture and typed total-expression success
-      on the unboxed-slot path.
-- [ ] Update error-model (rule 11, including the `&` sentence for the chosen
+- [x] Implement accepted eligibility/root capture and typed total-expression success
+      on the unboxed-slot path. `lower_inline_trap` lifts every scrutinee (the
+      `scrutinee_has_runtime_call` gate is deleted); with nothing lifted that can
+      fail, a non-call root (package constants included) is one `Checked`
+      (`observe` FALSE only for a discarded `Float`), preceded by the unchecked call
+      lifts a `Checked` cannot hold; `check_checked_has_no_call` exempts package
+      constants; `check_inline_trap_scrutinee` warns `TYPE_INLINE_TRAP_DEAD_HANDLER`
+      on a `Checked` with no raising operator; `lower_checked_value` claims a fresh
+      block result on the unboxed path (parity for `a & b`). Allocation parity at
+      -O0/-O1/-O3 is green for `i * 2 + 3`, `a & b`, `i / d`.
+- [x] Update error-model (rule 11, including the `&` sentence for the chosen
       option), operator/Float cross-references, IR lowering and diagnostic rule
       descriptions together; include the chained-division boundary example.
-- [ ] Add valid fixtures under `tests/rt-behavior/trap` and invalid counterparts
+      Rule 11 (any well-typed expression; `a / b / c / d` example; discarded
+      `Float`; `&` → dead-handler warning); 04_ir (`Checked` node and the
+      single-check shape); rules table + `01_rule-codes.md` (DEAD_HANDLER summary
+      "the guarded expression cannot fail"; REQUIRES_FALLIBLE documented as
+      decoded-package only).
+- [x] Add valid fixtures under `tests/rt-behavior/trap` and invalid counterparts
       under `tests/syntax/trap`; revise only independently disproved expectations
       (bug-471's and bug-779's controls, with the owner's acceptance as evidence).
+      bug-779's `inline-trap-call-free-operator-chain-invalid` became the valid
+      `tests/rt-behavior/trap/inline-trap-call-free-operator-chain-rt` (prints the
+      whole-value recoveries); bug-471's `a_bare_operator_scrutinee_is_still_rejected`
+      and bug-457's `a_trapped_expression_with_no_call_is_still_rejected` became
+      runtime assertions. Corrected only the disproved lines: the REQUIRES_FALLIBLE
+      entries of `inline-trap-infallible-builtin-invalid` (still invalid:
+      SYMBOL_NOT_CALLABLE) and `control-flow-inline-trap-invalid` (line 48), now
+      the dead-handler warning; the DEAD_HANDLER summary text in
+      `inline-trap-infallible-builtin-valid`, `strings-inline-trap-fallible-rt` and
+      `toInt_enum`. Invalid counterparts that still hold: RECOVER typing /
+      fall-through (`control-flow-inline-trap-invalid`,
+      `inline-trap-conditional-recover-type-invalid`), positions
+      (`inline-bare-trap-illegal-position`). Trap-family acceptance: 42 tests, the
+      one mismatch was the intended summary text, now corrected.
 
 Acceptance: the proposed runtime target proves whole-result recovery, unchanged
 observation timing and allocation parity; `cargo test --test rt_inline_trap_success_alloc`
 still passes; `cargo test --bin mfb spec` and the rendered error-model topic agree
-(estimate: minutes after build).
-Commit: —
+(estimate: minutes after build). Met: `cargo test --test
+rt_inline_trap_expression_boundary --test rt_inline_trap_success_alloc` (+ nested_call,
+raising_operator, short_circuit, float_observation, error_model_recovery) → 9, 2,
+21, 20, 11, 1, 4 passed; `cargo test --bin mfb -- spec` → 46 passed; the rendered
+topic shows the `a / b / c / d` example; `cargo test --bin mfb -- ir:: trap spec
+rules:: testing` → 1089 passed.
+Commit: (next commit)
 
 ## Validation
 
@@ -297,3 +329,20 @@ bug-779's fixture as a consumer; bug-825 as a prerequisite.
 Prerequisites and Open decisions; bug-825 is now fixed, so its prerequisite is met.
 Under Option 1 the Phase 1 `&` case and Phase 2's rule 11 edit follow the
 dead-handler branch only.
+
+2026-10-05 (implementation):
+- A discarded `Float` expression has no observation boundary untrapped (measured:
+  a bare `f * f` statement with `f = 1.0e200` does not raise at `f23af579c`), so
+  the root `Checked` of a discarded `Float` is capture-only (`observe` FALSE). The
+  contract's "discarding must not invent a Float store" is implemented that way.
+- `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` is not retired: source lowering no longer
+  produces it, but `ir::verify` still reports a decoded package whose `$trap_res`
+  is bound to a non-`Result` value (that would otherwise be a type confusion).
+  Its rule row says so.
+- The `TYPE_INLINE_TRAP_DEAD_HANDLER` summary read "the guarded call cannot fail";
+  under Option 1 the guarded thing may be any expression, so it now reads "the
+  guarded expression cannot fail". Every golden carrying it (five) was corrected
+  in that one line only.
+- A package-constant root (`math::pi TRAP(e)`) is a known-total expression under
+  Option 1 and warns instead of erroring; `check_checked_has_no_call` exempts
+  package constants because they fold to their value.

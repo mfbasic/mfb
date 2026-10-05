@@ -1110,13 +1110,15 @@ impl TypeEnv {
         }
     }
 
-    /// the former source checker's TYPE_INLINE_TRAP_REQUIRES_FALLIBLE on the lowered
-    /// inline-TRAP shape: `Bind $trap_resN = <scrutinee>` then
-    /// `If ResultIsOk($trap_resN)`. The scrutinee survives as the temp's bind
-    /// value — a `CallResult` when the source trapped a call, a `Checked` when
-    /// the desugar lifted a raising operator (bug-471), anything else when it
-    /// did neither — so the two source forms (a non-call; a package constant,
-    /// which is not a runtime call) are both readable here.
+    /// The inline-TRAP scrutinee rules on the lowered shape: `Bind $trap_resN =
+    /// <scrutinee>` then `If ResultIsOk($trap_resN)`. The scrutinee survives as
+    /// the temp's bind value — a `CallResult` when the source trapped a call, a
+    /// `Checked` for any other expression (bug-471, plan-165-D). A scrutinee
+    /// that cannot fail draws the advisory `TYPE_INLINE_TRAP_DEAD_HANDLER`. Source
+    /// lowering produces nothing else since plan-165-D; a `CallResult` of a
+    /// package constant or any other bind value (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`)
+    /// can only come from a crafted or stale package, whose `$trap_res` would
+    /// otherwise not be a `Result` at all.
     ///
     /// `expectTrap`/`expectNTrap` desugar (`testing::desugar`) into this same
     /// shape, but the former source checker saw them as assertion calls with their own rule
@@ -1150,12 +1152,20 @@ impl TypeEnv {
             return;
         };
         match scrutinee {
-            // bug-471: a `Checked` scrutinee is a raising *operator* the desugar
-            // lifted out of the trapped expression. It is fallible by
-            // construction — `ir::lower` only builds one where
-            // `fallible::operator_can_raise` said so — so neither the
-            // requires-fallible nor the dead-handler rule applies.
-            IrValue::Checked { .. } => {}
+            // bug-471: a `Checked` scrutinee is a non-call expression the desugar
+            // wraps so its domain-error exits join the capture. plan-165-D (Option
+            // 1): any well-typed expression may be trapped, so one that holds no
+            // raising operator — `a & b`, `n = 3`, a plain read — cannot fail and
+            // its handler is dead code, exactly as on a provably total call.
+            IrValue::Checked { value, .. } => {
+                if !self.checked_value_can_raise(value, locals) {
+                    self.emit(
+                        "TYPE_INLINE_TRAP_DEAD_HANDLER",
+                        "Inline TRAP handler is unreachable — this expression cannot fail, so the handler is dead code."
+                            .to_string(),
+                    );
+                }
+            }
             IrValue::CallResult { target, args, .. } | IrValue::Call { target, args, .. } => {
                 if builtins::is_package_constant(target) {
                     self.emit(
@@ -1205,6 +1215,49 @@ impl TypeEnv {
                 "Inline TRAP requires a call to trap; this expression is not a call.".to_string(),
             ),
         }
+    }
+
+    /// Whether a `Checked` value (call-free, `check_checked_has_no_call`) holds
+    /// an operator that can raise: the same per-operator census `ir::lower`
+    /// lifts on (`operator_can_raise`, `comparison_can_raise` on the operand
+    /// types, `unary_operator_can_raise` minus a negative literal). `&` is never
+    /// a raise site (owner decision 2026-10-04). An operand of unproven type
+    /// counts as raising for a comparison, as the census does.
+    fn checked_value_can_raise(
+        &self,
+        value: &IrValue,
+        locals: &HashMap<String, ParameterType>,
+    ) -> bool {
+        use crate::ir::fallible::{
+            comparison_can_raise, is_total_literal_negation, operator_can_raise,
+            unary_operator_can_raise,
+        };
+        let mut raises = false;
+        crate::ir::value::visit_value(value, &mut |node| match node {
+            IrValue::Binary {
+                op,
+                type_,
+                left,
+                right,
+                ..
+            } => {
+                let operand = |operand: &IrValue| {
+                    self.infer_type(operand, locals)
+                        .unwrap_or(ParameterType::Unknown)
+                };
+                raises |= operator_can_raise(*op, type_)
+                    || comparison_can_raise(*op, &operand(left), &operand(right));
+            }
+            IrValue::Unary {
+                op, type_, operand, ..
+            } => {
+                let literal = matches!(operand.as_ref(), IrValue::Const { .. })
+                    && is_total_literal_negation(*op, type_);
+                raises |= unary_operator_can_raise(*op, type_) && !literal;
+            }
+            _ => {}
+        });
+        raises
     }
 
     /// Whether a type has a defined default value: primitives yes, functions/

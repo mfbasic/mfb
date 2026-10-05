@@ -1,0 +1,37 @@
+' plan-165-D (review 3.1, Option 1): an inline TRAP protects any well-typed
+' expression, so a scrutinee with no runtime call is trapped as a whole. bug-779
+' rejected these with TYPE_INLINE_TRAP_REQUIRES_FALLIBLE (a raising operator
+' widened what a TRAP covered, not what could be one); now each runs, and a
+' failure anywhere in the chain recovers the WHOLE value.
+IMPORT io
+
+FUNC main AS Integer
+  LET i AS Integer = 5
+  MUT z AS Integer = 0
+  ' 1. a nested multiply-add, bound by LET.
+  LET a AS Integer = i * 2 + 3 TRAP(e)
+    RECOVER 0
+  END TRAP
+  ' 2. a division under an addition, bound by LET; the zero divisor recovers
+  '    the whole sum, not just the division.
+  LET b AS Integer = i / z + 1 TRAP(e)
+    io::print("b caught " & toString(e.code))
+    RECOVER -100
+  END TRAP
+  ' 3. a negated product.
+  LET c AS Integer = -(i * 2) TRAP(e)
+    RECOVER 0
+  END TRAP
+  ' 4. the assignment form.
+  MUT d AS Integer = 0
+  d = (i * 2) + 3 TRAP(e)
+    RECOVER 0
+  END TRAP
+  ' 5. the bare-statement form.
+  i / z + 3 TRAP(e)
+    io::print("statement caught " & toString(e.code))
+    RECOVER 0
+  END TRAP
+  io::print(toString(a) & "," & toString(b) & "," & toString(c) & "," & toString(d))
+  RETURN 0
+END FUNC

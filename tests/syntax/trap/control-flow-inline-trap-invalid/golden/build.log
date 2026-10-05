@@ -33,6 +33,6 @@ tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:19 error[2-203-0
   47 | FUNC infallibleTrap() AS Integer
   48 |   LET a = 5 TRAP(e)
      | ^
-tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:48 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
-               Inline TRAP requires a call to trap; this expression is not a call.
+tests/syntax/trap/control-flow-inline-trap-invalid/src/main.mfb:48 warn[2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER]: inline TRAP handler is unreachable — the guarded expression cannot fail
+               Inline TRAP handler is unreachable — this expression cannot fail, so the handler is dead code.
 [exit 1]
