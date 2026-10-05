@@ -711,6 +711,7 @@ impl<'a> Monomorphizer<'a> {
         let mut context = FunctionContext::default();
         context.enclosing_return = opt_type(&function.returns);
         for param in &function.params {
+            context.bound.insert(param.name.clone());
             if !matches!(param.type_, ParameterType::Unknown) {
                 // bug-671: a `RES … STATE S` parameter carries its payload in the
                 // local's type, as the IR records it, so `h.state.f` types.
@@ -726,6 +727,7 @@ impl<'a> Monomorphizer<'a> {
         function.body = self.lower_statements(&function.body, substitutions, &mut context);
         if let Some(trap) = &mut function.trap {
             let mut trap_context = context.clone();
+            trap_context.bound.insert(trap.name.clone());
             trap_context
                 .locals
                 .insert(trap.name.clone(), ParameterType::named("Error"));
@@ -1055,6 +1057,216 @@ impl<'a> Monomorphizer<'a> {
             .cloned()
     }
 
+    /// Select the member of an overloaded function that a bare-name VALUE
+    /// reference denotes, returning its concrete symbol (bug-822).
+    ///
+    /// A call picks its overload from argument types; a reference has none, so
+    /// it is selected by the complete callable type its context expects — the
+    /// `FUNC` annotation of a `LET`/`MUT`/global, an assignment target, a
+    /// callback parameter, the enclosing return type, or a typed field, element
+    /// or map value. A member matches when its ordered parameter types and its
+    /// return type equal the expected type's (exactly, as overload resolution is
+    /// exact) and it is `ISOLATED` whenever the expected type is — an isolated
+    /// member may stand where a plain `FUNC` is expected (bug-786), never the
+    /// reverse. Parameter names, defaults and visibility are not part of the
+    /// callable type. Exactly one member must match.
+    ///
+    /// The overload set is the one a direct call resolves against: the
+    /// project's own declarations of `name`, or an imported package's `EXPORT`
+    /// members of `binding.name`. Returns `None` — leaving the name unrevised —
+    /// for anything else: a local that shadows the name, a non-overloaded or
+    /// unknown name, or a built-in-named override (routed by its own rule). An
+    /// ambiguous or unmatched reference is diagnosed HERE, while the overload set
+    /// is still visible; once monomorphization has mangled every member, the
+    /// bare name would only read as undeclared.
+    fn resolve_function_reference(
+        &mut self,
+        name: &str,
+        expected: Option<&ParameterType>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
+        context: &FunctionContext,
+        line: usize,
+    ) -> Option<String> {
+        if context.bound.contains(name) || context.locals.contains_key(name) {
+            return None;
+        }
+        // Each member's concrete symbol and callable type, and whether the set
+        // is imported (its package types compare as an imported call's do).
+        let (display, imported, members): (String, bool, Vec<(String, ParameterType)>) =
+            if let Some(candidates) = self.function_overloads.get(name) {
+                if crate::codegen::builtins::general::is_overridable(name) {
+                    return self.resolve_builtin_override_reference(name, expected, substitutions);
+                }
+                if candidates.len() <= 1 {
+                    return None;
+                }
+                let members = candidates
+                    .iter()
+                    .map(|function| {
+                        let symbol = self
+                            .overload_names
+                            .get(&overload_key(
+                                &function.name,
+                                &function.params,
+                                opt_type_name(&function.returns).as_deref(),
+                            ))
+                            .cloned()
+                            .unwrap_or_else(|| function.name.clone());
+                        (symbol, reference_signature(function))
+                    })
+                    .collect::<Vec<_>>();
+                (
+                    crate::internal_name::display_name(name).into_owned(),
+                    false,
+                    members,
+                )
+            } else if let Some(candidates) = self.imported_overloads.get(name) {
+                let members = candidates
+                    .iter()
+                    .map(|candidate| {
+                        (
+                            candidate.qualified_name.clone(),
+                            ParameterType::Func(
+                                candidate.param_types.clone(),
+                                Box::new(candidate.return_type.clone()),
+                                candidate.isolated,
+                            ),
+                        )
+                    })
+                    .collect();
+                (name.replacen('.', "::", 1), true, members)
+            } else {
+                return None;
+            };
+        // Compare concrete types: inside a generic body the annotation still
+        // names the template's parameters (`FUNC(T) AS T`), and a user generic is
+        // spelled `Box OF Integer` in a declaration but `Box$Integer` once
+        // instantiated. `concrete_type` settles both, exactly as it does for the
+        // declarations themselves when they are lowered.
+        let expected = expected.map(|expected| self.concrete_type(expected, substitutions));
+        let members = if imported {
+            members
+        } else {
+            members
+                .into_iter()
+                .map(|(symbol, signature)| {
+                    (symbol, self.concrete_type(&signature, &HashMap::new()))
+                })
+                .collect()
+        };
+        let selected = |signature: &ParameterType| match &expected {
+            Some(expected) if imported => {
+                callable_matches_with(expected, signature, |want, have| {
+                    self.types_compatible(&self.normalize_type(have), &self.normalize_type(want))
+                })
+            }
+            Some(expected) => callable_matches(expected, signature),
+            None => false,
+        };
+        let matching = members
+            .iter()
+            .filter(|(_, signature)| selected(signature))
+            .map(|(symbol, _)| symbol.clone())
+            .collect::<Vec<_>>();
+        let signatures = members
+            .iter()
+            .map(|(_, signature)| format!("`{}`", signature.name()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let Some(expected) = expected else {
+            self.report(
+                "TYPE_OVERLOAD_AMBIGUOUS",
+                &format!(
+                    "`{display}` names {} overloaded functions ({signatures}); a reference to \
+                     it as a value needs an expected `FUNC` type to select one — annotate it \
+                     (e.g. `LET f AS FUNC(…) AS … = {display}`).",
+                    members.len()
+                ),
+                line,
+            );
+            return None;
+        };
+        match matching.len() {
+            1 => matching.into_iter().next(),
+            0 if matches!(expected, ParameterType::Func(..)) => {
+                self.report(
+                    "TYPE_OVERLOAD_NO_MATCH",
+                    &format!(
+                        "No overload of `{display}` has the callable type `{}`; its overloads \
+                         are {signatures}.",
+                        expected.name()
+                    ),
+                    line,
+                );
+                None
+            }
+            0 => {
+                self.report(
+                    "TYPE_OVERLOAD_NO_MATCH",
+                    &format!(
+                        "`{display}` names overloaded functions ({signatures}), which cannot be \
+                         used where `{}` is expected.",
+                        expected.name()
+                    ),
+                    line,
+                );
+                None
+            }
+            count => {
+                self.report(
+                    "TYPE_OVERLOAD_AMBIGUOUS",
+                    &format!(
+                        "{count} overloads of `{display}` have the callable type `{}`.",
+                        expected.name()
+                    ),
+                    line,
+                );
+                None
+            }
+        }
+    }
+
+    /// The user override a value reference to an overridable general built-in
+    /// name selects (bug-822). Such a declaration is always force-mangled, so the
+    /// bare name never reaches it; it is selected exactly as a call to it is — by
+    /// the gap-fill rule: only when the built-in rejects the expected callable
+    /// type's parameter types, and only the one override whose complete callable
+    /// type is the expected one. Anything else keeps the bare built-in name for IR
+    /// lowering's own built-in reference handling, undiagnosed here.
+    fn resolve_builtin_override_reference(
+        &mut self,
+        name: &str,
+        expected: Option<&ParameterType>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
+    ) -> Option<String> {
+        let expected = self.concrete_type(expected?, substitutions);
+        let ParameterType::Func(params, _, _) = &expected else {
+            return None;
+        };
+        if crate::codegen::builtins::resolve_call_return_type_with_kinds(name, params, false, self)
+            .is_some()
+        {
+            return None;
+        }
+        let candidates = self.function_overloads.get(name)?.clone();
+        let mut matching = Vec::new();
+        for function in &candidates {
+            let signature = self.concrete_type(&reference_signature(function), &HashMap::new());
+            if callable_matches(&expected, &signature) {
+                matching.extend(
+                    self.overload_names
+                        .get(&overload_key(
+                            &function.name,
+                            &function.params,
+                            opt_type_name(&function.returns).as_deref(),
+                        ))
+                        .cloned(),
+                );
+            }
+        }
+        (matching.len() == 1).then(|| matching.remove(0))
+    }
+
     /// Route a call whose callee is an **overridable general built-in** to a user
     /// override (plan-01-overload.md §A.3 / Phase 5.2). The built-in is
     /// authoritative for the types it already supports, so an override is selected
@@ -1238,6 +1450,7 @@ impl<'a> Monomorphizer<'a> {
                 if let Some(binding_type) = binding_type {
                     context.locals.insert(name.clone(), binding_type);
                 }
+                context.bound.insert(name.clone());
                 HirStatement::Let {
                     mutable: *mutable,
                     resource: *resource,
@@ -1253,8 +1466,9 @@ impl<'a> Monomorphizer<'a> {
                 value: value.as_ref().map(|value| {
                     // A `RETURN` of a call propagates the enclosing function's
                     // declared return type as the expected type so a return-type
-                    // overload set resolves (plan-01-overload.md §F.2).
-                    let expected = matches!(value, HirExpression::Call { .. })
+                    // overload set resolves (plan-01-overload.md §F.2); a bare
+                    // name selects an overloaded function's member by it (bug-822).
+                    let expected = consults_expected(value)
                         .then(|| context.enclosing_return.clone())
                         .flatten();
                     self.lower_expression(value, substitutions, context, expected.as_ref(), *line)
@@ -1359,6 +1573,9 @@ impl<'a> Monomorphizer<'a> {
                         .iter()
                         .map(|case| {
                             let mut case_context = context.clone();
+                            if let HirMatchPattern::Union { binding, .. } = &case.pattern {
+                                case_context.bound.insert(binding.clone());
+                            }
                             // bug-680: a CASE names a template-instantiated variant by
                             // its template's name (`CASE Some(s)` over `Opt OF Integer`),
                             // so the pattern takes the concrete variant the scrutinee's
@@ -1467,6 +1684,7 @@ impl<'a> Monomorphizer<'a> {
                 {
                     nested.locals.insert(name.clone(), loop_type);
                 }
+                nested.bound.insert(name.clone());
                 HirStatement::For {
                     name: name.clone(),
                     start: lowered_start,
@@ -1500,6 +1718,7 @@ impl<'a> Monomorphizer<'a> {
                     };
                     nested.locals.insert(name.clone(), loop_type);
                 }
+                nested.bound.insert(name.clone());
                 HirStatement::ForEach {
                     name: name.clone(),
                     iterable: lowered_iterable,
@@ -1545,12 +1764,24 @@ impl<'a> Monomorphizer<'a> {
                 line: call_line,
                 column,
             } => {
+                // A call through a local (a parameter, `LET`, loop or lambda
+                // binding) that shares its name with a top-level function calls
+                // the LOCAL: no instantiation, override routing or overload
+                // rewrite may claim it. Rewriting it to an overload member ran
+                // the wrong function silently (bug-822).
+                let local_callee = context.bound.contains(callee.as_str());
                 // When the callee names exactly one user function, propagate each
                 // parameter type as the expected type of its argument slot, but
-                // only for a nested call argument — that is where a return-type
-                // overload set needs the context to resolve (plan-01-overload.md
-                // §F.2). Literals keep their own inferred typing.
-                let sig_params = self.single_signature_params(callee);
+                // only for an argument that consults it — a nested call, where a
+                // return-type overload set needs the context to resolve
+                // (plan-01-overload.md §F.2), or a bare name, which may select a
+                // member of an overloaded function referenced as a value
+                // (bug-822). Literals keep their own inferred typing.
+                let sig_params = if local_callee {
+                    None
+                } else {
+                    self.single_signature_params(callee)
+                };
                 let lowered_args = arguments
                     .iter()
                     .enumerate()
@@ -1629,7 +1860,9 @@ impl<'a> Monomorphizer<'a> {
                 let ordered_arg_types =
                     self.arg_types_in_param_order(callee, arguments, &arg_types);
                 let instantiate_arg_types = ordered_arg_types.as_deref().unwrap_or(&arg_types);
-                let target = if let Some(target) =
+                let target = if local_callee {
+                    public_callee.clone()
+                } else if let Some(target) =
                     self.instantiate_function(callee, instantiate_arg_types, line)
                 {
                     target
@@ -1751,23 +1984,44 @@ impl<'a> Monomorphizer<'a> {
                     arguments: lowered_args,
                 }
             }
-            HirExpression::WithUpdate { target, updates } => HirExpression::WithUpdate {
-                target: Box::new(self.lower_expression(target, substitutions, context, None, line)),
-                updates: updates
-                    .iter()
-                    .map(|update| HirRecordUpdate {
-                        field: update.field.clone(),
-                        value: self.lower_expression(
-                            &update.value,
-                            substitutions,
-                            context,
-                            None,
-                            update.line,
-                        ),
-                        line: update.line,
-                    })
-                    .collect(),
-            },
+            HirExpression::WithUpdate { target, updates } => {
+                let lowered_target =
+                    self.lower_expression(target, substitutions, context, None, line);
+                // An updated field's declared type is the expected type of its new
+                // value, as it is for a constructor argument (bug-822).
+                let field_types = self
+                    .expression_type(&lowered_target, context)
+                    .and_then(|type_| self.record_fields(&type_).cloned());
+                HirExpression::WithUpdate {
+                    target: Box::new(lowered_target),
+                    updates: updates
+                        .iter()
+                        .map(|update| {
+                            let expected = consults_expected(&update.value)
+                                .then(|| {
+                                    field_types.as_ref().and_then(|fields| {
+                                        fields
+                                            .iter()
+                                            .find(|field| field.name == update.field)
+                                            .map(|field| field.type_.clone())
+                                    })
+                                })
+                                .flatten();
+                            HirRecordUpdate {
+                                field: update.field.clone(),
+                                value: self.lower_expression(
+                                    &update.value,
+                                    substitutions,
+                                    context,
+                                    expected.as_ref(),
+                                    update.line,
+                                ),
+                                line: update.line,
+                            }
+                        })
+                        .collect(),
+                }
+            }
             HirExpression::ListLiteral(values) => HirExpression::ListLiteral(
                 values
                     .iter()
@@ -1812,9 +2066,29 @@ impl<'a> Monomorphizer<'a> {
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
+                        // The literal spells its key and value types, so they are
+                        // the expected types of every entry's operands (bug-822).
+                        let expected_key = consults_expected(key)
+                            .then(|| opt_type(&substitute_type_params(key_type, substitutions)))
+                            .flatten();
+                        let expected_value = consults_expected(value)
+                            .then(|| opt_type(&substitute_type_params(value_type, substitutions)))
+                            .flatten();
                         (
-                            self.lower_expression(key, substitutions, context, None, line),
-                            self.lower_expression(value, substitutions, context, None, line),
+                            self.lower_expression(
+                                key,
+                                substitutions,
+                                context,
+                                expected_key.as_ref(),
+                                line,
+                            ),
+                            self.lower_expression(
+                                value,
+                                substitutions,
+                                context,
+                                expected_value.as_ref(),
+                                line,
+                            ),
                         )
                     })
                     .collect(),
@@ -1862,6 +2136,7 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_params = params
                     .iter()
                     .map(|param| {
+                        nested.bound.insert(param.name.clone());
                         let mut lowered = param.clone();
                         if !matches!(param.type_, ParameterType::Unknown) {
                             let concrete = self.concrete_type(&param.type_, substitutions);
@@ -1892,6 +2167,7 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_expression =
                     Box::new(self.lower_expression(expression, substitutions, context, None, line));
                 let mut handler_context = context.clone();
+                handler_context.bound.insert(binding.clone());
                 handler_context
                     .locals
                     .insert(binding.clone(), ParameterType::named("Error"));
@@ -1904,7 +2180,10 @@ impl<'a> Monomorphizer<'a> {
                     line: *trap_line,
                 }
             }
-            HirExpression::Identifier(value) => HirExpression::Identifier(value.clone()),
+            HirExpression::Identifier(value) => HirExpression::Identifier(
+                self.resolve_function_reference(value, expected_type, substitutions, context, line)
+                    .unwrap_or_else(|| value.clone()),
+            ),
             HirExpression::String(value) => HirExpression::String(value.clone()),
             HirExpression::Number(value) => HirExpression::Number(value.clone()),
             HirExpression::Scalar(code_point) => HirExpression::Scalar(*code_point),
@@ -3512,10 +3791,14 @@ END FUNC
                 ImportedOverload {
                     param_types: vec![ParameterType::parse("List OF Integer")],
                     qualified_name: "pkg.f$ListOFInteger".to_string(),
+                    return_type: ParameterType::Integer,
+                    isolated: false,
                 },
                 ImportedOverload {
                     param_types: vec![ParameterType::parse("List OF String")],
                     qualified_name: "pkg.f$ListOFString".to_string(),
+                    return_type: ParameterType::Integer,
+                    isolated: false,
                 },
             ],
         );

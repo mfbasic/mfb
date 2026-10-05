@@ -135,6 +135,12 @@ struct ImportedOverload {
     /// The fully package-qualified mangled name (`package.base$Types`) the merge
     /// expects.
     qualified_name: String,
+    /// The declared return type and isolation, package-qualified like
+    /// `param_types`. A call selects by argument types alone, but a reference
+    /// to the overload set as a VALUE selects by the complete callable type the
+    /// context expects, which includes both (bug-822).
+    return_type: crate::types::ParameterType,
+    isolated: bool,
 }
 
 /// The type environment monomorph's `expression_type` oracle consults while a
@@ -159,6 +165,13 @@ struct FunctionContext {
     /// the expected (contextual) type for a `RETURN` operand so a return-type
     /// overload set resolves there (plan-01-overload.md §F.2).
     enclosing_return: Option<ParameterType>,
+    /// Every name a local binding introduces in this scope — parameters, `LET`/
+    /// `MUT`, loop variables, `CASE` and `TRAP` bindings, lambda parameters —
+    /// whether or not `locals` could type it. A local shadows a top-level
+    /// function of the same name, so neither a call through it nor a reference
+    /// to it may be rewritten to a member of that function's overload set
+    /// (bug-822).
+    bound: HashSet<String>,
 }
 
 mod helpers;

@@ -798,6 +798,14 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a TRAP handler reads a local that an error can reach before it is declared",
     },
+    // bug-822: a reference to an overloaded function as a value whose expected
+    // type matches none of its members.
+    Rule {
+        code: "2-203-0144",
+        name: "TYPE_OVERLOAD_NO_MATCH",
+        severity: Severity::Error,
+        message: "no overload has the expected callable type",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for

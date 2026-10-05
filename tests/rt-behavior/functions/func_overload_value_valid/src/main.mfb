@@ -1,0 +1,86 @@
+' bug-822: an overloaded function named as a value selects the one declaration
+' whose complete callable type -- parameter types, return type, isolation -- is
+' the type its context expects, and calling the value runs that declaration.
+' Every expected-type position is exercised. Prints:
+'   5 3 / 4! 4 / 7 / 9 6 / 8!? / 2 3 11 5 6 / 20 30 / 200
+IMPORT io
+IMPORT collections
+
+FUNC pick(x AS Integer) AS Integer
+  RETURN x + 1
+END FUNC
+
+FUNC pick(x AS String) AS Integer
+  RETURN len(x)
+END FUNC
+
+FUNC conv(x AS Integer) AS String
+  RETURN toString(x) & "!"
+END FUNC
+
+FUNC conv(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+ISOLATED FUNC scaled(x AS String) AS Integer
+  RETURN len(x) * 10
+END FUNC
+
+FUNC scaled(x AS Integer) AS Integer
+  RETURN x * 10
+END FUNC
+
+TYPE Holder
+  op AS FUNC(String) AS Integer
+END TYPE
+
+' A top-level binding's annotation.
+LET chosen AS FUNC(Integer) AS Integer = pick
+
+FUNC apply(f AS FUNC(Integer) AS Integer, x AS Integer) AS Integer
+  RETURN f(x)
+END FUNC
+
+FUNC chooser() AS FUNC(Integer) AS String
+  RETURN conv
+END FUNC
+
+FUNC main AS Integer
+  ' Local annotations: a parameter-type set and a return-type set.
+  LET f AS FUNC(Integer) AS Integer = pick
+  LET g AS FUNC(String) AS Integer = pick
+  io::print(toString(f(4)) & " " & toString(g("abc")))
+  LET s AS FUNC(Integer) AS String = conv
+  LET i AS FUNC(Integer) AS Integer = conv
+  io::print(s(4) & " " & toString(i(4)))
+  io::print(toString(chosen(6)))
+  ' Assignment and a callback argument (positional and named).
+  MUT m AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> 0
+  m = pick
+  io::print(toString(m(8)) & " " & toString(apply(f := pick, x := 5)))
+  ' Return position.
+  LET r = chooser()
+  io::print(r(8) & "?")
+  ' Typed aggregates: record field (positional, named), list element, map value,
+  ' WITH update.
+  LET h AS Holder = Holder[pick]
+  LET hf = h.op
+  LET named AS Holder = Holder[op := pick]
+  LET nf = named.op
+  LET fs AS List OF FUNC(Integer) AS Integer = [pick, pick]
+  LET lf = collections::get(fs, 1)
+  LET mp = Map OF String TO FUNC(String) AS Integer { "k" := pick }
+  LET mf = collections::get(mp, "k")
+  LET updated = WITH h { op := pick }
+  LET uf = updated.op
+  io::print(toString(hf("ab")) & " " & toString(nf("abc")) & " " & toString(lf(10)) & " " & toString(mf("hello")) & " " & toString(uf("abcdef")))
+  ' Isolation: an ISOLATED annotation selects the isolated member; a plain one
+  ' accepts it too.
+  LET iso AS ISOLATED FUNC(String) AS Integer = scaled
+  LET plain AS FUNC(String) AS Integer = scaled
+  io::print(toString(iso("ab")) & " " & toString(plain("abc")))
+  ' A local of the same name shadows the overload set.
+  LET pick = LAMBDA(x AS Integer) -> x * 100
+  io::print(toString(pick(2)))
+  RETURN 0
+END FUNC

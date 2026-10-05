@@ -116,25 +116,38 @@ is isolated. Parameter names and default expressions are not part of that type.
 A reference to a single ordinary function uses its declared callable type.
 [[src/types.rs:ParameterType]] [[src/ir/lower.rs:function_types]]
 
-**Current user-overload limitation.** A `FUNC` annotation does not select an
-ordinary overloaded user function name used as a value. This applies both to
-parameter-type overloads and to return-type-only overloads. For a local overload
-set, the current compiler leaves the value's name unrevised while mangling the
-declarations, and reports `SYMBOL_UNKNOWN_IDENTIFIER` for that reference. This
-is a limitation of reference selection, not a restriction on declaring or
-calling the overloads. A typed lambda that directly calls the overload can
-provide a callable value instead:
-[[src/monomorph/lower.rs:lower_expression]]
-[[src/monomorph/lower.rs:resolve_overload]]
+**Overloaded functions as values.** Naming an overloaded user function as a
+value selects the one declaration whose callable type — ordered parameter types,
+return type and isolation — is the type the context expects. The expected type
+comes from the value's position: the `AS` annotation of a `LET`/`MUT` (local or
+top-level), the target of an assignment, the parameter of a single-declaration
+function the value is passed to, the enclosing function's return type for a
+`RETURN` operand, or the element, field, map-value or `WITH`-field type of a typed
+initializer. Selection is exact: a parameter or return type that differs selects
+nothing, and an `ISOLATED` member may stand where a plain `FUNC` is expected but a
+plain member never satisfies an `ISOLATED FUNC` type. This applies to
+parameter-type and return-type overload sets alike, and to an imported package's
+exported overload set (`pkg::name`). Calling the selected value runs that
+declaration. [[src/monomorph/lower.rs:resolve_function_reference]]
 
 ```basic
 ' Given overloads of pick for Integer and String:
-LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> pick(x)
+LET f AS FUNC(Integer) AS Integer = pick     ' the Integer declaration
+LET g AS FUNC(String) AS Integer = pick      ' the String declaration
 ```
 
-The contextual reference mechanism for general built-in predicates is separate;
-it does not imply contextual reference selection for user overloads.
-[[src/ir/lower.rs:builtin_predicate_ref_type]]
+A reference with no expected type (`LET f = pick`, or `pick` passed to an
+overloaded, package or built-in callee) is `TYPE_OVERLOAD_AMBIGUOUS`; an expected
+type that no declaration has, including a non-callable one, is
+`TYPE_OVERLOAD_NO_MATCH`. Both name the declared overloads. A local binding with
+the same name shadows the function: naming or calling it uses the local. A user
+override of an overridable built-in name (`FUNC toString(p AS Point) AS String`)
+is selected the same way, but only for a type the built-in itself rejects —
+the rule a call to it follows; otherwise the name is the built-in.
+
+A general built-in predicate named as a value (`isEven` where a
+`FUNC(Integer) AS Boolean` is expected) is selected by a separate mechanism in IR
+lowering, not by this rule. [[src/ir/lower.rs:builtin_predicate_ref_type]]
 
 A call through a function value supplies every parameter **positionally**.
 Declaration defaults are not retained, and missing arguments are
