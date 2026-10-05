@@ -41,7 +41,8 @@ Convenience constructors return an `Attribute`: `bold()`, `italic()`,
 `color::Color` and pack it into the numeric attribute's `0xAARRGGBB` value, so a
 colour round-trips through an attribute exactly, **alpha included**. A program that
 names a `color::Color` must `IMPORT color` as well as `astrings`: imports are not
-transitive and a package cannot re-export another's types.
+transitive for package namespaces (`./mfb spec language modules-and-packages`).
+[[src/resolver/resolution.rs:resolve_type]]
 
 `term::drawText` renders the colours as truecolor foreground/background, and
 `toMarkdown` (which has no color notation) ignores them entirely.

@@ -1,0 +1,190 @@
+' ---------------------------------------------------------------------------
+' Tests: the rates table.
+'
+' The table is module state shared by every case in this run, so each case
+' that reads it starts from clearRates() or importRates().
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+
+TESTING
+  TGROUP "setRate and getRate"
+    TCASE "a rate is stored under the upper-case code"
+      clearRates()
+      setRate("eur", 1.25F)
+      expectFixed(getRate("EUR"), 1.25F)
+      expectFixed(getRate("Eur"), 1.25F)
+      expectEqual(hasRate("EUR"), TRUE)
+    END TCASE
+
+    TCASE "setRate replaces an existing rate"
+      clearRates()
+      setRate("EUR", 1.25F)
+      setRate("eur", 1.5F)
+      expectFixed(getRate("EUR"), 1.5F)
+      expectInteger(len(exportRates()), 1)
+    END TCASE
+
+    TCASE "custom codes take rates"
+      clearRates()
+      setRate("_gold", 64F)
+      expectFixed(getRate("_GOLD"), 64F)
+    END TCASE
+
+    TCASE "a rate must be greater than zero"
+      clearRates()
+      expectTrap(setRate("EUR", 0F), ErrorInvalidRate)
+      expectTrap(setRate("EUR", -1.25F), ErrorInvalidRate)
+      expectEqual(hasRate("EUR"), FALSE)
+    END TCASE
+
+    TCASE "the smallest positive Fixed is a valid rate"
+      clearRates()
+      setRate("EUR", 0.00000000023283064365386962890625F)
+      expectEqual(hasRate("EUR"), TRUE)
+    END TCASE
+
+    TCASE "setRate checks the code"
+      clearRates()
+      expectTrap(setRate("EURO", 1F), ErrorInvalidCode)
+      expectTrap(setRate("ABC", 1F), ErrorInvalidCode)
+      expectInteger(len(exportRates()), 0)
+    END TCASE
+
+    TCASE "getRate of a code with no rate"
+      clearRates()
+      expectTrap(getRate("EUR"), ErrorUnknownCurrency)
+      expectTrap(getRate("EURO"), ErrorInvalidCode)
+    END TCASE
+  END TGROUP
+
+  TGROUP "removeRate and clearRates"
+    TCASE "removeRate removes the code, in any case"
+      clearRates()
+      setRate("USD", 1F)
+      setRate("EUR", 1.25F)
+      removeRate("eur")
+      expectEqual(hasRate("EUR"), FALSE)
+      expectEqual(hasRate("USD"), TRUE)
+    END TCASE
+
+    TCASE "removing a code with no rate does nothing"
+      clearRates()
+      setRate("USD", 1F)
+      expectNTrap(removeRate("EUR"))
+      expectInteger(len(exportRates()), 1)
+    END TCASE
+
+    TCASE "removeRate checks the code"
+      clearRates()
+      expectTrap(removeRate("EURO"), ErrorInvalidCode)
+    END TCASE
+
+    TCASE "clearRates empties the table"
+      clearRates()
+      setRate("USD", 1F)
+      setRate("EUR", 1.25F)
+      clearRates()
+      expectInteger(len(exportRates()), 0)
+    END TCASE
+
+    TCASE "hasRate checks the code"
+      expectTrap(hasRate("EURO"), ErrorInvalidCode)
+    END TCASE
+  END TGROUP
+
+  TGROUP "base currency"
+    TCASE "a table with a rate of exactly 1 has a base currency"
+      clearRates()
+      expectEqual(hasBaseCurrency(), FALSE)
+      setRate("EUR", 1.25F)
+      expectEqual(hasBaseCurrency(), FALSE)
+      setRate("USD", 1F)
+      expectEqual(hasBaseCurrency(), TRUE)
+      removeRate("USD")
+      expectEqual(hasBaseCurrency(), FALSE)
+    END TCASE
+
+    TCASE "two currencies may both have rate 1"
+      clearRates()
+      setRate("USD", 1F)
+      setRate("_POINTS", 1F)
+      expectEqual(hasBaseCurrency(), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "exportRates and importRates"
+    TCASE "exportRates returns a copy"
+      clearRates()
+      setRate("USD", 1F)
+      MUT copy AS Map OF String TO Fixed = exportRates()
+      copy = collections::set(copy, "EUR", 1.25F)
+      expectEqual(hasRate("EUR"), FALSE)
+      expectInteger(len(exportRates()), 1)
+    END TCASE
+
+    TCASE "exportRates then importRates round-trips"
+      clearRates()
+      setRate("USD", 1F)
+      setRate("EUR", 1.25F)
+      setRate("_GOLD", 64F)
+      LET saved AS Map OF String TO Fixed = exportRates()
+      clearRates()
+      importRates(saved)
+      expectInteger(len(exportRates()), 3)
+      expectFixed(getRate("USD"), 1F)
+      expectFixed(getRate("EUR"), 1.25F)
+      expectFixed(getRate("_GOLD"), 64F)
+    END TCASE
+
+    TCASE "importRates replaces the whole table and upper-cases keys"
+      clearRates()
+      setRate("GBP", 1.5F)
+      importRates(Map OF String TO Fixed { "usd" := 1F, "_gold" := 64F })
+      expectEqual(hasRate("GBP"), FALSE)
+      expectFixed(getRate("USD"), 1F)
+      expectFixed(getRate("_GOLD"), 64F)
+      expectEqual(collections::hasKey(exportRates(), "USD"), TRUE)
+      expectEqual(collections::hasKey(exportRates(), "usd"), FALSE)
+    END TCASE
+
+    TCASE "importRates does not need a base currency"
+      clearRates()
+      importRates(Map OF String TO Fixed { "EUR" := 1.25F })
+      expectFixed(getRate("EUR"), 1.25F)
+      expectEqual(hasBaseCurrency(), FALSE)
+    END TCASE
+
+    TCASE "importing an empty map empties the table"
+      clearRates()
+      setRate("USD", 1F)
+      importRates(Map OF String TO Fixed {})
+      expectInteger(len(exportRates()), 0)
+    END TCASE
+
+    TCASE "a bad code leaves the table unchanged"
+      clearRates()
+      setRate("USD", 1F)
+      expectTrap(importRates(Map OF String TO Fixed { "EUR" := 1.25F, "EURO" := 1F }), ErrorInvalidCode)
+      expectInteger(len(exportRates()), 1)
+      expectFixed(getRate("USD"), 1F)
+    END TCASE
+
+    TCASE "a bad rate leaves the table unchanged"
+      clearRates()
+      setRate("USD", 1F)
+      expectTrap(importRates(Map OF String TO Fixed { "EUR" := 1.25F, "GBP" := 0F }), ErrorInvalidRate)
+      expectInteger(len(exportRates()), 1)
+      expectFixed(getRate("USD"), 1F)
+    END TCASE
+
+    TCASE "keys that differ only in case must agree"
+      clearRates()
+      importRates(Map OF String TO Fixed { "eur" := 1.25F, "EUR" := 1.25F })
+      expectInteger(len(exportRates()), 1)
+      clearRates()
+      expectTrap(importRates(Map OF String TO Fixed { "eur" := 1.25F, "EUR" := 1.5F }), ErrorInvalidCode)
+      expectInteger(len(exportRates()), 0)
+    END TCASE
+  END TGROUP
+END TESTING

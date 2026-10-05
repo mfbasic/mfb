@@ -1,0 +1,151 @@
+' ---------------------------------------------------------------------------
+' Tests: currency codes, minor units and building amounts.
+'
+' ISO facts are checked against third_party/iso4217/2026-09-17/list-one.xml, not
+' against data.mfb, which is generated from it:
+'
+'   python3 -c 'import xml.etree.ElementTree as E; r = E.parse(
+'     "third_party/iso4217/2026-09-17/list-one.xml").getroot();
+'     print({e.findtext("Ccy"): e.findtext("CcyMnrUnts") for e in r.iter("CcyNtry")}[CODE])'
+'
+' gives USD 2, JPY 0, BHD 3, CLF 4, XAU N.A., and a KeyError for HRK (the kuna,
+' withdrawn in 2023) and ABC.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+TESTING
+  TGROUP "codes"
+    TCASE "ISO codes are accepted in any case and come back upper case"
+      expectString(normalizeCode("USD"), "USD")
+      expectString(normalizeCode("usd"), "USD")
+      expectString(normalizeCode("eUr"), "EUR")
+      expectEqual(isValidCode("jpy"), TRUE)
+    END TCASE
+
+    TCASE "the ISO X codes are ISO codes"
+      expectString(normalizeCode("xau"), "XAU")
+      expectString(normalizeCode("XTS"), "XTS")
+      expectString(normalizeCode("XXX"), "XXX")
+    END TCASE
+
+    TCASE "an ISO-shaped code that is not in the list is rejected"
+      expectEqual(isValidCode("ABC"), FALSE)
+      expectEqual(isValidCode("HRK"), FALSE)
+      expectTrap(normalizeCode("ABC"), ErrorInvalidCode)
+    END TCASE
+
+    TCASE "an ISO code must be exactly three letters"
+      expectEqual(isValidCode(""), FALSE)
+      expectEqual(isValidCode("US"), FALSE)
+      expectEqual(isValidCode("USDD"), FALSE)
+      expectEqual(isValidCode("US1"), FALSE)
+      expectEqual(isValidCode(" USD"), FALSE)
+      expectEqual(isValidCode("U-D"), FALSE)
+    END TCASE
+
+    TCASE "custom codes are _ and 1 to 15 letters or digits, upper-cased"
+      expectString(normalizeCode("_GOLD"), "_GOLD")
+      expectString(normalizeCode("_gold"), "_GOLD")
+      expectString(normalizeCode("_XWY"), "_XWY")
+      expectString(normalizeCode("_x"), "_X")
+      expectString(normalizeCode("_Gem2"), "_GEM2")
+      expectString(normalizeCode("_7"), "_7")
+      expectString(normalizeCode("_ABCDEFGHIJKLMNO"), "_ABCDEFGHIJKLMNO")
+    END TCASE
+
+    TCASE "malformed custom codes are rejected"
+      expectEqual(isValidCode("_"), FALSE)
+      expectEqual(isValidCode("_ABCDEFGHIJKLMNOP"), FALSE)
+      expectEqual(isValidCode("__GOLD"), FALSE)
+      expectEqual(isValidCode("_GO LD"), FALSE)
+      expectEqual(isValidCode("_GOLD!"), FALSE)
+      expectEqual(isValidCode("GOLD"), FALSE)
+      expectTrap(normalizeCode("_"), ErrorInvalidCode)
+    END TCASE
+
+    ' Under full case mapping U+FB00 LATIN SMALL LIGATURE FF upper-cases to
+    ' "FF", U+0131 LATIN SMALL LETTER DOTLESS I to "I", and U+00E9 to U+00C9.
+    ' None is an ASCII letter, so "\u{131}NR" must not become INR.
+    TCASE "non-ASCII letters are rejected, even ones that upper-case to ASCII"
+      expectEqual(isValidCode("inr"), TRUE)
+      expectEqual(isValidCode("\u{131}NR"), FALSE)
+      expectEqual(isValidCode("_\u{FB00}"), FALSE)
+      expectEqual(isValidCode("_CAF\u{E9}"), FALSE)
+    END TCASE
+
+    TCASE "the invalid-code message names the code"
+      LET message AS String = invalidCodeMessage("usdx")
+      expectEqual(strings::contains(message, "\"usdx\""), TRUE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the ISO list"
+    ' 178 distinct <Ccy> values in list-one.xml (see the header).
+    TCASE "isoCodes holds every code in the list, ascending"
+      LET codes AS List OF String = isoCodes()
+      expectInteger(len(codes), 178)
+      expectString(collections::get(codes, 0), "AED")
+      expectString(collections::get(codes, 177), "ZWG")
+      expectEqual(collections::contains(codes, "USD"), TRUE)
+      expectEqual(collections::contains(codes, "HRK"), FALSE)
+    END TCASE
+
+    TCASE "every listed code is valid and normalizes to itself"
+      FOR EACH code IN isoCodes()
+        expectString(normalizeCode(code), code)
+      NEXT
+    END TCASE
+
+    TCASE "isoListDate is the vendored list's publication date"
+      expectString(isoListDate(), "2026-09-17")
+    END TCASE
+  END TGROUP
+
+  TGROUP "minor units"
+    TCASE "ISO minor units"
+      expectInteger(minorUnits("USD"), 2)
+      expectInteger(minorUnits("jpy"), 0)
+      expectInteger(minorUnits("BHD"), 3)
+      expectInteger(minorUnits("CLF"), 4)
+    END TCASE
+
+    TCASE "a code with no minor unit keeps Money's five places"
+      expectInteger(minorUnits("XAU"), 5)
+      expectInteger(minorUnits("XDR"), 5)
+      expectInteger(minorUnits("_GOLD"), 5)
+    END TCASE
+
+    TCASE "minorUnits checks the code"
+      expectTrap(minorUnits("ABC"), ErrorInvalidCode)
+    END TCASE
+  END TGROUP
+
+  TGROUP "amounts"
+    TCASE "amount upper-cases the code and keeps the value"
+      LET a AS Amount = amount(12.5m, "usd")
+      expectString(a.code, "USD")
+      expectEqual(a.value, 12.5m)
+    END TCASE
+
+    TCASE "amount does not need a rate"
+      clearRates()
+      expectString(amount(1m, "EUR").code, "EUR")
+    END TCASE
+
+    TCASE "amount rejects an invalid code"
+      expectTrap(amount(1m, "EURO"), ErrorInvalidCode)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' The message normalizeCode raises for `code`, or "" if it accepts it.
+PRIVATE FUNC invalidCodeMessage(code AS String) AS String
+  LET ignored AS String = normalizeCode(code)
+  RETURN ""
+
+  TRAP(problem)
+    RETURN problem.message
+  END TRAP
+END FUNC

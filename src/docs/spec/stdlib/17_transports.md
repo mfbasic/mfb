@@ -20,10 +20,11 @@ datagram, and a socket's own `localAddress`/`remoteAddress` are all the same
 thing, and any of them can be handed to any transport's connect, bind or send.
 
 **A file that names an `Address` must `IMPORT net` as well as its transport.**
-Imports are not transitive and a package cannot re-export another's types, so
-`IMPORT tcp` alone does not put `Address` in scope. The symptom is not obvious:
-a binding annotated with an unimported record type fails later, in lowering, with
-a message about an unknown storage class rather than about the import.
+Imports do not transitively bind package namespaces, so `IMPORT tcp` alone does
+not make `net::Address` available as an explicit type name. Type exposure through
+signatures is distinct from importing the owner's namespace; see
+`./mfb spec language modules-and-packages`.
+[[src/resolver/resolution.rs:resolve_type]]
 
 Addresses are IPv4. `net::lookup` returns only IPv4 results, the emitters use
 `AF_INET`, and an IPv6 literal is rejected with `ErrAddressInvalid` rather than

@@ -272,7 +272,7 @@ likewise pure arithmetic — `+ - * /`, comparisons and `math::abs`/`floor`/`min
 
 ## Cross-package use
 
-Imports are not transitive and a package cannot re-export another's types, so
+Imports do not transitively bind package namespaces, so
 **a program that names a `color::Color` must `IMPORT color`** — no matter which
 package handed the value over. This is the same rule `net::Address` follows for
 the transports.
@@ -288,8 +288,11 @@ the language — there is no second colour type to convert to or from:
 | `canvas` | `fill`, `stroke`, `fillStroke` | take one |
 | `canvas` | `Paint.fill`, `Paint.stroke`, `GradientStop.color` | record fields typed as one |
 
-None of them re-exports the type, so each of these needs `IMPORT color` alongside
-its own import. Note what this table implies about *construction*: none of these
+Naming `color::Color` or calling `color::` constructors needs `IMPORT color`
+alongside the other package's import; inferring and passing a value does not
+itself bind that namespace (`./mfb spec language modules-and-packages`).
+[[src/resolver/resolution.rs:resolve_type]]
+Note what this table implies about *construction*: none of these
 packages has a colour constructor. `color::rgb`, `color::fromHex`, `color::hsl` and
 the rest are the only way to build one, and `color` is gated by nothing — no app
 mode, no manifest dependency — so a palette can be computed anywhere, including
