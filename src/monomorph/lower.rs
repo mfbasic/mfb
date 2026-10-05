@@ -457,18 +457,29 @@ impl<'a> Monomorphizer<'a> {
     }
 
     pub(super) fn run(&mut self) {
-        let types = self.concrete_types.values().cloned().collect::<Vec<_>>();
+        // Both tables are `HashMap`s, whose iteration order changes from one
+        // process to the next. Lowering reports diagnostics as it goes and claims
+        // collision-suffixed instantiation symbols first-come (bug-226), so walk
+        // them in a fixed order — functions by declaring file, line and name,
+        // types by line and name — or the same program prints its diagnostics in
+        // a different order on every build (found with bug-822).
+        let mut types = self.concrete_types.values().cloned().collect::<Vec<_>>();
+        types.sort_by(|left, right| (left.line, &left.name).cmp(&(right.line, &right.name)));
         for type_decl in types {
             let lowered = self.lower_type(type_decl, &HashMap::new(), None);
             self.concrete_types
                 .insert(ParameterType::declared(&lowered.name), lowered);
         }
 
-        let functions = self
+        let mut functions = self
             .concrete_functions
             .values()
             .cloned()
             .collect::<Vec<_>>();
+        functions.sort_by(|left, right| {
+            let file = |function: &HirFunction| self.function_files.get(&function.name).cloned();
+            (file(left), left.line, &left.name).cmp(&(file(right), right.line, &right.name))
+        });
         for function in functions {
             let lowered = self.lower_function(function, &HashMap::new(), None);
             self.concrete_functions

@@ -931,6 +931,10 @@ name = "rt_imported_overload_imported_field_argument"
 path = "tests/runtime/rt_imported_overload_imported_field_argument.rs"
 
 [[test]]
+name = "rt_monomorph_diagnostic_order"
+path = "tests/runtime/rt_monomorph_diagnostic_order.rs"
+
+[[test]]
 name = "rt_imported_type_name_collision"
 path = "tests/runtime/rt_imported_type_name_collision.rs"
 
