@@ -29,6 +29,7 @@ Commands:
   help, h         Show this list of commands
   list, l         Show what can be listed
   show            Show memory: show mem <address|register|function[+offset]> [<size>]
+                  The error a thread has raised and not yet caught: show error [<thread>]
                   An arena's state and blocks: show arena [<id>]
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
                   An arena value as a type: show type <type> <where> (as show mem)
@@ -97,17 +98,31 @@ const MAIN_THREAD: usize = 0;
 enum Command {
     Help,
     List(Option<Listing>),
-    Step { count: u64, thread: usize },
+    Step {
+        count: u64,
+        thread: usize,
+    },
     StepAll(u64),
-    ShowArena { id: usize, dump: Option<Dump> },
+    ShowArena {
+        id: usize,
+        dump: Option<Dump>,
+    },
+    /// `show error [<thread>]`: the error parked in a thread's arena.
+    ShowError(Option<usize>),
     SetBreakpoint(Target),
     RemoveBreakpoint(Target),
     Run,
     Disassemble(Disassembly),
     Finish,
     Restart,
-    ShowMemory { location: Location, size: u64 },
-    ShowType { location: Location, view: View },
+    ShowMemory {
+        location: Location,
+        size: u64,
+    },
+    ShowType {
+        location: Location,
+        view: View,
+    },
     TypeUsage,
     Backtrace(Backtrace),
     Quit,
@@ -263,6 +278,10 @@ impl Location {
     }
 }
 
+/// The symbols of the `String` literals the executable carries
+/// (`crate::codegen::memory::data::data_objects`).
+const STRING_LITERAL_PREFIX: &str = "_mfb_str_";
+
 /// How much `show mem` shows when no size is given, and the most it shows.
 const MEMORY_SIZE: u64 = 64;
 const MAX_MEMORY: u64 = 64 << 10;
@@ -401,6 +420,9 @@ fn parse(line: &str) -> Result<Command, String> {
             }),
         }),
         ("show", ["arena", ..]) => Err("too many arguments to 'show arena'".to_string()),
+        ("show", ["error"]) => Ok(Command::ShowError(None)),
+        ("show", ["error", thread]) => Ok(Command::ShowError(Some(thread_id(thread)?))),
+        ("show", ["error", ..]) => Err("too many arguments to 'show error'".to_string()),
         ("show", ["mem"]) => {
             Err("'show mem' needs an address or a register: show mem <where> [<size>]".to_string())
         }
@@ -426,12 +448,12 @@ fn parse(line: &str) -> Result<Command, String> {
         )),
         ("show", []) => Err(
             "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-             or show arena [<id>]"
+             show arena [<id>], or show error [<thread>]"
                 .to_string(),
         ),
         ("show", [other, ..]) => Err(format!(
-            "cannot show '{other}'; 'show mem', 'show type' and 'show arena' are what can be \
-             shown"
+            "cannot show '{other}'; 'show mem', 'show type', 'show arena' and 'show error' are \
+             what can be shown"
         )),
         ("disassemble" | "dis", []) => Ok(Command::Disassemble(Disassembly::Current)),
         ("disassemble" | "dis", [word]) if is_count(word) => Ok(Command::Disassemble(
@@ -1173,6 +1195,19 @@ fn show_type(
     view: &View,
 ) -> Result<Vec<String>, String> {
     let (address, _) = resolve(inferior, current, location)?;
+    // A `String` literal is no arena value, but is laid out as one.
+    if matches!(view, View::String) {
+        if let Some(symbol) = inferior
+            .data_symbol_at(address)?
+            .filter(|symbol| symbol.starts_with(STRING_LITERAL_PREFIX))
+        {
+            return values::show_literal(
+                &mut |at, length| inferior.read_bytes(at, length),
+                address,
+                &symbol,
+            );
+        }
+    }
     let threads = inferior.threads()?;
     let roles = runtime::roles(inferior, &threads, program.app)?;
     let Some(arenas) = runtime::arenas(inferior, &threads, &roles)? else {
@@ -1202,6 +1237,53 @@ fn show_type(
         address,
         view,
     )
+}
+
+/// `show error [<thread>]`: the error parked in the thread's arena — the one in
+/// flight, raised and not yet caught — with its code, message and origin.
+fn show_error(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    thread: usize,
+) -> Result<Vec<String>, String> {
+    let threads = inferior.threads()?;
+    if thread >= threads.len() {
+        return Err(no_thread(thread, threads.len()));
+    }
+    let roles = runtime::roles(inferior, &threads, program.app)?;
+    let Some(arenas) = runtime::arenas(inferior, &threads, &roles)? else {
+        return Err(
+            "'show error' reads the thread's arena, which needs a debug build; rebuild the \
+             program with: mfb build --debug -O0 <project>"
+                .to_string(),
+        );
+    };
+    let arena = arenas
+        .iter()
+        .find(|arena| arena.thread == Some(thread))
+        .ok_or_else(|| format!("thread {thread} has no arena: it is running no MFBASIC code"))?;
+    let Some(error) = runtime::current_error(inferior, arena.address)? else {
+        return Ok(vec![format!("Thread {thread} has no error in flight.")]);
+    };
+    let code = match runtime::error_code_name(error.code) {
+        Some(name) => format!("{} ({name})", error.code),
+        None => error.code.to_string(),
+    };
+    Ok(vec![
+        format!(
+            "Thread {thread}'s error in flight (the Error at 0x{:016x}):",
+            error.address
+        ),
+        format!("Code: {code}"),
+        format!("Message: \"{}\"", error.message.escape_debug()),
+        format!(
+            "Location: {}",
+            error
+                .source
+                .as_deref()
+                .unwrap_or("- (the error has no origin)")
+        ),
+    ])
 }
 
 /// The one start of the function `name` names, as `dis <function>` resolves
@@ -1417,6 +1499,9 @@ pub(crate) fn run(
                 lines
             }),
             Ok(Command::ShowArena { id, dump }) => show_arena(inferior, program, id, dump),
+            Ok(Command::ShowError(thread)) => {
+                show_error(inferior, program, thread.unwrap_or(current))
+            }
             Ok(Command::SetBreakpoint(target)) => breakpoints.set(inferior, &target),
             Ok(Command::RemoveBreakpoint(target)) => breakpoints.remove(inferior, &target),
             Ok(Command::Run) => {
@@ -2005,6 +2090,27 @@ x0       0x000000000000002c (44)
              error: unmapped 0x32\n\
              error: no register or function is named 'nothing'; type 'list reg' or 'list func' \
              for them\n"
+        );
+    }
+
+    #[test]
+    fn show_error_takes_a_thread_and_needs_a_debug_build() {
+        assert_eq!(parse("show error"), Ok(Command::ShowError(None)));
+        assert_eq!(parse("show error 2"), Ok(Command::ShowError(Some(2))));
+        assert_eq!(
+            parse("show error x"),
+            Err("'x' is not a thread id; type 'list thread' for the threads".to_string())
+        );
+        assert_eq!(
+            parse("show error 1 2"),
+            Err("too many arguments to 'show error'".to_string())
+        );
+        let (_, err, _) = session("show error\nshow error 9\nq\n", Ending::Killed, false);
+        assert_eq!(
+            err,
+            "error: 'show error' reads the thread's arena, which needs a debug build; rebuild \
+             the program with: mfb build --debug -O0 <project>\n\
+             error: no thread 9: the program has 3 threads; type 'list thread' for them\n"
         );
     }
 
@@ -2639,11 +2745,12 @@ Thread 1 hit a breakpoint at 0x0000000000007000.
             (
                 "show",
                 "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-                 or show arena [<id>]",
+                 show arena [<id>], or show error [<thread>]",
             ),
             (
                 "show it",
-                "cannot show 'it'; 'show mem', 'show type' and 'show arena' are what can be shown",
+                "cannot show 'it'; 'show mem', 'show type', 'show arena' and 'show error' are \
+                 what can be shown",
             ),
             (
                 "show arena x",

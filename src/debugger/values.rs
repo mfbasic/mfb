@@ -297,6 +297,34 @@ fn unquote(key: &str) -> &str {
 
 /// The lines `view` shows for the value at `address`, which must lie in one
 /// of `regions`.
+/// A `String` literal the executable carries (a `_mfb_str_*` data symbol): laid
+/// out as an arena `String` is — its length, its bytes, a NUL — but in the
+/// file's data, outside every arena block. Shown as `show type string` shows a
+/// `String`, naming the literal.
+pub(crate) fn show_literal(
+    read: &mut Read,
+    address: u64,
+    symbol: &str,
+) -> Result<Vec<String>, String> {
+    let length = u64::from_le_bytes(
+        read(address, 8)?
+            .try_into()
+            .map_err(|_| format!("cannot read the String literal at 0x{address:016x}"))?,
+    );
+    let literal = Region {
+        arena: usize::MAX,
+        block: usize::MAX,
+        start: address,
+        end: address.saturating_add(9).saturating_add(length),
+    };
+    let mut lines = show(read, &[literal], address, &View::String)?;
+    let name = symbol.strip_prefix('_').unwrap_or(symbol);
+    if let Some(line) = lines.first_mut() {
+        line.push_str(&format!(" (the literal {name})"));
+    }
+    Ok(lines)
+}
+
 pub(crate) fn show(
     read: &mut Read,
     regions: &[Region],
@@ -1319,6 +1347,23 @@ mod tests {
         assert_eq!(money_text(-300_000), "-3.00000");
         assert_eq!(money_text(1), "0.00001");
         assert_eq!(money_text(-1), "-0.00001");
+    }
+
+    #[test]
+    fn a_string_literal_reads_as_a_string_outside_the_arena() {
+        let bytes = string_record(b"function handler ");
+        let mut read = |at: u64, length: usize| {
+            at.checked_sub(BASE)
+                .and_then(|from| bytes.get(from as usize..from as usize + length))
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| format!("unmapped {at:#x}"))
+        };
+        assert_eq!(
+            show_literal(&mut read, BASE, "_mfb_str_2"),
+            Ok(vec![
+                "Length: 17 Value: \"function handler \" (the literal mfb_str_2)".to_string()
+            ])
+        );
     }
 
     #[test]

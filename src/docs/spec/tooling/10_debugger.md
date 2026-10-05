@@ -272,6 +272,7 @@ Then, repeatedly:
 | `show type` | prints the `TYPE_USAGE` block |
 | `show type <type> <where> [...]` | prints the arena value at `<where>` read as `<type>` |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
+| `show error [<thread>]` | prints the error thread `<thread>` (default the current thread) has raised and not yet caught |
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
@@ -331,8 +332,9 @@ Then, repeatedly:
 | an address `0x<hex>±<offset>` below 0 or past `u64::MAX` | `'<word>' is below address 0` / `'<word>' is past the last address` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
 | `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
-| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, or show arena [<id>]` |
-| `show <what>` but `mem`, `type` or `arena` | `cannot show '<what>'; 'show mem', 'show type' and 'show arena' are what can be shown` |
+| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, show arena [<id>], or show error [<thread>]` |
+| `show error` with more than a thread | `too many arguments to 'show error'` |
+| `show <what>` but `mem`, `type`, `arena` or `error` | `cannot show '<what>'; 'show mem', 'show type', 'show arena' and 'show error' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
@@ -568,6 +570,13 @@ bytes run past their block is `not a <Type> at 0x<address>: its <n> bytes run
 past the end of their arena block`. Layouts are `./mfb spec memory
 heap-values`, `scalar-storage` and `collections`.
 
+A `string` view of an address the executable names with a `_mfb_str_*` data
+symbol (`data_symbol_at`) — a `String` literal the compiler emits, laid out as
+an arena `String` (its length, its bytes, a NUL) in the file's data — reads it
+there instead, without the arena check or any arena, and adds ` (the literal
+<symbol less one '_'>)`: `Length: 17 Value: "function handler " (the literal
+mfb_str_2)`. [[src/debugger/values.rs:show_literal]]
+
 | Type | Bytes | Prints |
 | --- | --- | --- |
 | `int` | 8 | `Value: 0x<16 hex> (<signed decimal>)` |
@@ -666,6 +675,34 @@ line per 16 bytes: the line's offset in the block as `0x` and hex digits
 grouped in fours by `_` (at least 8 digits), the bytes as two hex digits each
 (a short last line padded), `|`, and each byte as its ASCII character (`.`
 outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
+
+### `show error`
+
+[[src/debugger/prompt.rs:show_error]] `show error [<thread>]` reads the error
+thread `<thread>` (a `list thread` id; default the current thread) has raised
+and not yet caught: the flat `Error` block a failing operation parks in its
+arena's `ARENA_CURRENT_ERROR_OFFSET` slot for its catcher, which takes it and
+clears the slot (`./mfb spec memory fallible-call-abi`, *Parked error
+ownership*). The arena is the `--debug` registry's whose thread is
+`<thread>`, so this needs a `--debug` build (`'show error' reads the thread's
+arena, which needs a debug build; …`); a thread with none fails with `thread
+<t> has no arena: it is running no MFBASIC code`. An empty slot prints `Thread
+<t> has no error in flight.` — as does a loose error (tag `1`, an error with no
+block because building one ran out of memory), which lives only in the
+registers. Otherwise: [[src/debugger/runtime.rs:current_error]]
+
+```text
+Thread <t>'s error in flight (the Error at 0x<address>):
+Code: <code> (errorCode::<name>)
+Message: "<message>"
+Location: <file>:<line>:<char>
+```
+
+The block is read as `./mfb spec memory heap-values` lays out `Error` and
+`ErrorLoc` (each text at most 4096 bytes). `(errorCode::<name>)` names the
+`errorCode` package constant whose value is the code and is left out for any
+other code [[src/debugger/runtime.rs:error_code_name]]; an error with no origin
+(a zero `ErrorLoc` offset) prints `Location: - (the error has no origin)`.
 
 ### Breakpoints
 

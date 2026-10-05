@@ -9,6 +9,7 @@ list func            l func
 list thread          l thread
 list reg …           l reg …
 show mem <where> [<size>]
+show error [<thread>]
 ```
 
 ### Listing functions
@@ -113,6 +114,27 @@ printable. Numbers are stored lowest byte first, so the 8 bytes
 
 `show mem` reads any memory the program has. To read a value as its type
 instead of as bytes, use `show type` (`mfb man debug values`).
+
+### Reading the current error
+
+When something fails, the error goes in its thread's error slot until a `TRAP`
+catches it. `show error` shows the error the current thread has raised and not
+yet caught, and `show error 2` thread 2's: its code (with the `errorCode` name
+when it is one), its message, and where in your source it was raised.
+
+```
+DBG> show error
+Thread 0's error in flight (the Error at 0x0000000102550050):
+Code: 77050010 (errorCode::ErrOverflow)
+Message: "Arithmetic overflow or numeric conversion outside the destination range."
+Location: src/main.mfb:11:34
+```
+
+Once a `TRAP` has caught the error, the slot is empty again and `show error`
+says `Thread 0 has no error in flight.` A good place to look is a breakpoint on
+`_mfb_rt_park_error`, the runtime function every failure goes through: after
+`finish` the error is in the slot and the `TRAP` has not run yet. `show error`
+needs a `--debug` build.
 
 ## Examples
 

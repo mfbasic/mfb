@@ -28,8 +28,9 @@ its address in `x1`, as `finish` shows.
 every pool is refused; `show mem` reads any memory. So is memory that cannot be
 the type you name: text that is not UTF-8, a list whose sizes do not add up, a
 resource whose kind is unknown. Text from your source (a literal such as
-`"total: "`) is kept in the program file, not a pool, so `show type string`
-does not read it.
+`"total: "`) is kept in the program file, not a pool, but `show type string`
+reads it there too and says which literal it is:
+`Length: 17 Value: "function handler " (the literal mfb_str_2)`.
 
 ### Numbers and text
 
