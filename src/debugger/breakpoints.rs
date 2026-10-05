@@ -464,7 +464,13 @@ impl Breakpoints {
             }
         }
         if let Some(stop) = outcome {
-            return Ok((notes, Finish::Stopped(stop)));
+            return Ok((
+                notes,
+                Finish::Stopped {
+                    stop,
+                    from: range.name.clone(),
+                },
+            ));
         }
         let step = inferior
             .step(&[thread], 1)?
@@ -476,9 +482,14 @@ impl Breakpoints {
                 StepStop::Finished => Finish::Returned {
                     from: range.name.clone(),
                 },
-                StepStop::Exited => Finish::Stopped(RunStop::Exited(super::Exit::Unknown)),
-                StepStop::Exception(what) => Finish::Stopped(RunStop::Exception { thread, what }),
-                StepStop::Waiting => Finish::Stopped(RunStop::Interrupted),
+                stopped => Finish::Stopped {
+                    stop: match stopped {
+                        StepStop::Exception(what) => RunStop::Exception { thread, what },
+                        StepStop::Waiting => RunStop::Interrupted,
+                        _ => RunStop::Exited(super::Exit::Unknown),
+                    },
+                    from: range.name.clone(),
+                },
             },
         ))
     }
@@ -539,8 +550,9 @@ impl Breakpoints {
 pub(crate) enum Finish {
     /// The thread returned from the function named here.
     Returned { from: Option<String> },
-    /// Something else stopped the program first.
-    Stopped(RunStop),
+    /// Something else stopped the program before the function named here
+    /// returned.
+    Stopped { stop: RunStop, from: Option<String> },
 }
 
 #[cfg(test)]

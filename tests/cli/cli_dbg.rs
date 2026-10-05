@@ -962,6 +962,20 @@ mod macos {
                 && returned[0].contains(": x0 = 0x0000000000000000 (0), x1 = 0x"),
             "{returned:?}"
         );
+        // countPrimes calls isPrime again before it returns: the breakpoint
+        // there ends this finish early, and says so.
+        session.send("finish\n");
+        let interrupted = body(&session.until_prompt());
+        assert!(
+            interrupted.len() == 2
+                && interrupted[0].starts_with("Thread 0 hit a breakpoint at 0x")
+                && interrupted[0].ends_with(" in isPrime."),
+            "{interrupted:?}"
+        );
+        assert_eq!(
+            interrupted[1],
+            "The finish from countPrimes did not complete; type 'finish' to run it again from here."
+        );
 
         session.send("list breakpoint\n");
         let listed = table_rows(&session.until_prompt(), BREAKPOINT_COLUMNS);

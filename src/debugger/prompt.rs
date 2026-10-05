@@ -1093,8 +1093,24 @@ fn finish(
             ));
             Ok((lines, false))
         }
-        Finish::Stopped(stop) => {
+        Finish::Stopped { stop, from } => {
             let exited = describe_stop(inferior, stop, current, &mut lines)?;
+            // A breakpoint, an exception or a pause (a recursive call hitting
+            // a breakpoint, most often) ends the finish early: say so, since
+            // the stop alone reads like any other.
+            if !exited {
+                let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
+                let what = match from.as_deref() {
+                    Some(name) => format!(
+                        "The finish from {}",
+                        disassemble::display_name(name, &collisions)
+                    ),
+                    None => "The finish".to_string(),
+                };
+                lines.push(format!(
+                    "{what} did not complete; type 'finish' to run it again from here."
+                ));
+            }
             Ok((lines, exited))
         }
     }

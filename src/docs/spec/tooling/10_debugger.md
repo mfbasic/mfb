@@ -787,7 +787,11 @@ then prints
 — MFBASIC returns an error code in `x0` and the value in `x1`, each shown as
 `list reg` shows it. A stop at them by another thread or a deeper frame runs
 on. Any other stop — a user breakpoint, an exception, Ctrl-C, the end —
-removes them and is reported as `run` reports it. With no function at the
+removes them and is reported as `run` reports it, and, unless the program
+ended, followed by `The finish from <function> did not complete; type 'finish'
+to run it again from here.` (`<function>` named as `dis` names it; `The finish
+did not complete; …` when the function has no name).
+[[src/debugger/breakpoints.rs:Finish]] With no function at the
 `pc`: `cannot finish: no known function holds 0x…`; with no `ret` found:
 `cannot finish: no ret instruction found in the function at 0x…`.
 

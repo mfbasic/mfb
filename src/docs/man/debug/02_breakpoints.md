@@ -55,7 +55,18 @@ DBG> show type string x1
 Length: 18 Value: "round 1: 37 primes"
 ```
 
-If a breakpoint is reached first, `finish` stops there instead.
+If a breakpoint is reached first, `finish` stops there instead and says so.
+In a function that calls itself, or one that calls a function you have a
+breakpoint in, that is the usual case:
+
+```
+DBG> finish
+Thread 0 hit a breakpoint at 0x0000000100d9caa4 in isPrime.
+The finish from countPrimes did not complete; type 'finish' to run it again from here.
+```
+
+A `finish` from there runs to the end of the function the thread is now in,
+`isPrime`, not `countPrimes`.
 
 ### Starting over
 
