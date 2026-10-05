@@ -3,9 +3,7 @@
 Last updated: 2026-10-04
 Effort: medium (estimate: 1h–2h)
 Depends on: plan-165-B; bug-825; bug-798 (fixed)
-Status: Not started; re-verified against main 16df1c451 on 2026-10-04 (still
-valid; none of its goals were met by the 2026-10-04 TRAP fixes); implementation
-awaits the owner's go-ahead
+Status: In progress (go-ahead: `/follow-plan 165`, 2026-10-05)
 
 ## Goal
 
@@ -16,6 +14,10 @@ includes a fallible call, a raising arithmetic operator, and a raising compariso
 (`src/ir/fallible.rs:comparison_can_raise`, bug-816).
 
 ## Prerequisites
+
+Met 2026-10-05: plan-165-B ticked (commit 695295c48); bug-825 fixed
+(`git merge-base --is-ancestor 58a4e76f7 HEAD`); `cargo test --test
+rt_inline_trap_float_observation` → `1 passed` at the plan-B tip; `/follow-plan 165`.
 
 - Plan-165-B complete: inspect its task/commit ledger at its active or archived path.
 - Bug-825 fixed (`bugs/bug-825-raising-comparison-in-and-or-escapes-inline-trap.md`,
@@ -152,36 +154,52 @@ Newly accepted programs intentionally change output; byte identity is not the ga
 
 ### Phase 1 — Runtime contract
 
-- [ ] Add RED tests for selected/skipped AND and OR calls, raising operators, and
+- [x] Add RED tests for selected/skipped AND and OR calls, raising operators, and
       raising comparisons (Fixed vs Integer out of range → `ErrOverflow`; Fixed vs
       non-finite Float → `ErrInvalidFormat`; both operand orders), each asserting
       the inline handler — not the function handler — catches it (the
       `/tmp/p165/c1` shape with a function-level TRAP present).
-- [ ] Include nested conditions, a failing left operand, later arguments that must
+      `tests/runtime/rt_inline_trap_short_circuit.rs` (every `main` carries a
+      function-level TRAP printing `fh …`).
+- [x] Include nested conditions, a failing left operand, later arguments that must
       be skipped after failure, and infallible side effects before later failures.
-- [ ] Cover call arguments and Boolean expression roots; use bindings/assignment/
+      `nested_conditions_and_failures_skip_exactly_the_rest`,
+      `an_infallible_side_effect_stays_ordered_before_a_later_failure` — the latter
+      BUILDS at HEAD and prints `marks=0`: the infallible `mark` in `yes AND mark(1)`
+      ran after the lifted `boom` (an ordering bug this plan's lowering fixes).
+- [x] Cover call arguments and Boolean expression roots; use bindings/assignment/
       discard/state targets where valid. Preserve invalid recovery-type fixtures.
-- [ ] Float cases from bug-798 and bug-816: a transient non-finite compared with a
+      `conditional_results_reach_every_target` (binding, assignment, discard); the
+      STATE-assign target shares `InlineTrapTarget` delivery and is not separately
+      exercised (no conditional-specific code touches it). No recovery-type fixture
+      is edited.
+- [x] Float cases from bug-798 and bug-816: a transient non-finite compared with a
       Float/Integer/Byte in a selected right operand does not trap; compared with a
       Fixed it raises `ErrInvalidFormat` into the handler; contraction parity holds.
-      Run default and optimized builds.
-- [ ] Memory and allocation: for String, record and List payloads in a right
+      Run default and optimized builds. `a_float_comparison_in_a_selected_operand_…`
+      and the `nonfinite` rows of `raising_operators_…`, each at -O0 and -O3.
+- [x] Memory and allocation: for String, record and List payloads in a right
       operand, build with `--debug` at `-O0`, `-O1`, `-O3` and assert
       `arena.0.live_bytes 0` and `arena.0.double_free_skips 0` with the branch
       skipped, selected-and-succeeding, and selected-and-failing, including inside a
       loop that alternates them; assert per-evaluation `arena.0.alloc_calls` equals
       the plain (untrapped, pre-bound) twin on the success path, using the
       N/2N-delta method of `tests/runtime/rt_inline_trap_success_alloc.rs`.
-- [ ] Assert a function-level handler may still read a local declared after a
+      `right_operand_payloads_balance_the_arena_on_every_path`,
+      `the_trapped_conditional_success_path_allocates_what_the_plain_one_does`.
+- [x] Assert a function-level handler may still read a local declared after a
       trapped conditional whose selected right operand can fail (bug-797 census);
       declare that local before any counted FOR (bug-816 makes every FOR a failure
-      edge).
-- [ ] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
+      edge). `a_trapped_conditional_is_not_a_function_handler_failure_edge`.
+- [x] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
       existing `tests/runtime/rt_inline_trap_*` targets.
 
 Acceptance: proposed `cargo test --test rt_inline_trap_short_circuit` fails only
 because the currently rejected semantics are missing (estimate: minutes after build).
-Commit: —
+Met: `0 passed; 9 failed` — eight on `TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL` (with
+`REQUIRES_FALLIBLE` on Boolean roots, `TRAP_LOCAL_UNINITIALIZED` in the census
+case), one on the ordering bug (`marks=0`).
+Commit: (next commit)
 
 ### Phase 2 — Structured lowering and documentation
 

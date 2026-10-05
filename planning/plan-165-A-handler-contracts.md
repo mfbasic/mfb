@@ -192,7 +192,7 @@ contract; `cargo test --bin mfb spec` passes (estimate: minutes). Met: rendered
 topic shows the new rule-3/4 and §8.5 text (`… | grep -n innermost`);
 `cargo test --bin mfb -- spec nothing_function inline_builtin` → every spec test
 passed (the one failure is plan-165-B's intentionally RED coverage test).
-Commit: (next commit)
+Commit: 954642f39
 
 ## Open decision — review 3.1
 

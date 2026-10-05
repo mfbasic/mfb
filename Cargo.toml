@@ -975,6 +975,10 @@ name = "rt_error_model_recovery"
 path = "tests/runtime/rt_error_model_recovery.rs"
 
 [[test]]
+name = "rt_inline_trap_short_circuit"
+path = "tests/runtime/rt_inline_trap_short_circuit.rs"
+
+[[test]]
 name = "rt_imported_function_fallibility"
 path = "tests/runtime/rt_imported_function_fallibility.rs"
 

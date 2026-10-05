@@ -214,7 +214,7 @@ coverage test fails, listing exactly the uncovered grants (estimate: minutes).
 Met for the coverage test (25 listed). The two registry-fixture tests need the
 factored predicate Phase 2 introduces, so they were written with it and are not
 separately RED (see Corrections).
-Commit: (same commit as Phase 2; see below)
+Commit: 695295c48 (shared with Phase 2)
 
 ### Phase 2 — Guards, one proof rule, capture, spec
 
@@ -259,7 +259,7 @@ mfb_body inline_builtin failure_edge builtins::tests census math:: man` →
 `cargo test --test rt_inline_trap_nested_call --test rt_inline_trap_raising_operator
 --test rt_inline_trap_success_alloc --test rt_imported_function_fallibility --test
 rt_error_model_recovery` → all `ok` (21+20+2+2+4).
-Commit: (next commit)
+Commit: 695295c48
 
 ## Open decisions
 
