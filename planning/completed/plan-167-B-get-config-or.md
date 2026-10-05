@@ -302,7 +302,7 @@ before the fold is written.
       rule.)
 
 Acceptance: see Phase 2. This phase is complete only when both are.
-Commit: (lands with Phase 2)
+Commit: 0dc4bbc4d (with Phase 2)
 
 ### Phase 2: Selected config, fold and type check
 
@@ -368,7 +368,7 @@ and non-literals are rejected, and programs without the call are unchanged.
   3 (≥ 2). Runtime proof: `release.retries` 3 → 41 changes the printed value with
   no source edit, and `strings` finds no `localhost:8080` (the unselected `dev`
   value) in the binary.
-Commit: —
+Commit: 0dc4bbc4d
 
 ### Phase 3: Man page verification
 
@@ -387,7 +387,7 @@ Acceptance: the page passes the man-content instruments.
   (est. 1 min).
   Result (2026-10-05): `examples: 28   built: 28   ran: 28   not run: 0   failed: 0`;
   `unclassified memory-vocabulary hits: 0`.
-Commit: —
+Commit: 0dc4bbc4d
 
 ## Validation Plan
 

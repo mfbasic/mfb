@@ -45,9 +45,9 @@ The feature-wide gate is in plan-167-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-167-B complete | `ls planning/plan-167-B-*` → no match (archived) | NOT MET (2026-10-03) |
-| No `--config` flag exists | `grep -n '"--config' src/cli/build/options.rs` → no hits | MET (2026-10-03) |
-| No `project-local.json` reader exists | `grep -rn 'project-local' src` → no hits | MET (2026-10-03) |
+| plan-167-B complete | `ls planning/plan-167-B-*` → no match (archived) | MET (2026-10-05) |
+| No `--config` flag exists | `grep -n '"--config' src/cli/build/options.rs` → no hits | MET (2026-10-05) |
+| No `project-local.json` reader exists | `grep -rn 'project-local' src` → no hits | MET (2026-10-05) |
 
 Everything below assumes these hold.
 
