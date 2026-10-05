@@ -162,6 +162,12 @@ impl Inferior for Paused {
     fn remove_breakpoint(&mut self, _: u64) -> Result<(), String> {
         Ok(())
     }
+    fn insert_watchpoint(&mut self, _: u64, _: u64) -> Result<(), String> {
+        Ok(())
+    }
+    fn remove_watchpoint(&mut self, _: u64) -> Result<(), String> {
+        Ok(())
+    }
     fn run(&mut self) -> Result<RunStop, String> {
         Err("not run".to_string())
     }

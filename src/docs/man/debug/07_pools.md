@@ -72,7 +72,7 @@ Set a breakpoint at 0x0000000100205ee0 in summarize.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
-Thread 0 hit a breakpoint at 0x0000000100205ee0 in summarize.
+--[BP] T: 0 P: 0x0000000100205ee0 F: summarize
 DBG> list arena
 ID Thread Address            Size (KB)
 0  0      0x000000016fbf9f50 12

@@ -11,9 +11,9 @@
 use std::io::{BufRead, Write};
 
 use super::backtrace;
-use super::breakpoints::{self, Breakpoints, ErrorCodes, Finish, Target};
-use super::disassemble::{self, Request};
-use super::names::{classify, Collisions};
+use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target};
+use super::disassemble::{self, Request, Window};
+use super::names::{classify, Collisions, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::values::{self, Region, View};
 use super::{
@@ -34,16 +34,25 @@ Commands:
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
                   An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)
-  breakpoint, bp  Set a breakpoint: breakpoint <address|function[+offset]>
-                  Remove one: breakpoint r <address|function[+offset]>
-  breakerror, be  Stop when a thread raises an error: be <code|name>... | any
+  breakpoint, bp  Set a breakpoint: bp <address|function[+offset]> [<commands>]
+                  Remove one: bp r <address|function[+offset]>
+  watchpoint, wp  Stop when a thread changes memory: wp <where> [<size>]
+                  [<commands>], <where> as show mem; <size> is 1 to 8 bytes
+                  (default 8) that do not cross a multiple of 8
+                  Remove one: wp r <where>
+  breakerror, be  Stop when a thread raises an error:
+                  be <code|name>... | any [<commands>]
                   Stop watching: be clear; be alone shows what is watched
+                  <commands> run at each stop, then the program runs on: list,
+                  show, bt, dis or a bare be, separated by ';' (bp fib bt 1;
+                  list reg x0)
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
   disassemble, dis
                   Disassemble the current function; dis <count> instructions
-                  from the current one (negative: before it); dis <where>
+                  from the current one (negative: before it), or dis -<back>
+                  <count> to show <count> from <back> before it; dis <where>
                   [<count>] from an address, register or function, with an
                   offset (pc-0x20, main+0x110); or
                   dis <function> [<count>]
@@ -52,7 +61,16 @@ Commands:
   step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa    Run every thread together: step-all [<count>] (default 1)
   quit, q         End the session: kill the program if the debugger launched
-                  it, or detach and let it run on if the debugger attached to it";
+                  it, or detach and let it run on if the debugger attached to it
+
+Each stop prints one line per thread it stopped, starting --[<kind>]:
+  --[BP] T: <thread> P: <pc> F: <function>             a breakpoint
+  --[WP] T: <thread> P: <pc> F: <function> M: <address>: <old> -> <new>
+                                                        a watched change
+  --[BE] T: <thread> P: <pc> F: <function> E: <error>  a watched error
+  --[XC] T: <thread> P: <pc> F: <function> X: <what>   another exception
+  --[CC] User Break                                     Ctrl-C
+  --[EX] Program exit (<status>)                        the end";
 
 /// What a bare `list` prints.
 pub(crate) const LIST_USAGE: &str = "\
@@ -60,8 +78,13 @@ Usage: list <what>
 
 Each listing starts with a line naming its columns.
 
-  func          The program's functions, one per line:
+  func [<filter>...]
+                The program's functions, one per line:
                   <type> <address> <symbol> <written name>
+                A <filter> that is a type (MU, MB, MR, SL, SD) keeps that
+                type; any other is a name, matched against the symbol and the
+                written name, where * stands for any characters and ? for
+                one: list func MU, list func fib, list func *norm*.
                 <type> is MU for a function the program's author wrote, MB
                 for a built-in package's, MR for the MFBASIC runtime, SL for
                 a function the program imports from a system library, SD for
@@ -76,7 +99,11 @@ Each listing starts with a line naming its columns.
   arena         The program's MFBASIC memory arenas (debug builds):
                   <id> <thread id> <address> <size in KB>
   breakpoint    The breakpoints: <address> <symbol> <written name>
-                <address> is - for one waiting for its library to load.";
+                <address> is - for one waiting for its library to load; a
+                <commands> column follows when any has commands.
+  watchpoint    The watchpoints: <address> <size> <value>
+                <value> is the bytes' value now; a <commands> column follows
+                when any has commands.";
 
 /// What a bare `list reg` prints.
 pub(crate) const LIST_REG_USAGE: &str = "\
@@ -111,14 +138,21 @@ enum Command {
     },
     /// `show error [<thread>]`: the error parked in a thread's arena.
     ShowError(Option<usize>),
-    /// `breakerror <code>|any`: stop when a thread raises it.
-    BreakError(ErrorCodes),
+    /// `breakerror <code>|any [<commands>]`: stop when a thread raises it.
+    BreakError(ErrorCodes, Vec<String>),
     /// `breakerror clear`.
     ClearErrors,
     /// `breakerror` alone: what is being watched for.
     ErrorWatch,
-    SetBreakpoint(Target),
+    SetBreakpoint(Target, Vec<String>),
     RemoveBreakpoint(Target),
+    /// `watchpoint <where> [<size>] [<commands>]`.
+    SetWatchpoint {
+        location: Location,
+        size: u64,
+        commands: Vec<String>,
+    },
+    RemoveWatchpoint(Location),
     Run,
     Disassemble(Disassembly),
     Finish,
@@ -175,15 +209,15 @@ enum Location {
 #[derive(Debug, PartialEq, Eq)]
 enum Disassembly {
     Current,
-    Count(i64),
-    At(Location, Option<i64>),
-    Named(String, Option<i64>),
+    Count(Window),
+    At(Location, Option<Window>),
+    Named(String, Option<Window>),
 }
 
 impl Disassembly {
     /// `dis <start> [<count>]`: a location (an address, or a register, either
     /// with an offset), else a function name.
-    fn from(start: &str, count: Option<i64>) -> Result<Disassembly, String> {
+    fn from(start: &str, count: Option<Window>) -> Result<Disassembly, String> {
         let location = start.starts_with("0x")
             || start.starts_with("0X")
             || start.contains(['+', '-'])
@@ -220,6 +254,35 @@ fn instruction_count(word: &str) -> Result<i64, String> {
         )),
         Ok(count) => Ok(count),
     }
+}
+
+/// The instructions one `dis` count picks: see [`Window::count`].
+fn instruction_window(word: &str) -> Result<Window, String> {
+    instruction_count(word).map(Window::count)
+}
+
+/// `dis … -<back> <length>`: `<length>` instructions, from `<back>` before
+/// the starting point.
+fn instruction_span(back: &str, length: &str) -> Result<Window, String> {
+    let back = match instruction_count(back)? {
+        count if count < 0 => count.unsigned_abs(),
+        _ => {
+            return Err(format!(
+                "'{back}' does not count back; with two counts the first is negative, as in \
+                 dis -6 8"
+            ))
+        }
+    };
+    let length = match instruction_count(length)? {
+        count if count > 0 => count as u64,
+        _ => {
+            return Err(format!(
+                "cannot show {length} instructions; the count after a negative one must be \
+                 positive"
+            ))
+        }
+    };
+    Ok(Window { back, length })
 }
 
 /// `0x<hex>`, perhaps followed by `+` or `-` and an offset (decimal, or hex
@@ -301,7 +364,7 @@ const DUMP_SIZE: u64 = 1024;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Listing {
-    Functions,
+    Functions(FunctionFilter),
     Threads,
     RegisterUsage,
     Registers {
@@ -310,6 +373,82 @@ enum Listing {
     },
     Arenas,
     Breakpoints,
+    Watchpoints,
+}
+
+/// Which functions `list func` shows: those of any of `types` and matching any
+/// of `patterns`, either left empty to mean any.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct FunctionFilter {
+    types: Vec<Origin>,
+    patterns: Vec<String>,
+}
+
+impl FunctionFilter {
+    /// `list func`'s words: a type code (`MU`, `MB`, `MR`, `SL`, `SD`), else a
+    /// name pattern.
+    fn parse(words: &[&str]) -> FunctionFilter {
+        let mut filter = FunctionFilter::default();
+        for word in words {
+            match Origin::parse(word) {
+                Some(origin) => filter.types.push(origin),
+                None => filter.patterns.push(word.to_string()),
+            }
+        }
+        filter
+    }
+
+    /// Whether a function of type `origin`, spelled `symbol` and written
+    /// `written`, is listed: a pattern matches either name.
+    fn admits(&self, origin: Origin, symbol: &str, written: Option<&str>) -> bool {
+        (self.types.is_empty() || self.types.contains(&origin))
+            && (self.patterns.is_empty()
+                || self.patterns.iter().any(|pattern| {
+                    glob(pattern, symbol) || written.is_some_and(|name| glob(pattern, name))
+                }))
+    }
+
+    /// The filter as the user typed it, for a listing that matches nothing.
+    fn words(&self) -> String {
+        self.types
+            .iter()
+            .map(|origin| origin.code().to_string())
+            .chain(self.patterns.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// Whether `pattern` matches all of `text`: `*` stands for any run of
+/// characters, `?` for any one, and every other character for itself.
+fn glob(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let text = text.chars().collect::<Vec<_>>();
+    let (mut at, mut from) = (0, 0);
+    // The last `*` seen, and where in `text` its run currently ends.
+    let mut star: Option<(usize, usize)> = None;
+    while from < text.len() {
+        match pattern.get(at) {
+            Some('*') => {
+                star = Some((at, from));
+                at += 1;
+            }
+            Some(&wanted) if wanted == '?' || wanted == text[from] => {
+                at += 1;
+                from += 1;
+            }
+            _ => match star {
+                // Let the last `*` take one more character and try again.
+                Some((star_at, star_end)) => {
+                    star = Some((star_at, star_end + 1));
+                    at = star_at + 1;
+                    from = star_end + 1;
+                }
+                None => return false,
+            },
+        }
+    }
+    pattern[at..].iter().all(|wanted| *wanted == '*')
 }
 
 /// What a `list reg` argument asks for: a group, or one register by name.
@@ -340,10 +479,13 @@ fn parse(line: &str) -> Result<Command, String> {
         ("quit" | "q", []) => Ok(Command::Quit),
         ("help" | "h" | "quit" | "q", _) => Err(format!("'{name}' takes no arguments")),
         ("list" | "l", []) => Ok(Command::List(None)),
-        ("list" | "l", ["func"]) => Ok(Command::List(Some(Listing::Functions))),
+        ("list" | "l", ["func", filter @ ..]) => Ok(Command::List(Some(Listing::Functions(
+            FunctionFilter::parse(filter),
+        )))),
         ("list" | "l", ["thread"]) => Ok(Command::List(Some(Listing::Threads))),
         ("list" | "l", ["arena"]) => Ok(Command::List(Some(Listing::Arenas))),
         ("list" | "l", ["breakpoint"]) => Ok(Command::List(Some(Listing::Breakpoints))),
+        ("list" | "l", ["watchpoint"]) => Ok(Command::List(Some(Listing::Watchpoints))),
         ("list" | "l", ["reg", rest @ ..]) => {
             // Commas separate registers as well as spaces: `x0, x1,x2`.
             let words = rest
@@ -365,7 +507,7 @@ fn parse(line: &str) -> Result<Command, String> {
                 picks: picks.iter().map(|word| RegisterPick::parse(word)).collect(),
             })))
         }
-        ("list" | "l", ["func" | "thread" | "arena" | "breakpoint", ..]) => {
+        ("list" | "l", ["thread" | "arena" | "breakpoint" | "watchpoint", ..]) => {
             Err(format!("too many arguments to '{name} {}'", arguments[0]))
         }
         ("list" | "l", [other, ..]) => Err(format!(
@@ -407,17 +549,59 @@ fn parse(line: &str) -> Result<Command, String> {
         ("breakpoint" | "bp", ["r", target]) => {
             Ok(Command::RemoveBreakpoint(Target::parse(target)?))
         }
-        ("breakpoint" | "bp", [target]) => Ok(Command::SetBreakpoint(Target::parse(target)?)),
-        ("breakerror" | "be", []) => Ok(Command::ErrorWatch),
-        ("breakerror" | "be", ["clear"]) => Ok(Command::ClearErrors),
-        ("breakerror" | "be", ["any"]) => Ok(Command::BreakError(ErrorCodes::Any)),
-        ("breakerror" | "be", words) => Ok(Command::BreakError(ErrorCodes::Codes(
-            words
+        ("breakpoint" | "bp", ["r", ..]) => Err(format!("too many arguments to '{name} r'")),
+        ("breakpoint" | "bp", [target, commands @ ..]) => Ok(Command::SetBreakpoint(
+            Target::parse(target)?,
+            stop_commands(commands)?,
+        )),
+        ("watchpoint" | "wp", ["r"] | []) => Err(format!(
+            "'{name}' needs an address or a register: {name} <where> [<size>] [<commands>]"
+        )),
+        ("watchpoint" | "wp", ["r", location]) => {
+            Ok(Command::RemoveWatchpoint(Location::parse(location)?))
+        }
+        ("watchpoint" | "wp", ["r", ..]) => Err(format!("too many arguments to '{name} r'")),
+        ("watchpoint" | "wp", [location, rest @ ..]) => {
+            // A size is digits or `0x…`; no command starts with either.
+            let (size, commands) = match rest.split_first() {
+                Some((word, commands)) if word.starts_with(|c: char| c.is_ascii_digit()) => {
+                    (number(word)?, commands)
+                }
+                _ => (WATCH_SIZE, rest),
+            };
+            Ok(Command::SetWatchpoint {
+                location: Location::parse(location)?,
+                size,
+                commands: stop_commands(commands)?,
+            })
+        }
+        ("breakerror" | "be", words) => {
+            // The codes end where a command starts.
+            let split = words
                 .iter()
-                .map(|word| error_code(word))
-                .collect::<Result<_, _>>()?,
-        ))),
-        ("breakpoint" | "bp", _) => Err(format!("too many arguments to '{name}'")),
+                .position(|word| is_command(word))
+                .unwrap_or(words.len());
+            let (codes, commands) = words.split_at(split);
+            let commands = stop_commands(commands)?;
+            match codes {
+                [] if commands.is_empty() => Ok(Command::ErrorWatch),
+                [] => Err(format!(
+                    "'{name}' needs an error code, a name or 'any' before its commands"
+                )),
+                ["clear"] if commands.is_empty() => Ok(Command::ClearErrors),
+                ["clear"] => Err(format!("'{name} clear' takes no commands")),
+                ["any"] => Ok(Command::BreakError(ErrorCodes::Any, commands)),
+                codes => Ok(Command::BreakError(
+                    ErrorCodes::Codes(
+                        codes
+                            .iter()
+                            .map(|word| error_code(word))
+                            .collect::<Result<_, _>>()?,
+                    ),
+                    commands,
+                )),
+            }
+        }
         ("show", ["arena"]) => Ok(Command::ShowArena {
             id: MAIN_ARENA,
             dump: None,
@@ -474,16 +658,22 @@ fn parse(line: &str) -> Result<Command, String> {
         )),
         ("disassemble" | "dis", []) => Ok(Command::Disassemble(Disassembly::Current)),
         ("disassemble" | "dis", [word]) if is_count(word) => Ok(Command::Disassemble(
-            Disassembly::Count(instruction_count(word)?),
+            Disassembly::Count(instruction_window(word)?),
         )),
+        ("disassemble" | "dis", [back, length]) if is_count(back) && is_count(length) => Ok(
+            Command::Disassemble(Disassembly::Count(instruction_span(back, length)?)),
+        ),
         ("disassemble" | "dis", [start]) => {
             Ok(Command::Disassemble(Disassembly::from(start, None)?))
         }
         ("disassemble" | "dis", [start, count]) => Ok(Command::Disassemble(Disassembly::from(
             start,
-            Some(instruction_count(count)?),
+            Some(instruction_window(count)?),
         )?)),
-        ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most two arguments")),
+        ("disassemble" | "dis", [start, back, length]) => Ok(Command::Disassemble(
+            Disassembly::from(start, Some(instruction_span(back, length)?))?,
+        )),
+        ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most three arguments")),
         ("finish" | "f", []) => Ok(Command::Finish),
         ("finish" | "f", _) => Err(format!("'{name}' takes no arguments")),
         ("restart" | "rs", []) => Ok(Command::Restart),
@@ -494,6 +684,77 @@ fn parse(line: &str) -> Result<Command, String> {
             "unknown command '{name}'; type 'help' for the list of commands"
         )),
     }
+}
+
+/// How many bytes a watchpoint covers when no size is given: an `Integer`.
+const WATCH_SIZE: u64 = 8;
+
+/// Every command name and short form.
+const COMMAND_NAMES: &[&str] = &[
+    "help",
+    "h",
+    "quit",
+    "q",
+    "list",
+    "l",
+    "show",
+    "breakpoint",
+    "bp",
+    "watchpoint",
+    "wp",
+    "breakerror",
+    "be",
+    "run",
+    "r",
+    "finish",
+    "f",
+    "restart",
+    "rs",
+    "disassemble",
+    "dis",
+    "backtrace",
+    "bt",
+    "step",
+    "s",
+    "step-all",
+    "sa",
+];
+
+/// Whether `word` names a command.
+fn is_command(word: &str) -> bool {
+    COMMAND_NAMES.contains(&word)
+}
+
+/// The commands a stop runs, from the words after a breakpoint's,
+/// watchpoint's or error watch's own: `;` separates them. Each must be one
+/// that only reads the program — `list`, `show`, `backtrace`, `disassemble`,
+/// or a bare `breakerror`.
+fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
+    let text = words.join(" ");
+    let mut commands = Vec::new();
+    for command in text
+        .split(';')
+        .map(str::trim)
+        .filter(|command| !command.is_empty())
+    {
+        match parse(command)? {
+            Command::List(_)
+            | Command::ShowMemory { .. }
+            | Command::ShowType { .. }
+            | Command::ShowArena { .. }
+            | Command::ShowError(_)
+            | Command::Backtrace(_)
+            | Command::Disassemble(_)
+            | Command::ErrorWatch => commands.push(command.to_string()),
+            _ => {
+                return Err(format!(
+                    "'{command}' cannot run at a stop: a stop runs list, show, backtrace, \
+                     disassemble and a bare breakerror"
+                ))
+            }
+        }
+    }
+    Ok(commands)
 }
 
 fn step_count(word: &str) -> Result<u64, String> {
@@ -582,14 +843,17 @@ pub(crate) fn table<const N: usize>(headers: [&str; N], rows: Vec<[String; N]>) 
 /// linked ones, each group in address order (a linked function not yet bound
 /// last), symbols that tie in symbol-table order, and a name repeated at the
 /// same address once.
-pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
+pub(crate) fn function_lines(symbols: &[FunctionSymbol], filter: &FunctionFilter) -> Vec<String> {
     let collisions = Collisions::of(symbols);
     let mut rows = symbols
         .iter()
-        .map(|symbol| {
+        .filter_map(|symbol| {
             let (origin, written) = classify(symbol);
+            if !filter.admits(origin, &symbol.name, written.as_deref()) {
+                return None;
+            }
             let written = written.map(|name| collisions.tagged(name, origin));
-            (origin, symbol.address, &symbol.name, written)
+            Some((origin, symbol.address, &symbol.name, written))
         })
         .collect::<Vec<_>>();
     rows.sort_by_key(|(origin, address, _, _)| (*origin, address.is_none(), *address));
@@ -709,7 +973,17 @@ fn list(
     match listing {
         None => Ok(LIST_USAGE.lines().map(str::to_string).collect()),
         Some(Listing::Breakpoints) => Ok(breakpoints.lines()),
-        Some(Listing::Functions) => Ok(function_lines(&inferior.functions()?)),
+        Some(Listing::Watchpoints) => Ok(breakpoints.watch_lines(inferior)),
+        Some(Listing::Functions(filter)) => {
+            let lines = function_lines(&inferior.functions()?, &filter);
+            if lines.is_empty() && filter != FunctionFilter::default() {
+                return Err(format!(
+                    "no function matches '{}'; type 'list func' for the functions",
+                    filter.words()
+                ));
+            }
+            Ok(lines)
+        }
         Some(Listing::Threads) => {
             let threads = inferior.threads()?;
             let roles = runtime::roles(inferior, &threads, program.app)?;
@@ -1061,90 +1335,189 @@ fn hex_dump(start: u64, bytes: &[u8], label: impl Fn(u64) -> String) -> Vec<Stri
 }
 
 /// Run the program and describe why it stopped; the flag is set when it ended.
-fn run_program(
-    inferior: &mut dyn Inferior,
-    breakpoints: &mut Breakpoints,
-    current: &mut usize,
-) -> Result<(Vec<String>, bool), String> {
-    let (mut lines, stop) = breakpoints.run(inferior)?;
-    let exited = describe_stop(inferior, stop, current, &mut lines)?;
-    Ok((lines, exited))
-}
-
-/// Describe a stop, and make the thread it names current; `true` when the
-/// program ended.
-fn describe_stop(
-    inferior: &mut dyn Inferior,
-    stop: RunStop,
-    current: &mut usize,
-    lines: &mut Vec<String>,
-) -> Result<bool, String> {
-    match &stop {
-        RunStop::Breakpoints(hits) => {
-            if let Some((thread, _)) = hits.first() {
-                *current = *thread;
-            }
-        }
-        RunStop::Exception { thread, .. } | RunStop::Raised { thread, .. } => *current = *thread,
-        _ => {}
-    }
-    let place = |inferior: &mut dyn Inferior, thread: usize| -> Result<String, String> {
-        Ok(places(inferior)?
-            .get(thread)
-            .cloned()
-            .unwrap_or_else(|| "an unknown place".to_string()))
-    };
-    let exited = matches!(stop, RunStop::Exited(_));
+/// The thread a stop names, which becomes the current thread.
+fn stop_thread(stop: &RunStop) -> Option<usize> {
     match stop {
-        RunStop::Breakpoints(hits) => {
-            for (thread, address) in hits {
-                let at = place(inferior, thread).unwrap_or_else(|_| format!("0x{address:016x}"));
-                lines.push(format!("Thread {thread} hit a breakpoint at {at}."));
-            }
-        }
-        RunStop::Raised {
-            thread,
-            code,
-            origin,
-        } => {
-            let at = place(inferior, thread)?;
-            let from = origin
-                .map(|origin| format!(" at {origin}"))
-                .unwrap_or_default();
-            lines.push(format!(
-                "Thread {thread} raised {}{from}; it is at {at}, before a TRAP takes the error.",
-                breakpoints::code_shown(code)
-            ));
-        }
-        RunStop::Exception { thread, what } => {
-            let at = place(inferior, thread)?;
-            lines.push(format!("Thread {thread} stopped by {what} at {at}."));
-        }
-        RunStop::Interrupted => lines.push(format!(
-            "Paused: thread {MAIN_THREAD} is at {}.",
-            place(inferior, MAIN_THREAD)?
-        )),
-        RunStop::Exited(Exit::Status(status)) => {
-            lines.push(format!("The program exited with status {status}."))
-        }
-        RunStop::Exited(Exit::Signal(signal)) => {
-            lines.push(format!("The program was ended by signal {signal}."))
-        }
-        RunStop::Exited(Exit::Unknown) => lines.push("The program exited.".to_string()),
+        RunStop::Breakpoints(hits) => hits.first().map(|(thread, _)| *thread),
+        RunStop::Watchpoints(threads) => threads.first().copied(),
+        RunStop::Changed(changes) => changes.first().map(|change| change.thread),
+        RunStop::Exception { thread, .. } | RunStop::Raised { thread, .. } => Some(*thread),
+        RunStop::Interrupted | RunStop::Exited(_) => None,
     }
-    Ok(exited)
 }
 
-/// `finish`: run the current thread until its function returns, then say
-/// where it returned to and what it returned (MFBASIC returns an error code in
-/// `x0` and the value in `x1`).
-fn finish(
+/// A stop line's `T: <id> P: <pc> F: <function>`: the thread, the address of
+/// its instruction (`pc`, else the thread's own), and the function holding it
+/// with the offset into it — the executable's as `locate` names it, else a
+/// library's — `-` where none is known.
+fn stop_place(inferior: &mut dyn Inferior, thread: usize, pc: Option<u64>) -> String {
+    let threads = inferior.threads().unwrap_or_default();
+    let Some(facts) = threads.get(thread) else {
+        return "T: - P: - F: -".to_string();
+    };
+    let pc = pc.unwrap_or(facts.pc);
+    let functions = inferior.functions().unwrap_or_default();
+    // The executable's functions first; then a library's, by its symbols.
+    let function = runtime::locate(&functions, pc)
+        .or_else(|| {
+            let range = inferior.function_at(pc).ok().flatten()?;
+            let name =
+                disassemble::display_name(range.name.as_deref()?, &Collisions::of(&functions));
+            Some(match pc - range.start {
+                0 => name,
+                offset => format!("{name}+{offset:#x}"),
+            })
+        })
+        .unwrap_or_else(|| "-".to_string());
+    format!("T: {thread} P: 0x{pc:016x} F: {function}")
+}
+
+/// An error code as a `[BE]` line gives it: `errorCode::ErrOverflow
+/// (77050010)`, or the number alone when no constant names it.
+fn error_shown(code: i64) -> String {
+    match runtime::error_code_name(code) {
+        Some(name) => format!("{name} ({code})"),
+        None => code.to_string(),
+    }
+}
+
+/// The lines a stop prints, one per thread it stopped.
+fn stop_lines(inferior: &mut dyn Inferior, stop: &RunStop) -> Vec<String> {
+    match stop {
+        RunStop::Breakpoints(hits) => hits
+            .iter()
+            .map(|(thread, address)| {
+                format!("--[BP] {}", stop_place(inferior, *thread, Some(*address)))
+            })
+            .collect(),
+        RunStop::Watchpoints(threads) => threads
+            .iter()
+            .map(|thread| format!("--[WP] {}", stop_place(inferior, *thread, None)))
+            .collect(),
+        RunStop::Changed(changes) => changes
+            .iter()
+            .map(|change| {
+                format!(
+                    "--[WP] {} M: 0x{:016x}: {} -> {}",
+                    stop_place(inferior, change.thread, Some(change.pc)),
+                    change.address,
+                    breakpoints::value_shown(change.old, change.size),
+                    breakpoints::value_shown(change.new, change.size)
+                )
+            })
+            .collect(),
+        RunStop::Raised { thread, code, .. } => vec![format!(
+            "--[BE] {} E: {}",
+            stop_place(inferior, *thread, None),
+            error_shown(*code)
+        )],
+        RunStop::Exception { thread, what } => vec![format!(
+            "--[XC] {} X: {what}",
+            stop_place(inferior, *thread, None)
+        )],
+        RunStop::Interrupted => vec!["--[CC] User Break".to_string()],
+        RunStop::Exited(Exit::Status(status)) => vec![format!("--[EX] Program exit ({status})")],
+        RunStop::Exited(Exit::Signal(signal)) => {
+            vec![format!("--[EX] Program ended by signal ({signal})")]
+        }
+        RunStop::Exited(Exit::Unknown) => vec!["--[EX] Program exit".to_string()],
+    }
+}
+
+/// Write a command's lines to `out`, or its error to `err` once `out` is
+/// flushed.
+fn emit(
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    result: Result<Vec<String>, String>,
+) -> Result<(), String> {
+    let written = |result: std::io::Result<()>| result.map_err(|e| format!("cannot write: {e}"));
+    match result {
+        Ok(lines) => {
+            for line in lines {
+                written(writeln!(out, "{line}"))?;
+            }
+            Ok(())
+        }
+        Err(message) => {
+            written(out.flush())?;
+            written(writeln!(err, "error: {message}"))
+        }
+    }
+}
+
+/// Hear a stop: write the notes and its lines, make its thread current, and
+/// run the commands each of its breakpoints, watchpoints or error watch has,
+/// each with its own thread current. Answers whether the program runs on:
+/// when every stop in it has commands.
+#[allow(clippy::too_many_arguments)]
+fn hear_stop(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    breakpoints: &Breakpoints,
+    notes: Vec<String>,
+    stop: &RunStop,
+    current: &mut usize,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> Result<bool, String> {
+    if let Some(thread) = stop_thread(stop) {
+        *current = thread;
+    }
+    let mut lines = notes;
+    lines.extend(stop_lines(inferior, stop));
+    emit(out, err, Ok(lines))?;
+    let (commands, every) = breakpoints.stop_commands(stop);
+    for (thread, commands) in commands {
+        *current = thread;
+        for command in commands {
+            let result = parse(&command)
+                .and_then(|command| inspect(inferior, program, breakpoints, thread, command));
+            emit(out, err, result)?;
+        }
+    }
+    Ok(every)
+}
+
+/// Run a command that only reads the program — what a stop's commands may
+/// be — with `current` the current thread.
+fn inspect(
+    inferior: &mut dyn Inferior,
+    program: Program,
+    breakpoints: &Breakpoints,
+    current: usize,
+    command: Command,
+) -> Result<Vec<String>, String> {
+    match command {
+        Command::List(listing) => list(inferior, program, breakpoints, listing),
+        Command::ShowArena { id, dump } => show_arena(inferior, program, id, dump),
+        Command::ShowError(thread) => show_error(inferior, program, thread.unwrap_or(current)),
+        Command::ErrorWatch => Ok(vec![breakpoints
+            .watch_line()
+            .unwrap_or_else(|| "No errors are being watched for.".to_string())]),
+        Command::Disassemble(request) => disassemble_at(inferior, current, &request),
+        Command::Backtrace(request) => backtrace(inferior, program, current, request),
+        Command::ShowType { location, view } => {
+            show_type(inferior, program, current, &location, &view)
+        }
+        Command::ShowMemory { location, size } => show_memory(inferior, current, &location, size),
+        // `stop_commands` and the prompt pass only the commands above.
+        other => unreachable!("{other:?} is not a command that only reads the program"),
+    }
+}
+
+/// The lines after a `finish`: the notes, then where the thread returned to
+/// and what it returned (MFBASIC returns an error code in `x0` and the value
+/// in `x1`), or that the finish did not complete; `true` when the program
+/// ended.
+fn finish_lines(
     inferior: &mut dyn Inferior,
     breakpoints: &mut Breakpoints,
-    current: &mut usize,
+    thread: usize,
+    outcome: Finish,
 ) -> Result<(Vec<String>, bool), String> {
-    let thread = *current;
-    let (mut lines, outcome) = breakpoints.finish(inferior, thread)?;
+    let mut lines = breakpoints.take_notes();
+    let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
     match outcome {
         Finish::Returned { from } => {
             let at = places(inferior)?
@@ -1162,7 +1535,6 @@ fn finish(
                     })
                     .unwrap_or_default()
             };
-            let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
             let from = from
                 .as_deref()
                 .map(|name| disassemble::display_name(name, &collisions))
@@ -1175,12 +1547,11 @@ fn finish(
             Ok((lines, false))
         }
         Finish::Stopped { stop, from } => {
-            let exited = describe_stop(inferior, stop, current, &mut lines)?;
+            let exited = matches!(stop, RunStop::Exited(_));
             // A breakpoint, an exception or a pause (a recursive call hitting
             // a breakpoint, most often) ends the finish early: say so, since
             // the stop alone reads like any other.
             if !exited {
-                let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
                 let what = match from.as_deref() {
                     Some(name) => format!(
                         "The finish from {}",
@@ -1522,7 +1893,10 @@ pub(crate) fn run(
             Ok(Command::Quit) => break,
             Ok(Command::TypeUsage) => Ok(values::TYPE_USAGE.lines().map(str::to_string).collect()),
             Ok(Command::List(
-                listing @ (None | Some(Listing::Breakpoints | Listing::RegisterUsage)),
+                listing @ (None
+                | Some(
+                    Listing::Breakpoints | Listing::Watchpoints | Listing::RegisterUsage,
+                )),
             )) => list(inferior, program, &breakpoints, listing),
             Ok(Command::Restart) => restart(inferior, &mut breakpoints).inspect(|_| {
                 exited = false;
@@ -1531,7 +1905,6 @@ pub(crate) fn run(
             Ok(_) if exited => {
                 Err("the program has exited; type 'quit' to end the session".to_string())
             }
-            Ok(Command::List(listing)) => list(inferior, program, &breakpoints, listing),
             Ok(Command::Step { count, thread }) => {
                 step(inferior, thread, count).map(|(lines, ended)| {
                     exited = ended;
@@ -1543,50 +1916,80 @@ pub(crate) fn run(
                 exited = ended;
                 lines
             }),
-            Ok(Command::ShowArena { id, dump }) => show_arena(inferior, program, id, dump),
-            Ok(Command::ShowError(thread)) => {
-                show_error(inferior, program, thread.unwrap_or(current))
+            Ok(Command::SetBreakpoint(target, commands)) => {
+                breakpoints.set(inferior, &target, &commands)
             }
-            Ok(Command::SetBreakpoint(target)) => breakpoints.set(inferior, &target),
             Ok(Command::RemoveBreakpoint(target)) => breakpoints.remove(inferior, &target),
-            Ok(Command::BreakError(codes)) => breakpoints.watch_errors(inferior, codes),
+            Ok(Command::SetWatchpoint {
+                location,
+                size,
+                commands,
+            }) => resolve(inferior, current, &location)
+                .and_then(|(address, _)| breakpoints.watch(inferior, address, size, &commands)),
+            Ok(Command::RemoveWatchpoint(location)) => resolve(inferior, current, &location)
+                .and_then(|(address, _)| breakpoints.unwatch(inferior, address)),
+            Ok(Command::BreakError(codes, commands)) => {
+                breakpoints.watch_errors(inferior, codes, &commands)
+            }
             Ok(Command::ClearErrors) => breakpoints.clear_errors(inferior),
-            Ok(Command::ErrorWatch) => Ok(vec![breakpoints
-                .watch_line()
-                .unwrap_or_else(|| "No errors are being watched for.".to_string())]),
             Ok(Command::Run) => {
-                run_program(inferior, &mut breakpoints, &mut current).map(|(lines, ended)| {
-                    exited = ended;
-                    lines
+                let ended = breakpoints.run(
+                    inferior,
+                    &mut |inferior: &mut dyn Inferior, breakpoints: &Breakpoints, notes, stop| {
+                        hear_stop(
+                            inferior,
+                            program,
+                            breakpoints,
+                            notes,
+                            stop,
+                            &mut current,
+                            out,
+                            err,
+                        )
+                    },
+                );
+                ended.map(|ended| match ended {
+                    Ended::Heard(stop) => {
+                        exited = matches!(stop, RunStop::Exited(_));
+                        Vec::new()
+                    }
+                    // Breakpoints only a `finish` places: none are left.
+                    Ended::Own(hits) => {
+                        let mut lines = breakpoints.take_notes();
+                        lines.extend(stop_lines(inferior, &RunStop::Breakpoints(hits)));
+                        lines
+                    }
                 })
             }
-            Ok(Command::Disassemble(request)) => disassemble_at(inferior, current, &request),
             Ok(Command::Finish) => {
-                finish(inferior, &mut breakpoints, &mut current).map(|(lines, ended)| {
-                    exited = ended;
-                    lines
-                })
+                let thread = current;
+                let outcome = breakpoints.finish(
+                    inferior,
+                    thread,
+                    &mut |inferior: &mut dyn Inferior, breakpoints: &Breakpoints, notes, stop| {
+                        hear_stop(
+                            inferior,
+                            program,
+                            breakpoints,
+                            notes,
+                            stop,
+                            &mut current,
+                            out,
+                            err,
+                        )
+                    },
+                );
+                outcome
+                    .and_then(|outcome| finish_lines(inferior, &mut breakpoints, thread, outcome))
+                    .map(|(lines, ended)| {
+                        exited = ended;
+                        lines
+                    })
             }
-            Ok(Command::Backtrace(request)) => backtrace(inferior, program, current, request),
-            Ok(Command::ShowType { location, view }) => {
-                show_type(inferior, program, current, &location, &view)
-            }
-            Ok(Command::ShowMemory { location, size }) => {
-                show_memory(inferior, current, &location, size)
-            }
+            Ok(command) => inspect(inferior, program, &breakpoints, current, command),
             Err(message) => Err(message),
         };
-        match result {
-            Ok(lines) => {
-                for line in lines {
-                    written(writeln!(out, "{line}"))?;
-                }
-            }
-            Err(message) => {
-                written(out.flush())?;
-                written(writeln!(err, "error: {message}"))?;
-            }
-        }
+        emit(out, err, result)?;
     }
     let pid = inferior.pid();
     let message = match inferior.end()? {
@@ -1601,19 +2004,22 @@ pub(crate) fn run(
 mod tests {
     use super::*;
     use crate::debugger::names::Origin;
-    use crate::debugger::{FunctionRange, Step};
+    use crate::debugger::{Change, FunctionRange, Step};
 
     /// An [`Inferior`] answering from fixed tables: two threads, a few
     /// functions, three registers. It records how often it was ended and every
-    /// step it was asked for, and refuses every read when `unreadable`.
+    /// step it was asked for, and refuses every read when `unreadable`. With
+    /// `code` its code is all `nop`s, in functions placed as its symbols say.
     struct Recorder {
         ending: Ending,
         ends: usize,
         unreadable: bool,
+        code: bool,
         steps: Vec<(Vec<usize>, u64)>,
         stop: StepStop,
         pc: u64,
         inserted: Vec<u64>,
+        watched: Vec<(u64, u64)>,
         runs: Vec<RunStop>,
     }
 
@@ -1623,10 +2029,12 @@ mod tests {
                 ending,
                 ends: 0,
                 unreadable: false,
+                code: false,
                 steps: Vec::new(),
                 stop: StepStop::Finished,
                 pc: 0x1000,
                 inserted: Vec::new(),
+                watched: Vec::new(),
                 runs: Vec::new(),
             }
         }
@@ -1680,11 +2088,25 @@ mod tests {
         fn read_u64(&mut self, address: u64) -> Result<u64, String> {
             Err(format!("unmapped {address:#x}"))
         }
-        fn read_code(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
-            Err(format!("unmapped {address:#x}"))
+        fn read_code(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+            if !self.code {
+                return Err(format!("unmapped {address:#x}"));
+            }
+            Ok(0xd503_201f_u32.to_le_bytes().repeat(length / 4))
         }
-        fn function_at(&mut self, _: u64) -> Result<Option<FunctionRange>, String> {
-            Ok(None)
+        fn function_at(&mut self, address: u64) -> Result<Option<FunctionRange>, String> {
+            if !self.code {
+                return Ok(None);
+            }
+            Ok(self.functions()?.into_iter().find_map(|function| {
+                let (start, size) = (function.address?, function.size?);
+                (start <= address && address < start + size).then(|| FunctionRange {
+                    image: "prog".to_string(),
+                    name: Some(function.name),
+                    start,
+                    size: Some(size),
+                })
+            }))
         }
         fn data_symbol_at(&mut self, _: u64) -> Result<Option<String>, String> {
             Ok(None)
@@ -1763,6 +2185,14 @@ mod tests {
         }
         fn insert_breakpoint(&mut self, address: u64) -> Result<(), String> {
             self.inserted.push(address);
+            Ok(())
+        }
+        fn insert_watchpoint(&mut self, address: u64, size: u64) -> Result<(), String> {
+            self.watched.push((address, size));
+            Ok(())
+        }
+        fn remove_watchpoint(&mut self, address: u64) -> Result<(), String> {
+            self.watched.retain(|(other, _)| *other != address);
             Ok(())
         }
         fn remove_breakpoint(&mut self, address: u64) -> Result<(), String> {
@@ -2117,15 +2547,18 @@ x0       0x000000000000002c (44)
                     name: "datetime::#normInstant".to_string(),
                     offset: 16,
                 },
-                Some(2)
+                Some(Window::count(2))
             )))
         );
         assert_eq!(
             parse("bp main+272"),
-            Ok(Command::SetBreakpoint(Target::Offset {
-                name: "main".to_string(),
-                offset: 272,
-            }))
+            Ok(Command::SetBreakpoint(
+                Target::Offset {
+                    name: "main".to_string(),
+                    offset: 272,
+                },
+                Vec::new()
+            ))
         );
         // `main` is the program's (`_mfb_fn_main` at 0x1010), so `main+0x10`
         // is 0x1020; a register keeps its name; nothing else is a place.
@@ -2147,12 +2580,16 @@ x0       0x000000000000002c (44)
     fn breakerror_takes_codes_names_any_or_clear() {
         assert_eq!(parse("be"), Ok(Command::ErrorWatch));
         assert_eq!(parse("breakerror clear"), Ok(Command::ClearErrors));
-        assert_eq!(parse("be any"), Ok(Command::BreakError(ErrorCodes::Any)));
+        assert_eq!(
+            parse("be any"),
+            Ok(Command::BreakError(ErrorCodes::Any, Vec::new()))
+        );
         assert_eq!(
             parse("be 77050010 errorCode::ErrNotFound ErrOutOfMemory"),
-            Ok(Command::BreakError(ErrorCodes::Codes(vec![
-                77_050_010, 77_050_004, 77_010_001
-            ])))
+            Ok(Command::BreakError(
+                ErrorCodes::Codes(vec![77_050_010, 77_050_004, 77_010_001]),
+                Vec::new()
+            ))
         );
         assert_eq!(
             parse("be ErrNothing"),
@@ -2471,17 +2908,17 @@ Thread 2 is at 0x0000000000007004.
 
     #[test]
     fn a_bad_list_argument_is_reported() {
-        let (_, err, _) = session("list frames\nlist func reg\nq\n", Ending::Killed, false);
+        let (_, err, _) = session("list frames\nlist thread reg\nq\n", Ending::Killed, false);
         assert_eq!(
             err,
             "error: cannot list 'frames'; type 'list' for what can be listed\n\
-             error: too many arguments to 'list func'\n"
+             error: too many arguments to 'list thread'\n"
         );
     }
 
     #[test]
     fn empty_listings_print_nothing() {
-        assert!(function_lines(&[]).is_empty());
+        assert!(function_lines(&[], &FunctionFilter::default()).is_empty());
         assert!(register_lines(&[]).is_empty());
         assert!(thread_lines(&[], &[], &[]).is_empty());
         assert!(table(["A", "B"], Vec::new()).is_empty());
@@ -2615,14 +3052,20 @@ Address            Symbol              Written name
         };
         for (line, expected) in [
             ("dis", Disassembly::Current),
-            ("dis 5", Disassembly::Count(5)),
-            ("dis -3", Disassembly::Count(-3)),
-            ("dis pc-8 4", Disassembly::At(register("pc", -8), Some(4))),
+            ("dis 5", Disassembly::Count(Window::count(5))),
+            ("dis -3", Disassembly::Count(Window::count(-3))),
+            (
+                "dis pc-8 4",
+                Disassembly::At(register("pc", -8), Some(Window::count(4))),
+            ),
             ("dis x1", Disassembly::At(register("x1", 0), None)),
-            ("dis lr -2", Disassembly::At(register("lr", 0), Some(-2))),
+            (
+                "dis lr -2",
+                Disassembly::At(register("lr", 0), Some(Window::count(-2))),
+            ),
             (
                 "dis 0x100+4 -1",
-                Disassembly::At(Location::Address(0x104), Some(-1)),
+                Disassembly::At(Location::Address(0x104), Some(Window::count(-1))),
             ),
             (
                 "dis isPrime",
@@ -2630,9 +3073,17 @@ Address            Symbol              Written name
             ),
             (
                 "dis isPrime -2",
-                Disassembly::Named("isPrime".to_string(), Some(-2)),
+                Disassembly::Named("isPrime".to_string(), Some(Window::count(-2))),
             ),
             ("dis x31", Disassembly::Named("x31".to_string(), None)),
+            (
+                "dis -6 8",
+                Disassembly::Count(Window { back: 6, length: 8 }),
+            ),
+            (
+                "dis isPrime -2 3",
+                Disassembly::Named("isPrime".to_string(), Some(Window { back: 2, length: 3 })),
+            ),
         ] {
             assert_eq!(parse(line), Ok(Command::Disassemble(expected)), "{line}");
         }
@@ -2645,17 +3096,125 @@ Address            Symbol              Written name
                 "dis pc x",
                 "cannot show x instructions; give a count other than 0 (negative counts back)",
             ),
-            ("dis pc 1 2", "'dis' takes at most two arguments"),
+            (
+                "dis pc 1 2",
+                "'1' does not count back; with two counts the first is negative, as in dis -6 8",
+            ),
+            (
+                "dis -6 -2",
+                "cannot show -2 instructions; the count after a negative one must be positive",
+            ),
+            ("dis pc -6 8 1", "'dis' takes at most three arguments"),
             ("dis 0xzz", "'0xzz' is not an address"),
         ] {
             assert_eq!(parse(line), Err(message.to_string()), "{line}");
         }
     }
 
+    /// A counted `dis` that runs out of the current function heads each other
+    /// function's instructions with that function; code no function holds
+    /// stays under the starting point.
+    #[test]
+    fn dis_heads_each_function_s_instructions_with_that_function() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.code = true;
+        inferior.pc = 0x1010;
+        let (out, err) = drive(&mut inferior, "dis -3 5\ndis 0x1030 -3\nq\n", false);
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}\
+prog`next_seed:
+    0x0000000000001004 <+0>: nop
+prog`mfb_rt_print:
+    0x0000000000001008 <+0>: nop
+    0x000000000000100c <+4>: nop
+prog`main <mfb>:
+->  0x0000000000001010 <+0>: nop
+    0x0000000000001014 <+4>: nop
+{PROMPT}\
+prog`datetime::#normInstant:
+    0x0000000000001024 <+4>: nop
+0x0000000000001030:
+    0x0000000000001028:      nop
+    0x000000000000102c:      nop
+    0x0000000000001030:      nop
+{PROMPT}Killed process 42.
+"
+            )
+        );
+    }
+
+    #[test]
+    fn list_func_keeps_the_types_and_names_asked_for() {
+        let (out, err, _) = session(
+            "list func next_seed\nlist func MR MB\nlist func *_5F* free\nlist func MU free\nq\n",
+            Ending::Killed,
+            false,
+        );
+        assert_eq!(
+            err,
+            "error: no function matches 'MU free'; type 'list func' for the functions\n"
+        );
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}\
+Type Address            Symbol              Written name
+MU   0x0000000000001004 _mfb_fn_next_5Fseed next_seed
+
+MU  {user}
+{PROMPT}\
+Type Address            Symbol                          Written name
+MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
+MR   0x0000000000001000 _main                           -
+MR   0x0000000000001008 _mfb_rt_print                   -
+
+MB  {builtin}
+MR  {runtime}
+{PROMPT}\
+Type Address            Symbol                          Written name
+MU   0x0000000000001004 _mfb_fn_next_5Fseed             next_seed
+MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
+SL   0x0000000000009000 _free                           free
+
+MU  {user}
+MB  {builtin}
+SL  {linked}
+{PROMPT}{PROMPT}Killed process 42.
+",
+                user = Origin::User.legend(),
+                builtin = Origin::Builtin.legend(),
+                runtime = Origin::Runtime.legend(),
+                linked = Origin::Linked.legend(),
+            )
+        );
+    }
+
+    #[test]
+    fn a_glob_matches_the_whole_name() {
+        for (pattern, text, matches) in [
+            ("fib", "fib", true),
+            ("fib", "fibs", false),
+            ("fib", "_fib", false),
+            ("*fib*", "_mfb_fn_fib", true),
+            ("f?b", "fob", true),
+            ("f?b", "fb", false),
+            ("*", "", true),
+            ("a*b*c", "aXbYbZc", true),
+            ("a*b*c", "aXbYbZ", false),
+            ("**x", "yyx", true),
+            ("é?", "éa", true),
+        ] {
+            assert_eq!(glob(pattern, text), matches, "{pattern} {text}");
+        }
+    }
+
     #[test]
     fn a_bad_breakpoint_command_is_refused() {
         let (_, err, _) = session(
-            "bp\nbp r\nbp 0xzz\nbp a b c\nbp r nothing\nrun now\nq\n",
+            "bp\nbp r\nbp 0xzz\nbp a b c\nbp r a b\nbp r nothing\nrun now\nq\n",
             Ending::Killed,
             false,
         );
@@ -2664,7 +3223,8 @@ Address            Symbol              Written name
             "error: 'bp' needs an address (0x…) or a function name\n\
              error: 'bp' needs an address (0x…) or a function name\n\
              error: '0xzz' is not an address\n\
-             error: too many arguments to 'bp'\n\
+             error: unknown command 'b'; type 'help' for the list of commands\n\
+             error: too many arguments to 'bp r'\n\
              error: there is no breakpoint on 'nothing'\n\
              error: 'run' takes no arguments\n"
         );
@@ -2691,11 +3251,11 @@ Address            Symbol              Written name
             out,
             format!(
                 "{PROMPT}\
-Thread 0 hit a breakpoint at 0x0000000000001000 in _main.
-Thread 1 hit a breakpoint at 0x0000000000007000.
-{PROMPT}Thread 1 stopped by a bad memory access at 0x8 at 0x0000000000007000.
-{PROMPT}Paused: thread 0 is at 0x0000000000001000 in _main.
-{PROMPT}The program was ended by signal 9.
+--[BP] T: 0 P: 0x0000000000001000 F: _main
+--[BP] T: 1 P: 0x0000000000007000 F: -
+{PROMPT}--[XC] T: 1 P: 0x0000000000007000 F: - X: a bad memory access at 0x8
+{PROMPT}--[CC] User Break
+{PROMPT}--[EX] Program ended by signal (9)
 {PROMPT}{PROMPT}no breakpoints
 {PROMPT}Killed process 42.\n"
             )
@@ -2707,15 +3267,184 @@ Thread 1 hit a breakpoint at 0x0000000000007000.
     }
 
     #[test]
+    fn watchpoint_breakpoint_and_breakerror_take_commands_after_a_semicolon() {
+        let commands = |list: &[&str]| list.iter().map(|word| word.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            parse("bp fib bt 1; list reg x0 ;"),
+            Ok(Command::SetBreakpoint(
+                Target::Name("fib".to_string()),
+                commands(&["bt 1", "list reg x0"])
+            ))
+        );
+        assert_eq!(
+            parse("wp sp+0x10"),
+            Ok(Command::SetWatchpoint {
+                location: Location::Named {
+                    name: "sp".to_string(),
+                    offset: 16
+                },
+                size: 8,
+                commands: Vec::new(),
+            })
+        );
+        assert_eq!(
+            parse("watchpoint 0x1000 0x4 show mem 0x1000 4;be"),
+            Ok(Command::SetWatchpoint {
+                location: Location::Address(0x1000),
+                size: 4,
+                commands: commands(&["show mem 0x1000 4", "be"]),
+            })
+        );
+        assert_eq!(
+            parse("wp r x19+8"),
+            Ok(Command::RemoveWatchpoint(Location::Named {
+                name: "x19".to_string(),
+                offset: 8
+            }))
+        );
+        assert_eq!(
+            parse("be ErrOverflow 42 show error; bt"),
+            Ok(Command::BreakError(
+                ErrorCodes::Codes(vec![77_050_010, 42]),
+                commands(&["show error", "bt"])
+            ))
+        );
+        assert_eq!(
+            parse("be any dis 4"),
+            Ok(Command::BreakError(ErrorCodes::Any, commands(&["dis 4"])))
+        );
+        assert_eq!(
+            parse("list watchpoint"),
+            Ok(Command::List(Some(Listing::Watchpoints)))
+        );
+        for (line, message) in [
+            (
+                "bp fib run",
+                "'run' cannot run at a stop: a stop runs list, show, backtrace, disassemble \
+                 and a bare breakerror",
+            ),
+            (
+                "wp 0x1000 8 bt; step",
+                "'step' cannot run at a stop: a stop runs list, show, backtrace, disassemble \
+                 and a bare breakerror",
+            ),
+            (
+                "be any be clear",
+                "'be clear' cannot run at a stop: a stop runs list, show, backtrace, \
+                 disassemble and a bare breakerror",
+            ),
+            ("wp 0x1000 8x", "'8x' is not a number"),
+            (
+                "wp",
+                "'wp' needs an address or a register: wp <where> [<size>] [<commands>]",
+            ),
+            (
+                "wp r",
+                "'wp' needs an address or a register: wp <where> [<size>] [<commands>]",
+            ),
+            ("wp r 0x10 8", "too many arguments to 'wp r'"),
+            (
+                "be bt",
+                "'be' needs an error code, a name or 'any' before its commands",
+            ),
+            ("be clear bt", "'be clear' takes no commands"),
+            (
+                "list watchpoint 2",
+                "too many arguments to 'list watchpoint'",
+            ),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_stop_runs_its_commands_and_the_program_runs_on() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.runs = vec![
+            RunStop::Breakpoints(vec![(0, 0x1004)]),
+            RunStop::Exited(Exit::Status(0)),
+        ];
+        let (out, err) = drive(
+            &mut inferior,
+            "bp next_seed list reg x0; show mem 0x10\nrun\nq\n",
+            false,
+        );
+        assert_eq!(err, "error: unmapped 0x10\n");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs \
+                 'list reg x0; show mem 0x10' and continues.
+{PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: next_seed
+Register Hex                Decimal
+x0       0x000000000000002a (42)
+--[EX] Program exit (0)
+{PROMPT}Killed process 42.
+"
+            )
+        );
+    }
+
+    #[test]
+    fn run_reports_a_changed_watchpoint_and_a_raised_error() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.runs = vec![
+            RunStop::Changed(vec![
+                Change {
+                    thread: 0,
+                    pc: 0x1014,
+                    address: 0x2000,
+                    size: 8,
+                    old: 5,
+                    new: u64::MAX,
+                },
+                Change {
+                    thread: 1,
+                    pc: 0x7000,
+                    address: 0x3001,
+                    size: 2,
+                    old: 0xab,
+                    new: 0x1cd,
+                },
+            ]),
+            RunStop::Raised {
+                thread: 0,
+                code: 77_050_010,
+                origin: Some("main.mfb:3:5".to_string()),
+            },
+            RunStop::Raised {
+                thread: 0,
+                code: 42,
+                origin: None,
+            },
+        ];
+        let (out, err) = drive(&mut inferior, "run\nrun\nrun\nq\n", false);
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}\
+--[WP] T: 0 P: 0x0000000000001014 F: main+0x4 <mfb> M: 0x0000000000002000: 0x0000000000000005 (5) \
+-> 0xffffffffffffffff (-1)
+--[WP] T: 1 P: 0x0000000000007000 F: - M: 0x0000000000003001: 0x00ab -> 0x01cd
+{PROMPT}--[BE] T: 0 P: 0x0000000000001000 F: _main E: errorCode::ErrOverflow (77050010)
+{PROMPT}--[BE] T: 0 P: 0x0000000000001000 F: _main E: 42
+{PROMPT}Killed process 42.
+"
+            )
+        );
+    }
+
+    #[test]
     fn run_reports_an_exit_status() {
         let mut inferior = Recorder::new(Ending::AlreadyExited);
         inferior.runs = vec![RunStop::Exited(Exit::Status(3))];
         let (out, _) = drive(&mut inferior, "run\nq\n", false);
-        assert!(out.contains("The program exited with status 3.\n"), "{out}");
+        assert!(out.contains("--[EX] Program exit (3)\n"), "{out}");
         let mut inferior = Recorder::new(Ending::AlreadyExited);
         inferior.runs = vec![RunStop::Exited(Exit::Unknown)];
         let (out, _) = drive(&mut inferior, "run\nq\n", false);
-        assert!(out.contains("The program exited.\n"), "{out}");
+        assert!(out.contains("--[EX] Program exit\n"), "{out}");
     }
 
     #[test]

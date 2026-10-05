@@ -5,8 +5,9 @@
 programs and nothing else, and there is no cross-debugging. Today it starts or
 attaches to a program, pauses it, lists its functions, threads, registers and
 arenas, single-steps one thread or all of them, runs it to software
-breakpoints, disassembles it, and unwinds its threads' calls; it is the seam later debugger features build
-on.
+breakpoints and hardware watchpoints (running commands at a stop), disassembles
+it, and unwinds its threads' calls; it is the seam later debugger features
+build on.
 
 The developer-facing guide is `./mfb man debug`.
 
@@ -53,12 +54,14 @@ Only macOS has one; on every other host, after argument parsing succeeds,
 [[src/debugger/mod.rs:host_backend]] A new platform implements the `Backend`
 trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `end`,
 `functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`, `registers`, `step`,
-`restart`, `entry`, `insert_breakpoint`, `remove_breakpoint`, `run`, `read_code`,
-`function_at`, `library_functions`, `data_symbol_at`) and is returned from
-`host_backend`. Symbol classification, the reading of the runtime's thread
-table and arena registry (`src/debugger/runtime.rs`), breakpoint resolution and
-pending placement (`src/debugger/breakpoints.rs`), the listings' format, the
-prompt and the CLI are platform-neutral.
+`restart`, `entry`, `insert_breakpoint`, `remove_breakpoint`,
+`insert_watchpoint`, `remove_watchpoint`, `run`, `read_code`, `function_at`,
+`library_functions`, `data_symbol_at`) and is returned from `host_backend`.
+Symbol classification, the reading of the runtime's thread table and arena
+registry (`src/debugger/runtime.rs`), breakpoint resolution and pending
+placement, the watchpoints' change test and commands at a stop
+(`src/debugger/breakpoints.rs`), the listings' format, the prompt and the CLI
+are platform-neutral.
 [[src/debugger/mod.rs:Backend]] [[src/debugger/mod.rs:Inferior]]
 
 ## The debuggability check
@@ -187,16 +190,35 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   lifts them before `task_resume`, so the program never meets a `brk` with no
   debugger. `entry` is `LC_MAIN`'s `entryoff` plus `__TEXT`'s address and the
   load offset. [[src/debugger/macos.rs:Task]]
+- **Watchpoints.** `insert_watchpoint` takes one of the processor's watchpoint
+  register pairs: as many as `sysctlbyname("hw.optional.watchpoint")` says
+  (4 on Apple silicon), the next past those in use failing with `all <n> of the
+  processor's watchpoints are in use; remove one with 'wp r <where>'`.
+  `DBGWVR` is the address rounded down to 8; `DBGWCR` is enabled, for EL0
+  (`PAC` 0b10), on stores (`LSC` 0b10), with byte-address-select bits for the
+  `size` bytes from the address's offset in its 8 (`WCR_STORE_EL0`,
+  `write_watchpoints`). They are written into every thread's
+  `ARM_DEBUG_STATE64` with `thread_set_state`, and into the task's with
+  `task_set_state`, which the kernel copies into each thread the program
+  starts later; `remove_watchpoint` writes the rest again the same way. A
+  stepping thread's are written disabled for the step and enabled after it,
+  so a step can carry a thread past a watched store. Ending an attached
+  session clears them before `task_resume`, so the program never meets a
+  watchpoint with no debugger. [[src/debugger/macos.rs:write_watchpoints]]
 - **Run.** `run` first steps every thread whose `pc` is on a breakpoint one
   instruction (so it does not stop on the breakpoint it is paused at), then
   installs the exception port, clears the interrupt flag, and `task_resume`s.
   It waits in 100 ms slices for an exception, a set interrupt flag, or the end
   of the program, then `task_suspend`s. Exceptions are classified: every
   `EXC_BREAKPOINT` whose second code (the `brk`'s address) is a breakpoint's
-  address is a hit (`RunStop::Breakpoints`, every such thread); otherwise the
+  address is a hit (`RunStop::Breakpoints`, every such thread); else every
+  thread whose `EXC_BREAKPOINT` has the first code `EXC_ARM_DA_DEBUG` (`0x102`)
+  is about to write watched memory (`RunStop::Watchpoints`); otherwise the
   first exception is `RunStop::Exception`. Every exception is answered
   `KERN_SUCCESS`, which leaves a thread on its `brk` (`pc` is the `brk`'s
-  address) or retries a faulting instruction. A launched program has ended
+  address), retries a faulting instruction, or retries a watched store — which
+  stops again on the next `run` when a breakpoint hit at the same time took
+  precedence. A launched program has ended
   when `waitpid(WNOHANG)` reaps it (exit status or signal); an attached one
   when `pid_for_task` fails or `kill(pid, 0)` finds no process
   (`Exit::Unknown`). After that the session refuses every command but `help`,
@@ -219,8 +241,8 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   kills and reaps the process (unless it has already ended), releases its task
   port, spawns the program again with the same arguments exactly as `launch`
   does, and forgets everything about the old process: the load offset, the
-  breakpoints written into it, its exit, its libraries, and the executable's
-  symbols (read again, so a rebuilt file is seen).
+  breakpoints and watchpoints written into it, its exit, its libraries, and
+  the executable's symbols (read again, so a rebuilt file is seen).
 - **Ctrl-C.** For the session's length `mfb` handles `SIGINT` with a handler
   that only sets an atomic flag (and puts the previous handler back when the
   session ends). A `run` that sees the flag suspends the task and answers
@@ -263,7 +285,7 @@ Then, repeatedly:
 | --- | --- |
 | `help`, `h` | prints the `HELP` listing to stdout |
 | `list`, `l` | prints the `LIST_USAGE` block |
-| `list func` | prints the function listing |
+| `list func [<filter>...]` | prints the function listing, kept to the types and names `<filter>` gives |
 | `list thread` | prints the thread listing |
 | `list reg [<id>]` | prints the `LIST_REG_USAGE` block |
 | `list reg [<id>] <what>...` | prints thread `<id>`'s registers (default 0) of each group or name in `<what>` |
@@ -276,10 +298,13 @@ Then, repeatedly:
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
-| `breakpoint <target>`, `bp …` | sets breakpoints at `<target>` |
+| `breakpoint <target> [<commands>]`, `bp …` | sets breakpoints at `<target>`, each running `<commands>` at a stop |
 | `breakpoint r <target>`, `bp r …` | removes breakpoints at `<target>` |
-| `breakerror <code>...`, `be …` | stops when a thread raises an error whose code is one of `<code>` (a number or an `errorCode` name) |
-| `breakerror any`, `be any` | stops when a thread raises any error |
+| `breakerror <code>... [<commands>]`, `be …` | stops when a thread raises an error whose code is one of `<code>` (a number or an `errorCode` name) |
+| `breakerror any [<commands>]`, `be any …` | stops when a thread raises any error |
+| `watchpoint <where> [<size>] [<commands>]`, `wp …` | stops when a thread changes the `<size>` bytes (default 8) at `<where>` |
+| `watchpoint r <where>`, `wp r …` | removes the watchpoint at `<where>` |
+| `list watchpoint` | prints the watchpoint listing |
 | `breakerror clear`, `be clear` | stops watching for errors |
 | `breakerror`, `be` | prints what is watched for |
 | `list breakpoint` | prints the breakpoint listing |
@@ -290,7 +315,8 @@ Then, repeatedly:
 | `restart`, `rs` | starts a launched program again |
 | `disassemble`, `dis` | disassembles the current function |
 | `dis <count>` | disassembles `<count>` instructions from the current `pc`; a negative count, that many before it and then the `pc` |
-| `dis <where> [<count>]` | disassembles from an address, register or function (each `±<offset>`): to the end of its function, or `<count>` as above |
+| `dis -<back> <length>` | disassembles `<length>` instructions from `<back>` before the current `pc` |
+| `dis <where> [<count>]`, `dis <where> -<back> <length>` | disassembles from an address, register or function (each `±<offset>`): to the end of its function, or the instructions a count picks as above |
 | `dis <function> [<count>]` | disassembles each function `<function>` names, or `<count>` from its start as above |
 | `quit`, `q` | ends the session |
 
@@ -302,7 +328,8 @@ Then, repeatedly:
 | an unknown command | `unknown command '<name>'; type 'help' for the list of commands` |
 | `help` or `quit` with arguments | `'<name>' takes no arguments` |
 | `list <what>` for an unknown `<what>` | `cannot list '<what>'; type 'list' for what can be listed` |
-| `list func`/`thread`/`arena` with an argument, `list reg` with two | `too many arguments to '<name> <what>'` |
+| `list thread`/`arena`/`breakpoint`/`watchpoint` with an argument | `too many arguments to '<name> <what>'` |
+| `list func <filter>...` that keeps no function | `no function matches '<filter>...'; type 'list func' for the functions` (the type codes first, then the names) |
 | `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
 | `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for the groups` |
 | `show mem` with no location | `'show mem' needs an address or a register: show mem <where> [<size>]` |
@@ -326,14 +353,26 @@ Then, repeatedly:
 | `breakerror` with a word that is no integer and no `errorCode` constant | `'<word>' is not an error code: give its number (77050010) or its errorCode name (ErrOverflow)` |
 | `breakerror` on a program that does not name `_mfb_rt_park_error` (a build without `--debug`) | `'breakerror' stops in the runtime's error function, which only a debug build names; rebuild the program with: mfb build --debug -O0 <project>` |
 | `breakerror clear` with nothing watched | `no errors are being watched for` |
-| `breakpoint` with more than `r <target>` | `too many arguments to '<name>'` |
+| `breakpoint r` with more than a target | `too many arguments to '<name> r'` |
+| a stop's command that is not `list`, `show`, `backtrace`, `disassemble` or a bare `breakerror` | `'<command>' cannot run at a stop: a stop runs list, show, backtrace, disassemble and a bare breakerror` |
+| a stop's command that does not parse | the command's own refusal |
+| `breakerror` with commands but no code | `'<name>' needs an error code, a name or 'any' before its commands` |
+| `breakerror clear` with commands | `'<name> clear' takes no commands` |
+| `watchpoint` or `watchpoint r` with no place | `'<name>' needs an address or a register: <name> <where> [<size>] [<commands>]` |
+| `watchpoint r` with more than a place | `too many arguments to '<name> r'` |
+| a `watchpoint` size that starts with a digit and is not a number | `'<size>' is not a number` |
+| a watchpoint of 0 or more than 8 bytes, or crossing a multiple of 8 | `cannot watch <size> bytes at 0x<address>: a watchpoint covers 1 to 8 bytes that do not cross an address that is a multiple of 8` |
+| a watchpoint where one is | `there is already a watchpoint at 0x<address>` |
+| `watchpoint r` where none is | `there is no watchpoint at 0x<address>` |
 | a target starting `0x` that is not hex | `'<target>' is not an address` |
 | `run` with arguments | `'<name>' takes no arguments` |
 | a `backtrace` count that is not a `usize` of 1 or more | `'<count>' is not a number of frames (1 or more), or 'all'` |
 | `backtrace` with three arguments | `'<name>' takes at most two arguments` |
 | `backtrace <count> <id>` past the last thread | `no thread <id>: the program has <n> thread(s); type 'list thread' for them` |
 | a `dis` count of 0 or not an `i64` | `cannot show <count> instructions; give a count other than 0 (negative counts back)` |
-| `dis` with three arguments | `'<name>' takes at most two arguments` |
+| two `dis` counts, the first not negative | `'<back>' does not count back; with two counts the first is negative, as in dis -6 8` |
+| two `dis` counts, the second not positive | `cannot show <length> instructions; the count after a negative one must be positive` |
+| `dis` with four arguments | `'<name>' takes at most three arguments` |
 | `dis` at an address not a multiple of 4 | `0x<address> is not the start of an instruction: they start every 4 bytes` |
 | `dis` counting back past address 0 | `there are not <n> instructions before 0x<address>` |
 | an address `0x<hex>±<offset>` below 0 or past `u64::MAX` | `'<word>' is below address 0` / `'<word>' is past the last address` |
@@ -378,6 +417,15 @@ Type Address Symbol Written name
 - `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import.
 - `<symbol>` is the symbol as the executable spells it.
 - `<written name>` is the name the developer wrote, or `-`.
+- Each word after `func` is a filter: one of the type codes `MU`, `MB`, `MR`,
+  `SL`, `SD` (exactly, `Origin::parse`) keeps that type; any other word is a
+  pattern a symbol or its untagged written name must match in full, `*`
+  matching any run of characters and `?` any one, every other character
+  itself. A function is listed when it is of one of the types given (any, with
+  none) and matches one of the patterns given (any, with none). The collision
+  tags are worked out over every function, not just those listed. A filter
+  that keeps nothing is refused. [[src/debugger/prompt.rs:FunctionFilter]]
+  [[src/debugger/prompt.rs:glob]]
 - After the table, an empty line and one legend line per type the listing
   shows, in group order: the code, two spaces, and `Origin::legend` —
   `MU  MFB User: code you wrote, in your program or a package it imports`,
@@ -599,7 +647,7 @@ A `string`'s length word, its bytes and its NUL must lie in the block
 (`not a String … its length, <n>, runs past the end of its arena block`), its
 bytes must be UTF-8 (`not a String … byte <i> of its value, 0x<b>, is not
 UTF-8`), and at most 65536 bytes are shown, then ` (the first 65536 bytes)`. Text
-is escaped as `char::escape_debug` does ([[src/debugger/values.rs:quoted]]).
+is escaped as `char::escape_debug` does. [[src/debugger/values.rs:quoted]]
 
 `list`, `set` and `map` read a 40-byte `CollectionHeader` and check it: the kind
 byte (0 or 2 for `list`, 3 for `set`, 1 for `map`; else `not a <Type> … its kind
@@ -740,6 +788,10 @@ prints `Set a pending breakpoint on <symbol>: it is placed when the program
 has loaded its libraries.` A target whose every breakpoint exists already
 fails with `there is already a breakpoint at <address>` / `on '<target>'`.
 
+Every word after the target is the breakpoints' **commands** (see Commands at
+a stop below); with any, the line goes on ` Each stop runs '<commands>' and
+continues.`, `<commands>` joined by `; `.
+
 `breakpoint r <target>` removes, by address or by place, the breakpoints there; by name, the
 breakpoints whose symbol is `<target>`, or else whose written name is. Each
 prints `Removed the breakpoint at <place>.`; none fails with `there is no
@@ -747,7 +799,60 @@ breakpoint at <address>` / `on '<target>'`.
 
 `list breakpoint` prints `<address> <symbol> <written name>` per breakpoint
 under the header `Address Symbol Written name`, in address order with pending
-ones last (`-` for the address); with none, `no breakpoints`.
+ones last (`-` for the address); with none, `no breakpoints`. When any
+breakpoint has commands, a fourth column `Commands` gives each one's, joined by
+`; `, or `-`.
+
+### Watchpoints
+
+[[src/debugger/breakpoints.rs:Watch]] `watchpoint <where> [<size>]
+[<commands>]` (`wp`) watches the `<size>` bytes at `<where>`: `<where>` is
+resolved once, now, as `show mem` resolves one (`0x…`, a register of the
+current thread, a function, each `±<offset>`); `<size>` is the word after it
+when that starts with a digit (decimal, or hex after `0x`), else 8 (an
+`Integer`). The bytes must be 1 to 8 that do not cross an address that is a
+multiple of 8 (`breakpoints::watchable`) and readable; the processor holds a
+fixed number of watchpoints (the backend refuses one more). Setting one prints
+`Set a watchpoint at 0x<address> (<size> byte[s]): <value>.`, with ` Each stop
+runs '<commands>' and continues.` when it has commands. `<value>` is the bytes
+read little-endian as `0x` and two hex digits per byte, and for 8 bytes the
+signed decimal after, in parentheses (`breakpoints::value_shown`):
+`0x05`, `0x0000000000000005 (5)`. `watchpoint r <where>` removes the one at
+that address, printing `Removed the watchpoint at 0x<address> (<size>
+byte[s]).`
+
+A watchpoint stops a thread **before** it writes any of the bytes. `run` then
+reads every watchpoint's bytes, steps that thread over the write (the
+backend's `step`, which runs with watchpoints off), and reads them again: each
+watchpoint whose bytes changed is a `Changed` stop (`RunStop::Changed`, one
+`Change` per watchpoint, the write's `pc` the instruction that wrote it); a
+write that changed none runs on, unseen. Several threads stopped at once are
+stepped in turn. A step that raises an exception or ends the program is that
+stop instead. A thread the step leaves on one of the user's breakpoints stops
+there at the next `run`, before anything runs. Only stores the thread makes
+are seen: the kernel writing the memory (a `read` into it) is not. After the
+stop the current thread is the writer, its `pc` past the write.
+
+`list watchpoint` prints `<address> <size> <value>` per watchpoint under the
+header `Address Size Value`, in address order, the value read now (`-` when it
+cannot be read); a fourth column `Commands` as for `list breakpoint` when any
+has commands; with none, `no watchpoints`. `restart` drops every watchpoint,
+each with `Dropped the watchpoint at 0x<address>: a restarted program's memory
+is laid out anew.`
+
+### Commands at a stop
+
+[[src/debugger/prompt.rs:stop_commands]] The words after a breakpoint's target,
+a watchpoint's place and size, or `breakerror`'s codes (which end at the first
+word that is a command name, `COMMAND_NAMES`) are joined with spaces and split
+at `;` into commands; empty ones are dropped. Each is parsed now, and must be
+one that only reads the program: `list`, `show`, `backtrace`, `disassemble`, or
+a bare `breakerror`. A stop prints its lines, then runs the commands of each of
+its breakpoints, watchpoints or watched error in turn, each with its own
+thread current, writing their output and errors as at the prompt
+(`prompt::hear_stop`). When every stop in it has commands the program runs on,
+as `run` again would — inside a `finish` too, which goes on toward its return —
+otherwise the prompt returns.
 
 ### `breakerror`
 
@@ -759,7 +864,10 @@ clear` ends the watch; `breakerror` alone prints the watch line, or `No errors
 are being watched for.` Setting one prints `Stopping when a thread raises
 <codes>.` (`<codes>` each `<code>[ (errorCode::<name>)]`, comma-separated, or
 `any error`), which `list breakpoint` also prints after its table (alone, in
-place of `no breakpoints`, when there are no breakpoints).
+place of `no breakpoints`, when there are no breakpoints). Words after the
+codes (from the first command name) are the watch's commands; the line then
+goes on ` Each stop runs '<commands>' and continues.` A `breakerror` with
+commands replaces the watch's; one without keeps them.
 
 The watch is a breakpoint of the debugger's own at the entry of
 `_mfb_rt_park_error` (`PARK_ERROR`), the runtime function a failing operation
@@ -790,18 +898,32 @@ program stops the process for the comparison, watched or not.
 `Placed the pending breakpoint on <symbol> at 0x<address>.` While any stays
 pending and the program has not been seen at its entry point, the entry point
 gets a breakpoint of the debugger's own (unless one is there): a stop at that
-breakpoint alone places the pending ones and runs on, unseen. Then one line per
-outcome, `<place>` as in `step`:
+breakpoint alone places the pending ones and runs on, unseen.
+[[src/debugger/breakpoints.rs:Ended]] Each stop is printed as it happens, after
+the notes made since the last, as one line per thread it stopped: [[src/debugger/prompt.rs:stop_lines]]
 
 | Stop | Line |
 | --- | --- |
-| a breakpoint (one line per thread) | `Thread <t> hit a breakpoint at <place>.` |
-| a watched error raised (`breakerror`) | `Thread <t> raised <code>[ (errorCode::<name>)][ at <file>:<line>:<char>]; it is at <place>, before a TRAP takes the error.` |
-| another exception | `Thread <t> stopped by <exception> at <place>.` |
-| Ctrl-C | `Paused: thread 0 is at <place>.` |
-| a launched program exited | `The program exited with status <n>.` |
-| a launched program ended by a signal | `The program was ended by signal <n>.` |
-| an attached program ended | `The program exited.` |
+| a breakpoint | `--[BP] T: <t> P: <pc> F: <function>` |
+| a watched change (one per watchpoint) | `--[WP] T: <t> P: <pc> F: <function> M: 0x<address>: <old> -> <new>` |
+| a watched error raised (`breakerror`) | `--[BE] T: <t> P: <pc> F: <function> E: errorCode::<name> (<code>)`, or `E: <code>` when no constant names it |
+| another exception | `--[XC] T: <t> P: <pc> F: <function> X: <exception>` |
+| Ctrl-C | `--[CC] User Break` |
+| a launched program exited | `--[EX] Program exit (<n>)` |
+| a launched program ended by a signal | `--[EX] Program ended by signal (<n>)` |
+| an attached program ended | `--[EX] Program exit` |
+
+`<t>` is the thread's index; `<pc>` is `0x` and 16 hex digits — the
+breakpoint's address, the instruction that wrote a watched change, else the
+thread's `pc`; `<function>` is the function holding it with the offset into it
+(`runtime::locate`: `fib`, `fib+0x1c`, `main <native>`), else a loaded
+library's (`__cxa_finalize_ranges+0x8`), else `-`.
+[[src/debugger/prompt.rs:stop_place]]
+`T: - P: - F: -` stands for a thread no longer there. `<old>` and `<new>` are
+shown as watchpoint values are. The error's origin is not printed; `show
+error` reads it. A stop whose every part has commands runs them and runs on
+(Commands at a stop); the first stop that does not ends the `run`, its thread
+current.
 
 ### `disassemble`
 
@@ -812,7 +934,11 @@ or the last `step` ran; thread 0 before either, or when it has ended.
 - `dis`: the function holding the current thread's `pc`, from its start.
 - `dis <count>` (digits, perhaps after `-`): a count, never 0. A positive count
   is that many instructions from the `pc`; a negative one is that many before
-  it, then the `pc`'s own.
+  it, then the `pc`'s own. [[src/debugger/disassemble.rs:Window]]
+- `dis -<back> <length>`: two counts, the first negative and the second
+  positive: `<length>` instructions from `<back>` before the `pc`, so
+  `dis -6 8` shows the six before it, the `pc`'s own and one after. Wherever a
+  count is taken below, these two counts may stand for it.
 - `dis <where> [<count>]`, `<where>` starting `0x`, holding `+` or `-`, or a
   register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it resolves to
   as `show mem` resolves one (so `dis main+0x110` is a place in `main`), which must be a multiple of 4. With no count, the
@@ -838,8 +964,17 @@ unnamed; `0x<start>:` when no image holds it), where the name is the written
 name for the developer's functions and otherwise the symbol less one leading
 `_`; then per instruction `->  ` at the current `pc` or four spaces, the
 address as `0x` and 16 hex digits, ` <+<offset>>:` (` <-<offset>>:` before the
-function's start, when a count runs back past it) padded to the widest in the listing (omitted
-when no image holds it), and the instruction. A comment follows from column 33
+function's start, when a count runs back past it into code no function holds)
+padded to the widest in the listing (omitted, `:` alone padded the same way,
+when no image holds it), and the instruction. A counted listing that runs out
+of the function it starts in — back before its start, or on past its end —
+puts a new header before the first instruction of each other function
+`function_at` finds holding one, as lldb does, and counts those
+instructions' offsets, and the `<+<offset>>` comments, from that function; the
+listing's first header is the first instruction's function. An instruction no
+function holds stays under the function the listing started in. An `adrp`
+seen before a new header is forgotten after it.
+[[src/debugger/disassemble.rs:listing]] A comment follows from column 33
 of the instruction text: `=<decimal>` for a `mov` of an immediate (the value it
 sets, signed at the register's width, `mov w0, #-0x2 ; =-2`); for a branch,
 call, `adr` or literal load (`ldr x0, 0x…`), `<+<offset>>` inside this
@@ -879,9 +1014,10 @@ then prints
 `Thread <t> returned from <function> to <place>: x0 = <value>, x1 = <value>.`
 — MFBASIC returns an error code in `x0` and the value in `x1`, each shown as
 `list reg` shows it. A stop at them by another thread or a deeper frame runs
-on. Any other stop — a user breakpoint, an exception, Ctrl-C, the end —
-removes them and is reported as `run` reports it, and, unless the program
-ended, followed by `The finish from <function> did not complete; type 'finish'
+on. A stop that runs on for its commands lets the finish go on. Any other
+stop — a user breakpoint, a watched change or error, an exception, Ctrl-C,
+the end — removes them and is reported as `run` reports it, and, unless the
+program ended, followed by `The finish from <function> did not complete; type 'finish'
 to run it again from here.` (`<function>` named as `dis` names it; `The finish
 did not complete; …` when the function has no name).
 [[src/debugger/breakpoints.rs:Finish]] With no function at the
@@ -942,7 +1078,8 @@ symbol and offset it was set at — the new process is loaded at a new address �
 a linked function's becoming pending until its library loads; one at an
 address no function held is dropped with `Dropped the breakpoint at <place>:
 no function holds it.`, and one whose function the program no longer has with
-`Dropped the breakpoint on <symbol>: the program no longer has it.` The
+`Dropped the breakpoint on <symbol>: the program no longer has it.` Every
+watchpoint is dropped first, as Watchpoints says. The
 current thread is 0 again, and the session runs on even after the program had
 ended.
 

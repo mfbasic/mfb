@@ -103,7 +103,7 @@ Set a breakpoint at 0x00000001005c9ee0 in summarize.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
-Thread 0 hit a breakpoint at 0x00000001005c9ee0 in summarize.
+--[BP] T: 0 P: 0x00000001005c9ee0 F: summarize
 DBG> bt
 * thread #0, task = 'MFB Main'
   * frame #0: 0x00000001005c9ee0 debug.out`summarize
@@ -135,8 +135,12 @@ session's.
 | Command | Short | What it does |
 | --- | --- | --- |
 | `help` | `h` | lists the commands |
-| `breakpoint <where>` | `bp …` | stops the program when it reaches a function or address |
+| `breakpoint <where> [<commands>]` | `bp …` | stops the program when it reaches a function or address |
 | `breakpoint r <where>` | `bp r …` | removes one |
+| `watchpoint <where> [<size>] [<commands>]` | `wp …` | stops the program when a thread changes memory |
+| `watchpoint r <where>` | `wp r …` | removes one |
+| `breakerror <code>... [<commands>]` | `be …` | stops the program when a thread raises one of these errors; `be any` for every error |
+| `breakerror clear` | `be clear` | stops watching for errors; `be` alone says what is watched for |
 | `run` | `r` | runs the program until a breakpoint or its end (Ctrl-C pauses it) |
 | `finish` | `f` | runs until the current function returns |
 | `restart` | `rs` | starts the program again |
@@ -144,16 +148,19 @@ session's.
 | `step-all [<count>]` | `sa …` | runs every thread one instruction, or `<count>` |
 | `disassemble` | `dis` | shows the machine code of the current function |
 | `dis <count>` | | the next `<count>` instructions, or with `-` the ones before |
+| `dis -<back> <count>` | | `<count>` instructions, from `<back>` before the current one |
 | `dis <where> [<count>]`, `dis <function> [<count>]` | | from an address or register (`pc-0x20`), or a function's |
 | `backtrace [<count>] [<thread>]` | `bt …` | shows the calls the current thread is in |
 | `backtrace all` | `bt all` | shows the calls every thread is in |
 | `list` | `l` | shows what can be listed |
-| `list func` | `l func` | lists the program's functions |
+| `list func [<filter>...]` | `l func …` | lists the program's functions, or those of a type or name |
 | `list thread` | `l thread` | lists the program's threads |
 | `list reg` | `l reg` | shows how to list registers: `gpr`, `simd`, `sys`, or by name |
 | `list arena` | `l arena` | lists the program's memory pools |
 | `list breakpoint` | `l breakpoint` | lists the breakpoints |
+| `list watchpoint` | `l watchpoint` | lists the watchpoints |
 | `show mem <where> [<size>]` | | shows the raw bytes of memory |
+| `show error [<thread>]` | | shows the error a thread has raised and not yet handled |
 | `show type <type> <where> …` | | shows a value in memory as a type |
 | `show arena [<id>]` | | shows one memory pool in detail |
 | `show arena <id> <block> …` | | shows the raw bytes of part of a pool |
@@ -162,7 +169,7 @@ session's.
 ## Topics
 
 - `start` — start or attach to a program, end the session, and drive it from a script.
-- `breakpoints` — stop in a function, run to the next stop, finish a function, start over.
+- `breakpoints` — stop in a function or when memory changes, run commands at a stop, finish a function, start over.
 - `stepping` — run one instruction at a time, and read the machine code.
 - `backtraces` — see the calls that led to where each thread is.
 - `inspecting` — list the functions, threads and registers, and read memory.

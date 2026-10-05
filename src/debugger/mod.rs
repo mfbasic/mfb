@@ -93,10 +93,18 @@ pub(crate) trait Inferior {
     fn insert_breakpoint(&mut self, address: u64) -> Result<(), String>;
     /// Put back the instruction a breakpoint at `address` replaced.
     fn remove_breakpoint(&mut self, address: u64) -> Result<(), String>;
-    /// Let every thread run until one reaches a breakpoint or raises an
-    /// exception, the program ends, or the user interrupts it; the process is
-    /// paused again afterwards. A thread sitting on a breakpoint goes past it
-    /// first.
+    /// Make every thread, and every thread the program starts later, stop
+    /// before it writes any of the `size` bytes at `address`: 1 to 8 bytes
+    /// that do not cross a multiple of 8 ([`breakpoints::watchable`]). A
+    /// `step` runs with the watchpoints off.
+    fn insert_watchpoint(&mut self, address: u64, size: u64) -> Result<(), String>;
+    /// Take away the watchpoint at `address`.
+    fn remove_watchpoint(&mut self, address: u64) -> Result<(), String>;
+    /// Let every thread run until one reaches a breakpoint, is about to write
+    /// memory a watchpoint covers, or raises an exception, the program ends,
+    /// or the user interrupts it; the process is paused again afterwards. A
+    /// thread sitting on a breakpoint goes past it first. Once the program has
+    /// ended, answers how it ended at once.
     fn run(&mut self) -> Result<RunStop, String>;
 }
 
@@ -106,6 +114,13 @@ pub(crate) enum RunStop {
     /// These threads (indices into [`Inferior::threads`]) reached a breakpoint
     /// at these addresses.
     Breakpoints(Vec<(usize, u64)>),
+    /// These threads are about to write memory a watchpoint covers: each is
+    /// paused on the instruction that writes it, which has not run.
+    Watchpoints(Vec<usize>),
+    /// Writes changed watched memory, one [`Change`] per watchpoint whose
+    /// value changed. Only the session's `run` makes this stop; an
+    /// [`Inferior`] never answers it.
+    Changed(Vec<Change>),
     /// A thread raised an exception that is not one of the debugger's
     /// breakpoints; the text names it.
     Exception { thread: usize, what: String },
@@ -122,6 +137,21 @@ pub(crate) enum RunStop {
     },
     /// The program ended.
     Exited(Exit),
+}
+
+/// A write that changed the memory a watchpoint covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Change {
+    /// The thread that wrote it.
+    pub(crate) thread: usize,
+    /// The instruction that wrote it.
+    pub(crate) pc: u64,
+    /// The watchpoint's address and size.
+    pub(crate) address: u64,
+    pub(crate) size: u64,
+    /// The value before and after, little-endian, `size` bytes wide.
+    pub(crate) old: u64,
+    pub(crate) new: u64,
 }
 
 /// How a program ended.
