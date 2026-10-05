@@ -217,6 +217,19 @@ closure, including `origin`, so its definition is available for merging.
 [[src/manifest/package.rs:qualify_package_type]]
 [[src/manifest/closure.rs:check]]
 
+A builtin package's type crosses a package boundary the same way, with no
+manifest entry to declare. A package that imports `json` may export
+`FUNC render(data AS json::Json) AS String`. It does not export `json.Json`
+(`./mfb spec package type-table`); an importer resolves that type from the
+compiler's own definition of the builtin, whether or not the importer imports
+`json` itself. So an application with no `IMPORT json` can import that package,
+call any of its functions, and pass a `json::Json` value from one call into
+another. Two things still need the application file's own `IMPORT` of the
+builtin: writing the type's name (`LET doc AS json::Json = ...`, otherwise
+`SYMBOL_UNKNOWN_IMPORT`), and reading a builtin record's fields (`d.date` on a
+`datetime::DateTime` a dependency returned needs `IMPORT datetime`).
+[[src/ir/shape.rs:is_builtin_package_type]]
+
 ## Source-level API compatibility
 
 Exported parameter names are part of the named-call source contract. Renaming

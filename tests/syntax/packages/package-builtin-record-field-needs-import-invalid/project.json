@@ -1,0 +1,19 @@
+{
+  "name": "package_builtin_record_field_needs_import_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-823 / bug-466: a dependency's builtin record type resolves without the importer's own IMPORT, but reading that record's fields still needs it.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "builtin_record_pkg",
+      "version": "=0.1.0",
+      "source": "file:packages/builtin_record_pkg",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

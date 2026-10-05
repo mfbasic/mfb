@@ -262,6 +262,31 @@ fn is_always_in_scope_nominal(type_: &ParameterType) -> bool {
         if matches!(sym.resolve(), "AttributedString" | "Error" | "ErrorLoc" | "Scalar"))
 }
 
+/// bug-823: a value type a BUILTIN package declares, spelled with its package
+/// qualifier (`json.Json`, `datetime.DateTime`), as an imported package's
+/// exported signatures and type fields carry it.
+///
+/// The compiler owns every builtin type's definition, so an importer's package
+/// metadata walk (`validate_package_type`) accepts one whether or not the
+/// importer imports that builtin. The dependency does not export it (bug-750),
+/// so the importer has no type-table row for it unless its own `IMPORT`
+/// injected the builtin's source, and asking for that import rejected a package
+/// over a type the importer may never touch. Only naming the type in the
+/// importer's own source (name resolution) or reading a builtin record's fields
+/// (bug-466, `builtin_record_owner`) needs the importer's own import. Neither is
+/// decided here, and this does not add the type to the walker's type table,
+/// which would mark it `shadowed` and switch bug-466's field rule off.
+fn is_builtin_package_type(type_: &ParameterType) -> bool {
+    let ParameterType::Named(symbol) = type_ else {
+        return false;
+    };
+    let spelled = symbol.resolve();
+    spelled
+        .split_once('.')
+        .is_some_and(|(package, _)| builtins::is_builtin_import(package))
+        && crate::codegen::registry::registry().is_builtin_type(spelled)
+}
+
 /// bug-624 B: in a package build, reject an `EXPORT` declaration that names a
 /// type this package declares without `EXPORT` (`EXPORT_NAMES_NON_EXPORTED_TYPE`).
 ///
@@ -1146,6 +1171,9 @@ impl<'a> Walker<'a> {
                     return;
                 }
                 let Some(shape) = self.types.get(type_) else {
+                    if is_builtin_package_type(type_) {
+                        return;
+                    }
                     self.emit(
                         "PACKAGE_INVALID",
                         format!(
@@ -4650,6 +4678,83 @@ mod tests {
             )
             .len(),
             1
+        );
+    }
+
+    /// bug-823: an imported package's exported signatures and type fields may
+    /// name any builtin package's type, and the importer resolves it whether or
+    /// not it imports that builtin itself. The walker here imports nothing, so
+    /// no builtin declaration is in its type table.
+    #[test]
+    fn a_dependency_s_builtin_types_resolve_without_the_importer_s_import() {
+        let hir = hir_from("FUNC main AS Integer\n  RETURN 0\nEND FUNC\n");
+        let facts = lower::lower_facts(&hir, &HashMap::new(), &[], &[]);
+        let no_imports = HashMap::new();
+        let mut walker = Walker::new(Path::new("/proj"), &facts, &hir, &[], &no_imports, &[]);
+        let pkg = Path::new("packages/fake.mfp");
+        let mut validate = |type_: &ParameterType| {
+            walker.validate_package_type(pkg, type_, "ctx", 7, &mut HashSet::new());
+            walker
+                .diagnostics
+                .drain(..)
+                .map(|d| d.detail)
+                .collect::<Vec<_>>()
+        };
+        // Every builtin value type an injected builtin source exports. The
+        // project imports every builtin package, so this is the whole set a
+        // package's signatures can name, not a hand-picked sample.
+        let everything = hir_from(&format!(
+            "{}FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            builtins::BUILTIN_IMPORTS
+                .iter()
+                .map(|package| format!("IMPORT {package}\n"))
+                .collect::<String>()
+        ));
+        let exported: Vec<String> = everything
+            .files
+            .iter()
+            .filter(|file| file.internal)
+            .flat_map(|file| file.items.iter())
+            .filter_map(|item| match item {
+                HirItem::Type(decl) if decl.visibility == Visibility::Export => {
+                    Some(decl.name.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        for name in ["json.Json", "datetime.DateTime", "crypto.KeyPair"] {
+            assert!(
+                exported.iter().any(|seen| seen == name),
+                "{name}: {exported:?}"
+            );
+        }
+        for name in &exported {
+            for type_ in [
+                ParameterType::named(name),
+                ParameterType::ListOf(Box::new(ParameterType::named(name))),
+            ] {
+                assert_eq!(validate(&type_), Vec::<String>::new(), "{name}");
+            }
+        }
+        // Only a builtin package's own declared type resolves this way: an
+        // unknown leaf under a builtin qualifier, and a user package's type the
+        // importer has no definition for, are still reported.
+        for unknown in ["json.Nope", "jpkg.Json"] {
+            assert_eq!(
+                validate(&ParameterType::named(unknown)),
+                [format!(
+                    "Imported package `packages/fake.mfp` has ctx that references unknown type `{unknown}`."
+                )],
+            );
+        }
+        // bug-466: resolving a dependency's builtin type must not make its
+        // FIELDS readable. The field rule's owner map still holds the record,
+        // so `d.date` on a `datetime::DateTime` still needs `IMPORT datetime`.
+        assert_eq!(
+            walker
+                .builtin_record_owner
+                .get(&ParameterType::named("datetime.DateTime")),
+            Some(&"datetime")
         );
     }
 
