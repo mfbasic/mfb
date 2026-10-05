@@ -33,6 +33,8 @@ pub(crate) enum Origin {
     /// `SL`: a system library function the program imports, bound by the
     /// loader as the program starts.
     Linked,
+    /// `SD`: a function in a library the program loaded while running.
+    Dynamic,
 }
 
 impl Origin {
@@ -42,6 +44,7 @@ impl Origin {
             Origin::Builtin => "MB",
             Origin::Runtime => "MR",
             Origin::Linked => "SL",
+            Origin::Dynamic => "SD",
         }
     }
 
@@ -56,6 +59,10 @@ impl Origin {
             Origin::Runtime => "MFB Runtime: the MFBASIC runtime every program carries",
             Origin::Linked => {
                 "System Linked: a system library function the program imports (via the linker)"
+            }
+            Origin::Dynamic => {
+                "System Dynamic: a function in a library the program loaded while running \
+                 (via the dynamic loader)"
             }
         }
     }
@@ -353,8 +360,9 @@ mod tests {
             Origin::Builtin,
             Origin::Runtime,
             Origin::Linked,
+            Origin::Dynamic,
         ];
         assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
-        assert_eq!(order.map(Origin::code), ["MU", "MB", "MR", "SL"]);
+        assert_eq!(order.map(Origin::code), ["MU", "MB", "MR", "SL", "SD"]);
     }
 }

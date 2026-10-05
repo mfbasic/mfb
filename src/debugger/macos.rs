@@ -97,6 +97,17 @@ const LC_SEGMENT_64: u32 = 0x19;
 const LC_SYMTAB: u32 = 0x2;
 const LC_FUNCTION_STARTS: u32 = 0x26;
 const LC_DYSYMTAB: u32 = 0xb;
+/// `<mach-o/loader.h>`: a library's own install name, and the libraries an
+/// image depends on (loaded, weakly loaded, re-exported, upward).
+const LC_ID_DYLIB: u32 = 0xd;
+const LC_LOAD_DYLIB: u32 = 0xc;
+const LC_LOAD_WEAK_DYLIB: u32 = 0x8000_0018;
+const LC_REEXPORT_DYLIB: u32 = 0x8000_001f;
+const LC_LOAD_UPWARD_DYLIB: u32 = 0x8000_0023;
+/// `<mach-o/nlist.h>`: an external (exported) symbol.
+const N_EXT: u8 = 0x01;
+/// `<mach-o/loader.h>`: a section holding instructions.
+const S_ATTR_INSTRUCTIONS: u32 = 0x8000_0400;
 /// `<mach-o/loader.h>`: a section of symbol stubs, `reserved2` bytes each.
 const S_SYMBOL_STUBS: u32 = 0x8;
 /// Reading a library's names: offsets closer than `STRING_GAP` share one read
@@ -438,11 +449,21 @@ struct Task {
     /// whenever the loader's list has grown.
     libraries: Vec<Library>,
     library_count: u32,
+    /// The install names of the libraries the executable is linked against,
+    /// read from its file on first use.
+    dependencies: Option<Vec<String>>,
 }
 
 /// One library the loader has mapped, as its own headers in memory describe it.
 struct Library {
     name: String,
+    /// `LC_ID_DYLIB`'s install name; `None` for a bundle.
+    install_name: Option<String>,
+    /// The install names of the libraries it depends on.
+    dependencies: Vec<String>,
+    /// Loaded while the program ran (`dlopen`): neither the executable nor any
+    /// library it was linked against depends on it.
+    loaded: bool,
     /// Its `__TEXT` segment, live.
     text: (u64, u64),
     /// The live address of `__LINKEDIT` file offset 0, against which its
@@ -458,9 +479,9 @@ struct Library {
     sections: Vec<(u64, u64, u32, u32, u32)>,
     /// Read when first needed: every function's live start, ascending.
     starts: Option<Vec<u64>>,
-    /// Read when first needed: each defined symbol's live address and name,
-    /// by address.
-    symbols: Option<Vec<(u64, String)>>,
+    /// Read when first needed: each defined symbol's live address, name, and
+    /// whether it is exported, by address.
+    symbols: Option<Vec<(u64, String, bool)>>,
 }
 
 /// Set by the SIGINT handler; a `run` that sees it pauses the program.
@@ -489,6 +510,7 @@ impl Task {
             previous_interrupt,
             libraries: Vec::new(),
             library_count: 0,
+            dependencies: None,
         }
     }
 
@@ -533,9 +555,49 @@ impl Task {
                 libraries.push(library);
             }
         }
+        // Every library the executable's dependencies reach was loaded with
+        // it; any other was loaded while the program ran.
+        let mut reached = self
+            .executable_dependencies()
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        loop {
+            let before = reached.len();
+            for library in &libraries {
+                if library
+                    .install_name
+                    .as_ref()
+                    .is_some_and(|name| reached.contains(name))
+                {
+                    reached.extend(library.dependencies.iter().cloned());
+                }
+            }
+            if reached.len() == before {
+                break;
+            }
+        }
+        for library in &mut libraries {
+            library.loaded = !library
+                .install_name
+                .as_ref()
+                .is_some_and(|name| reached.contains(name));
+        }
         self.libraries = libraries;
         self.library_count = count;
         Ok(())
+    }
+
+    /// The install names of the libraries the executable is linked against.
+    fn executable_dependencies(&mut self) -> Vec<String> {
+        if self.dependencies.is_none() {
+            let libraries = std::fs::read(&self.program)
+                .ok()
+                .and_then(|bytes| crate::os::inspect::inspect(&bytes))
+                .map(|binary| binary.libraries)
+                .unwrap_or_default();
+            self.dependencies = Some(libraries);
+        }
+        self.dependencies.clone().unwrap_or_default()
     }
 
     /// The NUL-terminated string at `address`, read a page at a time.
@@ -571,6 +633,13 @@ impl Task {
         let (mut text, mut linkedit, mut symtab, mut function_starts) = (None, None, None, None);
         let mut indirect = None;
         let mut sections = Vec::new();
+        let (mut install_name, mut dependencies) = (None, Vec::new());
+        let dylib_name = |command: &[u8]| {
+            let offset = word(command, 8) as usize;
+            command
+                .get(offset..)
+                .map(|name| String::from_utf8_lossy(crate::os::inspect::c_bytes(name)).into_owned())
+        };
         let mut at = 0usize;
         for _ in 0..word(&fixed, 16) {
             if at + 8 > commands.len() {
@@ -614,6 +683,12 @@ impl Task {
                 LC_DYSYMTAB if size >= 64 => {
                     indirect = Some((word(command, 56), word(command, 60)))
                 }
+                LC_ID_DYLIB if size >= 24 => install_name = dylib_name(command),
+                LC_LOAD_DYLIB | LC_LOAD_WEAK_DYLIB | LC_REEXPORT_DYLIB | LC_LOAD_UPWARD_DYLIB
+                    if size >= 24 =>
+                {
+                    dependencies.extend(dylib_name(command))
+                }
                 _ => {}
             }
             at += size;
@@ -625,6 +700,9 @@ impl Task {
             .unwrap_or(0);
         Ok(Library {
             name,
+            install_name,
+            dependencies,
+            loaded: false,
             text: (header, header.wrapping_add(text_size)),
             linkedit,
             slide,
@@ -670,7 +748,7 @@ impl Task {
     }
 
     /// Library `index`'s defined symbols, read on first use.
-    fn library_symbols(&mut self, index: usize) -> Vec<(u64, String)> {
+    fn library_symbols(&mut self, index: usize) -> Vec<(u64, String, bool)> {
         if let Some(symbols) = &self.libraries[index].symbols {
             return symbols.clone();
         }
@@ -686,13 +764,14 @@ impl Task {
                         (
                             u32::from_le_bytes(entry[0..4].try_into().expect("4 bytes")),
                             u64::from_le_bytes(entry[8..16].try_into().expect("8 bytes")),
+                            entry[4] & N_EXT != 0,
                         )
                     })
                     .collect::<Vec<_>>();
                 // A shared-cache library's names lie scattered through one
                 // string pool shared by every library, so the names are read
                 // in runs of nearby offsets rather than as one span.
-                let mut offsets = entries.iter().map(|(strx, _)| *strx).collect::<Vec<_>>();
+                let mut offsets = entries.iter().map(|(strx, ..)| *strx).collect::<Vec<_>>();
                 offsets.sort_unstable();
                 offsets.dedup();
                 let mut names = std::collections::HashMap::new();
@@ -719,9 +798,9 @@ impl Task {
                     }
                     at = next;
                 }
-                for (strx, value) in entries {
+                for (strx, value, external) in entries {
                     if let Some(name) = names.get(&strx).filter(|name| !name.is_empty()) {
-                        symbols.push((value.wrapping_add(library.slide), name.clone()));
+                        symbols.push((value.wrapping_add(library.slide), name.clone(), external));
                     }
                 }
             }
@@ -793,14 +872,47 @@ impl Task {
         let symbols = self.library_symbols(index);
         let name = symbols
             .iter()
-            .find(|(address, _)| *address == start)
-            .map(|(_, name)| name.clone());
+            .find(|(address, ..)| *address == start)
+            .map(|(_, name, _)| name.clone());
         FunctionRange {
             image: self.libraries[index].name.clone(),
             name,
             start,
             size: starts.contains(&start).then(|| end - start),
         }
+    }
+
+    /// The functions the libraries the program loaded while running export,
+    /// by address.
+    fn loaded_functions(&mut self) -> Result<Vec<FunctionSymbol>, String> {
+        self.refresh_libraries()?;
+        let mut functions = Vec::new();
+        for index in 0..self.libraries.len() {
+            if !self.libraries[index].loaded {
+                continue;
+            }
+            let symbols = self.library_symbols(index);
+            let library = &self.libraries[index];
+            let code = |address: u64| {
+                library.sections.iter().any(|(begin, end, flags, ..)| {
+                    flags & S_ATTR_INSTRUCTIONS != 0 && *begin <= address && address < *end
+                })
+            };
+            functions.extend(
+                symbols
+                    .into_iter()
+                    .filter(|(address, _, external)| *external && code(*address))
+                    .map(|(address, name, _)| FunctionSymbol {
+                        name,
+                        linked: true,
+                        loaded: true,
+                        address: Some(address),
+                        size: None,
+                    }),
+            );
+        }
+        functions.sort_by_key(|function| function.address);
+        Ok(functions)
     }
 
     /// Write `bytes` over the code at `address`: the page is made writable
@@ -1621,15 +1733,17 @@ impl Inferior for Task {
             functions.push(FunctionSymbol {
                 name: function.name.clone(),
                 linked,
+                loaded: false,
                 address,
                 size,
             });
         }
         self.image = Some(image);
-        match failure {
-            Some(message) => Err(message),
-            None => Ok(functions),
+        if let Some(message) = failure {
+            return Err(message);
         }
+        functions.extend(self.loaded_functions()?);
+        Ok(functions)
     }
 
     fn data_symbol(&mut self, name: &str) -> Result<Option<u64>, String> {
@@ -1744,8 +1858,8 @@ impl Inferior for Task {
             let starts = self
                 .library_symbols(index)
                 .into_iter()
-                .filter(|(_, symbol)| symbol == name)
-                .map(|(address, _)| address)
+                .filter(|(_, symbol, _)| symbol == name)
+                .map(|(address, ..)| address)
                 .collect::<Vec<_>>();
             for start in starts {
                 found.push(self.library_function(index, start));

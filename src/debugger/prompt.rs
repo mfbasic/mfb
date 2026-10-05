@@ -60,8 +60,8 @@ Each listing starts with a line naming its columns.
                   <type> <address> <symbol> <written name>
                 <type> is MU for a function the program's author wrote, MB
                 for a built-in package's, MR for the MFBASIC runtime, SL for
-                a function the program imports from a system library; a
-                legend follows the list.
+                a function the program imports from a system library, SD for
+                one in a library it loaded while running; a legend follows.
                 <address> is - for a linked function the program has not
                 loaded yet, and <written name> is - where the author wrote no
                 name.
@@ -519,7 +519,9 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol]) -> Vec<String> {
     let mut rows = symbols
         .iter()
         .map(|symbol| {
-            let (origin, written) = if symbol.linked {
+            let (origin, written) = if symbol.loaded {
+                (Origin::Dynamic, Some(linked_name(&symbol.name)))
+            } else if symbol.linked {
                 (Origin::Linked, Some(linked_name(&symbol.name)))
             } else {
                 classify_defined(&symbol.name)
@@ -1435,6 +1437,7 @@ mod tests {
         FunctionSymbol {
             name: name.to_string(),
             linked,
+            loaded: false,
             address,
             size,
         }
@@ -1466,6 +1469,10 @@ mod tests {
                 ),
                 symbol("_free", true, Some(0x9000), None),
                 symbol("_malloc", true, None, None),
+                FunctionSymbol {
+                    loaded: true,
+                    ..symbol("_vkCreateInstance", true, Some(0xa000), None)
+                },
             ])
         }
         fn data_symbol(&mut self, _: &str) -> Result<Option<u64>, String> {
@@ -1685,16 +1692,19 @@ MR   0x0000000000001000 _main                           -
 MR   0x0000000000001008 _mfb_rt_print                   -
 SL   0x0000000000009000 _free                           free
 SL   -                  _malloc                         malloc
+SD   0x000000000000a000 _vkCreateInstance               vkCreateInstance
 
 MU  {MU}
 MB  {MB}
 MR  {MR}
 SL  {SL}
+SD  {SD}
 {PROMPT}Killed process 42.\n",
                 MU = Origin::User.legend(),
                 MB = Origin::Builtin.legend(),
                 MR = Origin::Runtime.legend(),
                 SL = Origin::Linked.legend(),
+                SD = Origin::Dynamic.legend(),
             )
         );
     }

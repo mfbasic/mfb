@@ -550,6 +550,7 @@ mod tests {
         FunctionSymbol {
             name: name.to_string(),
             linked,
+            loaded: false,
             address,
             size,
         }

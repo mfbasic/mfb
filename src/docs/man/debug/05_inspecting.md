@@ -23,6 +23,7 @@ it shows:
 | `MB` | MFB Builtin: part of a built-in package, such as `datetime` |
 | `MR` | MFB Runtime: part of the MFBASIC runtime, which every program carries |
 | `SL` | System Linked: a system library function the program imports, such as `malloc` |
+| `SD` | System Dynamic: in a library the program loaded while it ran |
 
 `Symbol` is the function's name in the executable, the one lldb and gdb use
 (`mfb man debug-external` explains how your names are spelled there).
@@ -41,6 +42,12 @@ started is paused before it has loaded its system libraries, so every `SL`
 function shows `-` there; attach to a running program to see where they are.
 When a program calls a system function from more than one place in the runtime,
 that function is listed once for each.
+
+`SD` functions appear once the program has loaded their library, so a program
+just started has none. Most system frameworks, such as `CoreFoundation` and
+`Network`, are loaded with every program, so a library the program asks for
+later is listed as `SD` only when nothing loaded with the program already
+needed it.
 
 Your functions are named only in a program built with `--debug`; in any other,
 `list func` shows only the `SL` functions.

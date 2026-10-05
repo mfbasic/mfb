@@ -737,6 +737,7 @@ mod tests {
         let function = |name: &str, address, size| FunctionSymbol {
             name: name.to_string(),
             linked: false,
+            loaded: false,
             address: Some(address),
             size: Some(size),
         };
@@ -746,6 +747,7 @@ mod tests {
             FunctionSymbol {
                 name: "_malloc".to_string(),
                 linked: true,
+                loaded: false,
                 address: Some(0x9000),
                 size: None,
             },

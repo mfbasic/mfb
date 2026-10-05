@@ -118,6 +118,17 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   skipped), or `N_UNDF|N_EXT` (an import). Entries keep symbol-table order and
   repeats: each import record has its own undefined entry
   (`./mfb spec linker import-selection`).[[src/debugger/macho.rs:read]]
+  After them come the functions of every library the program loaded while
+  running, in address order: a library is one when its `LC_ID_DYLIB` install
+  name is not reached from the executable's dependencies (`LC_LOAD_DYLIB`,
+  `LC_LOAD_WEAK_DYLIB`, `LC_REEXPORT_DYLIB`, `LC_LOAD_UPWARD_DYLIB`, read from
+  its file by `crate::os::inspect`) through the loaded libraries' own (the same
+  commands, read from each header in memory), or it has no install name (a
+  bundle). Its functions are the `N_EXT` `N_SECT` symbols of its `LC_SYMTAB` in a
+  section with `S_ATTR_PURE_INSTRUCTIONS` or `S_ATTR_SOME_INSTRUCTIONS`. A
+  framework that libSystem's own dependencies reach (CoreFoundation, Security,
+  Network) is loaded with the program, so a `dlopen` of it names no new
+  library. [[src/debugger/macos.rs:loaded_functions]]
 - **Addresses.** A defined function's address is its `n_value` plus the load
   offset: the live address of the first readable region (walking
   `mach_vm_region`) that starts with an `MH_MAGIC_64` header of filetype
@@ -352,9 +363,9 @@ Type Address Symbol Written name
 <type>  <legend>
 ```
 
-- `<type>` is `MU`, `MB`, `MR` or `SL`, and lines are grouped in that order;
-  within a group they are in address order with an unbound import last, and
-  ties keep symbol-table order.
+- `<type>` is `MU`, `MB`, `MR`, `SL` or `SD`, and lines are grouped in that
+  order; within a group they are in address order with an unbound import last,
+  and ties keep symbol-table order.
 - `<address>` is `0x` and 16 lowercase hex digits, or `-` for an unbound import.
 - `<symbol>` is the symbol as the executable spells it.
 - `<written name>` is the name the developer wrote, or `-`.
@@ -364,7 +375,9 @@ Type Address Symbol Written name
   `MB  MFB Builtin: a built-in package's code; a #name is internal to the
   package (you can break on it, not call it)`, `MR  MFB Runtime: the MFBASIC
   runtime every program carries`, `SL  System Linked: a system library
-  function the program imports (via the linker)`.
+  function the program imports (via the linker)`, `SD  System Dynamic: a
+  function in a library the program loaded while running (via the dynamic
+  loader)`.
   [[src/debugger/names.rs:Origin]]
 
 Classification and the written name come from the symbol alone
@@ -383,6 +396,7 @@ Classification and the written name come from the symbol alone
 | `_mfb_rt_<family>_<call>` that `symbol_for_call` makes from a catalog spec whose `call` is a registry package member (`registry().owning_package` answers) | `MR` | `call` with its first `.` written `::`: `_mfb_rt_io_io_print` is `io::print` |
 | any other defined symbol (other `_mfb_ifn_*`, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
 | an import | `SL` | the symbol less one leading `_` |
+| a function of a library loaded while the program ran | `SD` | the symbol less one leading `_` |
 
 A trailing `$own<hex>` (a hand-over copy; the mask is not escaped) is dropped
 before decoding. The decoded IR name is reduced: `<16 hex>.<package>.<name>`
