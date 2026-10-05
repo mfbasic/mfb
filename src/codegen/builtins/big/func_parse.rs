@@ -95,10 +95,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 }
 
 /// `big::parse`: check the radix, validate every character in one pass (so a malformed
-/// text is rejected before anything is made), then accumulate
-/// `magnitude = magnitude * radix + digit` over byte limbs. A digit adds less than one
-/// byte (`radix <= 36 < 256`), so `length + 1` bytes always hold the result, and each
-/// step's carry stays below `255 * 36 + 35 = 9215`.
+/// text is rejected before anything is made), then accumulate the digits in chunks
+/// (bug-775): up to `k` digits gather into one word `chunk` while `power = radix^k`
+/// still fits 64 bits, and each full chunk folds in with one word-wide pass,
+/// `magnitude = magnitude * power + chunk`. That is one pass over the magnitude per
+/// chunk (19 decimal digits) rather than per digit. The value is below `36^length`,
+/// under `5.17 * length + 1` bits, so `length + 8` bytes always hold it.
 pub(crate) fn lower_parse(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -112,6 +114,8 @@ pub(crate) fn lower_parse(
     let negative = builder.allocate_stack_object("big_negative", 8);
     let start = builder.allocate_stack_object("big_start", 8);
     let used = builder.allocate_stack_object("big_used", 8);
+    let chunk = builder.allocate_stack_object("big_chunk", 8);
+    let power = builder.allocate_stack_object("big_power", 8);
     let invalid_radix = format!("{symbol}_invalid_radix");
     let invalid_text = format!("{symbol}_invalid_text");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -149,7 +153,7 @@ pub(crate) fn lower_parse(
         abi::label(&unsigned),
         abi::store_u64(&flag, abi::stack_pointer(), negative),
         abi::store_u64(&position, abi::stack_pointer(), start),
-        abi::add_immediate(&length, &length, 1),
+        abi::add_immediate(&length, &length, 8),
         abi::store_u64(&length, abi::stack_pointer(), capacity),
     ]);
 
@@ -170,9 +174,19 @@ pub(crate) fn lower_parse(
     );
 
     let result = emit_alloc_magnitude(builder, &mut vregs, capacity, "r", &alloc_fail);
-    builder
-        .instructions
-        .push(abi::store_u64(abi::ZERO, abi::stack_pointer(), used));
+    let one = vregs.next();
+    builder.instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), used),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), chunk),
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::store_u64(&one, abi::stack_pointer(), power),
+    ]);
+    let fold = Fold {
+        result: &result,
+        used,
+        chunk,
+        power,
+    };
 
     // Pass 2: accumulate. The digits are known valid, so nothing here can fail.
     let fold_loop = format!("{symbol}_fold");
@@ -186,9 +200,25 @@ pub(crate) fn lower_parse(
         &fold_loop,
         &folded,
         &invalid_text,
-        Some((&result, used)),
+        Some(&fold),
         &symbol,
     );
+    // The last, partial chunk; `power` is 1 when no digit is pending.
+    let (pending, flushed) = (vregs.next(), format!("{symbol}_last_flushed"));
+    builder.instructions.extend([
+        abi::load_u64(&pending, abi::stack_pointer(), power),
+        abi::compare_immediate(&pending, "1"),
+        abi::branch_eq(&flushed),
+    ]);
+    emit_flush_chunk(builder, &mut vregs, &fold, &format!("{symbol}_last"));
+    builder.instructions.push(abi::label(&flushed));
+    // `used` counts words; the build trims the top word's zero bytes.
+    let words = vregs.next();
+    builder.instructions.extend([
+        abi::load_u64(&words, abi::stack_pointer(), used),
+        abi::shift_left_immediate(&words, &words, 3),
+        abi::store_u64(&words, abi::stack_pointer(), used),
+    ]);
 
     emit_build_int(builder, &mut vregs, &result, used, negative, "r");
     builder.instructions.extend([
@@ -230,11 +260,72 @@ pub(crate) fn lower_parse(
     })
 }
 
+/// The accumulation state of `parse`'s second walk, each in a frame slot: the result,
+/// how many words of it are in use, the pending `chunk` of digits and `power`, the radix
+/// raised to the number of digits in it.
+struct Fold<'a> {
+    result: &'a super::gen_big::ResultSlots,
+    used: usize,
+    chunk: usize,
+    power: usize,
+}
+
+/// `magnitude = magnitude * power + chunk` over the `used` words of the result, then
+/// `chunk = 0, power = 1`. The final carry becomes a new top word when it is non-zero,
+/// so `used` stays the significant word count. Each step is `w * power + carry`, below
+/// `2^128`, split into `mul` and `umulh` words.
+fn emit_flush_chunk(builder: &mut CodeBuilder, vregs: &mut Vregs, fold: &Fold, label_base: &str) {
+    let walk = format!("{label_base}_flush");
+    let walked = format!("{label_base}_flush_done");
+    let no_carry = format!("{label_base}_flush_no_carry");
+    let (cursor, end, multiplier, carry, word, low, high, carry_out, used) = (
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+    );
+    builder.instructions.extend([
+        abi::load_u64(&cursor, abi::stack_pointer(), fold.result.data),
+        abi::load_u64(&used, abi::stack_pointer(), fold.used),
+        abi::shift_left_immediate(&end, &used, 3),
+        abi::add_registers(&end, &cursor, &end),
+        abi::load_u64(&multiplier, abi::stack_pointer(), fold.power),
+        abi::load_u64(&carry, abi::stack_pointer(), fold.chunk),
+        abi::label(&walk),
+        abi::compare_registers(&cursor, &end),
+        abi::branch_eq(&walked),
+        abi::load_u64(&word, &cursor, 0),
+        abi::multiply_registers(&low, &word, &multiplier),
+        abi::unsigned_multiply_high_registers(&high, &word, &multiplier),
+        abi::add_carry(&low, &carry_out, &low, &carry, abi::ZERO),
+        abi::add_registers(&carry, &high, &carry_out),
+        abi::store_u64(&low, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 8),
+        abi::branch(&walk),
+        abi::label(&walked),
+        abi::compare_immediate(&carry, "0"),
+        abi::branch_eq(&no_carry),
+        abi::store_u64(&carry, &cursor, 0),
+        abi::add_immediate(&used, &used, 1),
+        abi::store_u64(&used, abi::stack_pointer(), fold.used),
+        abi::label(&no_carry),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), fold.chunk),
+        abi::move_immediate(&word, "Integer", "1"),
+        abi::store_u64(&word, abi::stack_pointer(), fold.power),
+    ]);
+}
+
 /// One walk over the digits from `start_slot` to the end of the `String` in `text_slot`.
 /// Each byte is mapped to its value (`0`-`9`, `a`-`z`, `A`-`Z`); a byte that is not a
-/// digit, or a digit not below the radix, branches to `invalid`. With `accumulate` set
-/// to a result and its used-byte slot, the walk also folds each digit in:
-/// `magnitude = magnitude * radix + digit`.
+/// digit, or a digit not below the radix, branches to `invalid`. With `accumulate` set,
+/// the walk also gathers each digit into the pending chunk, `chunk = chunk * radix +
+/// digit`, flushing the chunk into the magnitude first whenever `power * radix` would
+/// pass 64 bits. `chunk < power`, so `chunk * radix + digit < power * radix <= 2^64`.
 #[allow(clippy::too_many_arguments)]
 fn emit_digit_value(
     builder: &mut CodeBuilder,
@@ -245,7 +336,7 @@ fn emit_digit_value(
     walk: &str,
     walked: &str,
     invalid: &str,
-    accumulate: Option<(&super::gen_big::ResultSlots, usize)>,
+    accumulate: Option<&Fold>,
     symbol: &str,
 ) {
     let tag = if accumulate.is_some() {
@@ -295,39 +386,26 @@ fn emit_digit_value(
         abi::compare_registers(&byte, &radix),
         abi::branch_ge(invalid),
     ]);
-    if let Some((result, used_slot)) = accumulate {
-        let times = format!("{symbol}_{tag}_times");
-        let timed = format!("{symbol}_{tag}_timed");
-        let no_carry = format!("{symbol}_{tag}_no_carry");
-        let used = vregs.next();
-        let index = vregs.next();
-        let dst = vregs.next();
-        let cursor = vregs.next();
-        let limb = vregs.next();
+    if let Some(fold) = accumulate {
+        // The flush is call-free, so the walk's registers stay live across it.
+        let room = format!("{symbol}_{tag}_room");
+        let (power, high, chunk) = (vregs.next(), vregs.next(), vregs.next());
         builder.instructions.extend([
-            // byte is the incoming carry: the digit.
-            abi::load_u64(&used, abi::stack_pointer(), used_slot),
-            abi::load_u64(&dst, abi::stack_pointer(), result.data),
-            abi::move_immediate(&index, "Integer", "0"),
-            abi::label(&times),
-            abi::compare_registers(&index, &used),
-            abi::branch_eq(&timed),
-            abi::add_registers(&cursor, &dst, &index),
-            abi::load_u8(&limb, &cursor, 0),
-            abi::multiply_registers(&limb, &limb, &radix),
-            abi::add_registers(&limb, &limb, &byte),
-            abi::store_u8(&limb, &cursor, 0),
-            abi::shift_right_immediate(&byte, &limb, 8),
-            abi::add_immediate(&index, &index, 1),
-            abi::branch(&times),
-            abi::label(&timed),
-            abi::compare_immediate(&byte, "0"),
-            abi::branch_eq(&no_carry),
-            abi::add_registers(&cursor, &dst, &used),
-            abi::store_u8(&byte, &cursor, 0),
-            abi::add_immediate(&used, &used, 1),
-            abi::store_u64(&used, abi::stack_pointer(), used_slot),
-            abi::label(&no_carry),
+            abi::load_u64(&power, abi::stack_pointer(), fold.power),
+            abi::unsigned_multiply_high_registers(&high, &power, &radix),
+            abi::compare_immediate(&high, "0"),
+            abi::branch_eq(&room),
+        ]);
+        emit_flush_chunk(builder, vregs, fold, &format!("{symbol}_{tag}"));
+        builder.instructions.extend([
+            abi::label(&room),
+            abi::load_u64(&power, abi::stack_pointer(), fold.power),
+            abi::multiply_registers(&power, &power, &radix),
+            abi::store_u64(&power, abi::stack_pointer(), fold.power),
+            abi::load_u64(&chunk, abi::stack_pointer(), fold.chunk),
+            abi::multiply_registers(&chunk, &chunk, &radix),
+            abi::add_registers(&chunk, &chunk, &byte),
+            abi::store_u64(&chunk, abi::stack_pointer(), fold.chunk),
         ]);
     }
     builder.instructions.extend([

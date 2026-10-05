@@ -1,9 +1,6 @@
 //! `big::factorial` — `n!` as a `big::Int`.
 
-use super::gen_big::{
-    emit_int_from_integer, emit_load_int, emit_mul_int, emit_reject_negative, emit_release_int,
-    emit_spill_args,
-};
+use super::gen_big::{emit_alloc_magnitude, emit_build_int, emit_reject_negative, emit_spill_args};
 use super::INT_TYPE_ID;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
@@ -61,8 +58,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
-/// `big::factorial`: multiply an accumulator by `2, 3, ..., n`, releasing each replaced
-/// accumulator and each factor as it goes.
+/// `big::factorial`: one result block, multiplied in place (bug-775).
+///
+/// A first pass bounds the result: `n!` has at most `1 + sum(bitLength(k))` bits for
+/// `k = 2..n`, so the block is made once at that size and nothing is allocated or
+/// released while the product grows. The factors are then packed into words — `k`,
+/// `k + 1`, ... multiply into one word while the product still fits 64 bits (`umulh` is
+/// zero) — and each packed word multiplies the magnitude in one word-wide pass, so
+/// `2000!` takes about 400 passes rather than 2,000 multiplications.
 pub(crate) fn lower_factorial(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -72,64 +75,113 @@ pub(crate) fn lower_factorial(
     let mut vregs = Vregs::new();
     let arg_slots = emit_spill_args(builder, args);
     let n_slot = arg_slots[0];
-    let one_slot = builder.allocate_stack_object("big_one", 8);
-    let counter_slot = builder.allocate_stack_object("big_counter", 8);
-    let acc_slot = builder.allocate_stack_object("big_acc", 8);
-    let factor_slot = builder.allocate_stack_object("big_factor", 8);
-    let next_slot = builder.allocate_stack_object("big_next", 8);
+    let capacity = builder.allocate_stack_object("big_capacity", 8);
+    let used = builder.allocate_stack_object("big_used", 8);
+    let negative = builder.allocate_stack_object("big_negative", 8);
     let invalid = format!("{symbol}_invalid");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
+    let bound = format!("{symbol}_bound");
+    let bounded = format!("{symbol}_bounded");
     let step = format!("{symbol}_step");
+    let pack = format!("{symbol}_pack");
+    let packed = format!("{symbol}_packed");
+    let multiply = format!("{symbol}_multiply");
+    let multiplied = format!("{symbol}_multiplied");
+    let no_carry = format!("{symbol}_no_carry");
     let finished = format!("{symbol}_finished");
 
     emit_reject_negative(builder, &mut vregs, n_slot, &invalid);
-    let one = vregs.next();
+    let (n, k, sum, zeros) = (vregs.next(), vregs.next(), vregs.next(), vregs.next());
     builder.instructions.extend([
-        abi::move_immediate(&one, "Integer", "1"),
-        abi::store_u64(&one, abi::stack_pointer(), one_slot),
-    ]);
-    emit_int_from_integer(builder, &mut vregs, one_slot, "one", &alloc_fail);
-    let two = vregs.next();
-    builder.instructions.extend([
-        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), acc_slot),
-        abi::move_immediate(&two, "Integer", "2"),
-        abi::store_u64(&two, abi::stack_pointer(), counter_slot),
-        abi::label(&step),
-    ]);
-    let (counter, n) = (vregs.next(), vregs.next());
-    builder.instructions.extend([
-        abi::load_u64(&counter, abi::stack_pointer(), counter_slot),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), negative),
         abi::load_u64(&n, abi::stack_pointer(), n_slot),
-        abi::compare_registers(&counter, &n),
-        abi::branch_gt(&finished),
+        abi::move_immediate(&k, "Integer", "2"),
+        abi::move_immediate(&sum, "Integer", "1"),
+        abi::label(&bound),
+        abi::compare_registers(&k, &n),
+        abi::branch_gt(&bounded),
+        // sum += bitLength(k) = 64 - clz(k)
+        abi::count_leading_zeros(&zeros, &k),
+        abi::add_immediate(&sum, &sum, 64),
+        abi::subtract_registers(&sum, &sum, &zeros),
+        abi::add_immediate(&k, &k, 1),
+        abi::branch(&bound),
+        abi::label(&bounded),
+        // capacity = 8 * (sum / 64 + 2) bytes: the bound's words plus a spare.
+        abi::shift_right_immediate(&sum, &sum, 6),
+        abi::add_immediate(&sum, &sum, 2),
+        abi::shift_left_immediate(&sum, &sum, 3),
+        abi::store_u64(&sum, abi::stack_pointer(), capacity),
     ]);
-    emit_int_from_integer(builder, &mut vregs, counter_slot, "factor", &alloc_fail);
-    builder.instructions.push(abi::store_u64(
-        RESULT_VALUE_REGISTER,
-        abi::stack_pointer(),
-        factor_slot,
-    ));
-    let acc = emit_load_int(builder, &mut vregs, acc_slot, "acc");
-    let factor = emit_load_int(builder, &mut vregs, factor_slot, "factor");
-    emit_mul_int(builder, &mut vregs, &acc, &factor, "product", &alloc_fail);
-    builder.instructions.push(abi::store_u64(
-        RESULT_VALUE_REGISTER,
-        abi::stack_pointer(),
-        next_slot,
-    ));
-    emit_release_int(builder, &mut vregs, acc_slot);
-    emit_release_int(builder, &mut vregs, factor_slot);
-    let (moved, bump) = (vregs.next(), vregs.next());
+    let result = emit_alloc_magnitude(builder, &mut vregs, capacity, "r", &alloc_fail);
+    let (data, words, factor, high, cursor, end, word, low, carry, carry_out) = (
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+        vregs.next(),
+    );
+    let (n, k) = (vregs.next(), vregs.next());
     builder.instructions.extend([
-        abi::load_u64(&moved, abi::stack_pointer(), next_slot),
-        abi::store_u64(&moved, abi::stack_pointer(), acc_slot),
-        abi::load_u64(&bump, abi::stack_pointer(), counter_slot),
-        abi::add_immediate(&bump, &bump, 1),
-        abi::store_u64(&bump, abi::stack_pointer(), counter_slot),
+        // The product starts as the one-word value 1. The loop is call-free, so its
+        // state stays in registers.
+        abi::load_u64(&data, abi::stack_pointer(), result.data),
+        abi::move_immediate(&word, "Integer", "1"),
+        abi::store_u64(&word, &data, 0),
+        abi::move_immediate(&words, "Integer", "1"),
+        abi::load_u64(&n, abi::stack_pointer(), n_slot),
+        abi::move_immediate(&k, "Integer", "2"),
+        abi::label(&step),
+        abi::compare_registers(&k, &n),
+        abi::branch_gt(&finished),
+        // factor = k * (k + 1) * ... while it fits one word.
+        abi::move_register(&factor, &k),
+        abi::add_immediate(&k, &k, 1),
+        abi::label(&pack),
+        abi::compare_registers(&k, &n),
+        abi::branch_gt(&packed),
+        abi::unsigned_multiply_high_registers(&high, &factor, &k),
+        abi::compare_immediate(&high, "0"),
+        abi::branch_ne(&packed),
+        abi::multiply_registers(&factor, &factor, &k),
+        abi::add_immediate(&k, &k, 1),
+        abi::branch(&pack),
+        abi::label(&packed),
+        // magnitude *= factor, one word-wide pass; the carry out is a new top word.
+        abi::move_register(&cursor, &data),
+        abi::shift_left_immediate(&end, &words, 3),
+        abi::add_registers(&end, &data, &end),
+        abi::move_immediate(&carry, "Integer", "0"),
+        abi::label(&multiply),
+        abi::compare_registers(&cursor, &end),
+        abi::branch_eq(&multiplied),
+        abi::load_u64(&word, &cursor, 0),
+        abi::multiply_registers(&low, &word, &factor),
+        abi::unsigned_multiply_high_registers(&high, &word, &factor),
+        abi::add_carry(&low, &carry_out, &low, &carry, abi::ZERO),
+        abi::add_registers(&carry, &high, &carry_out),
+        abi::store_u64(&low, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 8),
+        abi::branch(&multiply),
+        abi::label(&multiplied),
+        abi::compare_immediate(&carry, "0"),
+        abi::branch_eq(&no_carry),
+        abi::store_u64(&carry, &cursor, 0),
+        abi::add_immediate(&words, &words, 1),
+        abi::label(&no_carry),
         abi::branch(&step),
         abi::label(&finished),
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), acc_slot),
+        abi::shift_left_immediate(&words, &words, 3),
+        abi::store_u64(&words, abi::stack_pointer(), used),
+    ]);
+    emit_build_int(builder, &mut vregs, &result, used, negative, "r");
+    builder.instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
         abi::label(&invalid),

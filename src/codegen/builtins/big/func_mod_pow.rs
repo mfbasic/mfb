@@ -1,7 +1,7 @@
 //! `big::modPow` — `base` raised to `exponent`, reduced by `modulus`, without the full power.
 
 use super::gen_big::{
-    emit_div_mod_int, emit_int_from_integer, emit_load_int, emit_mul_int, emit_release_int,
+    emit_int_from_integer, emit_load_int, emit_mul_int, emit_release_int, emit_rem_int,
     emit_spill_args,
 };
 use super::INT_TYPE_ID;
@@ -89,9 +89,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 }
 
 /// `big::modPow`: square-and-multiply over the exponent's magnitude bits, least significant
-/// first, reducing with `emit_div_mod_int` after every product. Truncated remainders keep
-/// the sign of the running product, so the result equals `remainder(pow(base, e), m)`.
-/// Every intermediate is released once replaced.
+/// first, reducing with `emit_rem_int` after every product. Truncated remainders keep the
+/// sign of the running product, so the result equals `remainder(pow(base, e), m)`. Every
+/// intermediate is released once replaced.
+///
+/// The loop runs over the exponent's significant bits only — `bitLength(exponent)`, not
+/// eight per byte — and skips the squaring after the top bit, whose result nothing reads
+/// (bug-775). The reductions make no quotient.
 pub(crate) fn lower_mod_pow(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -105,7 +109,6 @@ pub(crate) fn lower_mod_pow(
     let acc_slot = builder.allocate_stack_object("big_acc", 8);
     let base_slot = builder.allocate_stack_object("big_base", 8);
     let product_slot = builder.allocate_stack_object("big_product", 8);
-    let quotient_slot = builder.allocate_stack_object("big_quotient", 8);
     let remainder_slot = builder.allocate_stack_object("big_remainder", 8);
     let bit_slot = builder.allocate_stack_object("big_bit", 8);
     let bits_slot = builder.allocate_stack_object("big_bits", 8);
@@ -115,10 +118,11 @@ pub(crate) fn lower_mod_pow(
     let step = format!("{symbol}_step");
     let skip_multiply = format!("{symbol}_skip_multiply");
     let finished = format!("{symbol}_finished");
+    let no_bits = format!("{symbol}_no_bits");
 
     let exponent = emit_load_int(builder, &mut vregs, arg_slots[1], "exponent");
     let modulus = emit_load_int(builder, &mut vregs, arg_slots[2], "modulus");
-    let (flag, one, bits) = (vregs.next(), vregs.next(), vregs.next());
+    let (flag, one, bits, top) = (vregs.next(), vregs.next(), vregs.next(), vregs.next());
     builder.instructions.extend([
         // A negative exponent is rejected; a zero modulus is rejected by the first reduction.
         abi::load_u64(&flag, abi::stack_pointer(), exponent.negative),
@@ -126,8 +130,20 @@ pub(crate) fn lower_mod_pow(
         abi::branch_ne(&invalid),
         abi::move_immediate(&one, "Integer", "1"),
         abi::store_u64(&one, abi::stack_pointer(), one_slot),
+        // bits = 8 * (count - 1) + (64 - clz(top byte)); a trimmed top byte is non-zero.
         abi::load_u64(&bits, abi::stack_pointer(), exponent.count),
+        abi::compare_immediate(&bits, "0"),
+        abi::branch_eq(&no_bits),
+        abi::load_u64(&top, abi::stack_pointer(), exponent.data),
+        abi::add_registers(&top, &top, &bits),
+        abi::subtract_immediate(&top, &top, 1),
+        abi::load_u8(&top, &top, 0),
+        abi::subtract_immediate(&bits, &bits, 1),
         abi::shift_left_immediate(&bits, &bits, 3),
+        abi::count_leading_zeros(&top, &top),
+        abi::add_immediate(&bits, &bits, 64),
+        abi::subtract_registers(&bits, &bits, &top),
+        abi::label(&no_bits),
         abi::store_u64(&bits, abi::stack_pointer(), bits_slot),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), bit_slot),
     ]);
@@ -140,34 +156,30 @@ pub(crate) fn lower_mod_pow(
         seed_slot,
     ));
     let seed = emit_load_int(builder, &mut vregs, seed_slot, "seed");
-    emit_div_mod_int(
+    emit_rem_int(
         builder,
         &mut vregs,
         &seed,
         &modulus,
-        quotient_slot,
         acc_slot,
         "reduce_one",
         &invalid,
         &alloc_fail,
     );
-    emit_release_int(builder, &mut vregs, quotient_slot);
     emit_release_int(builder, &mut vregs, seed_slot);
 
     // base = base mod m
     let base = emit_load_int(builder, &mut vregs, arg_slots[0], "base");
-    emit_div_mod_int(
+    emit_rem_int(
         builder,
         &mut vregs,
         &base,
         &modulus,
-        quotient_slot,
         base_slot,
         "reduce_base",
         &invalid,
         &alloc_fail,
     );
-    emit_release_int(builder, &mut vregs, quotient_slot);
 
     builder.instructions.push(abi::label(&step));
     let (bit, total, byte, mask) = (vregs.next(), vregs.next(), vregs.next(), vregs.next());
@@ -199,25 +211,30 @@ pub(crate) fn lower_mod_pow(
         product_slot,
     ));
     let product = emit_load_int(builder, &mut vregs, product_slot, "product");
-    emit_div_mod_int(
+    emit_rem_int(
         builder,
         &mut vregs,
         &product,
         &modulus,
-        quotient_slot,
         remainder_slot,
         "reduce_times",
         &invalid,
         &alloc_fail,
     );
-    emit_release_int(builder, &mut vregs, quotient_slot);
     emit_release_int(builder, &mut vregs, product_slot);
     emit_release_int(builder, &mut vregs, acc_slot);
-    let moved = vregs.next();
+    let (moved, next_bit, total) = (vregs.next(), vregs.next(), vregs.next());
     builder.instructions.extend([
         abi::load_u64(&moved, abi::stack_pointer(), remainder_slot),
         abi::store_u64(&moved, abi::stack_pointer(), acc_slot),
         abi::label(&skip_multiply),
+        // The top bit needs no square after it: nothing reads it.
+        abi::load_u64(&next_bit, abi::stack_pointer(), bit_slot),
+        abi::add_immediate(&next_bit, &next_bit, 1),
+        abi::store_u64(&next_bit, abi::stack_pointer(), bit_slot),
+        abi::load_u64(&total, abi::stack_pointer(), bits_slot),
+        abi::compare_registers(&next_bit, &total),
+        abi::branch_eq(&finished),
     ]);
     // base = base * base mod m
     let first = emit_load_int(builder, &mut vregs, base_slot, "square_a");
@@ -229,27 +246,22 @@ pub(crate) fn lower_mod_pow(
         product_slot,
     ));
     let squared = emit_load_int(builder, &mut vregs, product_slot, "squared_value");
-    emit_div_mod_int(
+    emit_rem_int(
         builder,
         &mut vregs,
         &squared,
         &modulus,
-        quotient_slot,
         remainder_slot,
         "reduce_square",
         &invalid,
         &alloc_fail,
     );
-    emit_release_int(builder, &mut vregs, quotient_slot);
     emit_release_int(builder, &mut vregs, product_slot);
     emit_release_int(builder, &mut vregs, base_slot);
-    let (moved, next_bit) = (vregs.next(), vregs.next());
+    let moved = vregs.next();
     builder.instructions.extend([
         abi::load_u64(&moved, abi::stack_pointer(), remainder_slot),
         abi::store_u64(&moved, abi::stack_pointer(), base_slot),
-        abi::load_u64(&next_bit, abi::stack_pointer(), bit_slot),
-        abi::add_immediate(&next_bit, &next_bit, 1),
-        abi::store_u64(&next_bit, abi::stack_pointer(), bit_slot),
         abi::branch(&step),
         abi::label(&finished),
     ]);
