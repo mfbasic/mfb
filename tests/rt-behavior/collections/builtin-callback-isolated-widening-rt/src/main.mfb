@@ -1,0 +1,50 @@
+' bug-824: a built-in's plain `FUNC` callback parameter (`collections::forEach`,
+' `transform`, `filter`, `reduce`, `sortBy`, every other collections HOF) rejected
+' an `ISOLATED FUNC` of the same shape -- the registry's `unify_at` required
+' `isolated == concrete_isolated` exactly, instead of the directional widening
+' bug-786 already gives user calls. Owner rule (2026-10-04): "an ISOLATED FUNC is
+' a FUNC. a FUNC is NOT an ISOLATED FUNC." This fixture passes an `ISOLATED FUNC`
+' to each of forEach/transform/filter/reduce/sortBy and runs it through native
+' lowering (`CodeBuilder::require_direct_callable` / `lower_for_each`'s own guard),
+' which also hard-coded the non-isolated shape. Prints:
+'   1 2 3 4
+'   2 4 6 8
+'   2 4
+'   10
+'   4 3 2 1
+IMPORT collections
+IMPORT io
+
+ISOLATED FUNC printInt(x AS Integer) AS Nothing
+  io::print(toString(x))
+END FUNC
+
+ISOLATED FUNC double(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+
+ISOLATED FUNC isEvenI(x AS Integer) AS Boolean
+  RETURN x MOD 2 = 0
+END FUNC
+
+ISOLATED FUNC sumAcc(acc AS Integer, x AS Integer) AS Integer
+  RETURN acc + x
+END FUNC
+
+ISOLATED FUNC byNeg(x AS Integer) AS Integer
+  RETURN -x
+END FUNC
+
+FUNC main AS Integer
+  LET xs AS List OF Integer = [1, 2, 3, 4]
+  collections::forEach(xs, printInt)
+  LET doubled AS List OF Integer = collections::transform(xs, double)
+  collections::forEach(doubled, printInt)
+  LET evens AS List OF Integer = collections::filter(xs, isEvenI)
+  collections::forEach(evens, printInt)
+  LET total AS Integer = collections::reduce(xs, 0, sumAcc)
+  io::print(toString(total))
+  LET sorted AS List OF Integer = collections::sortBy(xs, byNeg)
+  collections::forEach(sorted, printInt)
+  RETURN 0
+END FUNC
