@@ -143,8 +143,8 @@ Escape key's grapheme is U+001B. The `End` key's variant is spelled `EndKey`
 because `END` is a reserved word.
 [[src/codegen/builtins/io/mod.rs:KEY_TYPE]]
 
-`readLine` and `input` read a line one of two ways
-([[src/codegen/builtins/io/gen_read_line_family.rs:lower_read_line_family]]):
+`readLine` and `input` read a line one of two ways:
+[[src/codegen/builtins/io/gen_read_line_family.rs:lower_read_line_family]]
 
 - **Keystrokes** (a keyboard source): text keys append their text, Backspace
   erases one scalar, Enter ends the line, and keys with no text, Escape and

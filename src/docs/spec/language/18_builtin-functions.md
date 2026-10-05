@@ -51,9 +51,8 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 
 **Raise sets.** Each general built-in's `errors` — the Errors table of
 `mfb man general <name>` — is the union of what its overloads raise, measured by
-lowering one call per overload on every backend
-([[src/codegen/builtins/tests/general_declared_errors.rs:OVERLOADS]]), which also
-pins each overload's own set. `toString` raises `ErrOutOfMemory` on every form
+lowering one call per overload on every backend, which also
+pins each overload's own set. [[src/codegen/builtins/tests/general_declared_errors.rs:OVERLOADS]] `toString` raises `ErrOutOfMemory` on every form
 (it always builds a new `String`) and `ErrEncoding` only on `List OF Byte`;
 `toInt` raises `ErrInvalidFormat`/`ErrOverflow` on its `String` forms,
 `ErrOverflow` on `Float`, and nothing on `Fixed`, `Money`, `Byte`, `Scalar` or an
