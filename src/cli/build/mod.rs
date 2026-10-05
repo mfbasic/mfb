@@ -218,6 +218,11 @@ pub(crate) struct BuildOptions {
     /// into the executable's native symbol table, for debuggers and profilers
     /// (plan-166; the linker reads `EncodedImage::debug_symbols`).
     pub(crate) debug: bool,
+    /// `--config <name>` (plan-167-C): the named config in `project.json` (merged
+    /// with `project-local.json`) that `os::getConfigOr` calls fold from. `None`
+    /// selects `release`. Read only for the invoked project; a source
+    /// dependency's build never sets it.
+    pub(crate) config: Option<String>,
     /// Optimization scale level selected by `-O<N>` / `--optimize <N>`
     /// (plan-100). Defaults to `-O1`, at which the shipping Level-1 passes run
     /// -- so the flagless build is today's exact codegen. `-O0` turns the dial
@@ -293,6 +298,15 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let target = options.target.clone();
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
+    // plan-167-C: select the named config on every path of the invoked
+    // project's build, so an undeclared `--config` name fails a package build
+    // too. A source dependency's build (`package_output_dir` set) selects
+    // nothing: it emits a `.mfp`, which never folds.
+    let selected_config = if options.package_output_dir.is_none() {
+        select_build_config(options, &project_path)?
+    } else {
+        crate::manifest::config::SelectedConfig::default()
+    };
     let project_kind = project_kind(&manifest);
 
     // bug-480 Defect A: a dependency declared by SOURCE DIRECTORY has no
@@ -733,6 +747,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // an EXECUTABLE links — so the ceiling that applies is this project's,
             // and an imported binding cannot raise it on the app's behalf.
             ir.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
+            // plan-167-B: the config `os::getConfigOr` calls fold from. Like the
+            // ceiling above it is this project's, and applies to package code.
+            ir.selected_config = selected_config.clone();
             // A host `mfb test` links the driver into a unique temporary
             // directory (removed after the run) so nothing is ever left in the
             // project directory. A cross `-target` test build has no host binary
@@ -797,7 +814,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 // resolved a `vendor` locator; the backend picks the string for its
                 // output shape.
                 !vendored.is_empty(),
-                // plan-15 D3: bake the manifest `"config".stdinLogCap` (or the default).
+                // plan-15 D3: bake the manifest `"options".stdinLogCap` (or the default).
                 crate::manifest::stdin_log_cap(&manifest),
                 // plan-130: the `--debug` report switch.
                 crate::codegen::debug::DebugOptions {
@@ -1086,6 +1103,13 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             if !assemble_native_libraries_for_ir(&mut lowered, &manifest, &options.location) {
                 return Err(());
             }
+            // The `OUT CBuffer` ceiling the executable path sets (plan-58-C).
+            // Without it a dump baked the 64 MiB default whatever `maxBuffer`
+            // said, so `--ncode` disagreed with the program it claims to show.
+            lowered.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
+            // plan-167-B: fold `os::getConfigOr` exactly as the executable does,
+            // so a native dump shows the values the program will carry.
+            lowered.selected_config = selected_config.clone();
             ir_cache = Some(lowered);
         }
         let ir = ir_cache.as_ref().expect("cached IR");
@@ -1170,6 +1194,52 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     Ok(())
 }
 
+/// The named config this build folds `os::getConfigOr` calls from: the one
+/// `--config` names, or `release` (plan-167-C), after `project-local.json` is
+/// merged over `project.json`'s `config`. Every diagnostic is rendered against
+/// the file it belongs to. An undeclared name is `PROJECT_JSON_CONFIG_UNKNOWN`
+/// at the `config` line.
+fn select_build_config(
+    options: &BuildOptions,
+    project_path: &Path,
+) -> Result<crate::manifest::config::SelectedConfig, ()> {
+    use crate::manifest::config;
+    let contents = std::fs::read_to_string(project_path).map_err(|err| {
+        rules::show_diagnostic(
+            "PROJECT_JSON_READ_FAILED",
+            &err.to_string(),
+            project_path,
+            1,
+            1,
+            1,
+        );
+    })?;
+    let project_config =
+        config::load_project_config(&options.location, &contents).map_err(|diagnostics| {
+            for diagnostic in &diagnostics {
+                let (path, text) = match diagnostic.file {
+                    config::ConfigFile::Project => (project_path.to_path_buf(), contents.clone()),
+                    config::ConfigFile::Local => {
+                        let path = options.location.join(config::PROJECT_LOCAL_JSON);
+                        let text = std::fs::read_to_string(&path).unwrap_or_default();
+                        (path, text)
+                    }
+                };
+                crate::manifest::render_config_diagnostic(diagnostic, &path, &text);
+            }
+        })?;
+    let name = options.config.as_deref().unwrap_or(config::RELEASE);
+    project_config
+        .select(name, options.location.clone())
+        .ok_or_else(|| {
+            crate::manifest::render_config_diagnostic(
+                &project_config.unknown_name(name),
+                project_path,
+                &contents,
+            );
+        })
+}
+
 /// The manifest's `libraries` section as an `IrProject::native_libraries` table.
 ///
 /// `testutil::try_code_for_fixture_project` lowers a fixture from its project
@@ -1220,6 +1290,8 @@ pub(crate) fn build_source_dependencies_for_test(
             app_mode: false,
             app_debug: false,
             debug: false,
+            // Only the dependencies' interfaces are read; no config folds.
+            config: None,
             opt: crate::optimizer::OptLevel::default(),
             allow_unsigned: true,
             mode: crate::testing::CompileMode::Build,
@@ -1399,6 +1471,72 @@ mod tests {
             Ok(_) => panic!("mfb test must reject a repeated --debug"),
         };
         assert_eq!(err, "mfb test accepts at most one --debug option");
+    }
+
+    /// plan-167-C: `--config <name>` and `--config=<name>` select a named config;
+    /// without the flag nothing is selected here and the build uses `release`.
+    #[test]
+    fn parse_build_options_parses_config_both_forms() {
+        assert_eq!(parse_build_options(vec![]).expect("defaults").config, None);
+        let spaced = parse_build_options(s(&["--config", "dev"])).expect("--config dev");
+        assert_eq!(spaced.config.as_deref(), Some("dev"));
+        let joined = parse_build_options(s(&["--config=dev", "proj"])).expect("--config=dev");
+        assert_eq!(joined.config.as_deref(), Some("dev"));
+        assert_eq!(joined.location, PathBuf::from("proj"));
+    }
+
+    #[test]
+    fn parse_build_options_rejects_repeated_config() {
+        for args in [
+            ["--config", "a", "--config", "b"].as_slice(),
+            &["--config=a", "--config=a"],
+        ] {
+            let err = match parse_build_options(s(args)) {
+                Err(err) => err,
+                Ok(_) => panic!("mfb build must reject a repeated --config: {args:?}"),
+            };
+            assert_eq!(err, "mfb build accepts at most one --config option");
+        }
+    }
+
+    #[test]
+    fn parse_build_options_rejects_empty_config() {
+        for args in [["--config"].as_slice(), &["--config="]] {
+            let err = match parse_build_options(s(args)) {
+                Err(err) => err,
+                Ok(_) => panic!("mfb build must reject a missing config name: {args:?}"),
+            };
+            assert_eq!(err, "mfb build --config requires a config name");
+        }
+    }
+
+    #[test]
+    fn parse_test_options_parses_config_both_forms() {
+        assert_eq!(parse_test_options(vec![]).expect("defaults").config, None);
+        let spaced = parse_test_options(s(&["--config", "dev"])).expect("--config dev");
+        assert_eq!(spaced.config.as_deref(), Some("dev"));
+        let joined = parse_test_options(s(&["--config=dev"])).expect("--config=dev");
+        assert_eq!(joined.config.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn parse_test_options_rejects_repeated_config() {
+        let err = match parse_test_options(s(&["--config=a", "--config", "b"])) {
+            Err(err) => err,
+            Ok(_) => panic!("mfb test must reject a repeated --config"),
+        };
+        assert_eq!(err, "mfb test accepts at most one --config option");
+    }
+
+    #[test]
+    fn parse_test_options_rejects_empty_config() {
+        for args in [["--config"].as_slice(), &["--config="]] {
+            let err = match parse_test_options(s(args)) {
+                Err(err) => err,
+                Ok(_) => panic!("mfb test must reject a missing config name: {args:?}"),
+            };
+            assert_eq!(err, "mfb test --config requires a config name");
+        }
     }
 
     /// `mfb test` never runs a test binary out of a sealed AppImage, so it takes

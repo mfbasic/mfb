@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/project-config-dependency-moved-option-error/packages/old_config_pkg
+   7 |   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+   8 |   "config": {
+   9 |     "stdinLogCap": 4194304
+     |     ^^^^^^^^^^^^^
+tests/syntax/project/project-config-dependency-moved-option-error/packages/old_config_pkg/project.json:9 error[2-200-0018 PROJECT_JSON_CONFIG_MOVED_OPTION]: project.json `config.stdinLogCap` moved to `options.stdinLogCap`
+               Rename this `config` object to `options`; `config` now holds named build configurations.
+[exit 1]

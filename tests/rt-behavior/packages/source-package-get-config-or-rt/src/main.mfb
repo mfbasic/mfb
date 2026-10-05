@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT config_pkg
+
+' plan-167-B: a package's os::getConfigOr calls fold from the CONSUMING app's
+' config. The package's own project.json says "from-package"; the app's says
+' "from-app", and the app's wins. A key only the package might expect falls back
+' to the call's default.
+FUNC main() AS Integer
+  io::print(config_pkg::greeting())
+  io::print(config_pkg::unset())
+  RETURN 0
+END FUNC

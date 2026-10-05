@@ -795,7 +795,22 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a ThreadWorker cannot cross to another thread",
     },
-    // bug-797. 2-203-0141 and 2-203-0142 are reserved by plan-167-B.
+    // plan-167-B: `os::getConfigOr` is folded from the build's config, so both
+    // arguments must be literals (ir::shape) and the declared value must have the
+    // default's type (target::shared::config_fold).
+    Rule {
+        code: "2-203-0141",
+        name: "OS_CONFIG_ARGUMENT_NOT_LITERAL",
+        severity: Severity::Error,
+        message: "an os::getConfigOr argument is not a literal",
+    },
+    Rule {
+        code: "2-203-0142",
+        name: "OS_CONFIG_TYPE_MISMATCH",
+        severity: Severity::Error,
+        message: "the selected config declares an os::getConfigOr key with a type other than the default's",
+    },
+    // bug-797.
     Rule {
         code: "2-203-0143",
         name: "TYPE_TRAP_LOCAL_UNINITIALIZED",
@@ -1258,6 +1273,66 @@ pub(super) const RULES: &[Rule] = &[
         name: "PROJECT_JSON_NAME_INVALID",
         severity: Severity::Error,
         message: "project.json `name` is not a single safe path component",
+    },
+    Rule {
+        code: "2-200-0018",
+        name: "PROJECT_JSON_CONFIG_MOVED_OPTION",
+        severity: Severity::Error,
+        message: "project.json `config.stdinLogCap` moved to `options.stdinLogCap`",
+    },
+    Rule {
+        code: "2-200-0019",
+        name: "PROJECT_JSON_CONFIG_SHAPE",
+        severity: Severity::Error,
+        message: "project.json `config` is not an object of named configs, or a named config is not an object of key/value pairs",
+    },
+    Rule {
+        code: "2-200-0020",
+        name: "PROJECT_JSON_CONFIG_RELEASE_MISSING",
+        severity: Severity::Error,
+        message: "project.json `config` does not contain a `release` config",
+    },
+    Rule {
+        code: "2-200-0021",
+        name: "PROJECT_JSON_CONFIG_NAME",
+        severity: Severity::Error,
+        message: "a project.json config name or key does not match `[A-Za-z][A-Za-z0-9_.-]*`",
+    },
+    Rule {
+        code: "2-200-0022",
+        name: "PROJECT_JSON_CONFIG_DUPLICATE",
+        severity: Severity::Error,
+        message: "a project.json config name or key is declared twice (compared case-insensitively)",
+    },
+    Rule {
+        code: "2-200-0023",
+        name: "PROJECT_JSON_CONFIG_VALUE",
+        severity: Severity::Error,
+        message: "a project.json config value is not a String, Integer or Float",
+    },
+    Rule {
+        code: "2-200-0024",
+        name: "PROJECT_JSON_CONFIG_TYPE_CONFLICT",
+        severity: Severity::Error,
+        message: "a project.json config key has a different type in two named configs",
+    },
+    Rule {
+        code: "2-200-0025",
+        name: "PROJECT_JSON_CONFIG_UNKNOWN",
+        severity: Severity::Error,
+        message: "the selected config is not declared in project.json",
+    },
+    Rule {
+        code: "2-200-0026",
+        name: "PROJECT_LOCAL_JSON_FIELD",
+        severity: Severity::Error,
+        message: "project-local.json may only hold a `config` object",
+    },
+    Rule {
+        code: "2-200-0027",
+        name: "PROJECT_LOCAL_JSON_TYPE_OVERRIDE",
+        severity: Severity::Error,
+        message: "project-local.json overrides a config value with a different type",
     },
     Rule {
         code: "2-200-0100",

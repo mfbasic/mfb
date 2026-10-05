@@ -2347,6 +2347,14 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         probes: &[str_probe(OS, STR, "os::getEnvOr(x, \"x\")")],
     },
     SelfUpdateRow {
+        function: "os::getConfigOr",
+        kind: SelfUpdate::Exempt {
+            reason: "The self-update form cannot be built: `key` must be a String literal, so no call ever reaches codegen with `x` as its first argument.",
+            proof: "`ir::shape`'s `check_config_call_literals` rejects a non-literal `key` with `OS_CONFIG_ARGUMENT_NOT_LITERAL` (2-203-0141), so this row's probe, `os::getConfigOr(x, \"x\")`, does not build; every call that does build is replaced by a constant in `target/shared/config_fold.rs:fold_config_calls` before NIR exists (plan-167-B).",
+        },
+        probes: &[str_probe(OS, STR, "os::getConfigOr(x, \"x\")")],
+    },
+    SelfUpdateRow {
         function: "regex::replace",
         kind: SelfUpdate::Exempt {
             reason: CODEC_REASON,

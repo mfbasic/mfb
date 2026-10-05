@@ -12,7 +12,7 @@
   ],
   "entry": "main",
   "targets": ["native"],
-  "config": {
+  "options": {
     "stdinLogCap": 4194304
   }
 }

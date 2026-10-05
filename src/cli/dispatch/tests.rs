@@ -119,6 +119,9 @@ fn init_requires_exactly_one_location() {
 fn a_refused_build_flag_is_a_usage_error() {
     assert_eq!(run(&["build", "--not-a-flag"]), 2);
     assert_eq!(run(&["test", "--not-a-flag"]), 2);
+    // plan-167-C: a `--config` with no name is refused before any build runs.
+    assert_eq!(run(&["build", "--config"]), 2);
+    assert_eq!(run(&["test", "--config="]), 2);
 }
 
 /// A subcommand-taking command with no subcommand is a usage error.

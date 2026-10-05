@@ -48,6 +48,9 @@ FUNC main() AS Integer
   io::print(toString(os::cpuCount()))
   io::print(os::getEnv(\"PATH\"))
   io::print(os::getEnvOr(\"NOPE\", \"fallback\"))
+  io::print(os::getConfigOr(\"apiUrl\", \"fallback\"))
+  io::print(toString(os::getConfigOr(\"retries\", -1)))
+  io::print(toString(os::getConfigOr(\"timeout\", 2.5)))
   io::print(toString(os::hasEnv(\"PATH\")))
   os::setEnv(\"MFB_COVERAGE\", \"1\")
   os::unsetEnv(\"MFB_COVERAGE\")
@@ -412,6 +415,7 @@ fn register_publishes_the_whole_os_surface() {
     let expected = [
         "getEnv",
         "getEnvOr",
+        "getConfigOr",
         "hasEnv",
         "setEnv",
         "unsetEnv",

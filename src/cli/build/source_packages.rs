@@ -240,6 +240,10 @@ fn build_source_dependency(
         app_mode: false,
         app_debug: false,
         debug: false,
+        // plan-167-C: `--config` belongs to the invoked project. A dependency
+        // builds a `.mfp`, which never folds, and its `project-local.json` is
+        // never read.
+        config: None,
         opt: options.opt,
         allow_unsigned: options.allow_unsigned,
         mode: crate::testing::CompileMode::Build,

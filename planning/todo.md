@@ -21,7 +21,7 @@
    win: delete `src/os/windows/link/spike.rs` (426 LOC proof-of-concept PE that writes
    `mfb_spike_proof.txt`, sitting in the linker path).
 5. **Hand-rolled JSON serializers.** serde avoided (2 files); ~27 files hand-emit JSON
-   (`ir/json.rs` 908, `nir/json.rs` 1,096, `audit/json.rs` 639, …). `src/json.rs` is only a
+   (`ir/json.rs` 908, `nir/json.rs` 1,096, `audit/json.rs` 639, …). `src/json/mod.rs` is only a
    shared escaper/parser — no shared value→JSON writer. Mechanical consolidation.
 6. **(Diagnose first — likely intentional) src/ir vs target/shared/nir.** Two IR layers; NIR used
    by all backends + ~40 codegen files. Probably deliberate layering (IR → NIR → arch encoders);

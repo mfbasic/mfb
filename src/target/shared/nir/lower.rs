@@ -81,8 +81,22 @@ fn link_routing_imports(ir: &IrProject) -> Vec<NirImport> {
 /// namespacing package symbols so the consumer's existing `pkg.symbol` references
 /// resolve. The returned project carries the executable's and every package's
 /// functions/types/globals together.
-pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrProject, String> {
+/// Merge `packages` into a copy of `ir`, folding every `os::getConfigOr` call
+/// in `ir` and in each package from `ir`'s selected config as it goes
+/// (plan-167-B). Calls that cannot fold are appended to `fold_errors`; the
+/// merge itself still completes, so every such call is reported at once.
+pub(crate) fn merge_packages(
+    ir: &IrProject,
+    packages: &[PathBuf],
+    fold_errors: &mut Vec<crate::target::shared::config_fold::ConfigFoldError>,
+) -> Result<IrProject, String> {
     let mut merged = ir.clone();
+    let config = &ir.selected_config;
+    fold_errors.extend(crate::target::shared::config_fold::fold_config_calls(
+        &mut merged,
+        config,
+        None,
+    ));
     // Per package: (identity id, the `package.symbol` names the consumer/other
     // packages reference). Collected so external references can be rewritten to
     // the identity-prefixed definitions after every package is merged.
@@ -93,6 +107,15 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
         // Verify the decoded package IR against the package-format invariants
         // before it is merged (decode already rejected bad version/bytes).
         crate::ir::verify_package(&package_ir)?;
+        // The consuming executable's config applies to package code too, folded
+        // before `prefix_package_symbols` renames anything, while the package's
+        // own name is still at hand for a diagnostic.
+        let package_name = package_ir.name.clone();
+        fold_errors.extend(crate::target::shared::config_fold::fold_config_calls(
+            &mut package_ir,
+            config,
+            Some(&package_name),
+        ));
         let (ref_fns, ref_globals) = crate::ir::package_qualified_reference_names(&package_ir);
         let references = crate::ir::package_referenced_names(&mut package_ir);
         // bug-632: which package DECLARES each type name the `.mfp` spells bare,

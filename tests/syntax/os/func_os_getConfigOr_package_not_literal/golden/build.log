@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/os/func_os_getConfigOr_package_not_literal
+   5 | ' consumer's config, so the package must hand over literals.
+   6 | EXPORT FUNC setting(key AS String) AS String
+   7 |   RETURN os::getConfigOr(key, "none")
+     | ^
+tests/syntax/os/func_os_getConfigOr_package_not_literal/src/lib.mfb:7 error[2-203-0141 OS_CONFIG_ARGUMENT_NOT_LITERAL]: an os::getConfigOr argument is not a literal
+               `os::getConfigOr` needs a literal `key`; the value is read when the program is built.
+[exit 1]

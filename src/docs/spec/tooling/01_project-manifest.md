@@ -43,7 +43,8 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |
 | `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** |
 | `maxBuffer` | number | no | ceiling on a single native `OUT CBuffer` allocation, in MiB. Whole number, 1–4096; defaults to **64**. See *Native buffer ceiling* |
-| `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
+| `options` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
+| `config` | object | no | named build configurations of String/Integer/Float values (see *Named configs*) |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
 manifest inputs: they are outputs of `mfb build --sign`, stamped into
@@ -77,23 +78,27 @@ a malformed `icon` fails either app build.
 
 The manifest validator checks required `name`/`version`/`mfb` strings,
 optional `entry`/`author`/`url`/`icon` strings, `description`, `kind`, `mode`,
-`sources`, `maxBuffer`, `resources`, `libraries`, and the array shape of
+`sources`, `maxBuffer`, `resources`, `libraries`, `config`, and the array shape of
 `packages`. Dependency-entry fields are interpreted by later package stages;
-`ident` and `config` are read lazily. `targets` and per-source `role` are emitted
+`ident` and `options` are read lazily. `targets` and per-source `role` are emitted
 by `mfb init` but are not consulted by selection or build stages.
 [[src/manifest/mod.rs:validate_project_manifest]]
 [[src/manifest/mod.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
-⁴ `config` holds build-time runtime tunables baked into the compiled executable.
+⁴ `options` holds build-time runtime tunables baked into the compiled executable.
 One key is read: `stdinLogCap`, the stdin broadcast-log
 backpressure high-water mark in bytes — the runtime reader blocks a
 producer rather than growing the log past `base + stdinLogCap`. It is read lazily
 on the executable codegen path and defaults to `STDIN_LOG_CAP_DEFAULT` (4 MiB) when
 absent, non-numeric, non-finite, or below one read chunk (8 KiB, which could not hold a single
-chunk); unknown keys under `config` are ignored. It is not a runtime env var or
+chunk); unknown keys under `options` are ignored. It is not a runtime env var or
 setter — the value is fixed into the binary at build time. Accepted finite
 values are cast to `u64`: fractions truncate and values above its range saturate.
 [[src/manifest/mod.rs:stdin_log_cap]]
+The section was named `config` before plan-167; a manifest whose `config` object
+still holds a `stdinLogCap` member fails validation with
+`PROJECT_JSON_CONFIG_MOVED_OPTION` at that member, naming `options.stdinLogCap`.
+There is no alias. [[src/manifest/mod.rs:validate_config]]
 
 ⁵ `description` is required for `kind: "package"` and optional for
 `kind: "executable"`. When present on either kind, it must be a string of at
@@ -118,6 +123,105 @@ A native `LINK` wrapper with an `OUT CBuffer` slot sizes its buffer from a `BUFF
 - A `SIZE` above the ceiling (or negative) raises `ErrInvalidArgument` **before** allocating, so an over-large request costs nothing.
 
 It is the **consuming** project's setting. `LINK` thunks are emitted when an executable links, so the application importing a binding decides how much memory one native read may claim; a binding package neither carries a ceiling nor can raise the application's.
+
+## Named configs (`config`)
+
+`config` declares named build configurations. Each named config is a flat object
+of keys to String, Integer or Float values:
+
+```json
+"config": {
+  "release": { "apiUrl": "https://api.example.com", "retries": 3, "timeout": 2.5 },
+  "dev":     { "apiUrl": "http://localhost:8080" }
+}
+```
+
+The section is read with a lossless JSON reader rather than the parser used for
+the rest of the manifest, because these rules depend on what that parser drops:
+a number's spelling, repeated keys, and the line of each key. Every rule below is
+an error, all of them are reported in one run, and each is reported at the line
+of the offending key. [[src/manifest/config.rs:parse_config]]
+[[src/json/lossless.rs:parse_lossless]]
+
+- **Optional.** An absent `config` is one implicit, empty `release` config.
+- **Shape.** `config` must be an object, and each member's value must be an
+  object (`PROJECT_JSON_CONFIG_SHAPE`).
+- **`release` is required.** A present `config` must have a member named exactly
+  `release` (`PROJECT_JSON_CONFIG_RELEASE_MISSING`, at the `config` line). The
+  check is skipped when `config` holds a `stdinLogCap` member, which reports
+  `PROJECT_JSON_CONFIG_MOVED_OPTION` instead, so a pre-plan-167 manifest gets one
+  diagnostic.
+- **Names.** Config names and keys match `[A-Za-z][A-Za-z0-9_.-]*`
+  (`PROJECT_JSON_CONFIG_NAME`). A dotted key such as `db.host` is one key, not a
+  path.
+- **Duplicates.** Two config names, or two keys of one config, that are equal under
+  ASCII case-folding are an error at the later one (`PROJECT_JSON_CONFIG_DUPLICATE`),
+  as is a repeated top-level `config`. Lookup is still exact: only one spelling of a
+  name can be declared.
+- **Values** (`PROJECT_JSON_CONFIG_VALUE`). A JSON string is a String; it may not
+  contain U+0000. A number with no `.`, `e` or `E` is an Integer and must fit `i64`
+  (`9223372036854775808` is an error, not a Float). A number with a `.` or an
+  exponent is a Float, correctly rounded, and must be finite (`1e999` is an
+  error). `-0` is the Integer 0 and `0.0` is a Float. `true`, `false`, `null`,
+  arrays and objects are errors.
+- **One type per key** (`PROJECT_JSON_CONFIG_TYPE_CONFLICT`). A key declared in
+  more than one named config has the same type in all of them, so a program cannot
+  build under one config and fail to build under another. The conflict is
+  reported at the later declaration, naming the first config that declared the key.
+  [[src/manifest/config.rs:check_type_consistency]]
+
+A build selects one named config: the one `--config <name>` names, or `release`
+(`./mfb spec tooling cli-reference`). A name `config` does not declare is
+`PROJECT_JSON_CONFIG_UNKNOWN` at the `config` line (line 1 when the section is
+absent, which declares only the implicit `release`), and the detail lists the
+declared names. [[src/manifest/config.rs:ProjectConfig]]
+
+These checks run wherever the manifest is validated: `mfb build`, `mfb test`,
+`mfb fmt`, `mfb doc`, `mfb pkg`, and the build of each source dependency inside a
+consuming project's build. A package's `config` is validated that way, but its
+values never apply to the consuming program. [[src/manifest/mod.rs:validate_config]]
+
+## Local overrides (`project-local.json`)
+
+An optional `project-local.json` beside `project.json` overrides and extends the
+`config` section for one machine: API keys, passwords, and local developer
+settings. It is meant to stay out of source control, and the `.gitignore` that
+`mfb init` and `mfb init-pkg` write names it.
+[[src/manifest/config.rs:load_project_config]]
+
+```json
+{ "config": { "dev": { "apiUrl": "http://localhost:9000", "apiKey": "secret" } } }
+```
+
+- **Scope.** The root must be an object whose only member is an optional
+  `config`. Any other member, or a root that is not an object, is
+  `PROJECT_LOCAL_JSON_FIELD`. The file cannot change `name`, `packages`,
+  `options` or anything else that feeds the lockfile, `projectHash`, or a
+  `mfb pkg` rewrite, none of which ever read it.
+- **Validation.** Its `config` follows every *Named configs* rule except that
+  `release` is not required, since the file is partial. A malformed file is
+  `PROJECT_JSON_PARSE_FAILED`. Every diagnostic names `project-local.json` and
+  the line in it.
+- **Merge.** For each named config in the local file: if `project.json` declares
+  a config with the same name, each local key replaces the same key there or is
+  added to it. A replacement must keep the key's type
+  (`PROJECT_LOCAL_JSON_TYPE_OVERRIDE`, at the local line, naming the
+  `project.json` line). A config `project.json` does not declare is added as a
+  new named config, selectable with `--config` on that machine. Overriding is by
+  exact name, so a local config name or key that matches a `project.json` one only
+  when case is ignored is `PROJECT_JSON_CONFIG_DUPLICATE`, because it would
+  declare a second spelling. Duplicates within the local file are checked the same
+  way as in `project.json`.
+- **After the merge** the one-type-per-key rule runs over the union, so a locally
+  added key that conflicts with another config's type is
+  `PROJECT_JSON_CONFIG_TYPE_CONFLICT` in the local file. Selection
+  (`--config`, `PROJECT_JSON_CONFIG_UNKNOWN`) happens on the merged result.
+- **Who reads it.** Only the build of the invoked project (`mfb build`,
+  `mfb test`, and `mfb pkg`'s publish and ABI-check builds), on every path,
+  executable or package. `validate_project_manifest` checks `project.json` alone,
+  so `mfb fmt` and `mfb doc` never read the local file, and a source dependency's
+  local file is never read, even when the dependency is a local directory that
+  has one. [[src/cli/build/mod.rs:select_build_config]]
 
 ## Source Entries
 
@@ -384,6 +488,16 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/mod.rs:validate_libraries]] |
 | `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/mod.rs:validate_description]] |
 | `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project [[src/manifest/mod.rs:validate_name]] |
+| `2-200-0018` | `PROJECT_JSON_CONFIG_MOVED_OPTION` | error | the `config` object holds a `stdinLogCap` member; the tunable moved to `options.stdinLogCap` [[src/manifest/mod.rs:validate_config]] |
+| `2-200-0019` | `PROJECT_JSON_CONFIG_SHAPE` | error | `config` is not an object, or a named config's value is not an object (see *Named configs*) [[src/manifest/config.rs:parse_config]] |
+| `2-200-0020` | `PROJECT_JSON_CONFIG_RELEASE_MISSING` | error | `config` is present without a `release` member |
+| `2-200-0021` | `PROJECT_JSON_CONFIG_NAME` | error | a config name or key does not match `[A-Za-z][A-Za-z0-9_.-]*` |
+| `2-200-0022` | `PROJECT_JSON_CONFIG_DUPLICATE` | error | a config name, a key within one config, or the top-level `config` is declared twice, compared case-insensitively |
+| `2-200-0023` | `PROJECT_JSON_CONFIG_VALUE` | error | a config value is not a String, an `i64` Integer, or a finite Float, or is a String containing U+0000 |
+| `2-200-0024` | `PROJECT_JSON_CONFIG_TYPE_CONFLICT` | error | a key has different types in two named configs [[src/manifest/config.rs:check_type_consistency]] |
+| `2-200-0025` | `PROJECT_JSON_CONFIG_UNKNOWN` | error | the config `--config` names (or `release`) is not declared [[src/cli/build/mod.rs:select_build_config]] |
+| `2-200-0026` | `PROJECT_LOCAL_JSON_FIELD` | error | `project-local.json` is not an object, or holds a member other than `config` (see *Local overrides*) [[src/manifest/config.rs:load_project_config]] |
+| `2-200-0027` | `PROJECT_LOCAL_JSON_TYPE_OVERRIDE` | error | `project-local.json` overrides a config value with a different type |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are

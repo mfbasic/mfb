@@ -128,6 +128,10 @@ name = "rt_crypto_key_interop"
 path = "tests/interop/rt_crypto_key_interop.rs"
 
 [[test]]
+name = "cli_build_config"
+path = "tests/cli/cli_build_config.rs"
+
+[[test]]
 name = "cli_app_canvas_mode"
 path = "tests/cli/cli_app_canvas_mode.rs"
 

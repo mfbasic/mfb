@@ -45,9 +45,9 @@ The feature-wide gate is in plan-167-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-167-B complete | `ls planning/plan-167-B-*` → no match (archived) | NOT MET (2026-10-03) |
-| No `--config` flag exists | `grep -n '"--config' src/cli/build/options.rs` → no hits | MET (2026-10-03) |
-| No `project-local.json` reader exists | `grep -rn 'project-local' src` → no hits | MET (2026-10-03) |
+| plan-167-B complete | `ls planning/plan-167-B-*` → no match (archived) | MET (2026-10-05) |
+| No `--config` flag exists | `grep -n '"--config' src/cli/build/options.rs` → no hits | MET (2026-10-05) |
+| No `project-local.json` reader exists | `grep -rn 'project-local' src` → no hits | MET (2026-10-05) |
 
 Everything below assumes these hold.
 
@@ -229,26 +229,30 @@ a project.json key is the override mechanism, not a duplicate.
 `--config` selects among `project.json`'s configs. This phase stands alone,
 before any local file exists.
 
-- [ ] `src/cli/build/mod.rs:BuildOptions`: add `config: Option<String>` with a
+- [x] `src/cli/build/mod.rs:BuildOptions`: add `config: Option<String>` with a
       doc comment. Set `config: None` in the 4 non-parser literals (pkg.rs ×2,
       source_packages.rs, the test helper), each with a one-line reason.
-- [ ] `src/cli/build/options.rs`: `--config <name>` / `--config=<name>` in
+- [x] `src/cli/build/options.rs`: `--config <name>` / `--config=<name>` in
       `parse_build_options` and `parse_test_options`, with the missing-value and
       repeat errors from §3.1. An empty name (`--config=`) is the missing-value
-      error.
-- [ ] `src/cli/build/mod.rs:build_project`: selection per §3.3. Add
+      error. (One `parse_config_option` helper, called from each command
+      parser, not from `parse_common_option`.)
+- [x] `src/cli/build/mod.rs:build_project`: selection per §3.3. Add
       `PROJECT_JSON_CONFIG_UNKNOWN` (2-200-0025) to `rules/table.rs`. Pass the
-      selected config where B passed `release`.
-- [ ] `src/cli/help.rs`: one line in each of `BUILD_HELP` and `TEST_HELP`:
+      selected config where B passed `release`. (`select_build_config` runs once,
+      right after manifest validation, when `package_output_dir.is_none()`; the
+      undeclared-name diagnostic is `ProjectConfig::unknown_name`, which needed a
+      new `ProjectConfig.line`.)
+- [x] `src/cli/help.rs`: one line in each of `BUILD_HELP` and `TEST_HELP`:
       `  --config <name>     Read os::getConfigOr values from the named config in`
       plus a continuation line `                      project.json (default: release)`.
-- [ ] Unit tests in `src/cli/build/mod.rs`, mirroring the `--debug` ones:
+- [x] Unit tests in `src/cli/build/mod.rs`, mirroring the `--debug` ones:
       `parse_build_options_parses_config_both_forms`,
       `parse_build_options_rejects_repeated_config`,
       `parse_build_options_rejects_empty_config`, and the same three for
       `parse_test_options`. Dispatch: in `src/cli/dispatch/tests.rs`,
-      `run(&["build","--config"]) == 2`.
-- [ ] Integration test `tests/cli/cli_build_config.rs` (register a `[[test]]` in
+      `run(&["build","--config"]) == 2` (and `run(&["test","--config="]) == 2`).
+- [x] Integration test `tests/cli/cli_build_config.rs` (register a `[[test]]` in
       `Cargo.toml`), using `tests/common`. The fixture project has `release` and
       `dev` configs that differ for one key of each type. It covers:
       - no flag → the release values;
@@ -258,7 +262,7 @@ before any local file exists.
         lists `dev, release`;
       - `mfb test --config=dev` on a TESTING block that asserts the dev value →
         pass.
-- [ ] Spec `07_cli-reference.md`: add `[--config name]` to the `test` synopsis,
+- [x] Spec `07_cli-reference.md`: add `[--config name]` to the `test` synopsis,
       a `--config name` / `--config=name` row in `## build Flags`, and a prose
       paragraph quoting the three error strings with
       `[[src/cli/build/options.rs:parse_build_options]]`.
@@ -269,25 +273,29 @@ build.
   build and run, which no unit test covers). Then
   `cargo test --bin mfb parse_build_options` and
   `cargo test --bin mfb parse_test_options` → both pass (est. 2 min).
-Commit: —
+  Result (2026-10-05): `cargo test --test cli_build_config` → 4 passed;
+  `cargo test --bin mfb -- parse_build_options parse_test_options
+  a_refused_build_flag_is_a_usage_error` → 43 passed; `test_targets_registered` → 4 passed.
+Commit: 9235b44db
 
 ### Phase 2: `project-local.json`
 
 The local file overrides and extends configs, with full validation.
 
-- [ ] `src/manifest/config.rs`: `ConfigDiagnostic.file`; `load_project_config`
+- [x] `src/manifest/config.rs`: `ConfigDiagnostic.file`; `load_project_config`
       per §3.2; the merge per §4. Add rule rows 2-200-0026 and 0027.
-- [ ] `src/cli/build/mod.rs:build_project`: when
+- [x] `src/cli/build/mod.rs:build_project`: when
       `options.package_output_dir.is_none()`, call `load_project_config` (per
       §3.2's "Where it runs") instead of A's `project.json`-only accessor.
       Render each diagnostic against its own file's path, and use the merged
       `ProjectConfig` for selection. `src/manifest/mod.rs:validate_config` is
       unchanged.
-- [ ] Unit or integration test: a source dependency (declared by directory)
+- [x] Unit or integration test: a source dependency (declared by directory)
       whose directory holds a malformed `project-local.json` builds, and the
       consumer's build succeeds. This proves the dependency's local file is never
-      read.
-- [ ] Unit tests in `config.rs`:
+      read. (`cli_build_config::a_dependency_local_file_is_never_read`: the
+      dependency holds `{ not json` and the app still prints `from-app`.)
+- [x] Unit tests in `config.rs`:
       - override keeps type → ok;
       - override changes type → 0027 at the local line;
       - local adds a key;
@@ -299,12 +307,12 @@ The local file overrides and extends configs, with full validation.
       - a locally added key that conflicts with another config's type → 0024;
       - malformed JSON in the local file → a parse error naming
         `project-local.json`.
-- [ ] Extend `tests/cli/cli_build_config.rs`:
+- [x] Extend `tests/cli/cli_build_config.rs`:
       - a local file overriding `dev.apiUrl` and adding `dev.apiKey` → the
         merged values;
       - a local file adding config `mine`, plus `--config=mine` → its values;
       - a bad local file → the build fails with its path in stderr.
-- [ ] Spec `01_project-manifest.md`: a `## Local overrides (project-local.json)`
+- [x] Spec `01_project-manifest.md`: a `## Local overrides (project-local.json)`
       section stating §3.2, §4 and the D4 scope exactly, with
       `[[src/manifest/config.rs:load_project_config]]`; the new codes.
       `01_rule-codes.md`: the 2-200 rows.
@@ -313,31 +321,36 @@ Acceptance: local values override and extend configs, and a bad local file
 stops the build.
   Check: `cargo test --test cli_build_config` → pass (est. 3 min). Then
   `cargo test --bin mfb manifest::config` → pass (est. 2 min).
-Commit: —
+  Result (2026-10-05): `cargo test --test cli_build_config` → 8 passed;
+  `cargo test --bin mfb manifest::config` → 19 passed.
+Commit: 640af9658
 
 ### Phase 3: `mfb init` `.gitignore` and developer docs
 
 New projects keep `project-local.json` out of source control by default, and
 the developer-facing page explains the whole feature.
 
-- [ ] `src/cli/init.rs:init_project`, and the `init-pkg` path: write `.gitignore`
+- [x] `src/cli/init.rs:init_project`, and the `init-pkg` path: write `.gitignore`
       with `build/` and `project-local.json` when the file doesn't exist. Never
       overwrite or append to an existing one. Use `write_new_file`, and treat
       "already exists" as a skip, not an error.
-- [ ] Init unit tests: a fresh init writes it; a pre-existing `.gitignore` is
+- [x] Init unit tests: a fresh init writes it; a pre-existing `.gitignore` is
       byte-for-byte unchanged.
-- [ ] `src/codegen/builtins/os/func_get_config_or.rs` `DESC`/`EX`: explain named
+- [x] `src/codegen/builtins/os/func_get_config_or.rs` `DESC`/`EX`: explain named
       configs, `--config`, `project-local.json` (for per-machine values like
       keys, kept out of source control), and that values are stored as plain
       text in the executable. Follow `.ai/man-content.md`; no internals.
-- [ ] Spec `07_cli-reference.md`: the `init` paragraph lists `.gitignore`.
+- [x] Spec `07_cli-reference.md`: the `init` paragraph lists `.gitignore`.
 
 Acceptance: init writes the ignore file safely, and the man page passes its
 instruments.
   Check: `cargo test --bin mfb init` → pass (est. 2 min).
   `scripts/man-run-examples.sh os --run` → pass (est. 3 min).
   `scripts/man-census.sh --memory-scope` → 0 unclassified (est. 1 min).
-Commit: —
+  Result (2026-10-05): `cargo test --bin mfb -- init spec rules::` → 115 passed;
+  `examples: 28   built: 28   ran: 28   not run: 0   failed: 0`;
+  `unclassified memory-vocabulary hits: 0`.
+Commit: 70f1b9ea6
 
 ## Validation Plan
 
@@ -385,7 +398,66 @@ Commit: —
 
 ## Corrections
 
-(Filled in during execution.)
+- **Phase 1 commit** is 9235b44db (recorded here because the Phase 1 `Commit:`
+  line is filled in the next commit).
+- **Case-only matches across the two files are duplicates.** §4 says a local key
+  that duplicates a `project.json` key is an override, not a duplicate, and that
+  duplicate detection runs within each file. Overriding is by exact name (lookup
+  is exact, A §5.3), so a local `ApiUrl` beside a declared `apiUrl`, or a local
+  config `Dev` beside `dev`, would add a second spelling, which is the lookalike
+  ambiguity D9 exists to forbid. Both are now `PROJECT_JSON_CONFIG_DUPLICATE` in
+  `project-local.json` (`local_duplicates_and_type_conflicts_are_reported_in_the_local_file`).
+- **`stdinLogCap` in a local file is not the moved-option case.** Only
+  `project.json` ever held the old tunable, so in `project-local.json` a
+  `stdinLogCap` member is just a named config whose value is a number
+  (`PROJECT_JSON_CONFIG_SHAPE`), not a pointer to `options`, which the local
+  file may not hold. `check_named_configs` takes a `legacy_moved_option` flag.
+- **A CLI case for 2-200-0027.** The Validation Plan's coverage loop greps
+  `config.rs` and `cli_build_config.rs` for each code, and only a unit test
+  (by rule name) covered 0027. `a_local_type_change_fails_the_build` now
+  builds one end to end.
+- **Validation Plan runtime proof** (2026-10-05): the §1 example printed
+  `https://prod` / `[]` with no flag, and `http://localhost` / `[secret]` with
+  `--config=dev`. `--config=staging` failed with 2-200-0025, "Declared: dev,
+  release.". `strings … | grep -c secret` → 0 for the release binary and 1 for
+  the dev binary. Byte-identity: `strings_codegen_cover_rt.ncode` sha
+  `f5cb5cc7…`, unchanged from the post-B compiler and its golden.
+- **Final-gate findings, fixed (2026-10-05).** The one full `cargo test` run
+  failed two registry censuses that a new builtin must be classified in, and
+  plan-167-B named neither: `float_results_is_total` (`os::getConfigOr` returns
+  a Float; classified under a new fifth reason, "the call never runs", because it
+  is folded to a finite constant) and `self_update_census_covers_every_registry_overload`
+  (an `Exempt` row: the self-update form cannot build, because the key must be a
+  literal). The full acceptance run failed one fixture:
+  `project-config-dependency-moved-option-error/packages/old_config_pkg`. The
+  harness treats every `project.json` as a test, and that nested package
+  deliberately cannot build, so it now has its own golden pinning the 2-200-0018
+  diagnostic.
+- **Bug found and fixed: native dumps ignored `maxBuffer`.** While adding
+  `selected_config` to the dump path: `build_project` set `ir.max_buffer_bytes`
+  on the executable path only, so `--nir`/`--ncode` of a project with
+  `maxBuffer: 1` baked the 64 MiB ceiling (measured: 3× `67108864` in
+  `link_const_pins_cover.ncode`). The pre-plan compiler reproduces the old
+  golden sha, and the only diff to the fixed dump is those three immediates
+  becoming `1048576`. Fixed in the dump path, and the four
+  `link-const-pins` `.ncodesum` goldens regenerated.
+- **Final gate (2026-10-05, after merging main at 031f64353).**
+  `scripts/test-accept.sh target/release/mfb /tmp/acc-167-final2` →
+  `acceptance tests passed (1651 test(s) ran)`; `scripts/artifact-gate.sh
+  target/release/mfb all` → `1621 tests, 1800 build(s), 2272 golden(s) checked,
+  0 diff(s)`; `cargo test --no-fail-fast` → 318 binaries ok and 1 failed:
+  `inplace_self_update_census` wanted a `cases.tsv` runtime case for
+  `os::getConfigOr`'s String overload, whose self-update form cannot build.
+  Fixed in e059f0752 by excluding literal-first members, the exclusion tied to
+  the man page's "Both arguments must be literals." (`cargo test --test
+  inplace_self_update_census` → 2 passed). `cargo test` (without
+  `--no-fail-fast`) first stopped at `cli_dbg`, which also failed at main's
+  own HEAD (a detached worktree at 031f64353): its last assertion still
+  expected the pre-031f64353 ` in exit.` stop line. Fixed in a36f6e637
+  (`cargo test --test cli_dbg` → 16 passed).
+- **`NamedConfig.line` and `ProjectConfig.line` added.** The unknown-name
+  diagnostic (Phase 1) needs the `config` line, and the case-only config-name
+  duplicate needs the config's own line.
 
 ## Summary
 

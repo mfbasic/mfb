@@ -8,6 +8,8 @@
 
 use tinyjson::JsonValue;
 
+pub(crate) mod lossless;
+
 /// The maximum JSON nesting depth accepted by [`parse_json_bounded`].
 ///
 /// `tinyjson` is a recursive-descent parser with no depth limit of its own, so a

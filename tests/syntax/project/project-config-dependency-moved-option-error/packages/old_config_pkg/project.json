@@ -1,0 +1,11 @@
+{
+  "name": "old_config_pkg",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-167-A: a source package written by a pre-plan-167 `mfb init-pkg`, still carrying `config.stdinLogCap`.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "config": {
+    "stdinLogCap": 4194304
+  }
+}

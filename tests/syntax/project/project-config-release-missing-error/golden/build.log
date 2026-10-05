@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/project-config-release-missing-error
+  13 |   "entry": "main",
+  14 |   "targets": ["native"],
+  15 |   "config": {
+     |   ^^^^^^^^
+tests/syntax/project/project-config-release-missing-error/project.json:15 error[2-200-0020 PROJECT_JSON_CONFIG_RELEASE_MISSING]: project.json `config` does not contain a `release` config
+               Field `config` must contain a `release` config.
+[exit 1]

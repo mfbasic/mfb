@@ -111,7 +111,7 @@ is byte-identical to a direct per-byte reader with no source change. Any other
 thread that reads stdin without a subscription raises `ErrInvalidContext`
 (`77050019`).
 
-The log is bounded by the manifest's `config.stdinLogCap`, baked into the executable
+The log is bounded by the manifest's `options.stdinLogCap`, baked into the executable
 (see `./mfb spec tooling project-manifest`): the reader refuses to advance past
 `base + cap` and blocks on the condvar until a slow subscriber advances the
 minimum cursor (`base`) or unsubscribes, so a stalled subscriber applies

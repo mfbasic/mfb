@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-167-A: a `config` without a `release` member is PROJECT_JSON_CONFIG_RELEASE_MISSING (2-200-0020).
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

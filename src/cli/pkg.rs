@@ -130,6 +130,9 @@ pub(crate) fn publish_package_project(owner: &str, project_dir: &Path) -> Result
         app_mode: false,
         app_debug: false,
         debug: false,
+        // A package build emits a `.mfp`, which never folds `os::getConfigOr`;
+        // `release` is still selected and validated (plan-167-C).
+        config: None,
         opt: crate::optimizer::active_opt_level(),
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Build,
@@ -427,6 +430,9 @@ pub(crate) fn check_abi(project_dir: &Path) -> Result<(), String> {
         app_mode: false,
         app_debug: false,
         debug: false,
+        // A package build emits a `.mfp`, which never folds `os::getConfigOr`;
+        // `release` is still selected and validated (plan-167-C).
+        config: None,
         opt: crate::optimizer::active_opt_level(),
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Build,

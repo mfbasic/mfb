@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/project-config-duplicate-error
+  16 |     "release": {
+  17 |       "port": 80,
+  18 |       "Port": 8080
+     |       ^^^^^^
+tests/syntax/project/project-config-duplicate-error/project.json:18 error[2-200-0022 PROJECT_JSON_CONFIG_DUPLICATE]: a project.json config name or key is declared twice (compared case-insensitively)
+               Key `Port` in config `release` is already declared on line 17.
+[exit 1]

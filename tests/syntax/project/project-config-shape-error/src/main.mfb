@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-167-A: a named config whose value is not an object is PROJECT_JSON_CONFIG_SHAPE (2-200-0019).
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

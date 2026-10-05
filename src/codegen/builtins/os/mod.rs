@@ -46,6 +46,7 @@ mod func_args;
 mod func_cpu_count;
 mod func_environ;
 mod func_executable_path;
+mod func_get_config_or;
 mod func_get_env;
 mod func_get_env_or;
 mod func_has_env;
@@ -122,6 +123,7 @@ pub(crate) fn register(r: &mut Registry) {
 
     func_get_env::register(&mut pkg);
     func_get_env_or::register(&mut pkg);
+    func_get_config_or::register(&mut pkg);
     func_has_env::register(&mut pkg);
     func_set_env::register(&mut pkg);
     func_unset_env::register(&mut pkg);
@@ -155,7 +157,7 @@ mod tests {
     #[test]
     fn os_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("os").expect("os package");
-        assert_eq!(pkg.functions().len(), 28);
+        assert_eq!(pkg.functions().len(), 29);
         // os contributes no builtin value type and owns no resource.
         assert!(!registry().is_builtin_type("os"));
     }

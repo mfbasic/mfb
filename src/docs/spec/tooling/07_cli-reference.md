@@ -44,7 +44,7 @@ convention: **2** for argument/usage errors, **1** for runtime failures, **0** f
 | `init` | `mfb init <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `init-pkg` | `mfb init-pkg <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `build` | `mfb build [flags] [location]` | 0 ok; 2 bad flags; 1 build failed |
-| `test` | `mfb test [--coverage] [--debug] [--target os-arch] [-O level] [-v] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
+| `test` | `mfb test [--coverage] [--debug] [--config name] [--target os-arch] [-O level] [-v] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
 | `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]> [--pin\|--no-pin]` | 0 ok; 2 usage; 1 failed |
@@ -80,7 +80,11 @@ The usage block printed by `help` is the `USAGE` constant.[[src/cli/help.rs:USAG
 `init` writes `project.json` (kind `executable`) + a `main.mfb` under the `src`
 source root; `init-pkg` writes `project.json` (kind `package`) + a `lib.mfb`
 under `src`. Both refuse to overwrite
-an existing file (`write_new_file`).[[src/cli/init.rs:write_new_file]]
+an existing file (`write_new_file`).[[src/cli/init.rs:write_new_file]] Both also
+write a `.gitignore` holding `build/` and `project-local.json`, but only when the
+directory has none: an existing `.gitignore`, or anything else at that path, is
+left byte-for-byte as it is and does not fail the command.
+[[src/cli/init.rs:write_gitignore]]
 
 ## `--version`
 
@@ -143,6 +147,7 @@ Console outputs are `build/<name>.out` on macOS,
 | `--app` | — | GUI app-mode runtime; at most one |
 | `--app-debug` | — | app mode, keeping the intermediate `build/<name>.AppDir` (Linux); implies `--app`; at most one |
 | `--debug` | — | build a program that writes the debug report to stderr as the last act of `_mfb_shutdown`, and write the program's symbol names into the executable's native symbol table (see `./mfb spec tooling debug-report`); at most one |
+| `--config name` / `--config=name` | — | the named config `os::getConfigOr` calls fold from (default `release`); at most one; also accepted by `mfb test` |
 | `--unsigned` | — | permit unsigned dependencies whose source is **not** local (see below) |
 | `-q` / `--quiet` | — | print only the `Wrote … to` artifact line and diagnostics |
 | `-v` / `--verbose` | — | additionally print a `phase <name> <N>ms` line per front-end stage |
@@ -201,6 +206,20 @@ flags (a `--nir` dump of a `--debug` build carries `"debug": true`), changes no
 exit status or program output, and a duplicate yields `mfb build accepts at most one
 --debug option`. A build without it emits no debug-report helpers or data.
 [[src/cli/build/options.rs:parse_build_options]]
+
+`--config name` selects which named config in `project.json`'s `config` section
+(`./mfb spec tooling project-manifest`, *Named configs*) the build's
+`os::getConfigOr` calls fold from (`./mfb spec stdlib os`); without it `release` is
+selected. `mfb build` and `mfb test` both take it, in both spellings. A flag with
+no name, `--config` at the end or `--config=`, is `mfb build --config requires a
+config name`, and a second one is `mfb build accepts at most one --config option`
+(`mfb test …` in `test`'s messages); both exit 2. The selection is made for the
+invoked project only, on every build path, including a package build and the
+native dumps, so a name the project does not declare fails every build with
+`PROJECT_JSON_CONFIG_UNKNOWN`, which lists the declared names. A source
+dependency's build never selects a config.
+[[src/cli/build/options.rs:parse_build_options]]
+[[src/cli/build/mod.rs:select_build_config]]
 
 The project `icon` (see `./mfb spec tooling project-manifest`) applies to Linux
 app builds as well as macOS: it is rendered to the freedesktop hicolor PNG sizes

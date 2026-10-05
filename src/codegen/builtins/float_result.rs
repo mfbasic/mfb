@@ -42,7 +42,7 @@
 //! boundary re-check is not a substitute: it fires only where some boundary sees the
 //! value, so the same overflow raised when bound and vanished as an operand
 //! (bug-754). There is therefore no "re-check at the boundary" classification; a
-//! member that cannot prove one of the four reasons below must be fixed to raise.
+//! member that cannot prove one of the five reasons below must be fixed to raise.
 //!
 //! [`FLOAT_RESULTS`] carries one row per builtin member that can return a scalar
 //! `Float`, and `float_results_is_total` (below) walks the registry and fails if a
@@ -53,7 +53,7 @@
 //! only through a non-boundary position.
 //!
 //! The classification is *not* per-member folklore; every `Finite` row falls into
-//! one of four documented reasons, recorded on the row:
+//! one of five documented reasons, recorded on the row:
 //!
 //! 1. **`Body::Mfb` delegation** — the member's body is injected MFBASIC, so the
 //!    value is observed at that `FUNC`'s own `RETURN`, in the callee's frame.
@@ -70,6 +70,10 @@
 //!    (`77050010`) rather than handing back an infinity (measured:
 //!    `toFloat("1e400")` exits 255 with `7-705-0010`), and `collections::sum`
 //!    checks its `Float` total and raises `ErrFloatOverflow` (`77050015`).
+//! 5. **The call never runs** — `os::getConfigOr` is replaced by a constant
+//!    before codegen (plan-167-B): the config's Float, which the manifest rejects
+//!    when it is not finite (`1e999` is `PROJECT_JSON_CONFIG_VALUE`), or the call's
+//!    literal default.
 
 use crate::codegen::registry::registry;
 
@@ -123,6 +127,9 @@ pub(crate) const FLOAT_RESULTS: &[(&str, &str)] = &[
     ("math", "sin"),
     ("math", "sqrt"),
     ("math", "tan"),
+    // --- os ------------------------------------------------------------------
+    // (5) Folded to a finite constant before codegen; no call is emitted.
+    ("os", "getConfigOr"),
     // --- thread --------------------------------------------------------------
     // (3) The value was observed at its producer's boundary in the sending frame —
     // `thread::send`'s argument, or the worker's `RETURN`.

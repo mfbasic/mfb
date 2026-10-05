@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-167-A: two keys equal under ASCII case-folding are PROJECT_JSON_CONFIG_DUPLICATE (2-200-0022).
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

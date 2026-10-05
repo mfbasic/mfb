@@ -202,6 +202,10 @@ pub struct IrProject {
     /// executable links, so the ceiling that applies is the CONSUMING project's.
     /// A binding cannot raise an app's memory ceiling on its behalf.
     pub(crate) max_buffer_bytes: u64,
+    /// The config `os::getConfigOr` calls fold from (plan-167-B), selected by
+    /// the build. Like `max_buffer_bytes` it is the CONSUMING executable's
+    /// setting, applied to package code too, and is not encoded into a `.mfp`.
+    pub(crate) selected_config: crate::manifest::config::SelectedConfig,
 }
 
 impl IrProject {

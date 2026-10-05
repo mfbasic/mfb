@@ -38,7 +38,7 @@ pub fn lower_project(
     target_name: String,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
-    // plan-15 D3: stdin broadcast-log backpressure cap from the manifest `"config"`
+    // plan-15 D3: stdin broadcast-log backpressure cap from the manifest `"options"`
     // section, or `None` to bake the default (used by every non-executable / dump path).
     stdin_log_cap: Option<u64>,
     // plan-130: `--debug` report switch; `DebugOptions::OFF` for a normal build.
@@ -50,7 +50,29 @@ pub fn lower_project(
     // The `-vv` spans (`crate::trace`) split the `codegen: lowering module`
     // stage into its four steps. This is the sole `NirModule` producer, so one
     // set of spans here covers all five targets.
-    let merged = crate::trace::timed("merge packages", || nir::merge_packages(ir, packages))?;
+    let mut fold_errors = Vec::new();
+    let merged = crate::trace::timed("merge packages", || {
+        nir::merge_packages(ir, packages, &mut fold_errors)
+    })?;
+    // plan-167-B: every `os::getConfigOr` call is now a constant, or listed here.
+    if !fold_errors.is_empty() {
+        let config = &ir.selected_config.name;
+        for error in &fold_errors {
+            let column = error.column.max(1) as usize;
+            crate::rules::show_diagnostic(
+                error.rule(),
+                &error.detail(config),
+                &error.path,
+                error.line as usize,
+                column,
+                column + "os::getConfigOr".len(),
+            );
+        }
+        return Err(format!(
+            "{} os::getConfigOr call(s) do not match config `{config}`",
+            fold_errors.len()
+        ));
+    }
     let helpers = crate::trace::timed("required helpers", || runtime::required_helpers(&merged));
     let module = crate::trace::timed("IR -> NIR", || {
         nir::lower_module(

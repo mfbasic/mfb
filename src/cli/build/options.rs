@@ -76,6 +76,31 @@ fn raise_verbosity(arg: &str, level: &mut Option<Verbosity>, cmd: &str) -> Resul
     Ok(())
 }
 
+/// Parse `--config <name>` / `--config=<name>` (plan-167-C) into `config`.
+/// Returns whether `arg` was the flag. An empty name is the missing-value
+/// error; a second `--config` is rejected, like a second `--sign`.
+fn parse_config_option(
+    arg: &str,
+    iter: &mut impl Iterator<Item = String>,
+    command: &str,
+    config: &mut Option<String>,
+) -> Result<bool, String> {
+    let value = if arg == "--config" {
+        iter.next()
+    } else if let Some(value) = arg.strip_prefix("--config=") {
+        Some(value.to_string())
+    } else {
+        return Ok(false);
+    };
+    let Some(value) = value.filter(|value| !value.is_empty()) else {
+        return Err(format!("mfb {command} --config requires a config name"));
+    };
+    if config.replace(value).is_some() {
+        return Err(format!("mfb {command} accepts at most one --config option"));
+    }
+    Ok(true)
+}
+
 pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
     let mut outputs: Vec<BuildOutput> = Vec::new();
@@ -84,6 +109,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut app_mode = false;
     let mut app_debug = false;
     let mut debug = false;
+    let mut config = None;
     let mut allow_unsigned = false;
     let mut opt = crate::optimizer::active_opt_level();
     let mut verbosity: Option<Verbosity> = None;
@@ -97,6 +123,8 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
             outputs.push(output);
         } else if parse_common_option(&arg, &mut iter, "build", &mut target, &mut opt)? {
             // handled by the shared --target/-O parser
+        } else if parse_config_option(&arg, &mut iter, "build", &mut config)? {
+            // --config <name> / --config=<name>
         } else if arg == "--sign" {
             let Some(value) = iter.next() else {
                 return Err("mfb build --sign requires <owner_name>".to_string());
@@ -150,6 +178,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         app_mode: app_mode || app_debug,
         app_debug,
         debug,
+        config,
         opt,
         allow_unsigned,
         mode: crate::testing::CompileMode::Build,
@@ -166,6 +195,7 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     let mut opt = crate::optimizer::active_opt_level();
     let mut coverage = false;
     let mut debug = false;
+    let mut config = None;
     let mut verbose: Option<Verbosity> = None;
     let mut iter = args.into_iter();
 
@@ -177,6 +207,8 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
                 return Err("mfb test accepts at most one --debug option".to_string());
             }
             debug = true;
+        } else if parse_config_option(&arg, &mut iter, "test", &mut config)? {
+            // --config <name> / --config=<name>
         } else if is_verbose_flag(&arg) {
             raise_verbosity(&arg, &mut verbose, "test")?;
         } else if parse_common_option(&arg, &mut iter, "test", &mut target, &mut opt)? {
@@ -200,6 +232,7 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         // `unknown test option` arm above (plan-51-C §4.7).
         app_debug: false,
         debug,
+        config,
         opt,
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Test { coverage },

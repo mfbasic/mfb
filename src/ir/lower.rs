@@ -324,6 +324,7 @@ pub fn lower_augmented_project(
         // Overwritten from project.json by `assemble_max_buffer` on the build
         // path; this default is what a synthesized or test-built project gets.
         max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
+        selected_config: Default::default(),
     }
 }
 

@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT old_config_pkg
+
+' plan-167-A: a source dependency's project.json is validated during the
+' consuming app's build. One still carrying `"config": {"stdinLogCap": N}` fails
+' the app's build with a single PROJECT_JSON_CONFIG_MOVED_OPTION (2-200-0018)
+' naming the dependency's own project.json.
+FUNC main AS Integer
+  io::print(toString(old_config_pkg::answer()))
+  RETURN 0
+END FUNC

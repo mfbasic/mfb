@@ -1,0 +1,25 @@
+{
+  "name": "func_os_getConfigOr_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"],
+  "config": {
+    "release": {
+      "apiUrl": "https://api.example.com",
+      "retries": 3,
+      "timeout": 2.5,
+      "lowest": -9223372036854775808,
+      "tenth": 0.1,
+      "big": 1e300,
+      "negzero": -0.0,
+      "quoted": "say \"hi\" \\ caf\u00e9 \u2713\nline two"
+    },
+    "dev": {
+      "apiUrl": "http://localhost:8080",
+      "retries": 9
+    }
+  }
+}

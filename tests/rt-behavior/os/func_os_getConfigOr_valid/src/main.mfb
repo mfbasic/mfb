@@ -1,0 +1,26 @@
+IMPORT io
+IMPORT os
+
+' plan-167-B: os::getConfigOr folds each call from the `release` config at
+' build time. Every overload (String, Integer, Float) is read when the key is
+' declared and yields its default when it is not; `dev` is never selected here.
+' The edge values pin the constant encoding: i64 minimum, Float lexemes kept as
+' written, and a String with a quote, a backslash, non-ASCII text and a newline.
+LET globalRetries AS Integer = os::getConfigOr("retries", 0)
+
+FUNC main() AS Integer
+  io::print(os::getConfigOr("apiUrl", "http://default"))
+  io::print(toString(os::getConfigOr("retries", 1)))
+  io::print(toString(os::getConfigOr("timeout", 10.0)))
+  io::print(toString(globalRetries))
+  io::print(toString(os::getConfigOr(default := 5, key := "retries")))
+  io::print(toString(os::getConfigOr("lowest", 0)))
+  io::print(toString(os::getConfigOr("tenth", 0.0)))
+  io::print(toString(os::getConfigOr("big", 0.0)))
+  io::print(toString(os::getConfigOr("negzero", 1.0)))
+  io::print(os::getConfigOr("quoted", ""))
+  io::print(os::getConfigOr("missingText", "fallback"))
+  io::print(toString(os::getConfigOr("missingCount", -7)))
+  io::print(toString(os::getConfigOr("missingRatio", -0.5)))
+  RETURN 0
+END FUNC

@@ -293,6 +293,16 @@ fn cases_tsv_signatures() -> BTreeSet<String> {
         .collect()
 }
 
+/// Members whose self-update form `x = f(x, …)` cannot be written, because the
+/// first argument must be a literal: the build rejects a variable there, so there
+/// is no statement for `cases.tsv` to run. Each is excluded only while its page
+/// still says so (the sentence beside it), so the exclusion cannot outlive the rule.
+const LITERAL_FIRST_ARGUMENT: &[(&str, &str, &str)] = &[
+    // plan-167-B: OS_CONFIG_ARGUMENT_NOT_LITERAL (2-203-0141); the call is folded
+    // to a constant when the program is built.
+    ("os", "getConfigOr", "Both arguments must be literals."),
+];
+
 #[test]
 fn every_self_update_shaped_overload_has_a_runtime_case() {
     let mut shaped = BTreeSet::new();
@@ -301,6 +311,19 @@ fn every_self_update_shaped_overload_has_a_runtime_case() {
     for pkg in packages() {
         for function in functions(&pkg) {
             let sigs = signatures(&pkg, &function);
+            let literal_first = LITERAL_FIRST_ARGUMENT
+                .iter()
+                .find(|(p, f, _)| *p == pkg && *f == function);
+            if let Some((_, _, sentence)) = literal_first {
+                let page = man(&[&pkg, &function]);
+                assert!(
+                    page.contains(sentence),
+                    "{pkg}::{function} is excluded as literal-first, but its page no \
+                     longer says `{sentence}`"
+                );
+                overloads += sigs.len();
+                continue;
+            }
             for sig in &sigs {
                 overloads += 1;
                 if self_update_shaped(sig) {
