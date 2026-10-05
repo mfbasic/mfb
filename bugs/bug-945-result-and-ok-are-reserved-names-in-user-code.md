@@ -1,4 +1,4 @@
-# bug-928: `Result` and `Ok` are reserved in user code — a user cannot declare their own `TYPE Result` or `TYPE Ok`
+# bug-945: `Result` and `Ok` are reserved in user code — a user cannot declare their own `TYPE Result` or `TYPE Ok`
 
 Last updated: 2026-10-05
 Effort: large (3h–1d)

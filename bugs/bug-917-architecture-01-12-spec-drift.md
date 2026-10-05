@@ -75,7 +75,7 @@ branch in `src/ir/lower.rs` (`match_ok` flag, inside `HirStatement::Match` lower
 marked `coverage:off … unreachable from valid source; kept for plan-20 total lowering`.
 **Resolution:** that branch is dead code. Delete it, and delete the §6 sentence that
 describes it, instead of documenting it. Making `Result`/`Ok` ordinary user-declarable
-names is **bug-928**. (Side note: `error(code, msg)` also yields a
+names is **bug-945**. (Side note: `error(code, msg)` also yields a
 plain `Error` value outside `TRAP`, as in `LET e = error(7, "x")` / `FAIL error(…)`,
 with `typeName(e)` = `Error`. That is the intended way to raise.)
 
@@ -96,7 +96,7 @@ hand-written per backend with physical registers: `x8/x9/…` on macOS AArch64, 
 on x86-64, `t3/s1/…` on riscv64. `program.entry` is 174 physical + 18 `arena_base`
 operands, `main` is 6 vreg + 13 ABI + `sp`. So the dump is target-neutral for program
 code, not for the runtime helpers it also contains. **Split out (owner, 2026-10-05):** the runtime-helper half is now **bug-930** (decision
-pending), and removing `Operand::Raw` is **bug-929**. Nothing for item 9 remains in this doc.
+pending), and removing `Operand::Raw` is **bug-946**. Nothing for item 9 remains in this doc.
 
 ### 10. UNCLEAR — `TYPE_OVERLOAD_AMBIGUOUS` headline for a parameter ambiguity
 

@@ -1,4 +1,4 @@
-# bug-929: `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant
+# bug-946: `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant
 
 Last updated: 2026-10-05
 Effort: huge (>3d)
