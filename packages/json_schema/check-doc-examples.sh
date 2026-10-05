@@ -47,7 +47,7 @@ for index, block in enumerate(blocks):
             '{"name":"ex%d","version":"0.1.0","mfb":"1.0","kind":"executable",'
             '"description":"a DOC example",'
             '"sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],'
-            '"packages":[{"name":"json_schema","version":"=0.1.0","source":"local://%s"}],'
+            '"packages":[{"name":"json_schema","version":"=0.1.0","source":"local://%s","direct":true,"requiredBy":[]}],'
             '"entry":"main","targets":["native"]}\n' % (index, package)
         )
     with open(os.path.join(project, "src", "main.mfb"), "w", encoding="utf-8") as out:
