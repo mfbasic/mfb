@@ -4,7 +4,7 @@ Last updated: 2026-10-04
 Effort: small–medium (estimate: 45m–1.5h, excluding full-suite latency; was medium
 1h–2h before the 2026-10-04 owner rule and bug-807/811/814 shrank the scope)
 Depends on: plan-165-A (execution order only; no technical dependency — see A's ledger)
-Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`)
+Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`); archived
 
 ## Goal
 

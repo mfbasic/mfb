@@ -4,7 +4,7 @@ Last updated: 2026-10-04
 Overall Effort: large (estimate: 3h–1d, excluding full-suite latency)
 Effort: medium (estimate: 1h–2h)
 Depends on: nothing
-Status: In progress (go-ahead: `/follow-plan 165`, 2026-10-05)
+Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`); archived
 
 ## Review coverage and execution order
 
@@ -20,9 +20,9 @@ accepted before D.
 | Review | Owning document | Scope |
 |---|---|---|
 | 3.1 | [plan-165-D](plan-165-D-expression-observation-traps.md) | Complete expression/assignment observation boundary and operator-only eligibility proposal |
-| 3.1 discovered defect | [bug-798](../bugs/completed/bug-798-inline-trap-float-observation.md) | Premature Float observation under inline TRAP; fixed |
+| 3.1 discovered defect | [bug-798](../../bugs/completed/bug-798-inline-trap-float-observation.md) | Premature Float observation under inline TRAP; fixed |
 | 3.2 | [plan-165-C](plan-165-C-conditional-inline-trap.md) | Conditional AND/OR evaluation with recovery |
-| 3.2 discovered defect | [bug-825](../bugs/bug-825-raising-comparison-in-and-or-escapes-inline-trap.md) | Raising comparison inside AND/OR escapes its inline TRAP; open; prerequisite of C |
+| 3.2 discovered defect | [bug-825](../../bugs/completed/bug-825-raising-comparison-in-and-or-escapes-inline-trap.md) | Raising comparison inside AND/OR escapes its inline TRAP; fixed; prerequisite of C |
 | 3.3 | This plan | Handler routing and lexical PROPAGATE matrix |
 | 3.4 | This plan | Declared RETURN type, Error as successful data, FAIL semantics |
 | 3.5 | [plan-165-B](plan-165-B-conservative-handler-retention.md) | Positive proof required before treating a call as unable to fail |

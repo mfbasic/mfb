@@ -3,7 +3,7 @@
 Last updated: 2026-10-05
 Effort: medium (estimate: 1h–2h, excluding prerequisites and full-suite latency)
 Depends on: plan-165-C; bug-825; bug-798 (fixed)
-Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`)
+Status: Implemented 2026-10-05 (go-ahead: `/follow-plan 165`); archived
 
 ## Goal
 

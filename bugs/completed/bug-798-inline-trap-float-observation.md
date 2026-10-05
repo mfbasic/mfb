@@ -15,7 +15,7 @@ References:
 
 - `src/docs/spec/language/04_types.md`: Float finiteness and mandatory FMA contract.
 - `src/docs/spec/language/08_error-model.md`: inline expression recovery.
-- `../planning/plan-165-C-conditional-inline-trap.md`: preserve conditional evaluation.
+- `../../planning/completed/plan-165-C-conditional-inline-trap.md`: preserve conditional evaluation.
 
 ## Failing reproduction
 
