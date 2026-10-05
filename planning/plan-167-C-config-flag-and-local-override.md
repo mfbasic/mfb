@@ -350,7 +350,7 @@ instruments.
   Result (2026-10-05): `cargo test --bin mfb -- init spec rules::` → 115 passed;
   `examples: 28   built: 28   ran: 28   not run: 0   failed: 0`;
   `unclassified memory-vocabulary hits: 0`.
-Commit: —
+Commit: 70f1b9ea6
 
 ## Validation Plan
 
@@ -422,6 +422,25 @@ Commit: —
   release.". `strings … | grep -c secret` → 0 for the release binary and 1 for
   the dev binary. Byte-identity: `strings_codegen_cover_rt.ncode` sha
   `f5cb5cc7…`, unchanged from the post-B compiler and its golden.
+- **Final-gate findings, fixed (2026-10-05).** The one full `cargo test` run
+  failed two registry censuses that a new builtin must be classified in, and
+  plan-167-B named neither: `float_results_is_total` (`os::getConfigOr` returns
+  a Float; classified under a new fifth reason, "the call never runs", because it
+  is folded to a finite constant) and `self_update_census_covers_every_registry_overload`
+  (an `Exempt` row: the self-update form cannot build, because the key must be a
+  literal). The full acceptance run failed one fixture:
+  `project-config-dependency-moved-option-error/packages/old_config_pkg`. The
+  harness treats every `project.json` as a test, and that nested package
+  deliberately cannot build, so it now has its own golden pinning the 2-200-0018
+  diagnostic.
+- **Bug found and fixed: native dumps ignored `maxBuffer`.** While adding
+  `selected_config` to the dump path: `build_project` set `ir.max_buffer_bytes`
+  on the executable path only, so `--nir`/`--ncode` of a project with
+  `maxBuffer: 1` baked the 64 MiB ceiling (measured: 3× `67108864` in
+  `link_const_pins_cover.ncode`). The pre-plan compiler reproduces the old
+  golden sha, and the only diff to the fixed dump is those three immediates
+  becoming `1048576`. Fixed in the dump path, and the four
+  `link-const-pins` `.ncodesum` goldens regenerated.
 - **`NamedConfig.line` and `ProjectConfig.line` added.** The unknown-name
   diagnostic (Phase 1) needs the `config` line, and the case-only config-name
   duplicate needs the config's own line.
