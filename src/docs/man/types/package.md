@@ -224,6 +224,16 @@ square 3
 green
 ```
 
+A constructor's arguments can span lines, like a list literal's items
+(`mfb man types list`):
+
+```
+LET corner = Point[
+  x := 10,
+  y := 20,
+]
+```
+
 `WITH` builds a changed copy of a record (`mfb man variable`). `RESOURCE … CLOSE BY`
 declares a handle type for a native library binding (`mfb man link`).
 

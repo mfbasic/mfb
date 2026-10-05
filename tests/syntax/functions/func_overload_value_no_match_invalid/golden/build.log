@@ -1,0 +1,44 @@
+$ mfb build -ast -ir tests/syntax/functions/func_overload_value_no_match_invalid
+  25 | FUNC chooser() AS FUNC(Integer) AS Boolean
+  26 |   ' Return position: no overload of conv returns Boolean.
+  27 |   RETURN conv
+     | ^
+tests/syntax/functions/func_overload_value_no_match_invalid/src/main.mfb:27 error[2-203-0144 TYPE_OVERLOAD_NO_MATCH]: no overload has the expected callable type
+               No overload of `conv` has the callable type `FUNC(Integer) AS Boolean`; its overloads are `FUNC(Integer) AS Integer`, `FUNC(Integer) AS String`.
+  30 | FUNC main AS Integer
+  31 |   ' No overload takes a Boolean.
+  32 |   LET a AS FUNC(Boolean) AS Integer = pick
+     | ^
+tests/syntax/functions/func_overload_value_no_match_invalid/src/main.mfb:32 error[2-203-0144 TYPE_OVERLOAD_NO_MATCH]: no overload has the expected callable type
+               No overload of `pick` has the callable type `FUNC(Boolean) AS Integer`; its overloads are `FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`.
+  32 |   LET a AS FUNC(Boolean) AS Integer = pick
+  33 |   ' No overload of pick returns a String.
+  34 |   LET b AS FUNC(Integer) AS String = pick
+     | ^
+tests/syntax/functions/func_overload_value_no_match_invalid/src/main.mfb:34 error[2-203-0144 TYPE_OVERLOAD_NO_MATCH]: no overload has the expected callable type
+               No overload of `pick` has the callable type `FUNC(Integer) AS String`; its overloads are `FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`.
+  34 |   LET b AS FUNC(Integer) AS String = pick
+  35 |   ' Arity differs.
+  36 |   LET c AS FUNC(Integer, Integer) AS Integer = pick
+     | ^
+tests/syntax/functions/func_overload_value_no_match_invalid/src/main.mfb:36 error[2-203-0144 TYPE_OVERLOAD_NO_MATCH]: no overload has the expected callable type
+               No overload of `pick` has the callable type `FUNC(Integer, Integer) AS Integer`; its overloads are `FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`.
+  36 |   LET c AS FUNC(Integer, Integer) AS Integer = pick
+  37 |   ' No overload is ISOLATED, so none satisfies an ISOLATED FUNC type.
+  38 |   LET d AS ISOLATED FUNC(Integer) AS Integer = pick
+     | ^
+tests/syntax/functions/func_overload_value_no_match_invalid/src/main.mfb:38 error[2-203-0144 TYPE_OVERLOAD_NO_MATCH]: no overload has the expected callable type
+               No overload of `pick` has the callable type `ISOLATED FUNC(Integer) AS Integer`; its overloads are `FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`.
+  38 |   LET d AS ISOLATED FUNC(Integer) AS Integer = pick
+  39 |   ' A non-callable expected type.
+  40 |   LET e AS Integer = pick
+     | ^
+tests/syntax/functions/func_overload_value_no_match_invalid/src/main.mfb:40 error[2-203-0144 TYPE_OVERLOAD_NO_MATCH]: no overload has the expected callable type
+               `pick` names overloaded functions (`FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`), which cannot be used where `Integer` is expected.
+  40 |   LET e AS Integer = pick
+  41 |   ' Argument position.
+  42 |   LET n = takes(pick)
+     | ^
+tests/syntax/functions/func_overload_value_no_match_invalid/src/main.mfb:42 error[2-203-0144 TYPE_OVERLOAD_NO_MATCH]: no overload has the expected callable type
+               No overload of `pick` has the callable type `FUNC(Boolean) AS Integer`; its overloads are `FUNC(Integer) AS Integer`, `FUNC(String) AS Integer`.
+[exit 1]

@@ -385,10 +385,23 @@ pub fn order_bindings_dependencies_first(
 /// package's, so moving them to the front, in their own order, is always sound;
 /// run it after [`order_bindings_dependencies_first`] so they precede the
 /// packages' too.
+///
+/// A manifest package carries its own copy of every builtin it imports, so the
+/// same bindings also arrive identity-prefixed (`<identity>.pkg.#JSON_DEPTH_LIMIT`,
+/// [`prefix_package_symbols`]). They move too: inside the package the injected
+/// builtin file follows the package's own files, so the package's
+/// `EXPORT LET doc AS json::Json = json::parse(…)` otherwise read the limit as
+/// zero. The leaf after the last `.` is the binding's own name; an internalized
+/// name carries no `.`.
 pub fn order_builtin_bindings_first(bindings: &mut Vec<IrBinding>) {
-    let (builtin, rest): (Vec<IrBinding>, Vec<IrBinding>) = std::mem::take(bindings)
-        .into_iter()
-        .partition(|binding| crate::internal_name::is_builtin_internal(&binding.name));
+    let (builtin, rest): (Vec<IrBinding>, Vec<IrBinding>) =
+        std::mem::take(bindings).into_iter().partition(|binding| {
+            let leaf = binding
+                .name
+                .rsplit_once('.')
+                .map_or(binding.name.as_str(), |(_, leaf)| leaf);
+            crate::internal_name::is_builtin_internal(leaf)
+        });
     bindings.extend(builtin);
     bindings.extend(rest);
 }

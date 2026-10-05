@@ -574,6 +574,10 @@ impl<'a> FileParser<'a> {
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&TokenKind::RBrace) {
+                    break;
+                }
             }
         }
         if !self.consume_kind(TokenKind::RBrace, "Expected `}` after WITH updates.") {
@@ -700,6 +704,10 @@ impl<'a> FileParser<'a> {
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&closing) {
+                    break;
+                }
             }
         }
         let detail = match closing {
@@ -744,6 +752,10 @@ impl<'a> FileParser<'a> {
                     depth = depth.max(self.expr_tree_depth);
                 }
                 if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&closing) {
                     break;
                 }
             }
@@ -1146,6 +1158,10 @@ impl<'a> FileParser<'a> {
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&TokenKind::RParen) {
+                    break;
+                }
             }
         }
         if !self.consume_kind(TokenKind::RParen, "Function type must close with `)`.") {
@@ -1240,6 +1256,10 @@ impl<'a> FileParser<'a> {
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&TokenKind::RBracket) {
+                    break;
+                }
             }
         }
         self.consume_kind(TokenKind::RBracket, "Expected `]` after list literal.");
@@ -1276,6 +1296,10 @@ impl<'a> FileParser<'a> {
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&TokenKind::RBrace) {
+                    break;
+                }
             }
         }
         self.consume_kind(TokenKind::RBrace, "Expected `}` after map literal.");
@@ -1303,6 +1327,10 @@ impl<'a> FileParser<'a> {
                 elements.push(self.parse_expression()?);
                 depth = depth.max(self.expr_tree_depth);
                 if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+                // bug-821: a trailing comma before the closer is allowed.
+                if self.check_kind(&TokenKind::RBrace) {
                     break;
                 }
             }

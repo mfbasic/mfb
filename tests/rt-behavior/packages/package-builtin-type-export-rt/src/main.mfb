@@ -1,0 +1,19 @@
+IMPORT io
+IMPORT builtin_type_pkg AS pkg
+
+' bug-823. This file imports none of `json`, `datetime` or `crypto`, yet the
+' package's exports name their types. Before the fix the build stopped at the
+' IMPORT with `PACKAGE_INVALID ... references unknown type json.Json`, even for
+' a program that only calls `answer`. Values of those types still pass from one
+' package call into another without this file naming the type.
+FUNC main AS Integer
+  io::print(toString(pkg::answer()))
+  LET doc = pkg::make()
+  io::print(pkg::show(doc))
+  io::print(toString(pkg::weigh(doc)))
+  LET value = pkg::box("[1,2]")
+  io::print(pkg::unbox(value))
+  LET at = pkg::leapDay()
+  io::print(pkg::iso(at))
+  RETURN 0
+END FUNC

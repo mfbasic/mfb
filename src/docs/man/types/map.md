@@ -24,6 +24,16 @@ LET ages = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
 LET empty AS Map OF String TO Integer = Map OF String TO Integer { }
 ```
 
+Like a list literal, a map literal can span lines, one entry per line, with a
+comma after the last entry if you like (`mfb man types list`):
+
+```
+LET rates = Map OF String TO Integer {
+  "USD" := 100,
+  "EUR" := 92,   ' per 100 USD
+}
+```
+
 ## Keys
 
 Map keys must be comparable: `Integer`, `Float`, `Fixed`, `Money`, `Boolean`,

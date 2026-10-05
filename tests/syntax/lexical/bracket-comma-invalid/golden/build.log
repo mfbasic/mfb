@@ -1,0 +1,86 @@
+$ mfb build -ast -ir tests/syntax/lexical/bracket-comma-invalid
+   2 | 
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+     |                                   ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:4 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   2 | 
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+     |                                    ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:4 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after binding.
+   2 | 
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+     |                                    ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:4 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   2 | 
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+     |                                    ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:4 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Statement is not recognized by the current parser.
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+     |                                     ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:5 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+     |                                       ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:5 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after binding.
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+     |                                        ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:5 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after expression.
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+     |                                        ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:5 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   3 | FUNC main() AS Nothing
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+     |                                        ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:5 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Statement is not recognized by the current parser.
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+   6 |   LET doubled AS List OF Integer = [1,, 2]
+     |                                       ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:6 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+   6 |   LET doubled AS List OF Integer = [1,, 2]
+     |                                         ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:6 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after binding.
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+   6 |   LET doubled AS List OF Integer = [1,, 2]
+     |                                          ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:6 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after expression.
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+   6 |   LET doubled AS List OF Integer = [1,, 2]
+     |                                          ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:6 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   4 |   LET empty AS List OF Integer = [,]
+   5 |   LET leading AS List OF Integer = [, 1]
+   6 |   LET doubled AS List OF Integer = [1,, 2]
+     |                                          ^
+tests/syntax/lexical/bracket-comma-invalid/src/main.mfb:6 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Statement is not recognized by the current parser.
+[exit 1]

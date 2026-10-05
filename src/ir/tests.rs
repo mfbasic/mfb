@@ -559,6 +559,59 @@ mod binary_repr_tests {
         );
     }
 
+    // A manifest package carries its own copy of each builtin it imports, so its
+    // builtin bindings reach the merge identity-prefixed
+    // (`<identity>.pkg.#JSON_DEPTH_LIMIT`). They initialize first too: the
+    // package's own `EXPORT LET doc AS json::Json = json::parse(…)` sorts
+    // before the injected `builtins/json.mfb` file's bindings in the package,
+    // and used to read the depth limit as zero ("nested too deeply"). A
+    // package's mangled PRIVATE binding (`<identity>.pkg.#<hash>$name`) is the
+    // package's and stays where it was.
+    #[test]
+    fn a_package_s_builtin_bindings_initialize_first() {
+        fn binding(name: &str) -> crate::ir::IrBinding {
+            crate::ir::IrBinding {
+                name: name.to_string(),
+                visibility: "public".to_string(),
+                mutable: false,
+                type_: crate::types::ParameterType::Integer,
+                value: None,
+                loc: crate::ir::IrSourceLoc { line: 1, column: 1 },
+                file: String::new(),
+                explicit_type: true,
+            }
+        }
+        let private = format!(
+            "1a4a95166428bc0c.pkg.{}",
+            crate::internal_name::mangle_private(
+                &crate::internal_name::file_scope_hash("src/lib.mfb"),
+                "secret",
+            )
+        );
+        let mut bindings: Vec<_> = [
+            "1a4a95166428bc0c.pkg.DOC",
+            private.as_str(),
+            "1a4a95166428bc0c.pkg.#JSON_DEPTH_LIMIT",
+            "own1",
+            "#JSON_DEPTH_LIMIT",
+        ]
+        .into_iter()
+        .map(binding)
+        .collect();
+        crate::ir::order_builtin_bindings_first(&mut bindings);
+        let order: Vec<&str> = bindings.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(
+            order,
+            vec![
+                "1a4a95166428bc0c.pkg.#JSON_DEPTH_LIMIT",
+                "#JSON_DEPTH_LIMIT",
+                "1a4a95166428bc0c.pkg.DOC",
+                private.as_str(),
+                "own1",
+            ]
+        );
+    }
+
     // A stateful link function (`return_state_type`/`bind_state`) rides the
     // optional STATE trailer, and its `BIND IN` block rides the positional
     // record — both must survive the encode/decode round trip (plan-53 / plan-50-E).

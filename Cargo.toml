@@ -184,6 +184,10 @@ name = "cli_fmt_nesting_depth"
 path = "tests/cli/cli_fmt_nesting_depth.rs"
 
 [[test]]
+name = "cli_fmt_multiline_brackets"
+path = "tests/cli/cli_fmt_multiline_brackets.rs"
+
+[[test]]
 name = "cli_fmt_scalar_quote"
 path = "tests/cli/cli_fmt_scalar_quote.rs"
 
@@ -925,6 +929,14 @@ path = "tests/runtime/rt_imported_record_map_field_keys.rs"
 [[test]]
 name = "rt_imported_overload_imported_field_argument"
 path = "tests/runtime/rt_imported_overload_imported_field_argument.rs"
+
+[[test]]
+name = "rt_overloaded_function_values"
+path = "tests/runtime/rt_overloaded_function_values.rs"
+
+[[test]]
+name = "rt_monomorph_diagnostic_order"
+path = "tests/runtime/rt_monomorph_diagnostic_order.rs"
 
 [[test]]
 name = "rt_imported_type_name_collision"

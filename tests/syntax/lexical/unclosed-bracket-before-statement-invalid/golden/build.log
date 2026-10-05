@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/lexical/unclosed-bracket-before-statement-invalid
+   2 | 
+   3 | FUNC main() AS Nothing
+   4 |   LET xs AS List OF Integer = [1, 2
+     |                               ^
+tests/syntax/lexical/unclosed-bracket-before-statement-invalid/src/main.mfb:4 error[1-101-0006 MFB_LEX_UNCLOSED_BRACKET]: bracket is never closed
+               `[` is never closed: `IF` on line 5 begins a new statement before its closing `]`.
+   6 |     io::print("non-empty")
+   7 |   END IF
+   8 |   LET total = sum(xs
+     |                  ^
+tests/syntax/lexical/unclosed-bracket-before-statement-invalid/src/main.mfb:8 error[1-101-0006 MFB_LEX_UNCLOSED_BRACKET]: bracket is never closed
+               `(` is never closed: `END` on line 10 begins a new statement before its closing `)`.
+[exit 1]

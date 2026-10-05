@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT builtin_record_pkg
+
+' bug-823 lets this file import a package whose exports name
+' `datetime::DateTime` without importing `datetime` itself. It does not make
+' the record's fields readable here: bug-466 still requires the file's own
+' `IMPORT datetime` for `at.date`.
+FUNC main AS Integer
+  LET at = builtin_record_pkg::leapDay()
+  io::print(toString(at.date.year))
+  RETURN 0
+END FUNC

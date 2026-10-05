@@ -1,0 +1,176 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "isolated-callable-call-rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "shared", "line": 22, "visibility": "public", "mutable": false, "type": "ISOLATED FUNC(String) AS Integer", "value": { "kind": "functionRef", "name": "scaled", "type": "ISOLATED FUNC(String) AS Integer" } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "scaled",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 11, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 12, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "x" }] }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }
+    ]
+  },
+  {
+    "name": "strict",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 15, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 16,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "String", "value": "" } },
+      "then": [
+      { "op": "fail", "line": 17, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050009" }, { "kind": "const", "type": "String", "value": "empty" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "17" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 19, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "run",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 24, "type": "ISOLATED FUNC(String) AS Integer", "default": null },
+    { "name": "x", "line": 24, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 25, "value": { "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 29, "mutable": false, "name": "f", "type": "ISOLATED FUNC(String) AS Integer", "value": { "kind": "functionRef", "name": "scaled", "type": "ISOLATED FUNC(String) AS Integer" } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "const", "type": "String", "value": "ab" }] }] }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "shared", "args": [{ "kind": "const", "type": "String", "value": "abc" }] }] }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "run", "args": [{ "kind": "functionRef", "name": "scaled", "type": "ISOLATED FUNC(String) AS Integer" }, { "kind": "const", "type": "String", "value": "abcd" }] }] }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "g", "type": "ISOLATED FUNC(String) AS Integer", "value": { "kind": "functionRef", "name": "strict", "type": "ISOLATED FUNC(String) AS Integer" } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "g", "args": [{ "kind": "const", "type": "String", "value": "abcd" }] } },
+    { "op": "bind", "line": 34, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "line": 34,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 34, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "assign", "line": 35, "name": "$trap_val1", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    { "op": "bind", "line": 34, "mutable": false, "name": "ok", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ok" }] }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "g", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 38, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "line": 38,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      { "op": "assign", "line": 38, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
+      ],
+      "else": [
+      { "op": "assign", "line": 39, "name": "$trap_val3", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9" } } }
+      ]
+    },
+    { "op": "bind", "line": 38, "mutable": false, "name": "failed", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "failed" }] }] } },
+    { "op": "return", "line": 42, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

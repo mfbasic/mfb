@@ -30,6 +30,8 @@ LET empty AS Set OF Integer = Set OF Integer { }
 LET collapsed = Set OF Integer { 1, 1, 2 }   ' holds 1 and 2 — len is 2
 ```
 
+A set literal can span lines like a list literal (`mfb man types list`).
+
 ## Elements
 
 A set element must be comparable: `Integer`, `Float`, `Fixed`, `Money`,

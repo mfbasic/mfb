@@ -1,0 +1,35 @@
+{
+  "project": "package_builtin_type_export_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "builtin_type_pkg", "alias": "pkg", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pkg.answer", "arguments": [] }] }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "doc", "type": null, "value": { "kind": "call", "callee": "pkg.make", "arguments": [] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "pkg.show", "arguments": [{ "kind": "identifier", "value": "doc" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pkg.weigh", "arguments": [{ "kind": "identifier", "value": "doc" }] }] }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": null, "value": { "kind": "call", "callee": "pkg.box", "arguments": [{ "kind": "string", "value": "[1,2]" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "pkg.unbox", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "at", "type": null, "value": { "kind": "call", "callee": "pkg.leapDay", "arguments": [] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "pkg.iso", "arguments": [{ "kind": "identifier", "value": "at" }] }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
+      ]
+    }
+    ]
+  }
+  ]
+}

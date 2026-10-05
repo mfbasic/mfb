@@ -77,12 +77,12 @@ densely fill it.
 | code prefix | subsystem | rules |
 | --- | --- | --- |
 | `1-100` | MFBASIC source intake (read/root/overlap) | 5 |
-| `1-101` | lexer | 5 |
+| `1-101` | lexer | 6 |
 | `1-102` | parser | 13 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 19 |
 | `2-201` | imports & symbol resolution | 20 |
-| `2-203` | semantic checking (typing, ownership, native ABI) | 137 |
+| `2-203` | semantic checking (typing, ownership, native ABI) | 138 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
 | `2-208` | test framework (assertion builtins) | 7 |
 | `3-302` | verification | 1 |
@@ -245,6 +245,7 @@ their unused message text. [[src/rules/table.rs:RULES]] Unless noted, severity i
 | `1-101-0003` | `MFB_LEX_INVALID_UNICODE_ESCAPE` | error | `\u{...}` string escape is malformed |
 | `1-101-0004` | `MFB_LEX_MALFORMED_NUMBER` | error | numeric literal is malformed |
 | `1-101-0005` | `MFB_LEX_NUMBER_OUT_OF_RANGE` | error | numeric literal is out of range |
+| `1-101-0006` | `MFB_LEX_UNCLOSED_BRACKET` | error | bracket is never closed |
 
 ### `1-102` — Parser
 
@@ -481,6 +482,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0139` | `EXPORT_NAMES_NON_EXPORTED_TYPE` | error | an exported declaration names a type the package does not export |
 | `2-203-0140` | `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` | error | a ThreadWorker cannot cross to another thread |
 | `2-203-0143` | `TYPE_TRAP_LOCAL_UNINITIALIZED` | error | a TRAP handler reads a local that an error can reach before it is declared |
+| `2-203-0144` | `TYPE_OVERLOAD_NO_MATCH` | error | no overload has the expected callable type |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one RES parameter of its resource |

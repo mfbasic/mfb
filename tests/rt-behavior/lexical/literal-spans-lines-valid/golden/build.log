@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/rt-behavior/lexical/literal-spans-lines-valid
+Wrote AST to tests/rt-behavior/lexical/literal-spans-lines-valid/literal_spans_lines_valid.ast
+Wrote IR to tests/rt-behavior/lexical/literal-spans-lines-valid/literal_spans_lines_valid.ir
+[exit 0]
+$ mfb build tests/rt-behavior/lexical/literal-spans-lines-valid
+Wrote executable to tests/rt-behavior/lexical/literal-spans-lines-valid/build/literal_spans_lines_valid.out
+[exit 0]
+$ tests/rt-behavior/lexical/literal-spans-lines-valid/build/literal_spans_lines_valid.out
+count=180 first=AED last=ZWG
+list break-after-comma ok
+list break-after-open ok
+list leading-comma ok
+list trailing-comma+comments ok
+strings-with-brackets ok
+map multi ok
+map leading-comma ok
+set multi ok
+record positional ok
+record named ok
+with-update ok
+call args ok
+paren expr ok
+lambda in call ok
+nested ok
+underscore continuation ok
+[exit 0]

@@ -1,0 +1,31 @@
+' bug-822: an overloaded function named as a value is selected by the callable
+' type its context expects. With no expected type there is nothing to select
+' by: each reference is TYPE_OVERLOAD_AMBIGUOUS, naming the declared overloads,
+' and never an undeclared identifier.
+IMPORT io
+
+FUNC pick(x AS Integer) AS Integer
+  RETURN x + 1
+END FUNC
+
+FUNC pick(x AS String) AS Integer
+  RETURN len(x)
+END FUNC
+
+FUNC conv(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC conv(x AS Integer) AS String
+  RETURN toString(x)
+END FUNC
+
+FUNC main AS Integer
+  ' An untyped binding: a parameter-type overload set.
+  LET f = pick
+  ' An untyped binding: a return-type overload set.
+  LET g = conv
+  ' A position with no callable expected type.
+  io::print(typeName(pick))
+  RETURN 0
+END FUNC

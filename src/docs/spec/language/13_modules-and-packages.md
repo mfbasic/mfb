@@ -42,7 +42,7 @@ order within each file. The source-file order is the final ascending display-pat
 sort across all selected files, not filesystem traversal or `sources[]` entry
 order; `./mfb spec tooling source-selection` owns the selection algorithm.
 [[src/ast/manifest.rs:collect_selected_source_files]]
-[[src/ast/manifest.rs:parse_project]] [[src/ir/package.rs:order_bindings_dependencies_first]] A builtin package's own top-level bindings — the tables and limits its injected source declares, such as `json`'s parse-depth limit or `compress`'s CRC table — initialize before all of these, so a top-level initializer may call `json::parse`, `compress::crc32` or `color::fromName`. They are recognized by their internalized names, which no program can spell. [[src/ir/package.rs:order_builtin_bindings_first]] [[src/internal_name.rs:is_builtin_internal]]
+[[src/ast/manifest.rs:parse_project]] [[src/ir/package.rs:order_bindings_dependencies_first]] A builtin package's own top-level bindings — the tables and limits its injected source declares, such as `json`'s parse-depth limit or `compress`'s CRC table — initialize before all of these, so a top-level initializer may call `json::parse`, `compress::crc32` or `color::fromName`. That holds for a package's initializers too: the copy of a builtin that a package carries has its bindings initialized first as well. They are recognized by their internalized names, which no program can spell, with any package identity prefix removed. [[src/ir/package.rs:order_builtin_bindings_first]] [[src/internal_name.rs:is_builtin_internal]]
 
 Initialization is sequential and eager; it does not sort bindings by the
 globals their expressions or called functions read, nor lazily initialize a
@@ -216,6 +216,19 @@ closure, including `origin`, so its definition is available for merging.
 [[src/resolver/resolution.rs:resolve_type]]
 [[src/manifest/package.rs:qualify_package_type]]
 [[src/manifest/closure.rs:check]]
+
+A builtin package's type crosses a package boundary the same way, with no
+manifest entry to declare. A package that imports `json` may export
+`FUNC render(data AS json::Json) AS String`. It does not export `json.Json`
+(`./mfb spec package type-table`); an importer resolves that type from the
+compiler's own definition of the builtin, whether or not the importer imports
+`json` itself. So an application with no `IMPORT json` can import that package,
+call any of its functions, and pass a `json::Json` value from one call into
+another. Two things still need the application file's own `IMPORT` of the
+builtin: writing the type's name (`LET doc AS json::Json = ...`, otherwise
+`SYMBOL_UNKNOWN_IMPORT`), and reading a builtin record's fields (`d.date` on a
+`datetime::DateTime` a dependency returned needs `IMPORT datetime`).
+[[src/ir/shape.rs:is_builtin_package_type]]
 
 ## Source-level API compatibility
 

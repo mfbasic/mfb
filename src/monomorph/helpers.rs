@@ -23,17 +23,27 @@ pub(super) fn opt_type_name(type_: &ParameterType) -> Option<String> {
     opt_type(type_).map(|type_| type_.name().into_owned())
 }
 
+/// Whether `value` is an operand whose lowering consults an expected
+/// (contextual) type: a call, where a return-type overload set needs the context
+/// to resolve (plan-01-overload.md §F.2), or a bare name, which may reference an
+/// overloaded function as a value and select the member of that callable type
+/// (bug-822). Other operands keep their own inferred typing.
+pub(super) fn consults_expected(value: &HirExpression) -> bool {
+    matches!(
+        value,
+        HirExpression::Call { .. } | HirExpression::Identifier(_)
+    )
+}
+
 /// The expected (contextual) type for an argument slot: the selected parameter's
-/// declared type, but only when the argument is itself a call — the one position
-/// where a return-type overload set needs the context to resolve
-/// (plan-01-overload.md §F.2). Returns `None` otherwise so literals keep their own
-/// inferred typing.
+/// declared type, but only for an operand that [`consults_expected`]. Returns
+/// `None` otherwise so literals keep their own inferred typing.
 pub(super) fn arg_slot_expected<'a>(
     value: &HirExpression,
     params: Option<&'a [HirParam]>,
     select: impl FnOnce(&'a [HirParam]) -> Option<&'a HirParam>,
 ) -> Option<ParameterType> {
-    if !matches!(value, HirExpression::Call { .. }) {
+    if !consults_expected(value) {
         return None;
     }
     opt_type(&select(params?)?.type_)
@@ -174,7 +184,7 @@ fn refines(general: &ParameterType, specific: &ParameterType) -> bool {
 ///   byte-identical to the old string equality because `parse`/`name` is a
 ///   bijection over this vocabulary, and the concrete side is never a `Var`.
 /// bug-752: `type_` without a top-level `RES` ownership marker.
-fn strip_res(type_: &ParameterType) -> &ParameterType {
+pub(super) fn strip_res(type_: &ParameterType) -> &ParameterType {
     match type_ {
         ParameterType::Res(inner) => inner,
         other => other,
@@ -423,8 +433,20 @@ pub(super) fn substitute_type_params(
                 .map(|arg| substitute_type_params(arg, substitutions))
                 .collect(),
         ),
-        // Any other type (scalar, concrete nominal, `FUNC(...)`, `RES`) is identity —
-        // the old string algorithm had no arm for these and did not descend into them.
+        // A callable substitutes its parameter and return types, keeping its
+        // isolation. Without this a generic body's `LET f AS FUNC(T) AS T = …`
+        // kept the template parameter in its expected type, so no return-type
+        // overload of the call could ever equal it (found with bug-822).
+        ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+            params
+                .iter()
+                .map(|param| substitute_type_params(param, substitutions))
+                .collect(),
+            Box::new(substitute_type_params(ret, substitutions)),
+            *isolated,
+        ),
+        // Any other type (scalar, concrete nominal, `RES`) is identity — the old
+        // string algorithm had no arm for these and did not descend into them.
         other => other.clone(),
     }
 }
@@ -572,6 +594,11 @@ pub(super) fn collect_imported_overloads(
                     // (`IMPORT pkg AS radio`). When the import is unaliased,
                     // binding == package, so this is unchanged (bug-104).
                     qualified_name: format!("{binding}.{}", export.name),
+                    return_type: crate::manifest::package::qualify_package_type(
+                        &export.return_type,
+                        &owners,
+                    ),
+                    isolated: export.isolated,
                 });
             }
         }
@@ -702,6 +729,53 @@ pub(super) fn function_signature_types(function: &HirFunction) -> (ParameterType
         .collect::<Vec<_>>();
     let signature = ParameterType::Func(params, Box::new(returns.clone()), function.isolated);
     (returns, signature)
+}
+
+/// The callable type a reference to `function` as a value has: its declared
+/// parameter types, its return type — `Nothing` when it declares none — and its
+/// isolation. Parameter names and defaults are not part of it.
+pub(super) fn reference_signature(function: &HirFunction) -> ParameterType {
+    match function_signature_types(function).1 {
+        ParameterType::Func(params, returns, isolated) if *returns == ParameterType::Unknown => {
+            ParameterType::Func(params, Box::new(ParameterType::Nothing), isolated)
+        }
+        signature => signature,
+    }
+}
+
+/// Whether a member of callable type `candidate` may be selected where the
+/// callable type `expected` is required: the same number of parameters, each
+/// equal to the expected one up to a top-level `RES` marker (bug-752), an equal
+/// return type, and isolation whenever `expected` demands it (an `ISOLATED`
+/// member may widen to a plain `FUNC`, bug-786). A non-callable `expected`
+/// selects nothing.
+pub(super) fn callable_matches(expected: &ParameterType, candidate: &ParameterType) -> bool {
+    callable_matches_with(expected, candidate, |want, have| {
+        strip_res(want) == strip_res(have)
+    })
+}
+
+/// [`callable_matches`] with the per-type comparison supplied by the caller
+/// (imported members compare package types the way an imported call does).
+pub(super) fn callable_matches_with(
+    expected: &ParameterType,
+    candidate: &ParameterType,
+    same: impl Fn(&ParameterType, &ParameterType) -> bool,
+) -> bool {
+    let (
+        ParameterType::Func(want_params, want_return, want_isolated),
+        ParameterType::Func(have_params, have_return, have_isolated),
+    ) = (expected, candidate)
+    else {
+        return false;
+    };
+    want_params.len() == have_params.len()
+        && (!want_isolated || *have_isolated)
+        && same(want_return, have_return)
+        && want_params
+            .iter()
+            .zip(have_params)
+            .all(|(want, have)| same(want, have))
 }
 
 #[cfg(test)]
@@ -1140,6 +1214,69 @@ mod tests {
         assert_eq!(substitute_str("Map OF T", &s), "Map OF T");
         // Malformed MapEntry (no TO) also falls through.
         assert_eq!(substitute_str("MapEntry OF T", &s), "MapEntry OF T");
+        // A callable substitutes its parameters and return, keeping isolation.
+        assert_eq!(
+            substitute_str("FUNC(T, List OF U) AS T", &s),
+            "FUNC(Integer, List OF String) AS Integer"
+        );
+        assert_eq!(
+            substitute_str("ISOLATED FUNC(T) AS Nothing", &s),
+            "ISOLATED FUNC(Integer) AS Nothing"
+        );
+    }
+
+    /// bug-822: a reference to an overload member is selected by its complete
+    /// callable type — parameters, return and isolation.
+    #[test]
+    fn callable_matches_compares_the_complete_callable_type() {
+        let t = ParameterType::parse;
+        let plain = t("FUNC(Integer) AS Integer");
+        let isolated = t("ISOLATED FUNC(Integer) AS Integer");
+        assert!(callable_matches(&plain, &plain));
+        // An isolated member widens to a plain slot; the reverse does not.
+        assert!(callable_matches(&plain, &isolated));
+        assert!(!callable_matches(&isolated, &plain));
+        assert!(callable_matches(&isolated, &isolated));
+        // Return type and every parameter type count; so does arity.
+        assert!(!callable_matches(&t("FUNC(Integer) AS String"), &plain));
+        assert!(!callable_matches(&t("FUNC(String) AS Integer"), &plain));
+        assert!(!callable_matches(
+            &t("FUNC(Integer, Integer) AS Integer"),
+            &plain
+        ));
+        // A top-level RES marker on a parameter is not part of the identity.
+        assert!(callable_matches(
+            &t("FUNC(RES fs.File) AS Integer"),
+            &t("FUNC(fs.File) AS Integer")
+        ));
+        // A non-callable expected type selects nothing.
+        assert!(!callable_matches(&ParameterType::Integer, &plain));
+    }
+
+    #[test]
+    fn reference_signature_defaults_a_missing_return_to_nothing() {
+        let declared = func("f", vec![param("a", Some("String"))], Some("Integer"));
+        assert_eq!(
+            reference_signature(&declared).name(),
+            "FUNC(String) AS Integer"
+        );
+        let effect = func("g", vec![param("a", Some("String"))], None);
+        assert_eq!(
+            reference_signature(&effect).name(),
+            "FUNC(String) AS Nothing"
+        );
+    }
+
+    #[test]
+    fn arg_slot_expected_for_calls_and_bare_names() {
+        let params = vec![param("f", Some("FUNC(Integer) AS Integer"))];
+        let reference = HirExpression::Identifier("pick".to_string());
+        assert_eq!(
+            arg_slot_expected(&reference, Some(&params), |p| p.first()),
+            Some(ParameterType::parse("FUNC(Integer) AS Integer"))
+        );
+        assert!(consults_expected(&reference));
+        assert!(!consults_expected(&HirExpression::Number("1".to_string())));
     }
 
     #[test]

@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/syntax/packages/package-builtin-record-field-needs-import-invalid
+Wrote package to tests/syntax/packages/package-builtin-record-field-needs-import-invalid/build/packages/builtin_record_pkg.mfp
+uses builtin_record_pkg - [Unsigned]
+   8 | FUNC main AS Integer
+   9 |   LET at = builtin_record_pkg::leapDay()
+  10 |   io::print(toString(at.date.year))
+     | ^
+tests/syntax/packages/package-builtin-record-field-needs-import-invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Unknown), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum.
+   8 | FUNC main AS Integer
+   9 |   LET at = builtin_record_pkg::leapDay()
+  10 |   io::print(toString(at.date.year))
+     | ^
+tests/syntax/packages/package-builtin-record-field-needs-import-invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Field `date` belongs to `datetime::DateTime`, whose fields are not visible in this file. Imports are not transitive and a package cannot re-export another's types, so add `IMPORT datetime`.
+[exit 1]

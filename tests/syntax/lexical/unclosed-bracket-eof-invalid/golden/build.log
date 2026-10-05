@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/lexical/unclosed-bracket-eof-invalid
+   2 | 
+   3 | FUNC main() AS Nothing
+   4 |   LET codes AS List OF String = [
+     |                                 ^
+tests/syntax/lexical/unclosed-bracket-eof-invalid/src/main.mfb:4 error[1-101-0006 MFB_LEX_UNCLOSED_BRACKET]: bracket is never closed
+               `[` is never closed: the end of the file was reached before its closing `]`.
+[exit 1]

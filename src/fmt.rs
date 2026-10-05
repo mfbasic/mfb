@@ -98,15 +98,34 @@ pub fn format_source(source: &str, indent_width: usize) -> Result<String, Format
         }
 
         // Gather a logical line: a leading physical line plus any continuation
-        // lines (each previous physical line ending in a trailing `_`).
+        // lines — each previous physical line ending in a trailing `_`, or
+        // ending inside an open `(`, `[` or `{` (bug-821, the lexer's rule).
         let first_physical_line = i + 1;
         let mut cased_lines: Vec<String> = Vec::new();
+        // Per gathered line, where its code ends (see `Scanned::code_end`).
+        let mut code_ends: Vec<Option<(usize, bool)>> = Vec::new();
         let mut sig: Vec<Sig> = Vec::new();
+        let mut depth = 0usize;
         loop {
             let phys = strip_cr(lines[i]);
-            let scanned = scan_line(phys);
-            let continues = matches!(scanned.sig.last(), Some(Sig::Underscore));
-            cased_lines.push(scanned.cased);
+            let mut scanned = scan_line(phys, !cased_lines.is_empty());
+            if depth > 0 {
+                normalize_leading_comma(&mut scanned, &mut cased_lines, &mut code_ends);
+            }
+            for &open in &scanned.brackets {
+                depth = if open {
+                    depth + 1
+                } else {
+                    depth.saturating_sub(1)
+                };
+            }
+            let continues = matches!(scanned.sig.last(), Some(Sig::Underscore))
+                || (depth > 0 && i + 1 < n && !begins_statement(lines[i + 1]));
+            // A line left holding nothing but the comma it gave up is dropped.
+            if !(scanned.leading_comma.is_some() && scanned.cased.trim().is_empty()) {
+                cased_lines.push(scanned.cased);
+                code_ends.push(scanned.code_end);
+            }
             sig.extend(scanned.sig);
             if continues && i + 1 < n {
                 i += 1;
@@ -158,6 +177,51 @@ pub fn format_source(source: &str, indent_width: usize) -> Result<String, Format
     Ok(result)
 }
 
+/// bug-821: rewrite a leading-comma line inside an open bracket (`, "B"`) to
+/// the trailing-comma form: the comma moves to just after the code on the
+/// nearest earlier line of the same logical line (before any `'` comment or
+/// `_`), and becomes a space where it stood so the element keeps its column.
+/// Nothing moves when there is no earlier code, or that code already ends in an
+/// opening bracket or a comma (`[⏎, a` and `a,⏎, b` are malformed; the parser
+/// reports them, and the formatter re-emits malformed source as written).
+fn normalize_leading_comma(
+    scanned: &mut Scanned,
+    cased_lines: &mut [String],
+    code_ends: &mut [Option<(usize, bool)>],
+) {
+    let Some(at) = scanned.leading_comma else {
+        return;
+    };
+    let Some(prev) = code_ends.iter().rposition(Option::is_some) else {
+        scanned.leading_comma = None;
+        return;
+    };
+    let Some((end, false)) = code_ends[prev] else {
+        scanned.leading_comma = None;
+        return;
+    };
+    cased_lines[prev].insert(end, ',');
+    code_ends[prev] = Some((end + 1, true));
+    scanned.cased.replace_range(at..at + 1, " ");
+    // The comma was this line's only code: nothing is left to end it.
+    if scanned.code_end == Some((at + 1, true)) {
+        scanned.code_end = None;
+    }
+}
+
+/// Whether a physical line opens with a keyword that can only begin a
+/// statement (`lexer::begins_statement_only`). Inside an open bracket such a
+/// line proves the bracket was left unclosed, so — as the lexer does — the
+/// formatter stops continuing the logical line there rather than swallowing
+/// the rest of the file into it.
+fn begins_statement(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let end = trimmed
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(trimmed.len());
+    lexer::lookup_keyword(&trimmed[..end]).is_some_and(lexer::begins_statement_only)
+}
+
 fn strip_cr(line: &str) -> &str {
     line.strip_suffix('\r').unwrap_or(line)
 }
@@ -183,11 +247,25 @@ enum Sig {
 struct Scanned {
     cased: String,
     sig: Vec<Sig>,
+    /// bug-821: the line's brackets in source order, `true` for an opener
+    /// (`(`, `[`, `{`) and `false` for a closer. Brackets inside strings,
+    /// scalars and comments are not code and do not appear.
+    brackets: Vec<bool>,
+    /// Byte offset in `cased` of a `,` that is the line's first significant
+    /// token (a leading-comma layout inside an open bracket).
+    leading_comma: Option<usize>,
+    /// Byte offset in `cased` just past the line's last significant token,
+    /// ignoring a trailing `_` continuation marker, and whether that token was
+    /// an opening bracket or a comma (after which no comma may be added).
+    code_end: Option<(usize, bool)>,
 }
 
 /// Re-emit one physical line with keywords uppercased, preserving everything
-/// else verbatim, and collect its significant tokens.
-fn scan_line(line: &str) -> Scanned {
+/// else verbatim, and collect its significant tokens. `continuation` marks a
+/// line that continues the previous one (after a trailing `_`, or inside an
+/// open bracket): it does not start a statement, so a leading `REM` there is an
+/// identifier, exactly as the lexer reads it.
+fn scan_line(line: &str, continuation: bool) -> Scanned {
     let chars: Vec<char> = line.chars().collect();
     let n = chars.len();
     let mut out = String::new();
@@ -198,7 +276,10 @@ fn scan_line(line: &str) -> Scanned {
     let mut suppress = false;
     // `stmt_start` marks the start of a statement (line start or after `:`),
     // where a leading `REM` introduces a comment.
-    let mut stmt_start = true;
+    let mut stmt_start = !continuation;
+    let mut brackets = Vec::new();
+    let mut leading_comma = None;
+    let mut code_end: Option<(usize, bool)> = None;
     // The previous significant word (keyword or identifier), lowercased. Used to
     // keep `Nothing` as a type name in a type position (`AS`/`OF`/`TO Nothing`),
     // distinct from the value `NOTHING` — `OF` is not a lexer keyword, so a plain
@@ -238,6 +319,7 @@ fn scan_line(line: &str) -> Scanned {
                     }
                 }
                 sig.push(Sig::Other);
+                code_end = Some((out.len(), false));
                 suppress = false;
                 stmt_start = false;
             }
@@ -268,6 +350,7 @@ fn scan_line(line: &str) -> Scanned {
                     }
                 }
                 sig.push(Sig::Other);
+                code_end = Some((out.len(), false));
                 suppress = false;
                 stmt_start = false;
             }
@@ -285,6 +368,7 @@ fn scan_line(line: &str) -> Scanned {
                     }
                 }
                 sig.push(Sig::Other);
+                code_end = Some((out.len(), false));
                 suppress = false;
                 stmt_start = false;
             }
@@ -317,6 +401,7 @@ fn scan_line(line: &str) -> Scanned {
                             out.push_str(&word.to_ascii_uppercase());
                         }
                         sig.push(Sig::Kw(kw));
+                        code_end = Some((out.len(), false));
                         prev_word = Some(word.to_ascii_lowercase());
                         suppress = false;
                         stmt_start = false;
@@ -325,11 +410,12 @@ fn scan_line(line: &str) -> Scanned {
                 }
 
                 out.push_str(&word);
-                sig.push(if word == "_" {
-                    Sig::Underscore
+                if word == "_" {
+                    sig.push(Sig::Underscore);
                 } else {
-                    Sig::Other
-                });
+                    sig.push(Sig::Other);
+                    code_end = Some((out.len(), false));
+                }
                 prev_word = Some(word.to_ascii_lowercase());
                 suppress = false;
                 stmt_start = false;
@@ -340,18 +426,21 @@ fn scan_line(line: &str) -> Scanned {
                     out.push_str("::");
                     i += 2;
                     sig.push(Sig::Other);
+                    code_end = Some((out.len(), false));
                     suppress = true;
                     stmt_start = false;
                 } else if chars.get(i + 1) == Some(&'=') {
                     out.push_str(":=");
                     i += 2;
                     sig.push(Sig::Other);
+                    code_end = Some((out.len(), false));
                     suppress = false;
                     stmt_start = false;
                 } else {
                     out.push(':');
                     i += 1;
                     sig.push(Sig::Other);
+                    code_end = Some((out.len(), false));
                     suppress = false;
                     stmt_start = true;
                 }
@@ -360,13 +449,23 @@ fn scan_line(line: &str) -> Scanned {
                 out.push('.');
                 i += 1;
                 sig.push(Sig::Other);
+                code_end = Some((out.len(), false));
                 suppress = true;
                 stmt_start = false;
             }
             _ => {
+                if c == ',' && sig.is_empty() {
+                    leading_comma = Some(out.len());
+                }
+                match c {
+                    '(' | '[' | '{' => brackets.push(true),
+                    ')' | ']' | '}' => brackets.push(false),
+                    _ => {}
+                }
                 out.push(c);
                 i += 1;
                 sig.push(if c == '(' { Sig::LParen } else { Sig::Other });
+                code_end = Some((out.len(), matches!(c, '(' | '[' | '{' | ',')));
                 suppress = false;
                 stmt_start = false;
             }
@@ -376,7 +475,13 @@ fn scan_line(line: &str) -> Scanned {
         prev_word = None;
     }
 
-    Scanned { cased: out, sig }
+    Scanned {
+        cased: out,
+        sig,
+        brackets,
+        leading_comma,
+        code_end,
+    }
 }
 
 // --- Block structure -------------------------------------------------------
@@ -1356,5 +1461,176 @@ mod tests {
             "END LINK\n",
         );
         assert_eq!(fmt(input), expected);
+    }
+
+    // ---- bug-821: lines inside an open bracket ----
+
+    /// Formats `input`, checks the result against `expected`, and checks that
+    /// formatting the result again changes nothing (idempotence).
+    fn fmt_fixed_point(input: &str, expected: &str) {
+        let once = fmt(input);
+        assert_eq!(once, expected);
+        assert_eq!(
+            fmt(&once),
+            once,
+            "formatting twice must equal formatting once"
+        );
+    }
+
+    #[test]
+    fn multi_line_bracket_layouts_are_preserved() {
+        // Lines inside an open bracket continue the logical line: they keep
+        // their own leading whitespace, are never re-indented to the block
+        // level, and the block depth after the literal is unchanged.
+        fmt_fixed_point(
+            concat!(
+                "func main() as nothing\n",
+                "let a = [\n",
+                "    \"x\", \"y\",\n",
+                "\"z\"\n",
+                "  ]\n",
+                "let m = Map OF String TO Integer {\n",
+                "      \"k\" := 1,  ' trailing comment ]\n",
+                "      \"(\" := 2,\n",
+                "  }\n",
+                "if f(1,\n",
+                "     2) then\n",
+                "return\n",
+                "end if\n",
+                "end func\n",
+            ),
+            concat!(
+                "FUNC main() AS Nothing\n",
+                "  LET a = [\n",
+                "    \"x\", \"y\",\n",
+                "\"z\"\n",
+                "  ]\n",
+                "  LET m = Map OF String TO Integer {\n",
+                "      \"k\" := 1,  ' trailing comment ]\n",
+                "      \"(\" := 2,\n",
+                "  }\n",
+                "  IF f(1,\n",
+                "     2) THEN\n",
+                "    RETURN\n",
+                "  END IF\n",
+                "END FUNC\n",
+            ),
+        );
+    }
+
+    #[test]
+    fn multi_line_parameter_list_opens_one_block() {
+        fmt_fixed_point(
+            concat!(
+                "func add(\n",
+                "  a as Integer,\n",
+                "  b as Integer,\n",
+                ") as Integer\n",
+                "return a + b\n",
+                "end func\n",
+            ),
+            concat!(
+                "FUNC add(\n",
+                "  a AS Integer,\n",
+                "  b AS Integer,\n",
+                ") AS Integer\n",
+                "  RETURN a + b\n",
+                "END FUNC\n",
+            ),
+        );
+    }
+
+    #[test]
+    fn leading_commas_become_trailing_commas() {
+        fmt_fixed_point(
+            concat!(
+                "let codes = [ \"AED\"  ' first\n",
+                "            , \"AFN\"\n",
+                "            ,\n",
+                "            \"ALL\" _\n",
+                "            , \"AMD\"\n",
+                "            ]\n",
+                "let n = f(1\n",
+                ",2)\n",
+            ),
+            concat!(
+                "LET codes = [ \"AED\",  ' first\n",
+                "              \"AFN\",\n",
+                "            \"ALL\", _\n",
+                "              \"AMD\"\n",
+                "            ]\n",
+                "LET n = f(1,\n",
+                " 2)\n",
+            ),
+        );
+    }
+
+    #[test]
+    fn malformed_leading_commas_are_left_as_written() {
+        // No element before the comma, or a doubled comma: nothing to move.
+        fmt_fixed_point("LET a = [\n, 1]\n", "LET a = [\n, 1]\n");
+        fmt_fixed_point("LET a = [1,\n, 2]\n", "LET a = [1,\n, 2]\n");
+        // Outside a bracket a leading comma is not a continuation at all.
+        fmt_fixed_point("LET a = f(1)\n, 2\n", "LET a = f(1)\n, 2\n");
+    }
+
+    #[test]
+    fn brackets_in_strings_scalars_and_comments_do_not_continue_a_line() {
+        fmt_fixed_point(
+            concat!(
+                "func main() as nothing\n",
+                "let s = \"[(\" ' {\n",
+                "let c = `[`\n",
+                "rem (\n",
+                "let t = 1\n",
+                "end func\n",
+            ),
+            concat!(
+                "FUNC main() AS Nothing\n",
+                "  LET s = \"[(\" ' {\n",
+                "  LET c = `[`\n",
+                "  rem (\n",
+                "  LET t = 1\n",
+                "END FUNC\n",
+            ),
+        );
+    }
+
+    #[test]
+    fn rem_inside_a_continuation_is_an_identifier_like_the_lexer_reads_it() {
+        // The lexer emits no statement break inside a bracket or after `_`, so
+        // a line-leading `REM` there is an identifier, not a comment: the words
+        // after it are code and are cased.
+        fmt_fixed_point(
+            "LET a = [\nrem, nothing]\nLET b = 1 + _\nrem + nothing\n",
+            "LET a = [\nrem, NOTHING]\nLET b = 1 + _\nrem + NOTHING\n",
+        );
+    }
+
+    #[test]
+    fn unclosed_bracket_stops_at_a_statement_keyword() {
+        // An unclosed bracket must not swallow the rest of the file: the line
+        // that opens with a statement-only keyword starts a new logical line,
+        // so block indentation after the error is still computed.
+        fmt_fixed_point(
+            concat!(
+                "func main() as nothing\n",
+                "let xs = [1, 2\n",
+                "if true then\n",
+                "let y = f(1\n",
+                "end if\n",
+                "end func\n",
+            ),
+            concat!(
+                "FUNC main() AS Nothing\n",
+                "  LET xs = [1, 2\n",
+                "  IF TRUE THEN\n",
+                "    LET y = f(1\n",
+                "  END IF\n",
+                "END FUNC\n",
+            ),
+        );
+        // Unclosed at end of file: everything left is one logical line.
+        fmt_fixed_point("let a = (\n  1\n", "LET a = (\n  1\n");
     }
 }

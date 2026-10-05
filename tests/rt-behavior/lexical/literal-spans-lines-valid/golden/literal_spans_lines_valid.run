@@ -1,0 +1,17 @@
+count=180 first=AED last=ZWG
+list break-after-comma ok
+list break-after-open ok
+list leading-comma ok
+list trailing-comma+comments ok
+strings-with-brackets ok
+map multi ok
+map leading-comma ok
+set multi ok
+record positional ok
+record named ok
+with-update ok
+call args ok
+paren expr ok
+lambda in call ok
+nested ok
+underscore continuation ok
