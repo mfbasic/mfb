@@ -1,11 +1,10 @@
 # plan-165-D: Inline TRAP for the complete expression value (review 3.1)
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 Effort: medium (estimate: 1h–2h, excluding prerequisites and full-suite latency)
 Depends on: plan-165-C; bug-825; bug-798 (fixed)
-Status: Design proposal; re-verified against main 16df1c451 on 2026-10-04 (still
-valid; none of its goals were met by the 2026-10-04 TRAP fixes); awaiting owner
-acceptance, then a go-ahead to implement
+Status: Design accepted by the owner on 2026-10-05 with **Option 1**; not started.
+Implementation awaits a separate go-ahead and plan-165-C
 
 ## Goal
 
@@ -17,12 +16,12 @@ operator, and attaching it must not create additional numeric observation points
 
 ## Prerequisites
 
-- The owner accepts the proposed expression/observation contract below, including
-  one of the two eligibility options. Their current position is leaning toward
-  assignment observation, not final approval.
+- Met (2026-10-05): the owner accepted the expression/observation contract below
+  and chose eligibility **Option 1** (any well-typed expression).
 - Plan-165-C is complete: inspect its active/archived task and commit ledger.
-- Bug-825 fixed (Status: Open on 2026-10-04): it corrects spec rule 11's `&`
-  sentence, which this plan's eligibility choice must then agree with.
+- Met: bug-825 is fixed (commits 58a4e76f7, dbcb17396). Rule 11 now says
+  `a & b TRAP(e)` is rejected with `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`; under
+  Option 1 this plan rewrites that sentence to the dead-handler warning.
 - Bug-798 is fixed (commit 526600e93). Before starting, confirm its parity
   matrix still passes: `cargo test --test rt_inline_trap_float_observation`. This
   plan reuses that observation mechanism and must not add a second one.
@@ -110,7 +109,7 @@ zero divisor cannot produce a provisional value for later operations. Side effec
 already performed before a failure are not rolled back. For a discarded expression,
 preserve its existing observation rules; discarding must not invent a Float store.
 
-**Eligibility — the owner chooses one:**
+**Eligibility — the owner chose Option 1 on 2026-10-05:**
 
 - **Option 1 (recommended): any well-typed expression** at the currently supported
   binding/assignment/bare-expression positions. A known-total expression can carry a
@@ -188,7 +187,8 @@ correct.
 
 ### Phase 1 — Specify and test the accepted boundary
 
-- [ ] Record owner acceptance and the selected eligibility option.
+- [x] Record owner acceptance and the selected eligibility option (2026-10-05,
+      Option 1; recorded in this plan).
 - [ ] Add RED runtime cases for division failures in the first, middle and last
       positions of a chain; RECOVER must replace the entire result in every case.
 - [ ] Cover Integer/Byte/Fixed/Money checked operations, Float final overflow,
@@ -254,9 +254,9 @@ history/contract proof before changing expectations. Full gates may take hours
 
 ## Open decisions
 
-Owner approval of the proposed boundary and of Option 1 or Option 2 (which also
-decides whether `a & b TRAP(e)` is legal). The recommendation above is fully
-specified, but neither decision is treated as implementation permission.
+None. The owner approved the boundary and Option 1 on 2026-10-05, so
+`a & b TRAP(e)` becomes legal with `TYPE_INLINE_TRAP_DEAD_HANDLER`. This
+acceptance is not implementation permission; that is a separate go-ahead.
 
 ## Corrections
 
@@ -278,3 +278,8 @@ the `&` consequence of each option and its link to bug-825's rule 11 correction;
 bug-816's raising Float/Fixed comparison rows; bug-778's unboxed-slot requirement
 and allocation-parity tests; bug-820's literal constraint for Fixed/Money cases;
 bug-779's fixture as a consumer; bug-825 as a prerequisite.
+
+2026-10-05: owner accepted the contract with Option 1. Updated Status,
+Prerequisites and Open decisions; bug-825 is now fixed, so its prerequisite is met.
+Under Option 1 the Phase 1 `&` case and Phase 2's rule 11 edit follow the
+dead-handler branch only.
