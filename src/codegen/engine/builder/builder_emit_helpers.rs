@@ -9,6 +9,62 @@ use crate::codegen::memory::arena::builder_arena_transfer::RawSuccessBlock;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 impl CodeBuilder<'_> {
+    /// Emit `label:` and the raise code `body` emits OUT OF LINE, after the
+    /// function body, when that code ends in an exit (bug-774).
+    ///
+    /// A check's raise block used to sit inline, so the passing path — the one that
+    /// runs — jumped over it on every execution: a taken branch per bounds,
+    /// overflow or shift check. Out of line, the check is one conditional branch
+    /// that is not taken while the program is correct. The block is emitted here,
+    /// in place, so it sees exactly the builder state (location, cleanups, `TRAP`
+    /// routing, raw-result capture) the inline block saw, and is then moved, whole,
+    /// into `cold_instructions`; `run_register_allocation` appends those after the
+    /// body. Moving it is exact because nothing falls into it (only branches to
+    /// `label` reach it) and nothing falls out of it (it ends in `ret` or in a
+    /// branch to an error-return pad, which `run_register_allocation` places after
+    /// the cold code, so every branch into and out of it stays forward).
+    ///
+    /// Code that does not end in an exit — a raise path that rejoins — stays where
+    /// it is, behind a jump that skips it, which is the inline shape every caller
+    /// emitted before; so does all code of a builder that does not finish through
+    /// `run_register_allocation` (`cold_blocks_enabled` off).
+    pub(crate) fn emit_cold_block(
+        &mut self,
+        label: &str,
+        body: impl FnOnce(&mut Self) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let start = self.instructions.len();
+        self.emit(abi::label(label));
+        body(self)?;
+        // The block may leave by `ret`, or by a branch to an error-return pad:
+        // the pads are appended after the cold code, so that branch stays
+        // forward. A branch to anything else (a `TRAP` handler, a raw-result
+        // capture point) targets the body, which would make it a backward branch
+        // out of line — a false loop to the live-range analyses — so such a block
+        // stays inline (`./mfb spec memory fallible-call-abi`).
+        let exits = self
+            .instructions
+            .last()
+            .is_some_and(|instruction| match instruction.op {
+                crate::arch::ops::CodeOp::Ret => true,
+                crate::arch::ops::CodeOp::Branch => {
+                    instruction.get("target").is_some_and(|target| {
+                        self.error_return_pads.values().any(|pad| *pad == target)
+                    })
+                }
+                _ => false,
+            });
+        if exits && self.cold_blocks_enabled {
+            let cold: Vec<CodeInstruction> = self.instructions.drain(start..).collect();
+            self.cold_instructions.extend(cold);
+        } else {
+            let join = self.label("cold_join");
+            self.instructions.insert(start, abi::branch(&join));
+            self.emit(abi::label(&join));
+        }
+        Ok(())
+    }
+
     pub(crate) fn emit_symbol_call(&mut self, symbol: &str) {
         self.emit(abi::branch_link(symbol));
         let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {

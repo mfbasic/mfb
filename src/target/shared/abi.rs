@@ -1276,11 +1276,6 @@ pub(crate) fn branch_le(target: &str) -> CodeInstruction {
 }
 
 #[track_caller]
-pub(crate) fn branch_vc(target: &str) -> CodeInstruction {
-    CodeInstruction::new("b.vc").field("target", target)
-}
-
-#[track_caller]
 pub(crate) fn branch_vs(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.vs").field("target", target)
 }
@@ -2389,7 +2384,6 @@ mod tests {
             (branch_lt("L"), "b.lt"),
             (branch_gt("L"), "b.gt"),
             (branch_le("L"), "b.le"),
-            (branch_vc("L"), "b.vc"),
             (branch_vs("L"), "b.vs"),
             (branch_hi("L"), "b.hi"),
             (branch_lo("L"), "b.lo"),

@@ -1301,12 +1301,12 @@ impl CodeBuilder<'_> {
         Ok(dst.into())
     }
 
+    /// Raise `ErrOverflow` when the flags just set report a signed overflow. The
+    /// raise is out of line (bug-774), so a passing check is one untaken branch.
     pub(crate) fn emit_overflow_if_flags_set(&mut self) -> Result<(), String> {
-        let ok_label = self.label("overflow_ok");
-        self.emit(abi::branch_vc(&ok_label));
-        self.raise_error_bare("ErrOverflow")?;
-        self.emit(abi::label(&ok_label));
-        Ok(())
+        let overflow = self.label("overflow");
+        self.emit(abi::branch_vs(&overflow));
+        self.emit_cold_block(&overflow, |builder| builder.raise_error_bare("ErrOverflow"))
     }
 
     pub(crate) fn emit_checked_integer_add(
@@ -1324,14 +1324,11 @@ impl CodeBuilder<'_> {
         value: impl Into<abi::Reg>,
     ) -> Result<(), String> {
         let overflow_label = self.label("byte_overflow");
-        let ok_label = self.label("byte_ok");
         self.emit(abi::compare_immediate(value, "255"));
         self.emit(abi::branch_hi(&overflow_label));
-        self.emit(abi::branch(&ok_label));
-        self.emit(abi::label(&overflow_label));
-        self.raise_error_bare("ErrOverflow")?;
-        self.emit(abi::label(&ok_label));
-        Ok(())
+        self.emit_cold_block(&overflow_label, |builder| {
+            builder.raise_error_bare("ErrOverflow")
+        })
     }
 
     pub(crate) fn emit_checked_integer_multiply(
@@ -1345,7 +1342,7 @@ impl CodeBuilder<'_> {
         let right = right.into();
         let high = self.allocate_register();
         let sign = self.allocate_register();
-        let ok_label = self.label("mul_ok");
+        let overflow = self.label("mul_overflow");
         // Compute the signed high half from the original operands *before* the low
         // multiply writes `dst` — the pow loops call this with `dst == left`, so
         // reading `left` after `multiply_registers` would see the low product.
@@ -1353,10 +1350,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(dst, left, right));
         self.emit(abi::arithmetic_shift_right_immediate(&sign, dst, 63));
         self.emit(abi::compare_registers(&high, &sign));
-        self.emit(abi::branch_eq(&ok_label));
-        self.raise_error_bare("ErrOverflow")?;
-        self.emit(abi::label(&ok_label));
-        Ok(())
+        self.emit(abi::branch_ne(&overflow));
+        self.emit_cold_block(&overflow, |builder| builder.raise_error_bare("ErrOverflow"))
     }
 
     pub(crate) fn emit_nonzero_or_invalid(

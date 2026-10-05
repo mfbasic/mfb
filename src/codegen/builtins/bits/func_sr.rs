@@ -119,15 +119,14 @@ pub(crate) fn lower_bits_sr(
             text: format!("bits.sr({value_text}, {count_text})"),
         });
     }
-    let valid = builder.label("bits_shift_valid");
     let out_of_range = builder.label("bits_shift_out_of_range");
     builder.emit(abi::compare_immediate(&count_reg, "0"));
     builder.emit(abi::branch_lt(&out_of_range));
     builder.emit(abi::compare_immediate(&count_reg, "63"));
-    builder.emit(abi::branch_le(&valid));
-    builder.emit(abi::label(&out_of_range));
-    builder.raise_error_bare("ErrInvalidArgument")?;
-    builder.emit(abi::label(&valid));
+    builder.emit(abi::branch_gt(&out_of_range));
+    builder.emit_cold_block(&out_of_range, |builder| {
+        builder.raise_error_bare("ErrInvalidArgument")
+    })?;
     let dst = builder.allocate_register();
     builder.emit(abi::shift_right_variable(dst, value_reg, &count_reg));
     Ok(ValueResult {

@@ -645,6 +645,15 @@ pub(crate) struct CodeBuilder<'a> {
     /// stays sound throughout (no mid-body clear needed). UNSOUND elision = silent
     /// OOB — gated by the whole-body-unmodified proof AND mandatory negative fixtures.
     pub(crate) provable_index_locals: HashMap<String, (String, i64)>,
+    /// bug-774: cold raise blocks set aside by [`CodeBuilder::emit_cold_block`],
+    /// appended after the function body by `run_register_allocation`, so the hot
+    /// path falls through its checks instead of jumping over their raise code.
+    pub(crate) cold_instructions: Vec<CodeInstruction>,
+    /// Whether [`CodeBuilder::emit_cold_block`] may set code aside. Only a builder
+    /// whose stream is finished by `run_register_allocation` (which appends the
+    /// cold code) turns it on — `lower_function`'s; a helper builder finalized
+    /// some other way keeps every raise inline.
+    pub(crate) cold_blocks_enabled: bool,
     /// plan-134-B: set only while `_mfb_rt_graph_copy`'s body is emitted. The copy's
     /// edge sites read it to push a cycle-typed edge onto the walker's work stack
     /// instead of calling a per-type copy function. `None` in every other builder.
@@ -808,6 +817,8 @@ impl<'a> CodeBuilder<'a> {
             for_bound_expr: HashMap::new(),
             len_of_local: HashMap::new(),
             provable_index_locals: HashMap::new(),
+            cold_instructions: Vec::new(),
+            cold_blocks_enabled: false,
             enclosing_loop_reassigned: Vec::new(),
             graph_copy_walker: None,
             move_sites: None,

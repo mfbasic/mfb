@@ -151,8 +151,8 @@ impl CodeBuilder<'_> {
     }
 
     /// The common tail of a list `get`/`getOr` once `result` holds the found
-    /// element: jump over the miss block, then the miss block itself (raise, or
-    /// the `getOr` default into `result`), then the join.
+    /// element: `get`'s miss raises out of line; `getOr`'s miss loads the default
+    /// into `result` inline, behind a jump the found path takes, and joins.
     fn finish_list_get(
         &mut self,
         result: VirtualRegister,
@@ -162,14 +162,18 @@ impl CodeBuilder<'_> {
         collection_type: &ParameterType,
         element_type: &ParameterType,
     ) -> Result<ValueResult, String> {
-        self.emit(abi::branch(done));
-        self.emit(abi::label(miss));
         let text = match default_slot {
+            // bug-774: the miss raises and leaves, so it goes out of line and the
+            // found path falls straight through.
             None => {
-                self.raise_error("collections.get", "ErrIndexOutOfRange")?;
+                self.emit_cold_block(miss, |builder| {
+                    builder.raise_error("collections.get", "ErrIndexOutOfRange")
+                })?;
                 format!("get({collection_type}, Integer)")
             }
             Some(default_slot) => {
+                self.emit(abi::branch(done));
+                self.emit(abi::label(miss));
                 if *element_type == ParameterType::String {
                     // See `lower_map_get_or`: the found path materializes a fresh
                     // owned string, so the default must be copied too — returning
@@ -185,10 +189,10 @@ impl CodeBuilder<'_> {
                 } else {
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
                 }
+                self.emit(abi::label(done));
                 format!("getOr({collection_type}, Integer, {element_type})")
             }
         };
-        self.emit(abi::label(done));
         self.mark_fresh_element_result(element_type, &result);
 
         Ok(ValueResult {
