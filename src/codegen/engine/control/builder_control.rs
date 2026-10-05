@@ -4354,10 +4354,11 @@ impl CodeBuilder<'_> {
             return None;
         }
         let tail = &self.instructions[len - 7..];
+        // No type check: the `cmp_true_`/`cmp_done_` labels below come only from
+        // the comparison emitter, whose two writes are the Boolean `true`/`false`.
         let is_bool = |instruction: &CodeInstruction, value: &str| {
             instruction.op == CodeOp::MovImm
                 && instruction.operand("dst") == Some(condition)
-                && instruction.get("type").as_deref() == Some("Boolean")
                 && instruction.get("value").as_deref() == Some(value)
         };
         let label_named = |instruction: &CodeInstruction, prefix: &str| {
