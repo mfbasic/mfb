@@ -156,11 +156,7 @@ imported again.
 ## Rounding and formatting
 
 Amounts are kept at `Money`'s five decimal places. Conversions and scaling are `Money`
-arithmetic, so they round as `Money` does (`mfb man money`). One current limitation
-comes from that: `Money` times or divided by a `Fixed` drops the digits past the fifth
-place instead of rounding them under the `money::Rounding` mode (`bugs/bug-812`), and
-every conversion multiplies and divides by `Fixed` rates. So a converted value can be
-off by 0.00001 per step from the correctly rounded one until that is fixed. Use
+arithmetic, so they round as `Money` does (`mfb man money`). Use
 `currency::round` to book an amount to its currency's minor units:
 
 | Code | Minor units | `round` of `2.345` |

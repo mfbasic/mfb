@@ -42,10 +42,6 @@ DOC
   DESC The value is `a.value * rate(a.code) / rate(code)`, kept at `Money`'s
   DESC five decimal places. Use `currency::round` to book the result to the
   DESC target currency's minor units.
-  INFO `Money` times or divided by a `Fixed` currently drops the digits past
-  INFO the fifth place rather than rounding them under the `money::Rounding`
-  INFO mode (see `mfb man money`), so a converted value can be off by 0.00001
-  INFO per step from the correctly rounded one.
   ARG a The amount to convert.
   ARG code The currency to convert it to, in any case.
   RET The same worth, in `code`.

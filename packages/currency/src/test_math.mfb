@@ -57,6 +57,17 @@ TESTING
       expectEqual(convert(amount(-10m, "EUR"), "USD").value, -12.5m)
     END TCASE
 
+    ' 12.50001 / 1.25 = 10.000008, which needs a sixth place. It is not a
+    ' tie, so both rounding modes give 10.00001; truncating would give 10.
+    TCASE "a value that needs a sixth place is rounded, not truncated"
+      standardRates()
+      money::setRounding(money::Rounding.Commercial)
+      expectEqual(convert(amount(12.50001m, "USD"), "EUR").value, 10.00001m)
+      money::setRounding(money::Rounding.Banker)
+      expectEqual(convert(amount(12.50001m, "USD"), "EUR").value, 10.00001m)
+      money::setRounding(money::Rounding.Commercial)
+    END TCASE
+
     TCASE "to the same currency is the identity"
       standardRates()
       expectEqual(convert(amount(1.23456m, "EUR"), "EUR").value, 1.23456m)
