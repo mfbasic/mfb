@@ -448,24 +448,12 @@ pub(crate) fn current_error(
     if address == 0 {
         return Ok(None);
     }
-    let text = |inferior: &mut dyn Inferior, at: u64| -> Result<String, String> {
-        let length = inferior.read_u64(at)?.min(MAX_ERROR_TEXT);
-        let bytes = inferior.read_bytes(at + 8, length as usize)?;
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
-    };
     let code = inferior.read_u64(address)? as i64;
     let message_at = address + inferior.read_u64(address + 8)?;
-    let message = text(inferior, message_at)?;
+    let message = error_text(inferior, message_at)?;
     let source = match inferior.read_u64(address + 16)? {
         0 => None,
-        offset => {
-            let location = address + offset;
-            let file_at = location + inferior.read_u64(location)?;
-            let file = text(inferior, file_at)?;
-            let line = inferior.read_u64(location + 8)?;
-            let char = inferior.read_u64(location + 16)?;
-            Some(format!("{file}:{line}:{char}"))
-        }
+        offset => Some(error_origin(inferior, address + offset)?),
     };
     Ok(Some(ParkedError {
         address,
@@ -473,6 +461,40 @@ pub(crate) fn current_error(
         message,
         source,
     }))
+}
+
+/// A `String` in an error: its length, then its bytes (at most
+/// [`MAX_ERROR_TEXT`] of them read).
+fn error_text(inferior: &mut dyn Inferior, at: u64) -> Result<String, String> {
+    let length = inferior.read_u64(at)?.min(MAX_ERROR_TEXT);
+    let bytes = inferior.read_bytes(at + 8, length as usize)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The `ErrorLoc` at `location` as `<file>:<line>:<char>`: `+0` its file
+/// name's offset from itself, `+8` the line, `+16` the character.
+pub(crate) fn error_origin(inferior: &mut dyn Inferior, location: u64) -> Result<String, String> {
+    let file_at = location + inferior.read_u64(location)?;
+    let file = error_text(inferior, file_at)?;
+    let line = inferior.read_u64(location + 8)?;
+    let char = inferior.read_u64(location + 16)?;
+    Ok(format!("{file}:{line}:{char}"))
+}
+
+/// The code an `errorCode` constant names, written `ErrOverflow` or
+/// `errorCode::ErrOverflow`; `None` for any other word.
+pub(crate) fn error_code_by_name(name: &str) -> Option<i64> {
+    let name = name.strip_prefix("errorCode::").unwrap_or(name);
+    crate::codegen::registry::registry()
+        .packages()
+        .iter()
+        .find(|package| package.import_name() == "errorCode")?
+        .constants()
+        .iter()
+        .find(|constant| constant.name == name)?
+        .value?
+        .parse()
+        .ok()
 }
 
 /// The `errorCode` constant a code is, as a program names it
@@ -961,5 +983,11 @@ mod tests {
             Some("errorCode::ErrOutOfMemory")
         );
         assert_eq!(error_code_name(42), None);
+        assert_eq!(error_code_by_name("ErrOverflow"), Some(77_050_010));
+        assert_eq!(
+            error_code_by_name("errorCode::ErrOutOfMemory"),
+            Some(77_010_001)
+        );
+        assert_eq!(error_code_by_name("ErrNothing"), None);
     }
 }

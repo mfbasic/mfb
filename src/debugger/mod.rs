@@ -111,6 +111,15 @@ pub(crate) enum RunStop {
     Exception { thread: usize, what: String },
     /// The user interrupted the run (Ctrl-C).
     Interrupted,
+    /// A thread raised an error `breakerror` watches for, and stopped in the
+    /// function that raised it as the runtime returned with the error parked
+    /// (`origin` is where in the source, when the error has one). Only the
+    /// session's `run` makes this stop; an [`Inferior`] never answers it.
+    Raised {
+        thread: usize,
+        code: i64,
+        origin: Option<String>,
+    },
     /// The program ended.
     Exited(Exit),
 }

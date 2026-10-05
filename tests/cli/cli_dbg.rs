@@ -532,6 +532,66 @@ mod macos {
         ticker.wait().unwrap();
     }
 
+    /// A program whose comparison overflows inside an inline `TRAP`.
+    const RAISES: &str = "IMPORT io\n\nFUNC check(flag AS Boolean) AS Integer\n  RETURN 1\n\
+        END FUNC\n\nFUNC main() AS Integer\n  MUT fx = 1F\n  MUT big = 3000000000\n  \
+        LET b = check(fx < big) TRAP(e)\n    io::print(\"caught \" & toString(e.code))\n    \
+        RECOVER 9\n  END TRAP\n  RETURN 0\nEND FUNC\n";
+
+    /// `breakerror` stops where an error it watches is raised, before a `TRAP`
+    /// takes it, and `show error` reads it from the thread's error slot.
+    #[test]
+    fn breakerror_stops_where_a_watched_error_is_raised() {
+        let mfb = signed_mfb();
+        let project = temp_project("dbg_raise", RAISES);
+        let binary = build_debug(&project, "dbg_raise");
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap()]);
+        session.until_prompt();
+        session.send("be ErrOverflow\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Stopping when a thread raises 77050010 (errorCode::ErrOverflow)."]
+        );
+        session.send("run\n");
+        let raised = body(&session.until_prompt());
+        assert!(
+            raised.len() == 1
+                && raised[0].starts_with(
+                    "Thread 0 raised 77050010 (errorCode::ErrOverflow) at src/main.mfb:10:"
+                )
+                && raised[0].contains(" in main+0x")
+                && raised[0].ends_with(", before a TRAP takes the error."),
+            "{raised:?}"
+        );
+        session.send("show error\n");
+        let error = body(&session.until_prompt());
+        assert!(
+            error.len() == 4
+                && error[0].starts_with("Thread 0's error in flight (the Error at 0x")
+                && error[1] == "Code: 77050010 (errorCode::ErrOverflow)"
+                && error[2].starts_with("Message: \"Arithmetic overflow")
+                && error[3].starts_with("Location: src/main.mfb:10:"),
+            "{error:?}"
+        );
+        session.send("be clear\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Stopped watching for errors."]
+        );
+        session.send("run\n");
+        let end = body(&session.until_prompt());
+        assert!(
+            end.iter().any(|line| line == "caught 77050010")
+                && end
+                    .last()
+                    .is_some_and(|line| line == "The program exited with status 0."),
+            "{end:?}"
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
     /// Without `--debug` the program names only its imports.
     #[test]
     fn list_func_on_a_normal_build_shows_only_linked_functions() {

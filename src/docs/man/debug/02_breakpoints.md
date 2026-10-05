@@ -10,6 +10,8 @@ A breakpoint stops the program when any thread reaches it:
 breakpoint <where>        bp <where>
 breakpoint r <where>      bp r <where>
 list breakpoint           l breakpoint
+breakerror <code>...      be <code>...
+breakerror any | clear    be any | clear
 ```
 
 `<where>` is an address (`0x` and hex digits, as `list func` and `list thread`
@@ -69,6 +71,47 @@ The finish from countPrimes did not complete; type 'finish' to run it again from
 
 A `finish` from there runs to the end of the function the thread is now in,
 `isPrime`, not `countPrimes`.
+
+### Stopping on an error
+
+`breakerror` (`be`) stops the program when a thread raises an error you name,
+at the moment it is raised: the thread is back in the function that raised it,
+and no `TRAP` has run yet. Name the error by its code or by its `errorCode`
+name:
+
+```
+DBG> be ErrOverflow
+Stopping when a thread raises 77050010 (errorCode::ErrOverflow).
+DBG> run
+Thread 0 raised 77050010 (errorCode::ErrOverflow) at src/main.mfb:11:34; it is at 0x0000000102268908 in main+0x110 <mfb>, before a TRAP takes the error.
+```
+
+From there `show error` shows the error, `bt` how the thread got there, and
+`dis pc` the code about to decide which `TRAP` handles it.
+`be 77050004 ErrNotFound` watches for several codes at once, `be any` for every
+error, `be clear` stops watching, and `be` alone says what is being watched
+for, as `list breakpoint` does after its list. It needs a `--debug` build.
+
+What `breakerror` does not catch, or does differently:
+
+- **An error raised again.** `FAIL e`, which raises an `Error` you already
+  hold, and the re-raise when a function's cleanup passes an error on, do not
+  stop: they hand on an error that already exists rather than raising a new one.
+  Watch for it where it was first raised.
+- **An error when memory has run out.** When there is no memory left to record
+  the error, it travels without its record and `breakerror` does not see it;
+  `show error` reports nothing for it either.
+- **An error from another thread.** An error a thread started with
+  `thread::start` raises stops once in that thread, and again in the thread that
+  receives it from `thread::waitFor`.
+- **Two raises at once.** While the debugger runs a thread from the raise back
+  to the function that raised it, an error another thread raises at the same
+  time does not stop.
+- **A breakpoint first.** If one of your breakpoints is reached on the way back
+  to the raising function, that stop is reported, not the error.
+- **Speed.** Every error the program raises, watched or not, briefly stops it
+  while the debugger checks its code, so a program that raises many errors runs
+  slower while `breakerror` is on.
 
 ### Starting over
 

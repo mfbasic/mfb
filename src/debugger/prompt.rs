@@ -11,7 +11,7 @@
 use std::io::{BufRead, Write};
 
 use super::backtrace;
-use super::breakpoints::{Breakpoints, Finish, Target};
+use super::breakpoints::{self, Breakpoints, ErrorCodes, Finish, Target};
 use super::disassemble::{self, Request};
 use super::names::{classify, Collisions};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
@@ -36,6 +36,8 @@ Commands:
                   ('show type' alone for the types and their forms)
   breakpoint, bp  Set a breakpoint: breakpoint <address|function[+offset]>
                   Remove one: breakpoint r <address|function[+offset]>
+  breakerror, be  Stop when a thread raises an error: be <code|name>... | any
+                  Stop watching: be clear; be alone shows what is watched
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
@@ -109,6 +111,12 @@ enum Command {
     },
     /// `show error [<thread>]`: the error parked in a thread's arena.
     ShowError(Option<usize>),
+    /// `breakerror <code>|any`: stop when a thread raises it.
+    BreakError(ErrorCodes),
+    /// `breakerror clear`.
+    ClearErrors,
+    /// `breakerror` alone: what is being watched for.
+    ErrorWatch,
     SetBreakpoint(Target),
     RemoveBreakpoint(Target),
     Run,
@@ -400,6 +408,15 @@ fn parse(line: &str) -> Result<Command, String> {
             Ok(Command::RemoveBreakpoint(Target::parse(target)?))
         }
         ("breakpoint" | "bp", [target]) => Ok(Command::SetBreakpoint(Target::parse(target)?)),
+        ("breakerror" | "be", []) => Ok(Command::ErrorWatch),
+        ("breakerror" | "be", ["clear"]) => Ok(Command::ClearErrors),
+        ("breakerror" | "be", ["any"]) => Ok(Command::BreakError(ErrorCodes::Any)),
+        ("breakerror" | "be", words) => Ok(Command::BreakError(ErrorCodes::Codes(
+            words
+                .iter()
+                .map(|word| error_code(word))
+                .collect::<Result<_, _>>()?,
+        ))),
         ("breakpoint" | "bp", _) => Err(format!("too many arguments to '{name}'")),
         ("show", ["arena"]) => Ok(Command::ShowArena {
             id: MAIN_ARENA,
@@ -508,6 +525,20 @@ fn frame_count(word: &str) -> Result<usize, String> {
         .ok()
         .filter(|count| *count > 0)
         .ok_or_else(|| format!("'{word}' is not a number of frames (1 or more), or 'all'"))
+}
+
+/// An error code as `breakerror` takes one: its number, or the name of its
+/// `errorCode` constant (`ErrOverflow`, `errorCode::ErrOverflow`).
+fn error_code(word: &str) -> Result<i64, String> {
+    word.parse::<i64>()
+        .ok()
+        .or_else(|| runtime::error_code_by_name(word))
+        .ok_or_else(|| {
+            format!(
+                "'{word}' is not an error code: give its number (77050010) or its errorCode \
+                 name (ErrOverflow)"
+            )
+        })
 }
 
 fn thread_id(word: &str) -> Result<usize, String> {
@@ -1054,7 +1085,7 @@ fn describe_stop(
                 *current = *thread;
             }
         }
-        RunStop::Exception { thread, .. } => *current = *thread,
+        RunStop::Exception { thread, .. } | RunStop::Raised { thread, .. } => *current = *thread,
         _ => {}
     }
     let place = |inferior: &mut dyn Inferior, thread: usize| -> Result<String, String> {
@@ -1070,6 +1101,20 @@ fn describe_stop(
                 let at = place(inferior, thread).unwrap_or_else(|_| format!("0x{address:016x}"));
                 lines.push(format!("Thread {thread} hit a breakpoint at {at}."));
             }
+        }
+        RunStop::Raised {
+            thread,
+            code,
+            origin,
+        } => {
+            let at = place(inferior, thread)?;
+            let from = origin
+                .map(|origin| format!(" at {origin}"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "Thread {thread} raised {}{from}; it is at {at}, before a TRAP takes the error.",
+                breakpoints::code_shown(code)
+            ));
         }
         RunStop::Exception { thread, what } => {
             let at = place(inferior, thread)?;
@@ -1504,6 +1549,11 @@ pub(crate) fn run(
             }
             Ok(Command::SetBreakpoint(target)) => breakpoints.set(inferior, &target),
             Ok(Command::RemoveBreakpoint(target)) => breakpoints.remove(inferior, &target),
+            Ok(Command::BreakError(codes)) => breakpoints.watch_errors(inferior, codes),
+            Ok(Command::ClearErrors) => breakpoints.clear_errors(inferior),
+            Ok(Command::ErrorWatch) => Ok(vec![breakpoints
+                .watch_line()
+                .unwrap_or_else(|| "No errors are being watched for.".to_string())]),
             Ok(Command::Run) => {
                 run_program(inferior, &mut breakpoints, &mut current).map(|(lines, ended)| {
                     exited = ended;
@@ -2090,6 +2140,36 @@ x0       0x000000000000002c (44)
              error: unmapped 0x32\n\
              error: no register or function is named 'nothing'; type 'list reg' or 'list func' \
              for them\n"
+        );
+    }
+
+    #[test]
+    fn breakerror_takes_codes_names_any_or_clear() {
+        assert_eq!(parse("be"), Ok(Command::ErrorWatch));
+        assert_eq!(parse("breakerror clear"), Ok(Command::ClearErrors));
+        assert_eq!(parse("be any"), Ok(Command::BreakError(ErrorCodes::Any)));
+        assert_eq!(
+            parse("be 77050010 errorCode::ErrNotFound ErrOutOfMemory"),
+            Ok(Command::BreakError(ErrorCodes::Codes(vec![
+                77_050_010, 77_050_004, 77_010_001
+            ])))
+        );
+        assert_eq!(
+            parse("be ErrNothing"),
+            Err(
+                "'ErrNothing' is not an error code: give its number (77050010) or its \
+                 errorCode name (ErrOverflow)"
+                    .to_string()
+            )
+        );
+        // The prompt's fake names no error park, as a build without --debug.
+        let (out, err, _) = session("be\nbe any\nbe clear\nq\n", Ending::Killed, false);
+        assert!(out.contains("No errors are being watched for."), "{out}");
+        assert_eq!(
+            err,
+            "error: 'breakerror' stops in the runtime's error function, which only a debug \
+             build names; rebuild the program with: mfb build --debug -O0 <project>\n\
+             error: no errors are being watched for\n"
         );
     }
 

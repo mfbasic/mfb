@@ -107,6 +107,80 @@ pub(crate) struct Breakpoints {
     list: Vec<Breakpoint>,
     /// The program has been seen at its entry point: every library is bound.
     entry_passed: bool,
+    /// The errors `breakerror` stops on, if any.
+    errors: Option<ErrorWatch>,
+}
+
+/// The runtime function every newly raised error goes through: it parks the
+/// `Error` block (code in `x1`, origin `ErrorLoc` in `x3`) and returns to the
+/// function that raised it.
+pub(crate) const PARK_ERROR: &str = "_mfb_rt_park_error";
+
+/// Which errors `breakerror` stops on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ErrorCodes {
+    Any,
+    /// These codes, in the order they were asked for.
+    Codes(Vec<i64>),
+}
+
+/// `breakerror`'s watch: the errors, and the live address of [`PARK_ERROR`],
+/// where the debugger keeps a breakpoint of its own.
+#[derive(Debug)]
+struct ErrorWatch {
+    codes: ErrorCodes,
+    park: u64,
+}
+
+/// A raise `breakerror` stops for, caught as it entered the park.
+struct Raise {
+    thread: usize,
+    code: i64,
+    origin: Option<String>,
+    /// Where the park returns to: in the function that raised the error.
+    back: u64,
+}
+
+/// The live address of [`PARK_ERROR`].
+fn park_address(inferior: &mut dyn Inferior) -> Result<u64, String> {
+    inferior
+        .functions()?
+        .iter()
+        .find(|function| function.name == PARK_ERROR && !function.linked)
+        .and_then(|function| function.address)
+        .ok_or_else(|| {
+            "'breakerror' stops in the runtime's error function, which only a debug build \
+             names; rebuild the program with: mfb build --debug -O0 <project>"
+                .to_string()
+        })
+}
+
+/// An error code as a sentence names it: `77050010 (errorCode::ErrOverflow)`.
+pub(crate) fn code_shown(code: i64) -> String {
+    match super::runtime::error_code_name(code) {
+        Some(name) => format!("{code} ({name})"),
+        None => code.to_string(),
+    }
+}
+
+impl ErrorCodes {
+    fn shown(&self) -> String {
+        match self {
+            ErrorCodes::Any => "any error".to_string(),
+            ErrorCodes::Codes(codes) => codes
+                .iter()
+                .map(|code| code_shown(*code))
+                .collect::<Vec<_>>()
+                .join(", "),
+        }
+    }
+
+    fn matches(&self, code: i64) -> bool {
+        match self {
+            ErrorCodes::Any => true,
+            ErrorCodes::Codes(codes) => codes.contains(&code),
+        }
+    }
 }
 
 /// The written name of a function symbol, if it has one.
@@ -265,7 +339,10 @@ impl Breakpoints {
             }
             match breakpoint.address {
                 Some(address) => {
-                    inferior.insert_breakpoint(address)?;
+                    // The park already holds `breakerror`'s breakpoint.
+                    if self.own_park() != Some(address) {
+                        inferior.insert_breakpoint(address)?;
+                    }
                     lines.push(format!("Set a breakpoint at {}.", place(&breakpoint)));
                 }
                 None => lines.push(format!(
@@ -336,7 +413,11 @@ impl Breakpoints {
         }
         let mut lines = Vec::new();
         for breakpoint in chosen {
-            if let Some(address) = breakpoint.address {
+            let watched = self.errors.as_ref().map(|watch| watch.park);
+            if let Some(address) = breakpoint
+                .address
+                .filter(|address| Some(*address) != watched)
+            {
                 inferior.remove_breakpoint(address)?;
             }
             self.list.retain(|other| *other != breakpoint);
@@ -346,8 +427,20 @@ impl Breakpoints {
     }
 
     /// The `list breakpoint` lines: `<address> <symbol> <written name>`, in
-    /// address order, pending ones last with `-` for the address.
+    /// address order, pending ones last with `-` for the address; then the
+    /// errors `breakerror` watches for.
     pub(crate) fn lines(&self) -> Vec<String> {
+        let mut lines = self.breakpoint_lines();
+        if let Some(watch) = self.watch_line() {
+            if self.list.is_empty() {
+                lines.clear();
+            }
+            lines.push(watch);
+        }
+        lines
+    }
+
+    fn breakpoint_lines(&self) -> Vec<String> {
         if self.list.is_empty() {
             return vec!["no breakpoints".to_string()];
         }
@@ -400,7 +493,7 @@ impl Breakpoints {
                 }
                 _ => None,
             };
-            let stop = inferior.run()?;
+            let mut stop = inferior.run()?;
             if let (Some(entry), false) = (temporary, matches!(stop, RunStop::Exited(_))) {
                 inferior.remove_breakpoint(entry)?;
             }
@@ -408,9 +501,28 @@ impl Breakpoints {
                 if hits.iter().any(|(_, address)| Some(*address) == entry) {
                     self.entry_passed = true;
                 }
-                if temporary.is_some()
-                    && hits.iter().all(|(_, address)| Some(*address) == temporary)
-                {
+                // The debugger's own stops — the entry point, the error park —
+                // are not the user's: keep the rest.
+                let park = self.own_park();
+                let mut raised = None;
+                let mut user = Vec::new();
+                for &(thread, address) in hits {
+                    if Some(address) == temporary {
+                        continue;
+                    }
+                    if Some(address) == park {
+                        if raised.is_none() {
+                            raised = self.watched_raise(inferior, thread)?;
+                        }
+                        continue;
+                    }
+                    user.push((thread, address));
+                }
+                if !user.is_empty() {
+                    stop = RunStop::Breakpoints(user);
+                } else if let Some(raise) = raised {
+                    stop = self.run_to_raiser(inferior, raise)?;
+                } else {
                     continue;
                 }
             }
@@ -421,11 +533,163 @@ impl Breakpoints {
         }
     }
 
+    /// The park's address when the debugger's own breakpoint is there — a
+    /// `breakerror` watch, and no breakpoint of the user's at the same place.
+    fn own_park(&self) -> Option<u64> {
+        let park = self.errors.as_ref()?.park;
+        (!self
+            .list
+            .iter()
+            .any(|breakpoint| breakpoint.address == Some(park)))
+        .then_some(park)
+    }
+
+    /// Thread `thread` has just entered the park: the error it raises when the
+    /// watch takes its code (from `x1`), with where it returns (`lr`) and the
+    /// error's origin (the `ErrorLoc` in `x3`).
+    fn watched_raise(
+        &self,
+        inferior: &mut dyn Inferior,
+        thread: usize,
+    ) -> Result<Option<Raise>, String> {
+        let registers = inferior.registers(thread)?;
+        let value = |name: &str| {
+            registers
+                .iter()
+                .find(|register| register.name == name)
+                .and_then(|register| match register.value {
+                    super::RegisterValue::Bits64(value) => Some(value),
+                    super::RegisterValue::Bits128(_) => None,
+                })
+                .ok_or_else(|| format!("thread {thread} has no register {name}"))
+        };
+        let code = value("x1")? as i64;
+        let watch = self.errors.as_ref().expect("a watch holds the park");
+        if !watch.codes.matches(code) {
+            return Ok(None);
+        }
+        let origin = match value("x3")? {
+            0 => None,
+            location => super::runtime::error_origin(inferior, location).ok(),
+        };
+        Ok(Some(Raise {
+            thread,
+            code,
+            origin,
+            back: value("lr")?,
+        }))
+    }
+
+    /// Run until the thread that raised `raise` is back in the function that
+    /// raised it, the error parked: the `Raised` stop. Another stop first — a
+    /// breakpoint, an exception, the end — is answered instead; a raise by
+    /// another thread meanwhile is let go.
+    fn run_to_raiser(
+        &mut self,
+        inferior: &mut dyn Inferior,
+        raise: Raise,
+    ) -> Result<RunStop, String> {
+        let ours = !self
+            .list
+            .iter()
+            .any(|breakpoint| breakpoint.address == Some(raise.back));
+        if ours {
+            inferior.insert_breakpoint(raise.back)?;
+        }
+        let park = self.own_park();
+        let stop = loop {
+            let stop = inferior.run()?;
+            let RunStop::Breakpoints(hits) = &stop else {
+                break stop;
+            };
+            if hits.contains(&(raise.thread, raise.back)) {
+                break RunStop::Raised {
+                    thread: raise.thread,
+                    code: raise.code,
+                    origin: raise.origin.clone(),
+                };
+            }
+            let user = hits
+                .iter()
+                .copied()
+                .filter(|(_, address)| Some(*address) != park && !(ours && *address == raise.back))
+                .collect::<Vec<_>>();
+            if !user.is_empty() {
+                break RunStop::Breakpoints(user);
+            }
+        };
+        if ours && !matches!(stop, RunStop::Exited(_)) {
+            inferior.remove_breakpoint(raise.back)?;
+        }
+        Ok(stop)
+    }
+
+    /// `breakerror <codes>`: stop when a thread raises one of them. The watch
+    /// keeps a breakpoint of the debugger's own on the runtime's error park,
+    /// which only a `--debug` build names.
+    pub(crate) fn watch_errors(
+        &mut self,
+        inferior: &mut dyn Inferior,
+        codes: ErrorCodes,
+    ) -> Result<Vec<String>, String> {
+        let codes = match (self.errors.as_ref().map(|watch| &watch.codes), codes) {
+            (Some(ErrorCodes::Any), _) | (_, ErrorCodes::Any) => ErrorCodes::Any,
+            (Some(ErrorCodes::Codes(old)), ErrorCodes::Codes(new)) => {
+                let mut all = old.clone();
+                all.extend(new.into_iter().filter(|code| !old.contains(code)));
+                ErrorCodes::Codes(all)
+            }
+            (None, codes) => codes,
+        };
+        if let Some(watch) = &mut self.errors {
+            watch.codes = codes;
+        } else {
+            let park = park_address(inferior)?;
+            if !self
+                .list
+                .iter()
+                .any(|breakpoint| breakpoint.address == Some(park))
+            {
+                inferior.insert_breakpoint(park)?;
+            }
+            self.errors = Some(ErrorWatch { codes, park });
+        }
+        Ok(vec![self.watch_line().expect("a watch was just set")])
+    }
+
+    /// `breakerror clear`: stop watching for errors.
+    pub(crate) fn clear_errors(
+        &mut self,
+        inferior: &mut dyn Inferior,
+    ) -> Result<Vec<String>, String> {
+        if self.own_park().is_some() {
+            let park = self.errors.as_ref().expect("a watch").park;
+            inferior.remove_breakpoint(park)?;
+        }
+        match self.errors.take() {
+            Some(_) => Ok(vec!["Stopped watching for errors.".to_string()]),
+            None => Err("no errors are being watched for".to_string()),
+        }
+    }
+
+    /// `Stopping when a thread raises <codes>.`, for a watch.
+    pub(crate) fn watch_line(&self) -> Option<String> {
+        let watch = self.errors.as_ref()?;
+        Some(format!(
+            "Stopping when a thread raises {}.",
+            watch.codes.shown()
+        ))
+    }
+
     /// After a restart: place every breakpoint again by its function and
     /// offset in the new process (a linked function's is pending until its
     /// library loads); one no function held is dropped.
     pub(crate) fn restarted(&mut self, inferior: &mut dyn Inferior) -> Result<Vec<String>, String> {
         self.entry_passed = false;
+        if let Some(watch) = &mut self.errors {
+            watch.park = park_address(inferior)?;
+            inferior.insert_breakpoint(watch.park)?;
+        }
         let functions = inferior.functions().unwrap_or_default();
         let mut notes = Vec::new();
         let mut kept = Vec::new();
@@ -631,7 +895,13 @@ mod tests {
         inserted: Vec<u64>,
         stops: Vec<RunStop>,
         runs: usize,
+        /// The code in `x1` at each entry to the park, in turn.
+        raised: Vec<u64>,
     }
+
+    const PARK: u64 = 0x2000;
+    /// Where the park returns to, in the function that raised the error.
+    const RAISER: u64 = 0x1124;
 
     const ENTRY: u64 = 0x1000;
     const IS_PRIME: u64 = 0x1100;
@@ -659,6 +929,7 @@ mod tests {
                 inserted: Vec::new(),
                 stops,
                 runs: 0,
+                raised: Vec::new(),
             }
         }
     }
@@ -679,6 +950,7 @@ mod tests {
                 function("_mfb_fn_exit", false, Some(0x1300), Some(0x10)),
                 function("_exit", true, exit, None),
                 function("_exit", true, exit, None),
+                function(PARK_ERROR, false, Some(PARK), Some(0x100)),
             ])
         }
         fn data_symbol(&mut self, _: &str) -> Result<Option<u64>, String> {
@@ -706,7 +978,21 @@ mod tests {
             Ok(Vec::new())
         }
         fn registers(&mut self, _: usize) -> Result<Vec<Register>, String> {
-            Ok(Vec::new())
+            let register = |name: &str, value| Register {
+                name: name.to_string(),
+                group: crate::debugger::RegisterGroup::General,
+                value: crate::debugger::RegisterValue::Bits64(value),
+            };
+            let code = if self.raised.is_empty() {
+                0
+            } else {
+                self.raised.remove(0)
+            };
+            Ok(vec![
+                register("x1", code),
+                register("x3", 0),
+                register("lr", RAISER),
+            ])
         }
         fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
             Ok(Vec::new())
@@ -834,6 +1120,82 @@ mod tests {
         assert_eq!(
             breakpoints.set(&mut program, &name("nothing+8")),
             Err("no function is named 'nothing'; type 'list func' for the functions".to_string())
+        );
+    }
+
+    #[test]
+    fn breakerror_stops_in_the_raiser_only_for_a_watched_code() {
+        // Two raises: one not watched (run on), then 77050010, stopped back
+        // in the function that raised it.
+        let mut program = Program::new(vec![
+            RunStop::Breakpoints(vec![(0, PARK)]),
+            RunStop::Breakpoints(vec![(0, PARK)]),
+            RunStop::Breakpoints(vec![(0, RAISER)]),
+        ]);
+        program.raised = vec![77_050_004, 77_050_010];
+        let mut breakpoints = Breakpoints::default();
+        assert_eq!(
+            breakpoints
+                .watch_errors(&mut program, ErrorCodes::Codes(vec![77_050_010]))
+                .unwrap(),
+            ["Stopping when a thread raises 77050010 (errorCode::ErrOverflow)."]
+        );
+        assert_eq!(program.inserted, [PARK]);
+        let (_, stop) = breakpoints.run(&mut program).unwrap();
+        assert_eq!(
+            stop,
+            RunStop::Raised {
+                thread: 0,
+                code: 77_050_010,
+                origin: None
+            }
+        );
+        // The stop's own breakpoint is gone; the watch's stays.
+        assert_eq!(program.inserted, [PARK]);
+        // More codes join the watch; `any` takes them all.
+        breakpoints
+            .watch_errors(&mut program, ErrorCodes::Codes(vec![42, 77_050_010]))
+            .unwrap();
+        assert_eq!(
+            breakpoints.lines(),
+            ["Stopping when a thread raises 77050010 (errorCode::ErrOverflow), 42."]
+        );
+        breakpoints
+            .watch_errors(&mut program, ErrorCodes::Any)
+            .unwrap();
+        assert_eq!(
+            breakpoints.lines(),
+            ["Stopping when a thread raises any error."]
+        );
+        assert_eq!(
+            breakpoints.clear_errors(&mut program).unwrap(),
+            ["Stopped watching for errors."]
+        );
+        assert!(program.inserted.is_empty());
+        assert_eq!(
+            breakpoints.clear_errors(&mut program),
+            Err("no errors are being watched for".to_string())
+        );
+    }
+
+    #[test]
+    fn a_breakpoint_of_the_user_s_on_the_park_shares_it_with_breakerror() {
+        let mut program = Program::new(vec![RunStop::Breakpoints(vec![(0, PARK)])]);
+        let mut breakpoints = Breakpoints::default();
+        breakpoints
+            .watch_errors(&mut program, ErrorCodes::Any)
+            .unwrap();
+        breakpoints.set(&mut program, &name(PARK_ERROR)).unwrap();
+        assert_eq!(program.inserted, [PARK]);
+        // The user's breakpoint is reported as theirs.
+        let (_, stop) = breakpoints.run(&mut program).unwrap();
+        assert_eq!(stop, RunStop::Breakpoints(vec![(0, PARK)]));
+        // Removing it leaves the watch's breakpoint in place.
+        breakpoints.remove(&mut program, &name(PARK_ERROR)).unwrap();
+        assert_eq!(program.inserted, [PARK]);
+        assert_eq!(
+            breakpoints.lines(),
+            ["Stopping when a thread raises any error."]
         );
     }
 

@@ -278,6 +278,10 @@ Then, repeatedly:
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
 | `breakpoint <target>`, `bp …` | sets breakpoints at `<target>` |
 | `breakpoint r <target>`, `bp r …` | removes breakpoints at `<target>` |
+| `breakerror <code>...`, `be …` | stops when a thread raises an error whose code is one of `<code>` (a number or an `errorCode` name) |
+| `breakerror any`, `be any` | stops when a thread raises any error |
+| `breakerror clear`, `be clear` | stops watching for errors |
+| `breakerror`, `be` | prints what is watched for |
 | `list breakpoint` | prints the breakpoint listing |
 | `run`, `r` | runs the program to the next stop |
 | `finish`, `f` | runs the current thread until its function returns |
@@ -319,6 +323,9 @@ Then, repeatedly:
 | `step` with three arguments | `'<name>' takes at most two arguments` |
 | `step-all` with two arguments | `'<name>' takes at most one argument` |
 | `breakpoint` or `breakpoint r` with no target | `'<name>' needs an address (0x…) or a function name` |
+| `breakerror` with a word that is no integer and no `errorCode` constant | `'<word>' is not an error code: give its number (77050010) or its errorCode name (ErrOverflow)` |
+| `breakerror` on a program that does not name `_mfb_rt_park_error` (a build without `--debug`) | `'breakerror' stops in the runtime's error function, which only a debug build names; rebuild the program with: mfb build --debug -O0 <project>` |
+| `breakerror clear` with nothing watched | `no errors are being watched for` |
 | `breakpoint` with more than `r <target>` | `too many arguments to '<name>'` |
 | a target starting `0x` that is not hex | `'<target>' is not an address` |
 | `run` with arguments | `'<name>' takes no arguments` |
@@ -742,6 +749,41 @@ breakpoint at <address>` / `on '<target>'`.
 under the header `Address Symbol Written name`, in address order with pending
 ones last (`-` for the address); with none, `no breakpoints`.
 
+### `breakerror`
+
+[[src/debugger/breakpoints.rs:ErrorCodes]] `breakerror <code>...` (`be`) watches
+for errors by code — each `<code>` an integer, or an `errorCode` constant's name
+with or without `errorCode::` (`runtime::error_code_by_name`) — and joins them
+to any already watched; `breakerror any` watches for every error; `breakerror
+clear` ends the watch; `breakerror` alone prints the watch line, or `No errors
+are being watched for.` Setting one prints `Stopping when a thread raises
+<codes>.` (`<codes>` each `<code>[ (errorCode::<name>)]`, comma-separated, or
+`any error`), which `list breakpoint` also prints after its table (alone, in
+place of `no breakpoints`, when there are no breakpoints).
+
+The watch is a breakpoint of the debugger's own at the entry of
+`_mfb_rt_park_error` (`PARK_ERROR`), the runtime function a failing operation
+calls to park its new `Error` block (`./mfb spec memory fallible-call-abi`): its
+code in `x1`, its origin `ErrorLoc` in `x3`, returning to the function that
+raised the error. A stop there by itself is the debugger's: `run` reads `x1`, and
+for a code not watched runs on, unseen; for a watched one it writes a second
+breakpoint of its own at the thread's `lr` and runs until that thread reaches it
+— back in the raising function, the error parked and the `TRAP` dispatch not
+yet taken — and reports the `Raised` stop, the current thread becoming that
+thread. A stop at a breakpoint of the user's before then is reported instead (and
+the raise is not), and a raise by another thread meanwhile is let go. A
+breakpoint of the user's on `_mfb_rt_park_error` shares the address: a stop there
+is theirs, and removing it keeps the watch's. `restart` places the watch again
+in the new process. A `finish` the raise stops ends early, as for any other
+stop. [[src/debugger/breakpoints.rs:Breakpoints]]
+
+Errors the watch cannot see, since they do not pass through the park: an error
+re-raised from an `Error` value (`FAIL e`, a cleanup's re-raise), which stores
+its block in the slot directly; and a loose error (tag `1`), which has no block.
+A worker's error that `thread::waitFor` passes to its caller is parked twice —
+by the worker and again in the caller — so it stops twice. Every raise in the
+program stops the process for the comparison, watched or not.
+
 ### `run`
 
 `run` places every pending breakpoint whose function is now bound, printing
@@ -754,6 +796,7 @@ outcome, `<place>` as in `step`:
 | Stop | Line |
 | --- | --- |
 | a breakpoint (one line per thread) | `Thread <t> hit a breakpoint at <place>.` |
+| a watched error raised (`breakerror`) | `Thread <t> raised <code>[ (errorCode::<name>)][ at <file>:<line>:<char>]; it is at <place>, before a TRAP takes the error.` |
 | another exception | `Thread <t> stopped by <exception> at <place>.` |
 | Ctrl-C | `Paused: thread 0 is at <place>.` |
 | a launched program exited | `The program exited with status <n>.` |
