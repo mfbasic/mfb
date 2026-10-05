@@ -1,0 +1,578 @@
+# plan-171-A: Instruction-form census tool and AArch64 `stp`/`ldp`
+
+Last updated: 2026-10-04
+Overall Effort: huge (>3d across A–G)
+Effort: large (3h–1d)
+Depends on: nothing (see Prerequisites)
+
+**plan-171 overall.** The native backends emit only part of the instruction set
+their targets offer. On AArch64 the encoder (`match instruction.op.mnemonic()` in
+`src/arch/aarch64/encode/emitter.rs:Encoder::emit_instruction`) has single
+loads and stores only (`ldr_u64`/`str_u64`/…), compares only as `cmp`/`cmp_imm`
+followed by `b.<cond>`, logical operations only in register form (a constant
+operand is `mov_imm` + `and`), Booleans built from branch diamonds, and calls
+only through `bl`/`blr`. x86-64 and riscv64 share that AArch64-shaped op set
+(`src/arch/ops.rs:CodeOp`), so they inherit the same gaps. plan-171 adds the
+missing forms at every layer — op vocabulary, MIR, selection, encoder, decoder,
+frame code, peepholes, branch relaxation — and converts the code generators to
+use them, so the compiled programs contain them. The sub-plans run in payoff
+order:
+
+| Letter | Form family | Effort |
+|---|---|---|
+| **A** | census tool; AArch64 `stp`/`ldp` (frames and body pairing) | large |
+| B | compare-and-branch: `cbz`/`cbnz`/`tbz`/`tbnz`; x86 `test`; rv64 bit tests | large |
+| C | logical immediates (`and`/`orr`/`eor #imm`, x86 imm32, rv64 `andi`/`ori`/`xori`); `mov_imm` via `orr`/`movn` | large |
+| D | conditional set and select: `cset`/`csel`, x86 `setcc`/`cmov`, rv64 `slt` family | large |
+| E | if-conversion (MIR row that forms selects from diamonds) | medium |
+| F | jump tables for dense `MATCH`; `adr` and PAC/BTI decisions | large |
+| G | short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); cross-form review; final validation | large |
+
+**This sub-plan** builds the measuring instrument every later letter uses (an
+`-ncode` instruction-pattern census) and then teaches AArch64 the
+load/store-pair forms: callee-saved save/restore in every prologue and epilogue
+becomes `stp`/`ldp`, and a machine pass merges adjacent same-base 8-byte
+accesses in the body. The outcome: on `macos-aarch64` and `linux-aarch64` every
+function that saves two or more adjacent callee-saved registers does so with
+`stp`, and restores them with `ldp`; programs run with unchanged output.
+
+References:
+
+- `src/codegen/engine/util/vreg_frame.rs:finalize_frame`, `push_frame_allocation`,
+  `save_callee_saved`, `restore_callee_saved` (the only prologue/epilogue builder).
+- `src/arch/ops.rs:CodeOp`, `CodeOp::mnemonic`, `CodeOp::from_mnemonic`, the
+  `ALL` list in `mnemonic_round_trips_for_all_ops`.
+- `src/codegen/engine/mir/mir.rs:MirOp` (`mir_ops!` macro), `from_code`, `to_code`.
+- `src/arch/aarch64/encode/emitter.rs:Encoder::emit_instruction`, `emit_ldr_u64`;
+  `src/arch/aarch64/encode/sizing.rs:instruction_size`.
+- `src/arch/aarch64/decode/tests.rs:the_table_covers_every_form_the_encoder_emits`,
+  `decodes_words_as_lldb_does`; `tools/oracles/aarch64-decode` (the decoder's lldb oracle).
+- `src/codegen/engine/regalloc/analysis.rs:DEF_FIELDS`, `USE_FIELDS`, `effect`.
+- `src/optimizer/opt2/peephole.rs:forward_stores_to_loads` (the shape a machine
+  pass takes), `src/optimizer/opt2/plans/mark.rs:flag_preserving`.
+- `src/optimizer/catalog.rs:rows`, `planning/optimizations.md` (row "Aggregate
+  load/store combining"), `mfb man optimizations` (renders the catalog).
+- `src/debugger/backtrace.rs:state_at`, `Effect::of` (reads prologues by decoding them).
+- `.ai/compiler.md`, `.ai/codegen-invariants.md`, `.ai/arch-abi.md`,
+  `.ai/testing-gates.md`, `.ai/specifications.md`.
+- `mfb spec architecture aarch64-instruction-set`, `mfb spec architecture
+  mir-instruction-set`, `mfb spec tooling debugger`.
+
+## Prerequisites
+
+Stated once for the whole plan-171 family; B–G point here.
+
+| Must be true | Command | Status |
+|---|---|---|
+| The concurrent AArch64 decoder widening has landed (nothing uncommitted under the decoder) | `git -C <tree> status --short src/arch/aarch64/decode` → no output | MET (2026-10-04: landed in `f62f27418`) |
+| The concurrent `src/docs/**` edits have landed (spec/man tasks below edit those files) | `git -C <tree> status --short src/docs` → no output | MET at snapshot for tracked files; re-check |
+| The tree builds and the bin unit tests pass at the starting commit | `cargo test --bin mfb > /tmp/171-pre.log 2>&1; echo EXIT=$?` → `EXIT=0` | UNMEASURED |
+| The artifact gate is clean at the starting commit (so every later diff is ours) | from a detached worktree of the starting commit: `bash scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` | UNMEASURED |
+
+Everything below is written against the world where these hold. The decoder
+prerequisite exists because every new AArch64 encoder form must gain a decoder
+table row (`the_table_covers_every_form_the_encoder_emits` reads the encoder's
+dispatch and fails on an undecoded mnemonic). The widened decoder (`f62f27418`)
+already decodes every form this family adds — `stp`/`ldp` in all index modes,
+`cbz`/`cbnz`/`tbz`/`tbnz`, logical immediates and the `mov` bitmask alias,
+`movn`, `csel`/`csinc`/`cset`, `br`, `adr` — checked against lldb; each letter
+adds only its encoder round-trip rows, never a decode arm.
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.**
+> Re-run every command and update every status before you continue, and again
+> before you decide to stop. Never act on a status you did not just verify.
+>
+> **If you stop, report the current status of *all* prerequisites.**
+
+## 1. Goal
+
+- `tools/ncode-census/` exists and, given an `mfb` binary and a target, prints
+  per-pattern counts over the `-ncode` dumps of a fixed corpus; every later
+  sub-plan quotes its before/after numbers from it.
+- On AArch64, `finalize_frame` emits `stp`/`ldp` for every pair of adjacent
+  8-byte callee-saved slots (and for adjacent 16-byte `q` slots), folding the
+  frame allocation into a pre-index `stp` and the deallocation into a
+  post-index `ldp` when the save area sits at the bottom of a frame of at most
+  504 bytes.
+- A Level-1 machine pass merges two adjacent same-base `str_u64`/`ldr_u64`
+  accesses 8 bytes apart into one `stp`/`ldp` when legal.
+- Every runtime fixture produces the same output as before on macos-aarch64 and
+  linux-aarch64 (box 2223), and the debugger's backtrace still walks through the
+  new prologues.
+
+### Non-goals (explicit constraints)
+
+- No change to frame **layout**: slot offsets, save-area order, alignment,
+  `CodeFrame.stack_size` and the stack-slot metadata stay exactly as today. Only
+  the instructions that read/write the save area change.
+- No x86-64 or riscv64 code change (see §2.4 — neither has a pair form worth
+  emitting).
+- No reordering of body instructions: the pairing pass merges only two
+  instructions that are already adjacent.
+- No pairing of `ldar`/`stlr`, of accesses whose two halves come from different
+  source lines when `--debug` line info is requested (Open Decision 2), or of
+  accesses through a base the first instruction writes.
+- No frame-pointer chain is introduced (x29 stays unused; `rg -n x29 src/codegen
+  src/target` → 2 unrelated hits).
+
+## 2. Current State
+
+### 2.1 Frames
+
+`finalize_frame` (`src/codegen/engine/util/vreg_frame.rs`) is the single
+prologue/epilogue builder; `rg -n "finalize_frame\(" src | wc -l` → 13 lines
+(definition, `finalize_vreg_body_with_locals`, `function_lowering.rs` ×3,
+`park_error_helper.rs` ×3, `fail_status.rs`, `value_functions.rs`, …). It:
+
+1. appends `lr` to `callee_saved` when the body contains `bl`/`blr`;
+2. lays out the save area: 8-byte slots at `index * 8`, except a 16-aligned
+   16-byte slot for an AArch64 `d8`–`d15` (saved with `str q`, bug-124.2);
+3. sizes the frame `outgoing_bytes + align(save_size + locals, 16) + padding`
+   and shifts every body `sp` access by `outgoing_bytes + save_size`
+   (`adjust_stack_instruction_offsets`);
+4. prologue: `push_frame_allocation` (`sub sp, total`, or page probes on Win64)
+   then one `save_callee_saved` store per register;
+5. epilogue: before every `ret`, one `restore_callee_saved` load per register in
+   reverse, then `add sp, total`.
+
+So the save area is a run of adjacent 8-byte slots at `[sp + outgoing_bytes + 8k]`
+— exactly the `stp` shape — and today it is one `str` per register. The
+`-ncode` dumps show it: `control_flow_if.macos-aarch64.ncode` begins
+`label entry; sub_sp 3792; …`.
+
+### 2.2 Body accesses
+
+Spill slots are 16 bytes apart (`Aarch64RegisterModel::spill_slot_bytes` = 16,
+`src/arch/aarch64/regmodel.rs`), so two *spills* are never 8 bytes apart and
+never pair. The pairable body accesses are builder-emitted 8-byte stack objects
+and heap header/field accesses (`abi::store_u64`/`load_u64`). Source-level
+census (lower bound — runtime-computed offsets are invisible):
+`store_u64` adjacent same-base +8 with literal offsets: 56; `load_u64`: 47
+(`rg -U -P --count-matches` over consecutive `abi::store_u64(`/`abi::load_u64(`
+lines, summed; total uses `store_u64` 5364, `load_u64` 8205).
+
+Emitted census over the seven committed `.ncode` goldens (all macos-aarch64),
+counting directly adjacent same-base 8-byte accesses 8 bytes apart (loads only
+when the first destination is neither the base nor the second destination) —
+measured with the prototype script reproduced in Phase 1:
+
+| `.ncode` golden | instrs | `str` pairs | `ldr` pairs |
+|---|---|---|---|
+| `func_map_getor_hash_probe` | 13918 | 638 | 517 |
+| `list_ops_codegen_rt` | 4857 | 50 | 28 |
+| `control_flow_if` | 2598 | 35 | 43 |
+| `control_flow_match` | 2676 | 29 | 29 |
+| `parser_hello_world` | 2049 | 34 | 24 |
+| `macos_app_mode_io` (`--app`) | 16110 | 745 | 226 |
+| `macos_app_mode_plumbing` (`--app`) | 7095 | 149 | 155 |
+
+(`python3 /tmp/ncode_census.py $(find tests -name '*.ncode' | sort)`; these
+counts include the prologue/epilogue saves.) The corpus-wide number across
+examples and benchmarks is UNMEASURED; Phase 1 measures it.
+
+### 2.3 Encoder, decoder, MIR, analyses
+
+- No `stp`/`ldp` anywhere: `rg -n "^\s*(Ldp|Stp)\b" src/arch/ops.rs` → 0. The
+  encoder's loads/stores are unsigned-scaled `imm12` only (`emit_ldr_u64`).
+- The decoder guard `the_table_covers_every_form_the_encoder_emits`
+  (`src/arch/aarch64/decode/tests.rs`) slices the encoder dispatch from
+  `match instruction.op.mnemonic()` to `other => Err(` and requires each
+  mnemonic to be in `table()` or the `by_word` allowlist. The decoder already
+  decodes `stp`/`ldp` in every index mode as lldb prints them (`f62f27418`,
+  `decodes_words_as_lldb_does`); only the round-trip rows are new.
+- `MirOp` is generated by `mir_ops!`; `from_code`/`to_code` are exhaustive, so a
+  new `CodeOp` does not compile until it is placed in a group
+  (`mfb spec architecture mir-instruction-set`, "Design contract").
+- Register roles are by field name: `DEF_FIELDS = ["dst", "carry_out",
+  "borrow_out"]`, `USE_FIELDS = ["src", "lhs", "rhs", "minuend", "base",
+  "register", "addend", "carry_in", "borrow_in"]`
+  (`src/codegen/engine/regalloc/analysis.rs`). A pair needs a second data
+  register field (`dst2`/`src2`) added to these lists.
+- `flag_preserving` (`src/optimizer/opt2/plans/mark.rs`) already treats any
+  mnemonic starting `ldp`/`stp` as flag-preserving.
+- `forward_stores_to_loads` (`src/optimizer/opt2/peephole.rs`) clears its state
+  on any unmodelled op, so an `stp` in its input is safe but blocks forwarding;
+  it runs *before* `finalize_frame` at every call site (e.g.
+  `function_lowering.rs` lines 1526/1538), so a pairing step at the end of
+  `finalize_frame` runs after it and never feeds it.
+- `CodeInstruction.source` carries a source position per instruction (used for
+  debug line info, plan-166).
+
+### 2.4 x86-64 and riscv64 equivalents
+
+- **x86-64: none worth emitting.** There is no two-register store. `push`/`pop`
+  only address `[rsp]` with an implicit adjust, so they cannot replace
+  `mov [rsp+disp], r` saves without changing the frame layout, and the Win64
+  `UNWIND_INFO` that plan-169 writes describes the prologue shape — a push-based
+  prologue is that plan's business, not this one's. Today the saves are
+  `mov [rsp+disp32], r` (`save_callee_saved` → `str_u64` →
+  `mem_disp32`); a shorter `disp8` form is sub-plan G.
+- **riscv64: none.** RV64GC has no pair load/store (Zilsd is RV32-only), and
+  the encoder emits no compressed instructions (`c.sdsp` would be a size, not a
+  pairing, change). Saves are one `sd`/`fsd` per register.
+
+### 2.5 Debugger
+
+`src/debugger/backtrace.rs` unwinds by decoding a function from its start. It
+already understands `stp`/`ldp` in all three addressing modes (`Effect::of`:
+"LDP/STP, 64-bit integer or SIMD", `pair_effect`), because system libraries use
+them. It has no test over an MFBASIC-compiled `stp` prologue; its module doc
+names the compiler's frame as `sub sp, sp, #N` then `str x30, [sp, #off]`.
+
+### Verified properties
+
+- *The save area is contiguous 8-byte slots in `callee_saved` order, except
+  16-byte q slots* — read `finalize_frame` (§2.1).
+- *Pairing at the end of `finalize_frame` sees final offsets* — read
+  `finalize_frame`: `adjust_stack_instruction_offsets` and
+  `resolve_stack_arg_sentinels` run before the prologue is spliced in.
+- *`finalize_frame` returns early with no prologue when `total_stack_size == 0`*
+  — read; the body-pairing step must also run on that path.
+- *Whether requiring equal `source` on both halves loses many candidates* —
+  UNVERIFIED; Phase 1 measures it.
+- *Whether any consumer after `finalize_frame` pattern-matches `str_u64`/`ldr_u64`
+  on `sp`* — UNVERIFIED; Phase 2 task greps for it.
+
+## 3. Design Overview
+
+Three independent pieces, layered bottom-up:
+
+1. **Census tool** (`tools/ncode-census/`): a reusable measuring instrument.
+2. **The pair forms** as `CodeOp`s with encoder, decoder, MIR placement and
+   field roles — no producer yet, so landing it changes no emitted byte.
+3. **Two producers**: the frame (Level 0 — lowering, all `-O` levels) and the
+   body pairing pass (Level 1 — a catalog row, off at `-O0`).
+
+**Where correctness risk concentrates:** the body pairing pass (load pairs that
+read a register the first load writes; base registers; trap order — a pair
+faults as a unit where two loads faulted one at a time, which is harmless here
+because both halves of a merged pair address the same 16 bytes and an MFBASIC
+program has no fault handler that can observe partial completion) and the
+epilogue fold of `add sp` into a post-index `ldp` (an off-by-one in the frame
+size corrupts `sp` for the caller). Both are scheduled after the inert
+primitive, behind encoder round-trip tests and runtime fixtures.
+
+**Where design uncertainty concentrates:** how many body candidates survive the
+legality filters (Open Decision 2). Phase 1 measures it before Phase 4 is built.
+
+**Byte-identity is not this plan's gate.** Phases 1–2 are provably neutral
+(new op, no producer) and are gated by byte-identity. Phases 3–4 are expected to
+change `.ncode`/`.ncodesum` for **every aarch64 golden whose functions save two
+or more registers** — i.e. essentially every `macos-aarch64`, `linux-aarch64`
+and `macos-aarch64.app`/`linux-aarch64.app` golden — and **no** `linux-x86_64`,
+`windows-x86_64` or `linux-riscv64` golden. A diff on an x86/rv64 golden is a
+bug to root-cause (`-ncode` ONE fixture), never a design verdict.
+
+**Rejected alternatives.**
+- *Pair inside `forward_stores_to_loads`* — that pass runs before
+  `finalize_frame`, so offsets are not final and the save area does not exist yet.
+- *Pair in the MIR (`optimize_mir`) before register allocation* — the pair
+  constraints are on physical registers (`ldp` destinations distinct, not the
+  base) and on final offsets (imm7), neither known there.
+- *Reorder to create adjacency* — needs alias analysis the tree does not have
+  (`planning/optimizations.md` "Store-to-load forwarding": "Arbitrary bases /
+  memory-SSA remain Plan2 alias infrastructure").
+- *Change spill slots to 8 bytes so spills pair* — spill slots are 16 bytes to
+  hold `v128` values (`spill_slot_bytes`); changing the layout is a non-goal.
+
+## 4. Detailed Design
+
+### 4.1 Census tool
+
+`tools/ncode-census/ncode-census.sh <mfb> <target> <out.tsv>` builds each corpus
+project with `mfb build -q -ncode -target <target>` into a scratch copy (never
+in-tree — testing-gates "A corpus sweep that builds IN-TREE clobbers a concurrent
+one") and runs `tools/ncode-census/census.py` over the dumps. The corpus is
+fixed and listed in the README: every `examples/*` project, `benchmark/mfb`, and
+every `tests/byte-identity/*` fixture. `census.py` reads one JSON instruction
+per line (`{ "op": …, … }`, the `-ncode` format) and counts, per function and in
+total: instruction count; adjacent same-base `str_u64`/`ldr_u64` 8 apart (with
+and without the legality filters of §4.4, and with/without equal `source`);
+`cmp_imm …, 0` + `b.eq`/`b.ne`; `mov_imm` feeding `and`/`orr`/`eor`;
+single-bit test shapes (`mov_imm 2^k; and; cmp_imm 0; b.eq/ne`); 0/1 branch
+diamonds; `MATCH`-style compare chains (≥ 3 consecutive `cmp_imm r,k; b.eq` on
+one register); and the count of each plan-171 form (`stp`, `ldp`, `cbz`, …).
+A `--diff a.tsv b.tsv` mode prints the per-pattern delta — the before/after
+table each sub-plan's sweep phase quotes. (The `-ncode` dump is post-frame:
+`control_flow_if.macos-aarch64.ncode` opens with `sub_sp`.)
+
+### 4.2 The ops
+
+Two `CodeOp`s, `Stp` (`"stp"`) and `Ldp` (`"ldp"`), each with an `addressing`
+field `offset` | `pre` | `post`, and a `width` of 8 (X) or 16 (Q):
+
+| op | fields |
+|---|---|
+| `stp` | `src`, `src2`, `base`, `offset`, `addressing`, `width` |
+| `ldp` | `dst`, `dst2`, `base`, `offset`, `addressing`, `width` |
+
+`offset` is the byte offset (signed for pre/post-index); the encoder checks
+`offset % width == 0` and `-64*width <= offset <= 63*width` (X: −512…504; Q:
+−1024…1008) and returns an encode error otherwise — producers check first (§4.3,
+§4.4), so the error is a bug detector, not a path. `ldp` additionally rejects
+`dst == dst2` and, for writeback, `dst`/`dst2 == base`.
+
+Placement in the MIR: the **mirror** group (1:1, ISA-neutral spelling). x86-64
+and riscv64 never receive them: the producers are gated on
+`Backend::supports_pair_access()` (new, default `false`, `true` in
+`src/arch/aarch64/backend.rs:Aarch64Backend`), and the x86/rv64 encoders return
+an explicit "not emitted on this target" error if one ever arrives, which a unit
+test pins (`select_x86`/`select_riscv64` never produce it).
+
+Field roles: add `dst2` to `DEF_FIELDS` and `src2` to `USE_FIELDS`
+(`regalloc/analysis.rs`), so `effect`, `is_register_field` and the bug-242
+sentinel assert see both registers. `forward_stores_to_loads`'s `classify`
+models `stp` to `sp` as two slot stores and `ldp` as two register writes, so a
+pair never turns it conservative where it ran before.
+
+### 4.3 Frame pairing (Level 0)
+
+In `finalize_frame`, after offsets are known, build the save list as before and
+then, when `supports_pair_access()`:
+
+- Walk `callee_saved` in order; two consecutive entries form a pair when both
+  are 8-byte GPR slots (or both 16-byte q slots) at offsets `o` and `o + width`,
+  and `o + outgoing_bytes` is within the imm7 range. Emit `stp` for the pair,
+  otherwise the existing single store. An odd tail keeps its single `str`.
+- **Pre-index fold:** when `outgoing_bytes == 0`, the frame needs no Win64 probe
+  (`stack_probe_page_bytes() == 0` on AArch64), `total_stack_size <= 504`, and
+  the first pair is at offset 0, replace `sub sp, total` + `stp a,b,[sp,#0]` with
+  `stp a,b,[sp,#-total]!`.
+- Epilogue mirrors it: `ldp` per pair in reverse; the post-index fold replaces
+  `ldp a,b,[sp,#0]` + `add sp,total` with `ldp a,b,[sp],#total` under the same
+  condition.
+
+Restore order changes from strictly reverse-per-register to reverse-per-pair;
+the restored values are identical (each register reloads its own slot).
+
+### 4.4 Body pairing (Level 1 machine row "Load/store pairing")
+
+`optimizer::opt2::pairing::pair_adjacent_accesses(instructions)`, gated by
+`level_enabled(1)` and `supports_pair_access()`. It is the first client of a new
+**machine finishing hook**, `optimizer::opt2::machine::finish(instructions)`,
+called once at the end of `finalize_frame` on both the framed and the frameless
+(`total_stack_size == 0`) return path. Every later post-allocation row of
+plan-171 (B's compare-and-branch formation, C's matcher extension) runs from this
+hook, so all allocated code — user functions and vreg-allocated runtime helpers
+— passes through one choke point. For each adjacent `(i, i+1)`
+in one basic block (neither is a label or terminator):
+
+- both `str_u64` or both `ldr_u64`, same `base` operand, offsets `o` and `o ± 8`,
+  lower offset within `−512…504`, multiple of 8;
+- for loads: first `dst` ≠ `base`, `dst` ≠ `dst2` (a load into the base would
+  change the second address);
+- neither half is `ldar`/`stlr` (different op, never matched);
+- `source` positions equal (Open Decision 2).
+
+The merged instruction takes the lower offset, orders registers by offset, and
+keeps the first instruction's `source`. Stats counter in `src/optimizer/stats.rs`
+like every row.
+
+## Phases
+
+> **NOTE — keep the checkboxes current as you go.** Tick `- [x]` in the same
+> commit as the work; `- [~]` for partial with what remains; moot tasks are
+> struck through with evidence, never deleted; fill `Commit:` when a phase lands.
+> **An unticked box means NOT DONE.**
+
+### Phase 1 — `tools/ncode-census` (measure first)
+
+Delivers the instrument and the baseline numbers; touches no compiler code.
+
+- [ ] Write `tools/ncode-census/census.py` (patterns of §4.1) and
+      `tools/ncode-census/ncode-census.sh` (scratch-copy builds, one target per
+      run), plus `tools/ncode-census/README.md`. Prototype for the pair counts
+      (what produced §2.2's table):
+      ```python
+      import json,sys
+      def load(p):
+          return [json.loads(l.strip().rstrip(',')) for l in open(p) if l.strip().startswith('{ "op"')]
+      for p in sys.argv[1:]:
+          ins=load(p); st=ld=0
+          for a,b in zip(ins,ins[1:]):
+              for op in ('str_u64','ldr_u64'):
+                  if a['op']==op==b['op'] and a.get('base')==b.get('base'):
+                      try: d=abs(int(a['offset'])-int(b['offset']))
+                      except (KeyError,ValueError): continue
+                      if d==8:
+                          if op=='str_u64': st+=1
+                          elif a.get('dst') not in (a.get('base'),b.get('dst')): ld+=1
+          print(p, len(ins), st, ld)
+      ```
+- [ ] Record the baseline for `macos-aarch64`, `linux-x86_64`, `linux-riscv64`
+      into `tools/ncode-census/baseline-<target>.tsv` with the producing commit
+      in the README.
+- [ ] Measure Open Decision 2: the pair-candidate count with and without the
+      equal-`source` filter; write both numbers into this plan's §2.2.
+
+Acceptance: the tool reproduces §2.2's table for the seven committed goldens.
+  Check: `python3 tools/ncode-census/census.py --pairs $(find tests -name '*.ncode' | sort)` → the seven rows of §2.2 exactly (est. 5 s).
+Commit: —
+
+### Phase 2 — `stp`/`ldp` primitive (no producer; byte-identical)
+
+- [ ] `src/arch/ops.rs`: add `Stp`, `Ldp` (variant, `mnemonic`, `from_mnemonic`,
+      `ALL`).
+- [ ] `src/codegen/engine/mir/mir.rs`: place both in the mirror group of `mir_ops!`.
+- [ ] `src/codegen/engine/regalloc/analysis.rs`: `dst2` → `DEF_FIELDS`, `src2` →
+      `USE_FIELDS`.
+- [ ] `src/target/shared/abi.rs`: constructors `store_pair_u64`, `load_pair_u64`,
+      `store_pair_q`, `load_pair_q` taking `(r1, r2, base, offset, addressing)`.
+- [ ] `src/arch/aarch64/encode/emitter.rs` + `sizing.rs`: encode STP/LDP (64-bit
+      GPR and 128-bit SIMD; signed-offset, pre-, post-index) with the range,
+      alignment and register checks of §4.2.
+- [ ] `src/arch/x86_64/encode/emitter.rs`, `src/arch/riscv64/encode/emitter.rs`:
+      explicit "AArch64-only form" error arm; a unit test per backend.
+- [ ] `src/arch/aarch64/backend.rs`: `supports_pair_access() -> true`; trait
+      default `false` in `mir.rs:Backend`.
+- [ ] `src/optimizer/opt2/peephole.rs:classify`: model `stp`/`ldp` (§4.2).
+- [ ] Grep for post-`finalize_frame` consumers that match `str_u64`/`ldr_u64` on
+      `sp` (`rg -n 'StrU64|LdrU64|"str_u64"|"ldr_u64"' src --type rust`), read each
+      that runs after the frame, and teach it the pair or record why it cannot
+      meet one (list in this task).
+- [ ] Tests: `src/arch/aarch64/encode/tests.rs` — one case per width × mode ×
+      load/store, boundary offsets (−512, 504, −1024, 1008), and each rejected
+      form (misaligned, out of range, `ldp x1,x1`, writeback onto base).
+      `src/arch/aarch64/decode/tests.rs` — `table()` rows for `stp`/`ldp` (each
+      addressing mode) so the guard passes.
+
+Acceptance: encoder↔decoder round trip holds for every new form, and no emitted
+byte changes (provably neutral — nothing produces the ops yet).
+  Check: `cargo test --bin mfb aarch64::encode aarch64::decode ops:: regalloc::analysis` → all pass (est. 3 min);
+  `bash scripts/artifact-gate.sh target/release/mfb strings` → `0 diff(s)` (est. 1 min).
+Commit: —
+
+### Phase 3 — frame `stp`/`ldp` (Level 0)
+
+- [ ] `src/codegen/engine/util/vreg_frame.rs:finalize_frame`: pair the saves and
+      restores (§4.3), including the pre-/post-index folds; keep the single-store
+      path for unpaired slots and for backends without pair access.
+- [ ] Unit tests in `vreg_frame.rs`: 0, 1, 2, 3 GPR saves; GPR + `d8` (q slot
+      breaks the run); `outgoing_bytes > 0` (no pre-index fold); total 504 vs
+      512 (fold boundary); save offset 504 vs 512 (imm7 boundary); multiple `ret`s.
+- [ ] `src/debugger/backtrace.rs`: add a `state_at` test over the exact words the
+      new prologue/epilogue emit (pre-index `stp` with `x30` second, plain `stp`,
+      post-index `ldp`), asserting CFA and `lr` slot; update the module doc's
+      description of the compiler frame.
+- [ ] rt fixture `tests/rt-behavior/functions/frame-pair-saves` (valid): a
+      recursive function that keeps ≥ 6 values live across calls (forces x21–x27
+      saves) plus a leaf, printing a checksum; a `--debug`-free build. No
+      invalid twin: there is no user-facing surface to misuse (a compiler
+      lowering change), which `.ai/compiler.md`'s per-function fixture rule
+      does not cover.
+- [ ] Codegen-inspection test `tests/runtime/rt_codegen_forms.rs::frame_saves_use_stp`
+      (new file; extended by every later letter): builds that fixture with
+      `-ncode` for `macos-aarch64` and `linux-aarch64`, asserts `stp`/`ldp`
+      present and no `str_u64 x30` adjacent to another save; asserts no `stp`
+      in the `linux-x86_64`/`linux-riscv64` dumps.
+- [ ] Golden re-baseline (this form's own): run the AGENTS.md four questions for
+      the `.ncodesum` family once and record them in the commit (written for
+      byte-identity of emitted code; dependents are `artifact-gate.sh` only;
+      proof = `-ncode` diff of ONE fixture per aarch64 target showing only
+      save/restore instructions changed, via `census.py --diff`). Full suite
+      first (`cargo test --no-fail-fast -- --skip artifact_gate_all`), then
+      `bash scripts/regen-native-goldens.sh target/release/mfb`, then
+      `artifact-gate.sh … all` → 0. Compare `git status --porcelain | wc -l`
+      against the predicted set (aarch64 goldens only).
+- [ ] Runtime proof: `bash scripts/test-accept.sh target/release/mfb /tmp/171a-accept`
+      on macOS and `bash scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64`.
+- [ ] Benchmark: `./benchmark/run.sh 10` on the macOS host; compare with
+      `benchmark/baseline/mfb-O1.log` via `./benchmark/rank.py`; record the
+      `recurse` and `tree` rows (call-heavy) in Corrections/Summary. No baseline
+      regeneration.
+
+Acceptance: every aarch64 prologue with ≥ 2 adjacent saves uses `stp`; output of
+every runtime fixture is unchanged.
+  Check: `cargo test --release --test rt_codegen_forms frame_saves_use_stp` → pass (est. 2 min);
+  `linux-runtime-proof.sh … 2223 linux-aarch64` → 0 mismatches (est. 25 min — the only check that executes Linux aarch64 code; nothing smaller runs a Linux prologue).
+Commit: —
+
+### Phase 4 — body pairing row (Level 1)
+
+- [ ] `src/optimizer/opt2/pairing.rs`: `pair_adjacent_accesses` (§4.4) with unit
+      tests: every legality rule as a positive/negative pair, reversed offset
+      order, cross-label adjacency (not merged), different `source` (per Open
+      Decision 2).
+- [ ] `src/optimizer/opt2/machine.rs:finish` (the hook of §4.4), called at the
+      end of `finalize_frame` on both return paths; it runs
+      `pair_adjacent_accesses` gated `level_enabled(1)` and `supports_pair_access()`.
+      Unit test: a frameless leaf function still reaches the hook.
+- [ ] `src/optimizer/catalog.rs`: row "Load/store pairing", level 1, stage
+      `machine`, summary; counter in `src/optimizer/stats.rs`.
+- [ ] `planning/optimizations.md`: mark "Aggregate load/store combining" `Y`
+      with the landing note (scope: adjacent only, AArch64 only).
+- [ ] `tests/runtime/rt_regalloc_levels_agree.rs`-style agreement: add the
+      Phase 3 fixture to the `-O0` vs `-O1` agreement list (or a sibling test if
+      that file's list is not extensible).
+- [ ] Golden re-baseline as Phase 3 (aarch64 goldens only), with the census diff
+      quoted: candidates before, pairs formed after.
+- [ ] Sweep (code review, this form): run `census.py` on the corpus; for the 20
+      functions with the most remaining unpaired adjacent-candidate rejections,
+      read the producing builder (`-ncode` function name → emitter) and decide per
+      site: convert to `abi::store_pair_u64`/`load_pair_u64` at the builder when
+      the pair is structural (header word pairs written together, e.g. a string
+      header length+capacity), leave otherwise. "Makes sense" = the two
+      accesses are always adjacent in that builder's output and the pair is
+      legal for every register the allocator can give them. Record the list of
+      converted and declined sites in Corrections.
+
+Acceptance: `-O1` forms pairs, `-O0` forms none, and both run identically.
+  Check: `cargo test --bin mfb opt2::pairing` → pass (est. 2 min);
+  `mfb build -q -ncode -O0` vs `-O1` of the Phase 3 fixture → `ldp`/`stp` count 0 body pairs at `-O0`, > 0 at `-O1` (est. 1 min);
+  `cargo test --release --test rt_regalloc_levels_agree` → pass (est. 6 min).
+Commit: —
+
+### Phase 5 — spec and docs
+
+- [ ] `src/docs/spec/architecture/14_aarch64-instruction-set.md`: `stp`/`ldp` in
+      the op catalog with a worked encoding; frame section notes pair saves.
+- [ ] `src/docs/spec/architecture/17_mir-instruction-set.md`: the two mirror ops
+      and the `dst2`/`src2` field roles.
+- [ ] `src/docs/spec/memory/06_native-calling-convention.md` (or whichever topic
+      `mfb spec memory --all | grep -n 'callee-saved'` names as owner): save/restore
+      instructions.
+- [ ] `src/docs/spec/tooling/10_debugger.md`: the compiler frame shape the
+      backtrace reads.
+- [ ] `.ai/codegen-invariants.md`: one durable entry — pairing runs after
+      `finalize_frame` on final offsets; never pair across a label or into a base.
+
+Acceptance: specs render with no leaked `[[` and every new citation resolves.
+  Check: `cargo test --bin mfb spec` → pass; `target/release/mfb spec architecture --all | grep -c '\[\['` → 0 (est. 2 min).
+Commit: —
+
+## Validation Plan
+
+- Tests: encoder/decoder round trip (`src/arch/aarch64/encode/tests.rs`,
+  `decode/tests.rs`), frame unit tests (`vreg_frame.rs`), pairing unit tests,
+  backtrace `state_at` tests, `tests/runtime/rt_codegen_forms.rs`,
+  `tests/rt-behavior/functions/frame-pair-saves`.
+- Coverage check: the frame change is reached by every compiled function; the
+  pairing row by any `-O1` build — confirm with `mfb build -vv` that the row's
+  counter fires on the fixture.
+- Runtime proof: acceptance on macOS; `linux-runtime-proof.sh` on 2223
+  (`linux-aarch64`). No x86/rv64 execution needed — no x86/rv64 byte changes
+  (verified by the golden classification).
+- Doc sync: Phase 5 topics; `mfb man optimizations` renders the new row
+  (`target/release/mfb man optimizations | grep -c 'Load/store pairing'` → 1).
+- Final gate (once, after Phase 5): `cargo test --no-fail-fast > /tmp/171a.log 2>&1; echo EXIT=$?` → `EXIT=0`, `grep -c '^failures:' /tmp/171a.log` → 0 (est. 60–90 min; it includes `artifact_gate_all`).
+
+## Open Decisions
+
+1. Frame pre-/post-index fold — **recommend doing it** (saves one instruction
+   per prologue and epilogue on small frames) vs. offset-form only (simpler,
+   one less boundary). (§4.3)
+2. Equal-`source` requirement for body pairs — **recommend requiring it at every
+   level** (keeps `--debug` line stepping exact; Phase 1 measures the loss; if
+   the loss is > 50 % of candidates, revisit by requiring it only for `--debug`
+   builds). (§4.4)
+
+## Corrections
+
+<Filled in during execution.>
+
+## Summary
+
+Risk sits in the epilogue `sp` fold and in load pairing's register rules; both
+land behind round-trip tests, frame unit tests and Linux execution. x86-64 and
+riscv64 are untouched by design. B–G reuse the census tool and the
+`rt_codegen_forms` test file this letter creates.
