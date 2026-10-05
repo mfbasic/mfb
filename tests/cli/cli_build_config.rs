@@ -216,6 +216,26 @@ fn a_bad_local_file_fails_the_build_with_its_path() {
     let _ = fs::remove_dir_all(&project);
 }
 
+/// A local value may replace a declared one only with the same type.
+#[test]
+fn a_local_type_change_fails_the_build() {
+    let project = config_project("cfg_localtype");
+    fs::write(
+        project.join("project-local.json"),
+        "{\n  \"config\": {\n    \"release\": {\n      \"retries\": \"many\"\n    }\n  }\n}\n",
+    )
+    .expect("write project-local.json");
+    let (ok, stdout, stderr) = build(&project, &[]);
+    assert!(
+        !ok,
+        "a type-changing override must fail the build:\n{stdout}"
+    );
+    let both = format!("{stdout}{stderr}");
+    assert!(both.contains("project-local.json:4"), "{both}");
+    assert!(both.contains("2-200-0027"), "{both}");
+    let _ = fs::remove_dir_all(&project);
+}
+
 /// A source dependency's `project-local.json` is never read: a malformed one
 /// in the dependency's directory does not stop the consumer's build, and the
 /// dependency's call reads the app's config.

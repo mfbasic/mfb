@@ -80,7 +80,11 @@ The usage block printed by `help` is the `USAGE` constant.[[src/cli/help.rs:USAG
 `init` writes `project.json` (kind `executable`) + a `main.mfb` under the `src`
 source root; `init-pkg` writes `project.json` (kind `package`) + a `lib.mfb`
 under `src`. Both refuse to overwrite
-an existing file (`write_new_file`).[[src/cli/init.rs:write_new_file]]
+an existing file (`write_new_file`).[[src/cli/init.rs:write_new_file]] Both also
+write a `.gitignore` holding `build/` and `project-local.json`, but only when the
+directory has none: an existing `.gitignore`, or anything else at that path, is
+left byte-for-byte as it is and does not fail the command.
+[[src/cli/init.rs:write_gitignore]]
 
 ## `--version`
 

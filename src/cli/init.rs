@@ -17,6 +17,7 @@ pub(crate) fn init_project(location: &Path) -> Result<(), String> {
 
     write_new_file(&project_path, project_manifest(location) + "\n")?;
     write_new_file(&main_path, hello_world_source())?;
+    write_gitignore(location)?;
 
     println!("Created MFBASIC project at {}", location.display());
     Ok(())
@@ -36,6 +37,7 @@ pub(crate) fn init_package_project(location: &Path) -> Result<(), String> {
 
     write_new_file(&project_path, package_project_manifest(location) + "\n")?;
     write_new_file(&lib_path, package_source())?;
+    write_gitignore(location)?;
 
     println!("Created MFBASIC package project at {}", location.display());
     Ok(())
@@ -48,6 +50,16 @@ pub(crate) fn init_package_project(location: &Path) -> Result<(), String> {
 /// An `exists()` test followed by `fs::write` would both race and follow a
 /// pre-planted (even dangling) symlink onto its target.
 fn write_new_file(path: &Path, contents: String) -> Result<(), String> {
+    if write_if_absent(path, &contents)? {
+        Ok(())
+    } else {
+        Err(format!("refusing to overwrite '{}'", path.display()))
+    }
+}
+
+/// [`write_new_file`]'s `O_EXCL` create, reporting an existing path as
+/// `Ok(false)` rather than an error.
+fn write_if_absent(path: &Path, contents: &str) -> Result<bool, String> {
     use std::io::Write;
 
     let mut file = match fs::OpenOptions::new()
@@ -56,13 +68,24 @@ fn write_new_file(path: &Path, contents: String) -> Result<(), String> {
         .open(path)
     {
         Ok(file) => file,
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-            return Err(format!("refusing to overwrite '{}'", path.display()));
-        }
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
         Err(err) => return Err(format!("failed to write '{}': {err}", path.display())),
     };
     file.write_all(contents.as_bytes())
-        .map_err(|err| format!("failed to write '{}': {err}", path.display()))
+        .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+    Ok(true)
+}
+
+/// What a new project's `.gitignore` keeps out of source control: the build
+/// output, and the per-machine `project-local.json` that may hold keys and
+/// passwords (plan-167-C, Open Decision D10).
+const GITIGNORE: &str = "build/\nproject-local.json\n";
+
+/// Write `.gitignore` when the directory has none. An existing one (or anything
+/// else at that path) is left exactly as it is: initializing a project inside an
+/// existing repository must not rewrite that repository's ignore rules.
+fn write_gitignore(location: &Path) -> Result<(), String> {
+    write_if_absent(&location.join(".gitignore"), GITIGNORE).map(|_| ())
 }
 
 pub(crate) fn project_manifest(location: &Path) -> String {
@@ -354,6 +377,42 @@ mod tests {
         assert!(init_package_project(&package_location)
             .unwrap_err()
             .contains("failed to create source directory"));
+    }
+
+    #[test]
+    fn init_writes_a_gitignore_for_build_output_and_local_settings() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = dir.path().join("app");
+        init_project(&app).expect("init");
+        assert_eq!(
+            std::fs::read_to_string(app.join(".gitignore")).expect(".gitignore"),
+            "build/\nproject-local.json\n"
+        );
+        let lib = dir.path().join("lib");
+        init_package_project(&lib).expect("init-pkg");
+        assert_eq!(
+            std::fs::read_to_string(lib.join(".gitignore")).expect(".gitignore"),
+            "build/\nproject-local.json\n"
+        );
+    }
+
+    #[test]
+    fn init_leaves_an_existing_gitignore_byte_for_byte() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for (name, init) in [
+            ("app", init_project as fn(&Path) -> Result<(), String>),
+            ("lib", init_package_project),
+        ] {
+            let location = dir.path().join(name);
+            std::fs::create_dir_all(&location).expect("location");
+            let existing = b"target/\n*.log\n# no trailing newline";
+            std::fs::write(location.join(".gitignore"), existing).expect("existing");
+            init(&location).expect("init succeeds beside an existing .gitignore");
+            assert_eq!(
+                std::fs::read(location.join(".gitignore")).expect(".gitignore"),
+                existing
+            );
+        }
     }
 
     #[test]

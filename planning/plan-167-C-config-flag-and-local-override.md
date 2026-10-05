@@ -323,30 +323,33 @@ stops the build.
   `cargo test --bin mfb manifest::config` → pass (est. 2 min).
   Result (2026-10-05): `cargo test --test cli_build_config` → 8 passed;
   `cargo test --bin mfb manifest::config` → 19 passed.
-Commit: —
+Commit: 640af9658
 
 ### Phase 3: `mfb init` `.gitignore` and developer docs
 
 New projects keep `project-local.json` out of source control by default, and
 the developer-facing page explains the whole feature.
 
-- [ ] `src/cli/init.rs:init_project`, and the `init-pkg` path: write `.gitignore`
+- [x] `src/cli/init.rs:init_project`, and the `init-pkg` path: write `.gitignore`
       with `build/` and `project-local.json` when the file doesn't exist. Never
       overwrite or append to an existing one. Use `write_new_file`, and treat
       "already exists" as a skip, not an error.
-- [ ] Init unit tests: a fresh init writes it; a pre-existing `.gitignore` is
+- [x] Init unit tests: a fresh init writes it; a pre-existing `.gitignore` is
       byte-for-byte unchanged.
-- [ ] `src/codegen/builtins/os/func_get_config_or.rs` `DESC`/`EX`: explain named
+- [x] `src/codegen/builtins/os/func_get_config_or.rs` `DESC`/`EX`: explain named
       configs, `--config`, `project-local.json` (for per-machine values like
       keys, kept out of source control), and that values are stored as plain
       text in the executable. Follow `.ai/man-content.md`; no internals.
-- [ ] Spec `07_cli-reference.md`: the `init` paragraph lists `.gitignore`.
+- [x] Spec `07_cli-reference.md`: the `init` paragraph lists `.gitignore`.
 
 Acceptance: init writes the ignore file safely, and the man page passes its
 instruments.
   Check: `cargo test --bin mfb init` → pass (est. 2 min).
   `scripts/man-run-examples.sh os --run` → pass (est. 3 min).
   `scripts/man-census.sh --memory-scope` → 0 unclassified (est. 1 min).
+  Result (2026-10-05): `cargo test --bin mfb -- init spec rules::` → 115 passed;
+  `examples: 28   built: 28   ran: 28   not run: 0   failed: 0`;
+  `unclassified memory-vocabulary hits: 0`.
 Commit: —
 
 ## Validation Plan
@@ -409,6 +412,16 @@ Commit: —
   `stdinLogCap` member is just a named config whose value is a number
   (`PROJECT_JSON_CONFIG_SHAPE`), not a pointer to `options`, which the local
   file may not hold. `check_named_configs` takes a `legacy_moved_option` flag.
+- **A CLI case for 2-200-0027.** The Validation Plan's coverage loop greps
+  `config.rs` and `cli_build_config.rs` for each code, and only a unit test
+  (by rule name) covered 0027. `a_local_type_change_fails_the_build` now
+  builds one end to end.
+- **Validation Plan runtime proof** (2026-10-05): the §1 example printed
+  `https://prod` / `[]` with no flag, and `http://localhost` / `[secret]` with
+  `--config=dev`. `--config=staging` failed with 2-200-0025, "Declared: dev,
+  release.". `strings … | grep -c secret` → 0 for the release binary and 1 for
+  the dev binary. Byte-identity: `strings_codegen_cover_rt.ncode` sha
+  `f5cb5cc7…`, unchanged from the post-B compiler and its golden.
 - **`NamedConfig.line` and `ProjectConfig.line` added.** The unknown-name
   diagnostic (Phase 1) needs the `config` line, and the case-only config-name
   duplicate needs the config's own line.

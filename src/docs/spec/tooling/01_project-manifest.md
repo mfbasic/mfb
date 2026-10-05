@@ -185,7 +185,8 @@ values never apply to the consuming program. [[src/manifest/mod.rs:validate_conf
 
 An optional `project-local.json` beside `project.json` overrides and extends the
 `config` section for one machine: API keys, passwords, and local developer
-settings. It is meant to stay out of source control.
+settings. It is meant to stay out of source control, and the `.gitignore` that
+`mfb init` and `mfb init-pkg` write names it.
 [[src/manifest/config.rs:load_project_config]]
 
 ```json
