@@ -999,6 +999,10 @@ name = "rt_compress_bounds"
 path = "tests/runtime/rt_compress_bounds.rs"
 
 [[test]]
+name = "rt_runtime_helper_callee_saved"
+path = "tests/runtime/rt_runtime_helper_callee_saved.rs"
+
+[[test]]
 name = "rt_compress_throughput"
 path = "tests/runtime/rt_compress_throughput.rs"
 

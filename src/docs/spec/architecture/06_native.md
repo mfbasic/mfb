@@ -334,7 +334,9 @@ lowered stream and colors the integer class by live interval, spilling to a
 stack slot under pressure (so a deeply nested expression never fails — it
 spills); an integer value live across an internal runtime-helper call is spilled
 because that call clobbers the entire integer bank in the allocator model. User
-functions and external C calls use the target's caller-saved mask instead.
+functions, external C calls and the audited arena helpers (`_mfb_arena_alloc`,
+`_mfb_arena_free`, `_mfb_rt_drop_owned_collection`) use the target's caller-saved
+mask instead (`./mfb spec memory native-calling-convention`).
 [[src/codegen/engine/regalloc/analysis.rs:call_clobber_mask]] Which value spills is a choice at `-O1` and above: when
 no register is free for the value being colored, it takes the register of an
 active value whose spill priority is lower than its own, and that value spills

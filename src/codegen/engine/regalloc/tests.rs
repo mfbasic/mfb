@@ -51,9 +51,12 @@ fn linear_scan_keeps_value_across_call_in_callee_saved() {
     }
 }
 
-/// `_mfb_arena_alloc` is hand-written and tramples callee-saved `x20`–`x28` on top
-/// of the caller-saved set, so no integer register survives it: an integer value
-/// live across the call must spill (a slot is allocated for it).
+/// A runtime helper outside `PCS_CLEAN_RUNTIME_HELPERS` (here the error builder
+/// `_mfb_make_error_result`) is modeled as trampling every integer register, so no
+/// integer register survives it: an integer value live across the call must spill
+/// (a slot is allocated for it). bug-774 moved `_mfb_arena_alloc`, this test's
+/// original example and still its name (completed plans cite it), into the
+/// audited PCS-clean set.
 #[test]
 fn linear_scan_spills_integer_across_arena_alloc() {
     let mut instructions = vec![
@@ -62,7 +65,7 @@ fn linear_scan_spills_integer_across_arena_alloc() {
             .physical_field("dst", &vreg_name(0))
             .field("type", "Integer")
             .field("value", "5"),
-        CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+        CodeInstruction::new("bl").field("target", "_mfb_make_error_result"),
         CodeInstruction::new("str_u64")
             .physical_field("src", &vreg_name(0))
             .physical_field("base", "sp")
@@ -89,20 +92,20 @@ fn linear_scan_spills_integer_across_arena_alloc() {
 /// must therefore be recorded in the frame's callee-saved save set, or the
 /// callee silently clobbers the caller's `x20`.
 ///
-/// Construction: `v0` crosses `_mfb_arena_alloc` (which tramples every integer
-/// register) so it must spill; ten short-lived colored vregs (`v1`–`v10`)
-/// saturate `x8`–`x17` at the instruction that reloads `v0`, forcing its reload
-/// scratch onto callee-saved `x20`.
+/// Construction: `v0` crosses `_mfb_make_error_result` (an unaudited runtime
+/// helper, modeled as trampling every integer register) so it must spill; ten
+/// short-lived colored vregs (`v1`–`v10`) saturate `x8`–`x17` at the instruction
+/// that reloads `v0`, forcing its reload scratch onto callee-saved `x20`.
 #[test]
 fn linear_scan_records_callee_saved_reload_scratch_int() {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
-        // v0: defined, then live across the arena-alloc call -> spilled.
+        // v0: defined, then live across the all-clobbering call -> spilled.
         CodeInstruction::new("mov_imm")
             .physical_field("dst", &vreg_name(0))
             .field("type", "Integer")
             .field("value", "5"),
-        CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+        CodeInstruction::new("bl").field("target", "_mfb_make_error_result"),
     ];
     // v1..v10: defined after the call (never cross it), all live across the
     // reload of v0 below, so they occupy x8..x17 there.
@@ -444,6 +447,59 @@ fn call_clobber_masks_match_each_targets_abi() {
     }
 }
 
+/// bug-774: a call to an audited runtime helper (`PCS_CLEAN_RUNTIME_HELPERS`)
+/// clobbers exactly the caller-saved integer set, like a compiled function, so a
+/// value live across an in-place `append`'s grow path can stay in a callee-saved
+/// register. Every other `_mfb_*` helper still destroys every integer register.
+/// `tests/runtime/rt_runtime_helper_callee_saved.rs` audits the helpers' bodies.
+#[test]
+fn audited_runtime_helpers_clobber_only_caller_saved_registers() {
+    use crate::arch::riscv64::regmodel::Riscv64RegisterModel;
+    use crate::arch::x86_64::regmodel::X86_64RegisterModel;
+    use crate::target::shared::regmodel::RegisterModel;
+
+    let call = |target: &str| CodeInstruction::new("bl").field("target", target);
+    let models: [(&dyn RegisterModel, fn(&str) -> Option<u32>); 3] = [
+        (&Aarch64RegisterModel, analysis::int_physical_index),
+        (
+            &X86_64RegisterModel,
+            analysis::int_physical_index_non_aarch64,
+        ),
+        (
+            &Riscv64RegisterModel,
+            analysis::int_physical_index_non_aarch64,
+        ),
+    ];
+    for (register_model, physical_index) in models {
+        let caller_saved =
+            analysis::caller_saved_mask(register_model, RegClass::Int, physical_index);
+        let model = analysis::ClassModel {
+            class: RegClass::Int,
+            parse_vreg: |_| None,
+            physical_index,
+            is_fp: false,
+            caller_saved,
+        };
+        assert_eq!(analysis::PCS_CLEAN_RUNTIME_HELPERS.len(), 3);
+        for helper in analysis::PCS_CLEAN_RUNTIME_HELPERS {
+            assert_eq!(
+                analysis::call_clobber_mask(&call(helper), &model),
+                caller_saved,
+                "{helper} must clobber only the caller-saved set",
+            );
+        }
+        assert_eq!(
+            analysis::call_clobber_mask(&call("_mfb_fn_user"), &model),
+            caller_saved
+        );
+        assert_eq!(
+            analysis::call_clobber_mask(&call("_mfb_make_error_result"), &model),
+            u64::MAX,
+            "an unaudited helper still destroys every integer register",
+        );
+    }
+}
+
 /// With nine simultaneously-live FP values spanning a `bl`, no value may be
 /// colored onto `xmm8`–`xmm14` on x86-64: SysV destroys them across the call.
 /// Before bug-350 the allocator not only permitted that placement, it preferred
@@ -559,7 +615,7 @@ fn a_value_dead_at_a_raise_call_keeps_its_register_at_level_one() {
                 .field("rhs", "0"),
             CodeInstruction::new("b.ne").field("target", "ok"),
             // The raise path: an all-clobbering runtime call, then return.
-            CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+            CodeInstruction::new("bl").field("target", "_mfb_make_error_result"),
             CodeInstruction::new("ret"),
             CodeInstruction::new("label").field("name", "ok"),
             CodeInstruction::new("str_u64")

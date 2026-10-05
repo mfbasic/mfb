@@ -121,11 +121,36 @@ pub(crate) struct ClassModel {
     pub(crate) caller_saved: PhysMask,
 }
 
-/// Every physical register — forbidding all of them forces a spill across an
-/// internal helper call (`_mfb_arena_alloc` tramples callee-saved registers
-/// too). Bits above a target's register-number space name no register, so no
-/// candidate index can match them and the extra bits are inert on every ISA.
+/// Every physical register — forbidding all of them forces a spill across a
+/// runtime-helper call whose integer clobber set has not been audited. Bits above
+/// a target's register-number space name no register, so no candidate index can
+/// match them and the extra bits are inert on every ISA.
 const ALL_PHYS: PhysMask = PhysMask::MAX;
+
+/// The `_mfb_*` runtime helpers audited to preserve every callee-saved integer
+/// register on every target, so a call to one clobbers only the PCS caller-saved
+/// set, exactly like a compiled `_mfb_fn_*` function (bug-774).
+///
+/// Each is emitted through the same vreg-allocated, PCS-framed pipeline as a
+/// compiled function — its frame saves the callee-saved registers its allocation
+/// used — and names no callee-saved register by hand, except the module-globals
+/// base (`x19`, `r15`, `s11`), which it only reads. Everything they call is the
+/// same: `_mfb_arena_fill_random`, `_mfb_arena_flush_coalesce`,
+/// `_mfb_arena_insert_free` and `_mfb_arena_free`, plus the OS allocator (`mmap`
+/// by syscall, Win64 `VirtualAlloc`), which preserve callee-saved registers by
+/// their own ABI. `tests/runtime/rt_runtime_helper_callee_saved.rs` re-derives
+/// that from the `-ncode` dump of every target, so a helper that starts trampling
+/// a callee-saved register fails there before it can corrupt a caller.
+///
+/// These three are the calls an in-place `append`/`set`/`insert` grow path and an
+/// owned-collection drop make inside a loop. Treating them as `ALL_PHYS` put every
+/// value live across such a path — a loop's whole state, for a grow path that
+/// rejoins the loop — in memory (bug-774: `compress::inflate`'s decoder state).
+pub(crate) const PCS_CLEAN_RUNTIME_HELPERS: &[&str] = &[
+    "_mfb_arena_alloc",
+    "_mfb_arena_free",
+    crate::codegen::error::constants::DROP_OWNED_COLLECTION_SYMBOL,
+];
 
 /// Build the call-clobber mask for `class` from the target's own caller-saved
 /// register table, mapping each name through this class's physical-index
@@ -167,10 +192,10 @@ pub(crate) fn caller_saved_mask(
 ///   clobber sets are unknown to the allocator (the helpers are hand-written and
 ///   varied), so the conservative `all_int` mask keeps a value out of every
 ///   caller-saved *and* callee-saved integer register across such a call.
-///   (`_mfb_arena_alloc` is itself PCS-framed and preserves `x19`–`x28`; there is
-///   no survivor set — see `.ai/compiler.md`.) Their FP clobber still follows the
-///   PCS (caller-saved only) — `_mfb_arena_alloc` touches no FP on its fast path
-///   and reaches `mmap` (PCS) when it grows.
+///   The audited exceptions in [`PCS_CLEAN_RUNTIME_HELPERS`] clobber only the
+///   caller-saved set. Every helper's FP clobber follows the PCS (caller-saved
+///   only) — `_mfb_arena_alloc` touches no FP on its fast path and reaches `mmap`
+///   (PCS) when it grows.
 /// - `blr` is an indirect call to a PCS function; `svc` is a syscall (no FP).
 pub(crate) fn call_clobber_mask(instruction: &CodeInstruction, model: &ClassModel) -> PhysMask {
     // The PCS clobber set for this class, derived from the target's own
@@ -195,12 +220,12 @@ pub(crate) fn call_clobber_mask(instruction: &CodeInstruction, model: &ClassMode
                 .unwrap_or_default();
             let is_runtime_helper = target.starts_with("_mfb_")
                 && !target.starts_with("_mfb_fn_")
-                && !target.starts_with("_mfb_ifn_");
+                && !target.starts_with("_mfb_ifn_")
+                && !PCS_CLEAN_RUNTIME_HELPERS.contains(&target.as_ref());
             if is_runtime_helper && !model.is_fp {
-                // A runtime helper: every integer register is treated as
-                // destroyed (`_mfb_arena_alloc` tramples callee-saved `x20`–`x28`),
-                // because these helpers are hand-written and their integer clobber
-                // sets are unknown to the allocator.
+                // An unaudited runtime helper: every integer register is treated
+                // as destroyed, because its integer clobber set is unknown to the
+                // allocator.
                 ALL_PHYS
             } else {
                 // A compiled user/built-in function (`_mfb_fn_*`/`_mfb_ifn_*`) or

@@ -487,10 +487,17 @@ fn for_each_frame_relative_sp_access(
             let Ok(offset) = value.rendered().parse::<usize>() else {
                 continue;
             };
-            // A load/store consumes 8 bytes at `offset`; an address computation
-            // (`add_immediate`) may legally name the frame's end as a limit.
+            // A load/store consumes its own width at `offset` (bug-774: a byte
+            // read of the frame's last byte needs `offset + 1`, not `offset + 8`;
+            // a 16-byte `ldr_q`/`str_q` needs `offset + 16`); an address
+            // computation (`add_immediate`) may legally name the frame's end as a
+            // limit.
             visit(match instruction.op {
                 CodeOp::AddImm => offset,
+                CodeOp::LdrU8 | CodeOp::StrU8 => offset + 1,
+                CodeOp::LdrU16 | CodeOp::StrU16 => offset + 2,
+                CodeOp::LdrU32 | CodeOp::StrU32 => offset + 4,
+                CodeOp::LdrQ | CodeOp::StrQ => offset + 16,
                 _ => offset + 8,
             });
         }
@@ -659,6 +666,36 @@ mod tests {
             abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x70),
         ];
         assert_eq!(required_sp_local_bytes(&instructions), 0x78);
+    }
+
+    /// A narrower or wider access needs exactly its own width (bug-774): a byte
+    /// read of a 16-byte scratch buffer's last byte at `sp+0x4f` fits an 0x50-byte
+    /// frame, which an 8-byte assumption rejected the moment a smaller save area
+    /// moved the buffer to the frame's end; a 16-byte `str_q` at `sp+0x10` needs
+    /// 0x20, which an 8-byte assumption under-reserved.
+    #[test]
+    fn required_sp_local_bytes_uses_each_access_width() {
+        let needs = |instruction| required_sp_local_bytes(&[instruction]);
+        assert_eq!(
+            needs(abi::load_u8(abi::mfb_arg(0), abi::stack_pointer(), 0x4f)),
+            0x50
+        );
+        assert_eq!(
+            needs(abi::store_u16(abi::mfb_arg(0), abi::stack_pointer(), 0x4e)),
+            0x50
+        );
+        assert_eq!(
+            needs(abi::load_u32(abi::mfb_arg(0), abi::stack_pointer(), 0x4c)),
+            0x50
+        );
+        assert_eq!(
+            needs(abi::vector_store(
+                abi::VEC_SCRATCH[0],
+                abi::stack_pointer(),
+                0x10
+            )),
+            0x20
+        );
     }
 
     /// An address computation may legally name the frame's end as a limit, so it
