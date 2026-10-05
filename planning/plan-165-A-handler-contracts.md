@@ -4,9 +4,7 @@ Last updated: 2026-10-04
 Overall Effort: large (estimate: 3h–1d, excluding full-suite latency)
 Effort: medium (estimate: 1h–2h)
 Depends on: nothing
-Status: Not started; re-verified against main 16df1c451 on 2026-10-04 (none of this
-plan's goals were met by the 2026-10-04 TRAP fixes); implementation awaits the
-owner's go-ahead
+Status: In progress (go-ahead: `/follow-plan 165`, 2026-10-05)
 
 ## Review coverage and execution order
 
@@ -35,6 +33,9 @@ Specify and directly test handler failure routing, nested PROPAGATE binding, and
 successful Error values without changing RETURN into a failure mechanism.
 
 ## Prerequisites
+
+Met 2026-10-05: `/follow-plan 165` is the go-ahead; worktree `worktree-P-165` forked
+from main `f23af579c`, status clean.
 
 An explicit owner go-ahead to implement this plan (for example
 `/follow-plan plan-165-A` or "implement plan-165-A"). Reviewing or discussing the
@@ -124,26 +125,48 @@ correct. Byte identity is not a runtime correctness gate.
 
 ### Phase 1 — Routing matrix
 
-- [ ] Add permanent runtime tests for every row above, with and without a function
+- [x] Add permanent runtime tests for every row above, with and without a function
       handler, including nested PROPAGATE and a failing logging helper.
-- [ ] Test named and bare handlers; assert error code, message and origin survive
+      `tests/runtime/rt_error_model_recovery.rs:every_handler_route_reaches_the_documented_handler`
+      (`ROWS` × `_nf`/`_wf`, plus three function-handler rows), -O0 and -O3;
+      `cargo test --test rt_error_model_recovery` → `4 passed; 0 failed`.
+- [x] Test named and bare handlers; assert error code, message and origin survive
       PROPAGATE, and the new error replaces the original on a new failure.
-- [ ] Test RETURN Error in an Error-returning function and rejection in Integer
+      Rows `nested_propagate_bare`/`after_recovery_bare`/`handler_propagates`
+      compare `code:message@line` (line = the helper's `FAIL`), same run.
+- [x] Test RETURN Error in an Error-returning function and rejection in Integer
       and Nothing functions, including return from handler bodies.
-- [ ] Design the routing fixtures around §8.6a and bug-816: a function handler may
+      `an_error_returned_from_an_error_function_is_successful_data` and
+      `returning_an_error_from_a_non_error_function_is_a_type_mismatch` (6 cases).
+      The Nothing cases were RED: `RETURN error(...)` in `AS Nothing` compiled →
+      bug-827, fixed here (`bugs/completed/bug-827-*`).
+- [x] Design the routing fixtures around §8.6a and bug-816: a function handler may
       read only parameters, globals, or locals declared before the first possible
       failure edge — and every counted FOR is one. Declare any local the handler
       reads before any FOR or fallible call; never "fix" a rejection by weakening
       the census. Prefer handlers that report through `e` or parameters.
-- [ ] For the nested-recovery and PROPAGATE rows (including a String and a
+      Every function handler in the new tests reads only its error binding; no
+      `TYPE_TRAP_LOCAL_UNINITIALIZED` arose (builds above succeed).
+- [x] For the nested-recovery and PROPAGATE rows (including a String and a
       List/record payload, where bug-778 moves a block on read), build with
       `--debug` at `-O0`, `-O1` and `-O3` and assert `arena.0.live_bytes 0` and
       `arena.0.double_free_skips 0` with `tests/common/debug_report.rs`
       (`arena_lines`, `counter`), as `tests/runtime/rt_inline_trap_success_alloc.rs`
-      does.
-- [ ] If a route fails, capture a RED reproduction and fix through a bug document.
-- [ ] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
+      does. `nested_recovery_and_propagate_balance_the_arena` (String, List OF
+      String, record × rec/prop/after × 40 iterations, output checked against a
+      Rust mirror) passes.
+- [x] If a route fails, capture a RED reproduction and fix through a bug document.
+      No route failed. The type-check gap found alongside (bug-827) is fixed with
+      `tests/syntax/functions/func-nothing-returns-value-invalid` and two
+      `ir::verify::tests` cases.
+- [x] Register the new target with a `[[test]]` entry in `Cargo.toml`, like the
       existing `tests/runtime/rt_inline_trap_*` targets.
+- [x] Added (Validation discipline): fixtures
+      `tests/rt-behavior/trap/inline-trap-handler-routing-rt` and
+      `tests/syntax/trap/return-error-from-non-error-function-invalid`;
+      `scripts/test-accept.sh … "inline-trap-handler-routing-rt"
+      "return-error-from-non-error-function-invalid" "func-nothing-returns-value-invalid"`
+      → `acceptance tests passed (3 test(s) ran)`.
 
 Acceptance: proposed `cargo test --test rt_error_model_recovery` passes, proving
 observable routing, memory balance at three optimization levels and compile-time
@@ -209,3 +232,9 @@ after line 1800) with `rg` symbol commands; re-ran probes 2 and 3 and added the
 duplicate-name and FOR probes; added the bug-816 FOR/§8.6a fixture constraint and
 bug-778 memory-balance assertions at -O0/-O1/-O3; added bug-825 to the ledger and
 recorded that B's revision no longer depends on A's runtime target.
+
+2026-10-05 (implementation): Phase 1's "rejection in … Nothing functions" was not
+true at `f23af579c` — `RETURN error(1, "x")`, `RETURN 5` in an `AS Nothing` function
+compiled (`ir::verify::compat::check_return_type` skipped `Nothing`, a leftover
+from when `TYPE_SUB_CANNOT_RETURN_VALUE` policed SUBs; plan-159-D removed it). Filed
+and fixed as bug-827 rather than weakening the test.

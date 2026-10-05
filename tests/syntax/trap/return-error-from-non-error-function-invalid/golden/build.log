@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/trap/return-error-from-non-error-function-invalid
+  10 | 
+  11 | FUNC intBody() AS Integer
+  12 |   RETURN error(90000001, "x")
+     | ^
+tests/syntax/trap/return-error-from-non-error-function-invalid/src/main.mfb:12 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Error, expected Integer.
+  15 | FUNC intInlineHandler() AS Integer
+  16 |   LET x = broken(1) TRAP(e)
+  17 |     RETURN e
+     | ^
+tests/syntax/trap/return-error-from-non-error-function-invalid/src/main.mfb:17 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Error, expected Integer.
+  23 |   RETURN broken(2)
+  24 |   TRAP(e)
+  25 |     RETURN e
+     | ^
+tests/syntax/trap/return-error-from-non-error-function-invalid/src/main.mfb:25 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Error, expected Integer.
+  29 | FUNC nothingInlineHandler() AS Nothing
+  30 |   LET x = broken(3) TRAP(e)
+  31 |     RETURN e
+     | ^
+tests/syntax/trap/return-error-from-non-error-function-invalid/src/main.mfb:31 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Error, expected Nothing.
+  38 |   RETURN
+  39 |   TRAP(e)
+  40 |     RETURN e
+     | ^
+tests/syntax/trap/return-error-from-non-error-function-invalid/src/main.mfb:40 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Error, expected Nothing.
+[exit 1]

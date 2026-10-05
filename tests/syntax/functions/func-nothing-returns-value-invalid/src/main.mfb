@@ -1,0 +1,46 @@
+' bug-827: `RETURN <value>` in a function declared `AS Nothing` must be
+' assignable to `Nothing`. A non-`Nothing` value — an `Integer`, an `Error` —
+' is a type error, not a value silently dropped.
+IMPORT io
+
+FUNC log(s AS String) AS Nothing
+  io::print(s)
+END FUNC
+
+FUNC returnsInteger() AS Nothing
+  RETURN 5
+END FUNC
+
+FUNC returnsError() AS Nothing
+  RETURN error(90000001, "x")
+END FUNC
+
+FUNC returnsCaughtError(s AS String) AS Nothing
+  LET n = toInt(s) TRAP(e)
+    RETURN e
+  END TRAP
+  log(toString(n))
+END FUNC
+
+' Still valid: a `Nothing` value, `RETURN NOTHING` and a bare `RETURN`.
+FUNC returnsNothingCall() AS Nothing
+  RETURN log("x")
+END FUNC
+
+FUNC returnsNothingLiteral() AS Nothing
+  RETURN NOTHING
+END FUNC
+
+FUNC returnsBare() AS Nothing
+  RETURN
+END FUNC
+
+FUNC main() AS Integer
+  returnsInteger()
+  returnsError()
+  returnsCaughtError("1")
+  returnsNothingCall()
+  returnsNothingLiteral()
+  returnsBare()
+  RETURN 0
+END FUNC

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/functions/func-nothing-returns-value-invalid
+   9 | 
+  10 | FUNC returnsInteger() AS Nothing
+  11 |   RETURN 5
+     | ^
+tests/syntax/functions/func-nothing-returns-value-invalid/src/main.mfb:11 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Integer, expected Nothing.
+  13 | 
+  14 | FUNC returnsError() AS Nothing
+  15 |   RETURN error(90000001, "x")
+     | ^
+tests/syntax/functions/func-nothing-returns-value-invalid/src/main.mfb:15 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Error, expected Nothing.
+  18 | FUNC returnsCaughtError(s AS String) AS Nothing
+  19 |   LET n = toInt(s) TRAP(e)
+  20 |     RETURN e
+     | ^
+tests/syntax/functions/func-nothing-returns-value-invalid/src/main.mfb:20 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Error, expected Nothing.
+[exit 1]

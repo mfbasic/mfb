@@ -1,0 +1,51 @@
+' plan-165-A: RETURN is success with a value of the declared type; an Error is
+' never implicitly a failure. Returning one from an Integer or Nothing function
+' is a type mismatch from the body, an inline handler and a function handler.
+' Use FAIL to fail.
+IMPORT io
+
+FUNC broken(code AS Integer) AS Integer
+  FAIL error(code, "broken")
+END FUNC
+
+FUNC intBody() AS Integer
+  RETURN error(90000001, "x")
+END FUNC
+
+FUNC intInlineHandler() AS Integer
+  LET x = broken(1) TRAP(e)
+    RETURN e
+  END TRAP
+  RETURN x
+END FUNC
+
+FUNC intFunctionHandler() AS Integer
+  RETURN broken(2)
+  TRAP(e)
+    RETURN e
+  END TRAP
+END FUNC
+
+FUNC nothingInlineHandler() AS Nothing
+  LET x = broken(3) TRAP(e)
+    RETURN e
+  END TRAP
+  io::print(toString(x))
+END FUNC
+
+FUNC nothingFunctionHandler() AS Nothing
+  io::print(toString(broken(4)))
+  RETURN
+  TRAP(e)
+    RETURN e
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(intBody()))
+  io::print(toString(intInlineHandler()))
+  io::print(toString(intFunctionHandler()))
+  nothingInlineHandler()
+  nothingFunctionHandler()
+  RETURN 0
+END FUNC

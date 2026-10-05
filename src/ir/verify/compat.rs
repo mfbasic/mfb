@@ -728,10 +728,13 @@ impl TypeEnv {
         if crate::internal_name::is_hidden_default_function(&self.current_function.borrow()) {
             return;
         }
+        // bug-827: `Nothing` is checked like any other success type. `RETURN NOTHING`
+        // and `RETURN log(x)` (a `Nothing` call) are assignable; `RETURN 5` or
+        // `RETURN error(...)` in an `AS Nothing` function is not — it used to be
+        // accepted and the value silently dropped, so a returned `Error` read as
+        // success.
         let expected = self.current_return.borrow().clone();
-        if matches!(expected, ParameterType::Nothing | ParameterType::Unknown)
-            || expected.name().is_empty()
-        {
+        if matches!(expected, ParameterType::Unknown) || expected.name().is_empty() {
             return;
         }
         let Some(actual) = self.infer_type(value, locals) else {

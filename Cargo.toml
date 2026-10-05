@@ -971,6 +971,10 @@ name = "rt_inline_trap_success_alloc"
 path = "tests/runtime/rt_inline_trap_success_alloc.rs"
 
 [[test]]
+name = "rt_error_model_recovery"
+path = "tests/runtime/rt_error_model_recovery.rs"
+
+[[test]]
 name = "rt_returned_transform_element_type"
 path = "tests/runtime/rt_returned_transform_element_type.rs"
 

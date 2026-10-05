@@ -1,0 +1,99 @@
+' plan-165-A: a failure inside an inline handler is a new error that routes
+' outward (function handler, else caller); PROPAGATE re-raises the innermost
+' lexical handler's error, the outer one after a nested recovery; RETURN of an
+' Error from an `AS Error` function is success data.
+IMPORT io
+
+FUNC broken(code AS Integer) AS Integer
+  FAIL error(code, "broken")
+END FUNC
+
+FUNC again(code AS Integer) AS Integer
+  FAIL error(code, "again")
+END FUNC
+
+FUNC describe(e AS Error) AS String
+  RETURN toString(e.code) & ":" & e.message & "@" & toString(e.source.line)
+END FUNC
+
+FUNC recoverFails() AS String
+  LET x = broken(90000001) TRAP(e)
+    RECOVER again(90000002)
+  END TRAP
+  RETURN "ok " & toString(x)
+  TRAP(f)
+    RETURN "fh " & describe(f)
+  END TRAP
+END FUNC
+
+FUNC returnFails() AS String
+  LET x = broken(90000001) TRAP(e)
+    RETURN toString(again(90000003))
+  END TRAP
+  RETURN "ok " & toString(x)
+END FUNC
+
+FUNC nestedPropagate() AS String
+  LET x = broken(90000001) TRAP(e)
+    LET y = again(90000004) TRAP
+      PROPAGATE
+    END TRAP
+    RECOVER y
+  END TRAP
+  RETURN "ok " & toString(x)
+END FUNC
+
+FUNC propagateAfterRecovery() AS String
+  LET x = broken(90000005) TRAP
+    LET y = again(90000006) TRAP(inner)
+      io::print("nested handler " & describe(inner))
+      RECOVER 0
+    END TRAP
+    PROPAGATE
+  END TRAP
+  RETURN "ok " & toString(x)
+END FUNC
+
+FUNC handlerFails() AS String
+  LET x = broken(90000007)
+  RETURN "ok " & toString(x)
+  TRAP(f)
+    FAIL error(90000008, "from the handler")
+  END TRAP
+END FUNC
+
+FUNC errorData() AS Error
+  LET x = broken(90000009) TRAP(e)
+    RETURN e
+  END TRAP
+  RETURN error(0, "unreached")
+END FUNC
+
+FUNC main() AS Integer
+  LET a = recoverFails() TRAP(e)
+    RECOVER "caller " & describe(e)
+  END TRAP
+  io::print("recoverFails " & a)
+  LET b = returnFails() TRAP(e)
+    RECOVER "caller " & describe(e)
+  END TRAP
+  io::print("returnFails " & b)
+  LET c = nestedPropagate() TRAP(e)
+    RECOVER "caller " & describe(e)
+  END TRAP
+  io::print("nestedPropagate " & c)
+  LET d = propagateAfterRecovery() TRAP(e)
+    RECOVER "caller " & describe(e)
+  END TRAP
+  io::print("propagateAfterRecovery " & d)
+  LET h = handlerFails() TRAP(e)
+    RECOVER "caller " & describe(e)
+  END TRAP
+  io::print("handlerFails " & h)
+  LET data = errorData() TRAP(e)
+    io::print("errorData failed " & describe(e))
+    RECOVER error(0, "x")
+  END TRAP
+  io::print("errorData data " & describe(data))
+  RETURN 0
+END FUNC
