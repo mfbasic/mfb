@@ -1,11 +1,11 @@
 # bug-826: the man-example `workers::patient` fixture races `thread::cancel`
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 Effort: small (guess)
 Severity: LOW
 Class: Test harness (flaky gate)
 
-Status: Open
+Status: Fixed (7e8e8060e)
 Regression Test: proposed — the existing `thread::cancel` example run by
 `scripts/man-run-examples.sh`, repeated 300 times with no failure.
 
@@ -42,3 +42,15 @@ matches the `patient` that readers see on the `thread::isCancelled` page
 Make the harness's `patient` match the documented one: no `os::sleep`, and return
 -1 when cancelled. Check that no other harness worker sleeps between
 cancellation polls.
+
+## Resolution
+
+Fixed in `7e8e8060e`. The harness's `patient` is now the `thread::isCancelled`
+page's own worker: it polls without sleeping and returns -1 when cancelled. The
+only other harness worker that sleeps, `tick`, already wraps `os::sleep` in a
+`TRAP`.
+
+- The cancel example rebuilt against the fixed `workers.mfp` (`/tmp/cancel-826`):
+  0/300 runs fail (main with the old worker: 5/300). It prints
+  `the worker returned -1`.
+- `MFB=… scripts/man-run-examples.sh thread --run`: 13 built, 13 ran, 0 failed.
