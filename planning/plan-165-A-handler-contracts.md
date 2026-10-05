@@ -170,21 +170,29 @@ correct. Byte identity is not a runtime correctness gate.
 
 Acceptance: proposed `cargo test --test rt_error_model_recovery` passes, proving
 observable routing, memory balance at three optimization levels and compile-time
-return-type rejection (estimate: minutes).
-Commit: —
+return-type rejection (estimate: minutes). Met: `4 passed; 0 failed` (65s).
+Commit: 38d7f2f8b
 
 ### Phase 2 — Canonical specification
 
-- [ ] Extend the existing §8.6 rules 3–4 in
+- [x] Extend the existing §8.6 rules 3–4 in
       `src/docs/spec/language/08_error-model.md` with the lexical binding rule and
       the routing table rows they do not already state; do not restate them.
-- [ ] Pair successful `RETURN error(...)` in `AS Error` with `FAIL error(...)`;
+      Rule 3 gains the handler-body/inline-handler/nested routes; rule 4 the
+      innermost-lexical binding and the after-recovery outer binding.
+- [x] Pair successful `RETURN error(...)` in `AS Error` with `FAIL error(...)`;
       explain that a failing RETURN operand prevents return from completing.
-- [ ] Update related function/type cross-references without duplicating the table.
+      New §8.5 paragraph.
+- [x] Update related function/type cross-references without duplicating the table.
+      `language/06_functions.md`: RETURN/FAIL pointer to §8.5 and the `AS Nothing`
+      RETURN-operand rule (bug-827).
 
 Acceptance: `target/debug/mfb spec language error-model` renders the complete
-contract; `cargo test --bin mfb spec` passes (estimate: minutes).
-Commit: —
+contract; `cargo test --bin mfb spec` passes (estimate: minutes). Met: rendered
+topic shows the new rule-3/4 and §8.5 text (`… | grep -n innermost`);
+`cargo test --bin mfb -- spec nothing_function inline_builtin` → every spec test
+passed (the one failure is plan-165-B's intentionally RED coverage test).
+Commit: (next commit)
 
 ## Open decision — review 3.1
 
