@@ -1,6 +1,6 @@
 //! `big::remainder` — what is left after dividing one `big::Int` by another.
 
-use super::gen_big::{emit_div_mod_int, emit_load_int, emit_release_int, emit_spill_args};
+use super::gen_big::{emit_load_int, emit_rem_int, emit_spill_args};
 use super::INT_TYPE_ID;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
@@ -69,7 +69,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
-/// `big::remainder`: `emit_div_mod_int`, keep the remainder, release the quotient.
+/// `big::remainder`: `emit_rem_int` — Algorithm D without the quotient block.
 pub(crate) fn lower_remainder(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -80,23 +80,20 @@ pub(crate) fn lower_remainder(
     let arg_slots = emit_spill_args(builder, args);
     let a = emit_load_int(builder, &mut vregs, arg_slots[0], "a");
     let b = emit_load_int(builder, &mut vregs, arg_slots[1], "b");
-    let quotient = builder.allocate_stack_object("big_quotient", 8);
     let remainder = builder.allocate_stack_object("big_remainder", 8);
     let zero_divisor = format!("{symbol}_zero_divisor");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
-    emit_div_mod_int(
+    emit_rem_int(
         builder,
         &mut vregs,
         &a,
         &b,
-        quotient,
         remainder,
         "r",
         &zero_divisor,
         &alloc_fail,
     );
-    emit_release_int(builder, &mut vregs, quotient);
     builder.instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), remainder),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

@@ -1,7 +1,7 @@
 //! `big::gcd` — the greatest common divisor of two `big::Int` values.
 
 use super::gen_big::{
-    emit_copy_int, emit_div_mod_int, emit_load_int, emit_release_int, emit_spill_args,
+    emit_copy_int, emit_load_int, emit_release_int, emit_rem_int, emit_spill_args,
 };
 use super::INT_TYPE_ID;
 use crate::codegen::engine::builder::*;
@@ -84,7 +84,6 @@ pub(crate) fn lower_gcd(
     let zero_sign = builder.allocate_stack_object("big_zero_sign", 8);
     let x_slot = builder.allocate_stack_object("big_x", 8);
     let y_slot = builder.allocate_stack_object("big_y", 8);
-    let quotient_slot = builder.allocate_stack_object("big_quotient", 8);
     let remainder_slot = builder.allocate_stack_object("big_remainder", 8);
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
@@ -117,18 +116,17 @@ pub(crate) fn lower_gcd(
     ]);
     // `y` was just checked non-zero, so the zero-divisor exit is never taken; it leads to
     // the same place a zero `y` does.
-    emit_div_mod_int(
+    // Only the remainder is made: Euclid never reads a quotient.
+    emit_rem_int(
         builder,
         &mut vregs,
         &x,
         &y,
-        quotient_slot,
         remainder_slot,
         "euclid",
         &finished,
         &alloc_fail,
     );
-    emit_release_int(builder, &mut vregs, quotient_slot);
     emit_release_int(builder, &mut vregs, x_slot);
     let (moved, remainder) = (vregs.next(), vregs.next());
     builder.instructions.extend([
