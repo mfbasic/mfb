@@ -65,9 +65,9 @@ fn grant_is_covered(grant: &str) -> bool {
     match grant.strip_suffix("(<enum>)") {
         // bug-679's `toInt(<enum>)`: `general_declared_errors` has the `Color`
         // row, and it raises nothing.
-        Some(member) => OVERLOADS
-            .iter()
-            .any(|(name, args, _, codes)| *name == member && *args == ["Color"] && codes.is_empty()),
+        Some(member) => OVERLOADS.iter().any(|(name, args, _, codes)| {
+            *name == member && *args == ["Color"] && codes.is_empty()
+        }),
         None => builtin_is_raise_checked(grant),
     }
 }
@@ -110,7 +110,8 @@ fn every_inline_builtin_raise_checked_package_has_its_sweep() {
         include_str!("fs_declared_errors.rs"),
     ];
     for package in RAISE_CHECKED_PACKAGES {
-        let test = format!("fn every_{package}_member_declares_exactly_the_errors_its_lowering_raises");
+        let test =
+            format!("fn every_{package}_member_declares_exactly_the_errors_its_lowering_raises");
         assert!(
             sweeps.iter().any(|source| source.contains(&test)),
             "totality_proof lists `{package}` as swept, but `{test}` does not exist"

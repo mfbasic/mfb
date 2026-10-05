@@ -294,8 +294,7 @@ fn routing_expected(source: &str) -> String {
 }
 
 fn project_root(name: &str) -> PathBuf {
-    let root =
-        std::env::temp_dir().join(format!("mfb_p165a_{name}_{}", common::unique_nonce()));
+    let root = std::env::temp_dir().join(format!("mfb_p165a_{name}_{}", common::unique_nonce()));
     std::fs::create_dir_all(root.join("src")).expect("create project dir");
     std::fs::write(
         root.join("project.json"),
@@ -497,9 +496,8 @@ fn returning_an_error_from_a_non_error_function_is_a_type_mismatch() {
         ),
     ];
     for (name, func) in cases {
-        let source = format!(
-            "{HELPERS}{func}\nFUNC main() AS Integer\n  f()\n  RETURN 0\nEND FUNC\n"
-        );
+        let source =
+            format!("{HELPERS}{func}\nFUNC main() AS Integer\n  f()\n  RETURN 0\nEND FUNC\n");
         let output = build_output(&format!("reject_{name}"), &source, &[]);
         let combined = format!(
             "{}{}",

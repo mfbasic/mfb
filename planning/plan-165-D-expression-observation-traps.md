@@ -287,7 +287,7 @@ raising_operator, short_circuit, float_observation, error_model_recovery) → 9,
 21, 20, 11, 1, 4 passed; `cargo test --bin mfb -- spec` → 46 passed; the rendered
 topic shows the `a / b / c / d` example; `cargo test --bin mfb -- ir:: trap spec
 rules:: testing` → 1089 passed.
-Commit: (next commit)
+Commit: 30931bb43
 
 ## Validation
 

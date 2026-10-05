@@ -34,8 +34,8 @@ pub(crate) mod tcp;
 pub(crate) mod term;
 pub(crate) mod testing;
 pub(crate) mod thread;
-pub(crate) mod totality_proof;
 pub(crate) mod tls;
+pub(crate) mod totality_proof;
 pub(crate) mod udp;
 pub(crate) mod vector;
 
@@ -374,9 +374,9 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
     // raises nothing simply always delivers `Ok`.
     totality_proof::inline_member_is_proven_total(target) == Some(false)
         || matches!(
-        native_builtin_target(target),
-        Some(
-            "get"
+            native_builtin_target(target),
+            Some(
+                "get"
                 | "set"
                 | "insert"
                 | "removeAt"
@@ -392,8 +392,8 @@ pub(crate) fn inline_builtin_raw_supported(target: &str, arg_types: &[ParameterT
                 // are fallible: the `String` one refuses an empty `old` (bug-533),
                 // the `List` one allocates and raises `ErrOutOfMemory` (bug-698).
                 | "replace"
+            )
         )
-    )
 }
 
 /// Whether an inline-lowered built-in callee can raise **no** user-trappable

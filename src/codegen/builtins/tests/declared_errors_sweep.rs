@@ -254,9 +254,7 @@ fn package_harness(call: &str) -> BuilderHarness<'static> {
             const { std::cell::RefCell::new(BTreeMap::new()) };
     }
     let package = call.split('.').next().unwrap_or_default();
-    let Some((package, source, mode)) = PROGRAM_FIXTURES
-        .iter()
-        .find(|(name, ..)| *name == package)
+    let Some((package, source, mode)) = PROGRAM_FIXTURES.iter().find(|(name, ..)| *name == package)
     else {
         return BuilderHarness::default();
     };

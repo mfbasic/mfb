@@ -968,10 +968,7 @@ mod macos {
         assert_eq!(function[0], "debug.out`isPrime:", "{function:?}");
         assert!(function[1].starts_with("->  0x"), "{function:?}");
         // The prologue's frame allocation; its size is the compiler's to choose.
-        assert!(
-            function[1].contains(" sub    sp, sp, #0x"),
-            "{function:?}"
-        );
+        assert!(function[1].contains(" sub    sp, sp, #0x"), "{function:?}");
         assert!(function.last().unwrap().ends_with("ret") || function.len() > 10);
         session.send("dis 3\n");
         let three = body(&session.until_prompt());

@@ -410,8 +410,16 @@ fn operator_rooted_traps_allocate_what_the_plain_expression_does() {
     let trapped_source = program(true);
     let plain_source = program(false);
     for level in ["0", "1", "3"] {
-        let (trapped, _) = build(&format!("alloc_trap_o{level}"), &trapped_source, &["--debug", "-O", level]);
-        let (plain, _) = build(&format!("alloc_plain_o{level}"), &plain_source, &["--debug", "-O", level]);
+        let (trapped, _) = build(
+            &format!("alloc_trap_o{level}"),
+            &trapped_source,
+            &["--debug", "-O", level],
+        );
+        let (plain, _) = build(
+            &format!("alloc_plain_o{level}"),
+            &plain_source,
+            &["--debug", "-O", level],
+        );
         for (name, _, _) in SHAPES {
             let case = format!("{name} -O{level}");
             let delta = |exe: &Path| {
@@ -439,11 +447,19 @@ fn operator_rooted_traps_allocate_what_the_plain_expression_does() {
     );
     for level in ["0", "1", "3"] {
         let case = format!("failing -O{level}");
-        let (exe, _) = build(&format!("failing_o{level}"), &failing, &["--debug", "-O", level]);
+        let (exe, _) = build(
+            &format!("failing_o{level}"),
+            &failing,
+            &["--debug", "-O", level],
+        );
         let (stdout, stderr) = run(&case, &exe, &[]);
         assert!(stdout.starts_with("100 "), "{case}: {stdout}");
         let lines = arena_lines(&case, &stderr);
-        assert_eq!(counter(&case, &lines, 0, "live_bytes"), 0, "{case}:\n{stderr}");
+        assert_eq!(
+            counter(&case, &lines, 0, "live_bytes"),
+            0,
+            "{case}:\n{stderr}"
+        );
         assert_eq!(
             counter(&case, &lines, 0, "double_free_skips"),
             0,

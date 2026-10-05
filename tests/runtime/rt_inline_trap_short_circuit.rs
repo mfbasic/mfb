@@ -515,8 +515,16 @@ fn the_trapped_conditional_success_path_allocates_what_the_plain_one_does() {
     let trapped_source = program(true);
     let plain_source = program(false);
     for level in ["0", "1", "3"] {
-        let trapped = build(&format!("alloc_trap_o{level}"), &trapped_source, &["--debug", "-O", level]);
-        let plain = build(&format!("alloc_plain_o{level}"), &plain_source, &["--debug", "-O", level]);
+        let trapped = build(
+            &format!("alloc_trap_o{level}"),
+            &trapped_source,
+            &["--debug", "-O", level],
+        );
+        let plain = build(
+            &format!("alloc_plain_o{level}"),
+            &plain_source,
+            &["--debug", "-O", level],
+        );
         for (name, _) in PAYLOAD_RIGHTS {
             let case = format!("{name} -O{level}");
             let delta = |exe: &Path| {
