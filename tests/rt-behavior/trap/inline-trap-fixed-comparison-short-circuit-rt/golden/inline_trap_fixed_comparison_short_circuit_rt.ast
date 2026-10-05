@@ -1,0 +1,196 @@
+{
+  "project": "inline_trap_fixed_comparison_short_circuit_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "finish",
+      "line": 11,
+      "params": [
+      { "name": "flag", "type": "Boolean", "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bare",
+      "line": 15,
+      "params": [
+      { "name": "fx", "type": "Fixed", "default": null, "line": 15 },
+      { "name": "big", "type": "Integer", "default": null, "line": 15 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 16,
+        "expression": { "kind": "call", "callee": "finish", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "fx" }, "right": { "kind": "identifier", "value": "big" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bare trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 17 },
+        { "kind": "recover", "value": { "kind": "number", "value": "9" }, "line": 18 }
+        ]
+      }, "line": 16 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "leftOfAnd",
+      "line": 23,
+      "params": [
+      { "name": "selected", "type": "Boolean", "default": null, "line": 23 },
+      { "name": "fx", "type": "Fixed", "default": null, "line": 23 },
+      { "name": "big", "type": "Integer", "default": null, "line": 23 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 24,
+        "expression": { "kind": "call", "callee": "finish", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "fx" }, "right": { "kind": "identifier", "value": "big" } }, "right": { "kind": "identifier", "value": "selected" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "left of AND trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 25 },
+        { "kind": "recover", "value": { "kind": "number", "value": "9" }, "line": 26 }
+        ]
+      }, "line": 24 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 28 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "leftOfOr",
+      "line": 31,
+      "params": [
+      { "name": "selected", "type": "Boolean", "default": null, "line": 31 },
+      { "name": "fx", "type": "Fixed", "default": null, "line": 31 },
+      { "name": "ratio", "type": "Float", "default": null, "line": 31 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 32,
+        "expression": { "kind": "call", "callee": "finish", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "fx" }, "right": { "kind": "identifier", "value": "ratio" } }, "right": { "kind": "identifier", "value": "selected" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "left of OR trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 33 },
+        { "kind": "recover", "value": { "kind": "number", "value": "9" }, "line": 34 }
+        ]
+      }, "line": 32 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 36 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "nonFiniteLeftOfOr",
+      "line": 41,
+      "params": [
+      { "name": "selected", "type": "Boolean", "default": null, "line": 41 },
+      { "name": "fx", "type": "Fixed", "default": null, "line": 41 },
+      { "name": "ratio", "type": "Float", "default": null, "line": 41 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 42,
+        "expression": { "kind": "call", "callee": "finish", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "fx" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "ratio" }, "right": { "kind": "identifier", "value": "ratio" } } }, "right": { "kind": "identifier", "value": "selected" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "non-finite left of OR trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 43 },
+        { "kind": "recover", "value": { "kind": "number", "value": "9" }, "line": 44 }
+        ]
+      }, "line": 42 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 46 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boundFirst",
+      "line": 49,
+      "params": [
+      { "name": "selected", "type": "Boolean", "default": null, "line": 49 },
+      { "name": "fx", "type": "Fixed", "default": null, "line": 49 },
+      { "name": "big", "type": "Integer", "default": null, "line": 49 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "below", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 50,
+        "expression": { "kind": "call", "callee": "finish", "arguments": [{ "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "fx" }, "right": { "kind": "identifier", "value": "big" } }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bound first trapped " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 51 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 52 }
+        ]
+      }, "line": 50 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 54,
+        "expression": { "kind": "call", "callee": "finish", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "identifier", "value": "selected" }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "below" }, "right": { "kind": "number", "value": "1" } } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "number", "value": "9" }, "line": 55 }
+        ]
+      }, "line": 54 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "b" }, "line": 57 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 60,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "bare", "arguments": [{ "kind": "number", "value": "1F" }, { "kind": "number", "value": "3000000000" }] }] }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "bare", "arguments": [{ "kind": "number", "value": "1F" }, { "kind": "number", "value": "3" }] }] }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "leftOfAnd", "arguments": [{ "kind": "boolean", "value": true }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "3000000000" }] }] }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "leftOfAnd", "arguments": [{ "kind": "boolean", "value": true }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "3" }] }] }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "leftOfOr", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "3000000000.0" }] }] }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "nonFiniteLeftOfOr", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "1e200" }] }] }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "nonFiniteLeftOfOr", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "0.5" }] }] }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "leftOfOr", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "0.5" }] }] }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "boundFirst", "arguments": [{ "kind": "boolean", "value": true }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "3000000000" }] }] }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "boundFirst", "arguments": [{ "kind": "boolean", "value": true }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "3" }] }] }] }, "line": 70 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 71 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 73,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "function handler " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 74 },
+      { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 75 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

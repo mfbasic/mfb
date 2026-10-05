@@ -1867,6 +1867,15 @@ impl<'a> Walker<'a> {
     /// conditionally cannot be hoisted, because hoisting evaluates it every time.
     /// Reporting it is the alternative to letting the division-by-zero escape the
     /// handler unnoticed, which is the whole of bug-471.
+    ///
+    /// A comparison counts too (bug-825): it promotes its operands like
+    /// arithmetic, and promotion into `Fixed` is checked, so `fx < big` raises
+    /// `ErrOverflow` for an out-of-range `Integer`/`Float` and `ErrInvalidFormat`
+    /// for a non-finite `Float`. `lower::trap_hoist_kind` lifts such a
+    /// comparison on `comparison_can_raise`, judged on its operand types; this
+    /// asks the same predicate so the checker and the lift agree on which
+    /// comparisons raise. Before, a raising comparison in an `AND`/`OR` right
+    /// operand compiled and its error escaped to the function-level handler.
     fn note_short_circuited_binary_operator(
         &self,
         expression: &HirExpression,
@@ -1879,7 +1888,15 @@ impl<'a> Walker<'a> {
             return;
         }
         let type_ = self.type_of(expression, locals);
-        if super::fallible::operator_can_raise(operator, &type_) {
+        let comparison_raises = match expression {
+            HirExpression::Binary { left, right, .. } => super::fallible::comparison_can_raise(
+                operator,
+                &self.type_of(left, locals),
+                &self.type_of(right, locals),
+            ),
+            _ => false,
+        };
+        if super::fallible::operator_can_raise(operator, &type_) || comparison_raises {
             *offender = Some(operator.name().to_string());
         }
     }
@@ -1986,10 +2003,10 @@ impl<'a> Walker<'a> {
                     && conditional
                     && self.context.call_is_fallible(
                         &self.canonical_callee(callee),
-                        // bug-486: with the argument types, so a short-circuited
-                        // `toString(<List OF Byte>)` — which really can fail — is
-                        // reported, while `toString` on anything else is not.
-                        // Typed only for the names whose verdict can turn on them.
+                        // bug-486: with the argument types, so an overload whose
+                        // verdict differs from its name's (`replace`, `toInt`) is
+                        // judged as the overload it is. Typed only for the names
+                        // whose verdict can turn on them.
                         &if crate::codegen::builtins::inline_builtin_fallibility_depends_on_args(
                             callee,
                         ) {

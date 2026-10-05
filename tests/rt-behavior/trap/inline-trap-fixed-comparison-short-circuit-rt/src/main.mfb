@@ -1,0 +1,77 @@
+IMPORT io
+
+' bug-825 control: a comparison that promotes an Integer or Float into Fixed
+' can raise (ErrOverflow out of range, ErrInvalidFormat for a non-finite Float).
+' In the right operand of AND/OR an inline TRAP cannot cover it and the program
+' is rejected (tests/syntax/trap/inline-trap-fixed-comparison-short-circuit-invalid).
+' Everywhere it is evaluated unconditionally the inline handler catches it:
+' as the trapped call's whole argument, as the LEFT operand of AND/OR, and when
+' it is bound to its own trapped LET first and the Boolean is then short-circuited.
+
+FUNC finish(flag AS Boolean) AS Integer
+  RETURN 1
+END FUNC
+
+FUNC bare(fx AS Fixed, big AS Integer) AS Integer
+  LET b = finish(fx < big) TRAP(e)
+    io::print("bare trapped " & toString(e.code))
+    RECOVER 9
+  END TRAP
+  RETURN b
+END FUNC
+
+FUNC leftOfAnd(selected AS Boolean, fx AS Fixed, big AS Integer) AS Integer
+  LET b = finish(fx < big AND selected) TRAP(e)
+    io::print("left of AND trapped " & toString(e.code))
+    RECOVER 9
+  END TRAP
+  RETURN b
+END FUNC
+
+FUNC leftOfOr(selected AS Boolean, fx AS Fixed, ratio AS Float) AS Integer
+  LET b = finish(fx >= ratio OR selected) TRAP(e)
+    io::print("left of OR trapped " & toString(e.code))
+    RECOVER 9
+  END TRAP
+  RETURN b
+END FUNC
+
+' A comparison operand is not an observation boundary, so the infinite product
+' reaches the promotion into Fixed, which raises ErrInvalidFormat.
+FUNC nonFiniteLeftOfOr(selected AS Boolean, fx AS Fixed, ratio AS Float) AS Integer
+  LET b = finish(fx >= ratio * ratio OR selected) TRAP(e)
+    io::print("non-finite left of OR trapped " & toString(e.code))
+    RECOVER 9
+  END TRAP
+  RETURN b
+END FUNC
+
+FUNC boundFirst(selected AS Boolean, fx AS Fixed, big AS Integer) AS Integer
+  LET below = finish(fx < big) TRAP(e)
+    io::print("bound first trapped " & toString(e.code))
+    RECOVER 0
+  END TRAP
+  LET b = finish(selected AND below = 1) TRAP(e)
+    RECOVER 9
+  END TRAP
+  RETURN b
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(bare(1F, 3000000000)))
+  io::print(toString(bare(1F, 3)))
+  io::print(toString(leftOfAnd(TRUE, 1F, 3000000000)))
+  io::print(toString(leftOfAnd(TRUE, 1F, 3)))
+  io::print(toString(leftOfOr(FALSE, 1F, 3000000000.0)))
+  io::print(toString(nonFiniteLeftOfOr(FALSE, 1F, 1e200)))
+  io::print(toString(nonFiniteLeftOfOr(FALSE, 1F, 0.5)))
+  io::print(toString(leftOfOr(FALSE, 1F, 0.5)))
+  io::print(toString(boundFirst(TRUE, 1F, 3000000000)))
+  io::print(toString(boundFirst(TRUE, 1F, 3)))
+  RETURN 0
+
+  TRAP(e)
+    io::print("function handler " & toString(e.code))
+    RETURN 3
+  END TRAP
+END FUNC

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/trap/inline-trap-fixed-comparison-short-circuit-invalid
+  13 | END FUNC
+  14 | FUNC viaInteger(selected AS Boolean, fx AS Fixed, big AS Integer) AS Integer
+  15 |   LET b = finish(selected AND fx < big) TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-fixed-comparison-short-circuit-invalid/src/main.mfb:15 error[2-203-0137 TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL]: inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand
+               Inline TRAP cannot cover `<`: AND/OR evaluate their right operand only conditionally, so it cannot be lifted ahead of the expression. Bind it to its own LET with a TRAP first, then use that value here.
+  19 | END FUNC
+  20 | FUNC viaFloat(selected AS Boolean, fx AS Fixed, ratio AS Float) AS Integer
+  21 |   LET b = finish(selected OR fx >= ratio) TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-fixed-comparison-short-circuit-invalid/src/main.mfb:21 error[2-203-0137 TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL]: inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand
+               Inline TRAP cannot cover `>=`: AND/OR evaluate their right operand only conditionally, so it cannot be lifted ahead of the expression. Bind it to its own LET with a TRAP first, then use that value here.
+  25 | END FUNC
+  26 | FUNC viaNested(selected AS Boolean, fx AS Fixed, big AS Integer) AS Integer
+  27 |   LET b = finish(selected AND NOT (fx = big OR selected)) TRAP(e)
+     | ^
+tests/syntax/trap/inline-trap-fixed-comparison-short-circuit-invalid/src/main.mfb:27 error[2-203-0137 TYPE_INLINE_TRAP_SHORT_CIRCUIT_CALL]: inline TRAP cannot cover a fallible call or raising operator in a short-circuited operand
+               Inline TRAP cannot cover `=`: AND/OR evaluate their right operand only conditionally, so it cannot be lifted ahead of the expression. Bind it to its own LET with a TRAP first, then use that value here.
+[exit 1]

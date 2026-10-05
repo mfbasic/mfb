@@ -371,3 +371,89 @@ END FUNC
          error propagation, not an unliftable lift"
     );
 }
+
+/// A raising **comparison** in a short-circuited operand is refused (bug-825).
+///
+/// A comparison promotes its operands like arithmetic, and promotion into
+/// `Fixed` is checked: `fx < big` raises `ErrOverflow` when `big` is outside the
+/// `Fixed` range, and `fx >= ratio` raises `ErrInvalidFormat` for a non-finite
+/// `ratio`. `lower::trap_hoist_kind` lifts such a comparison on
+/// `fallible::comparison_can_raise` (bug-816), but the short-circuit check asked
+/// only `operator_can_raise`, so `t AND fx < big` compiled and its error escaped
+/// to the function-level handler. Both promotion sources are asserted because
+/// they are separate operand types of the one predicate, and every position the
+/// spec calls short-circuited — the right side of `AND`, of `OR`, nested and
+/// under `NOT` — is a separate path through the walk.
+#[test]
+fn a_raising_comparison_in_a_short_circuited_operand_names_the_operator() {
+    for (what, expression, operator) in [
+        ("Integer promoted into Fixed", "t AND fx < big", "`<`"),
+        ("Float promoted into Fixed", "t AND fx >= ratio", "`>=`"),
+        ("Integer on the left", "t OR big = fx", "`=`"),
+        ("under NOT", "t AND NOT (fx <> big)", "`<>`"),
+        (
+            "nested AND inside an OR operand",
+            "t OR (u AND (fx <= ratio))",
+            "`<=`",
+        ),
+        (
+            "the left side of an AND that is itself short-circuited",
+            "t AND (fx > big AND u)",
+            "`>`",
+        ),
+    ] {
+        let detail = refusal(&format!(
+            "\
+FUNC main() AS Integer
+  MUT t AS Boolean = TRUE
+  MUT u AS Boolean = TRUE
+  MUT fx AS Fixed = 1F
+  MUT big AS Integer = 3000000000
+  MUT ratio AS Float = 3000000000.0
+  LET d = pick({expression}, 2) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN d
+END FUNC
+"
+        ));
+        assert!(
+            detail.contains(operator),
+            "a raising comparison ({what}) in a short-circuited operand must be \
+             refused and named {operator}; it said {detail:?}"
+        );
+    }
+}
+
+/// The comparison rule's other edges: a raising comparison that is evaluated
+/// unconditionally — the LEFT operand of the outermost `AND`/`OR` — is lifted
+/// and caught, not refused; and a comparison that converts nothing into `Fixed`
+/// (`Integer` vs `Integer`, `Byte` vs `Fixed`, `Fixed` vs `Fixed`) cannot raise
+/// and stays legal in a short-circuited operand. The `TRAP`s are warranted
+/// independently by `inner(3)`, so these assert the exemption rather than the
+/// absence of anything to lift.
+#[test]
+fn an_unconditional_or_non_raising_comparison_is_not_refused() {
+    for expression in [
+        "pick(fx < big AND t, inner(3))",
+        "pick(t AND n < 3, inner(3))",
+        "pick(t AND small < fx, inner(3))",
+        "pick(t OR fx = 2F, inner(3))",
+    ] {
+        accepted(&format!(
+            "\
+FUNC main() AS Integer
+  MUT t AS Boolean = TRUE
+  MUT n AS Integer = 1
+  MUT fx AS Fixed = 1F
+  MUT big AS Integer = 3000000000
+  MUT small AS Byte = toByte(3)
+  LET d = {expression} TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN d
+END FUNC
+"
+        ));
+    }
+}
