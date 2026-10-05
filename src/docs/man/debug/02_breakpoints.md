@@ -1,17 +1,21 @@
 # breakpoints
 
-Stop the program in a function, run it to the next stop, finish a function, and start over
+Stop the program in a function or when memory changes, run it to the next stop, finish a function, and start over
 
 ## Description
 
-A breakpoint stops the program when any thread reaches it:
+A breakpoint stops the program when any thread reaches it, and a watchpoint
+when a thread changes memory you name:
 
 ```
-breakpoint <where>        bp <where>
-breakpoint r <where>      bp r <where>
-list breakpoint           l breakpoint
-breakerror <code>...      be <code>...
-breakerror any | clear    be any | clear
+breakpoint <where> [<commands>]           bp …
+breakpoint r <where>                      bp r …
+list breakpoint                           l breakpoint
+watchpoint <where> [<size>] [<commands>]  wp …
+watchpoint r <where>                      wp r …
+list watchpoint                           l watchpoint
+breakerror <code>... [<commands>]         be …
+breakerror any [<commands>] | clear       be any … | be clear
 ```
 
 `<where>` is an address (`0x` and hex digits, as `list func` and `list thread`
@@ -41,8 +45,26 @@ fails, or the program ends. Press Ctrl-C to pause it wherever it is. A program
 `mfb dbg` started cannot read the keyboard while it runs: keystrokes go to
 `mfb dbg`.
 
-Once the program has ended, only `help`, `list`, `list breakpoint`, `list reg`
-and `show type` on their own, `restart` and `quit` still work.
+Each stop prints one line for each thread it stopped. Every line starts with
+`--[` and a kind, so a script can pick them out with `grep '^--'`:
+
+| Line | The program stopped because |
+| --- | --- |
+| `--[BP] T: 0 P: 0x… F: isPrime` | thread 0 reached a breakpoint |
+| `--[WP] T: 0 P: 0x… F: countPrimes+0x208 M: 0x…: 0x… (0) -> 0x… (1)` | thread 0 changed watched memory |
+| `--[BE] T: 0 P: 0x… F: main+0x110 E: errorCode::ErrOverflow (77050010)` | thread 0 raised an error you watch for |
+| `--[XC] T: 1 P: 0x… F: … X: a bad memory access at 0x8` | an instruction failed |
+| `--[CC] User Break` | you pressed Ctrl-C |
+| `--[EX] Program exit (0)` | the program ended, with its exit status |
+
+`T:` is the thread, `P:` the address of the instruction, and `F:` the function
+it is in, with how far in (`-` when no function is known). A program that ends
+by a signal shows `--[EX] Program ended by signal (9)`, and one you attached
+to shows `--[EX] Program exit`, since only its own parent learns its status.
+
+Once the program has ended, only `help`, `list`, `list breakpoint`,
+`list watchpoint`, `list reg` and `show type` on their own, `restart` and
+`quit` still work.
 
 ### Finishing a function
 
@@ -65,7 +87,7 @@ breakpoint in, that is the usual case:
 
 ```
 DBG> finish
-Thread 0 hit a breakpoint at 0x0000000100d9caa4 in isPrime.
+--[BP] T: 0 P: 0x0000000102e20a90 F: isPrime
 The finish from countPrimes did not complete; type 'finish' to run it again from here.
 ```
 
@@ -83,11 +105,12 @@ name:
 DBG> be ErrOverflow
 Stopping when a thread raises 77050010 (errorCode::ErrOverflow).
 DBG> run
-Thread 0 raised 77050010 (errorCode::ErrOverflow) at src/main.mfb:11:34; it is at 0x0000000102268908 in main+0x110 <mfb>, before a TRAP takes the error.
+--[BE] T: 0 P: 0x0000000102268908 F: main+0x110 <mfb> E: errorCode::ErrOverflow (77050010)
 ```
 
-From there `show error` shows the error, `bt` how the thread got there, and
-`dis pc` the code about to decide which `TRAP` handles it.
+From there `show error` shows the error and where in your source it was
+raised, `bt` how the thread got there, and `dis pc` the code about to decide
+which `TRAP` handles it.
 `be 77050004 ErrNotFound` watches for several codes at once, `be any` for every
 error, `be clear` stops watching, and `be` alone says what is being watched
 for, as `list breakpoint` does after its list. It needs a `--debug` build.
@@ -113,10 +136,95 @@ What `breakerror` does not catch, or does differently:
   while the debugger checks its code, so a program that raises many errors runs
   slower while `breakerror` is on.
 
+### Watching memory
+
+`watchpoint` (`wp`) stops the program when a thread changes memory you name.
+`<where>` is read the way `show mem` reads one: an address, a register, or a
+function, each with an offset, such as `wp sp-0xf0`. It is worked out once,
+when you set the watchpoint, so `wp x19` watches the address `x19` holds then,
+not the register. `<size>` is how many bytes to watch, 8 when you leave it out
+(the size of an `Integer`); it must be 1 to 8 bytes that do not cross an
+address that is a multiple of 8. The processor has only a few watchpoints, 4 on
+Apple silicon.
+
+The program stops only when the value changes: a thread that writes the value
+already there runs on. The line shows the value before and after. Here
+`countPrimes` keeps its count of primes found 0xf0 bytes below where `sp` is
+when the function starts, and the watchpoint sees it set to 0 and then counted
+up:
+
+```
+DBG> bp countPrimes
+Set a breakpoint at 0x0000000100b60d1c in countPrimes.
+DBG> run
+--[BP] T: 0 P: 0x0000000100b60d1c F: countPrimes
+DBG> wp sp-0xf0
+Set a watchpoint at 0x000000016f29ce60 (8 bytes): 0xb4051d3a4bfdb18f (-5474937635778743921).
+DBG> bp r countPrimes
+Removed the breakpoint at 0x0000000100b60d1c in countPrimes.
+DBG> run
+--[WP] T: 0 P: 0x0000000100b60d40 F: countPrimes+0x24 M: 0x000000016f29ce60: 0xb4051d3a4bfdb18f (-5474937635778743921) -> 0x0000000000000000 (0)
+DBG> run
+--[WP] T: 0 P: 0x0000000100b60f24 F: countPrimes+0x208 M: 0x000000016f29ce60: 0x0000000000000000 (0) -> 0x0000000000000001 (1)
+```
+
+`P:` and `F:` are the instruction that made the change; the thread is stopped
+just after it. `list watchpoint` lists the watchpoints with the value each
+holds now, and `wp r <where>` removes one. Only a change a thread makes is
+seen; data the system puts into the memory, such as a file's contents being
+read into it, is not. A watched place on a thread's stack is used again by
+later calls, so it can change for reasons that have nothing to do with the
+value you meant to watch. `restart` removes every watchpoint, since the new
+run's memory is laid out anew.
+
+### Running commands at a stop
+
+A breakpoint, a watchpoint or `breakerror` can carry commands. Write them after
+the rest of the command, separated by `;`. At each stop the debugger prints the
+stop's line, runs the commands, and lets the program run on, so you can trace
+a run without stopping it:
+
+```
+DBG> bp countPrimes list reg x0, x1; bt 3
+Set a breakpoint at 0x0000000100508d1c in countPrimes. Each stop runs 'list reg x0, x1; bt 3' and continues.
+DBG> run
+--[BP] T: 0 P: 0x0000000100508d1c F: countPrimes
+Register Hex                Decimal
+x0       0x00000000000620a7 (401575)
+x1       0x00000000000001f4 (500)
+* thread #0, task = 'MFB Main'
+  * frame #0: 0x0000000100508d1c debug.out`countPrimes
+    frame #1: 0x00000001005091dc debug.out`runRound + 344
+    frame #2: 0x000000010050b624 debug.out`runRounds + 5224
+round 1: 37 primes
+--[BP] T: 0 P: 0x0000000100508d1c F: countPrimes
+Register Hex                Decimal
+x0       0x00000000000c9314 (824084)
+x1       0x00000000000001f4 (500)
+* thread #0, task = 'MFB Main'
+  * frame #0: 0x0000000100508d1c debug.out`countPrimes
+    frame #1: 0x00000001005091dc debug.out`runRound + 344
+    frame #2: 0x000000010050b624 debug.out`runRounds + 5224
+round 2: 31 primes
+total: 68 primes
+--[EX] Program exit (0)
+```
+
+The commands run with the stopped thread as the current one. They can be
+`list`, `show`, `bt`, `dis`, or `be` alone: commands that look at the program
+without running it. `be ErrOverflow show error` prints every overflow as it
+happens, and `wp sp-0xf0 8 bt 2` shows each change with the calls that made
+it. When threads stop
+at the same time and one of their stops has no commands, the program stays
+stopped. A `finish` that meets a stop with commands runs them and carries on
+toward the end of its function. `list breakpoint` and `list watchpoint` show
+each one's commands in a `Commands` column.
+
 ### Starting over
 
 `restart` starts the program again from the beginning, with the same
-arguments, and keeps your breakpoints. It works on a program `mfb dbg`
+arguments, and keeps your breakpoints and the errors you watch for; it removes
+your watchpoints. It works on a program `mfb dbg`
 started, even after it has ended, and picks up a program you rebuilt in the
 meantime.
 
@@ -137,16 +245,16 @@ DBG> bp _exit
 Set a pending breakpoint on _exit: it is placed when the program has loaded its libraries.
 DBG> run
 Placed the pending breakpoint on _exit at 0x00000001966eaf8c.
-Thread 0 hit a breakpoint at 0x0000000100dd4aa4 in isPrime.
+--[BP] T: 0 P: 0x0000000100dd4aa4 F: isPrime
 DBG> bp r isPrime
 Removed the breakpoint at 0x0000000100dd4aa4 in isPrime.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
 total: 68 primes
-Thread 0 hit a breakpoint at 0x00000001966eaf8c in exit.
+--[BP] T: 0 P: 0x00000001966eaf8c F: exit
 DBG> run
-The program exited with status 0.
+--[EX] Program exit (0)
 DBG> q
 Process 89957 had already exited.
 ```
@@ -164,7 +272,7 @@ Launched examples/debug/build/debug.out as process 89963; paused before its firs
 DBG> bp formatLine
 Set a breakpoint at 0x0000000100fb5374 in formatLine.
 DBG> run
-Thread 0 hit a breakpoint at 0x0000000100fb5374 in formatLine.
+--[BP] T: 0 P: 0x0000000100fb5374 F: formatLine
 DBG> finish
 Thread 0 returned from formatLine to 0x0000000100fb7844 in runRounds+0x15cc: x0 = 0x0000000000000000 (0), x1 = 0x0000000101030440 (4311942208).
 DBG> show type string x1

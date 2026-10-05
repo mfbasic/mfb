@@ -32,6 +32,15 @@
 //! exception in time (it is in a system call that blocks) or raises another
 //! one is held for the rest of the step.
 //!
+//! A watchpoint is one of the processor's watchpoint register pairs
+//! (`DBGWVR`/`DBGWCR`, in `ARM_DEBUG_STATE64`), set to stop a user-mode store
+//! to the bytes it covers. It is written into every thread, and into the
+//! task's own debug state, which the kernel copies into each thread the
+//! program starts later. A hit is an `EXC_BREAKPOINT` whose first code is
+//! `EXC_ARM_DA_DEBUG`, raised before the store runs. A step runs with every
+//! stepping thread's watchpoints off, so a step can carry a thread past the
+//! store; detaching clears them all.
+//!
 //! A breakpoint is a `brk #0` written over the instruction at its address:
 //! the page is made writable with `mach_vm_protect(VM_PROT_COPY)` (a private
 //! copy, so a shared-cache library page changes for this process only),
@@ -155,6 +164,19 @@ const PROC_THREADINFO_NAME: usize = 48;
 const ARM_DEBUG_STATE64: c_int = 15;
 const ARM_DEBUG_STATE64_COUNT: u32 = 130;
 const MDSCR_SS: u64 = 1;
+/// `arm_debug_state64_t` as words: `bvr[16]`, `bcr[16]`, `wvr[16]`,
+/// `wcr[16]`, then `MDSCR_EL1`.
+const DEBUG_WORDS: usize = ARM_DEBUG_STATE64_COUNT as usize / 2;
+const DEBUG_WVR: usize = 32;
+const DEBUG_WCR: usize = 48;
+const DEBUG_SLOTS: usize = 16;
+/// `DBGWCR_EL1`: enabled (`E`), for EL0 (`PAC` = 0b10), on stores (`LSC` =
+/// 0b10); the byte-address-select mask goes at bit 5.
+const WCR_STORE_EL0: u64 = 1 | (0b10 << 1) | (0b10 << 3);
+const WCR_BAS_SHIFT: u32 = 5;
+/// The first code of an `EXC_BREAKPOINT` a watchpoint raised; the second is
+/// the data address.
+const EXC_ARM_DA_DEBUG: i64 = 0x102;
 /// `<mach/exception_types.h>` and `<mach/message.h>`.
 const EXC_BAD_ACCESS: i32 = 1;
 const EXC_BAD_INSTRUCTION: i32 = 2;
@@ -285,6 +307,14 @@ extern "C" {
         behaviors: *mut c_int,
         flavors: *mut c_int,
     ) -> KernReturn;
+    fn task_set_state(task: MachPort, flavor: c_int, state: *const u32, count: u32) -> KernReturn;
+    fn sysctlbyname(
+        name: *const c_char,
+        old: *mut c_void,
+        old_size: *mut usize,
+        new: *const c_void,
+        new_size: usize,
+    ) -> c_int;
     fn task_set_exception_ports(
         task: MachPort,
         mask: u32,
@@ -440,6 +470,8 @@ struct Task {
     /// Each breakpoint written into the program, with the instruction it
     /// replaced.
     breakpoints: BTreeMap<u64, [u8; 4]>,
+    /// Each watchpoint's address and size; its index is its register pair.
+    watchpoints: Vec<(u64, u64)>,
     /// How the program ended, once a `run` or `step` saw it end.
     exited: Option<Exit>,
     /// The SIGINT handler this process had before the session installed its
@@ -506,6 +538,7 @@ impl Task {
             image: None,
             slide: None,
             breakpoints: BTreeMap::new(),
+            watchpoints: Vec::new(),
             exited: None,
             previous_interrupt,
             libraries: Vec::new(),
@@ -956,6 +989,49 @@ impl Task {
             ));
         }
         Ok(())
+    }
+
+    /// Write the watchpoints into every thread, and into the task's debug
+    /// state, which each thread the program starts later takes.
+    fn arm_watchpoints(&self) -> Result<(), String> {
+        for thread in &self.thread_ports()?.0 {
+            self.set_thread_watchpoints(*thread, true)?;
+        }
+        let mut debug = [0u64; DEBUG_WORDS];
+        write_watchpoints(&mut debug, &self.watchpoints, true);
+        // SAFETY: `debug` holds `ARM_DEBUG_STATE64_COUNT` ints of that flavor.
+        let status = unsafe {
+            task_set_state(
+                self.task,
+                ARM_DEBUG_STATE64,
+                debug.as_ptr().cast(),
+                ARM_DEBUG_STATE64_COUNT,
+            )
+        };
+        if status != KERN_SUCCESS {
+            return Err(format!(
+                "cannot set the program's watchpoints: task_set_state: {}",
+                mach_error(status)
+            ));
+        }
+        Ok(())
+    }
+
+    /// Turn `threads`' watchpoints off for a step (`on` false), or back on.
+    fn pause_watchpoints(&self, threads: &[MachPort], on: bool) -> Result<(), String> {
+        if self.watchpoints.is_empty() {
+            return Ok(());
+        }
+        threads
+            .iter()
+            .try_for_each(|thread| self.set_thread_watchpoints(*thread, on))
+    }
+
+    /// Write the watchpoints into `thread`, enabled or all off.
+    fn set_thread_watchpoints(&self, thread: MachPort, on: bool) -> Result<(), String> {
+        let mut debug = debug_state(thread)?;
+        write_watchpoints(&mut debug, &self.watchpoints, on);
+        set_debug_state(thread, &debug, "watchpoints")
     }
 
     /// Put every breakpoint's original instruction back, for a step or a
@@ -1429,21 +1505,20 @@ fn general_state(thread: MachPort) -> Result<[u64; 34], String> {
     Ok(general)
 }
 
-/// Set or clear `MDSCR_EL1.SS`, the hardware single-step bit, for `thread`.
-fn set_single_step(thread: MachPort, on: bool) -> Result<(), String> {
-    let mut debug = [0u64; ARM_DEBUG_STATE64_COUNT as usize / 2];
+/// `thread`'s debug registers.
+fn debug_state(thread: MachPort) -> Result<[u64; DEBUG_WORDS], String> {
+    let mut debug = [0u64; DEBUG_WORDS];
     thread_state(
         thread,
         ARM_DEBUG_STATE64,
         debug.as_mut_ptr().cast(),
         ARM_DEBUG_STATE64_COUNT,
     )?;
-    let last = debug.len() - 1;
-    if on {
-        debug[last] |= MDSCR_SS;
-    } else {
-        debug[last] &= !MDSCR_SS;
-    }
+    Ok(debug)
+}
+
+/// Write `thread`'s debug registers; `what` names the change in an error.
+fn set_debug_state(thread: MachPort, debug: &[u64; DEBUG_WORDS], what: &str) -> Result<(), String> {
     // SAFETY: `debug` holds `ARM_DEBUG_STATE64_COUNT` ints of that flavor.
     let status = unsafe {
         thread_set_state(
@@ -1455,11 +1530,60 @@ fn set_single_step(thread: MachPort, on: bool) -> Result<(), String> {
     };
     if status != KERN_SUCCESS {
         return Err(format!(
-            "cannot set a thread's single-step bit: thread_set_state: {}",
+            "cannot set a thread's {what}: thread_set_state: {}",
             mach_error(status)
         ));
     }
     Ok(())
+}
+
+/// Set or clear `MDSCR_EL1.SS`, the hardware single-step bit, for `thread`.
+fn set_single_step(thread: MachPort, on: bool) -> Result<(), String> {
+    let mut debug = debug_state(thread)?;
+    let last = debug.len() - 1;
+    if on {
+        debug[last] |= MDSCR_SS;
+    } else {
+        debug[last] &= !MDSCR_SS;
+    }
+    set_debug_state(thread, &debug, "single-step bit")
+}
+
+/// Write `watchpoints` into the watchpoint registers of `debug`, the rest
+/// cleared; with `on` false every one is written disabled.
+fn write_watchpoints(debug: &mut [u64; DEBUG_WORDS], watchpoints: &[(u64, u64)], on: bool) {
+    for slot in 0..DEBUG_SLOTS {
+        let (value, control) = match watchpoints.get(slot) {
+            Some(&(address, size)) => {
+                let select = ((1u64 << size) - 1) << (address & 7);
+                let control = WCR_STORE_EL0 | (select << WCR_BAS_SHIFT);
+                (address & !7, if on { control } else { control & !1 })
+            }
+            None => (0, 0),
+        };
+        debug[DEBUG_WVR + slot] = value;
+        debug[DEBUG_WCR + slot] = control;
+    }
+}
+
+/// How many watchpoints the processor has.
+fn watchpoint_slots() -> Result<usize, String> {
+    let mut count: u32 = 0;
+    let mut size = std::mem::size_of::<u32>();
+    // SAFETY: the name is NUL-terminated; `count` is writable for `size` bytes.
+    let status = unsafe {
+        sysctlbyname(
+            c"hw.optional.watchpoint".as_ptr(),
+            ptr::addr_of_mut!(count).cast(),
+            &mut size,
+            ptr::null(),
+            0,
+        )
+    };
+    if status != 0 || count == 0 {
+        return Err("this processor has no watchpoints the debugger can use".to_string());
+    }
+    Ok((count as usize).min(DEBUG_SLOTS))
 }
 
 /// A receive right this process listens on for the task's exceptions, with
@@ -1681,8 +1805,10 @@ impl Inferior for Task {
                 Ok(Ending::Killed)
             }
         } else {
-            // A program left running must not meet a `brk` with no debugger.
-            let lifted = self.lift();
+            // A program left running must not meet a `brk`, or a watchpoint,
+            // with no debugger.
+            self.watchpoints.clear();
+            let lifted = self.lift().and_then(|()| self.arm_watchpoints());
             // SAFETY: `self.task` is the task port `attach` acquired.
             let status = unsafe { task_resume(self.task) };
             if let Err(message) = lifted {
@@ -1909,6 +2035,7 @@ impl Inferior for Task {
             .collect::<Vec<_>>();
         let steps = self
             .lift()
+            .and_then(|()| self.pause_watchpoints(&stepping, false))
             .and_then(|()| self.step_rounds(&stepping, &port, count));
         for thread in held {
             // SAFETY: drops the hold taken above.
@@ -1922,6 +2049,7 @@ impl Inferior for Task {
             self.exited = Some(self.check_exit().unwrap_or(Exit::Unknown));
         } else {
             self.reinsert()?;
+            self.pause_watchpoints(&stepping, true)?;
         }
         Ok(steps)
     }
@@ -1945,6 +2073,7 @@ impl Inferior for Task {
         self.image = None;
         self.slide = None;
         self.breakpoints.clear();
+        self.watchpoints.clear();
         self.exited = None;
         self.libraries.clear();
         self.library_count = 0;
@@ -1973,6 +2102,38 @@ impl Inferior for Task {
         self.patch(address, &original)?;
         self.breakpoints.remove(&address);
         Ok(())
+    }
+
+    fn insert_watchpoint(&mut self, address: u64, size: u64) -> Result<(), String> {
+        if self.watchpoints.iter().any(|(other, _)| *other == address) {
+            return Err(format!("there is already a watchpoint at 0x{address:016x}"));
+        }
+        let slots = watchpoint_slots()?;
+        if self.watchpoints.len() >= slots {
+            return Err(format!(
+                "all {slots} of the processor's watchpoints are in use; remove one with \
+                 'wp r <where>'"
+            ));
+        }
+        self.watchpoints.push((address, size));
+        if let Err(message) = self.arm_watchpoints() {
+            self.watchpoints.pop();
+            let _ = self.arm_watchpoints();
+            return Err(message);
+        }
+        Ok(())
+    }
+
+    fn remove_watchpoint(&mut self, address: u64) -> Result<(), String> {
+        let Some(slot) = self
+            .watchpoints
+            .iter()
+            .position(|(other, _)| *other == address)
+        else {
+            return Err(format!("there is no watchpoint at 0x{address:016x}"));
+        };
+        self.watchpoints.remove(slot);
+        self.arm_watchpoints()
     }
 
     fn run(&mut self) -> Result<RunStop, String> {
@@ -2047,7 +2208,10 @@ impl Inferior for Task {
 
 impl Task {
     /// What the exceptions a `run` caught mean: every `brk` at one of the
-    /// debugger's breakpoints, or else the first other exception.
+    /// debugger's breakpoints, else every thread a watchpoint stopped, else
+    /// the first other exception. A thread whose watchpoint hit is passed
+    /// over runs the store again, and stops again, when the program next
+    /// runs.
     fn classify(&self, raised: &[Exception]) -> Result<RunStop, String> {
         let threads = self.thread_ports()?;
         let index = |exception: &Exception| {
@@ -2061,12 +2225,24 @@ impl Task {
             .iter()
             .filter(|exception| {
                 exception.kind == EXC_BREAKPOINT
+                    && exception.codes[0] != EXC_ARM_DA_DEBUG
                     && self.breakpoints.contains_key(&(exception.codes[1] as u64))
             })
             .map(|exception| (index(exception), exception.codes[1] as u64))
             .collect::<Vec<_>>();
         if !hits.is_empty() {
             return Ok(RunStop::Breakpoints(hits));
+        }
+        let mut watched = raised
+            .iter()
+            .filter(|exception| {
+                exception.kind == EXC_BREAKPOINT && exception.codes[0] == EXC_ARM_DA_DEBUG
+            })
+            .map(index)
+            .collect::<Vec<_>>();
+        watched.dedup();
+        if !watched.is_empty() {
+            return Ok(RunStop::Watchpoints(watched));
         }
         let first = &raised[0];
         Ok(RunStop::Exception {

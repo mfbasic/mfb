@@ -48,6 +48,20 @@ impl Origin {
         }
     }
 
+    /// The type a `list func` filter word names: its code, as the listing
+    /// prints it.
+    pub(crate) fn parse(code: &str) -> Option<Origin> {
+        [
+            Origin::User,
+            Origin::Builtin,
+            Origin::Runtime,
+            Origin::Linked,
+            Origin::Dynamic,
+        ]
+        .into_iter()
+        .find(|origin| origin.code() == code)
+    }
+
     /// Whether the code is native — the runtime's or a system library's —
     /// rather than written in MFBASIC.
     fn native(self) -> bool {
