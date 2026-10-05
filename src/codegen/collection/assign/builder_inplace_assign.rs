@@ -251,6 +251,37 @@ impl CodeBuilder<'_> {
             return self.lower_field_append(site, &target, true, &list_type, &element_type);
         }
         let stack_offset = target.dest.block_slot();
+        // bug-774: `name = append(name, mid(name, start, count))` on a fixed-width
+        // list copies the slice straight from the list's own data into its tail,
+        // with no `mid` temporary.
+        if let Some((start, count, mid_loc)) =
+            self_slice_operands(site, &target.dest, &args[1], &element_type)
+        {
+            let start = self.lower_value(start)?;
+            let start_slot = self.allocate_stack_object("self_slice_append_start", 8);
+            self.store_value_at(&start, abi::stack_pointer(), start_slot);
+            let count = self.lower_value(count)?;
+            let count_slot = self.allocate_stack_object("self_slice_append_count", 8);
+            self.store_value_at(&count, abi::stack_pointer(), count_slot);
+            if start.type_ != ParameterType::Integer || count.type_ != ParameterType::Integer {
+                return Err(format!(
+                    "native list mid start and count must be Integer, got {} and {}",
+                    start.type_, count.type_
+                ));
+            }
+            self.lower_list_self_slice_append_in_place(
+                stack_offset,
+                start_slot,
+                count_slot,
+                &list_type,
+                &element_type,
+                mid_loc,
+            )?;
+            if let Some(local) = self.locals.get_mut(name) {
+                local.constant = None;
+            }
+            return Ok(true);
+        }
         // The bulk append byte-copies the right-hand list's ENTRIES into the
         // destination, so it takes their graphs (a recursive or function-holding
         // element) but not the list's own block: that is an inline store, whose
@@ -1566,4 +1597,55 @@ impl CodeBuilder<'_> {
         self.forget_field_owner_constant(site, &target.dest);
         Ok(true)
     }
+}
+
+/// bug-774: the `start`, `count` and source location of `item` when the bulk
+/// append `name = append(name, item)` is the self-slice shape
+/// `item = collections::mid(name, start, count)` that
+/// `lower_list_self_slice_append_in_place` lowers: a plain local destination, a
+/// fixed-width element, and `start`/`count` built only from literals, other locals
+/// and arithmetic — nothing that calls out, so nothing evaluated between the range
+/// check and the copy can reach `name`.
+fn self_slice_operands<'v>(
+    site: &SelfUpdateSite<'_>,
+    dest: &InPlaceDest,
+    item: &'v NirValue,
+    element_type: &ParameterType,
+) -> Option<(
+    &'v NirValue,
+    &'v NirValue,
+    crate::target::shared::nir::NirSourceLoc,
+)> {
+    if site.field.is_some() || !matches!(dest, InPlaceDest::Direct { .. }) {
+        return None;
+    }
+    crate::codegen::collection::layout::builder_collection_layout::kind2_payload_size(
+        element_type,
+    )?;
+    let NirValue::Call { target, args, loc } = item else {
+        return None;
+    };
+    if crate::codegen::collection::assign::self_update::self_update_builtin(target) != Some("mid")
+        || args.len() != 3
+        || !site.is_self(&args[0])
+    {
+        return None;
+    }
+    fn plain(value: &NirValue, name: &str) -> bool {
+        match value {
+            NirValue::Const { .. } => true,
+            NirValue::Local(local) => local != name,
+            NirValue::Binary {
+                op, left, right, ..
+            } => {
+                matches!(
+                    op,
+                    crate::operators::BinaryOp::Add | crate::operators::BinaryOp::Subtract
+                ) && plain(left, name)
+                    && plain(right, name)
+            }
+            _ => false,
+        }
+    }
+    (plain(&args[1], site.name) && plain(&args[2], site.name)).then_some((&args[1], &args[2], *loc))
 }

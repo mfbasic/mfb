@@ -1007,6 +1007,10 @@ name = "rt_compress_throughput"
 path = "tests/runtime/rt_compress_throughput.rs"
 
 [[test]]
+name = "rt_self_slice_append"
+path = "tests/runtime/rt_self_slice_append.rs"
+
+[[test]]
 name = "rt_compress_deflate_o3"
 path = "tests/runtime/rt_compress_deflate_o3.rs"
 
