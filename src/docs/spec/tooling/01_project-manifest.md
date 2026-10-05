@@ -43,7 +43,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |
 | `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** |
 | `maxBuffer` | number | no | ceiling on a single native `OUT CBuffer` allocation, in MiB. Whole number, 1–4096; defaults to **64**. See *Native buffer ceiling* |
-| `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
+| `options` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
 manifest inputs: they are outputs of `mfb build --sign`, stamped into
@@ -79,21 +79,25 @@ The manifest validator checks required `name`/`version`/`mfb` strings,
 optional `entry`/`author`/`url`/`icon` strings, `description`, `kind`, `mode`,
 `sources`, `maxBuffer`, `resources`, `libraries`, and the array shape of
 `packages`. Dependency-entry fields are interpreted by later package stages;
-`ident` and `config` are read lazily. `targets` and per-source `role` are emitted
+`ident` and `options` are read lazily. `targets` and per-source `role` are emitted
 by `mfb init` but are not consulted by selection or build stages.
 [[src/manifest/mod.rs:validate_project_manifest]]
 [[src/manifest/mod.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
-⁴ `config` holds build-time runtime tunables baked into the compiled executable.
+⁴ `options` holds build-time runtime tunables baked into the compiled executable.
 One key is read: `stdinLogCap`, the stdin broadcast-log
 backpressure high-water mark in bytes — the runtime reader blocks a
 producer rather than growing the log past `base + stdinLogCap`. It is read lazily
 on the executable codegen path and defaults to `STDIN_LOG_CAP_DEFAULT` (4 MiB) when
 absent, non-numeric, non-finite, or below one read chunk (8 KiB, which could not hold a single
-chunk); unknown keys under `config` are ignored. It is not a runtime env var or
+chunk); unknown keys under `options` are ignored. It is not a runtime env var or
 setter — the value is fixed into the binary at build time. Accepted finite
 values are cast to `u64`: fractions truncate and values above its range saturate.
 [[src/manifest/mod.rs:stdin_log_cap]]
+The section was named `config` before plan-167; a manifest whose `config` object
+still holds a `stdinLogCap` member fails validation with
+`PROJECT_JSON_CONFIG_MOVED_OPTION` at that member, naming `options.stdinLogCap`.
+There is no alias. [[src/manifest/mod.rs:validate_config]]
 
 ⁵ `description` is required for `kind: "package"` and optional for
 `kind: "executable"`. When present on either kind, it must be a string of at
@@ -384,6 +388,7 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/mod.rs:validate_libraries]] |
 | `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/mod.rs:validate_description]] |
 | `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project [[src/manifest/mod.rs:validate_name]] |
+| `2-200-0018` | `PROJECT_JSON_CONFIG_MOVED_OPTION` | error | the `config` object holds a `stdinLogCap` member; the tunable moved to `options.stdinLogCap` [[src/manifest/mod.rs:validate_config]] |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are

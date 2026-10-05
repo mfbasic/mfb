@@ -1256,6 +1256,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "project.json `name` is not a single safe path component",
     },
     Rule {
+        code: "2-200-0018",
+        name: "PROJECT_JSON_CONFIG_MOVED_OPTION",
+        severity: Severity::Error,
+        message: "project.json `config.stdinLogCap` moved to `options.stdinLogCap`",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,

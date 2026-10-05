@@ -317,7 +317,7 @@ pub(crate) fn lower_stdin_next_byte(
     platform: &dyn CodegenPlatform,
     // Backpressure high-water cap baked into this build (plan-15 D3): the reader
     // refuses to advance `fill` past `base + cap` and waits. From the manifest
-    // `"config"` `stdinLogCap`, or `STDIN_LOG_CAP_DEFAULT` (4 MiB).
+    // `"options"` `stdinLogCap`, or `STDIN_LOG_CAP_DEFAULT` (4 MiB).
     stdin_log_cap: u64,
 ) -> Result<CodeFunction, String> {
     let symbol = STDIN_NEXT_BYTE_SYMBOL;

@@ -797,7 +797,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 // resolved a `vendor` locator; the backend picks the string for its
                 // output shape.
                 !vendored.is_empty(),
-                // plan-15 D3: bake the manifest `"config".stdinLogCap` (or the default).
+                // plan-15 D3: bake the manifest `"options".stdinLogCap` (or the default).
                 crate::manifest::stdin_log_cap(&manifest),
                 // plan-130: the `--debug` report switch.
                 crate::codegen::debug::DebugOptions {

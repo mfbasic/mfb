@@ -1,0 +1,10 @@
+IMPORT io
+
+' plan-167-A: the runtime tunables moved from `config` to `options`. A manifest
+' that still carries `"config": {"stdinLogCap": N}` is rejected with
+' PROJECT_JSON_CONFIG_MOVED_OPTION at the `stdinLogCap` member, naming the new
+' home, instead of silently dropping the cap.
+FUNC main AS Integer
+  io::print("hi")
+  RETURN 0
+END FUNC

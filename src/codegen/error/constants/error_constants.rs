@@ -1127,7 +1127,7 @@ pub(crate) const STDIN_UNSUBSCRIBE_SYMBOL: &str = "_mfb_rt_stdin_unsubscribe";
 /// Default stdin broadcast-log high-water backpressure cap, in bytes (plan-15 D3).
 /// The reader refuses to advance `fill` past `base + cap` and blocks on the condvar
 /// until a slow subscriber advances `base`. A fixed constant, not lag-relative; the
-/// `project.json` `"config"` section can override the baked value at build time.
+/// `project.json` `"options"` section can override the baked value at build time.
 pub(crate) const STDIN_LOG_CAP_DEFAULT: u64 = 4 * 1024 * 1024;
 
 pub(crate) const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;

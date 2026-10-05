@@ -84,7 +84,7 @@ pub(crate) fn project_manifest(location: &Path) -> String {
             "  ],\n",
             "  \"entry\": \"main\",\n",
             "  \"targets\": [\"native\"],\n",
-            "  \"config\": {{\n",
+            "  \"options\": {{\n",
             "    \"stdinLogCap\": {}\n",
             "  }}\n",
             "}}"
@@ -117,7 +117,7 @@ fn package_project_manifest(location: &Path) -> String {
             "      \"include\": [\"**/*.mfb\"]\n",
             "    }}\n",
             "  ],\n",
-            "  \"config\": {{\n",
+            "  \"options\": {{\n",
             "    \"stdinLogCap\": {}\n",
             "  }}\n",
             "}}"
@@ -237,7 +237,7 @@ mod tests {
                 .map(String::as_str),
             Some("demo")
         );
-        // plan-15 D3: the scaffold seeds config.stdinLogCap at the runtime default,
+        // plan-15 D3: the scaffold seeds options.stdinLogCap at the runtime default,
         // and it round-trips through the manifest reader.
         assert_eq!(
             crate::manifest::stdin_log_cap(object),

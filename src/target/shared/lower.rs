@@ -38,7 +38,7 @@ pub fn lower_project(
     target_name: String,
     packages: &[PathBuf],
     build_mode: NativeBuildMode,
-    // plan-15 D3: stdin broadcast-log backpressure cap from the manifest `"config"`
+    // plan-15 D3: stdin broadcast-log backpressure cap from the manifest `"options"`
     // section, or `None` to bake the default (used by every non-executable / dump path).
     stdin_log_cap: Option<u64>,
     // plan-130: `--debug` report switch; `DebugOptions::OFF` for a normal build.

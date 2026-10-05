@@ -213,11 +213,43 @@ pub(crate) fn validate_project_manifest(
         valid = false;
     }
 
+    if !validate_config(manifest, project_path, &contents) {
+        valid = false;
+    }
+
     if valid {
         Ok(manifest.clone())
     } else {
         Err(())
     }
+}
+
+/// plan-167-A: the runtime tunables moved from `config` to `options`, freeing
+/// `config` for named build configurations. A manifest that still carries
+/// `"config": {"stdinLogCap": N}` gets one actionable diagnostic naming the new
+/// home rather than silently losing its cap.
+fn validate_config(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    let has_moved_option = manifest
+        .get("config")
+        .and_then(|config| config.get::<HashMap<String, JsonValue>>())
+        .is_some_and(|config| config.contains_key("stdinLogCap"));
+    if !has_moved_option {
+        return true;
+    }
+    let (line, column) = field_position(contents, "stdinLogCap");
+    rules::show_diagnostic(
+        "PROJECT_JSON_CONFIG_MOVED_OPTION",
+        "Rename this `config` object to `options`; `config` now holds named build configurations.",
+        project_path,
+        line,
+        column,
+        column + "\"stdinLogCap\"".len(),
+    );
+    false
 }
 
 /// The `packages` key, when present, must be an array (per-entry shape is checked
@@ -1227,15 +1259,16 @@ pub(crate) fn project_version(manifest: &HashMap<String, JsonValue>) -> Option<&
 }
 
 /// The stdin broadcast-log backpressure cap in bytes from the `project.json`
-/// `"config"` section's `stdinLogCap` (plan-15 D3), baked into the executable.
+/// `"options"` section's `stdinLogCap` (plan-15 D3, moved from `"config"` by
+/// plan-167-A), baked into the executable.
 /// Returns `None` (the runtime bakes `STDIN_LOG_CAP_DEFAULT` = 4 MiB) when the
 /// key is absent or not a positive integer of at least one read chunk (8 KiB) —
 /// a smaller cap could not hold a single chunk and would stall the reader.
 pub(crate) fn stdin_log_cap(manifest: &HashMap<String, JsonValue>) -> Option<u64> {
     manifest
-        .get("config")
-        .and_then(|config| config.get::<HashMap<String, JsonValue>>())
-        .and_then(|config| config.get("stdinLogCap"))
+        .get("options")
+        .and_then(|options| options.get::<HashMap<String, JsonValue>>())
+        .and_then(|options| options.get("stdinLogCap"))
         .and_then(|value| value.get::<f64>().copied())
         .filter(|bytes| bytes.is_finite() && *bytes >= 8192.0)
         .map(|bytes| bytes as u64)

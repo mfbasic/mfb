@@ -13,7 +13,7 @@
       ]
     }
   ],
-  "config": {
+  "options": {
     "stdinLogCap": 4194304
   }
 }

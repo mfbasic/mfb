@@ -80,7 +80,7 @@ densely fill it.
 | `1-101` | lexer | 6 |
 | `1-102` | parser | 13 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
-| `2-200` | `project.json` validation + build orchestration | 19 |
+| `2-200` | `project.json` validation + build orchestration | 20 |
 | `2-201` | imports & symbol resolution | 20 |
 | `2-203` | semantic checking (typing, ownership, native ABI) | 138 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
@@ -94,7 +94,7 @@ densely fill it.
 
 `EEEE` is an opaque identifier within a subsystem, not a count or a traversal order.
 Allocations are sparse: `2-203-0047`, `2-203-0057`, and `2-203-0134` have no registry
-entries. The `2-200` subsystem contains `0001`–`0017` and `0100`–`0101`.
+entries. The `2-200` subsystem contains `0001`–`0018` and `0100`–`0101`.
 [[src/rules/table.rs:RULES]]
 
 ### Code Uniqueness
@@ -276,7 +276,7 @@ their unused message text. [[src/rules/table.rs:RULES]] Unless noted, severity i
 
 ### `2-200` — `project.json` validation & build orchestration
 
-The low block (`0001`-`0017`) validates `project.json`; the high block (`0100`/`0101`)
+The low block (`0001`-`0018`) validates `project.json`; the high block (`0100`/`0101`)
 reports orchestration failures. Note `2-200-0010` is the registry's only `info`, and
 `2-200-0009` one of exactly nine `warn` rules (with `2-200-0012
 PROJECT_JSON_UNKNOWN_MODE`, `2-201-0017 PRIVATE_SHADOWS_PUBLIC`, `2-203-0104
@@ -318,6 +318,7 @@ itself; it is not a dataflow analysis, and the ambiguous cases warn.
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two project.json `libraries` vendor locators declare the same `source` filename |
 | `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | a project.json with `kind: "package"` must declare a `description` |
 | `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | project.json `name` is not a single safe path component |
+| `2-200-0018` | `PROJECT_JSON_CONFIG_MOVED_OPTION` | error | project.json `config.stdinLogCap` moved to `options.stdinLogCap` |
 | `2-200-0100` | `BUILD_FAILED` | error | build failed for an unclassified orchestration reason |
 | `2-200-0101` | `FMT_CHECK_FAILED` | error | one or more source files are not formatted (mfb fmt --check) |
 

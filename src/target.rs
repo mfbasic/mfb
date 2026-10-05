@@ -131,7 +131,7 @@ pub(crate) trait NativeBackend: Sync {
         // knows whether there is anything to point at.
         vendors_native_libraries: bool,
         // plan-15 D3: stdin broadcast-log backpressure cap from the manifest
-        // `"config"` section, or `None` to bake `STDIN_LOG_CAP_DEFAULT`.
+        // `"options"` section, or `None` to bake `STDIN_LOG_CAP_DEFAULT`.
         stdin_log_cap: Option<u64>,
         debug: crate::codegen::debug::DebugOptions,
         // bug-393: a live progress sink called at each codegen sub-stage boundary
