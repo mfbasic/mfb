@@ -1374,7 +1374,12 @@ pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
 /// `_mfb_rt_thread_finish(block, tag, value, message, source)`: the worker's exit,
 /// called by the trampoline with the entry's result, on the worker, with the arena
 /// register still on the worker's arena. It drains the worker's buffered standard
-/// output (when the program can buffer it). Under the block lock it copies the result
+/// output (when the program can buffer it). A program-exit result (tag `2`, the
+/// worker ran `EXIT PROGRAM`) ends the process right there with the value as its
+/// exit code, through the shared teardown `_mfb_shutdown` (when the program has an
+/// entry, `program_shutdown`) and the platform's process exit — it is not a result
+/// to publish, and its message/origin registers hold nothing (bug-898). Under the
+/// block lock it copies the result
 /// into the block arena and publishes it with `COMPLETED` (unless the handle side
 /// already closed the thread, which then reads nothing), closes the inbound and both
 /// resource queues and wakes every waiter of every queue, and drops the worker's
@@ -1384,6 +1389,7 @@ pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
 /// running).
 pub(crate) fn lower_thread_finish(
     drain_stdout: bool,
+    program_shutdown: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -1443,6 +1449,35 @@ pub(crate) fn lower_thread_finish(
         ctx.relocations
             .push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
     }
+    // bug-898: `EXIT PROGRAM` in the worker (or anything it called) ends the
+    // process with that code, from here, exactly as the program entry's exit does
+    // after its own drain: the shared teardown (the main buffered output, the
+    // terminal, the graphics thread — a program that starts threads never destroys
+    // the main arena there, so the other threads still running are not pulled out
+    // from under), then the platform's process exit, which ends every thread. The
+    // worker's lexical cleanup already ran on the way out of its frames, and its
+    // module-level resources were closed by the trampoline's teardown. Tag 2 carries
+    // the code in `value` and NOTHING in `message`/`source`: it used to fall into the
+    // error arm below, which deep-copied those stale registers as a `String` and an
+    // `ErrorLoc` (SIGSEGV, or a wild length reported as `ErrOutOfMemory`).
+    let not_program_exit = format!("{symbol}_not_program_exit");
+    ctx.instructions.extend([
+        abi::load_u64(&r.v9, abi::stack_pointer(), TAG),
+        abi::compare_immediate(&r.v9, RESULT_PROGRAM_EXIT_TAG),
+        abi::branch_ne(&not_program_exit),
+    ]);
+    if program_shutdown {
+        ctx.instructions.push(abi::branch_link(SHUTDOWN_SYMBOL));
+        ctx.relocations
+            .push(internal_branch(symbol, SHUTDOWN_SYMBOL));
+    }
+    ctx.instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        VALUE,
+    ));
+    platform.emit_program_exit(symbol, ctx.instructions, ctx.relocations)?;
+    ctx.instructions.push(abi::label(&not_program_exit));
     emit_block_lock(&mut ctx, BLOCK)?;
     // A handle side that already closed the thread reads no result: skip the copies.
     // Otherwise move the result into the block arena — everything the parent reads

@@ -175,8 +175,17 @@ x1 = input value
   the result to `_mfb_rt_thread_finish` and returns zero to the OS start-routine
   caller. [[src/codegen/resource/module_owner.rs:lower_module_resource_drain]] [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
-`_mfb_rt_thread_finish` first drains the worker's buffered standard output, then
-does, under the block lock: unless the parent already
+`_mfb_rt_thread_finish` first drains the worker's buffered standard output. A
+program-exit result (tag `2`: the worker, or a function it called, ran
+`EXIT PROGRAM n`; the lexical cleanup of its frames already ran on the way out, and
+the trampoline's teardown closed its module-level resources) is not published: the
+helper runs the shared teardown `_mfb_shutdown` (the main buffered output, the
+terminal, the graphics thread; a program that starts threads never destroys the
+main arena there) and exits the process with `n`, ending every thread. The main
+instance's module-level resources are not drained on this path — that teardown runs
+on the main thread's own arena, which the worker cannot use while the main thread
+may still be running — exactly as for the signal handler. Only `x1` is read; `x2`
+and `x3` hold nothing for this tag. Otherwise it does, under the block lock: unless the parent already
 dropped its view (the block is `CLOSED`; the result is discarded), deep-copy the result into the
 block arena — a success value through the result type's copy function, a failure's
 message (`String`) and origin (`ErrorLoc`) through their fixed copy functions; a

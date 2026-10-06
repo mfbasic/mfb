@@ -3192,6 +3192,8 @@ pub(crate) fn lower_module_for_platform(
         )?);
         code_functions.push(crate::codegen::runtime::thread::lower_thread_finish(
             uses_stdout_buffer,
+            // `_mfb_shutdown` is emitted exactly when the module has an entry.
+            module.entry.is_some(),
             &platform_imports,
             platform,
         )?);

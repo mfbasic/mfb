@@ -63,7 +63,10 @@ operand) and must be `Integer`-typed (`TYPE_EXIT_PROGRAM_REQUIRES_INTEGER`).
 `EXIT PROGRAM` is not catchable by `TRAP`: at each returning frame it bypasses
 any handler, so it propagates past every `TRAP` to the entry point. Before
 termination, the runtime runs lexical cleanup for all live scopes in the current
-call chain up to the entry point. A constant exit code outside the host process
+call chain up to the entry point. In a worker thread that entry point is the
+worker's entry function: the process ends there with the code (the parent's
+`thread::waitFor` never returns), and the other threads' scopes are not unwound.
+A constant exit code outside the host process
 range (the implementation fixes this at `0..=255`) is a compile error
 (`EXIT_PROGRAM_CODE_OUT_OF_RANGE`); non-constant values follow the host
 convention.
