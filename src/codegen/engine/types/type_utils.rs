@@ -515,6 +515,21 @@ pub(crate) fn typed_map_type_parts(
     }
 }
 
+/// Whether `a` and `b` are the same `List` type once each element's `RES` marker
+/// is peeled (bug-935). An inline literal argument (`collections::append(xs, [f])`)
+/// is typed bottom-up from its elements, so `[f]` is `List OF fs.File` while the
+/// receiving list is `List OF RES fs.File`. The front end's `compatible` already
+/// peels the marker; a codegen site that tells "a whole list" from "one element"
+/// must agree with it, or the call it accepted fails the build.
+pub(crate) fn typed_same_list_ignoring_res(a: &ParameterType, b: &ParameterType) -> bool {
+    match (a, b) {
+        (ParameterType::ListOf(_), ParameterType::ListOf(_)) => {
+            typed_list_element_type(a) == typed_list_element_type(b)
+        }
+        _ => false,
+    }
+}
+
 /// Typed twin of [`strip_res_marker`].
 pub(crate) fn typed_strip_res_marker(type_: &ParameterType) -> &ParameterType {
     match type_ {

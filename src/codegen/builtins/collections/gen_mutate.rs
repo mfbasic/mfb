@@ -96,7 +96,9 @@ impl CodeBuilder<'_> {
             list_slot,
         ));
         let item = args[1].clone();
-        if at_start && item.type_ == list.type_ {
+        if at_start
+            && crate::codegen::engine::types::typed_same_list_ignoring_res(&item.type_, &list.type_)
+        {
             return Err("native collection prepend expects a single item, not a list".to_string());
         }
         // A `d`-native float item is materialized into a GPR before being
@@ -136,7 +138,7 @@ impl CodeBuilder<'_> {
         element_type: &ParameterType,
         item: ValueResult,
     ) -> Result<(usize, bool), String> {
-        if &item.type_ == list_type {
+        if crate::codegen::engine::types::typed_same_list_ignoring_res(&item.type_, list_type) {
             let slot = self.allocate_stack_object("collection_insert_list", 8);
             self.emit(abi::store_u64(&item.location, abi::stack_pointer(), slot));
             return Ok((slot, false));
