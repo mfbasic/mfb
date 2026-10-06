@@ -61,5 +61,20 @@ TESTING
       LET resp = http::respondPath(mkReq("../mfbhttp_respondpath_secret.txt"), root())
       expectInteger(resp.status, 403)
     END TCASE
+    TCASE "a traversal escaping root to a MISSING target is still 403, not 404 (bug-862)"
+      ' Before bug-862's fix, fs::fileExists ran before the confinement check,
+      ' so an escaping path that does not exist was answered 404 while an
+      ' escaping path that DOES exist was answered 403 -- a file-existence
+      ' oracle for the whole filesystem. Neither this file nor its directory
+      ' exists anywhere; the lexical escape check must still answer 403.
+      setup()
+      LET resp = http::respondPath(mkReq("../mfbhttp_respondpath_does_not_exist/nope.txt"), root())
+      expectInteger(resp.status, 403)
+    END TCASE
+    TCASE "a deep traversal to a missing target is 403, not 404 (bug-862)"
+      setup()
+      LET resp = http::respondPath(mkReq("../../../../../../../../nonexistent_mfbhttp_probe"), root())
+      expectInteger(resp.status, 403)
+    END TCASE
   END TGROUP
 END TESTING
