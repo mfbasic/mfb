@@ -97,6 +97,7 @@ mod helper_authority_end;
 mod helper_decode_query_component;
 mod helper_default_port;
 mod helper_index_of;
+mod helper_is_hex_digit_char;
 mod helper_last_index_of;
 mod helper_parse_port;
 mod helper_percent_decode_impl;
@@ -345,6 +346,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_authority_end::register(&mut pkg);
     helper_parse_port::register(&mut pkg);
     helper_url_to_string::register(&mut pkg);
+    helper_is_hex_digit_char::register(&mut pkg);
     helper_percent_decode_impl::register(&mut pkg);
     helper_decode_query_component::register(&mut pkg);
 

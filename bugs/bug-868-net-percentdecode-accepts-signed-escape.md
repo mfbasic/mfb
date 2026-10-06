@@ -71,3 +71,13 @@ does with `__encoding_hexValue`.
 ## Blast Radius
 
 - `net::percentDecode`, `net::parseQuery` (via `__net_decodeQueryComponent`), and so `http` server `Request.path`/`Request.query`: fixed by this bug.
+
+## Golden impact
+
+`__net_percentDecodeImpl`'s body gained a hex-digit validation check, and a new private
+helper `__net_isHexDigitChar` was added to the `net` package's assembled source. Every
+fixture that `IMPORT net`s — directly, or transitively through `http`/`tls`/`tcp`/`udp`,
+all of which pull in `net` — will show a changed `.ast`/`.ir`/`.ncode`. Expect diffs
+under `tests/byte-identity/net/` (and, transitively, `tcp`/`udp`/`tls`/`http` byte-identity
+fixtures, since they import `net`), `tests/syntax/net/**`, and any `rt-behavior`/`rt-error`
+`net` fixture with a golden.
