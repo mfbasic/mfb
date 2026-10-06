@@ -1,0 +1,78 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' bug-933: a resource put into an outer-scope list floats to that list's scope
+' (§15.6 rule 2) whatever re-packaging call wraps the insertion. Each case opens
+' a file inside an IF block, routes it into the outer list through a re-packaging
+' member, and then reads it after the block: the handle must still be open, and
+' the list's scope closes it once.
+FUNC fds() AS Integer
+  RETURN len(fs::listDirectory("/dev/fd"))
+END FUNC
+
+FUNC rd(xs AS List OF RES fs::File) AS String
+  MUT out AS String = ""
+  FOR EACH h IN xs
+    out = out & fs::readLine(h) & ","
+  NEXT
+  RETURN out
+  TRAP(e)
+    RETURN out & "ERR" & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC viaTake(base AS Integer) AS Nothing
+  MUT xs AS List OF RES fs::File = []
+  IF TRUE THEN
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt")
+    xs = collections::take(collections::append(xs, f), 10)
+  END IF
+  io::print("take open=" & toString(fds() - base) & " " & rd(xs))
+END FUNC
+
+FUNC viaDrop(base AS Integer) AS Nothing
+  MUT xs AS List OF RES fs::File = []
+  IF TRUE THEN
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt")
+    xs = collections::drop(collections::append(xs, f), 0)
+  END IF
+  io::print("drop open=" & toString(fds() - base) & " " & rd(xs))
+END FUNC
+
+FUNC viaFlatten(base AS Integer) AS Nothing
+  MUT xs AS List OF RES fs::File = []
+  IF TRUE THEN
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt")
+    xs = collections::flatten([xs, [f]])
+  END IF
+  io::print("flatten open=" & toString(fds() - base) & " " & rd(xs))
+END FUNC
+
+FUNC viaLoop(base AS Integer) AS Nothing
+  MUT xs AS List OF RES fs::File = []
+  FOR i = 1 TO 2
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt")
+    xs = collections::take(collections::append(xs, f), 10)
+  NEXT
+  io::print("loop open=" & toString(fds() - base) & " " & rd(xs))
+END FUNC
+
+FUNC viaMerge(base AS Integer) AS Nothing
+  MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}
+  IF TRUE THEN
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt")
+    m = collections::merge(m, Map OF String TO RES fs::File { "a" := f }, TRUE)
+  END IF
+  io::print("merge open=" & toString(fds() - base) & " " & rd(collections::values(m)))
+END FUNC
+
+FUNC main() AS Nothing
+  LET base AS Integer = fds()
+  viaTake(base)
+  viaDrop(base)
+  viaFlatten(base)
+  viaLoop(base)
+  viaMerge(base)
+  io::print("after open=" & toString(fds() - base))
+END FUNC

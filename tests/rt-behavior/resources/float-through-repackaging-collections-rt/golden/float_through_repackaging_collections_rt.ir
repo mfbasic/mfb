@@ -1,0 +1,384 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "float_through_repackaging_collections_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "fds",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 11, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "fs.listDirectory", "args": [{ "kind": "const", "type": "String", "value": "/dev/fd" }] }] } }
+    ]
+  },
+  {
+    "name": "rd",
+    "line": 14,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 14, "type": "List OF RES fs.File", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 15, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 16,
+      "name": "h",
+      "type": "fs.File",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 17, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "h" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "return", "line": 19, "value": { "kind": "local", "name": "out" } },
+    {
+      "op": "trap",
+      "line": 20,
+      "name": "e",
+      "body": [
+      { "op": "return", "line": 21, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "ERR" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "viaTake",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 25, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 26, "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    {
+      "op": "if",
+      "line": 27,
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "then": [
+      { "op": "bind", "line": 28, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] } },
+      { "op": "assign", "line": 29, "name": "xs", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_take$RES$fs$File", "args": [{ "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "f" }] }, { "kind": "const", "type": "Integer", "value": "10" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "take open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "rd", "args": [{ "kind": "local", "name": "xs" }] } }] } }
+    ]
+  },
+  {
+    "name": "viaDrop",
+    "line": 34,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 34, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 35, "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    {
+      "op": "if",
+      "line": 36,
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "then": [
+      { "op": "bind", "line": 37, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] } },
+      { "op": "assign", "line": 38, "name": "xs", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_drop$RES$fs$File", "args": [{ "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "f" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "drop open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "rd", "args": [{ "kind": "local", "name": "xs" }] } }] } }
+    ]
+  },
+  {
+    "name": "viaFlatten",
+    "line": 43,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 43, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 44, "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    {
+      "op": "if",
+      "line": 45,
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "then": [
+      { "op": "bind", "line": 46, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] } },
+      { "op": "assign", "line": 47, "name": "xs", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_flatten$RES$fs$File", "args": [{ "kind": "list", "type": "List OF List OF RES fs.File", "values": [{ "kind": "local", "name": "xs" }, { "kind": "list", "type": "List OF RES fs.File", "values": [{ "kind": "local", "name": "f" }] }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "flatten open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "rd", "args": [{ "kind": "local", "name": "xs" }] } }] } }
+    ]
+  },
+  {
+    "name": "viaLoop",
+    "line": 52,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 52, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 53, "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "bind", "line": 54, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "line": 54, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 54,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 54, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "bind", "line": 55, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] } },
+      { "op": "assign", "line": 56, "name": "xs", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_take$RES$fs$File", "args": [{ "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "f" }] }, { "kind": "const", "type": "Integer", "value": "10" }] } }
+      ]
+    },
+    { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loop open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "rd", "args": [{ "kind": "local", "name": "xs" }] } }] } }
+    ]
+  },
+  {
+    "name": "viaMerge",
+    "line": 61,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 61, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 62, "mutable": true, "name": "m", "type": "Map OF String TO RES fs.File", "value": { "kind": "map", "type": "Map OF String TO RES fs.File", "entries": [] } },
+    {
+      "op": "if",
+      "line": 63,
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "then": [
+      { "op": "bind", "line": 64, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] } },
+      { "op": "assign", "line": 65, "name": "m", "value": { "kind": "call", "type": "Map OF String TO RES fs.File", "target": "#collections_merge$String$RES$fs$File", "args": [{ "kind": "local", "name": "m" }, { "kind": "map", "type": "Map OF String TO RES fs.File", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "local", "name": "f" } }] }, { "kind": "const", "type": "Boolean", "value": "true" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "merge open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "rd", "args": [{ "kind": "call", "type": "List OF fs.File", "target": "collections.values", "args": [{ "kind": "local", "name": "m" }] }] } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 70,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 71, "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "fds", "args": [] } },
+    { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "viaTake", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "viaDrop", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "viaFlatten", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "viaLoop", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "viaMerge", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 77, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "after open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }] } }
+    ]
+  },
+  {
+    "name": "#collections_drop$RES$fs$File",
+    "line": 142,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 142, "type": "List OF RES fs.File", "default": null },
+    { "name": "count", "line": 142, "type": "Integer", "default": null }
+    ],
+    "returns": "List OF RES fs.File",
+    "body": [
+    { "op": "return", "line": 143, "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_slice$RES$fs$File", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "count" }, { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }] } }
+    ]
+  },
+  {
+    "name": "#collections_flatten$RES$fs$File",
+    "line": 230,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 230, "type": "List OF List OF RES fs.File", "default": null }
+    ],
+    "returns": "List OF RES fs.File",
+    "body": [
+    { "op": "bind", "line": 231, "mutable": true, "name": "result", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "bind", "line": 232, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 233,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      { "op": "bind", "line": 234, "mutable": false, "name": "inner", "type": "List OF RES fs.File", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 235, "name": "result", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "inner" }] } },
+      { "op": "assign", "line": 236, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 238, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_merge$String$RES$fs$File",
+    "line": 301,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "a", "line": 301, "type": "Map OF String TO RES fs.File", "default": null },
+    { "name": "b", "line": 301, "type": "Map OF String TO RES fs.File", "default": null },
+    { "name": "preferB", "line": 301, "type": "Boolean", "default": null }
+    ],
+    "returns": "Map OF String TO RES fs.File",
+    "body": [
+    { "op": "bind", "line": 302, "mutable": true, "name": "result", "type": "Map OF String TO RES fs.File", "value": { "kind": "local", "name": "a" } },
+    {
+      "op": "forEach",
+      "line": 303,
+      "name": "e",
+      "type": "MapEntry OF String TO fs.File",
+      "iterable": { "kind": "local", "name": "b" },
+      "body": [
+      {
+        "op": "if",
+        "line": 304,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "local", "name": "preferB" }, "right": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "result" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "key" }] } } },
+        "then": [
+        { "op": "assign", "line": 305, "name": "result", "value": { "kind": "call", "type": "Map OF String TO RES fs.File", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "key" }, { "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 308, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_slice$RES$fs$File",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 7, "type": "List OF RES fs.File", "default": null },
+    { "name": "start", "line": 7, "type": "Integer", "default": null },
+    { "name": "stop", "line": 7, "type": "Integer", "default": null }
+    ],
+    "returns": "List OF RES fs.File",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": true, "name": "result", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "bind", "line": 9, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "start" } },
+    {
+      "op": "while",
+      "line": 10,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "stop" } },
+      "body": [
+      { "op": "assign", "line": 11, "name": "result", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } },
+      { "op": "assign", "line": 12, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 14, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_take$RES$fs$File",
+    "line": 138,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 138, "type": "List OF RES fs.File", "default": null },
+    { "name": "count", "line": 138, "type": "Integer", "default": null }
+    ],
+    "returns": "List OF RES fs.File",
+    "body": [
+    { "op": "return", "line": 139, "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_slice$RES$fs$File", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "count" }] } }
+    ]
+  }
+  ]
+}
