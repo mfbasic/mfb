@@ -144,7 +144,7 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
   LET ly AS Float = s.ly
   LET r AS Float = math::max(s.radius, h * 0.1)
   ' The light's circle, as a clip: the spirit world is drawn only inside it.
-  LET light AS List OF List OF canvas::Point = [ovalRing(lx, ly, r, r, 72, 0.0)]
+  LET light AS List OF List OF canvas::Point = [ovalRing(lx, ly, r, r, 48, 0.0)]
   LET seen AS canvas::Paint = WITH canvas::fill(color::white) { clip := light }
 
   ' The ordinary wood at night.

@@ -264,7 +264,7 @@ FUNC twilightDraw(s AS TwilightState, w AS Float, h AS Float) AS List OF canvas:
   LET my AS Float = h * 0.17
   LET mr AS Float = h * 0.06
   out = collections::append(out, glow(mx, my, mr * 6.0, rgba(255, 200, 220, 45)))
-  LET bite AS List OF List OF canvas::Point = [rectRing(mx - mr * 2.0, my - mr * 2.0, mr * 4.0, mr * 4.0), ovalRing(mx + mr * 0.42, my - mr * 0.18, mr * 0.9, mr * 0.9, 64, 0.0)]
+  LET bite AS List OF List OF canvas::Point = [rectRing(mx - mr * 2.0, my - mr * 2.0, mr * 4.0, mr * 4.0), ovalRing(mx + mr * 0.42, my - mr * 0.18, mr * 0.9, mr * 0.9, 40, 0.0)]
   out = collections::append(out, circle(mx, my, mr, WITH gradP(focal(mx, my, mr, -mr * 0.4, mr * 0.2, [gstop(0.0, hex("#fff8ea")), gstop(1.0, hex("#f6d8c0"))])) { clip := bite, clipRule := canvas::FillRule.EvenOdd }))
 
   ' Mountains, and their reflection: the same items under a transform that

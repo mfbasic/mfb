@@ -230,7 +230,7 @@ FUNC leftPage(f AS Fonts, b AS Book, beast AS Beast, img AS SvgImage, sigil AS S
   LET body AS Float = math::min(17.0, pw * 0.042)
   LET capSize AS Float = body * 3.6
   LET first AS String = strings::left(beast.lore, 1)
-  LET rest AS String = strings::mid(beast.lore, 1, strings::graphemesCount(beast.lore) - 1)
+  LET rest AS String = strings::mid(beast.lore, 1, len(beast.lore) - 1)
   LET capW AS Float = textWidth(f.display, capSize, first) + 10.0
   out = collections::append(out, rrect(px - 4.0, y - body * 1.1, capW + 4.0, capSize * 0.98, 4.0, WITH fillP(hex("#f3d98a")) { stroke := hex("#a87a2e"), strokeWidth := 1.2 }))
   out = collections::append(out, labelP(f.display, capSize, first, px + 2.0, y - body * 1.1 + capSize * 0.8, WITH fillP(rubric()) { stroke := hex("#5a1008"), strokeWidth := 0.6 }))
@@ -246,8 +246,8 @@ FUNC leftPage(f AS Fonts, b AS Book, beast AS Beast, img AS SvgImage, sigil AS S
     shown = shown + 1
   NEXT
   IF len(narrow) > 3 THEN
-    LET cut AS Integer = math::min(strings::graphemesCount(strings::trim(used)), strings::graphemesCount(rest))
-    LET remaining AS String = strings::trim(strings::mid(rest, cut, strings::graphemesCount(rest) - cut))
+    LET cut AS Integer = math::min(len(strings::trim(used)), len(rest))
+    LET remaining AS String = strings::trim(strings::mid(rest, cut, len(rest) - cut))
     FOR EACH l IN wrap(f.italic, body, remaining, pw)
       out = collections::append(out, label(f.italic, body, l, px, y, ink()))
       y = y + lineH

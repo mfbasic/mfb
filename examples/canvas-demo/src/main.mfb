@@ -113,6 +113,7 @@ FUNC main AS Integer
   MUT held AS List OF String = []
   MUT clock AS Float = 0.0
   MUT showStats AS Boolean = collections::contains(os::args(), "--stats")
+  MUT sizeChecked AS Boolean = FALSE
 
   DO WHILE running
     LET stats AS canvas::FrameStats = canvas::getFrameStats()
@@ -122,6 +123,13 @@ FUNC main AS Integer
     LET size AS canvas::Size = canvas::getSize()
     LET w AS Float = toFloat(size.width)
     LET h AS Float = toFloat(size.height)
+    ' The scenes are composed for a window of at least 720 by 480; a smaller
+    ' one (Windows opens new windows at 400 by 300) goes full screen, once,
+    ' as soon as the surface has a size to measure.
+    IF NOT sizeChecked AND size.width > 0 AND stats.frames > 0 THEN
+      sizeChecked = TRUE
+      IF size.width < 720 OR size.height < 480 THEN app::setFullscreen(TRUE)
+    END IF
 
     ' Gather this frame's input.
     MUT pressed AS Boolean = FALSE

@@ -225,7 +225,9 @@ FUNC card(f AS Fonts, info AS DemoInfo, text AS CardText, badge AS Tracked, b AS
   ' The emblem: a round window onto a small picture of the scene, clipped to
   ' its circle.
   out = collections::append(out, circle(cx, ey, er + 5.0, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.25 + 0.5 * hover), strokeWidth := 1.0 }))
-  LET clipRing AS List OF List OF canvas::Point = [ovalRing(cx, ey, er, er, 64, 0.0)]
+  ' A clip costs per edge of its rings on every pixel it covers, so the ring is
+  ' kept as coarse as still looks round at this size.
+  LET clipRing AS List OF List OF canvas::Point = [ovalRing(cx, ey, er, er, 28, 0.0)]
   out = collections::append(out, emblem(index, cx, ey, er, t, hover, clipRing, sigil))
   out = collections::append(out, circle(cx, ey, er, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.75), strokeWidth := 1.5 }))
   MUT ty AS Float = ey + er + 22.0
