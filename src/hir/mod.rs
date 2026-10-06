@@ -13,7 +13,9 @@
 //! The `RES`/`STATE` *ownership axes* stay as sibling fields exactly as the AST
 //! separates them — `resource: bool` and `state_type: Option<ParameterType>` —
 //! so a HIR type field always carries the **bare** type; the resource/state
-//! markers ride alongside it (never baked into the `ParameterType`).
+//! markers ride alongside it (never baked into the `ParameterType`). The one
+//! field the AST does not carry is a parameter's `resource`: a parameter has no
+//! `RES` keyword, and [`resource_params`] derives the flag from its type (bug-976).
 //!
 //! Nodes that carry no source-language type strings needing retyping — the
 //! native-binding (`RESOURCE`/`FUNC alias`/`LINK`) and documentation/testing
@@ -31,6 +33,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
 pub(crate) mod build;
+pub(crate) mod resource_params;
 
 /// A whole project — the elaborated mirror of [`crate::ast::AstProject`].
 #[derive(Clone, Debug)]
@@ -200,9 +203,11 @@ pub(crate) struct HirLinkParam {
     pub(crate) name: String,
     /// The declared type; `None` when the declaration omitted one.
     pub(crate) type_: Option<ParameterType>,
-    /// Whether this parameter was declared with `RES` (a resource pointer).
+    /// Whether this parameter is a resource: its type is one, or it carries
+    /// `STATE`. Derived from the type, never written (bug-976,
+    /// [`resource_params`]).
     pub(crate) resource: bool,
-    /// The `STATE T` type attached to a `RES` parameter, if any.
+    /// The `STATE T` type attached to the parameter, if any.
     pub(crate) state_type: Option<ParameterType>,
     /// plan-136-A: elaborated like a FUNC default, so it can be resolved and
     /// lowered at the declaration.
@@ -361,9 +366,11 @@ pub(crate) struct HirParam {
     pub(crate) name: String,
     /// The bare parameter type; [`ParameterType::Unknown`] when unannotated.
     pub(crate) type_: ParameterType,
-    /// Whether this parameter was declared with `RES` (a resource pointer).
+    /// Whether this parameter is a resource: its type is one, or it carries
+    /// `STATE`. Derived from the type, never written (bug-976,
+    /// [`resource_params`]).
     pub(crate) resource: bool,
-    /// The `STATE T` type attached to a `RES` parameter, if any (bare, parsed).
+    /// The `STATE T` type attached to the parameter, if any (bare, parsed).
     pub(crate) state_type: Option<ParameterType>,
     pub(crate) default: Option<HirExpression>,
     pub(crate) line: usize,
@@ -609,14 +616,32 @@ fn parse_optional_state(name: &Option<String>, type_params: &[String]) -> Option
 /// Elaborate a concrete (post-monomorph) [`crate::ast::AstProject`] into a
 /// [`HirProject`]: a pure structural walk that attaches a [`ParameterType`] to
 /// every type field.
+///
+/// bug-976: every parameter's `resource` flag is derived from its type once the
+/// whole project is elaborated ([`resource_params`]) — a parameter is a resource
+/// because its type is one, and `RESOURCE`/`UNION` declarations in any file decide
+/// that.
 pub(crate) fn elaborate(project: &crate::ast::AstProject) -> HirProject {
-    HirProject {
+    let mut hir = HirProject {
         name: project.name.clone(),
-        files: project.files.iter().map(elaborate_file).collect(),
-    }
+        files: project.files.iter().map(elaborate_file_structure).collect(),
+    };
+    let types = resource_params::ResourceTypes::from_project(&hir);
+    resource_params::derive_resource_params(&mut hir, &types);
+    hir
 }
 
+/// Elaborate one file on its own (a registry synthetic file joining an
+/// already-elaborated project). Its parameters' resource flags are derived from
+/// the resource types the file itself can name; the build path derives them again
+/// over the whole concrete project.
 pub(crate) fn elaborate_file(file: &crate::ast::AstFile) -> HirFile {
+    let mut hir = elaborate_file_structure(file);
+    resource_params::derive_resource_params_in_file(&mut hir);
+    hir
+}
+
+fn elaborate_file_structure(file: &crate::ast::AstFile) -> HirFile {
     HirFile {
         path: file.path.clone(),
         // Snapshotted here, at the one point the file's own list is still the
@@ -690,7 +715,8 @@ fn elaborate_link_function(function: &crate::ast::LinkFunction) -> HirLinkFuncti
             .map(|p| HirLinkParam {
                 name: p.name.clone(),
                 type_: p.type_name.as_deref().map(ParameterType::parse),
-                resource: p.resource,
+                // Derived from the type once the project is elaborated (bug-976).
+                resource: false,
                 state_type: p.state_type.as_deref().map(ParameterType::parse),
                 default: p
                     .default
@@ -847,7 +873,8 @@ fn elaborate_param(param: &crate::ast::Param, type_params: &[String]) -> HirPara
     HirParam {
         name: param.name.clone(),
         type_: parse_optional_type(&param.type_name, type_params),
-        resource: param.resource,
+        // Derived from the type once the project is elaborated (bug-976).
+        resource: false,
         state_type: parse_optional_state(&param.state_type, type_params),
         default: param
             .default

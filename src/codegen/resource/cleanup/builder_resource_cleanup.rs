@@ -24,11 +24,11 @@ impl CodeBuilder<'_> {
     /// `tcp::connect`/`tcp::close` loop leaked one record per connection forever.
     ///
     /// **The drop is the owner of the free, not `close`.** A `close` through a
-    /// `RES` parameter leaves the owner holding the record, and a later operation
+    /// resource parameter leaves the owner holding the record, and a later operation
     /// through it — a second close included — must still read the closed flag and
     /// raise `ErrResourceClosed` (`tests/net/rt_double_close_is_refused.rs`). At the
     /// owner's drop nothing can name the record any more: every non-owning holder
-    /// (a `RES` parameter, an aliasing bind, a `collections::get`/`tcp::poll`
+    /// (a resource parameter, an aliasing bind, a `collections::get`/`tcp::poll`
     /// borrow, a record `RES` field) lives in the owner's scope or deeper, and a
     /// floated or returned handle has moved its cleanup elsewhere. For the same
     /// reason an explicit `close` on the owning binding keeps this cleanup

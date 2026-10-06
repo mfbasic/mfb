@@ -6,7 +6,7 @@
 //! was measured to double-free (or would) once a drop frees records:
 //!
 //! * `RES c AS Chan = u` — a union wrapping a live concrete binding;
-//! * `RES b = passthru(a)` where `passthru` returns its `RES` parameter — the callee
+//! * `RES b = passthru(a)` where `passthru` returns its resource parameter — the callee
 //!   hands back the caller's own record;
 //! * `RES y AS Chan = p(x)` / `RES b AS Chan = wrap(a)` — a union parameter returned,
 //!   or a union built around a parameter and returned.

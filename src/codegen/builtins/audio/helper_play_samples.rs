@@ -11,7 +11,7 @@ const BODY: &str =
 r#"' Encode the samples and write them to the open output stream. A no-op for empty
 ' PCM. Only a pointer to the stream is passed — the caller owns and closes it. The stream must be
 ' 48 kHz mono (what the sequencer renders).
-FUNC __audio_playSamples(RES out AS audio::AudioOutput, samples AS List OF Integer) AS Nothing
+FUNC __audio_playSamples(out AS audio::AudioOutput, samples AS List OF Integer) AS Nothing
   IF len(samples) = 0 THEN
     RETURN
   END IF

@@ -39,7 +39,7 @@ END FUNC
 #[rustfmt::skip]
 const BODY: &str =
 r#"' `TRUE` iff a non-blocking read would return bytes or EOF now.
-FUNC __http_ready(RES s AS Stream STATE PendingState) AS Boolean
+FUNC __http_ready(s AS Stream STATE PendingState) AS Boolean
   MATCH s
     CASE tcp::Socket(p)
       RETURN tcp::poll(p, 0)

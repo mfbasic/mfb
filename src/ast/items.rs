@@ -440,7 +440,13 @@ impl<'a> FileParser<'a> {
 
         loop {
             let line = self.peek().line;
-            let resource = self.match_keyword(Keyword::Res);
+            // bug-976: a parameter is a resource because its TYPE is one, so there is
+            // no `RES` keyword on a parameter. Reject it where it is written and keep
+            // parsing the parameter, so one stray keyword reports once rather than
+            // cascading through the rest of the declaration.
+            let res_keyword = self
+                .check_keyword(Keyword::Res)
+                .then(|| self.advance().clone());
             let Some(name) = self.consume_identifier("Parameter name must be an identifier.")
             else {
                 self.synchronize();
@@ -451,18 +457,25 @@ impl<'a> FileParser<'a> {
             } else {
                 None
             };
-            // plan-156-E: a thread view is a resource, so its parameter may carry the
-            // view's STATE with or without the `RES` keyword — a resource parameter
-            // needs no `RES` — and the thread types are the ones the parser can tell
-            // apart by their spelling.
-            let thread_view = type_name.as_deref().is_some_and(|name| {
-                name.starts_with("Thread OF ") || name.starts_with("ThreadWorker OF ")
-            });
-            let state_type = if resource || thread_view {
-                self.parse_optional_state()
-            } else {
-                None
-            };
+            if let Some(keyword) = res_keyword {
+                let detail = match &type_name {
+                    Some(type_name) => {
+                        let shown = type_name.replace('.', "::");
+                        format!(
+                            "Remove `RES` from parameter `{name}`: its type `{shown}` already makes it a resource. Write `{name} AS {shown}`."
+                        )
+                    }
+                    None => format!(
+                        "Remove `RES` from parameter `{name}`: a parameter is a resource because its type is one."
+                    ),
+                };
+                self.report("MFB_PARSE_PARAMETER_RES", &detail, &keyword);
+            }
+            // bug-976: `STATE` may follow any parameter type. Whether the type is a
+            // resource (a user `RESOURCE`, a resource union, an imported resource) is
+            // not knowable from the spelling, so it is decided after the parse
+            // (`hir::ResourceTypes`), exactly as a `RES`-spelled parameter's was.
+            let state_type = self.parse_optional_state();
             let default = if self.match_kind(TokenKind::Equal) {
                 self.parse_expression()
             } else {
@@ -471,7 +484,6 @@ impl<'a> FileParser<'a> {
             params.push(Param {
                 name,
                 type_name,
-                resource,
                 state_type,
                 default,
                 line,

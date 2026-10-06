@@ -169,7 +169,7 @@ fn rewrite_item_refs(
                 if let Some(ty) = param.type_name.as_mut() {
                     *ty = rewrite_type_str(ty, types);
                 }
-                // bug-288: a `RES p AS T STATE S` parameter names a type in its
+                // bug-288: a `p AS T STATE S` parameter names a type in its
                 // STATE clause as well as its type_name.
                 if let Some(state) = param.state_type.as_mut() {
                     *state = rewrite_type_str(state, types);
@@ -957,10 +957,10 @@ END TESTING
 
     #[test]
     fn function_param_state_type_is_rewritten() {
-        // A `RES h AS File STATE Meta` param names the private `Meta` in its STATE
+        // A `h AS File STATE Meta` param names the private `Meta` in its STATE
         // clause; the pass rewrites it (line 175).
         let src = "PRIVATE TYPE Meta\n  x AS Integer\nEND TYPE\n\n\
-             FUNC f(RES h AS File STATE Meta)\n  h.state = 0\nEND FUNC\n";
+             FUNC f(h AS File STATE Meta)\n  h.state = 0\nEND FUNC\n";
         let mut project = crate::testutil::project_from_src(src);
         scope_privates(&mut project);
         assert!(project.to_json().contains(&mangled("Meta")));
@@ -985,7 +985,7 @@ END TESTING
         let src = "PRIVATE TYPE Priv\n  x AS Integer\nEND TYPE\n\n\
              LINK \"x\" AS l\n\
              \x20 CSTRUCT Foo AS Priv\n    a CInt32\n  END CSTRUCT\n\
-             \x20 FUNC nf(RES p AS Priv STATE Priv) AS RES Priv STATE Priv\n\
+             \x20 FUNC nf(p AS Priv STATE Priv) AS RES Priv STATE Priv\n\
              \x20   SYMBOL \"s\"\n\
              \x20   ABI (p CPtr) AS r CPtr\n\
              \x20 END FUNC\n\

@@ -166,7 +166,7 @@ r#"' Plaintext accept -> read -> parse -> dispatch -> respond -> close (one conn
 ' bug-507 / OS-51: everything after the accept is trapped. The bounded read loop
 ' reports its outcome; an unexpected raise anywhere in reading, parsing, or
 ' serializing is answered 500 or drops this one connection — never the process.
-FUNC __http_handleRequest(RES listener AS tcp::Listener, routes AS List OF Route) AS Nothing
+FUNC __http_handleRequest(listener AS tcp::Listener, routes AS List OF Route) AS Nothing
   RES sock AS tcp::Socket = tcp::accept(listener)
   MUT rr AS __http_ReadResult = __http_ReadResult[[], 0]
   rr = __http_readRequestNet(sock) TRAP(e)
@@ -204,7 +204,7 @@ END FUNC"#;
 const BODY_SSL: &str =
 r#"' TLS counterpart: identical core, `tls::` transport (server-side handshake in
 ' tls::accept). The two bodies cannot share one socket variable (§F.5.6).
-FUNC __http_handleRequestSSL(RES listener AS tls::Listener, routes AS List OF Route) AS Nothing
+FUNC __http_handleRequestSSL(listener AS tls::Listener, routes AS List OF Route) AS Nothing
   RES sock AS tls::Socket = tls::accept(listener)
   MUT rr AS __http_ReadResult = __http_ReadResult[[], 0]
   rr = __http_readRequestTls(sock) TRAP(e)

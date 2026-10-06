@@ -49,8 +49,8 @@ END DOC
   (`DOC_PROP_INVALID_CONTEXT`), and it groups under the derived "Types" heading.
 - **Overloads**: a header may carry a parenthesized parameter-type list to pick a
   specific overload, e.g. `FUNC query(Db, String, List OF String)` —
-  whitespace is normalized, and `RES`, any `STATE T` clause, and parameter names
-  are all omitted: a `RES db AS Db STATE Cursor` parameter is written `Db`. Each overload
+  whitespace is normalized, and any `STATE T` clause and parameter names
+  are omitted: a `db AS Db STATE Cursor` parameter is written `Db`. Each overload
   may then carry its own `DOC` block; a bare `FUNC name` (no parens) documents the
   function family. Two blocks naming the same overload are a `DOC_DUPLICATE`.
 - **`INTERNAL`** (a flag on the `DOC` line) marks an exported declaration as not

@@ -790,7 +790,6 @@ mod tests {
         Param {
             name: name.into(),
             type_name: type_name.map(str::to_string),
-            resource: false,
             state_type: None,
             default: None,
             line: 1,

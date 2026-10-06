@@ -505,10 +505,24 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         crate::hir::elaborate(&augmented)
     };
     crate::trace::count("HIR functions (generic)", hir_function_count(&generic_hir));
-    let concrete_hir = {
+    let mut concrete_hir = {
         let _span = crate::trace::span("monomorphize");
         monomorph::monomorphize_project(&options.location, &generic_hir)?
     };
+    // bug-377: the imported packages' resources and types. Read here
+    // because bug-976 needs them before anything consumes the concrete HIR.
+    let imported_resources = imported_resource_closers(&options.location, &manifest);
+    let imported_types = imported_type_defs(&options.location, &manifest);
+    // bug-976: a parameter is a resource because its type is one. `elaborate`
+    // derived the flag from what the sources declare; derive it again on the
+    // concrete HIR, so an instantiated generic parameter is answered from its
+    // concrete type and an imported package's resource counts as one.
+    {
+        let types = crate::hir::resource_params::ResourceTypes::from_project(&concrete_hir)
+            .with_imported(&imported_resources, &imported_types);
+        crate::hir::resource_params::derive_resource_params(&mut concrete_hir, &types);
+    }
+    let concrete_hir = concrete_hir;
     // The pair of counters straddling monomorphization is the one that explains
     // a slow *back* end: everything below here is per-function work, so a 10x
     // jump across this line means codegen was handed 10x the input, which is a
@@ -585,7 +599,6 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // bug-377: the source IR names an imported resource's type but carries no
     // record that it *is* a resource, so verify's resource rules need the
     // imported packages' `RESOURCE_TABLE` rows handed to them explicitly.
-    let imported_resources = imported_resource_closers(&options.location, &manifest);
     let imported_resource_types: std::collections::HashSet<&str> = imported_resources
         .iter()
         .map(|resource| resource.type_name.as_str())
@@ -607,7 +620,6 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .filter(|(_, signature)| returns_imported_resource(signature))
             .map(|(name, signature)| (name.clone(), signature.clone()))
             .collect();
-    let imported_types = imported_type_defs(&options.location, &manifest);
     // bug-551: the imported packages' exported `EXPORT LET`/`EXPORT MUT`, typed.
     // The shape pass, lowering and verify each need them for the same reason
     // they need `imported_types` — the source-path project tables hold only the

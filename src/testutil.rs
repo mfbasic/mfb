@@ -1061,15 +1061,22 @@ pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
         .map_err(|()| format!("{name}: the project does not resolve"))?;
     let augmented = crate::resolver::augment_project(&ast, false)
         .map_err(|()| format!("{name}: builtin augmentation failed"))?;
-    let concrete = crate::monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&augmented))
-        .map_err(|()| format!("{name}: the project does not monomorphize"))?;
+    let mut concrete =
+        crate::monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&augmented))
+            .map_err(|()| format!("{name}: the project does not monomorphize"))?;
 
     build_fixture_source_packages(&dir, &manifest, name)?;
     let packages = crate::manifest::package::installed_package_files(&dir, &manifest)
         .map_err(|err| format!("{name}: {err}"))?;
     let imported_resources = crate::manifest::package::imported_resource_closers(&dir, &manifest);
+    let imported_types = crate::manifest::package::imported_type_defs_from_files(&packages);
+    // bug-976: the build path's second derivation of every parameter's resource
+    // flag, over the concrete HIR with the imported packages folded in.
+    let types = crate::hir::resource_params::ResourceTypes::from_project(&concrete)
+        .with_imported(&imported_resources, &imported_types);
+    crate::hir::resource_params::derive_resource_params(&mut concrete, &types);
     Ok(FixtureProject {
-        imported_types: crate::manifest::package::imported_type_defs_from_files(&packages),
+        imported_types,
         imported_globals: crate::manifest::package::imported_global_defs_from_files(&packages),
         signatures: crate::manifest::package::external_package_function_types_from_files(&packages)
             .map_err(|err| format!("{name}: {err}"))?,

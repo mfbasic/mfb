@@ -652,7 +652,7 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
     let returns = function_return_type(function);
     let mut locals = HashMap::new();
     for param in &function.params {
-        // Carry a `RES` parameter's `STATE T` in the local's type so `s.state`
+        // Carry a resource parameter's `STATE T` in the local's type so `s.state`
         // resolves inside the callee, matching `lower_param`.
         let type_ = match &param.state_type {
             Some(state) => param.type_.with_state(state),
@@ -742,7 +742,7 @@ fn lower_param(
     param: &HirParam,
     context: &mut LowerContext<'_>,
 ) -> IrParam {
-    // A `RES` parameter's `STATE T` rides inside its type's nominal spelling so
+    // A resource parameter's `STATE T` rides inside its type's nominal spelling so
     // the callee can address the pointed-to resource's shared state payload.
     let type_ = match &param.state_type {
         Some(state) => param.type_.with_state(state),

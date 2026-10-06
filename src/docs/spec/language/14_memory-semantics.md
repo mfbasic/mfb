@@ -197,7 +197,7 @@ Because the effect is attached to the success branch rather than to the call,
 `consumed_resource` (close and `RETURN`, which consume on every edge) does not
 list transfer; `transferred_resource` names the sent binding. A transfer through
 a name the check cannot connect to the caller's binding — a callee transferring
-its `RES` parameter — is still refused at run time: a later guarded operation
+its resource parameter — is still refused at run time: a later guarded operation
 raises `ErrResourceMoved`.
 [[src/ir/verify/link.rs:transferred_resource]]
 [[src/ir/verify/resources.rs:check_resource_moves]]

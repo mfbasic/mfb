@@ -212,7 +212,7 @@ afterwards works exactly as you would hope:
 IMPORT io
 IMPORT fs
 
-FUNC writeLine(RES f AS fs::File, text AS String) AS Nothing
+FUNC writeLine(f AS fs::File, text AS String) AS Nothing
   fs::writeAll(f, text)
   io::print("  wrote through the handle inside writeLine")
 END FUNC

@@ -817,7 +817,7 @@ struct TypeEnv {
     /// The RES-declared binding names of the function currently being checked
     /// (its `resource_owners` table), for the RES ownership-axis rules.
     current_owners: RefCell<HashSet<String>>,
-    /// plan-59-C: the names of this function's **bare `RES` parameters** — the one
+    /// plan-59-C: the names of this function's **bare resource parameters** — the one
     /// position where the checker deliberately does not know the concrete `STATE`
     /// (§15.5's parameter row: bare accepts "any state or none").
     ///

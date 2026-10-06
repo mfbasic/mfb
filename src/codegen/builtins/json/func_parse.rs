@@ -286,7 +286,7 @@ END FUNC"#;
 /// renaming per-type).
 #[rustfmt::skip]
 const FUNC_BODY_FILE: &str =
-r#"FUNC __json_parseFile(RES value AS fs::File) AS Json
+r#"FUNC __json_parseFile(value AS fs::File) AS Json
   LET text AS String = fs::readAll(value)
   RETURN __json_parse(text)
 END FUNC"#;
@@ -295,7 +295,7 @@ END FUNC"#;
 /// `FUNC_BODY_FILE` but delegating to `__json_parseRevive`.
 #[rustfmt::skip]
 const FUNC_BODY_FILE_REVIVE: &str =
-r#"FUNC __json_parseFileRevive(RES value AS fs::File, reviver AS FUNC(String, Json) AS Json) AS Json
+r#"FUNC __json_parseFileRevive(value AS fs::File, reviver AS FUNC(String, Json) AS Json) AS Json
   LET text AS String = fs::readAll(value)
   RETURN __json_parseRevive(text, reviver)
 END FUNC"#;

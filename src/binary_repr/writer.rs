@@ -224,7 +224,7 @@ pub(super) fn lower_project_with_external_functions(
         // `tls::Socket`/`Listener`, a `process::Process`, an audio handle or a
         // `canvas::Image` got no entry and failed to build with an opaque
         // `truncated binary representation`. Reproduced on clean main
-        // (fc5c8a6db) with `EXPORT FUNC useSock(RES s AS udp::Socket)`, so this
+        // (fc5c8a6db) with `EXPORT FUNC useSock(s AS udp::Socket)`, so this
         // predates bug-464 -- the TLS work only made it unavoidable.
         //
         // `used` holds the spellings as they appear in signatures, which for a

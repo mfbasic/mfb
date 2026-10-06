@@ -3584,7 +3584,7 @@ fn rejects_state_type_not_defaultable() {
     );
 }
 
-/// bug-674: a `RES` parameter's `STATE` is held to the same rule as a binding's.
+/// bug-674: a resource parameter's `STATE` is held to the same rule as a binding's.
 #[test]
 fn rejects_param_state_type_not_defaultable() {
     let f = func_returns(
@@ -3666,7 +3666,7 @@ fn rejects_use_after_close() {
 
 #[test]
 fn accepts_close_of_a_res_parameter() {
-    // plan-59-E: was `rejects_non_owner_resource_close`. A `RES` parameter used to
+    // plan-59-E: was `rejects_non_owner_resource_close`. A resource parameter used to
     // be a non-owning pointer that could not be closed
     // (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired). Under scope ownership any
     // holder may close, which is exactly what makes `closeSound(RES sound AS
@@ -4126,7 +4126,7 @@ fn rejects_return_state_not_defaultable() {
 
 #[test]
 fn rejects_binding_opaque_state_narrowing() {
-    // Binding a bare `RES` parameter under a concrete STATE — an unprovable
+    // Binding a bare resource parameter under a concrete STATE — an unprovable
     // narrowing (calls.rs:369-375).
     let mut f = func_returns("run", "Nothing", vec![param("p", "fs.File", None)], vec![]);
     let b = res_bind_owned(

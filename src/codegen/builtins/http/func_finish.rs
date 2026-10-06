@@ -61,7 +61,7 @@ r#"' Parse the accumulated bytes into a `Response`, or FAIL if a transport error
 ' `ErrOverflow` past the response cap. Any other non-zero value is not a transport
 ' failure and raises `ErrInvalidArgument`. Each code is a literal so the
 ' declared-errors guard sees exactly what `finish` can raise.
-FUNC __http_finish(RES s AS Stream STATE PendingState) AS Response
+FUNC __http_finish(s AS Stream STATE PendingState) AS Response
   LET code AS Integer = s.state.err
   IF code = 0 THEN
     RETURN __http_parseResponse(s.state.raw)

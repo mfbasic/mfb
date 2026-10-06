@@ -117,8 +117,10 @@ not model is still closed exactly once, by its owner.
 `analyze_function` records every binding's declaration depth and order, then
 walks the body collecting *routing facts*. [[src/ir/resource_escape.rs:Analyzer]]
 
-- **`RES` parameters** are declared at depth 0 and entered as resources owned at
-  function-entry depth.
+- **Resource parameters** — a parameter whose type is a resource (bug-976:
+  `HirParam::resource`, derived from the type) — are declared at depth 0 and
+  entered as resources owned at function-entry depth.
+  [[src/hir/resource_params.rs:derive_resource_params]]
 - The body is walked at depth 0; each nested block (`IF` then/else, `MATCH`
   case, `FOR`/`FOR EACH`/`WHILE`/`DO UNTIL` body) increments depth by 1.
 - **The trap body is walked at depth 1.** [[src/ir/resource_escape.rs:analyze_function]]
@@ -237,12 +239,12 @@ before** the resource (`decl_order(C) < res_order`); a container whose order
 `>= res_order` is skipped, because the container must be live before the
 resource so its owned-list exists when the resource is produced.
 
-A `RES` **parameter** is exempt from the blocked-order diagnostic: the caller owns
+A resource **parameter** is exempt from the blocked-order diagnostic: the caller owns
 it and this function never produces it, so there is no production point for the
 hazard to attach to. (A consequence for records: a resource the callee
 *produces* cannot be returned inside a record at all, because a record — unlike
 an empty `List` — cannot be constructed before its handle exists. Taking the
-handle as a `RES` parameter is the shape that works.) This is the
+handle as a resource parameter is the shape that works.) This is the
 special rule that **forces a Float even at the same scope depth**: the
 obligation rides the collection's owned-list and transfers to the caller on
 `RETURN`, instead of closing here. Pick the candidate with minimum
@@ -253,7 +255,7 @@ found nothing: among all collections containing the resource, keep only those
 declared at a **strictly outer** scope (`decl_depth(C) < res_depth`); same-or-
 inner scopes do not float. Pick the **outermost** — minimum `decl_depth`, then
 minimum `decl_order` as the deterministic tiebreak — so a module-level binding
-(depth `-1`) outranks every local container. A `RES` parameter does not float to a
+(depth `-1`) outranks every local container. A resource parameter does not float to a
 module-level binding here: its owner is in a caller's frame, and the store raises
 it to the module instance at run time. [[src/ir/resource_escape.rs:solve]]
 
@@ -278,10 +280,10 @@ choose_owner(r):
   # Phase 2: only if Phase 1 empty
   if best is none:
     for C where r ∈ membership[C] and depth(C) < depth(r):
-      if depth(C) == -1 and r is a RES parameter: continue
+      if depth(C) == -1 and r is a resource parameter: continue
       best = min by (depth(C), order(C))
   if best exists: return Float(best)
-  if r is not a RES parameter:
+  if r is not a resource parameter:
     for C in returned_collections where r ∈ membership[C]:
       if C has a RES-marked collection type or a record type with RES fields:
         return FloatBlocked(C)
@@ -305,7 +307,7 @@ float to a later same-depth container merely because that container is returned.
 | `RES f; RETURN f` | `f → Local` | bare resource return is a move, no routing |
 | outer `ys`; inner `{ RES f; xs=[f]; ys=xs }` | `f → Float(ys)` | membership reaches `ys`, the outermost (Phase 2) |
 | global `saved`; `RES f; saved=append(saved,Holder[f])` | `f → Float(saved)` | `saved` is at depth `-1`, outside the function (Phase 2) |
-| global `saved`; parameter `RES p`; `saved=append(saved,p)` | `p → Local` | a parameter is raised at the store, not floated |
+| global `saved`; resource parameter `p`; `saved=append(saved,p)` | `p → Local` | a parameter is raised at the store, not floated |
 
 [[src/ir/resource_escape.rs:tests]]
 

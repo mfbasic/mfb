@@ -40,7 +40,7 @@ END FUNC
 const BODY: &str =
 r#"' `TRUE` iff the response is complete: a failure, clean EOF, or a fully-framed
 ' response (Content-Length satisfied / final chunk — an early-out before EOF).
-FUNC __http_done(RES s AS Stream STATE PendingState) AS Boolean
+FUNC __http_done(s AS Stream STATE PendingState) AS Boolean
   IF s.state.err <> 0 THEN
     RETURN TRUE
   END IF

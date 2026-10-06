@@ -213,7 +213,8 @@ pub fn analyze_function_with(
         next_order: 0,
     };
 
-    // `RES` parameters are resources owned at function-entry depth.
+    // Resource parameters are resources owned at function-entry depth. The flag is
+    // derived from the parameter's type (bug-976, `hir::resource_params`).
     for param in &function.params {
         if param.resource {
             analyzer.declare(&param.name, 0);
@@ -570,7 +571,7 @@ impl Analyzer {
             // this function at all. The caller owns it and closes it; returning a
             // container that carries it transfers nothing.
             //
-            // Without this, `FUNC wrap(RES f AS fs::File) AS Holder` with
+            // Without this, `FUNC wrap(f AS fs::File) AS Holder` with
             // `LET h = Holder[…, f]; RETURN h` is rejected, and it is a correct
             // program: measured working (the caller writes through the returned
             // record after `wrap` returns, and the handle is still open).
@@ -1043,7 +1044,7 @@ mod tests {
     /// produced* -- and a parameter is not produced here at all. The caller owns
     /// and closes it.
     ///
-    /// Measured working end to end: `FUNC wrap(RES f AS fs::File) AS Holder`
+    /// Measured working end to end: `FUNC wrap(f AS fs::File) AS Holder`
     /// returning `Holder[…, f]`, with the caller writing through the returned
     /// record's handle after `wrap` returns.
     #[test]
@@ -1078,7 +1079,7 @@ mod tests {
         assert_ne!(
             result.owner("p"),
             ResOwner::FloatBlocked("h".to_string()),
-            "a RES parameter is owned by the caller; returning a record that \
+            "a resource parameter is owned by the caller; returning a record that \
              carries it transfers nothing and must not be refused"
         );
     }
@@ -1356,7 +1357,7 @@ mod tests {
         assert_eq!(result.owner("f"), ResOwner::Float("saved".to_string()));
     }
 
-    /// A `RES` parameter's owner is in a caller's frame: storing it into a global
+    /// A resource parameter's owner is in a caller's frame: storing it into a global
     /// is raised to the module at run time, at the store, not by this analysis.
     #[test]
     fn a_parameter_stored_into_a_global_does_not_float_statically() {

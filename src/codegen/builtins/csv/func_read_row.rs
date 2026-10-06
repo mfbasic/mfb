@@ -91,7 +91,7 @@ END FUNC
 
 #[rustfmt::skip]
 const FUNC_BODY: &str =
-r#"FUNC __csv_readRow(RES file AS fs::File, delimiter AS String, quote AS String) AS List OF String
+r#"FUNC __csv_readRow(file AS fs::File, delimiter AS String, quote AS String) AS List OF String
   LET delimCode AS Integer = __csv_firstCode(delimiter)
   LET quoteCode AS Integer = __csv_firstCode(quote)
   LET line AS String = fs::readLineRaw(file)

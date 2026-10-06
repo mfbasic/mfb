@@ -241,10 +241,10 @@ impl TypeEnv {
                 }
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
-                // plan-59-E: a non-owning pointer (a `RES` parameter, a `FOR EACH`
+                // plan-59-E: a non-owning pointer (a resource parameter, a `FOR EACH`
                 // element) used to be forbidden from closing/returning/transferring
                 // here (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired). That rule
-                // is what made `closeSound(RES sound AS SoundFile)` — "take a
+                // is what made `closeSound(sound AS SoundFile)` — "take a
                 // handle, give it back" — unwritable in any form.
                 //
                 // Under scope ownership ANY holder of the pointer may close it, and
@@ -544,7 +544,7 @@ impl TypeEnv {
                 // function's own resources first (`trap_route_cleanups`, codegen:
                 // "trap-shared resources *are* still dropped here"), so inside the
                 // handler each one is used after its close — which read the closed
-                // handle's freed record and crashed. A `RES` parameter and a
+                // handle's freed record and crashed. A resource parameter and a
                 // `FOR EACH` element are not the function's to close (`non_owning`),
                 // and a thread is closed but readable (bug-622), so neither is
                 // counted.

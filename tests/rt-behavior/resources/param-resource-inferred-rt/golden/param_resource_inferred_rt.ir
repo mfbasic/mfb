@@ -1,0 +1,262 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "param_resource_inferred_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "public",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "pos", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 16,
+    "visibility": "public",
+    "name": "Holder",
+    "fields": [
+    { "visibility": null, "line": 17, "name": "name", "type": "String" },
+    { "visibility": null, "line": 18, "name": "handle", "type": "RES fs.File" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 21,
+    "visibility": "public",
+    "name": "Stream",
+    "includes": [],
+    "variants": [
+    {
+      "name": "fs.File",
+      "line": 22,
+      "fields": [
+      ]
+    },
+    {
+      "name": "tcp.Socket",
+      "line": 23,
+      "fields": [
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "alias",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 28, "type": "fs.File", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 29, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "local", "name": "f" } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "g" }, { "kind": "const", "type": "String", "value": "a" }] } }
+    ]
+  },
+  {
+    "name": "bump",
+    "line": 34,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 34, "type": "fs.File STATE Cursor", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 35, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }, "right": { "kind": "const", "type": "Integer", "value": "41" } } }] } }
+    ]
+  },
+  {
+    "name": "touch",
+    "line": 39,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 39, "type": "fs.File", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "b" }] } }
+    ]
+  },
+  {
+    "name": "same",
+    "line": 45,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 45, "type": "fs.File", "default": null }
+    ],
+    "returns": "fs.File",
+    "body": [
+    { "op": "return", "line": 46, "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "wrap",
+    "line": 51,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 51, "type": "fs.File", "default": null }
+    ],
+    "returns": "Holder",
+    "body": [
+    { "op": "bind", "line": 52, "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "args": [{ "kind": "const", "type": "String", "value": "held" }, { "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 53, "value": { "kind": "local", "name": "h" } }
+    ]
+  },
+  {
+    "name": "describe",
+    "line": 57,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 57, "type": "Stream", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 58, "mutable": false, "name": "$match0", "type": "Stream", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "line": 58,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 59,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "fs.File" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 59, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "unionExtract", "type": "fs.File", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "c" }] } },
+        { "op": "return", "line": 61, "value": { "kind": "const", "type": "String", "value": "file" } }
+        ]
+      },
+      {
+        "line": 62,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tcp.Socket" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 62, "mutable": false, "name": "k", "type": "tcp.Socket", "value": { "kind": "unionExtract", "type": "tcp.Socket", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 63, "value": { "kind": "const", "type": "String", "value": "socket" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "shut",
+    "line": 69,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 69, "type": "fs.File", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 73,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 74, "mutable": false, "name": "f", "type": "fs.File STATE Cursor", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/param-resource-inferred.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "alias", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "bump", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 77, "value": { "kind": "call", "type": "Nothing", "target": "touch", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 78, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "state=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] } }] } },
+    { "op": "bind", "line": 79, "mutable": false, "name": "g", "type": "fs.File STATE Cursor", "value": { "kind": "call", "type": "fs.File", "target": "same", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "g" }, { "kind": "const", "type": "String", "value": "d" }] } },
+    { "op": "bind", "line": 81, "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "call", "type": "Holder", "target": "wrap", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "h" }, "member": "handle" }, { "kind": "const", "type": "String", "value": "e" }] } },
+    { "op": "eval", "line": 83, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "holder=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "h" }, "member": "name" } }] } },
+    { "op": "bind", "line": 84, "mutable": false, "name": "s", "type": "Stream", "value": { "kind": "unionWrap", "union": "Stream", "member": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/param-resource-inferred-union.txt" }, { "kind": "const", "type": "String", "value": "w" }] } } },
+    { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "union=" }, "right": { "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "s" }] } }] } },
+    { "op": "bind", "line": 86, "mutable": false, "name": "t", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/param-resource-inferred-shut.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "eval", "line": 87, "value": { "kind": "call", "type": "Nothing", "target": "shut", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "size=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fs.size", "args": [{ "kind": "local", "name": "f" }] }] } }] } },
+    { "op": "return", "line": 89, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

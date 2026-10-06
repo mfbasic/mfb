@@ -194,6 +194,14 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "record field assignment is not supported",
     },
+    // bug-976: a parameter is a resource because its type is one; `RES` is not
+    // written on a parameter.
+    Rule {
+        code: "1-102-0015",
+        name: "MFB_PARSE_PARAMETER_RES",
+        severity: Severity::Error,
+        message: "a parameter takes no RES; its type already makes it a resource",
+    },
     Rule {
         code: "2-201-0001",
         name: "IMPORT_PACKAGE_INVALID",
@@ -1166,7 +1174,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0091",
         name: "RESOURCE_CLOSE_SIGNATURE",
         severity: Severity::Error,
-        message: "a close op must consume exactly one RES parameter of its resource",
+        message: "a close op must consume exactly one parameter of its resource",
     },
     Rule {
         code: "2-203-0092",

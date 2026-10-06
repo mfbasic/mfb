@@ -489,7 +489,7 @@ impl TypeEnv {
                         // to the one resource and returning it hands that pointer
                         // to the caller, whose scope becomes the outermost one
                         // touching it.
-                        // plan-59-C: returning a bare `RES` parameter under a
+                        // plan-59-C: returning a bare resource parameter under a
                         // CONCRETE `STATE` is the `launder` shape — an unprovable
                         // narrowing. The declared return names a STATE the checker
                         // cannot show the opaque value carries.
@@ -499,7 +499,7 @@ impl TypeEnv {
                                 self.emit(
                                     "TYPE_STATE_OPAQUE_NARROWING",
                                     format!(
-                                        "RETURN declares `STATE {declared}`, but the returned value is a bare `RES` parameter whose STATE is opaque — it carries some state or none, and the compiler cannot prove it is a `{declared}`."
+                                        "RETURN declares `STATE {declared}`, but the returned value is a bare resource parameter whose STATE is opaque — it carries some state or none, and the compiler cannot prove it is a `{declared}`."
                                     ),
                                 );
                             }

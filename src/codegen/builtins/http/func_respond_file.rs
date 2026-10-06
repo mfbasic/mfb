@@ -109,7 +109,7 @@ prints:
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __http_respondFile(RES file AS fs::File, contentType AS String) AS Response
+r#"FUNC __http_respondFile(file AS fs::File, contentType AS String) AS Response
   LET data AS List OF Byte = fs::readAllBytes(file)
   MUT ct AS String = contentType
   IF ct = "" THEN

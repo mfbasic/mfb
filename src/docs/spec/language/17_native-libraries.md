@@ -22,7 +22,7 @@ LINK "sqlite3" AS sqlite
     RETURN db
   END FUNC
 
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -45,9 +45,9 @@ RES db AS Db = sqlite::open("app.db")
 
 The declared name may coincide with a **built-in resource type**'s bare name — `File`, `Socket`, `Listener`, `AudioInput`, `AudioOutput` — without shadowing it: built-in resources are package-qualified (`fs::File`, `tcp::Socket`, `udp::Socket`, `tls::Socket`, …), and several packages share a bare name without colliding, so a user `RESOURCE File` names a distinct, package-scoped type with its own registered close op, and the two never collide in resolution or in close-op dispatch.
 
-`CLOSE BY <closeFn>` names the resource's **registered close op** — a native `LINK` function whose single `RES` parameter is this resource type (resource invalidation event #1, §15). It runs automatically when the resource binding is dropped at scope exit, including on error exits, and may also be called explicitly to release early or to observe a close failure. `closeFn` must be a native `LINK` function; naming an ordinary MFBASIC function is rejected (`RESOURCE_CLOSE_NOT_NATIVE`), and a close op that does not consume exactly one `RES` parameter of its resource is rejected (`RESOURCE_CLOSE_SIGNATURE`). Calling a native wrapper with a closed resource fails with `ErrResourceClosed`.
+`CLOSE BY <closeFn>` names the resource's **registered close op** — a native `LINK` function whose single parameter is this resource type (resource invalidation event #1, §15). It runs automatically when the resource binding is dropped at scope exit, including on error exits, and may also be called explicitly to release early or to observe a close failure. `closeFn` must be a native `LINK` function; naming an ordinary MFBASIC function is rejected (`RESOURCE_CLOSE_NOT_NATIVE`), and a close op that does not consume exactly one parameter of its resource is rejected (`RESOURCE_CLOSE_SIGNATURE`). Calling a native wrapper with a closed resource fails with `ErrResourceClosed`.
 
-**Re-exporting the close op (`[visibility] FUNC alias AS qualified::func`).** A binding publishes its close op under the package name with a transparent **function alias**, so importers can close explicitly through `sqlite::close(db)`. The alias is the *same* registered close op: calling it consumes its `RES` argument exactly as the native close op does. A hand-written MFBASIC wrapper may also close through its `RES` parameter (§15). The alias additionally preserves registered-close identity at the caller for static move tracking; an ordinary wrapper relies on the shared runtime closed flag. [[src/ir/verify/resources.rs:check_resource_moves]]
+**Re-exporting the close op (`[visibility] FUNC alias AS qualified::func`).** A binding publishes its close op under the package name with a transparent **function alias**, so importers can close explicitly through `sqlite::close(db)`. The alias is the *same* registered close op: calling it consumes its resource argument exactly as the native close op does. A hand-written MFBASIC wrapper may also close through its resource parameter (§15). The alias additionally preserves registered-close identity at the caller for static move tracking; an ordinary wrapper relies on the shared runtime closed flag. [[src/ir/verify/resources.rs:check_resource_moves]]
 
 **LINK-alias namespace resolution.** `LINK "lib" AS alias` registers `alias` as a **package-local namespace** — distinct from a package import — whose members resolve directly against the block's declared native functions. The resolver collects every `LINK` block in a dedicated first pass (before all other top-level symbols), keying a per-alias table on the block's alias and mapping each `FUNC` name to its captured signature (parameter types, per-parameter `RES` flags, and return). This first pass runs ahead of ordinary symbol collection precisely so that resource `CLOSE BY` targets and `FUNC … AS` re-export aliases, both of which name `alias::func`, can be resolved.[[src/resolver/mod.rs:collect_top_level_symbols]]
 
@@ -55,7 +55,7 @@ A qualified name `alias::func` is resolved by splitting off the leading root: if
 
 The same per-alias table backs the two places that must name a native LINK function:
 
-* A resource's `CLOSE BY <closeFn>`. `closeFn` must be the dotted form `alias.func`; a bare name (no alias) is `RESOURCE_CLOSE_NOT_NATIVE`. An unknown alias is also `RESOURCE_CLOSE_NOT_NATIVE` ("references unknown LINK alias"); a known alias that does not declare the named function is `RESOURCE_CLOSE_MISSING`. The close-op signature rule is enforced here: the target must take **exactly one** parameter, that parameter must be marked `RES`, and its base resource type must equal the declaring resource's name — otherwise `RESOURCE_CLOSE_SIGNATURE`.[[src/resolver/resolution.rs:resolve_resource_decl]]
+* A resource's `CLOSE BY <closeFn>`. `closeFn` must be the dotted form `alias.func`; a bare name (no alias) is `RESOURCE_CLOSE_NOT_NATIVE`. An unknown alias is also `RESOURCE_CLOSE_NOT_NATIVE` ("references unknown LINK alias"); a known alias that does not declare the named function is `RESOURCE_CLOSE_MISSING`. The close-op signature rule is enforced here: the target must take **exactly one** parameter, that parameter must be a resource (a parameter is one by its type, §15), and its base resource type must equal the declaring resource's name — otherwise `RESOURCE_CLOSE_SIGNATURE`.[[src/resolver/resolution.rs:resolve_resource_decl]]
 * A re-export `FUNC alias AS <target>`. The `target` must resolve through the same `alias.func` lookup; if it does not name a native LINK function the alias is rejected with `SYMBOL_UNKNOWN_IDENTIFIER` ("targets `…`, which is not a native LINK function"). At symbol-collection time the alias is registered as an ordinary callable carrying the LINK target's parameter types, which is why importers call it like any package function.[[src/resolver/resolution.rs:resolve_func_alias]]
 
 **Declaring a C struct (`CSTRUCT <CName> AS <MfbType>`).** A C function that takes a struct by pointer needs that struct's exact byte layout. `CSTRUCT` declares it inside the `LINK` block, together with the ordinary MFBASIC record it presents as:
@@ -164,7 +164,7 @@ FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
 END FUNC
 ```
 
-Without `BIND STATE`, a stateful native return's STATE default-initializes (the caller's binding allocates it) exactly as a built-in resource's does. `<out-struct-slot>` must be an `OUT` `CSTRUCT` slot whose `AS S` record matches the resource's declared STATE type, and `<res-slot>` must name the slot the wrapper returns — the STATE always attaches to the returned resource, so naming any other slot is a mistake and is rejected (`NATIVE_BIND_STATE_INVALID`) rather than silently ignored. A native FUNC may declare at most one `BIND STATE`. A resource's STATE type is fixed: every native declaration that names it — a producer's return, the close op's `RES` parameter — must agree on it (`TYPE_STATE_MISMATCH`), since the payload carries no runtime tag. The stateful return and its STATE ride an exported signature, so an importer binds the resource and reads its `.state` across the package boundary. [[src/codegen/link/thunk/link_thunk.rs:lower_link_thunk]]
+Without `BIND STATE`, a stateful native return's STATE default-initializes (the caller's binding allocates it) exactly as a built-in resource's does. `<out-struct-slot>` must be an `OUT` `CSTRUCT` slot whose `AS S` record matches the resource's declared STATE type, and `<res-slot>` must name the slot the wrapper returns — the STATE always attaches to the returned resource, so naming any other slot is a mistake and is rejected (`NATIVE_BIND_STATE_INVALID`) rather than silently ignored. A native FUNC may declare at most one `BIND STATE`. A resource's STATE type is fixed: every native declaration that names it — a producer's return, the close op's resource parameter — must agree on it (`TYPE_STATE_MISMATCH`), since the payload carries no runtime tag. The stateful return and its STATE ride an exported signature, so an importer binds the resource and reads its `.state` across the package boundary. [[src/codegen/link/thunk/link_thunk.rs:lower_link_thunk]]
 
 **`CString` struct fields.** A `const char *` field marshals both ways. Coming **out**, the pointer is copied into an owned MFBASIC `String`, its bytes validated as UTF-8 (`ErrEncoding` if not), and a NULL yields `""`. Going **in**, a `String` field becomes a NUL-terminated C buffer that lives for the duration of the call.
 
@@ -243,7 +243,7 @@ Valid values are whole numbers from 1 to 4096 (MiB); anything else is `PROJECT_J
 **Pinning constant and NULL arguments (`CONST slot = value`).** The `ABI (...)` line always states the true native signature — every C argument in C order. Some of those arguments are fixed values the caller never supplies (a `-1` length, a NULL callback, a sentinel destructor). `CONST <slot> = <value>` pins one ABI slot to a fixed value and removes it from the wrapper's parameter list. The value is checked against the slot's declared ABI type. `NOTHING` pins a C NULL on a pointer slot; a pointer-sized integer literal pins a sentinel pointer (e.g. `-1` for SQLite's `SQLITE_TRANSIENT`). A `CONST` slot is input-only — marking it `OUT` or as the result is rejected (`NATIVE_CONST_OUT`), and pinning an unknown slot is `NATIVE_CONST_UNKNOWN_SLOT`. A pin is call metadata baked into the native frame; it never materializes as a source value, so it cannot forge or leak a `CPtr`. A pinned integer is lowered as a 64-bit **bit pattern**, so the full unsigned range is available: `CONST flags = 0xFFFFFFFFFFFFFFFF` pins all sixty-four bits, exactly as the equivalent `-1` does. [[src/ir/lower_link.rs:link_const_bits]]
 
 ```basic
-FUNC bindText(RES stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
+FUNC bindText(stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
   SYMBOL "sqlite3_bind_text"
   ABI (stmt CPtr, iCol CInt32, zVal CString, nByte CInt32, destructor CPtr) AS status CInt32
   CONST nByte = -1            ' bind up to the terminating NUL
@@ -268,7 +268,7 @@ An identifier in `<expr>` names an `ABI (...)` slot or the ABI return, and is re
 `RETURN <slot>` over an `OUT` slot surfaces the value the callee produced (a handle, a count); `RETURN <abi-return-name>` passes the C return through, marshaled by its ctype; and any other expression computes the result from the named slots. For example SQLite's `sqlite3_step` returns `SQLITE_ROW` (100) or `SQLITE_DONE` (101); the wrapper returns `AS Boolean` meaning "a row is ready":
 
 ```basic
-FUNC step(RES stmt AS Stmt) AS Boolean
+FUNC step(stmt AS Stmt) AS Boolean
   SYMBOL "sqlite3_step"
   ABI (stmt CPtr) AS status CInt32
   SUCCESS_ON status = 100 OR status = 101   ' both are non-errors
@@ -301,7 +301,7 @@ Multiple `OUT` slots parse and marshal, but `RETURN` does not construct a record
 
 ```basic
 LINK "sqlite3" AS sqlite
-  FUNC expandedSql(RES stmt AS Stmt) AS String
+  FUNC expandedSql(stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
     ABI (stmt CPtr) AS text CPtr
     RETURN text
@@ -360,19 +360,19 @@ LINK "sqlite3" AS sqliteLink
     RETURN db
   END FUNC
 
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC busyTimeout(RES db AS Db, ms AS Integer) AS Nothing
+  FUNC busyTimeout(db AS Db, ms AS Integer) AS Nothing
     SYMBOL "sqlite3_busy_timeout"
     ABI (db CPtr, ms CInt32) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC exec(RES db AS Db, sql AS String) AS Nothing
+  FUNC exec(db AS Db, sql AS String) AS Nothing
     SYMBOL "sqlite3_exec"
     ABI (db CPtr, sql CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
     CONST callback = NOTHING     ' NULL: no per-row callback
@@ -381,7 +381,7 @@ LINK "sqlite3" AS sqliteLink
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
+  FUNC prepare(db AS Db, sql AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
     ABI (db CPtr, sql CString, nByte CInt32, prepared OUT CPtr, pzTail CPtr) AS status CInt32
     CONST nByte = -1             ' read sql up to the terminating NUL
@@ -390,7 +390,7 @@ LINK "sqlite3" AS sqliteLink
     RETURN prepared
   END FUNC
 
-  FUNC bindText(RES stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
+  FUNC bindText(stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
     SYMBOL "sqlite3_bind_text"
     ABI (stmt CPtr, iCol CInt32, zVal CString, nByte CInt32, destructor CPtr) AS status CInt32
     CONST nByte = -1             ' bind up to the terminating NUL
@@ -398,56 +398,56 @@ LINK "sqlite3" AS sqliteLink
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC bindParameterIndex(RES stmt AS Stmt, name AS String) AS Integer
+  FUNC bindParameterIndex(stmt AS Stmt, name AS String) AS Integer
     SYMBOL "sqlite3_bind_parameter_index"
     ABI (stmt CPtr, name CString) AS value CInt32
     RETURN value
   END FUNC
 
-  FUNC step(RES stmt AS Stmt) AS Boolean
+  FUNC step(stmt AS Stmt) AS Boolean
     SYMBOL "sqlite3_step"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 100 OR status = 101
     RETURN status = 100
   END FUNC
 
-  FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
+  FUNC columnText(stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_text"
     ABI (stmt CPtr, col CInt32) AS text CPtr
     RETURN text
   END FUNC
 
-  FUNC columnType(RES stmt AS Stmt, col AS Integer) AS Integer
+  FUNC columnType(stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_type"
     ABI (stmt CPtr, col CInt32) AS value CInt32
     RETURN value
   END FUNC
 
-  FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
+  FUNC columnInt(stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_int64"
     ABI (stmt CPtr, col CInt32) AS value CInt64
     RETURN value
   END FUNC
 
-  FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
+  FUNC columnDouble(stmt AS Stmt, col AS Integer) AS Float
     SYMBOL "sqlite3_column_double"
     ABI (stmt CPtr, col CInt32) AS value CDouble
     RETURN value
   END FUNC
 
-  FUNC columnCount(RES stmt AS Stmt) AS Integer
+  FUNC columnCount(stmt AS Stmt) AS Integer
     SYMBOL "sqlite3_column_count"
     ABI (stmt CPtr) AS value CInt32
     RETURN value
   END FUNC
 
-  FUNC finalize(RES stmt AS Stmt) AS Nothing
+  FUNC finalize(stmt AS Stmt) AS Nothing
     SYMBOL "sqlite3_finalize"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC expandedSql(RES stmt AS Stmt) AS String
+  FUNC expandedSql(stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
     ABI (stmt CPtr) AS text CPtr
     RETURN text
@@ -457,13 +457,13 @@ LINK "sqlite3" AS sqliteLink
     END FREE
   END FUNC
 
-  FUNC errmsg(RES db AS Db) AS String
+  FUNC errmsg(db AS Db) AS String
     SYMBOL "sqlite3_errmsg"
     ABI (db CPtr) AS text CPtr
     RETURN text
   END FUNC
 
-  FUNC extendedErrcode(RES db AS Db) AS Integer
+  FUNC extendedErrcode(db AS Db) AS Integer
     SYMBOL "sqlite3_extended_errcode"
     ABI (db CPtr) AS value CInt32
     RETURN value

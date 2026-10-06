@@ -2910,9 +2910,9 @@ pub(crate) enum Site {
     T1,
     /// Field `b` of the same payload.
     T2,
-    /// T1 through a `RES` parameter (`FUNC run1(RES h …) AS Nothing`).
+    /// T1 through a resource parameter (`FUNC run1(RES h …) AS Nothing`).
     T3,
-    /// T2 through a `RES` parameter.
+    /// T2 through a resource parameter.
     T4,
     /// Two updates over the whole payload (`h.state = WITH h.state { b := …, n := … }`).
     T5,
@@ -3247,7 +3247,7 @@ impl Probe {
                  FUNC main() AS Integer\n  run1()\n  RETURN 0\nEND FUNC\n"
             ),
             Site::T3 | Site::T4 => format!(
-                "FUNC run1(RES h AS fs::File STATE P) AS Nothing\n{body}END FUNC\n\n\
+                "FUNC run1(h AS fs::File STATE P) AS Nothing\n{body}END FUNC\n\n\
                  FUNC main() AS Integer\n  RES h AS fs::File STATE P = {open}\n  run1(h)\n  \
                  RETURN 0\nEND FUNC\n"
             ),

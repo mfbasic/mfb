@@ -766,7 +766,7 @@ impl TypeEnv {
         // points at the wrong line. It was always *rejected*; it just said so
         // unhelpfully.
         //
-        // A bare `RES p AS File` parameter reaches this on purpose: bare means
+        // A bare `p AS File` parameter reaches this on purpose: bare means
         // "opaque" at a parameter, so `.state` is inaccessible through it even
         // though the caller's owner attached one (§15.5).
         //
@@ -784,7 +784,7 @@ impl TypeEnv {
             self.emit(
                 "TYPE_STATE_INVALID",
                 format!(
-                    "`{base}` here has no STATE to read; declare the resource with `STATE T`. Bare means \"no state\" on an owner, and \"opaque\" on a `RES` parameter — a bare parameter cannot read the state its caller attached."
+                    "`{base}` here has no STATE to read; declare the resource with `STATE T`. Bare means \"no state\" on an owner, and \"opaque\" on a resource parameter — a bare parameter cannot read the state its caller attached."
                 ),
             );
             return;

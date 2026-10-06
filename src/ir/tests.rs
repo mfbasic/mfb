@@ -1929,7 +1929,7 @@ mod lower_tests {
                  ABI (path CString, produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
-               FUNC close(RES db AS Db) AS Nothing\n\
+               FUNC close(db AS Db) AS Nothing\n\
                  SYMBOL \"sqlite3_close\"\n\
                  ABI (db CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
@@ -1973,7 +1973,7 @@ mod lower_tests {
                  SUCCESS_ON status = 0\n\
                  RETURN NOT (status < 0)\n\
                END FUNC\n\
-               FUNC shut(RES h AS Handle) AS Nothing\n\
+               FUNC shut(h AS Handle) AS Nothing\n\
                  SYMBOL \"shut\"\n\
                  ABI (h CPtr) AS status CInt32\n\
                END FUNC\n\
@@ -2005,7 +2005,7 @@ mod lower_tests {
                  CONST sz = SIZEOF Pair\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
-               FUNC shut(RES h AS H) AS Nothing\n\
+               FUNC shut(h AS H) AS Nothing\n\
                  SYMBOL \"shut\"\n\
                  ABI (h CPtr) AS status CInt32\n\
                END FUNC\n\
@@ -2046,7 +2046,7 @@ mod lower_tests {
                  END BIND\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
-               FUNC shut(RES h AS H) AS Nothing\n\
+               FUNC shut(h AS H) AS Nothing\n\
                  SYMBOL \"shut\"\n\
                  ABI (h CPtr) AS status CInt32\n\
                END FUNC\n\
@@ -2120,7 +2120,7 @@ mod lower_tests {
     fn native_resource_close_uses_exported_alias() {
         let src = "EXPORT RESOURCE Db CLOSE BY lib::close\n\
              LINK \"c\" AS lib\n\
-               FUNC close(RES db AS Db) AS Nothing\n\
+               FUNC close(db AS Db) AS Nothing\n\
                  SYMBOL \"close\"\n\
                  ABI (db CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
@@ -2210,7 +2210,7 @@ mod lower_tests {
         let src = "DOC\n  RESOURCE Db\n  DESC A database handle.\nEND DOC\n\
              EXPORT RESOURCE Db CLOSE BY lib::close\n\
              LINK \"c\" AS lib\n\
-               FUNC close(RES db AS Db) AS Nothing\n\
+               FUNC close(db AS Db) AS Nothing\n\
                  SYMBOL \"close\"\n\
                  ABI (db CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
@@ -2232,7 +2232,7 @@ mod lower_tests {
         let src = "DOC\n  RESOURCE Cache\n  DESC A cache.\nEND DOC\n\
              PRIVATE RESOURCE Cache CLOSE BY lib::freeCache\n\
              LINK \"c\" AS lib\n\
-               FUNC freeCache(RES c AS Cache) AS Nothing\n\
+               FUNC freeCache(c AS Cache) AS Nothing\n\
                  SYMBOL \"freeCache\"\n\
                  ABI (c CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
@@ -2274,7 +2274,7 @@ mod lower_tests {
             "IMPORT fs\n\
              IMPORT io\n\
              TYPE FileState\n  pos AS Integer\n  len AS Integer\nEND TYPE\n\
-             FUNC advance(RES f AS fs::File STATE FileState, by AS Integer) AS Nothing\n\
+             FUNC advance(f AS fs::File STATE FileState, by AS Integer) AS Nothing\n\
                f.state = WITH f.state { pos := f.state.pos + by }\n\
              END FUNC\n\
              FUNC main AS Integer\n\
@@ -2285,7 +2285,7 @@ mod lower_tests {
                RETURN 0\n\
              END FUNC\n",
         );
-        // The `advance` function has a RES param carrying STATE in its type string.
+        // The `advance` function has a resource param carrying STATE in its type string.
         let advance = function(&ir, "advance");
         assert!(advance.params[0].type_.name().contains("STATE FileState"));
         // Its body assigns the resource STATE via StateAssign.
@@ -2507,7 +2507,7 @@ mod lower_tests {
                  SUCCESS_ON status <> NOTHING\n\
                  RETURN status + 1\n\
                END FUNC\n\
-               FUNC done(RES h AS H) AS Nothing\n\
+               FUNC done(h AS H) AS Nothing\n\
                  SYMBOL \"done\"\n\
                  ABI (h CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
@@ -2548,7 +2548,7 @@ mod lower_tests {
                  CONST d = 0x7FFFFFFFFFFFFFFF\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
-               FUNC done(RES h AS H) AS Nothing\n\
+               FUNC done(h AS H) AS Nothing\n\
                  SYMBOL \"done\"\n\
                  ABI (h CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
@@ -3435,7 +3435,7 @@ END FUNC
                  ABI (produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
-               FUNC close(RES db AS Db) AS Nothing\n\
+               FUNC close(db AS Db) AS Nothing\n\
                  SYMBOL \"close\"\n\
                  ABI (db CPtr) AS status CInt32\n\
                END FUNC\n\
@@ -3444,7 +3444,7 @@ END FUNC
                  ABI (produced OUT CPtr) AS status CInt32\n\
                  SUCCESS_ON status = 0\n\
                END FUNC\n\
-               FUNC freeCache(RES c AS Cache) AS Nothing\n\
+               FUNC freeCache(c AS Cache) AS Nothing\n\
                  SYMBOL \"free\"\n\
                  ABI (c CPtr) AS status CInt32\n\
                END FUNC\n\
@@ -5371,13 +5371,13 @@ LINK "sqlite3" AS demoLink
     CONST flags = 6
   END FUNC
 
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC finalize(RES stmt AS Stmt) AS Nothing
+  FUNC finalize(stmt AS Stmt) AS Nothing
     SYMBOL "sqlite3_finalize"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -5475,7 +5475,7 @@ LINK "c" AS natLink
     CONST s = 7
   END FUNC
 
-  FUNC shut(RES h AS Handle) AS Nothing
+  FUNC shut(h AS Handle) AS Nothing
     SYMBOL "shut_it"
     ABI (h CPtr) AS rc CInt32
   END FUNC
@@ -5620,7 +5620,7 @@ END FUNC
 PUBLIC RESOURCE Widget CLOSE BY wLink::destroy
 
 LINK "w" AS wLink
-  FUNC destroy(RES w AS Widget) AS Nothing
+  FUNC destroy(w AS Widget) AS Nothing
     SYMBOL "w_destroy"
     ABI (w CPtr) AS rc CInt32
   END FUNC
@@ -5816,7 +5816,7 @@ TYPE Cursor
   pos AS Integer
   len AS Integer
 END TYPE
-FUNC seek(RES s AS fs::File STATE Cursor, dest AS Integer) AS Nothing
+FUNC seek(s AS fs::File STATE Cursor, dest AS Integer) AS Nothing
   s.state.pos = dest
 END FUNC
 FUNC main AS Integer
@@ -6103,7 +6103,7 @@ LINK "db" AS dbLink
     SYMBOL "db_version"
     ABI () AS rc CInt32
   END FUNC
-  FUNC disconnect(RES c AS Conn) AS Nothing
+  FUNC disconnect(c AS Conn) AS Nothing
     SYMBOL "db_close"
     ABI (c CPtr) AS rc CInt32
   END FUNC
