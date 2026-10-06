@@ -558,8 +558,10 @@ shape any future per-item payload has to take.
 **The two predicates are two functions with the same caps.** Each backend has its own
 constants — `METAL_MAX_FRAME_*` and `VULKAN_MAX_FRAME_*` — generated into its own
 predicate (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 quads,
-262,144 polygon edges, 131,072 gradient stops and 8M glyph/picture texels a frame, each a
-frame SUM, with each distinct picture block counted once. Neither has a per-polygon edge
+262,144 polygon edges, 131,072 gradient stops, 1,048,576 dash words (plan-163-B) and 8M
+glyph/picture texels a frame, each a frame SUM, with each distinct picture block counted
+once. A stroke's join records ride the EDGE region, two edge slots each, so they count
+twice against the edge cap rather than having a cap of their own. Neither has a per-polygon edge
 cap: a polygon's edges are indexed by horizontal band (`emit_band_index`, bug-686 on
 Metal, ported to Vulkan's `CodeBuilder` by bug-688 — the algorithm exists twice so that
 Metal's instructions did not change), and the shader's `edgeDistance` walks only the
@@ -1013,8 +1015,9 @@ capped at 64.
 
 Widening the per-item block is the single most repeated change in plan-116 — A grew it
 for the item buffer, C for the transform, D for the arc caps, E for the ellipse, and F
-twice (the ellipse `ivec4`, then the gradient one, reaching 208) — and bug-735 added four
-residual `ivec4`s (272); each time it moved the same set. Three of them are unrelated by any type, and none of the three
+twice (the ellipse `ivec4`, then the gradient one, reaching 208) — bug-735 added four
+residual `ivec4`s (272), and plan-163-B the `strokeStyle` `ivec4` (288: first join slot,
+join record count, first dash word, dash word count); each time it moved the same set. Three of them are unrelated by any type, and none of the three
 fails loudly.
 
 It was five until plan-116-F added a **third** buffer region; the sixth is item 5.
@@ -1058,6 +1061,29 @@ name-to-id pairing, and that the blob was regenerated) with
 predecessors fired on **every** plan-116 letter and were the only thing that noticed.
 Item 2 has no guard beyond the reflection — plan-116-D shipped the fragment half alone
 and found it that way.
+
+### A geometry record's tail is read back from its END
+
+A record is the 51-float header, then its tail in a fixed order: **edges | join records |
+dash tail | gradient stops** (plan-163-B). Only the edge count is known from the front;
+every other part is found by counting back from slot 1 (the record's length) — the stops
+are `slot1 - stops * 5`, the dash tail sits `__CANVAS_GEO_DASH_COUNT` (slot 49) floats
+before them, the join records `__CANVAS_GEO_JOIN_COUNT * 8` (slot 47) before that. Every
+reader calls `__canvas_gradientStopBase` / `__canvas_dashBase` / `__canvas_joinBase`
+rather than recomputing (the 2026-09-01 polygon-cache lesson), and the two GPU emitters
+that copy a part out (`emit_join_buffer`/`emit_join_upload`, `emit_dash_buffer`/
+`emit_dash_upload`) subtract the parts after it the same way. A new tail part goes BEFORE
+the stops and every emitter that locates an earlier part must subtract it too — a missed
+one copies the wrong floats as corners or dashes, a plausible wrong picture.
+
+The dash words are their own frame region (between the gradient stops and the glyph
+texels, `METAL_DASH_BASE_WORDS` / `VULKAN_DASH_BASE_WORDS`, the Vulkan base a
+specialization constant like the others), as float32 bit patterns: the phase (slot 50),
+then the dash tail. The shaders evaluate them in fp32 and must not use the driver's
+`atan`/`sin`/`cos`: Vulkan allows `atan` 4096 ULP and `sin`/`cos` 2^-11 absolute, which
+box 206's Intel driver uses and lavapipe and Metal do not, so a curve's dash end drawn
+with them passes on two backends and fails on real hardware (`dashAtan`, `dashSin`,
+`dashCos` are the oracle's series).
 
 ### A layout constant shared by MFBASIC source and the emitter has no compiler between them
 

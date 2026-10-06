@@ -42,7 +42,8 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_DASH_COUNT, HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
+    HEADER_DASH_COUNT, HEADER_DASH_PHASE, HEADER_JOIN_COUNT, VULKAN_DASH_BASE_WORDS,
+    VULKAN_MAX_FRAME_DASH_WORDS, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
     ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
 };
 use crate::codegen::runtime::canvas::{
@@ -4192,6 +4193,100 @@ fn emit_edge_upload(
 /// record count; both are 0 for an item with none, and so are the dash words. The
 /// records sit right before the gradient stops, so they are found from the record's end:
 /// `header + (slot1 - stops * 5 - records * 8) * 8`. Metal's `emit_join_buffer` twin.
+/// plan-163-B: copy this item's dash words into the frame buffer's dash region, and name
+/// the slice in its item block — `strokeStyle.z` the first word, `strokeStyle.w` the word
+/// count (`emit_join_upload` zeroed both, which the shader reads as a solid stroke).
+///
+/// The words are float32 bit patterns: the phase (header slot `HEADER_DASH_PHASE`), then
+/// the record's dash tail — the entry count, the period, each entry's end, and the kind's
+/// perimeter data (`helper_dashes.rs`) — found at `slot1 − stops·5 − dashes`, right before
+/// the gradient stops. Floats rather than 16.16: the pattern's lengths and an outline's
+/// perimeter positions are compared, never added to a coordinate, and fp32 holds a
+/// thousand-pixel perimeter to 6e-5 px. A frame whose words would pass the region's cap
+/// is declined by the predicate, so the over-cap arm is unreachable and leaves the stroke
+/// solid rather than write past the region.
+fn emit_dash_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_dash_cursor: usize,
+) {
+    let head = builder.label("vk_dash_head");
+    let done = builder.label("vk_dash_done");
+    let copy = builder.label("vk_dash_copy");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let cursor = abi::SCRATCH[5];
+    let target = abi::SCRATCH[6];
+    let style = off_item + ITEM_OFFSET_STROKE_STYLE;
+
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_COUNT * 8));
+    builder.emit(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    builder.emit(abi::compare_immediate(count, "0"));
+    builder.emit(abi::branch_le(&done));
+    builder.emit(abi::load_u64(cursor, abi::stack_pointer(), off_dash_cursor));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], cursor, count));
+    builder.emit(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &VULKAN_MAX_FRAME_DASH_WORDS.to_string(),
+    ));
+    builder.emit(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[7]));
+    builder.emit(abi::branch_le(&copy));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&copy));
+    builder.emit(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), off_dash_cursor));
+    builder.emit(abi::store_u32(cursor, abi::stack_pointer(), style + ITEM_STROKE_DASH_BASE));
+    builder.emit(abi::add_immediate(abi::SCRATCH[7], count, 1));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        style + ITEM_STROKE_DASH_COUNT,
+    ));
+    // target = mapped + (VULKAN_DASH_BASE_WORDS + cursor) * 4.
+    builder.emit(abi::add_immediate(abi::SCRATCH[1], cursor, VULKAN_DASH_BASE_WORDS));
+    builder.emit(abi::shift_left_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 2));
+    emit_state_load(builder, off_state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, target);
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
+    // The header again: the state load may have used the scratch bank.
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_PHASE * 8));
+    builder.emit(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
+    builder.emit(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::store_u32(abi::SCRATCH[7], target, 0));
+    builder.emit(abi::add_immediate(target, target, 4));
+    // source = header + (slot1 - stops * 5 - count) * 8.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, 8));
+    builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
+    builder.emit(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    builder.emit(abi::subtract_registers(source, source, count));
+    builder.emit(abi::shift_left_immediate(source, source, 3));
+    builder.emit(abi::add_registers(source, header, source));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 0));
+    builder.emit(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
+    builder.emit(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::store_u32(abi::SCRATCH[7], target, 0));
+    builder.emit(abi::add_immediate(target, target, 4));
+    builder.emit(abi::add_immediate(source, source, 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+    builder.emit(abi::label(&done));
+}
+
 fn emit_join_upload(
     builder: &mut CodeBuilder,
     off_state: usize,
@@ -6378,6 +6473,8 @@ pub(crate) fn emit_vulkan_draw_scene(
     // The frame's gradient-stop cursor — the third region's twin of the edge one,
     // counted in STOPS rather than words so the arithmetic below matches the shader's.
     let off_grad_cursor = builder.allocate_stack_object("vk_grad_cursor", 8);
+    // plan-163-B: the frame's dash-region cursor, in words.
+    let off_dash_cursor = builder.allocate_stack_object("vk_dash_cursor", 8);
     // The frame's item-buffer cursor, and the base of the instanced run currently being
     // accumulated. `run_count` is scratch for the flush, which has to compute
     // `cursor - run_start` somewhere the argument staging cannot clobber.
@@ -6887,6 +6984,11 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_grad_cursor,
     ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_dash_cursor,
+    ));
     // bug-688: an empty picture table. Nothing in the table itself is cleared -- a slot
     // is live only below this count (`emit_picture_lookup`).
     builder.emit(abi::store_u64(
@@ -7100,8 +7202,10 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_edge_cursor,
         &bands,
     );
-    // plan-163-B: after the item's own edges, so its join records follow them.
+    // plan-163-B: after the item's own edges, so its join records follow them; then the
+    // dash words, after the join upload has zeroed their block words.
     emit_join_upload(builder, off_state, off_item, off_header, off_edge_cursor);
+    emit_dash_upload(builder, off_state, off_item, off_header, off_dash_cursor);
     emit_gradient_upload(builder, off_state, off_item, off_header, off_grad_cursor);
     // bug-484: after the edge upload (which zeroes the slice fields for non-polygons)
     // and before the split, so both records of a split picture name its texels.
@@ -8462,6 +8566,8 @@ mod tests {
             ("BAND_BASE", VULKAN_BAND_BASE_WORDS),
             // bug-687: the polygon vertices' residual words.
             ("EDGE_RESIDUAL_BASE", VULKAN_EDGE_RESIDUAL_BASE_WORDS),
+            // plan-163-B: the dash words.
+            ("DASH_BASE", VULKAN_DASH_BASE_WORDS),
         ];
         assert_eq!(
             VULKAN_SPEC_CONSTANTS.len(),
@@ -8543,10 +8649,17 @@ mod tests {
             "the gradient region must start where the band region ends",
         );
         end += VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
+        // plan-163-B put the dash words between the gradient stops and the glyphs.
+        assert_eq!(
+            VULKAN_DASH_BASE_WORDS * 4,
+            end,
+            "the dash region must start where the gradient region ends",
+        );
+        end += VULKAN_MAX_FRAME_DASH_WORDS * 4;
         assert_eq!(
             VULKAN_GLYPH_BASE_WORDS * 4,
             end,
-            "the glyph region must start where the gradient region ends",
+            "the glyph region must start where the dash region ends",
         );
         end += VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
         assert_eq!(

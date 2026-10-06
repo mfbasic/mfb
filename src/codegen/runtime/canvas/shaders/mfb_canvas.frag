@@ -98,6 +98,8 @@ layout(constant_id = 1) const int GRADIENT_BASE = 0;
 layout(constant_id = 2) const int BAND_BASE = 0;
 // bug-687: each polygon edge's four residual words, parallel to its 16.16 words.
 layout(constant_id = 3) const int EDGE_RESIDUAL_BASE = 0;
+// plan-163-B: the dash words (`dashWord`).
+layout(constant_id = 4) const int DASH_BASE = 0;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -957,11 +959,423 @@ vec2 polylineDistance(ivec2 band, vec2 x, vec2 y, float reach) {
     return best;
 }
 
+// plan-163-B: dashes (`helper_dashes.rs`). An item's dash words ride the dash region from
+// `strokeStyle.z`, `strokeStyle.w` of them (0 for a solid stroke), as float32 bit
+// patterns: the phase, the entry count, the period, each entry's END along the period,
+// then the kind's perimeter data -- three words per outline edge (its start and end
+// position and its ring's length, negative for an open path), an ellipse's arc-length
+// table, an arc's start angle and sweep. Each function is the oracle's in fp32, at
+// offsets from the item's own outline taken in double-float, so the precision is the
+// outline's, not the coordinates'. Metal's twins, line for line.
+float dashWord(int k) { return intBitsToFloat(edges.values[DASH_BASE + item.strokeStyle.z + k]); }
+float dfF(vec2 v) { return v.x + v.y; }
+float dashWrap(float x) {
+    float period = dashWord(2);
+    return x - floor(x / period) * period;
+}
+bool dashOnAt(float x) {
+    float w = dashWrap(x);
+    int n = int(dashWord(1));
+    for (int j = 0; j < n; ++j) {
+        if (w < dashWord(3 + j)) { return (j & 1) == 0; }
+    }
+    return true;
+}
+bool dashOnBefore(float x) {
+    float w = dashWrap(x);
+    if (w <= 0.0) { w = dashWord(2); }
+    int n = int(dashWord(1));
+    for (int j = 0; j < n; ++j) {
+        if (w <= dashWord(3 + j)) { return (j & 1) == 0; }
+    }
+    return false;
+}
+// `__canvas_dashLocate` then `__canvas_dashAlongPiece`: the signed distance along the
+// outline from `u` to the dashes on the piece [s0, s1] (negative inside one), a dash
+// extended by `ext` past a TRUE end; those ends near `u` into `ends`, flagged by `has`.
+float dashAlong(float u, float s0, float s1, float len_, bool closed, float ext, out vec2 ends, out bvec2 has) {
+    float at = min(max(u, s0), s1);
+    float phase = dashWord(0);
+    float period = dashWord(2);
+    int n = int(dashWord(1));
+    float w = dashWrap(at + phase);
+    float lowW = 0.0;
+    float highW = period;
+    int j = 0;
+    bool found = false;
+    for (; j < n; ++j) {
+        float c = dashWord(3 + j);
+        if (w < c) { highW = c; found = true; break; }
+        lowW = c;
+    }
+    bool on = (j & 1) == 0;
+    if (!found) { on = true; lowW = period; highW = period + dashWord(3); }
+    float lo = at - (w - lowW);
+    float hi = at + (highW - w);
+    if (closed) {
+        bool onStart = dashOnAt(phase);
+        bool onEnd = dashOnBefore(len_ + phase);
+        if (lo < 0.0) { lo = on == onEnd ? -1.0e9 : 0.0; }
+        if (hi > len_) { hi = on == onStart ? 1.0e9 : len_; }
+    } else {
+        if (lo < 0.0) { lo = on ? 0.0 : -1.0e9; }
+        if (hi > len_) { hi = on ? len_ : 1.0e9; }
+    }
+    ends = vec2(0.0);
+    has = bvec2(false);
+    if (on) {
+        float left = s0;
+        float right = s1;
+        if (lo >= s0) { left = lo - ext; has.x = true; ends.x = lo; }
+        if (hi <= s1) { right = hi + ext; has.y = true; ends.y = hi; }
+        return max(left - u, u - right);
+    }
+    float d = 1.0e6;
+    if (lo > s0) { d = u - lo - ext; has.x = true; ends.x = lo; }
+    if (hi < s1) { d = min(d, hi - ext - u); has.y = true; ends.y = hi; }
+    return d;
+}
+// The oracle's trigonometry (`__canvas_atan2`, `__canvas_sin`, `__canvas_cos`) as series in
+// `+ - * / sqrt`, not the driver's `atan`/`sin`/`cos`: Vulkan leaves `atan` at 4096 ULP and
+// `sin`/`cos` at 2^-11 absolute, which on a real driver moves a dash end on a 60 px circle
+// by a coverage step (measured on box 206's Intel UHD 630). Each is folded first, so the
+// series runs where it converges: the arctangent's ratio into [0, 1] and halved twice, the
+// sine's and cosine's angle into [-pi/2, pi/2].
+float dashAtan(float y, float x) {
+    float ax = abs(x);
+    float ay = abs(y);
+    if (ax == 0.0 && ay == 0.0) { return 0.0; }
+    bool swapped = ay > ax;
+    float z = swapped ? ax / ay : ay / ax;
+    z = z / (1.0 + sqrt(1.0 + z * z));
+    z = z / (1.0 + sqrt(1.0 + z * z));
+    float w = z * z;
+    float p = 1.0 / 21.0;
+    p = w * p - 1.0 / 19.0;
+    p = w * p + 1.0 / 17.0;
+    p = w * p - 1.0 / 15.0;
+    p = w * p + 1.0 / 13.0;
+    p = w * p - 1.0 / 11.0;
+    p = w * p + 1.0 / 9.0;
+    p = w * p - 1.0 / 7.0;
+    p = w * p + 1.0 / 5.0;
+    p = w * p - 1.0 / 3.0;
+    p = w * p + 1.0;
+    float a = 4.0 * z * p;
+    if (swapped) { a = PI / 2.0 - a; }
+    if (x < 0.0) { a = PI - a; }
+    if (y < 0.0) { a = 2.0 * PI - a; }
+    return a >= 2.0 * PI ? 0.0 : a;
+}
+float dashWrapAngle(float a) { return a - 2.0 * PI * floor((a + PI) / (2.0 * PI)); }
+float dashFold(float a) {
+    float x = dashWrapAngle(a);
+    if (x > PI / 2.0) { return PI - x; }
+    if (x < -PI / 2.0) { return -PI - x; }
+    return x;
+}
+float dashSin(float a) {
+    float x = dashFold(a);
+    float x2 = x * x;
+    return x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0 * (1.0 - x2 / 110.0)))));
+}
+float dashCos(float a) {
+    float x = dashFold(a);
+    float x2 = x * x;
+    float m = 1.0 - x2 / 2.0 * (1.0 - x2 / 12.0 * (1.0 - x2 / 30.0 * (1.0 - x2 / 56.0 * (1.0 - x2 / 90.0))));
+    return abs(dashWrapAngle(a)) > PI / 2.0 ? -m : m;
+}
+// The direction of `q` in [0, 2pi), from +X towards +Y.
+float dashAngle(vec2 q) { return dashAtan(q.y, q.x); }
+// A join record's corner piece at `w`, the pixel less its vertex V, from its points
+// relative to V (`__canvas_joinPieceDistance`).
+vec2 joinRel(int r, int k) {
+    return vec2(dfF(dfSub(joinCoord(r, k * 2), joinCoord(r, 0))),
+                dfF(dfSub(joinCoord(r, k * 2 + 1), joinCoord(r, 1))));
+}
+float joinPieceAt(int r, int kind, vec2 w) {
+    vec2 a = joinRel(r, 1);
+    float disc = length(w) - length(a);
+    if (kind == 1) { return disc; }
+    vec2 b = joinRel(r, 3);
+    if (kind == 2) {
+        vec2 c = b - a;
+        float o = (c.x * (w.y - a.y) - c.y * (w.x - a.x)) / length(c);
+        if (c.x * (-a.y) - c.y * (-a.x) > 0.0) { o = -o; }
+        return max(disc, o);
+    }
+    vec2 pts[4] = vec2[4](vec2(0.0), a, joinRel(r, 2), b);
+    float d = 1.0e6;
+    bool inside = false;
+    for (int k = 0; k < 4; ++k) {
+        vec2 s0 = pts[k];
+        vec2 s1 = pts[(k + 1) & 3];
+        d = min(d, segmentDistance(w, s0, s1));
+        if ((s0.y > w.y) != (s1.y > w.y) && w.x < s0.x + (w.y - s0.y) / (s1.y - s0.y) * (s1.x - s0.x)) {
+            inside = !inside;
+        }
+    }
+    return min(disc, inside ? -d : d);
+}
+// `__canvas_dashedEdges`: a polygon's or polyline's band edges, a line's one edge, or a
+// rectangle's or picture's four sides, each band cut by the dashes on its own [s0, s1],
+// with the corner piece wherever a dash runs through a vertex. An open path with no
+// length is the dot its cap draws (`__canvas_dashDot`).
+float dashedEdges(ivec2 band, vec2 x, vec2 y, float halfW, int cap) {
+    int kind = item.misc.x;
+    bool poly = kind == 4 || kind == 10;
+    int count = poly ? band.y : (kind == 2 ? 1 : 4);
+    int data = 3 + int(dashWord(1));
+    float phase = dashWord(0);
+    float ext = cap == 2 ? halfW : 0.0;
+    vec2 cx = dfFixed(item.shape.x, item.shapeLo.x);
+    vec2 cy = dfFixed(item.shape.y, item.shapeLo.y);
+    vec2 hx = dfFixed(item.shape.z, item.shapeLo.z);
+    vec2 hy = dfFixed(item.shape.w, item.shapeLo.w);
+    if ((kind == 2 || kind == 10) && dashWord(data + 2) == 0.0) {
+        vec2 ox = cx;
+        vec2 oy = cy;
+        if (kind == 10) {
+            DfEdge g0 = dfEdge(item.arc.z, 0);
+            ox = g0.ax;
+            oy = g0.ay;
+        }
+        vec2 w0 = vec2(dfF(dfSub(x, ox)), dfF(dfSub(y, oy)));
+        if (cap == 0 || !dashOnAt(phase)) { return 1.0e6; }
+        if (cap == 2) { return max(abs(w0.x), abs(w0.y)) - halfW; }
+        return length(w0) - halfW;
+    }
+    float best = 1.0e6;
+    for (int j = 0; j < count; ++j) {
+        int e = poly ? (band.x < 0 ? j : edges.values[band.x + j]) : j;
+        vec2 ax;
+        vec2 ay;
+        vec2 v;
+        if (poly) {
+            DfEdge g = dfEdge(item.arc.z, e);
+            ax = g.ax;
+            ay = g.ay;
+            v = vec2(dfF(g.vx), dfF(g.vy));
+        } else if (kind == 2) {
+            ax = cx;
+            ay = cy;
+            v = vec2(dfF(dfSub(hx, cx)), dfF(dfSub(hy, cy)));
+        } else {
+            int f = (e + 1) & 3;
+            ax = (e == 0 || e == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);
+            ay = (e < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);
+            vec2 bx = (f == 0 || f == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);
+            vec2 by = (f < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);
+            v = vec2(dfF(dfSub(bx, ax)), dfF(dfSub(by, ay)));
+        }
+        float len2 = dot(v, v);
+        if (!(len2 > 0.0)) { continue; }
+        vec2 w = vec2(dfF(dfSub(x, ax)), dfF(dfSub(y, ay)));
+        float s0 = dashWord(data + e * 3);
+        float s1 = dashWord(data + e * 3 + 1);
+        float ring = dashWord(data + e * 3 + 2);
+        float el = sqrt(len2);
+        float u = s0 + dot(w, v) / el;
+        float bandD = abs(w.x * v.y - w.y * v.x) / el - halfW;
+        if (max(bandD, max(s0 - u, u - s1) - halfW) < best) {
+            vec2 ends;
+            bvec2 has;
+            float piece = max(bandD, dashAlong(u, s0, s1, abs(ring), ring > 0.0, ext, ends, has));
+            if (cap == 1) {
+                if (has.x) { piece = min(piece, length(w - v * ((ends.x - s0) / el)) - halfW); }
+                if (has.y) { piece = min(piece, length(w - v * ((ends.y - s0) / el)) - halfW); }
+            }
+            best = min(best, piece);
+        }
+        if (item.strokeStyle.y > 0) {
+            int jk = joinKind(e);
+            if (jk != 0) {
+                float before = (ring > 0.0 && s0 == 0.0) ? abs(ring) : s0;
+                if (dashOnBefore(before + phase) && dashOnAt(s0 + phase)) {
+                    vec2 wv = vec2(dfF(dfSub(x, joinCoord(e, 0))), dfF(dfSub(y, joinCoord(e, 1))));
+                    best = min(best, joinPieceAt(e, jk, wv));
+                }
+            }
+        }
+    }
+    return best;
+}
+// `__canvas_rrectPosition`: a rounded rectangle's perimeter position of the outline point
+// nearest `q` (from its centre), from the top side's left end, clockwise.
+float rrectPosition(vec2 q, float iw, float ih, float r) {
+    float qr = r * (PI / 2.0);
+    float ax = abs(q.x) - iw;
+    float ay = abs(q.y) - ih;
+    if (ax > 0.0 && ay > 0.0) {
+        if (q.x > 0.0 && q.y < 0.0) {
+            return 2.0 * iw + r * min(max(dashAngle(vec2(q.x - iw, q.y + ih)) - 1.5 * PI, 0.0), PI / 2.0);
+        }
+        if (q.x > 0.0) {
+            return 2.0 * iw + qr + 2.0 * ih + r * min(dashAngle(vec2(q.x - iw, q.y - ih)), PI / 2.0);
+        }
+        if (q.y > 0.0) {
+            return 4.0 * iw + 2.0 * qr + 2.0 * ih + r * min(max(dashAngle(vec2(q.x + iw, q.y - ih)) - PI / 2.0, 0.0), PI / 2.0);
+        }
+        return 4.0 * iw + 3.0 * qr + 4.0 * ih + r * min(max(dashAngle(vec2(q.x + iw, q.y + ih)) - PI, 0.0), PI / 2.0);
+    }
+    if (ay >= ax) {
+        if (q.y < 0.0) { return q.x + iw; }
+        return 2.0 * iw + 2.0 * qr + 2.0 * ih + (iw - q.x);
+    }
+    if (q.x > 0.0) { return 2.0 * iw + qr + (q.y + ih); }
+    return 4.0 * iw + 3.0 * qr + 2.0 * ih + (ih - q.y);
+}
+// The outline point at perimeter position `s` of a curve, from its centre
+// (`__canvas_dashCurveX`).
+vec2 dashCurvePoint(int kind, int data, float s) {
+    if (kind == 1 || kind == 3) {
+        float r = dfF(dfFixed(item.shape.z, item.shapeLo.z));
+        float a = s / r + (kind == 3 ? dashWord(data) : 0.0);
+        return r * vec2(dashCos(a), dashSin(a));
+    }
+    if (kind == 7) {
+        float rx = dfF(dfFixed(item.shape.z, item.shapeLo.z));
+        float ry = dfF(dfFixed(item.shape.w, item.shapeLo.w));
+        float ca = dfF(dfFixed(item.ellipse.x, item.miscLo.z));
+        float sa = dfF(dfFixed(item.ellipse.y, item.miscLo.w));
+        int steps = item.strokeStyle.w - data - 1;
+        int lo = 0;
+        int hi = steps;
+        while (hi - lo > 1) {
+            int mid = (lo + hi) / 2;
+            if (dashWord(data + mid) <= s) { lo = mid; } else { hi = mid; }
+        }
+        float t0 = dashWord(data + lo);
+        float t1 = dashWord(data + lo + 1);
+        float t = (float(lo) + (s - t0) / (t1 - t0)) * (2.0 * PI / float(steps));
+        float ox = rx * dashCos(t);
+        float oy = ry * dashSin(t);
+        return vec2(ox * ca - oy * sa, ox * sa + oy * ca);
+    }
+    float iw = dfF(dfFixed(item.shape.z, item.shapeLo.z));
+    float ih = dfF(dfFixed(item.shape.w, item.shapeLo.w));
+    float r = dfF(dfFixed(item.misc.y, item.miscLo.x));
+    float qr = r * (PI / 2.0);
+    float right = 2.0 * iw + qr;
+    float bottomRight = right + 2.0 * ih;
+    float bottom = bottomRight + qr;
+    float bottomLeft = bottom + 2.0 * iw;
+    float left = bottomLeft + qr;
+    float topLeft = left + 2.0 * ih;
+    if (s < 2.0 * iw) { return vec2(-iw + s, -ih - r); }
+    if (s < right) {
+        float a = 1.5 * PI + (s - 2.0 * iw) / r;
+        return vec2(iw, -ih) + r * vec2(dashCos(a), dashSin(a));
+    }
+    if (s < bottomRight) { return vec2(iw + r, -ih + (s - right)); }
+    if (s < bottom) {
+        float a = (s - bottomRight) / r;
+        return vec2(iw, ih) + r * vec2(dashCos(a), dashSin(a));
+    }
+    if (s < bottomLeft) { return vec2(iw - (s - bottom), ih + r); }
+    if (s < left) {
+        float a = PI / 2.0 + (s - bottomLeft) / r;
+        return vec2(-iw, ih) + r * vec2(dashCos(a), dashSin(a));
+    }
+    if (s < topLeft) { return vec2(-iw - r, ih - (s - left)); }
+    float a = PI + (s - topLeft) / r;
+    return vec2(-iw, -ih) + r * vec2(dashCos(a), dashSin(a));
+}
+// `__canvas_dashedCurve`: a circle, arc, ellipse or rounded rectangle, cut at the
+// perimeter position of the pixel's nearest outline point.
+float dashedCurve(vec2 x, vec2 y, float halfW, int cap) {
+    int kind = item.misc.x;
+    vec2 q = vec2(dfF(dfSub(x, dfFixed(item.shape.x, item.shapeLo.x))),
+                  dfF(dfSub(y, dfFixed(item.shape.y, item.shapeLo.y))));
+    int data = 3 + int(dashWord(1));
+    float bandD;
+    float u;
+    float len_;
+    bool closed = true;
+    if (kind == 1 || kind == 3) {
+        float r = dfF(dfFixed(item.shape.z, item.shapeLo.z));
+        bandD = abs(length(q) - r) - halfW;
+        float a = dashAngle(q);
+        if (kind == 1) {
+            u = r * a;
+            len_ = 2.0 * PI * r;
+        } else {
+            float start = dashWord(data);
+            float sweep = dashWord(data + 1);
+            float rel = a - start;
+            rel -= floor(rel / (2.0 * PI)) * (2.0 * PI);
+            if (rel > sweep && rel - sweep >= 2.0 * PI - rel) { rel -= 2.0 * PI; }
+            u = r * rel;
+            len_ = r * sweep;
+            closed = false;
+        }
+    } else if (kind == 7) {
+        float rx = dfF(dfFixed(item.shape.z, item.shapeLo.z));
+        float ry = dfF(dfFixed(item.shape.w, item.shapeLo.w));
+        float ca = dfF(dfFixed(item.ellipse.x, item.miscLo.z));
+        float sa = dfF(dfFixed(item.ellipse.y, item.miscLo.w));
+        vec2 o = vec2(q.x * ca + q.y * sa, q.y * ca - q.x * sa);
+        float t;
+        if (rx == ry) {
+            t = dashAngle(o);
+            bandD = abs(length(o) - rx) - halfW;
+        } else {
+            vec2 a = abs(o);
+            vec2 c0 = vec2(1.0, 0.0);
+            vec2 c1 = vec2(0.0, 1.0);
+            vec2 m = c0;
+            for (int k = 0; k < 24; ++k) {
+                m = normalize(c0 + c1);
+                float g = (a.x - rx * m.x) * (-rx * m.y) + (a.y - ry * m.y) * (ry * m.x);
+                if (g > 0.0) { c0 = m; } else { c1 = m; }
+            }
+            float dist = length(a - vec2(rx, ry) * m);
+            if (dot(a / vec2(rx, ry), a / vec2(rx, ry)) < 1.0) { dist = -dist; }
+            bandD = abs(dist) - halfW;
+            t = dashAngle(vec2(o.x < 0.0 ? -m.x : m.x, o.y < 0.0 ? -m.y : m.y));
+        }
+        int steps = item.strokeStyle.w - data - 1;
+        float f = t / (2.0 * PI / float(steps));
+        int k = clamp(int(f), 0, steps - 1);
+        float t0 = dashWord(data + k);
+        float t1 = dashWord(data + k + 1);
+        u = t0 + (t1 - t0) * (f - float(k));
+        len_ = dashWord(data + steps);
+    } else {
+        float iw = dfF(dfFixed(item.shape.z, item.shapeLo.z));
+        float ih = dfF(dfFixed(item.shape.w, item.shapeLo.w));
+        float r = dfF(dfFixed(item.misc.y, item.miscLo.x));
+        bandD = abs(rectDistance(q, vec2(0.0), vec2(iw, ih)) - r) - halfW;
+        u = rrectPosition(q, iw, ih, r);
+        len_ = 4.0 * iw + 4.0 * ih + 4.0 * (r * (PI / 2.0));
+    }
+    vec2 ends;
+    bvec2 has;
+    float d = max(bandD, dashAlong(u, 0.0, len_, len_, closed, cap == 2 ? halfW : 0.0, ends, has));
+    if (cap == 1) {
+        if (has.x) { d = min(d, length(q - dashCurvePoint(kind, data, ends.x)) - halfW); }
+        if (has.y) { d = min(d, length(q - dashCurvePoint(kind, data, ends.y)) - halfW); }
+    }
+    return d;
+}
+// `__canvas_dashedStroke`: a dashed item's stroke distance at the shape-space point --
+// for a Line, Arc or PolyLine its whole distance, for every other kind its band's.
+vec2 dashedStroke(ivec2 band, vec2 x, vec2 y, float halfW) {
+    int kind = item.misc.x;
+    bool rounded = kind == 0 && (item.misc.y != 0 || item.miscLo.x != 0);
+    bool curve = kind == 1 || kind == 3 || kind == 7 || rounded;
+    return vec2(curve ? dashedCurve(x, y, halfW, item.arc.w) : dashedEdges(band, x, y, halfW, item.arc.w), 0.0);
+}
+
 // bug-735: one sample's distance at the double-float shape-space point, for every kind a
 // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
 // then `dfShapeDistance`. One call site each.
 vec2 sampleDistance(ivec2 band, vec2 x, vec2 y, float reach) {
     int kind = item.misc.x;
+    // plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke.
+    if (item.strokeStyle.w > 0 && (kind == 2 || kind == 3 || kind == 10)) {
+        return dashedStroke(band, x, y, dfF(dfFixed(item.misc.y, item.miscLo.x)));
+    }
     if (kind == 4) { return edgeDistance(item.arc.z, band.y, band.x, x, y, reach, item.arc.y); }
     if (kind == 10) { return polylineDistance(band, x, y, reach); }
     float v = farBound(vec2(x.x, y.x));
@@ -1208,7 +1622,9 @@ ivec3 shapeCoverage(vec2 x, vec2 y) {
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
     // so the centre's shape distance cannot decide the neighbours there.
-    bool joined = item.strokeStyle.y > 0 && item.misc.x != 10;
+    // plan-163-B: so can a dashed one, which strokes from `dashedStroke`.
+    bool dashed = item.strokeStyle.w > 0;
+    bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10;
     float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;
     vec2 d[5];
     vec2 cqx = x;
@@ -1233,7 +1649,8 @@ ivec3 shapeCoverage(vec2 x, vec2 y) {
     int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);
     int stroke = 0;
     if (stroked) {
-        vec2 s = joined ? joinedStroke(band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2);
+        vec2 s = dashed ? dashedStroke(band, cqx, cqy, dfF(half2))
+            : (joined ? joinedStroke(band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2));
         stroke = dfCoverage(mapped ? dfDiv(s, g) : s);
     }
     return ivec3(fill, stroke, stroked ? 1 : 0);

@@ -56,7 +56,9 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 ///   for an open path;
 /// * an ellipse: its cumulative arc length at `__CANVAS_DASH_ELLIPSE_STEPS + 1` evenly
 ///   spaced parametric angles from 0 to 2π;
-/// * a circle, arc and rounded rectangle: nothing — their perimeter is a formula of the
+/// * an arc: its start angle and its sweep, `endAngle - startAngle` taken into [0, 2π]
+///   — the GPU item block carries the sweep's end points, not its angles;
+/// * a circle and a rounded rectangle: nothing — their perimeter is a formula of the
 ///   header.
 ///
 /// `__CANVAS_GEO_DASH_COUNT` is the tail's length and `__CANVAS_GEO_DASH_PHASE` the offset
@@ -243,13 +245,29 @@ FUNC __canvas_rectDashes(header AS List OF Float, paint AS Paint) AS List OF Flo
   RETURN __canvas_dashTail(pattern, __canvas_dashEdgeData(__canvas_rectSides(header), [0], TRUE))
 END FUNC
 
-' A circle's or arc's dash tail: the pattern alone.
+' A circle's dash tail: the pattern alone.
 FUNC __canvas_roundDashes(header AS List OF Float, paint AS Paint) AS List OF Float
   LET pattern AS List OF Float = __canvas_dashPattern(paint, __canvas_strokeHalf(paint))
   IF len(pattern) = 0 OR NOT __canvas_dashable(header) THEN
     RETURN []
   END IF
   RETURN __canvas_dashTail(pattern, [])
+END FUNC
+
+' An arc's dash tail: the pattern, then its start angle and its sweep -- `endAngle -
+' startAngle` taken into [0, 2pi], a full turn or more being 2pi.
+FUNC __canvas_arcDashes(header AS List OF Float, a AS Arc) AS List OF Float
+  LET pattern AS List OF Float = __canvas_dashPattern(a.paint, __canvas_strokeHalf(a.paint))
+  IF len(pattern) = 0 OR NOT __canvas_dashable(header) THEN
+    RETURN []
+  END IF
+  MUT sweep AS Float = a.endAngle - a.startAngle
+  IF sweep >= 6.283185307179586 THEN
+    sweep = 6.283185307179586
+  ELSEIF sweep < 0.0 THEN
+    sweep = sweep - toFloat(math::floor(sweep / 6.283185307179586)) * 6.283185307179586
+  END IF
+  RETURN __canvas_dashTail(pattern, [a.startAngle, sweep])
 END FUNC
 
 ' An ellipse's dash tail: the pattern and its arc-length table.
@@ -582,7 +600,8 @@ FUNC __canvas_dashCurveX(kind AS Integer, offset AS Integer, s AS Float) AS Floa
     LET r AS Float = __canvas_geoAt(offset, 4)
     MUT a AS Float = s / r
     IF kind = __CANVAS_GEO_ARC THEN
-      a = __canvas_geoAt(offset, 20) + a
+      LET dbase AS Integer = __canvas_dashBase(offset)
+      a = collections::getOr(__CANVAS_GEO_DATA, dbase + 2 + toInt(collections::getOr(__CANVAS_GEO_DATA, dbase, 0.0)), 0.0) + a
     END IF
     __CANVAS_DASH_Y = cy + r * __canvas_sin(a)
     RETURN cx + r * __canvas_cos(a)
@@ -676,15 +695,12 @@ FUNC __canvas_dashedCurve(kind AS Integer, offset AS Integer, px AS Float, py AS
       u = r * a
       length = 6.283185307179586 * r
     ELSE
-      ' An arc's sweep, `endAngle - startAngle` taken into [0, 2pi]; a pixel outside it
-      ' is placed past whichever end is nearer in angle.
-      LET start AS Float = __canvas_geoAt(offset, 20)
-      MUT sweep AS Float = __canvas_geoAt(offset, 21) - start
-      IF sweep >= 6.283185307179586 THEN
-        sweep = 6.283185307179586
-      ELSEIF sweep < 0.0 THEN
-        sweep = sweep - toFloat(math::floor(sweep / 6.283185307179586)) * 6.283185307179586
-      END IF
+      ' An arc's start and sweep (`__canvas_arcDashes`); a pixel outside the sweep is
+      ' placed past whichever end is nearer in angle.
+      LET dbase AS Integer = __canvas_dashBase(offset)
+      LET data AS Integer = dbase + 2 + toInt(collections::getOr(__CANVAS_GEO_DATA, dbase, 0.0))
+      LET start AS Float = collections::getOr(__CANVAS_GEO_DATA, data, 0.0)
+      LET sweep AS Float = collections::getOr(__CANVAS_GEO_DATA, data + 1, 0.0)
       MUT rel AS Float = a - start
       rel = rel - toFloat(math::floor(rel / 6.283185307179586)) * 6.283185307179586
       IF rel > sweep AND rel - sweep >= 6.283185307179586 - rel THEN
@@ -741,9 +757,9 @@ FUNC __canvas_dashedCurve(kind AS Integer, offset AS Integer, px AS Float, py AS
   RETURN d
 END FUNC
 
-' The dot a dashed path with no length draws when the pattern is on at its start: what
-' its undashed stroke draws there -- a disc for Round, a square for Square, nothing for
-' Butt.
+' The dot a dashed open path (a Line or PolyLine) with no length draws when the pattern
+' is on at its start: what its undashed stroke draws there -- a disc for Round, a square
+' for Square, nothing for Butt.
 FUNC __canvas_dashDot(offset AS Integer, px AS Float, py AS Float, x AS Float, y AS Float, half AS Float, cap AS Integer) AS Float
   IF cap = 0 OR NOT __canvas_dashOnAt(__canvas_dashBase(offset), __canvas_geoAt(offset, __CANVAS_GEO_DASH_PHASE)) THEN
     RETURN 1000000.0
@@ -879,8 +895,13 @@ FUNC __canvas_dashedEdges(kind AS Integer, offset AS Integer, px AS Float, py AS
     END IF
     e = e + 1
   END WHILE
+  ' An open path with no length is the dot its cap draws; a closed outline with none
+  ' draws nothing dashed.
   IF NOT live THEN
-    RETURN __canvas_dashDot(offset, px, py, firstX, firstY, half, cap)
+    IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_POLYLINE THEN
+      RETURN __canvas_dashDot(offset, px, py, firstX, firstY, half, cap)
+    END IF
+    RETURN 1000000.0
   END IF
   RETURN best
 END FUNC

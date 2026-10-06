@@ -52,7 +52,8 @@ use crate::codegen::error::constants::error_constants::{
 };
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_DASH_COUNT, HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
+    HEADER_DASH_COUNT, HEADER_DASH_PHASE, METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
+    HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
     ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
 };
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
@@ -157,6 +158,7 @@ pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
          constant int METAL_EDGE_RESIDUAL_BASE = {METAL_EDGE_RESIDUAL_BASE_WORDS};\n\
          constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};\n\
          constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};\n\
+         constant int METAL_DASH_BASE = {METAL_DASH_BASE_WORDS};\n\
          constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};\n\
          {METAL_SHADER_BODY}"
     )
@@ -1089,8 +1091,419 @@ const METAL_SHADER_BODY: &str = concat!(
     // bug-735: one sample's distance at the double-float shape-space point, for every kind a
     // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
     // then `dfShapeDistance`. One call site each.
+    // plan-163-B: dashes (`helper_dashes.rs`). An item's dash words ride the dash region from
+    // `strokeStyle.z`, `strokeStyle.w` of them (0 for a solid stroke), as float32 bit
+    // patterns: the phase, the entry count, the period, each entry's END along the period,
+    // then the kind's perimeter data -- three words per outline edge (its start and end
+    // position and its ring's length, negative for an open path), an ellipse's arc-length
+    // table, an arc's start angle and sweep. Each function is the oracle's in fp32, at
+    // offsets from the item's own outline taken in double-float, so the precision is the
+    // outline's, not the coordinates'. Metal's twins, line for line.
+    "static float dashWord(constant MfbItem &item, constant int *edges, int k) { return as_type<float>(edges[METAL_DASH_BASE + item.strokeStyle.z + k]); }\n",
+    "static float dfF(float2 v) { return v.x + v.y; }\n",
+    "static float dashWrap(constant MfbItem &item, constant int *edges, float x) {\n",
+    "  float period = dashWord(item, edges, 2);\n",
+    "  return x - floor(x / period) * period;\n",
+    "}\n",
+    "static bool dashOnAt(constant MfbItem &item, constant int *edges, float x) {\n",
+    "  float w = dashWrap(item, edges, x);\n",
+    "  int n = int(dashWord(item, edges, 1));\n",
+    "  for (int j = 0; j < n; ++j) {\n",
+    "    if (w < dashWord(item, edges, 3 + j)) { return (j & 1) == 0; }\n",
+    "  }\n",
+    "  return true;\n",
+    "}\n",
+    "static bool dashOnBefore(constant MfbItem &item, constant int *edges, float x) {\n",
+    "  float w = dashWrap(item, edges, x);\n",
+    "  if (w <= 0.0) { w = dashWord(item, edges, 2); }\n",
+    "  int n = int(dashWord(item, edges, 1));\n",
+    "  for (int j = 0; j < n; ++j) {\n",
+    "    if (w <= dashWord(item, edges, 3 + j)) { return (j & 1) == 0; }\n",
+    "  }\n",
+    "  return false;\n",
+    "}\n",
+    // `__canvas_dashLocate` then `__canvas_dashAlongPiece`: the signed distance along the
+    // outline from `u` to the dashes on the piece [s0, s1] (negative inside one), a dash
+    // extended by `ext` past a TRUE end; those ends near `u` into `ends`, flagged by `has`.
+    "static float dashAlong(constant MfbItem &item, constant int *edges, float u, float s0, float s1, float len_, bool closed, float ext, thread float2 &ends, thread bool2 &has) {\n",
+    "  float at = min(max(u, s0), s1);\n",
+    "  float phase = dashWord(item, edges, 0);\n",
+    "  float period = dashWord(item, edges, 2);\n",
+    "  int n = int(dashWord(item, edges, 1));\n",
+    "  float w = dashWrap(item, edges, at + phase);\n",
+    "  float lowW = 0.0;\n",
+    "  float highW = period;\n",
+    "  int j = 0;\n",
+    "  bool found = false;\n",
+    "  for (; j < n; ++j) {\n",
+    "    float c = dashWord(item, edges, 3 + j);\n",
+    "    if (w < c) { highW = c; found = true; break; }\n",
+    "    lowW = c;\n",
+    "  }\n",
+    "  bool on = (j & 1) == 0;\n",
+    "  if (!found) { on = true; lowW = period; highW = period + dashWord(item, edges, 3); }\n",
+    "  float lo = at - (w - lowW);\n",
+    "  float hi = at + (highW - w);\n",
+    "  if (closed) {\n",
+    "    bool onStart = dashOnAt(item, edges, phase);\n",
+    "    bool onEnd = dashOnBefore(item, edges, len_ + phase);\n",
+    "    if (lo < 0.0) { lo = on == onEnd ? -1.0e9 : 0.0; }\n",
+    "    if (hi > len_) { hi = on == onStart ? 1.0e9 : len_; }\n",
+    "  } else {\n",
+    "    if (lo < 0.0) { lo = on ? 0.0 : -1.0e9; }\n",
+    "    if (hi > len_) { hi = on ? len_ : 1.0e9; }\n",
+    "  }\n",
+    "  ends = float2(0.0);\n",
+    "  has = bool2(false);\n",
+    "  if (on) {\n",
+    "    float left = s0;\n",
+    "    float right = s1;\n",
+    "    if (lo >= s0) { left = lo - ext; has.x = true; ends.x = lo; }\n",
+    "    if (hi <= s1) { right = hi + ext; has.y = true; ends.y = hi; }\n",
+    "    return max(left - u, u - right);\n",
+    "  }\n",
+    "  float d = 1.0e6;\n",
+    "  if (lo > s0) { d = u - lo - ext; has.x = true; ends.x = lo; }\n",
+    "  if (hi < s1) { d = min(d, hi - ext - u); has.y = true; ends.y = hi; }\n",
+    "  return d;\n",
+    "}\n",
+    // The oracle's trigonometry (`__canvas_atan2`, `__canvas_sin`, `__canvas_cos`) as series in
+    // `+ - * / sqrt`, not the driver's `atan`/`sin`/`cos`: Vulkan leaves `atan` at 4096 ULP and
+    // `sin`/`cos` at 2^-11 absolute, which on a real driver moves a dash end on a 60 px circle
+    // by a coverage step (measured on box 206's Intel UHD 630). Each is folded first, so the
+    // series runs where it converges: the arctangent's ratio into [0, 1] and halved twice, the
+    // sine's and cosine's angle into [-pi/2, pi/2].
+    "static float dashAtan(float y, float x) {\n",
+    "  float ax = abs(x);\n",
+    "  float ay = abs(y);\n",
+    "  if (ax == 0.0 && ay == 0.0) { return 0.0; }\n",
+    "  bool swapped = ay > ax;\n",
+    "  float z = swapped ? ax / ay : ay / ax;\n",
+    "  z = z / (1.0 + sqrt(1.0 + z * z));\n",
+    "  z = z / (1.0 + sqrt(1.0 + z * z));\n",
+    "  float w = z * z;\n",
+    "  float p = 1.0 / 21.0;\n",
+    "  p = w * p - 1.0 / 19.0;\n",
+    "  p = w * p + 1.0 / 17.0;\n",
+    "  p = w * p - 1.0 / 15.0;\n",
+    "  p = w * p + 1.0 / 13.0;\n",
+    "  p = w * p - 1.0 / 11.0;\n",
+    "  p = w * p + 1.0 / 9.0;\n",
+    "  p = w * p - 1.0 / 7.0;\n",
+    "  p = w * p + 1.0 / 5.0;\n",
+    "  p = w * p - 1.0 / 3.0;\n",
+    "  p = w * p + 1.0;\n",
+    "  float a = 4.0 * z * p;\n",
+    "  if (swapped) { a = PI / 2.0 - a; }\n",
+    "  if (x < 0.0) { a = PI - a; }\n",
+    "  if (y < 0.0) { a = 2.0 * PI - a; }\n",
+    "  return a >= 2.0 * PI ? 0.0 : a;\n",
+    "}\n",
+    "static float dashWrapAngle(float a) { return a - 2.0 * PI * floor((a + PI) / (2.0 * PI)); }\n",
+    "static float dashFold(float a) {\n",
+    "  float x = dashWrapAngle(a);\n",
+    "  if (x > PI / 2.0) { return PI - x; }\n",
+    "  if (x < -PI / 2.0) { return -PI - x; }\n",
+    "  return x;\n",
+    "}\n",
+    "static float dashSin(float a) {\n",
+    "  float x = dashFold(a);\n",
+    "  float x2 = x * x;\n",
+    "  return x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0 * (1.0 - x2 / 110.0)))));\n",
+    "}\n",
+    "static float dashCos(float a) {\n",
+    "  float x = dashFold(a);\n",
+    "  float x2 = x * x;\n",
+    "  float m = 1.0 - x2 / 2.0 * (1.0 - x2 / 12.0 * (1.0 - x2 / 30.0 * (1.0 - x2 / 56.0 * (1.0 - x2 / 90.0))));\n",
+    "  return abs(dashWrapAngle(a)) > PI / 2.0 ? -m : m;\n",
+    "}\n",
+    // The direction of `q` in [0, 2pi), from +X towards +Y.
+    "static float dashAngle(float2 q) { return dashAtan(q.y, q.x); }\n",
+    // A join record's corner piece at `w`, the pixel less its vertex V, from its points
+    // relative to V (`__canvas_joinPieceDistance`).
+    "static float2 joinRel(constant MfbItem &item, constant int *edges, int r, int k) {\n",
+    "  return float2(dfF(dfSub(joinCoord(item, edges, r, k * 2), joinCoord(item, edges, r, 0))),\n",
+    "        dfF(dfSub(joinCoord(item, edges, r, k * 2 + 1), joinCoord(item, edges, r, 1))));\n",
+    "}\n",
+    "static float joinPieceAt(constant MfbItem &item, constant int *edges, int r, int kind, float2 w) {\n",
+    "  float2 a = joinRel(item, edges, r, 1);\n",
+    "  float disc = length(w) - length(a);\n",
+    "  if (kind == 1) { return disc; }\n",
+    "  float2 b = joinRel(item, edges, r, 3);\n",
+    "  if (kind == 2) {\n",
+    "    float2 c = b - a;\n",
+    "    float o = (c.x * (w.y - a.y) - c.y * (w.x - a.x)) / length(c);\n",
+    "    if (c.x * (-a.y) - c.y * (-a.x) > 0.0) { o = -o; }\n",
+    "    return max(disc, o);\n",
+    "  }\n",
+    "  float2 pts[4] = { float2(0.0), a, joinRel(item, edges, r, 2), b };\n",
+    "  float d = 1.0e6;\n",
+    "  bool inside = false;\n",
+    "  for (int k = 0; k < 4; ++k) {\n",
+    "    float2 s0 = pts[k];\n",
+    "    float2 s1 = pts[(k + 1) & 3];\n",
+    "    d = min(d, segmentDistance(w, s0, s1));\n",
+    "    if ((s0.y > w.y) != (s1.y > w.y) && w.x < s0.x + (w.y - s0.y) / (s1.y - s0.y) * (s1.x - s0.x)) {\n",
+    "      inside = !inside;\n",
+    "    }\n",
+    "  }\n",
+    "  return min(disc, inside ? -d : d);\n",
+    "}\n",
+    // `__canvas_dashedEdges`: a polygon's or polyline's band edges, a line's one edge, or a
+    // rectangle's or picture's four sides, each band cut by the dashes on its own [s0, s1],
+    // with the corner piece wherever a dash runs through a vertex. An open path with no
+    // length is the dot its cap draws (`__canvas_dashDot`).
+    "static float dashedEdges(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float halfW, int cap) {\n",
+    "  int kind = item.misc.x;\n",
+    "  bool poly = kind == 4 || kind == 10;\n",
+    "  int count = poly ? band.y : (kind == 2 ? 1 : 4);\n",
+    "  int data = 3 + int(dashWord(item, edges, 1));\n",
+    "  float phase = dashWord(item, edges, 0);\n",
+    "  float ext = cap == 2 ? halfW : 0.0;\n",
+    "  float2 cx = dfFixed(item.shape.x, item.shapeLo.x);\n",
+    "  float2 cy = dfFixed(item.shape.y, item.shapeLo.y);\n",
+    "  float2 hx = dfFixed(item.shape.z, item.shapeLo.z);\n",
+    "  float2 hy = dfFixed(item.shape.w, item.shapeLo.w);\n",
+    "  if ((kind == 2 || kind == 10) && dashWord(item, edges, data + 2) == 0.0) {\n",
+    "    float2 ox = cx;\n",
+    "    float2 oy = cy;\n",
+    "    if (kind == 10) {\n",
+    "      DfEdge g0 = dfEdge(edges, item.arc.z, 0);\n",
+    "      ox = g0.ax;\n",
+    "      oy = g0.ay;\n",
+    "    }\n",
+    "    float2 w0 = float2(dfF(dfSub(x, ox)), dfF(dfSub(y, oy)));\n",
+    "    if (cap == 0 || !dashOnAt(item, edges, phase)) { return 1.0e6; }\n",
+    "    if (cap == 2) { return max(abs(w0.x), abs(w0.y)) - halfW; }\n",
+    "    return length(w0) - halfW;\n",
+    "  }\n",
+    "  float best = 1.0e6;\n",
+    "  for (int j = 0; j < count; ++j) {\n",
+    "    int e = poly ? (band.x < 0 ? j : edges[band.x + j]) : j;\n",
+    "    float2 ax;\n",
+    "    float2 ay;\n",
+    "    float2 v;\n",
+    "    if (poly) {\n",
+    "      DfEdge g = dfEdge(edges, item.arc.z, e);\n",
+    "      ax = g.ax;\n",
+    "      ay = g.ay;\n",
+    "      v = float2(dfF(g.vx), dfF(g.vy));\n",
+    "    } else if (kind == 2) {\n",
+    "      ax = cx;\n",
+    "      ay = cy;\n",
+    "      v = float2(dfF(dfSub(hx, cx)), dfF(dfSub(hy, cy)));\n",
+    "    } else {\n",
+    "      int f = (e + 1) & 3;\n",
+    "      ax = (e == 0 || e == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
+    "      ay = (e < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
+    "      float2 bx = (f == 0 || f == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
+    "      float2 by = (f < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
+    "      v = float2(dfF(dfSub(bx, ax)), dfF(dfSub(by, ay)));\n",
+    "    }\n",
+    "    float len2 = dot(v, v);\n",
+    "    if (!(len2 > 0.0)) { continue; }\n",
+    "    float2 w = float2(dfF(dfSub(x, ax)), dfF(dfSub(y, ay)));\n",
+    "    float s0 = dashWord(item, edges, data + e * 3);\n",
+    "    float s1 = dashWord(item, edges, data + e * 3 + 1);\n",
+    "    float ring = dashWord(item, edges, data + e * 3 + 2);\n",
+    "    float el = sqrt(len2);\n",
+    "    float u = s0 + dot(w, v) / el;\n",
+    "    float bandD = abs(w.x * v.y - w.y * v.x) / el - halfW;\n",
+    "    if (max(bandD, max(s0 - u, u - s1) - halfW) < best) {\n",
+    "      float2 ends;\n",
+    "      bool2 has;\n",
+    "      float piece = max(bandD, dashAlong(item, edges, u, s0, s1, abs(ring), ring > 0.0, ext, ends, has));\n",
+    "      if (cap == 1) {\n",
+    "        if (has.x) { piece = min(piece, length(w - v * ((ends.x - s0) / el)) - halfW); }\n",
+    "        if (has.y) { piece = min(piece, length(w - v * ((ends.y - s0) / el)) - halfW); }\n",
+    "      }\n",
+    "      best = min(best, piece);\n",
+    "    }\n",
+    "    if (item.strokeStyle.y > 0) {\n",
+    "      int jk = joinKind(item, edges, e);\n",
+    "      if (jk != 0) {\n",
+    "        float before = (ring > 0.0 && s0 == 0.0) ? abs(ring) : s0;\n",
+    "        if (dashOnBefore(item, edges, before + phase) && dashOnAt(item, edges, s0 + phase)) {\n",
+    "          float2 wv = float2(dfF(dfSub(x, joinCoord(item, edges, e, 0))), dfF(dfSub(y, joinCoord(item, edges, e, 1))));\n",
+    "          best = min(best, joinPieceAt(item, edges, e, jk, wv));\n",
+    "        }\n",
+    "      }\n",
+    "    }\n",
+    "  }\n",
+    "  return best;\n",
+    "}\n",
+    // `__canvas_rrectPosition`: a rounded rectangle's perimeter position of the outline point
+    // nearest `q` (from its centre), from the top side's left end, clockwise.
+    "static float rrectPosition(float2 q, float iw, float ih, float r) {\n",
+    "  float qr = r * (PI / 2.0);\n",
+    "  float ax = abs(q.x) - iw;\n",
+    "  float ay = abs(q.y) - ih;\n",
+    "  if (ax > 0.0 && ay > 0.0) {\n",
+    "    if (q.x > 0.0 && q.y < 0.0) {\n",
+    "      return 2.0 * iw + r * min(max(dashAngle(float2(q.x - iw, q.y + ih)) - 1.5 * PI, 0.0), PI / 2.0);\n",
+    "    }\n",
+    "    if (q.x > 0.0) {\n",
+    "      return 2.0 * iw + qr + 2.0 * ih + r * min(dashAngle(float2(q.x - iw, q.y - ih)), PI / 2.0);\n",
+    "    }\n",
+    "    if (q.y > 0.0) {\n",
+    "      return 4.0 * iw + 2.0 * qr + 2.0 * ih + r * min(max(dashAngle(float2(q.x + iw, q.y - ih)) - PI / 2.0, 0.0), PI / 2.0);\n",
+    "    }\n",
+    "    return 4.0 * iw + 3.0 * qr + 4.0 * ih + r * min(max(dashAngle(float2(q.x + iw, q.y + ih)) - PI, 0.0), PI / 2.0);\n",
+    "  }\n",
+    "  if (ay >= ax) {\n",
+    "    if (q.y < 0.0) { return q.x + iw; }\n",
+    "    return 2.0 * iw + 2.0 * qr + 2.0 * ih + (iw - q.x);\n",
+    "  }\n",
+    "  if (q.x > 0.0) { return 2.0 * iw + qr + (q.y + ih); }\n",
+    "  return 4.0 * iw + 3.0 * qr + 2.0 * ih + (ih - q.y);\n",
+    "}\n",
+    // The outline point at perimeter position `s` of a curve, from its centre
+    // (`__canvas_dashCurveX`).
+    "static float2 dashCurvePoint(constant MfbItem &item, constant int *edges, int kind, int data, float s) {\n",
+    "  if (kind == 1 || kind == 3) {\n",
+    "    float r = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
+    "    float a = s / r + (kind == 3 ? dashWord(item, edges, data) : 0.0);\n",
+    "    return r * float2(dashCos(a), dashSin(a));\n",
+    "  }\n",
+    "  if (kind == 7) {\n",
+    "    float rx = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
+    "    float ry = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
+    "    float ca = dfF(dfFixed(item.ellipse.x, item.miscLo.z));\n",
+    "    float sa = dfF(dfFixed(item.ellipse.y, item.miscLo.w));\n",
+    "    int steps = item.strokeStyle.w - data - 1;\n",
+    "    int lo = 0;\n",
+    "    int hi = steps;\n",
+    "    while (hi - lo > 1) {\n",
+    "      int mid = (lo + hi) / 2;\n",
+    "      if (dashWord(item, edges, data + mid) <= s) { lo = mid; } else { hi = mid; }\n",
+    "    }\n",
+    "    float t0 = dashWord(item, edges, data + lo);\n",
+    "    float t1 = dashWord(item, edges, data + lo + 1);\n",
+    "    float t = (float(lo) + (s - t0) / (t1 - t0)) * (2.0 * PI / float(steps));\n",
+    "    float ox = rx * dashCos(t);\n",
+    "    float oy = ry * dashSin(t);\n",
+    "    return float2(ox * ca - oy * sa, ox * sa + oy * ca);\n",
+    "  }\n",
+    "  float iw = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
+    "  float ih = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
+    "  float r = dfF(dfFixed(item.misc.y, item.miscLo.x));\n",
+    "  float qr = r * (PI / 2.0);\n",
+    "  float right = 2.0 * iw + qr;\n",
+    "  float bottomRight = right + 2.0 * ih;\n",
+    "  float bottom = bottomRight + qr;\n",
+    "  float bottomLeft = bottom + 2.0 * iw;\n",
+    "  float left = bottomLeft + qr;\n",
+    "  float topLeft = left + 2.0 * ih;\n",
+    "  if (s < 2.0 * iw) { return float2(-iw + s, -ih - r); }\n",
+    "  if (s < right) {\n",
+    "    float a = 1.5 * PI + (s - 2.0 * iw) / r;\n",
+    "    return float2(iw, -ih) + r * float2(dashCos(a), dashSin(a));\n",
+    "  }\n",
+    "  if (s < bottomRight) { return float2(iw + r, -ih + (s - right)); }\n",
+    "  if (s < bottom) {\n",
+    "    float a = (s - bottomRight) / r;\n",
+    "    return float2(iw, ih) + r * float2(dashCos(a), dashSin(a));\n",
+    "  }\n",
+    "  if (s < bottomLeft) { return float2(iw - (s - bottom), ih + r); }\n",
+    "  if (s < left) {\n",
+    "    float a = PI / 2.0 + (s - bottomLeft) / r;\n",
+    "    return float2(-iw, ih) + r * float2(dashCos(a), dashSin(a));\n",
+    "  }\n",
+    "  if (s < topLeft) { return float2(-iw - r, ih - (s - left)); }\n",
+    "  float a = PI + (s - topLeft) / r;\n",
+    "  return float2(-iw, -ih) + r * float2(dashCos(a), dashSin(a));\n",
+    "}\n",
+    // `__canvas_dashedCurve`: a circle, arc, ellipse or rounded rectangle, cut at the
+    // perimeter position of the pixel's nearest outline point.
+    "static float dashedCurve(constant MfbItem &item, constant int *edges, float2 x, float2 y, float halfW, int cap) {\n",
+    "  int kind = item.misc.x;\n",
+    "  float2 q = float2(dfF(dfSub(x, dfFixed(item.shape.x, item.shapeLo.x))),\n",
+    "         dfF(dfSub(y, dfFixed(item.shape.y, item.shapeLo.y))));\n",
+    "  int data = 3 + int(dashWord(item, edges, 1));\n",
+    "  float bandD;\n",
+    "  float u;\n",
+    "  float len_;\n",
+    "  bool closed = true;\n",
+    "  if (kind == 1 || kind == 3) {\n",
+    "    float r = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
+    "    bandD = abs(length(q) - r) - halfW;\n",
+    "    float a = dashAngle(q);\n",
+    "    if (kind == 1) {\n",
+    "      u = r * a;\n",
+    "      len_ = 2.0 * PI * r;\n",
+    "    } else {\n",
+    "      float start = dashWord(item, edges, data);\n",
+    "      float sweep = dashWord(item, edges, data + 1);\n",
+    "      float rel = a - start;\n",
+    "      rel -= floor(rel / (2.0 * PI)) * (2.0 * PI);\n",
+    "      if (rel > sweep && rel - sweep >= 2.0 * PI - rel) { rel -= 2.0 * PI; }\n",
+    "      u = r * rel;\n",
+    "      len_ = r * sweep;\n",
+    "      closed = false;\n",
+    "    }\n",
+    "  } else if (kind == 7) {\n",
+    "    float rx = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
+    "    float ry = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
+    "    float ca = dfF(dfFixed(item.ellipse.x, item.miscLo.z));\n",
+    "    float sa = dfF(dfFixed(item.ellipse.y, item.miscLo.w));\n",
+    "    float2 o = float2(q.x * ca + q.y * sa, q.y * ca - q.x * sa);\n",
+    "    float t;\n",
+    "    if (rx == ry) {\n",
+    "      t = dashAngle(o);\n",
+    "      bandD = abs(length(o) - rx) - halfW;\n",
+    "    } else {\n",
+    "      float2 a = abs(o);\n",
+    "      float2 c0 = float2(1.0, 0.0);\n",
+    "      float2 c1 = float2(0.0, 1.0);\n",
+    "      float2 m = c0;\n",
+    "      for (int k = 0; k < 24; ++k) {\n",
+    "        m = normalize(c0 + c1);\n",
+    "        float g = (a.x - rx * m.x) * (-rx * m.y) + (a.y - ry * m.y) * (ry * m.x);\n",
+    "        if (g > 0.0) { c0 = m; } else { c1 = m; }\n",
+    "      }\n",
+    "      float dist = length(a - float2(rx, ry) * m);\n",
+    "      if (dot(a / float2(rx, ry), a / float2(rx, ry)) < 1.0) { dist = -dist; }\n",
+    "      bandD = abs(dist) - halfW;\n",
+    "      t = dashAngle(float2(o.x < 0.0 ? -m.x : m.x, o.y < 0.0 ? -m.y : m.y));\n",
+    "    }\n",
+    "    int steps = item.strokeStyle.w - data - 1;\n",
+    "    float f = t / (2.0 * PI / float(steps));\n",
+    "    int k = clamp(int(f), 0, steps - 1);\n",
+    "    float t0 = dashWord(item, edges, data + k);\n",
+    "    float t1 = dashWord(item, edges, data + k + 1);\n",
+    "    u = t0 + (t1 - t0) * (f - float(k));\n",
+    "    len_ = dashWord(item, edges, data + steps);\n",
+    "  } else {\n",
+    "    float iw = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
+    "    float ih = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
+    "    float r = dfF(dfFixed(item.misc.y, item.miscLo.x));\n",
+    "    bandD = abs(rectDistance(q, float2(0.0), float2(iw, ih)) - r) - halfW;\n",
+    "    u = rrectPosition(q, iw, ih, r);\n",
+    "    len_ = 4.0 * iw + 4.0 * ih + 4.0 * (r * (PI / 2.0));\n",
+    "  }\n",
+    "  float2 ends;\n",
+    "  bool2 has;\n",
+    "  float d = max(bandD, dashAlong(item, edges, u, 0.0, len_, len_, closed, cap == 2 ? halfW : 0.0, ends, has));\n",
+    "  if (cap == 1) {\n",
+    "    if (has.x) { d = min(d, length(q - dashCurvePoint(item, edges, kind, data, ends.x)) - halfW); }\n",
+    "    if (has.y) { d = min(d, length(q - dashCurvePoint(item, edges, kind, data, ends.y)) - halfW); }\n",
+    "  }\n",
+    "  return d;\n",
+    "}\n",
+    // `__canvas_dashedStroke`: a dashed item's stroke distance at the shape-space point --
+    // for a Line, Arc or PolyLine its whole distance, for every other kind its band's.
+    "static float2 dashedStroke(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float halfW) {\n",
+    "  int kind = item.misc.x;\n",
+    "  bool rounded = kind == 0 && (item.misc.y != 0 || item.miscLo.x != 0);\n",
+    "  bool curve = kind == 1 || kind == 3 || kind == 7 || rounded;\n",
+    "  return float2(curve ? dashedCurve(item, edges, x, y, halfW, item.arc.w) : dashedEdges(item, edges, band, x, y, halfW, item.arc.w), 0.0);\n",
+    "}\n",
     "static float2 sampleDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach) {\n",
     "  int kind = item.misc.x;\n",
+    // plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke.
+    "  if (item.strokeStyle.w > 0 && (kind == 2 || kind == 3 || kind == 10)) {\n",
+    "    return dashedStroke(item, edges, band, x, y, dfF(dfFixed(item.misc.y, item.miscLo.x)));\n",
+    "  }\n",
     "  if (kind == 4) { return edgeDistance(edges, item.arc.z, band.y, band.x, x, y, reach, item.arc.y); }\n",
     "  if (kind == 10) { return polylineDistance(item, edges, band, x, y, reach); }\n",
     "  float v = farBound(item, float2(x.x, y.x));\n",
@@ -1146,7 +1559,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
     // so the centre's shape distance cannot decide the neighbours there.
-    "  bool joined = item.strokeStyle.y > 0 && item.misc.x != 10;\n",
+    // plan-163-B: so can a dashed one, which strokes from `dashedStroke`.
+    "  bool dashed = item.strokeStyle.w > 0;\n",
+    "  bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10;\n",
     "  float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;\n",
     "  float2 d[5];\n",
     "  float2 cqx = x;\n",
@@ -1171,7 +1586,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);\n",
     "  int stroke = 0;\n",
     "  if (stroked) {\n",
-    "    float2 s = joined ? joinedStroke(item, edges, band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2);\n",
+    "    float2 s = dashed ? dashedStroke(item, edges, band, cqx, cqy, dfF(half2))\n",
+    "        : (joined ? joinedStroke(item, edges, band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2));\n",
     "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
     "  }\n",
     "  return int3(fill, stroke, stroked ? 1 : 0);\n",
@@ -2139,6 +2555,9 @@ const OFF_GRAD_CURSOR: usize = OFF_TEXTURE + 160;
 /// The frame's glyph-sample cursor — the glyph region's twin of `OFF_EDGE_CURSOR`
 /// (bug-670).
 const OFF_GLYPH_CURSOR: usize = OFF_TEXTURE + 216;
+/// The frame's dash-region cursor, in words (plan-163-B), in the free slot between
+/// `OFF_DRAW_COUNT` and `OFF_GLYPH_CURSOR`.
+const OFF_DASH_CURSOR: usize = OFF_TEXTURE + 208;
 /// How many records this frame's picture table holds (bug-686,
 /// `METAL_PICTURE_TABLE_BYTES`), reset with the cursors; and the index slot a picture
 /// lookup missed at, parked across the upload that decides whether to record it.
@@ -2722,6 +3141,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         OFF_GRAD_CURSOR,
         // bug-670: the glyph region is per frame, like the edge and gradient ones.
         OFF_GLYPH_CURSOR,
+        // plan-163-B: and the dash region.
+        OFF_DASH_CURSOR,
         // bug-686: so is the picture table. Its index is never cleared -- a record
         // count of 0 makes every slot read as empty (`METAL_PICTURE_TABLE_BYTES`).
         OFF_PIC_COUNT,
@@ -2869,8 +3290,10 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // ordering as the Vulkan emitter.
     emit_item_block(&mut asm, "shape");
     emit_edge_buffer(&mut asm);
-    // plan-163-B: after the item's own edges, so its join records follow them.
+    // plan-163-B: after the item's own edges, so its join records follow them; then the
+    // dash words, after the join copy has zeroed their block words.
     emit_join_buffer(&mut asm);
+    emit_dash_buffer(&mut asm);
     emit_gradient_buffer(&mut asm);
     // bug-484: after the edge buffer, which zeroes `arc.z` for every non-polygon, and
     // before the split, so both records of a blended stroked picture name its texels.
@@ -4784,6 +5207,96 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::label(&done));
 }
 
+/// plan-163-B: copy this item's dash words into the frame buffer's dash region, and name
+/// the slice in its item block — `strokeStyle.z` the first word, `strokeStyle.w` the word
+/// count (`emit_join_buffer` zeroed both, which the shader reads as a solid stroke).
+///
+/// The words are float32 bit patterns: the phase (header slot `HEADER_DASH_PHASE`), then
+/// the record's dash tail — the entry count, the period, each entry's end, and the kind's
+/// perimeter data (`helper_dashes.rs`) — found at `slot1 − stops·5 − dashes`, right before
+/// the gradient stops. Floats rather than 16.16: the pattern's lengths and an outline's
+/// perimeter positions are compared, never added to a coordinate, and fp32 holds a
+/// thousand-pixel perimeter to 6e-5 px. A frame whose words would pass the region's cap
+/// is declined by the predicate, so the over-cap arm is unreachable and leaves the stroke
+/// solid rather than write past the region.
+fn emit_dash_buffer(asm: &mut Asm) {
+    let head = format!("{METAL_DRAW_SYMBOL}_dash_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_dash_done");
+    let copy = format!("{METAL_DRAW_SYMBOL}_dash_copy");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let cursor = abi::SCRATCH[5];
+    let target = abi::SCRATCH[6];
+    let style = OFF_ITEM + ITEM_OFFSET_STROKE_STYLE;
+
+    asm.push(abi::load_u64(header, abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_COUNT * 8));
+    asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    asm.push(abi::compare_immediate(count, "0"));
+    asm.push(abi::branch_le(&done));
+    // The slice: the phase word, then the tail's `count` words.
+    asm.push(abi::load_u64(cursor, abi::stack_pointer(), OFF_DASH_CURSOR));
+    asm.push(abi::add_registers(abi::SCRATCH[1], cursor, count));
+    asm.push(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &METAL_MAX_FRAME_DASH_WORDS.to_string(),
+    ));
+    asm.push(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[7]));
+    asm.push(abi::branch_le(&copy));
+    asm.push(abi::branch(&done));
+
+    asm.push(abi::label(&copy));
+    asm.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), OFF_DASH_CURSOR));
+    asm.push(abi::store_u32(cursor, abi::stack_pointer(), style + ITEM_STROKE_DASH_BASE));
+    asm.push(abi::add_immediate(abi::SCRATCH[7], count, 1));
+    asm.push(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), style + ITEM_STROKE_DASH_COUNT));
+    // target = contents + METAL_DASH_BASE_WORDS * 4 + cursor * 4, through registers for
+    // `emit_edge_buffer`'s reason (the offset is past an `add`'s immediate).
+    asm.push(abi::shift_left_immediate(target, cursor, 2));
+    asm.push(abi::load_u64(abi::SCRATCH[7], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &(METAL_DASH_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
+    // The phase.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_PHASE * 8));
+    asm.push(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
+    asm.push(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::store_u32(abi::SCRATCH[7], target, 0));
+    asm.push(abi::add_immediate(target, target, 4));
+    // source = header + (slot1 - stops * 5 - count) * 8.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, 8));
+    asm.push(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
+    asm.push(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    asm.push(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    asm.push(abi::subtract_registers(source, source, count));
+    asm.push(abi::shift_left_immediate(source, source, 3));
+    asm.push(abi::add_registers(source, header, source));
+    asm.push(abi::move_immediate(index, "Integer", "0"));
+    asm.push(abi::label(&head));
+    asm.push(abi::compare_registers(index, count));
+    asm.push(abi::branch_ge(&done));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 0));
+    asm.push(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
+    asm.push(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::store_u32(abi::SCRATCH[7], target, 0));
+    asm.push(abi::add_immediate(target, target, 4));
+    asm.push(abi::add_immediate(source, source, 8));
+    asm.push(abi::add_immediate(index, index, 1));
+    asm.push(abi::branch(&head));
+    asm.push(abi::label(&done));
+}
+
 /// Copy a picture's texels into the frame buffer's **glyph region**, and name the slice
 /// in its item block the way a glyph's does (bug-484): width in `misc.w`, height in
 /// `arc.x` (`ITEM_ARC_GLYPH_HEIGHT`), base in `arc.z` (`ITEM_ARC_EDGE_BASE`). Every
@@ -6317,6 +6830,7 @@ mod tests {
             (OFF_DRAW_COUNT, 8, "drawCount"),
             (OFF_DRAW_PAIR, 16, "drawPair"),
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
+            (OFF_DASH_CURSOR, 8, "dashCursor"),
             (OFF_PIC_COUNT, 8, "picCount"),
             (OFF_PIC_SLOT, 8, "picSlot"),
             (OFF_BAND_CURSOR, 8, "bandCursor"),
@@ -6515,12 +7029,26 @@ mod tests {
              ({METAL_GLYPH_BASE_WORDS}); every glyph would read its coverage from the \
              wrong offset of a buffer that is entirely valid memory"
         );
-        // bug-670 added the fourth region; the chain grows by one link.
+        // plan-163-B put the dash words between the gradient stops and the glyphs.
+        assert!(
+            METAL_SHADER_SOURCE.contains(&format!(
+                "constant int METAL_DASH_BASE = {METAL_DASH_BASE_WORDS};"
+            )),
+            "the MSL declares a dash-region base that is not METAL_DASH_BASE_WORDS \
+             ({METAL_DASH_BASE_WORDS}); every dashed stroke would read its pattern from \
+             another region"
+        );
         assert_eq!(
-            METAL_GLYPH_BASE_WORDS * 4,
+            METAL_DASH_BASE_WORDS * 4,
             METAL_GRADIENT_BASE_WORDS * 4
                 + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4,
-            "the glyph region must start where the gradient region ends"
+            "the dash region must start where the gradient region ends"
+        );
+        // bug-670 added the glyph region; the chain grows by one link.
+        assert_eq!(
+            METAL_GLYPH_BASE_WORDS * 4,
+            METAL_DASH_BASE_WORDS * 4 + METAL_MAX_FRAME_DASH_WORDS * 4,
+            "the glyph region must start where the dash region ends"
         );
         // bug-686 added the fifth, the picture table, which the shader never reads.
         assert_eq!(
@@ -6536,7 +7064,7 @@ mod tests {
         assert_eq!(
             METAL_BUFFER_BYTES,
             METAL_PICTURE_INDEX_OFFSET + METAL_PICTURE_INDEX_SLOTS * 4,
-            "the buffer must be exactly its six regions, with nothing past the last"
+            "the buffer must be exactly its seven regions, with nothing past the last"
         );
         assert_eq!(
             METAL_PICTURE_TABLE_BYTES,

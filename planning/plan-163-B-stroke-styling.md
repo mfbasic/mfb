@@ -670,36 +670,68 @@ Commit: a3bb3e1b4
 Acceptance: dashes draw per SVG in software, and undashed pixels are unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass, goldens unmodified (est. 10 min, guess).
-Commit: —
+  Result: 73 + 22 + 4 passed (2 ignored), goldens unmodified; `cargo test --bin mfb
+  canvas` → 110 passed.
+Commit: 7b9e6e108
 
 ### Phase 6 — Dashes on the GPU
 
-- [ ] A dash frame region (`dashOffset` as the first entry), emitters, and a
+- [x] A dash frame region (`dashOffset` as the first entry), emitters, and a
       frame-sum cap: a new constant generated into `helper_render.rs` like the stop cap,
-      with its value recorded here.
-- [ ] Shader dashed coverage per §8, line for line in MSL and GLSL, with per-kind `s`.
-      Regenerate `.frag.spv`.
-- [ ] Tests: the Phase 5 scenes as `rt_canvas_metal.rs` rows.
+      with its value recorded here. (`METAL_MAX_FRAME_DASH_WORDS` =
+      `VULKAN_MAX_FRAME_DASH_WORDS` = 1,048,576 words (`1 << 20`, 4 MiB), between the
+      gradient and glyph regions — three words for every edge of the edge cap with room
+      for patterns and ellipse tables; `@…@` tokens in `RENDER_CAPS`; an item takes its
+      dash tail plus the phase (`__canvas_dashWords`). `emit_dash_buffer` /
+      `emit_dash_upload` write float32 bit patterns; Vulkan's base is specialization
+      constant 4. The region chains in `the_metal_shader_region_bases_match_the_buffer_layout`
+      and `the_shared_buffer_holds_every_region`, and `the_pipeline_specializes_every_region_base`,
+      grew by the new link as they say a new region should.)
+- [x] Shader dashed coverage per §8, line for line in MSL and GLSL, with per-kind `s`.
+      Regenerate `.frag.spv`. (`dashedStroke` and its helpers, the MSL generated from the
+      GLSL line for line; Corrections 11. `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` →
+      `.frag.spv` 234,024 bytes, `.vert.spv` 5,488; `cargo test --bin mfb vulkan` → 9
+      passed.)
+- [x] Tests: the Phase 5 scenes as `rt_canvas_metal.rs` rows. (One scene holding them
+      all, `tests/canvas/scenes/dashes_on_black.mfb`: corner-crossing polygons under each
+      cap, Miter and Bevel dashed polygons, an odd pattern with an offset, dashed
+      polylines and lines, a circle, a rotated ellipse, a rounded rectangle, an arc, a
+      rectangle and a rotated polygon — `dashes_match_the_software_oracle_on_metal`, and
+      row `dashes` in `scripts/test-canvas-gpu-rows.sh`.)
 
 Acceptance: both GPUs draw dashes within tolerance.
   Check: `cargo test --test rt_canvas_metal` → pass with `gpuFrames≠0` (est. 5 min,
   guess); `scripts/test-canvas-vulkan.sh <dash scene>` on 2228 and
   `scripts/test-canvas-gpu-rows.sh <dash scene> --target windows-x86_64` on box 206
   (the only real GPU) → within `GPU_DEFAULT` (est. 20 min, guess).
-Commit: —
+  Result: `cargo test --test rt_canvas_metal` → 43 passed, the new `dashes_match_the_software_oracle_on_metal` among them, after the trig fix (the
+  helper asserts `gpuFrames≠0`). `bash scripts/test-canvas-gpu-rows.sh target/release/mfb
+  --target linux-aarch64 --rows dashes,...` (box 2226; 2228 refused — Corrections 10) →
+  `dashes: ok worst=2 differing=0.5332%`; `--target windows-x86_64` (box 206) →
+  `dashes: ok worst=2 differing=0.5160%`, after Corrections 11's trig fix (before it,
+  `worst=6` at (99, 357)). joins, squarecaps, ellipsesblack, arcsblack, fillrules,
+  strokedblack and matrix (`geoVerifyMismatches=0`) also pass on both boxes.
 
 ### Phase 7 — Docs and spec
 
-- [ ] `06_canvas.md`:
+- [x] `06_canvas.md`:
       - rewrite the caps section (:302–326) around `Paint.cap`, `Square` and joins;
       - add dashes (the perimeter parameter per kind, the `s = 0` points of §4, and the
         ellipse table);
       - add the header growth and item-block growth where the layout is cited;
       - keep the "a stroke is never a gradient" text (:438–442).
-- [ ] `.ai/canvas-threading.md`: record the new `strokeStyle` block word, the join/dash
-      regions, and the tail order edges | joins | dashes | stops.
-- [ ] Man prose on `Paint`, `CapStyle`, `JoinStyle`, `Line`, `Arc` and `PolyLine`
-      (`.ai/man-content.md` bans apply).
+      (The cap section is now "A stroke is styled by five `Paint` fields": caps, joins
+      and their records, dashes, the tail order and slots 47–50, the `strokeStyle` words
+      and the dash region; the frame-caps paragraph counts dash words and join records;
+      the PolyLine paragraph its non-round joins. The one-colour-outline text is kept, now
+      at :623.)
+- [x] `.ai/canvas-threading.md`: record the new `strokeStyle` block word, the join/dash
+      regions, and the tail order edges | joins | dashes | stops. (The item-block growth
+      list, the frame caps, and a new section "A geometry record's tail is read back from
+      its END", which also records the driver-trigonometry trap.)
+- [x] Man prose on `Paint`, `CapStyle`, `JoinStyle`, `Line`, `Arc` and `PolyLine`
+      (`.ai/man-content.md` bans apply). (Written in Phase 1; `Paint.dashes` now also
+      says where each shape's pattern starts.)
 
 Acceptance: man and spec render and cite.
   Check: `mfb man canvas types` shows the new fields and enums;
@@ -707,6 +739,11 @@ Acceptance: man and spec render and cite.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min, guess).
+  Result: `mfb man canvas types` lists `join`, `miterLimit`, `dashes`, `dashOffset`,
+  `CapStyle.Square` and `JoinStyle`; `man-census.sh --memory-scope` → 0 unclassified;
+  `man-run-examples.sh canvas --run` → 32 examples built and ran, 0 failed; `spec-census.sh --citations` → 0
+  missing paths, lines and symbols, `--links` → 0 unresolved; `cargo test --bin mfb
+  spec` → 46 passed; `mfb spec app canvas` shows no `[[`.
 Commit: —
 
 ## Validation Plan
@@ -830,6 +867,30 @@ Commit: —
    Square paint pads its bounds `half·√2` (`__canvas_dashCapReach`), and
    `__canvas_strokePad` keeps its Miter arm's fused `half * limit + 1.0` unless that
    reach is the longer, so every undashed header stays bit-identical.
+
+10. **Box 2228 is down; the Linux Vulkan rows ran on 2226.** `bash
+    scripts/test-canvas-gpu-rows.sh target/release/mfb --rows …` →
+    `ssh: connect to host 127.0.0.1 port 2228: Connection refused`, in Phase 4 and again
+    here. The same script's `--target linux-aarch64` (box 2226, lavapipe) ran the rows
+    instead, and its `dashes` row stands for §Phase 6's `test-canvas-vulkan.sh <dash
+    scene>`: the same program, GPU against software, under the same `GPU_DEFAULT`.
+11. **The GPU dashes are fp32 at outline-relative offsets, with the oracle's own
+    trigonometry.** Each shader reads the pixel's offset from the item's own outline
+    (an edge's start, a curve's centre) in double-float and evaluates the dash
+    functions in fp32 from there, which holds a thousand-pixel perimeter to 6e-5 px — no
+    two-pass double-float, since a dash only moves an end along the outline. The first
+    cut used the driver's `atan`, `sin` and `cos`, and box 206's Intel driver drew
+    `dashes` at `worst=6` (a round dash end's disc on the circle, (99, 357)) while
+    lavapipe and Metal passed: Vulkan allows `atan` 4096 ULP and `sin`/`cos` 2^-11
+    absolute. `dashAtan`, `dashSin`, `dashCos` are the oracle's series; 206 then measured
+    `worst=2`.
+12. **An arc's dash tail carries its start angle and sweep, and a closed outline with no
+    length draws no dash dot.** The GPU item block has an arc's sweep END POINTS, not its
+    angles, so `__canvas_arcDashes` stores `[startAngle, sweep]` as the arc's perimeter
+    data and the software reads them back too. The software drew the zero-length dot for
+    any dashed outline of edges with no live edge; a GPU sees only a band of edges, so
+    the dot is now an open path's (a Line's or PolyLine's, decided by its length) and a
+    closed one with no length draws nothing dashed, on all three.
 
 ## Summary
 

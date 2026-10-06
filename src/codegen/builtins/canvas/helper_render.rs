@@ -10,9 +10,10 @@
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 use crate::codegen::runtime::canvas::{
-    METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS,
-    METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
-    VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS,
+    METAL_MAX_FRAME_DASH_WORDS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES,
+    METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_DASH_WORDS,
+    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES, VULKAN_MAX_FRAME_GRADIENT_STOPS,
+    VULKAN_MAX_FRAME_ITEMS,
 };
 use std::sync::LazyLock;
 
@@ -745,11 +746,28 @@ LET __CANVAS_METAL_MAX_FRAME_EDGES AS Integer = @METAL_MAX_FRAME_EDGES@
 LET __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS AS Integer = @VULKAN_MAX_FRAME_GRADIENT_STOPS@
 LET __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS AS Integer = @METAL_MAX_FRAME_GRADIENT_STOPS@
 
+' plan-163-B: the dash words one frame may carry, summed over its dashed items -- the cap
+' on each backend's dash region. An item takes its dash tail plus the phase word
+' (`__canvas_dashWords`).
+LET __CANVAS_VULKAN_MAX_FRAME_DASH_WORDS AS Integer = @VULKAN_MAX_FRAME_DASH_WORDS@
+LET __CANVAS_METAL_MAX_FRAME_DASH_WORDS AS Integer = @METAL_MAX_FRAME_DASH_WORDS@
+
+' The words one item puts in the frame's dash region: its dash tail and the phase, or
+' nothing for a solid stroke.
+FUNC __canvas_dashWords(offset AS Integer) AS Integer
+  LET count AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_DASH_COUNT, 0.0))
+  IF count > 0 THEN
+    RETURN count + 1
+  END IF
+  RETURN 0
+END FUNC
+
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
   MUT gradientStops AS Integer = 0
+  MUT dashWords AS Integer = 0
   MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
@@ -793,8 +811,10 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
-    ' plan-163-B: a stroke's join records ride the same region, two edge slots each.
+    ' plan-163-B: a stroke's join records ride the same region, two edge slots each; its
+    ' dash words a region of their own, a frame SUM like the stops'.
     total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
+    dashWords = dashWords + __canvas_dashWords(offset)
   NEXT
   IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN
     RETURN FALSE
@@ -813,6 +833,10 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   ' would make one item's stops read another's -- a plausible wrong ramp rather
   ' than a failure. Software is the oracle, so declining is at worst slow.
   IF gradientStops > __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS THEN
+    RETURN FALSE
+  END IF
+  ' The dash region likewise: an overflow would make one item read another's pattern.
+  IF dashWords > __CANVAS_METAL_MAX_FRAME_DASH_WORDS THEN
     RETURN FALSE
   END IF
   ' plan-116-H Phase 3: Metal no longer declines a scene containing a group either. The
@@ -901,6 +925,7 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
   MUT gradientStops AS Integer = 0
+  MUT dashWords AS Integer = 0
   MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
@@ -938,8 +963,10 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
-    ' plan-163-B: a stroke's join records ride the same region, two edge slots each.
+    ' plan-163-B: a stroke's join records ride the same region, two edge slots each; its
+    ' dash words a region of their own, a frame SUM like the stops'.
     total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
+    dashWords = dashWords + __canvas_dashWords(offset)
   NEXT
   IF quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS THEN
     RETURN FALSE
@@ -951,6 +978,10 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   ' would make one item's stops read another's -- a plausible wrong ramp rather
   ' than a failure. Software is the oracle, so declining is at worst slow.
   IF gradientStops > __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS THEN
+    RETURN FALSE
+  END IF
+  ' The dash region likewise: an overflow would make one item read another's pattern.
+  IF dashWords > __CANVAS_VULKAN_MAX_FRAME_DASH_WORDS THEN
     RETURN FALSE
   END IF
   ' plan-116-H Phase 2: Vulkan no longer declines a scene containing a group. The
@@ -1030,6 +1061,8 @@ const RENDER_CAPS: &[(&str, usize)] = &[
         "METAL_MAX_FRAME_GRADIENT_STOPS",
         METAL_MAX_FRAME_GRADIENT_STOPS,
     ),
+    ("VULKAN_MAX_FRAME_DASH_WORDS", VULKAN_MAX_FRAME_DASH_WORDS),
+    ("METAL_MAX_FRAME_DASH_WORDS", METAL_MAX_FRAME_DASH_WORDS),
     ("VULKAN_MAX_FRAME_EDGES", VULKAN_MAX_FRAME_EDGES),
     (
         "VULKAN_MAX_FRAME_GLYPH_SAMPLES",

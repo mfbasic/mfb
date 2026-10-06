@@ -1109,8 +1109,10 @@ pub(crate) const HEADER_SLOTS: usize = 51;
 pub(crate) const HEADER_JOIN_COUNT: usize = 47;
 pub(crate) const HEADER_JOIN_REACH: usize = 48;
 /// plan-163-B: `__CANVAS_GEO_DASH_COUNT` -- the dash tail's floats, which sit between
-/// the join records and the gradient stops.
+/// the join records and the gradient stops -- and `__CANVAS_GEO_DASH_PHASE`, the dash
+/// offset wrapped into one period, which the emitters upload as the first dash word.
 pub(crate) const HEADER_DASH_COUNT: usize = 49;
+pub(crate) const HEADER_DASH_PHASE: usize = 50;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one **frame** may carry on the Vulkan path.
@@ -1310,12 +1312,23 @@ pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
 /// million words. Eight million is a 2560×1440 background with room left for tiles and
 /// text, and 32 MiB of region.
 pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
-/// Where Metal's glyph region starts, in 32-bit words — after the gradient stops.
-pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
+/// The most dash words one **Metal** frame may carry (plan-163-B), summed over its
+/// dashed items: each takes its dash tail (`__CANVAS_GEO_DASH_COUNT` floats) plus the
+/// phase, as float32 bit patterns. A frame-wide region like the gradient stops', its
+/// slice named in the item block's `strokeStyle.z`/`.w`. `1 << 20` holds three words for
+/// every edge of `METAL_MAX_FRAME_EDGES` with room for patterns and ellipse tables
+/// (257 words each); 4 MiB of region.
+pub(crate) const METAL_MAX_FRAME_DASH_WORDS: usize = 1 << 20;
+/// Where Metal's dash region starts, in 32-bit words — after the gradient stops.
+pub(crate) const METAL_DASH_BASE_WORDS: usize =
     METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
+/// Where Metal's glyph region starts, in 32-bit words — after the dash words.
+pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
+    METAL_DASH_BASE_WORDS + METAL_MAX_FRAME_DASH_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// their residuals (four words each, bug-687), then the band index (bug-686), then gradient stops (five each), then glyph coverage (one
-/// sample a word), then the picture table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
+/// their residuals (four words each, bug-687), then the band index (bug-686), then gradient stops (five each), then dash words (one
+/// float32 each, plan-163-B), then glyph coverage (one sample a word), then the picture
+/// table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
@@ -1325,6 +1338,7 @@ pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_EDGES * 16
     + METAL_MAX_FRAME_BAND_WORDS * 4
     + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + METAL_MAX_FRAME_DASH_WORDS * 4
     + METAL_MAX_FRAME_GLYPH_SAMPLES * 4
     + METAL_PICTURE_TABLE_BYTES;
 
@@ -1419,10 +1433,16 @@ pub(crate) const VULKAN_BAND_BASE_WORDS: usize =
 /// Where the gradient region starts, in 32-bit words — after the band index.
 pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
     VULKAN_BAND_BASE_WORDS + VULKAN_MAX_FRAME_BAND_WORDS;
-/// Where the glyph (and picture texel) region starts, in 32-bit words — after the
-/// gradient stops.
-pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize =
+/// The most dash words one **Vulkan** frame may carry (plan-163-B) — Metal's
+/// `METAL_MAX_FRAME_DASH_WORDS`, the same layout.
+pub(crate) const VULKAN_MAX_FRAME_DASH_WORDS: usize = 1 << 20;
+/// Where the dash region starts, in 32-bit words — after the gradient stops.
+pub(crate) const VULKAN_DASH_BASE_WORDS: usize =
     VULKAN_GRADIENT_BASE_WORDS + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
+/// Where the glyph (and picture texel) region starts, in 32-bit words — after the
+/// dash words.
+pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize =
+    VULKAN_DASH_BASE_WORDS + VULKAN_MAX_FRAME_DASH_WORDS;
 /// Vulkan's per-frame picture table (bug-688) — Metal's (`METAL_PICTURE_TABLE_BYTES`)
 /// with the same record and index layout, one record per quad of
 /// `VULKAN_MAX_FRAME_ITEMS`. The last region of the shared buffer, read only by the
@@ -1443,8 +1463,8 @@ pub(crate) const VULKAN_PICTURE_INDEX_OFFSET: usize =
 /// The picture table's whole size: records, then index slots.
 pub(crate) const VULKAN_PICTURE_TABLE_BYTES: usize =
     VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES + VULKAN_PICTURE_INDEX_SLOTS * 4;
-/// The whole shared buffer: edges, edge residuals (bug-687), band index, gradient stops, glyph/picture texels,
-/// picture table.
+/// The whole shared buffer: edges, edge residuals (bug-687), band index, gradient stops,
+/// dash words (plan-163-B), glyph/picture texels, picture table.
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_shared_buffer_holds_every_region` compares two independent computations and a
@@ -1453,17 +1473,19 @@ pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
     + VULKAN_EDGE_RESIDUAL_BYTES
     + VULKAN_MAX_FRAME_BAND_WORDS * 4
     + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + VULKAN_MAX_FRAME_DASH_WORDS * 4
     + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
     + VULKAN_PICTURE_TABLE_BYTES;
 /// The fragment shader's specialization constants, as `(constant_id, value)`: the
 /// region bases it reads, in words. The ids are the `layout(constant_id = N)` numbers in
 /// `shaders/mfb_canvas.frag`; `the_fragment_shader_declares_every_spec_constant` pins
 /// the two lists to each other.
-pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 4] = [
+pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 5] = [
     (0, VULKAN_GLYPH_BASE_WORDS),
     (1, VULKAN_GRADIENT_BASE_WORDS),
     (2, VULKAN_BAND_BASE_WORDS),
     (3, VULKAN_EDGE_RESIDUAL_BASE_WORDS),
+    (4, VULKAN_DASH_BASE_WORDS),
 ];
 
 /// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none

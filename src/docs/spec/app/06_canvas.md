@@ -126,9 +126,10 @@ shape.** Every per-frame payload travels in buffers whose regions are fixed in s
 each backend's predicate declines a frame that would overflow one of them. Metal and
 Vulkan have the same caps: more than 65,536
 item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
-the frame, more than 131,072 gradient stops summed over the frame, or more than 8M
+the frame, more than 131,072 gradient stops summed over the frame, more than 1,048,576
+dash words summed over the frame (a dashed item's dash tail plus one), or more than 8M
 picture-and-glyph texels (each distinct image counted once). A `PolyLine`'s segments
-count against the edge cap, one edge each. There is no per-polygon
+count against the edge cap, one edge each, and a stroke's join records two each. There is no per-polygon
 edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
 so a pixel tests only the edges that can reach it, and the result is identical to
 testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
@@ -327,31 +328,152 @@ The destination is opaque (above), so no mode has to define what happens to a
 partly-transparent destination. Alpha itself is not blended by the mode: it is
 written back as `255` under every one.
 
-**`Line.cap`, `Arc.cap` and `PolyLine.cap` shape the two ends of a stroke.** They are the
-only three `DrawItem` variants with ends, and none has an interior, so the field is on
-those records rather than on `Paint`, and a shape with no ends cannot carry one.
+**A stroke is styled by five `Paint` fields: `cap`, `join`, `miterLimit`, `dashes` and
+`dashOffset`.** `canvas::fill`, `canvas::stroke` and `canvas::fillStroke` set `Butt`,
+`Round`, `4.0`, `[]` and `0.0`. The cap is on `Paint` rather than on the three variants
+with ends, because a dash has ends on every kind.
+[[src/codegen/builtins/canvas/mod.rs:JoinStyle]]
+[[src/codegen/builtins/canvas/func_fill_stroke.rs:BODY]]
 
-`CapStyle.Butt` cuts the stroke square at the endpoint. `CapStyle.Round` extends it by a
-half-disc of `Paint.strokeWidth / 2` centred there. Both are defined on the same signed
-distance the coverage rule already uses, so a cap edge is antialiased exactly as any
-other edge is:
+**`cap` shapes a stroke's ends**: the two ends of a `Line`, an `Arc` or a `PolyLine`, and
+both ends of every dash. An undashed closed shape has no ends, so its cap has no effect.
+Each cap is defined on the signed distance the coverage rule already uses, so a cap edge
+is antialiased exactly as any other edge is:
 
-* A **butt line** is the round band intersected with the slab between the two planes through its endpoints, perpendicular to the segment — as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the unclamped projection. The half-width is subtracted *before* the intersection, because the planes bound the band and not the centre line.
-* A **round arc** is the band unioned with a disc of `half` at each sweep endpoint, i.e. the `min` of the three distances. A **butt arc** is the band alone: the sweep already ends it along a radius.
+* `Butt` cuts the stroke square at the endpoint. A **butt line** is the round band
+  intersected with the slab between the two planes through its endpoints, perpendicular
+  to the segment: as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the
+  unclamped projection. The half-width is subtracted *before* the intersection, because
+  the planes bound the band and not the centre line. A **butt arc** is the band alone:
+  the sweep already ends it along a radius.
+* `Round` adds a half-disc of `half = strokeWidth / 2` centred on the endpoint. A **round
+  arc** is the band unioned with a disc of `half` at each sweep endpoint, the `min` of
+  the three distances.
+* `Square` extends the stroke `half` past the endpoint and cuts it square there:
+  `max(|perp| − half, −t·|v| − half, (t−1)·|v| − half)` against the original segment's
+  `t` and `|v|`. It is not the butt planes moved out over the round band, which would
+  round the square's corners. An arc's square end is a `half × half` box past each sweep
+  endpoint along the tangent there. A `PolyLine` takes it on the outer ends of its first
+  and last segments with length only.
+  [[src/codegen/builtins/canvas/helper_shapes.rs:SEGMENT_DISTANCE_SQUARE]]
 
-**A zero-length butt-capped line draws nothing**, and a zero-length round-capped one is a
-dot of `half`. There is no direction for a butt cap's planes to be perpendicular to, and
-an empty result is the honest answer rather than an arbitrary orientation.
+**A zero-length line** draws nothing under `Butt`, a dot of `half` under `Round` and an
+axis-aligned square of side `2·half` under `Square` (SVG 2 §13.5.2). There is no
+direction for a butt cap's planes to be perpendicular to, and an empty result is the
+honest answer rather than an arbitrary orientation. A square end reaches `half·√2` from
+its endpoint, so a Square-capped item's bounds and the GPU band index are widened by that.
+The cap travels as header slot 34 (0 `Butt`, 1 `Round`, 2 `Square`), written by a `Line`,
+`Arc` or `PolyLine` and by every dashed item.
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_capTag]]
+[[src/codegen/runtime/canvas/mod.rs:emit_square_cap_reach]]
 
-**Note the asymmetry with what each variant did before this field existed**, because it
-decides which value is the compatible one: a `Line` was round and an `Arc` was butt.
-`Butt` is nonetheless the enum's zero value. That is not a contradiction — MFBASIC named
-construction requires every field, so no item can have a defaulted `cap`, and the zero is
-only a tag number.
+**`join` shapes the corners**: every vertex where two edges of a `Polygon` ring or a
+`PolyLine` meet, and a `Rectangle`'s or `Picture`'s four corners. A `RoundedRect` has
+none.
 
-`Polygon` has no cap and no **join** style; its stroked corners are whatever the
-distance to its nearest edge produces, under either `Polygon.rule`. `PolyLine`'s joins
-are always round, and no variant exposes a join style.
+* `Round` is the distance field's own corner: the stroke is `|d| − half` of the outline's
+  distance, and the distance to a corner is round. An undashed `Round` stroke builds no
+  join records, so it is exactly what a stroke was before joins existed.
+* `Miter` and `Bevel` make the stroke the union of every edge's **butt** band and one
+  **corner piece** per vertex. With `θ` the interior angle, a `Miter` corner is kept when
+  `1 / sin(θ/2) ≤ miterLimit` — computed without a root as `(1 + u1·u2)·limit² ≥ 2` —
+  and draws as `Bevel` otherwise; a `miterLimit` below 1.0 is 1.0, so every miter
+  bevels.
+
+The pieces **overlap**, and that is load-bearing. A union taken as a `min` of signed
+distances is right only where some piece covers each point at least as deeply as the
+union does; two pieces that merely abut both measure 0 on their shared line and draw a
+half-covered seam. So each piece is built on the vertex's disc of radius `half`: straight
+on, the disc; `Bevel`, the disc cut by the chord between the two bands' outer corners,
+on the vertex's side; `Miter`, the disc and the polygon of the vertex, the two outer
+corners and the miter point; straight back (a U-turn), nothing. Where an edge next to the
+vertex is shorter than `half` the disc can reach past that edge's far end — the one place
+this departs from the SVG outline, and it is the round join's own shape there.
+
+The pieces are computed once, at geometry build, as a **join tail**: one 8-float record
+per outline edge, the corner at that edge's start, as the four points `V, A, P, B`, its
+kind read from exact equalities — no piece when `A = V` (an open path's first edge, a
+zero-length edge, a U-turn), the disc when `A = B`, a bevel when `P = V`, a miter
+otherwise. One record per edge lets the GPUs reach a pixel's corners through the band
+index its edges already have. Header slot 47 counts the records and slot 48 is how far
+one reaches from its vertex (`half·miterLimit` for a Miter, else `half`), which widens
+the bounds and the band index. The GPUs carry the records in the edge region as two edge
+slots each, after the item's own edges, and count them twice against the frame's edge
+cap.
+[[src/codegen/builtins/canvas/helper_joins.rs:JOIN_BUILD]]
+[[src/codegen/builtins/canvas/helper_joins.rs:JOIN_DISTANCE]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_join_record]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_COUNT]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_REACH]]
+
+**`dashes` cuts the stroke into dashes along its outline.** It alternates on and off
+lengths in pixels, before the transform; `dashOffset` is how far into the pattern the
+outline starts, taken modulo the pattern's length (and may be negative).
+
+* **Normalization.** An odd number of lengths is repeated once to make it even (SVG). An
+  empty list, a list whose sum is not positive, a list holding a negative (or NaN)
+  length, and a stroke that draws nothing all draw solid — SVG treats a negative entry as
+  an error and draws solid, and so does this, on purpose.
+* **Where `s = 0` is.** Every point of the outline has a perimeter position `s`: a `Line`
+  from `(x1, y1)`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
+  `Polygon` ring from its own first point (each ring restarts the pattern, as SVG
+  restarts it per subpath); a `Rectangle` or `Picture` from its top-left corner,
+  clockwise (towards +X under Y-down); a `RoundedRect` from the left end of its top
+  straight side, clockwise; a `Circle` or `Ellipse` from angle 0 (+X in its own frame),
+  the way angles increase.
+* **An outline of edges is cut edge by edge.** A pixel's position on an edge is its
+  projection onto the edge's line, `u = s0 + (p − a)·d / |d|` (unclamped), and the edge's
+  piece of the stroke is `max(|perp| − half, along)`, `along` being the signed distance
+  along the edge from `u` to the dashes clipped to the edge's own `[s0, s1]`, negative
+  inside one. The stroke is the `min` over edges, unioned with the corner piece at every
+  vertex a dash runs **through** (on just before it and at it). A dashed `Round` paint
+  therefore carries join records too — discs — because the round corner the distance
+  field draws for free must vanish where the pattern is off. Taking `s` from the pixel's
+  *nearest* outline point instead would be discontinuous on a corner's inner side, where
+  the nearest edge is the second one while the first edge's band, still inside its dash,
+  is what covers the pixel in SVG.
+* **A curve is cut at its nearest point.** A `Circle`, `Arc`, `Ellipse` or `RoundedRect`
+  has no corner: its `s` is the perimeter position of the pixel's nearest outline point,
+  and `along` is measured in outline length there, so a dash end is cut along the
+  outline's normal to within the band's curvature (`half / radius` of the antialiasing
+  ramp). Angles come from a `+ − × ÷ sqrt` arctangent series (error under 1e-16) and
+  points from the deterministic sine and cosine. An ellipse's arc length is a table of
+  `N + 1` cumulative lengths at evenly spaced parametric angles, `N = 256`, each step
+  Simpson's rule over 8 sub-steps; a pixel's `s` is interpolated linearly at its nearest
+  point's parametric angle. Measured: the worst along-path error is 0.030 px over
+  ellipses up to 800 px across and 80:1 (0.119 px at 128 steps).
+* **Dash ends take the cap.** A **true** end — where a dash stops, not where it runs on
+  past an edge's end into the next edge — is cut `Butt`, extended `half` for `Square`, or
+  unioned with a disc of `half` about the end point for `Round`. An open path's own two
+  ends always end a dash. A closed outline's seam is no end: a dash on at both sides of
+  `s = 0` is one dash, and one on at one side only ends there.
+* **Degenerate.** A dashed `Line` or `PolyLine` with no length draws the dot its cap
+  draws when the pattern is on at its start; a dashed closed outline with no length
+  draws nothing.
+
+The dashes are a **dash tail** between the join records and the gradient stops:
+`[n, period, c1 … cn]`, each `c` an entry's end along the period, then the kind's
+perimeter data — three floats per edge (`s0`, `s1` and its ring's length, negative for
+an open path), an ellipse's table, an arc's start angle and sweep, nothing for a circle
+or rounded rectangle. Header slot 49 is the tail's length and slot 50 the offset wrapped
+into one period at build. The record's tail order is therefore edges, join records,
+dashes, gradient stops; the stops stay last, so every reader finds the others counting
+back from the record's end. The native builder writes the same tail bit for bit.
+[[src/codegen/builtins/canvas/helper_dashes.rs:DASH_BUILD]]
+[[src/codegen/builtins/canvas/helper_dashes.rs:DASH_DRAW]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_dash_tail]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_DASH_COUNT]]
+
+**On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 288) are the
+first join slot, the record count, the first dash word and the dash word count. Each
+dashed item's words — the phase, then its dash tail — ride a frame-wide dash region as
+float32 bit patterns, and each shader evaluates the oracle's dash functions in fp32 at
+offsets from the item's own outline taken in double-float, so the precision is the
+outline's position rather than its coordinates'.
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_STROKE_STYLE]]
+[[src/target/macos_aarch64/app/metal.rs:emit_dash_buffer]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_dash_upload]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dashedStroke]]
 
 **A `Polygon` is one or more closed rings filled under its `rule`.** `contours` is a
 `List OF List OF Point`; each ring closes from its own last point back to its own first.
@@ -388,7 +510,9 @@ strokes the `n − 1` segments `P[i] → P[i+1]`, and its distance is the minimu
 segments' distances. A minimum of round-capped bands is what makes every interior corner
 round, so the round join needs no code of its own. Each segment is measured with
 `Line`'s own arithmetic, so a two-point `PolyLine` draws exactly the pixels of the `Line`
-between the same points with the same cap.
+between the same points with the same cap. Under a `Miter` or `Bevel` join the inner
+ends are cut butt and the corners are the join records (above); the colour parameter
+still comes from the round walk, so it stays continuous round a corner.
 [[src/codegen/builtins/canvas/helper_draw.rs:POLYLINE_SCAN]]
 
 * **Ends.** The butt planes cut only the **first and last segments with length**, each
@@ -399,7 +523,7 @@ between the same points with the same cap.
   test the walk uses.
 * **Degenerate paths.** Fewer than two points draw nothing. A path whose points all
   coincide draws what a zero-length `Line` with its cap draws: a dot of `half` for
-  `Round`, nothing for `Butt`.
+  `Round`, the axis-aligned square for `Square`, nothing for `Butt`.
   [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHeader]]
 * **Colour.** An empty `colors` strokes the whole path in `Paint.stroke`. Otherwise
   point `k` has colour `colors[k]`, or `Paint.stroke` past the end of the list. The

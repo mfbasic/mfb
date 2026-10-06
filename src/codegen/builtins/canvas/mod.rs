@@ -970,8 +970,15 @@ pub(crate) fn register(r: &mut Registry) {
                               empty list — the zero value — draws a solid stroke, and \
                               so does a list whose lengths add up to `0.0` or that \
                               holds a negative length. `cap` shapes both ends of \
-                              every dash. Each ring of a `canvas::Polygon` starts the \
-                              pattern again at its first point.",
+                              every dash. The pattern runs along the outline from its \
+                              start: a `canvas::Line`'s first point, a \
+                              `canvas::PolyLine`'s first point, an `canvas::Arc`'s \
+                              `startAngle`, each `canvas::Polygon` ring's own first \
+                              point, a `canvas::Rectangle`'s top-left corner, a \
+                              `canvas::RoundedRect`'s top edge where it leaves the \
+                              corner, and a `canvas::Circle`'s or `canvas::Ellipse`'s \
+                              rightmost point (before `angle`) — going clockwise \
+                              round every closed shape.",
             },
             RecordProp {
                 name: "dashOffset",

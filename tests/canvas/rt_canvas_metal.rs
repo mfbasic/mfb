@@ -1245,6 +1245,21 @@ fn joins_match_the_software_oracle_on_metal() {
     );
 }
 
+/// plan-163-B: dashed strokes -- polygons whose dashes cross their corners under each cap
+/// and under Miter and Bevel joins, an odd pattern with an offset, dashed polylines and
+/// lines, a circle, a rotated ellipse, a rounded rectangle, an arc, a rectangle and a
+/// rotated polygon.
+const DASHES: &str = include_str!("scenes/dashes_on_black.mfb");
+
+#[test]
+fn dashes_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_dashes",
+        DASHES,
+        "the dashed polygons, polylines, lines, curves and rectangles over black",
+    );
+}
+
 /// `LARGE_POLYGONS` without its grey ground: filled, translucent, stroked, transformed
 /// and self-intersecting polygons of 300-4,000 edges, every rim over black. bug-688
 /// measured max delta 4 on Vulkan (lavapipe) at (736, 52), the rotated ring's rim.
