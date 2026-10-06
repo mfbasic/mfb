@@ -254,7 +254,7 @@ END FUNC
 
 ' The hawk: a slow Lissajous circuit of the sky, gliding, with a few beats of
 ' its wings now and then.
-FUNC hawk(w AS Float, h AS Float, t AS Float, tint AS color::Color) AS List OF canvas::DrawItem
+FUNC hawk(w AS Float, h AS Float, t AS Float, tint AS color::Color, day AS Float) AS List OF canvas::DrawItem
   LET a AS Float = t * 0.11
   LET x AS Float = w * (0.5 + 0.38 * math::sin(a))
   LET y AS Float = h * (0.22 + 0.08 * math::sin(a * 2.0 + 0.6))
@@ -263,7 +263,10 @@ FUNC hawk(w AS Float, h AS Float, t AS Float, tint AS color::Color) AS List OF c
   LET heading AS Float = math::atan2(dy, dx)
   LET beats AS Float = math::pow(math::max(0.0, math::sin(t * 0.37)), 6.0)
   LET flap AS Float = math::sin(t * 7.0) * beats
-  RETURN raptor(x, y, heading, h * 0.09, flap, mixC(hex("#2e2018"), tint, 0.18), mixC(hex("#a88a6a"), tint, 0.3))
+  ' Seen from below against the sky, the hawk is a silhouette at night and
+  ' shows its pale underside by day.
+  LET under AS color::Color = mixC(hex("#1a1420"), mixC(hex("#a88a6a"), tint, 0.3), clamp01(day * 1.4))
+  RETURN raptor(x, y, heading, h * 0.09, flap, mixC(hex("#2e2018"), tint, 0.18 * day), under)
 END FUNC
 
 ' A bare branch from (x0, y0) to (x1, y1): a tapering curve with two twigs.
@@ -376,7 +379,7 @@ FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawIte
   out = collections::append(out, songbirdAt(w, h, t, 0, hex("#7a4f2e"), hex("#e8a35a")))
   out = collections::append(out, songbirdAt(w, h, t, 1, hex("#3f5f8a"), hex("#d8c8a8")))
   out = collections::append(out, songbirdAt(w, h, t, 2, hex("#6a6a3a"), hex("#f2d86a")))
-  out = collections::append(out, hawk(w, h, t, horizon))
+  out = collections::append(out, hawk(w, h, t, horizon, day))
 
   ' The grade: a Multiply wash by the light of the hour, strongest near the
   ' ground, so the land darkens and cools at night and warms at dawn while the

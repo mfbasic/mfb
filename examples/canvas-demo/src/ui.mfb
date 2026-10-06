@@ -267,7 +267,8 @@ END FUNC
 ' The intro panel
 ' ---------------------------------------------------------------------------
 
-' Where the panel's Begin button is, for a window of this size and this scene.
+' Where the panel and its Begin button are, for a window of this size and
+' this scene.
 TYPE PanelLayout
   x AS Float
   y AS Float
@@ -277,14 +278,17 @@ TYPE PanelLayout
   by AS Float
   bw AS Float
   bh AS Float
-  scale AS Float     ' the panel is shrunk by this about its centre to fit
 END TYPE
 
 ' The text of the panel, laid out: kept between frames, since measuring every
-' word sixty times a second would be wasted work.
+' word sixty times a second would be wasted work. `k` is the size it was laid
+' out at: 1, or smaller when the window is too short for the panel. The panel
+' is set in smaller type rather than drawn smaller, because glyphs drawn under
+' a shrinking transform lose their thin strokes.
 TYPE PanelText
   forW AS Float
   forH AS Float
+  k AS Float
   flavor AS List OF String
   primary AS List OF List OF String
   secondary AS List OF List OF String
@@ -306,17 +310,31 @@ FUNC panelWidth(w AS Float) AS Float
   RETURN math::min(680.0, w - 60.0)
 END FUNC
 
-FUNC panelText(f AS Fonts, info AS DemoInfo, w AS Float, h AS Float) AS PanelText
-  LET inner AS Float = panelWidth(w) - PANEL_PAD * 2.0
+FUNC panelTextAt(f AS Fonts, info AS DemoInfo, w AS Float, h AS Float, k AS Float) AS PanelText
+  LET inner AS Float = panelWidth(w) - PANEL_PAD * k * 2.0
   MUT primary AS List OF List OF String = []
   FOR EACH line IN info.canvasFeatures
-    primary = collections::append(primary, [wrap(f.body, PANEL_PRIMARY, line, inner - 22.0)])
+    primary = collections::append(primary, [wrap(f.body, PANEL_PRIMARY * k, line, inner - 22.0 * k)])
   NEXT
   MUT secondary AS List OF List OF String = []
   FOR EACH line IN info.languageFeatures
-    secondary = collections::append(secondary, [wrap(f.body, PANEL_SECONDARY, line, inner - 22.0)])
+    secondary = collections::append(secondary, [wrap(f.body, PANEL_SECONDARY * k, line, inner - 22.0 * k)])
   NEXT
-  RETURN PanelText[forW := w, forH := h, flavor := wrap(f.italic, PANEL_FLAVOR, info.flavor, inner), primary := primary, secondary := secondary, controls := wrap(f.body, PANEL_SECONDARY, info.controls, inner - 120.0), onCanvas := layoutTracked(f.bold, PANEL_LABEL, "ON THE CANVAS", 2.2), inLanguage := layoutTracked(f.bold, PANEL_LABEL, "IN THE LANGUAGE", 2.2), controlsLabel := layoutTracked(f.bold, PANEL_LABEL, "CONTROLS", 2.2), begin := buttonLabel(f, "Begin", 44.0)]
+  RETURN PanelText[forW := w, forH := h, k := k, flavor := wrap(f.italic, PANEL_FLAVOR * k, info.flavor, inner), primary := primary, secondary := secondary, controls := wrap(f.body, PANEL_SECONDARY * k, info.controls, inner - 120.0 * k), onCanvas := layoutTracked(f.bold, PANEL_LABEL * k, "ON THE CANVAS", 2.2 * k), inLanguage := layoutTracked(f.bold, PANEL_LABEL * k, "IN THE LANGUAGE", 2.2 * k), controlsLabel := layoutTracked(f.bold, PANEL_LABEL * k, "CONTROLS", 2.2 * k), begin := buttonLabel(f, "Begin", 44.0 * k)]
+END FUNC
+
+' The panel's text for this window: at full size if it fits, else set small
+' enough to fit (but never below 70%).
+FUNC panelText(f AS Fonts, info AS DemoInfo, w AS Float, h AS Float) AS PanelText
+  LET full AS PanelText = panelTextAt(f, info, w, h, 1.0)
+  LET need AS Float = panelHeight(full)
+  IF need <= h - 30.0 THEN RETURN full
+  LET k AS Float = math::max(0.7, (h - 30.0) / need)
+  LET smaller AS PanelText = panelTextAt(f, info, w, h, k)
+  ' Smaller type wraps into fewer lines, so one more pass can grow it back.
+  LET k2 AS Float = math::max(0.7, math::min(1.0, k * (h - 30.0) / panelHeight(smaller)))
+  IF k2 > k * 1.02 THEN RETURN panelTextAt(f, info, w, h, k2)
+  RETURN smaller
 END FUNC
 
 FUNC linesHeight(blocks AS List OF List OF String, lineH AS Float, gap AS Float) AS Float
@@ -327,107 +345,117 @@ FUNC linesHeight(blocks AS List OF List OF String, lineH AS Float, gap AS Float)
   RETURN total
 END FUNC
 
+FUNC panelHeight(text AS PanelText) AS Float
+  LET k AS Float = text.k
+  MUT ph AS Float = (PANEL_PAD + 52.0 + PANEL_TITLE + 14.0 + toFloat(len(text.flavor)) * 22.0 + 26.0) * k
+  ph = ph + (22.0 + linesHeight(text.primary, 21.0, 6.0) + 18.0) * k
+  ph = ph + (22.0 + linesHeight(text.secondary, 19.0, 4.0) + 18.0) * k
+  RETURN ph + (math::max(toFloat(len(text.controls)) * 19.0, 19.0) + 26.0 + 46.0 + PANEL_PAD) * k
+END FUNC
+
 FUNC panelLayout(text AS PanelText, w AS Float, h AS Float) AS PanelLayout
+  LET k AS Float = text.k
   LET pw AS Float = panelWidth(w)
-  MUT ph AS Float = PANEL_PAD + 52.0 + PANEL_TITLE + 14.0 + toFloat(len(text.flavor)) * 22.0 + 26.0
-  ph = ph + 22.0 + linesHeight(text.primary, 21.0, 6.0) + 18.0
-  ph = ph + 22.0 + linesHeight(text.secondary, 19.0, 4.0) + 18.0
-  ph = ph + math::max(toFloat(len(text.controls)) * 19.0, 19.0) + 26.0 + 46.0 + PANEL_PAD
+  LET ph AS Float = panelHeight(text)
   LET px AS Float = (w - pw) / 2.0
-  LET bw AS Float = 168.0
-  LET fit AS Float = math::min(1.0, (h - 30.0) / ph)
-  RETURN PanelLayout[x := px, y := (h - ph) / 2.0, w := pw, h := ph, bx := px + (pw - bw) / 2.0, by := (h - ph) / 2.0 + ph - PANEL_PAD - 44.0, bw := bw, bh := 44.0, scale := fit]
+  LET py AS Float = math::max(10.0, (h - ph) / 2.0)
+  LET bw AS Float = 168.0 * k
+  LET bh AS Float = 44.0 * k
+  RETURN PanelLayout[x := px, y := py, w := pw, h := ph, bx := px + (pw - bw) / 2.0, by := py + ph - PANEL_PAD * k - bh, bw := bw, bh := bh]
 END FUNC
 
-' Whether the mouse is over the Begin button, allowing for the panel's scale.
 FUNC overBegin(lay AS PanelLayout, mx AS Float, my AS Float) AS Boolean
-  LET cx AS Float = lay.x + lay.w / 2.0
-  LET cy AS Float = lay.y + lay.h / 2.0
-  RETURN inside(cx + (mx - cx) / lay.scale, cy + (my - cy) / lay.scale, lay.bx, lay.by, lay.bw, lay.bh)
+  RETURN inside(mx, my, lay.bx, lay.by, lay.bw, lay.bh)
 END FUNC
 
-FUNC bullet(x AS Float, y AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN poly([pt(x, y - 3.5), pt(x + 3.5, y), pt(x, y + 3.5), pt(x - 3.5, y)], fillP(c))
+FUNC bullet(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN poly([pt(x, y - r), pt(x + r, y), pt(x, y + r), pt(x - r, y)], fillP(c))
 END FUNC
 
 ' The panel itself, at full size and opacity; drawIntro animates it in.
 FUNC introPanel(f AS Fonts, info AS DemoInfo, text AS PanelText, lay AS PanelLayout, hover AS Float, t AS Float) AS List OF canvas::DrawItem
+  LET k AS Float = text.k
   LET x AS Float = lay.x
   LET y AS Float = lay.y
   LET pw AS Float = lay.w
   LET cx AS Float = x + pw / 2.0
-  LET left AS Float = x + PANEL_PAD
+  LET left AS Float = x + PANEL_PAD * k
   MUT out AS List OF canvas::DrawItem = []
   ' Shadow, body and a double gold border.
   out = collections::append(out, rrect(x - 6.0, y + 10.0, pw + 12.0, lay.h + 8.0, 20.0, fillP(rgba(0, 0, 0, 110))))
-  out = collections::append(out, rrect(x, y, pw, lay.h, 16.0, WITH gradP(linear(x, y, x, y + lay.h, [gstop(0.0, alpha(panelTop(), 0.97)), gstop(1.0, alpha(panelBottom(), 0.97))])) { stroke := alpha(gold(), 0.7), strokeWidth := 1.4 }))
+  out = collections::append(out, rrect(x, y, pw, lay.h, 16.0, WITH gradP(linear(x, y, x, y + lay.h, [gstop(0.0, panelTop()), gstop(1.0, panelBottom())])) { stroke := alpha(gold(), 0.7), strokeWidth := 1.4 }))
   out = collections::append(out, rrect(x + 7.0, y + 7.0, pw - 14.0, lay.h - 14.0, 11.0, canvas::stroke(alpha(gold(), 0.22), 1.0)))
   ' A sheen across the top edge, drifting slowly.
   LET sheenX AS Float = x + pw * fract(t * 0.07)
   out = collections::append(out, rrect(x, y, pw, 3.0, 1.5, WITH glowP(color::white) { gradient := linear(sheenX - 140.0, 0.0, sheenX + 140.0, 0.0, [gstop(0.0, rgba(255, 230, 170, 0)), gstop(0.5, rgba(255, 230, 170, 120)), gstop(1.0, rgba(255, 230, 170, 0))]) }))
   ' The medallion with the scene's numeral.
-  MUT yy AS Float = y + PANEL_PAD + 20.0
-  out = collections::append(out, circle(cx, yy, 22.0, WITH gradP(focal(cx, yy, 22.0, -6.0, -8.0, [gstop(0.0, hex("#3a4e6a")), gstop(1.0, hex("#101a28"))])) { stroke := gold(), strokeWidth := 1.5 }))
-  out = collections::append(out, centered(f.heading, 17.0, info.numeral, cx, yy + 6.0, fillP(gold())))
-  yy = yy + 32.0 + PANEL_TITLE
-  out = collections::append(out, glowText(f.heading, PANEL_TITLE, info.title, cx - textWidth(f.heading, PANEL_TITLE, info.title) / 2.0, yy, gold(), 1.6))
-  out = collections::append(out, centered(f.heading, PANEL_TITLE, info.title, cx, yy, fillP(parchment())))
-  yy = yy + 14.0
+  MUT yy AS Float = y + (PANEL_PAD + 20.0) * k
+  LET mr AS Float = 22.0 * k
+  out = collections::append(out, circle(cx, yy, mr, WITH gradP(focal(cx, yy, mr, -mr * 0.27, -mr * 0.36, [gstop(0.0, hex("#3a4e6a")), gstop(1.0, hex("#101a28"))])) { stroke := gold(), strokeWidth := 1.5 }))
+  out = collections::append(out, centered(f.heading, 17.0 * k, info.numeral, cx, yy + 6.0 * k, fillP(gold())))
+  yy = yy + (32.0 + PANEL_TITLE) * k
+  LET ts AS Float = PANEL_TITLE * k
+  out = collections::append(out, glowText(f.heading, ts, info.title, cx - textWidth(f.heading, ts, info.title) / 2.0, yy, gold(), 1.6))
+  out = collections::append(out, centered(f.heading, ts, info.title, cx, yy, fillP(parchment())))
+  yy = yy + 14.0 * k
   FOR EACH l IN text.flavor
-    yy = yy + 22.0
-    out = collections::append(out, centered(f.italic, PANEL_FLAVOR, l, cx, yy, fillP(muted())))
+    yy = yy + 22.0 * k
+    out = collections::append(out, centered(f.italic, PANEL_FLAVOR * k, l, cx, yy, fillP(muted())))
   NEXT
-  yy = yy + 20.0
+  yy = yy + 20.0 * k
   out = collections::append(out, divider(cx, yy, pw * 0.36, 1.0))
-  yy = yy + 6.0
+  yy = yy + 6.0 * k
   ' What the scene shows of the canvas.
-  yy = yy + 22.0
-  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL, text.onCanvas, left, yy, fillP(gold())))
-  yy = yy + 6.0
+  yy = yy + 22.0 * k
+  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.onCanvas, left, yy, fillP(gold())))
+  yy = yy + 6.0 * k
   FOR EACH block IN text.primary
     FOR i = 0 TO len(block) - 1
-      yy = yy + 21.0
-      IF i = 0 THEN out = collections::append(out, bullet(left + 4.0, yy - 5.0, gold()))
-      out = collections::append(out, label(f.body, PANEL_PRIMARY, collections::get(block, i), left + 20.0, yy, parchment()))
+      yy = yy + 21.0 * k
+      IF i = 0 THEN out = collections::append(out, bullet(left + 4.0 * k, yy - 5.0 * k, 3.5 * k, gold()))
+      out = collections::append(out, label(f.body, PANEL_PRIMARY * k, collections::get(block, i), left + 20.0 * k, yy, parchment()))
     NEXT
-    yy = yy + 6.0
+    yy = yy + 6.0 * k
   NEXT
   ' And what it shows of the language.
-  yy = yy + 22.0
-  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL, text.inLanguage, left, yy, fillP(alpha(muted(), 0.9))))
-  yy = yy + 4.0
+  yy = yy + 22.0 * k
+  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.inLanguage, left, yy, fillP(alpha(muted(), 0.9))))
+  yy = yy + 4.0 * k
   FOR EACH block IN text.secondary
     FOR i = 0 TO len(block) - 1
-      yy = yy + 19.0
-      IF i = 0 THEN out = collections::append(out, bullet(left + 4.0, yy - 4.5, alpha(muted(), 0.8)))
-      out = collections::append(out, label(f.body, PANEL_SECONDARY, collections::get(block, i), left + 20.0, yy, muted()))
+      yy = yy + 19.0 * k
+      IF i = 0 THEN out = collections::append(out, bullet(left + 4.0 * k, yy - 4.5 * k, 3.5 * k, alpha(muted(), 0.8)))
+      out = collections::append(out, label(f.body, PANEL_SECONDARY * k, collections::get(block, i), left + 20.0 * k, yy, muted()))
     NEXT
-    yy = yy + 4.0
+    yy = yy + 4.0 * k
   NEXT
   ' Controls.
-  yy = yy + 18.0
-  LET boxH AS Float = math::max(toFloat(len(text.controls)) * 19.0, 19.0) + 14.0
-  out = collections::append(out, rrect(left - 8.0, yy - 4.0, pw - PANEL_PAD * 2.0 + 16.0, boxH, 8.0, WITH fillP(rgba(255, 255, 255, 10)) { stroke := rgba(255, 255, 255, 22), strokeWidth := 1.0 }))
-  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL, text.controlsLabel, left + 4.0, yy + 15.0, fillP(gold())))
+  yy = yy + 18.0 * k
+  LET boxH AS Float = (math::max(toFloat(len(text.controls)) * 19.0, 19.0) + 14.0) * k
+  out = collections::append(out, rrect(left - 8.0 * k, yy - 4.0 * k, pw - PANEL_PAD * k * 2.0 + 16.0 * k, boxH, 8.0 * k, WITH fillP(rgba(255, 255, 255, 10)) { stroke := rgba(255, 255, 255, 22), strokeWidth := 1.0 }))
+  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.controlsLabel, left + 4.0 * k, yy + 15.0 * k, fillP(gold())))
   FOR i = 0 TO len(text.controls) - 1
-    out = collections::append(out, label(f.body, PANEL_SECONDARY, collections::get(text.controls, i), left + 108.0, yy + 15.0 + toFloat(i) * 19.0, parchment()))
+    out = collections::append(out, label(f.body, PANEL_SECONDARY * k, collections::get(text.controls, i), left + 108.0 * k, yy + (15.0 + toFloat(i) * 19.0) * k, parchment()))
   NEXT
   ' Begin.
   out = collections::append(out, button(f, text.begin, lay.bx, lay.by, lay.bw, lay.bh, hover, TRUE))
-  out = collections::append(out, centered(f.body, 11.5, "Enter  ·  Space  ·  Click", cx, lay.by + lay.bh + 18.0, fillP(alpha(muted(), 0.6))))
+  out = collections::append(out, centered(f.body, 11.5 * k, "Enter  ·  Space  ·  Click", cx, lay.by + lay.bh + 18.0 * k, fillP(alpha(muted(), 0.6))))
   RETURN out
 END FUNC
 
 ' The panel animated in (or out): `open` runs 0 -> 1 as it appears. It rises
-' and grows from 94% while it fades in, all by restyling the finished items.
+' and grows from 94% while it fades in, all by restyling the finished items;
+' once it is open it is drawn at exactly its own size.
 FUNC drawIntro(f AS Fonts, info AS DemoInfo, text AS PanelText, lay AS PanelLayout, w AS Float, h AS Float, open AS Float, hover AS Float, t AS Float) AS List OF canvas::DrawItem
   LET a AS Float = easeOutCubic(open)
-  LET s AS Float = lay.scale * (0.94 + 0.06 * easeOutBack(open))
+  LET dim AS canvas::DrawItem = rect(0.0, 0.0, w, h, fillP(rgba(4, 7, 12, math::round(150.0 * a))))
+  LET panel AS List OF canvas::DrawItem = introPanel(f, info, text, lay, hover, t)
+  IF open >= 1.0 THEN RETURN collections::append([dim], panel)
+  LET s AS Float = 0.94 + 0.06 * easeOutBack(open)
   LET cx AS Float = lay.x + lay.w / 2.0
   LET cy AS Float = lay.y + lay.h / 2.0
   LET tr AS canvas::Transform = canvas::Transform[a := s, b := 0.0, c := 0.0, d := s, tx := cx - cx * s, ty := cy - cy * s + (1.0 - a) * 24.0]
-  LET dim AS canvas::DrawItem = rect(0.0, 0.0, w, h, fillP(rgba(4, 7, 12, math::round(150.0 * a))))
-  RETURN collections::append([dim], restyle(introPanel(f, info, text, lay, hover, t), tr, 1.0 - a))
+  RETURN collections::append([dim], restyle(panel, tr, 1.0 - a))
 END FUNC
 
 ' ---------------------------------------------------------------------------

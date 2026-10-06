@@ -9,8 +9,8 @@
 ' (GradientApply.FillAndStroke).
 '
 ' The sun outside follows the mouse. The light through the window falls on the
-' floor as the same pane polygons again, under a transform that shears and
-' flattens them onto the flagstones, added on with BlendMode.Add, so moving the
+' floor as the same pane rings again, carried through a transform that shears
+' and flattens them onto the flagstones, added on with BlendMode.Add, so moving the
 ' sun swings the coloured pools across the floor. Click a pane to change its
 ' glass; R re-leads the whole window in new colours.
 

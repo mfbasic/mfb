@@ -8,8 +8,8 @@
 ' spring leans downwind, the owl rides it, and pale streamlines show it moving.
 '
 ' A leaf tumbles by scaling its X by the cosine of its spin, which is how a
-' flat thing turning over looks from the side. Every leaf is one Polygon with
-' its own transform.
+' flat thing turning over looks from the side. Every leaf is one Polygon, its
+' outline carried through its own transform (kit.mfb's mapRing).
 
 IMPORT canvas
 IMPORT collections

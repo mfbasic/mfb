@@ -256,10 +256,10 @@ FUNC labelP(font AS canvas::Font, size AS Float, text AS String, x AS Float, bas
   RETURN canvas::Text[x := x, y := baseline, text := text, font := font, size := size, paint := p]
 END FUNC
 
-' A soft round glow: a disc whose radial ramp fades from `c` to nothing, added
-' onto what is beneath it.
+' A soft round glow: a disc whose radial ramp falls away quickly from `c` and
+' then slowly to nothing, as light does, added onto what is beneath it.
 FUNC glow(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Circle[x := x, y := y, radius := r, paint := WITH glowP(color::white) { gradient := radial(x, y, r, [gstop(0.0, c), gstop(0.35, fade(c, 0.45)), gstop(1.0, fade(c, 0.0))]) }]
+  RETURN canvas::Circle[x := x, y := y, radius := r, paint := WITH glowP(color::white) { gradient := radial(x, y, r, [gstop(0.0, c), gstop(0.2, fade(c, 0.5)), gstop(0.5, fade(c, 0.15)), gstop(1.0, fade(c, 0.0))]) }]
 END FUNC
 
 ' ---------------------------------------------------------------------------

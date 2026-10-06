@@ -387,6 +387,9 @@ FUNC alchemistDraw(s AS AlchemistState, f AS Fonts, w AS Float, h AS Float) AS L
   ' Broken walls left and right, with an empty window.
   LET wall AS color::Color = hex("#1f2a2c")
   out = collections::append(out, shape([[pt(-10.0, h), pt(-10.0, h * 0.08), pt(w * 0.08, h * 0.05), pt(w * 0.14, h * 0.12), pt(w * 0.2, h * 0.1), pt(w * 0.24, h * 0.3), pt(w * 0.22, h * 0.55), pt(w * 0.28, h)], ovalRingCcw(w * 0.11, h * 0.3, w * 0.035, h * 0.09, 32, 0.0)], canvas::FillRule.NonZero, gradP(linear(0.0, 0.0, w * 0.28, 0.0, [gstop(0.0, hex("#0f1617")), gstop(1.0, wall)]))))
+  ' The window's stone frame, and the moon through it.
+  out = collections::append(out, ellipse(w * 0.11, h * 0.3, w * 0.035, h * 0.09, 0.0, WITH canvas::stroke(hex("#4a5654"), 4.0) { dashes := [h * 0.04, h * 0.006], join := canvas::JoinStyle.Miter }))
+  out = collections::append(out, glow(w * 0.115, h * 0.26, h * 0.06, rgba(200, 220, 255, 120)))
   out = collections::append(out, shape([[pt(w + 10.0, h), pt(w + 10.0, h * 0.12), pt(w * 0.9, h * 0.06), pt(w * 0.84, h * 0.16), pt(w * 0.79, h * 0.3), pt(w * 0.8, h * 0.52), pt(w * 0.73, h)]], canvas::FillRule.NonZero, gradP(linear(w * 0.73, 0.0, w, 0.0, [gstop(0.0, wall), gstop(1.0, hex("#0f1617"))]))))
   ' Vines writhing down the walls.
   out = collections::append(out, vine(w * 0.2, h * 0.11, 1.2, h * 0.45, h * 0.012, t, 0.9, hex("#2f6a3a")))
