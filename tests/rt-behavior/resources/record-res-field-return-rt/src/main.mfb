@@ -31,7 +31,7 @@ TYPE Holder
   handle AS RES fs::File
 END TYPE
 
-FUNC wrap(RES f AS fs::File) AS Holder
+FUNC wrap(f AS fs::File) AS Holder
   LET h = Holder["made", f]
   RETURN h
 END FUNC

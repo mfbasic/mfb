@@ -31,7 +31,7 @@ PRIVATE FUNC fixtureNamed(label AS String) AS Fixture
 END FUNC
 
 ' Write `data` into a fresh temp file and hand back the open handle.
-PRIVATE FUNC tempFileOf(RES handle AS fs::File, data AS List OF Byte) AS Integer
+PRIVATE FUNC tempFileOf(handle AS fs::File, data AS List OF Byte) AS Integer
   fs::writeAllBytes(handle, data)
   fs::flush(handle)
   RETURN len(data)

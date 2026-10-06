@@ -27,7 +27,7 @@ LINK "sqlite3" AS sql
     RETURN db
     SUCCESS_ON status = 0
   END FUNC
-  FUNC rawClose(RES db AS Db STATE DbInfo) AS Nothing
+  FUNC rawClose(db AS Db STATE DbInfo) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0

@@ -899,11 +899,21 @@ impl ToJson for Param {
             pad,
             json_string(&self.name),
             type_name,
-            resource_json_suffix(self.resource, &self.state_type),
+            param_state_json_suffix(&self.state_type),
             default,
             self.line
         )
     }
+}
+
+/// A parameter's `STATE` clause, when it has one. There is no `resource` key: a
+/// parameter carries no `RES` keyword (bug-976), and whether its type is a
+/// resource is decided after the parse, so the AST has nothing to print for it.
+fn param_state_json_suffix(state_type: &Option<String>) -> String {
+    state_type
+        .as_ref()
+        .map(|value| format!(", \"state\": {}", json_string(value)))
+        .unwrap_or_default()
 }
 
 impl ToJson for Statement {
@@ -1542,9 +1552,6 @@ impl Function {
             .iter()
             .map(|param| {
                 let mut text = String::new();
-                if param.resource {
-                    text.push_str("RES ");
-                }
                 text.push_str(&param.name);
                 if let Some(type_name) = &param.type_name {
                     text.push_str(" AS ");

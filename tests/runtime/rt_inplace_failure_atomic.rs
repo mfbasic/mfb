@@ -243,7 +243,7 @@ fn a_failing_self_update_leaves_the_binding_unchanged() {
 /// the record's last inlined field — the arms mutate a middle sub-block where it
 /// lies (plan-145-A Open Decision 2). The whole program then frees every byte it
 /// allocated: a shrunk sub-block must not leak the record's tail (`live_bytes 0`
-/// in the `--debug` report). The `STATE` handle is a `RES` parameter, so the
+/// in the `--debug` report). The `STATE` handle is a resource parameter, so the
 /// handler may read it (bug-676).
 #[test]
 fn a_failing_field_self_update_leaves_the_owner_unchanged() {
@@ -293,7 +293,7 @@ FUNC rec_{name}() AS Integer
   END TRAP
 END FUNC
 
-FUNC st_{name}(RES h AS fs::File STATE R) AS Integer
+FUNC st_{name}(h AS fs::File STATE R) AS Integer
   h.state = WITH h.state {{ {field} := {st} }}
   io::print(\"not reached\")
   RETURN 0
@@ -439,7 +439,7 @@ FUNC recUnion() AS Integer
   END TRAP
 END FUNC
 
-FUNC stMerge(RES h AS fs::File STATE M) AS Integer
+FUNC stMerge(h AS fs::File STATE M) AS Integer
   FOR i = 1 TO 40
     h.state = WITH h.state {{ m := collections::merge(h.state.m, Map OF String TO String {{ \"k\" & toString(i) := \"value\" }}, TRUE) }}
   NEXT

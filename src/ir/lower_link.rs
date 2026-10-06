@@ -157,7 +157,7 @@ pub(super) fn link_functions(hir: &crate::hir::HirProject) -> Vec<IrLinkFunction
                             .iter()
                             .map(|param| {
                                 let type_ = param.type_.clone().unwrap_or(ParameterType::Unknown);
-                                // plan-53-A: carry a `RES p AS R STATE S` param's
+                                // plan-53-A: carry a `p AS R STATE S` param's
                                 // STATE inline (`R STATE S`), so the close thunk can
                                 // detect a stateful native resource param and load
                                 // the handle from FD@0 of its record instead of

@@ -1306,7 +1306,7 @@ impl CodeBuilder<'_> {
     /// Two shapes alias, and the boundary against *producing* is what keeps
     /// bug-374's leak fixed:
     ///
-    /// * `Local` — naming an existing binding, `RES` parameter, or `FOR EACH`
+    /// * `Local` — naming an existing binding, resource parameter, or `FOR EACH`
     ///   loop variable. A producing bind never reaches here as a bare local at
     ///   the source level; where `TRAP` desugaring routes one through a temp
     ///   (`RES f = <fallible> TRAP` lowers to `bind f = local $trap_valN`), that

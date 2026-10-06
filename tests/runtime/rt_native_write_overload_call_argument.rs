@@ -177,7 +177,7 @@ const CONNECT_SOURCE: &str = r#"IMPORT tcp
 IMPORT net
 IMPORT io
 
-FUNC endpoint(RES l AS tcp::Listener) AS net::Address
+FUNC endpoint(l AS tcp::Listener) AS net::Address
   RETURN tcp::localAddress(l)
 END FUNC
 
@@ -217,7 +217,7 @@ const POLL_SOURCE: &str = r#"IMPORT tcp
 IMPORT net
 IMPORT io
 
-FUNC watched(RES a AS tcp::Socket) AS List OF RES tcp::Socket
+FUNC watched(a AS tcp::Socket) AS List OF RES tcp::Socket
   RETURN [a]
 END FUNC
 

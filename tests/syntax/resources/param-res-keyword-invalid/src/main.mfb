@@ -1,0 +1,18 @@
+IMPORT fs
+IMPORT io
+
+' bug-976: a parameter takes no `RES`. Its type already makes it a resource
+' (`fs::File` is one), so the keyword is rejected where it is written, in a FUNC
+' parameter list and in a LAMBDA's, with the error located on the keyword. The
+' parser recovers past it, so both spellings are reported, not just the first.
+FUNC size(RES h AS fs::File) AS Integer
+  RETURN fs::size(h)
+END FUNC
+
+FUNC main AS Integer
+  RES f AS fs::File = fs::openFile("target/param-res-keyword.txt", "w")
+  LET n = size(f)
+  LET pick = LAMBDA(RES x AS fs::File) -> TRUE
+  io::print(toString(n))
+  RETURN 0
+END FUNC

@@ -12,7 +12,7 @@ END TYPE
 '
 ' TODO(plan-52-C): this golden should name STATE, matching the write path's
 ' `TYPE_STATE_INVALID` wording, instead of blaming `toString`'s argument types.
-FUNC show(RES p AS fs::File) AS Nothing
+FUNC show(p AS fs::File) AS Nothing
   io::print(toString(p.state.pos))
 END FUNC
 

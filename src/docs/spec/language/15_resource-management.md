@@ -22,14 +22,14 @@ the static move rule below without closing the resource or changing its cleanup
 scope. Consumption inside an ordinary callee is not necessarily statically
 visible at the caller; runtime closed/moved checks still apply.
 
-A resource has a **cleanup scope**, determined by production, container routing (§15.6), and explicit return or thread transfer. Reading a reference or passing it as an ordinary argument does not by itself change that scope. Holding a reference grants the right to *invalidate*: any holder may close it, `RETURN` it, or `thread::transfer` it, including a callee given only a `RES` parameter. The owning scope then closes it once **if nobody already did** — so `closeSound(RES sound AS SoundFile)`, "take a handle, give it back", is expressible.
+A resource has a **cleanup scope**, determined by production, container routing (§15.6), and explicit return or thread transfer. Reading a reference or passing it as an ordinary argument does not by itself change that scope. Holding a reference grants the right to *invalidate*: any holder may close it, `RETURN` it, or `thread::transfer` it, including a callee given only a resource parameter. The owning scope then closes it once **if nobody already did** — so `closeSound(sound AS SoundFile)`, "take a handle, give it back", is expressible.
 
 ### The owner of a resource
 
 The cleanup scope belongs to the **resource**, not to any name that refers to it:
 
 1. **A resource holds its cleanup scope. A `RES` does not.** Every `RES` binding,
-   `RES` parameter, record field, and collection slot is a *reference* to the one
+   resource parameter, record field, and collection slot is a *reference* to the one
    resource; none of them is an owner.
 2. **A resource's scope only floats up, never down.** It starts at the scope whose
    binding first takes the freshly produced resource. Adding it to a collection whose
@@ -61,7 +61,7 @@ the returning function owns; a scope-exit close runs only when the owner equals 
 scope's token. `thread::accept` produces an unowned copy that its binding claims.
 [[src/codegen/resource/owner.rs:emit_resource_claim]] [[src/codegen/resource/owner.rs:emit_resource_float]] [[src/codegen/resource/owner.rs:emit_release_returned_value]] [[src/codegen/resource/owner.rs:emit_skip_unless_owned]] [[src/codegen/resource/owner.rs:emit_close_discarded_value]]
 
-**Thread handles are resources too.** A parent `Thread` follows every rule here, with one difference: its registered close op (`thread.drop`) is hidden, so event 1 is not available to a program; explicit resource hand-off uses `thread::transfer` or `RETURN`, and automatic close occurs at its cleanup scope's drop — which cancels a worker still running (§16). A `ThreadWorker` has no close op at all. [[src/codegen/builtins/thread/mod.rs:DROP]]
+**Thread handles are resources too.** A parent `Thread` follows every rule here, with one difference: its registered close op (`thread.drop`) is hidden, so event 1 is not available to a program; explicit resource hand-off uses `thread::transfer` or `RETURN`, and automatic close occurs at its cleanup scope's drop — which cancels a worker still running (§16). A `ThreadWorker` is a resource as well — bound with `RES`, aliased, moved and stored by the same rules — that has no close op at all: the runtime closes it when the worker returns, so its cleanup scope's drop closes nothing. Whether a type is a resource is decided by the type, never by whether it has a close op. [[src/codegen/builtins/thread/mod.rs:DROP]] [[src/codegen/resource/mod.rs:is_builtin_resource]]
 
 An already-closed resource record is flagged, and a second close is a defined no-op reported as `ErrResourceClosed` rather than an operation on a dead handle. There is no source `MOVE` annotation. A call site need not reveal a close or transfer performed inside its callee.
 
@@ -103,13 +103,13 @@ that source name owns cleanup; parameters and other non-owning names qualify too
 | Initializer / binding form | Identity and source-name validity | Cleanup consequence |
 | --- | --- | --- |
 | `RES b = a`, where `a` is a concrete resource local | Same identity; `a` is marked moved | Reference alias; no additional cleanup at `b`'s scope merely for copying the reference |
-| `RES b = p`, where `p` is a `RES` parameter | Same direct-name rule; `p` is marked moved in this function | Does not acquire the caller's cleanup obligation |
+| `RES b = p`, where `p` is a resource parameter | Same direct-name rule; `p` is marked moved in this function | Does not acquire the caller's cleanup obligation |
 | `RES b = item`, where `item` is a concrete `MATCH` or `FOR EACH` resource binding | Same direct-name rule; `item` is marked moved | Existing union/resource/container cleanup remains responsible |
 | `RES b = a` after `a` has floated | Same direct-name rule; floating does not exempt `a` | The existing container cleanup remains responsible |
 | `RES b = holder.handle` | View of the field's resource; no direct source name is moved | No new close obligation |
 | `RES b = collections::get(xs, i)` or resource-valued `getOr` | View of the selected resource; container remains usable | No new close obligation; the same rule applies to resource-valued `tcp::poll`, `udp::poll`, and `tls::poll` |
 | `RES b = producer(...)`, or a function that returns a resource it produced (or one floated to its own scope) | New or released identity; arguments are not marked moved merely by the call | `b`'s scope claims it and closes it once, unless its obligation floats |
-| `RES b = f(...)` where `f` hands back a resource with a live owner — a `RES` argument, or anything it received | Same identity as that argument | Reference only: `b`'s scope closes nothing; the existing owner still does |
+| `RES b = f(...)` where `f` hands back a resource with a live owner — a resource argument, or anything it received | Same identity as that argument | Reference only: `b`'s scope closes nothing; the existing owner still does |
 | `MATCH` extraction or `FOR EACH` element binding itself | View of the existing resource; extraction alone is not a direct-name `RES` move | No independent close obligation |
 
 Native lowering classifies local and member reads and the named extraction calls
@@ -134,7 +134,7 @@ fs::close(f)          ' registered close → f invalidated
 ' exec(f, "...")      ' COMPILE ERROR: f used after close
 ```
 
-A resource value may be passed to a function whose parameter is declared `RES` and either **explicitly names that concrete resource type** — such as `RES f AS fs::File`, `RES s AS tcp::Socket`, or a `LINK`-declared resource — **or names a resource union of which that type is a variant** (a `File` value passed to a `RES s AS Stream` parameter, where `Stream` is the resource union below). A function returns a resource with an explicit `AS RES <Type>` return.
+**A parameter is a resource because its type is one.** A parameter carries no `RES` keyword: `FUNC size(f AS fs::File)` takes a resource parameter because `fs::File` is a resource, and writing `RES f AS fs::File` is a parse error (`MFB_PARSE_PARAMETER_RES`), located on the keyword. [[src/ast/items.rs:parse_params]] [[src/rules/table.rs:MFB_PARSE_PARAMETER_RES]] The type decides it with the rule that makes a binding of the type need `RES`: a type with a registered close op (a built-in resource, a `RESOURCE` declaration, an imported package's resource) or a resource union; a parameter that carries a `STATE` clause is a resource parameter too. [[src/hir/resource_params.rs:ResourceTypes]] A resource value may be passed to a parameter that either **explicitly names that concrete resource type** — such as `f AS fs::File`, `s AS tcp::Socket`, or a `LINK`-declared resource — **or names a resource union of which that type is a variant** (a `File` value passed to an `s AS Stream` parameter, where `Stream` is the resource union below). A function returns a resource with an explicit `AS RES <Type>` return.
 
 This variant→union widening is **directional** and applies only in **non-owning parameter position**: a variant value widens *into* a union-typed parameter, never the reverse. A union-typed value passed to a parameter that names a **concrete** resource type is rejected (`TYPE_CALL_ARGUMENT_MISMATCH`). Consequently every registered close op, `thread::transfer`, and `thread::accept` — each of which declares a concrete-typed parameter — keeps its exact type and is unaffected: a resource union is dropped by dispatching on its tag to the active variant's close op, never by handing the whole union to a concrete close. The widening is **representation-neutral**: a resource value already carries its own kind, so a variant argument lowers to the same single handle whether the parameter names the concrete type or the union — no tagged temporary is materialized. Binding, returning, and consuming a resource union are unchanged; only the non-owning-parameter position widens.
 
@@ -160,13 +160,13 @@ s.state = WITH s.state { pos := 10 }                         ' or replace the wh
 
 `T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise). A direct `RES` field prevents a record from being defaultable, so such a record cannot be `T`. A record with a collection of resource references can be defaultable because the collection defaults to empty; it remains prohibited on a thread data plane (`TYPE_THREAD_RESOURCE_PLANE_REQUIRED`, §16). [[src/ir/verify/resources.rs:is_defaultable]] The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS fs::File STATE FileState`), and is freed when the resource **drops**. `STATE` is optional. An explicit close (`fs::close(s)`) releases the OS handle but reclaims no payload memory; drop frees it. Static move checking still rejects a later read through a binding known to have been closed.
 
-`s.state` reads the state record. It is updated either by assigning a single field in place (`s.state.field = value`) or by assigning a whole-state `WITH` update (`s.state = WITH s.state { field := value }`); the former is shorthand for the latter. These are the only member-target assignments in the language. Because a `RES` is an alias to one live resource, a state update made through a `RES` parameter (an alias, not a copy) is visible to the owner after the call.
+`s.state` reads the state record. It is updated either by assigning a single field in place (`s.state.field = value`) or by assigning a whole-state `WITH` update (`s.state = WITH s.state { field := value }`); the former is shorthand for the latter. These are the only member-target assignments in the language. Because a `RES` is an alias to one live resource, a state update made through a resource parameter (an alias, not a copy) is visible to the owner after the call.
 
 ## 15.5 What `STATE` means in each position
 
 A resource *type* carries no `STATE`: a `RESOURCE` declaration is `RESOURCE SfFile CLOSE BY sfClose` and has no `STATE` clause. [[src/ast/items.rs:parse_top_level_resource]] `STATE` is written at the *use* positions — a parameter, a return, a binding, and a **slot** (a collection element/map value, or a record field) — and the same two spellings mean different things at each:
 
-| Position | `RES x AS SfFile` (bare) | `RES x AS SfFile STATE FileInfo` |
+| Position | bare (`… x AS SfFile`) | `… x AS SfFile STATE FileInfo` |
 |---|---|---|
 | **Parameter** | accepts a `SfFile` carrying **any state or none**; `x.state` is **not** accessible | accepts **only** a `SfFile` carrying a `FileInfo`; `x.state` is accessible |
 | **Return** | **asserts** the resource has no state; rejected if it carries one | returns a resource **carrying** a `FileInfo` |
@@ -189,11 +189,11 @@ The rule behind the asymmetry is **what the compiler can prove about the STATE t
 
 The asymmetry is thus about **knowledge, not lifetime**. `STATE` agreement holds independently of whether a resource escapes: the check happens wherever a type is named, and the one place no type is named is the one place nothing can be misread. A `thread::transfer` across the thread boundary is checked the same way (the plane names the `STATE`; `TYPE_STATE_MISMATCH` on disagreement, §16). See `./mfb spec architecture escape-analysis`.
 
-Because a bare parameter is opaque rather than stateless, an opaque `STATE` may not be **narrowed** to a concrete one: a bare `RES f AS SfFile` parameter cannot be returned or bound as `RES … AS SfFile STATE FileInfo`, since the compiler knows only that `f` has *some* state and cannot discharge the claim that it is a `FileInfo` (`TYPE_STATE_OPAQUE_NARROWING`). Opacity propagates as opacity; only a producer that knows the type may name it.
+Because a bare parameter is opaque rather than stateless, an opaque `STATE` may not be **narrowed** to a concrete one: a bare `f AS SfFile` parameter cannot be returned or bound as `RES … AS SfFile STATE FileInfo`, since the compiler knows only that `f` has *some* state and cannot discharge the claim that it is a `FileInfo` (`TYPE_STATE_OPAQUE_NARROWING`). Opacity propagates as opacity; only a producer that knows the type may name it.
 
-The parameter row is what lets a close op accept a resource whatever state its owner attached — `FUNC close(RES db AS Db)` names no `STATE` and works for every `Db`, precisely because that alias never escapes to re-read `.state` under a new type.
+The parameter row is what lets a close op accept a resource whatever state its owner attached — `FUNC close(db AS Db)` names no `STATE` and works for every `Db`, precisely because that alias never escapes to re-read `.state` under a new type.
 
-**Attachment happens exactly once, at the owning binding.** A parameter only observes: a `RES p AS fs::File STATE Cursor` parameter given an argument that carries no `Cursor`, or that carries some other state type, is rejected (`TYPE_STATE_MISMATCH`) [[src/rules/table.rs:TYPE_STATE_MISMATCH]] rather than attaching or re-typing one. The payload carries no runtime type tag, so its type is fixed by the binding that created it and every later declaration must agree.
+**Attachment happens exactly once, at the owning binding.** A parameter only observes: a `p AS fs::File STATE Cursor` parameter given an argument that carries no `Cursor`, or that carries some other state type, is rejected (`TYPE_STATE_MISMATCH`) [[src/rules/table.rs:TYPE_STATE_MISMATCH]] rather than attaching or re-typing one. The payload carries no runtime type tag, so its type is fixed by the binding that created it and every later declaration must agree.
 
 Consequently a binding that wants only the handle must still restate the `STATE` its initializer carries; there is no owner-side opt-out. That restatement is the price of the bare return's "no state" promise, which a later `STATE T` binding relies on when it attaches.
 
@@ -239,9 +239,9 @@ identities (§17), and several packages deliberately share a bare name —
 `tcp::Socket`, `udp::Socket` and `tls::Socket` are three distinct resource types —
 so a bare `Socket` would not say which one.
 
-A resource union owns exactly one resource at a time (the active variant), so it is atomic — a *choice* among resources, not a bundle. **Drop is tag-dispatched**: cleanup reads the union tag and calls the active variant's registered close op. Matching a resource union yields a reference to the active variant (the union retains ownership and closes it on drop). A union may **not mix** data and resource variants (`TYPE_MIXED_RESOURCE_UNION`). A value of any variant may be passed into a `RES` parameter that names the union (variant→union widening, §15.4) — a `File` into a `RES s AS Stream` parameter — but never the reverse: a `Stream` value is not accepted by a concrete `RES f AS fs::File` parameter, which is what keeps each variant's registered close op concrete-typed.
+A resource union owns exactly one resource at a time (the active variant), so it is atomic — a *choice* among resources, not a bundle. **Drop is tag-dispatched**: cleanup reads the union tag and calls the active variant's registered close op. Matching a resource union yields a reference to the active variant (the union retains ownership and closes it on drop). A union may **not mix** data and resource variants (`TYPE_MIXED_RESOURCE_UNION`). A value of any variant may be passed into a parameter that names the union (variant→union widening, §15.4) — a `File` into an `s AS Stream` parameter — but never the reverse: a `Stream` value is not accepted by a concrete `f AS fs::File` parameter, which is what keeps each variant's registered close op concrete-typed.
 
-**A resource union may carry `STATE`.** Like a concrete stateful resource, a resource union takes a `STATE T` at its *use site* — a binding, parameter, or return (`RES s AS Stream STATE PendingState`) — never on the `UNION` declaration itself. The STATE type is **uniform**: it is the type named at the use site and is the same whichever variant is active, so nothing is read from the union tag to type `.state`. Agreement is checked exactly as for a concrete resource — a later binding, parameter, or return that names a disagreeing STATE type, or a `thread::transfer` plane that does, is rejected (`TYPE_STATE_MISMATCH`). The payload rides the **active variant's** resource record: it is default-initialized when the union is produced, adopted when the initializer already carries it, read and written in place through the union value or through a `RES … STATE …` parameter (a callee's write is visible to the owner, per this section), reached through a `MATCH`-extracted variant's `.state`, carried intact across a `thread::transfer`, and freed exactly once on drop **after** the tag-dispatched close. Per-variant STATE (a different type per variant) is **not** provided — a single uniform type is what keeps `.state` typable with no runtime tag, and it is the whole reason union STATE is sound.
+**A resource union may carry `STATE`.** Like a concrete stateful resource, a resource union takes a `STATE T` at its *use site* — a binding, parameter, or return (`RES s AS Stream STATE PendingState`) — never on the `UNION` declaration itself. The STATE type is **uniform**: it is the type named at the use site and is the same whichever variant is active, so nothing is read from the union tag to type `.state`. Agreement is checked exactly as for a concrete resource — a later binding, parameter, or return that names a disagreeing STATE type, or a `thread::transfer` plane that does, is rejected (`TYPE_STATE_MISMATCH`). The payload rides the **active variant's** resource record: it is default-initialized when the union is produced, adopted when the initializer already carries it, read and written in place through the union value or through a `… STATE …` parameter (a callee's write is visible to the owner, per this section), reached through a `MATCH`-extracted variant's `.state`, carried intact across a `thread::transfer`, and freed exactly once on drop **after** the tag-dispatched close. Per-variant STATE (a different type per variant) is **not** provided — a single uniform type is what keeps `.state` typable with no runtime tag, and it is the whole reason union STATE is sound.
 
 To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the name is statically moved. This does not imply removal of its cleanup entry: a later drop can invoke the close helper, whose already-closed result is a benign no-op, before reclaiming memory.
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_cleanup_call]]
@@ -268,12 +268,12 @@ reclamation order, and retention cases.
 **A transferred handle is moved, not closed.** A successful `thread::transfer`
 hands the resource to the receiving side and marks the sender's record **moved**.
 Every sender view shares that moved state, including the caller's view when a
-callee transfers a `RES` parameter. A later guarded operation reports
+callee transfers a resource parameter. A later guarded operation reports
 `ErrResourceMoved`, not `ErrResourceClosed`: the handle belongs to another thread.
 A direct read of the transferred name on the success continuation is rejected at
 compile time (`TYPE_USE_AFTER_MOVE`, §14.9); the runtime check protects the views
 that check cannot connect, such as the caller's binding after a callee transfers
-its `RES` parameter.
+its resource parameter.
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
 [[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
@@ -324,9 +324,9 @@ Compiled cleanup metadata must preserve enough information for runtime and audit
 
 ## 15.6 Resources in collections
 
-A resource is owned by a **scope** — never by a binding or a collection. A `RES` binding, a `RES` parameter, and a collection slot (a `List` element or `Map` value) all hold **a reference to the one resource**. Copying a reference never duplicates the resource, and a collection slot is a reference, not a resource binding. Creating a view does not itself close the resource; cleanup closes it on scope exit if it has not already been closed or transferred out.
+A resource is owned by a **scope** — never by a binding or a collection. A `RES` binding, a resource parameter, and a collection slot (a `List` element or `Map` value) all hold **a reference to the one resource**. Copying a reference never duplicates the resource, and a collection slot is a reference, not a resource binding. Creating a view does not itself close the resource; cleanup closes it on scope exit if it has not already been closed or transferred out.
 
-A resource appearing as a collection element carries the **`RES` ownership-axis marker**, exactly as a binding (`RES f`), a parameter (`RES f AS fs::File`), or a return (`AS RES fs::File`) does. The only spelling for a list of files is `List OF RES fs::File` (and `Map OF String TO RES fs::File` for a map value); a bare `List OF File` is rejected just like `LET f AS fs::File` (`TYPE_RESOURCE_REQUIRES_RES`), and `RES` on a non-resource element is rejected like `RES x AS Integer` (`TYPE_RES_REQUIRES_RESOURCE`). The marker is an ownership annotation only — the collection is still an ordinary copyable collection of references and owns nothing. A worker pool is the same shape: `List OF RES Thread OF Msg TO Out` holds references to parent thread handles, each closed once — its worker cancelled if still running — by the scope that owns it (§16).
+A resource appearing as a collection element carries the **`RES` ownership-axis marker**, exactly as a binding (`RES f`) or a return (`AS RES fs::File`) does. (A parameter carries no marker: it is a resource by its type.) The only spelling for a list of files is `List OF RES fs::File` (and `Map OF String TO RES fs::File` for a map value); a bare `List OF File` is rejected just like `LET f AS fs::File` (`TYPE_RESOURCE_REQUIRES_RES`), and `RES` on a non-resource element is rejected like `RES x AS Integer` (`TYPE_RES_REQUIRES_RESOURCE`). The marker is an ownership annotation only — the collection is still an ordinary copyable collection of references and owns nothing. A worker pool is the same shape: `List OF RES Thread OF Msg TO Out` holds references to parent thread handles, each closed once — its worker cancelled if still running — by the scope that owns it (§16).
 
 By default the owning scope is the scope where the resource is produced. The single rule that governs collections is **ownership floats up**:
 

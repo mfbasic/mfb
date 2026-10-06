@@ -493,9 +493,9 @@ pub enum Visibility {
 pub struct Param {
     pub name: String,
     pub type_name: Option<String>,
-    /// Whether this parameter was declared with `RES` (a resource pointer).
-    pub resource: bool,
-    /// The `STATE T` type attached to a `RES` parameter, if any.
+    /// The `STATE T` type attached to the parameter, if any. A parameter carries
+    /// no `RES` keyword (bug-976): it is a resource because its type is one, which
+    /// HIR elaboration decides (`HirParam::resource`).
     pub state_type: Option<String>,
     pub default: Option<Expression>,
     pub line: usize,

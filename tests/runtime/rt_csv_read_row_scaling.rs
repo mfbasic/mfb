@@ -40,7 +40,7 @@ FUNC makeCsv(rows AS Integer) AS String
   RETURN strings::join(parts, "\n") & "\n"
 END FUNC
 
-FUNC countRows(RES f AS fs::File) AS Integer
+FUNC countRows(f AS fs::File) AS Integer
   MUT n AS Integer = 0
   WHILE NOT fs::eof(f)
     LET row AS List OF String = csv::readRow(f)

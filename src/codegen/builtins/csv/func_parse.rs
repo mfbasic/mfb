@@ -114,7 +114,7 @@ END FUNC"#;
 
 #[rustfmt::skip]
 const FUNC_BODY_FILE: &str =
-r#"FUNC __csv_parseFile(RES value AS fs::File, delimiter AS String, quote AS String) AS List OF List OF String
+r#"FUNC __csv_parseFile(value AS fs::File, delimiter AS String, quote AS String) AS List OF List OF String
   LET delimCode AS Integer = __csv_firstCode(delimiter)
   LET quoteCode AS Integer = __csv_firstCode(quote)
   RETURN __csv_scan(value, "", delimCode, quoteCode, 0)

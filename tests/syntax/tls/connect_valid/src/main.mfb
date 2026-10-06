@@ -4,7 +4,7 @@ IMPORT io
 
 ' Takes a pointer to a session for one request/response round trip (no close: the owner
 ' closes it).
-FUNC ioRound(RES c AS tls::Socket) AS Integer
+FUNC ioRound(c AS tls::Socket) AS Integer
   tls::write(c, "GET / HTTP/1.0\r\n\r\n")
   LET payload AS List OF Byte = [1, 2, 3]
   tls::write(c, payload)

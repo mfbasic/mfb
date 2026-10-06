@@ -53,7 +53,7 @@ FUNC flushed(name AS String) AS String
 END FUNC
 
 ' Write one more byte through `h`: `open` when the handle was still live.
-FUNC poke(RES h AS fs::File) AS String
+FUNC poke(h AS fs::File) AS String
   fs::writeAll(h, "+")
   RETURN "open"
   TRAP(e)
@@ -154,7 +154,7 @@ fn a_resource_appended_to_a_global_stays_readable() {
   RETURN fs::openFile(dir() & "/data.txt")
 END FUNC
 
-FUNC read(RES f AS fs::File) AS String
+FUNC read(f AS fs::File) AS String
   LET line = fs::readLine(f) TRAP(e)
     RECOVER e.message
   END TRAP
@@ -211,7 +211,7 @@ fn a_parameter_stored_into_a_global_outlives_its_callers_scope() {
         "b806_param",
         r#"MUT saved AS List OF Holder = []
 
-FUNC keep(RES f AS fs::File) AS Nothing
+FUNC keep(f AS fs::File) AS Nothing
   saved = collections::append(saved, Holder[f])
 END FUNC
 
@@ -532,7 +532,7 @@ END UNION
 
 MUT streams AS List OF RES Stream = []
 
-FUNC keep(RES s AS Stream) AS Nothing
+FUNC keep(s AS Stream) AS Nothing
   streams = collections::append(streams, s)
 END FUNC
 

@@ -3,7 +3,7 @@ IMPORT io
 
 ' fs::seek: an absolute byte offset; buffered output is written at the old
 ' position first, and readLine's read-ahead is discarded.
-FUNC trySeek(RES f AS fs::File, position AS Integer) AS String
+FUNC trySeek(f AS fs::File, position AS Integer) AS String
   fs::seek(f, position) TRAP(e)
     RETURN "seek raised " & toString(e.code)
   END TRAP

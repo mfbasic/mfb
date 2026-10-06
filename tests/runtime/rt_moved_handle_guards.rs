@@ -60,19 +60,19 @@ ISOLATED FUNC takeThread(t AS ThreadWorker OF RES Thread OF String TO Integer TO
   RETURN thread::waitFor(g)
 END FUNC
 
-FUNC giveFile(RES x AS fs::File, t AS Thread OF RES fs::File TO Integer) AS Nothing
+FUNC giveFile(x AS fs::File, t AS Thread OF RES fs::File TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
 END FUNC
 
-FUNC giveListener(RES x AS tcp::Listener, t AS Thread OF RES tcp::Listener TO Integer) AS Nothing
+FUNC giveListener(x AS tcp::Listener, t AS Thread OF RES tcp::Listener TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
 END FUNC
 
-FUNC giveUdp(RES x AS udp::Socket, t AS Thread OF RES udp::Socket TO Integer) AS Nothing
+FUNC giveUdp(x AS udp::Socket, t AS Thread OF RES udp::Socket TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
 END FUNC
 
-FUNC giveThread(RES x AS Thread OF String TO Integer, t AS Thread OF RES Thread OF String TO Integer TO Integer) AS Nothing
+FUNC giveThread(x AS Thread OF String TO Integer, t AS Thread OF RES Thread OF String TO Integer TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
 END FUNC
 
@@ -272,7 +272,7 @@ ISOLATED FUNC takeListener(t AS ThreadWorker OF RES tls::Listener TO Integer, n 
   RETURN 5
 END FUNC
 
-FUNC giveListener(RES x AS tls::Listener, t AS Thread OF RES tls::Listener TO Integer) AS Nothing
+FUNC giveListener(x AS tls::Listener, t AS Thread OF RES tls::Listener TO Integer) AS Nothing
   thread::transfer(t, x, 5000)
 END FUNC
 

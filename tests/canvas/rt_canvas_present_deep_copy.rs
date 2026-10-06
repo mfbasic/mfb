@@ -125,7 +125,7 @@ const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 const SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
      IMPORT color\n\
-     FUNC scene(RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
+     FUNC scene(f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
     \x20 LET a AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c)]\n\

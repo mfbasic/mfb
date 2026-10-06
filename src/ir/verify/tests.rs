@@ -3584,7 +3584,7 @@ fn rejects_state_type_not_defaultable() {
     );
 }
 
-/// bug-674: a `RES` parameter's `STATE` is held to the same rule as a binding's.
+/// bug-674: a resource parameter's `STATE` is held to the same rule as a binding's.
 #[test]
 fn rejects_param_state_type_not_defaultable() {
     let f = func_returns(
@@ -3666,7 +3666,7 @@ fn rejects_use_after_close() {
 
 #[test]
 fn accepts_close_of_a_res_parameter() {
-    // plan-59-E: was `rejects_non_owner_resource_close`. A `RES` parameter used to
+    // plan-59-E: was `rejects_non_owner_resource_close`. A resource parameter used to
     // be a non-owning pointer that could not be closed
     // (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired). Under scope ownership any
     // holder may close, which is exactly what makes `closeSound(RES sound AS
@@ -4126,7 +4126,7 @@ fn rejects_return_state_not_defaultable() {
 
 #[test]
 fn rejects_binding_opaque_state_narrowing() {
-    // Binding a bare `RES` parameter under a concrete STATE — an unprovable
+    // Binding a bare resource parameter under a concrete STATE — an unprovable
     // narrowing (calls.rs:369-375).
     let mut f = func_returns("run", "Nothing", vec![param("p", "fs.File", None)], vec![]);
     let b = res_bind_owned(
@@ -7303,6 +7303,56 @@ fn a_thread_view_transfer_moves_the_source() {
     ];
     let f = owner_fn("run", "Nothing", body, &["a", "b"]);
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+const WORKER_VIEW: &str = "ThreadWorker OF Integer TO Integer";
+
+/// bug-975: a `ThreadWorker` is a resource with no close op, so a `LET` of one is
+/// `TYPE_RESOURCE_REQUIRES_RES`, exactly as a `LET` of a parent `Thread` is.
+#[test]
+fn a_let_of_a_worker_view_requires_res() {
+    let body = vec![bind(
+        "w2",
+        WORKER_VIEW,
+        Some(IrValue::Local("w".to_string())),
+        true,
+        false,
+    )];
+    let f = func_returns("run", "Nothing", vec![param("w", WORKER_VIEW, None)], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
+}
+
+/// bug-975: `RES b = a` of a worker view moves `a`, as for every resource.
+#[test]
+fn a_worker_view_alias_moves_the_source() {
+    let body = vec![
+        bind(
+            "w2",
+            WORKER_VIEW,
+            Some(IrValue::Local("w".to_string())),
+            true,
+            false,
+        ),
+        thread_op("thread.isCancelled", "w", "Boolean"),
+    ];
+    let mut f = owner_fn("run", "Nothing", body, &["w2"]);
+    f.params = vec![param("w", WORKER_VIEW, None)];
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// bug-975: being a resource is not having a close op. The worker view is a
+/// resource for the binding rule, yet nothing names a close op for it.
+#[test]
+fn a_worker_view_is_a_resource_with_no_close_op() {
+    let worker = ParameterType::parse(WORKER_VIEW);
+    assert!(crate::codegen::resource::is_builtin_resource(&worker));
+    assert_eq!(
+        crate::codegen::resource::builtin_resource_close_function(&worker),
+        None
+    );
+    let parent = ParameterType::parse(THREAD_VIEW);
+    assert!(crate::codegen::resource::is_builtin_resource(&parent));
+    assert!(crate::codegen::resource::builtin_resource_close_function(&parent).is_some());
 }
 
 /// `RETURN t` consumes the view: its close obligation leaves with it, so a read of

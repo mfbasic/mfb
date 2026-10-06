@@ -28,7 +28,7 @@ TYPE St
   n  AS Integer
 END TYPE
 
-FUNC sideEffect(RES f AS fs::File STATE St) AS Integer
+FUNC sideEffect(f AS fs::File STATE St) AS Integer
   f.state.xs = collections::append(f.state.xs, 111)
   f.state.n = f.state.n + 1
   RETURN 222

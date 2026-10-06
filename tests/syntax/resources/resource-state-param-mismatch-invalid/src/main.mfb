@@ -18,7 +18,7 @@ END TYPE
 ' whichever type string the reader holds — so this is not checkable at runtime.
 ' A resource's STATE type is fixed at its owning binding and every later
 ' declaration must agree (§15.5); the disagreement is rejected at the call.
-FUNC readLabel(RES p AS fs::File STATE Label) AS Nothing
+FUNC readLabel(p AS fs::File STATE Label) AS Nothing
   io::print(p.state.name)
 END FUNC
 

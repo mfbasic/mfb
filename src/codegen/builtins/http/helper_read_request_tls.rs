@@ -15,7 +15,7 @@ r#"' bug-507: read one request from a TLS socket, bounded three ways — an
 ' (408 idle/slow, 413/431 over a cap, 400 malformed or closed mid-request).
 ' A transport failure ends the read like a peer close. The plaintext twin is
 ' `__http_readRequestNet`; the two cannot share a socket variable (§F.5.6).
-FUNC __http_readRequestTls(RES sock AS tls::Socket) AS __http_ReadResult
+FUNC __http_readRequestTls(sock AS tls::Socket) AS __http_ReadResult
   tls::setReadTimeout(sock, __HTTP_SERVER_IDLE_TIMEOUT_MS)
   LET startNs AS Integer = datetime::monotonicNanos()
   MUT raw AS List OF Byte = []

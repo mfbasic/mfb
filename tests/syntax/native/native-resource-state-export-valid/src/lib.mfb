@@ -18,7 +18,7 @@ LINK "sqlite3" AS sql
     RETURN db
     SUCCESS_ON status = 0
   END FUNC
-  FUNC rawExec(RES db AS Db, statement AS String) AS Nothing
+  FUNC rawExec(db AS Db, statement AS String) AS Nothing
     SYMBOL "sqlite3_exec"
     ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
     CONST callback = NOTHING
@@ -26,7 +26,7 @@ LINK "sqlite3" AS sql
     CONST errmsg = NOTHING
     SUCCESS_ON status = 0
   END FUNC
-  FUNC rawClose(RES db AS Db STATE DbInfo) AS Nothing
+  FUNC rawClose(db AS Db STATE DbInfo) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -37,6 +37,6 @@ EXPORT FUNC openDb(path AS String) AS RES Db STATE DbInfo
   RETURN sql::rawOpen(path)
 END FUNC
 
-EXPORT FUNC exec(RES db AS Db STATE DbInfo, statement AS String) AS Nothing
+EXPORT FUNC exec(db AS Db STATE DbInfo, statement AS String) AS Nothing
   sql::rawExec(db, statement)
 END FUNC

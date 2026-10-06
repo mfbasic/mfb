@@ -118,7 +118,7 @@ IMPORT fs
 IMPORT io
 IMPORT strings
 
-FUNC show(position AS Integer, RES f AS fs::File) AS Nothing
+FUNC show(position AS Integer, f AS fs::File) AS Nothing
   fs::seek(f, position)
   LET row AS List OF String = csv::readRow(f)
   MUT text AS String = ""

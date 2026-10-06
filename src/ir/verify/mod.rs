@@ -817,7 +817,7 @@ struct TypeEnv {
     /// The RES-declared binding names of the function currently being checked
     /// (its `resource_owners` table), for the RES ownership-axis rules.
     current_owners: RefCell<HashSet<String>>,
-    /// plan-59-C: the names of this function's **bare `RES` parameters** — the one
+    /// plan-59-C: the names of this function's **bare resource parameters** — the one
     /// position where the checker deliberately does not know the concrete `STATE`
     /// (§15.5's parameter row: bare accepts "any state or none").
     ///
@@ -1489,12 +1489,10 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
         || type_.is_builtin_qualified("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
-/// Whether `name` is a built-in resource type (has a registered close op).
+/// Whether `name` is a built-in resource type (bug-975: a resource, whether or
+/// not it has a close op).
 fn is_resource_name(name: &str) -> bool {
-    crate::codegen::resource::builtin_resource_close_function(
-        &crate::types::ParameterType::declared(name),
-    )
-    .is_some()
+    crate::codegen::resource::is_builtin_resource(&crate::types::ParameterType::declared(name))
 }
 
 /// The base resource type name, stripping the `RES ` ownership marker and a

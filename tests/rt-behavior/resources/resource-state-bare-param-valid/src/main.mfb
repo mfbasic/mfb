@@ -11,7 +11,7 @@ END TYPE
 ' parameter pointer cannot escape the callee's frame. The owner's state must
 ' therefore survive the call untouched. See `mfb spec language
 ' resource-management` §15.5.
-FUNC opaque(RES p AS fs::File) AS Nothing
+FUNC opaque(p AS fs::File) AS Nothing
   fs::writeAll(p, "x")
 END FUNC
 

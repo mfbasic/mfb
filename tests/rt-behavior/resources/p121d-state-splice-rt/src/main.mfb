@@ -29,32 +29,32 @@ TYPE SetState
   n AS Integer
 END TYPE
 
-FUNC pre(RES f AS fs::File STATE ListState, v AS Integer) AS Nothing
+FUNC pre(f AS fs::File STATE ListState, v AS Integer) AS Nothing
   f.state.xs = collections::prepend(f.state.xs, v)
   f.state.n = f.state.n + 1
 END FUNC
 
-FUNC ins(RES f AS fs::File STATE ListState, at AS Integer, v AS Integer) AS Nothing
+FUNC ins(f AS fs::File STATE ListState, at AS Integer, v AS Integer) AS Nothing
   f.state.xs = collections::insert(f.state.xs, at, v)
   f.state.n = f.state.n + 1
 END FUNC
 
-FUNC delAt(RES f AS fs::File STATE ListState, at AS Integer) AS Nothing
+FUNC delAt(f AS fs::File STATE ListState, at AS Integer) AS Nothing
   f.state.xs = collections::removeAt(f.state.xs, at)
   f.state.n = f.state.n - 1
 END FUNC
 
-FUNC preVar(RES f AS fs::File STATE VarState, v AS String) AS Nothing
+FUNC preVar(f AS fs::File STATE VarState, v AS String) AS Nothing
   f.state.ss = collections::prepend(f.state.ss, v)
   f.state.n = f.state.n + 1
 END FUNC
 
-FUNC drop(RES f AS fs::File STATE SetState, v AS Integer) AS Nothing
+FUNC drop(f AS fs::File STATE SetState, v AS Integer) AS Nothing
   f.state.s = collections::remove(f.state.s, v)
   f.state.n = f.state.n - 1
 END FUNC
 
-FUNC add(RES f AS fs::File STATE SetState, v AS Integer) AS Nothing
+FUNC add(f AS fs::File STATE SetState, v AS Integer) AS Nothing
   f.state.s = collections::add(f.state.s, v)
   f.state.n = f.state.n + 1
 END FUNC

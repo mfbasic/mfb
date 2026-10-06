@@ -264,6 +264,7 @@ their unused message text. [[src/rules/table.rs:RULES]] Unless noted, severity i
 | `1-102-0012` | `MFB_PARSE_TESTING_DESCRIPTION` | error | a TGROUP/TCASE requires a string-literal description |
 | `1-102-0013` | `MFB_PARSE_RECORD_FIELD_ASSIGNMENT` | error | record field assignment is not supported |
 | `1-102-0014` | `MFB_PARSE_BLOCK_TOO_DEEP` | error | statement block nesting is too deep |
+| `1-102-0015` | `MFB_PARSE_PARAMETER_RES` | error | a parameter takes no RES; its type already makes it a resource |
 
 ### `1-103` — DOC block structure (lexer/parser)
 
@@ -497,7 +498,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0144` | `TYPE_OVERLOAD_NO_MATCH` | error | no overload has the expected callable type |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
-| `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one RES parameter of its resource |
+| `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one parameter of its resource |
 | `2-203-0092` | `NATIVE_CPTR_ESCAPE` | error | a raw C ABI type may appear only inside an ABI slot |
 | `2-203-0093` | `NATIVE_ABI_RESULT_MARKER` | error | a native function's ABI result marker is malformed |
 | `2-203-0094` | `NATIVE_ABI_UNBOUND_SLOT` | error | an ABI slot binds to no parameter, CONST pin, or result marker |

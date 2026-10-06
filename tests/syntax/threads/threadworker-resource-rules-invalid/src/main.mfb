@@ -1,0 +1,46 @@
+IMPORT io
+IMPORT thread
+
+' bug-975: a ThreadWorker is a resource, so every resource rule applies to it,
+' exactly as to a parent Thread or an fs::File (it simply has no close op):
+'
+' - `RES b = a` moves the name `a`; a later use of it is TYPE_USE_AFTER_MOVE;
+' - a record field holding one must be marked RES (TYPE_RESOURCE_REQUIRES_RES);
+' - a bare worker parameter's STATE is opaque, so binding it under a concrete
+'   STATE is TYPE_STATE_OPAQUE_NARROWING;
+' - a view declared without STATE has no `.state` to assign (TYPE_STATE_INVALID;
+'   before the fix this one crashed the native lowering instead).
+
+TYPE W
+  hits AS Integer
+END TYPE
+
+TYPE Holder
+  view AS ThreadWorker OF String TO Integer
+END TYPE
+
+ISOLATED FUNC aliasMoves(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  RES t2 = t
+  IF thread::isCancelled(t) THEN
+    RETURN 0
+  END IF
+  RETURN n
+END FUNC
+
+ISOLATED FUNC narrows(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  RES t2 AS ThreadWorker OF String TO Integer STATE W = t
+  RETURN n + t2.state.hits
+END FUNC
+
+ISOLATED FUNC noState(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  t.state.hits = 1
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  RES a = thread::start(aliasMoves, 1)
+  RES b = thread::start(narrows, 2)
+  RES c = thread::start(noState, 3)
+  io::print(toString(thread::waitFor(a) + thread::waitFor(b) + thread::waitFor(c)))
+  RETURN 0
+END FUNC

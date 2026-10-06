@@ -18,7 +18,7 @@ END UNION
 ' A parameter declaring `STATE StateB` handed a `Stream STATE StateA` value is
 ' rejected TYPE_STATE_MISMATCH — the uniform STATE type is fixed at the owning
 ' binding and every later declaration must agree.
-FUNC observe(RES p AS Stream STATE StateB) AS Nothing
+FUNC observe(p AS Stream STATE StateB) AS Nothing
   LET n = p.state.b
 END FUNC
 

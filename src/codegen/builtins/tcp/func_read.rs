@@ -66,7 +66,7 @@ IMPORT tcp
 IMPORT net
 IMPORT io
 
-FUNC drain(RES sock AS tcp::Socket) AS Integer
+FUNC drain(sock AS tcp::Socket) AS Integer
   MUT total = 0
   WHILE TRUE
     LET chunk = tcp::read(sock, 4096)

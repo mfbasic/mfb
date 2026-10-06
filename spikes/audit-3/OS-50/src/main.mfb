@@ -6,7 +6,7 @@ FUNC reply(m AS String) AS String
   RETURN m
 END FUNC
 
-FUNC handle(RES l AS tcp::Listener) AS Nothing
+FUNC handle(l AS tcp::Listener) AS Nothing
   RES sock AS tcp::Socket = tcp::accept(l)
   MUT raw AS List OF Byte = []
   raw = tcp::read(sock, 65536) TRAP(e)

@@ -8,7 +8,7 @@ Everything about `RES` resources: the ownership model, the record/STATE layout, 
 
 ### The RES model: a pointer, not a "borrow"
 
-There is a **SINGLE** resource; a `RES` is a **pointer** to it, owned by the **highest/outermost scope** to touch it — ownership floats UP, never down. A `RES` parameter is the same pointer seen from a deeper scope, not a weaker handle. Never say "borrow" (imports Rust vocabulary that mis-describes this and yields wrong conclusions, e.g. that closing through a `RES` param invalidates something). **close ≠ drop**: `fs::close` releases the OS handle, drop frees the memory, so an early close from a deeper scope conflicts with nothing. When something is rejected, name the real constraint (§15.1: no interprocedural inference → invalidation must be visible at the call site), not "it's a borrow". The spec self-contradicts: §15.6 (`15_resource-management.md:129,135`) is correct scope-ownership; §15.1 (`:13,:20`) + rule `TYPE_RESOURCE_BORROW_INVALIDATE` (2-203-0086, `rules/table.rs:962`) layer borrow vocabulary on top — reading it back uncritically is how the drift recurs.
+There is a **SINGLE** resource; a `RES` is a **pointer** to it, owned by the **highest/outermost scope** to touch it — ownership floats UP, never down. A resource parameter is the same pointer seen from a deeper scope, not a weaker handle. Never say "borrow" (imports Rust vocabulary that mis-describes this and yields wrong conclusions, e.g. that closing through a `RES` param invalidates something). **close ≠ drop**: `fs::close` releases the OS handle, drop frees the memory, so an early close from a deeper scope conflicts with nothing. When something is rejected, name the real constraint (§15.1: no interprocedural inference → invalidation must be visible at the call site), not "it's a borrow". The spec self-contradicts: §15.6 (`15_resource-management.md:129,135`) is correct scope-ownership; §15.1 (`:13,:20`) + rule `TYPE_RESOURCE_BORROW_INVALIDATE` (2-203-0086, `rules/table.rs:962`) layer borrow vocabulary on top — reading it back uncritically is how the drift recurs.
 
 ### Canonical resource-record header
 
@@ -38,7 +38,7 @@ Also `resource_union_cleanup` (`builder_resource_cleanup.rs`) must strip the bas
 
 ### Resource-union param widening ALREADY works for user funcs
 
-Passing a variant into a `RES` param naming its union (`File` → `RES s AS Stream`) already works for user functions — no checker change needed. Both `compatible()`s strip `RES` and subsume variant→union at the param position: `ir/shape.rs` `compatible` (union arm), reached at `check_call_shape`; ir/verify `compat.rs` (union arm ~`:355`, RES stripped ~`:328`), reached at `ir/verify/calls.rs`. Directionality holds automatically: a union actual into a concrete `RES File` is rejected (`compatible("File","Stream")` → false), which keeps every close op / transfer / accept safe WITHOUT a blocklist (symmetric widening would hand a union to a concrete close op — UAF class). What still needs work is the **builtin** path (app::-specific): `ir/shape.rs check_builtin_call`'s term arm (flat `param_types`) + a package `resolve_call` doing context-free `exact()` matching with no type registry — they can't see `app.Button` is a variant of `app.Widget` (the per-overload table + package variant predicate). The §15 spec sentence was more restrictive than the code; amended to permit the directional variant→union widening in non-owning param position.
+Passing a variant into a param naming its union (`File` → `s AS Stream`) already works for user functions — no checker change needed. Both `compatible()`s strip `RES` and subsume variant→union at the param position: `ir/shape.rs` `compatible` (union arm), reached at `check_call_shape`; ir/verify `compat.rs` (union arm ~`:355`, RES stripped ~`:328`), reached at `ir/verify/calls.rs`. Directionality holds automatically: a union actual into a concrete `RES File` is rejected (`compatible("File","Stream")` → false), which keeps every close op / transfer / accept safe WITHOUT a blocklist (symmetric widening would hand a union to a concrete close op — UAF class). What still needs work is the **builtin** path (app::-specific): `ir/shape.rs check_builtin_call`'s term arm (flat `param_types`) + a package `resolve_call` doing context-free `exact()` matching with no type registry — they can't see `app.Button` is a variant of `app.Widget` (the per-overload table + package variant predicate). The §15 spec sentence was more restrictive than the code; amended to permit the directional variant→union widening in non-owning param position.
 
 ### STATE mutation is a whole-record rebuild
 
@@ -571,7 +571,7 @@ there is no production point for the rule's hazard to attach to.
 **Design limit worth knowing:** a resource the callee **produces** cannot be
 returned inside a record. The ordering rule wants the container declared before
 the resource, and a record — unlike an empty `List` — cannot be constructed
-before its handle exists. `FUNC wrap(RES f AS fs::File) AS Holder` is the usable
+before its handle exists. `FUNC wrap(f AS fs::File) AS Holder` is the usable
 shape. A record with two `RES` fields of *different* resource types is refused:
 an owned-list carries one `OwnedListDrop`.
 

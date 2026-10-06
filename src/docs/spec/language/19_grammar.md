@@ -122,10 +122,13 @@ trap           = "TRAP" [ "(" ident ")" ] block "END" "TRAP" ;
 
 templateParams = "OF" ident { "," ident } ;
 params         = param { "," param } ;
-(* `RES` marks a resource parameter; `STATE T` attaches a typed STATE payload
-   to a resource binding (§15) and is parsed ONLY when `RES` is present. The
-   `AS type` clause is syntactically optional in the parser. *)
-param          = [ "RES" ] ident [ "AS" type ] [ "STATE" type ] [ "=" expr ] ;
+(* A parameter carries no `RES`: it is a resource because its type is one
+   (§15), and a `RES` before the name is MFB_PARSE_PARAMETER_RES. `STATE T`
+   names the STATE payload of a resource parameter (§15); the parser accepts it
+   after any parameter type, because whether the type is a resource is decided
+   after the parse. The `AS type` clause is syntactically optional in the
+   parser. *)
+param          = ident [ "AS" type ] [ "STATE" type ] [ "=" expr ] ;
 (* STATE in a returnType is likewise honored only when `RES` is present. *)
 returnType     = "AS" [ "RES" ] type [ "STATE" type ] ;
 type           = templateType | funcType | "(" type ")" | ident | qualifiedIdent ;

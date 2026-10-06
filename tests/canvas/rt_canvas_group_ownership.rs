@@ -171,7 +171,7 @@ END FUNC
 /// The other direction: a replacement whose items do NOT name the resource must close it,
 /// or the group leaks what it took ownership of.
 ///
-/// `install` takes the image as a **`RES` parameter** — an alias, so `setGroup` moves the
+/// `install` takes the image as a **resource parameter** — an alias, so `setGroup` moves the
 /// callee's local and `main`'s own binding survives to read the verdict. `canvas::getSize`
 /// raises `ErrResourceClosed` on a closed image, which is the only direct observable of a
 /// close there is: `Picture` draws nothing on any backend (**J11**), and an image holds no
@@ -181,7 +181,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-FUNC install(RES img AS canvas::Image) AS Nothing
+FUNC install(img AS canvas::Image) AS Nothing
   LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("panel", [p])
 END FUNC
@@ -229,7 +229,7 @@ IMPORT canvas
 IMPORT color
 IMPORT io
 
-FUNC install(RES img AS canvas::Image) AS Nothing
+FUNC install(img AS canvas::Image) AS Nothing
   LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("panel", [p])
 END FUNC
@@ -389,7 +389,7 @@ IMPORT color
 IMPORT io
 IMPORT os
 
-FUNC install(RES img AS canvas::Image) AS Nothing
+FUNC install(img AS canvas::Image) AS Nothing
   LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
   canvas::setGroup("panel", [p])
 END FUNC
@@ -440,7 +440,7 @@ END FUNC
 /// ends: the font is **still usable** while the frame that was drawing it is held open,
 /// and **closed** once a frame has completed past the retirement.
 ///
-/// `install` takes the font as a `RES` parameter — an alias, so `setGroup` consumes the
+/// `install` takes the font as a resource parameter — an alias, so `setGroup` consumes the
 /// callee's local and `main`'s binding survives to ask. `canvas::measureText` raises
 /// `ErrResourceClosed` on a closed font, which is the observable; a font holds no
 /// descriptor to watch either.
@@ -450,7 +450,7 @@ IMPORT color
 IMPORT io
 IMPORT os
 
-FUNC install(RES face AS canvas::Font) AS Nothing
+FUNC install(face AS canvas::Font) AS Nothing
   LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
   canvas::setGroup("panel", [tag])
 END FUNC

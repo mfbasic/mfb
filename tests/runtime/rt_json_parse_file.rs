@@ -1,4 +1,4 @@
-//! bug-815: `json::parse(RES value AS fs::File)` and the `(RES value AS
+//! bug-815: `json::parse(value AS fs::File)` and the `(RES value AS
 //! fs::File, reviver)` overload.
 //!
 //! Both read the file's remaining text with `fs::readAll` and hand it to the
@@ -161,11 +161,11 @@ fn a_closed_file_raises_the_resource_closed_error() {
 IMPORT io
 IMPORT json
 
-FUNC closeIt(RES x AS fs::File) AS Nothing
+FUNC closeIt(x AS fs::File) AS Nothing
   fs::close(x)
 END FUNC
 
-FUNC tryParse(RES f AS fs::File) AS String
+FUNC tryParse(f AS fs::File) AS String
   LET doc AS json::Json = json::parse(f)
   RETURN "ok"
   TRAP(e)
@@ -200,7 +200,7 @@ fn a_non_utf8_file_raises_the_encoding_error() {
 IMPORT io
 IMPORT json
 
-FUNC tryParse(RES f AS fs::File) AS String
+FUNC tryParse(f AS fs::File) AS String
   LET doc AS json::Json = json::parse(f)
   RETURN "ok"
   TRAP(e)

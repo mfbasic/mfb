@@ -417,7 +417,7 @@ The assigned scope's eligible cleanup also frees the resource record for `fs.Fil
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
 the record last, after close and block reclamation, and zeroes the slot. Other
 kinds retain the record as a closed tombstone until arena teardown. The
-owner, not `close`, frees it, because a `close` through a `RES` parameter leaves the
+owner, not `close`, frees it, because a `close` through a resource parameter leaves the
 owner still reading the closed flag. Reclamation relies on every valid view being
 bounded by the cleanup scope; the module-store gap is documented in
 `./mfb spec language resource-management`. An explicit `close` for these

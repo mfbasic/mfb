@@ -143,7 +143,6 @@ pub(crate) fn param(name: &str, type_name: &str) -> Param {
     Param {
         name: name.to_string(),
         type_name: Some(type_name.to_string()),
-        resource: false,
         state_type: None,
         default: None,
         line: 0,

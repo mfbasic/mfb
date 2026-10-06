@@ -53,7 +53,7 @@ FUNC fieldDyn(n AS Integer) AS Integer
   RETURN (datetime::monotonicNanos() - t0) / n + len(collections::get(rec.xs, 0)) * 0
 END FUNC
 
-FUNC stateDyn(RES f AS fs::File STATE RecDyn, n AS Integer) AS Integer
+FUNC stateDyn(f AS fs::File STATE RecDyn, n AS Integer) AS Integer
   f.state = RecDyn[1, strs(n), 2]
   LET t0 AS Integer = datetime::monotonicNanos()
   FOR j = 0 TO n - 1

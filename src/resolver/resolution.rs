@@ -582,7 +582,10 @@ impl Resolver<'_> {
             );
             return;
         };
-        // The close op must consume exactly one `RES` parameter of this resource.
+        // The close op must consume exactly one parameter of this resource. A
+        // parameter is a resource by its type (bug-976), so `param_resource` holds
+        // whenever the type names a resource; it is checked alongside the type so
+        // the rule reads exactly as it did when the flag was the `RES` keyword.
         let single_resource_param = close_sig.params.len() == 1
             && close_sig.param_resource.first().copied().unwrap_or(false)
             && close_sig
@@ -594,7 +597,7 @@ impl Resolver<'_> {
             self.report(
                 "RESOURCE_CLOSE_SIGNATURE",
                 &format!(
-                    "Close op `{}` for resource `{}` must take exactly one `RES {} ...` parameter.",
+                    "Close op `{}` for resource `{}` must take exactly one parameter, of type `{}`.",
                     resource.close_fn, resource.name, resource.name
                 ),
                 file,
@@ -2233,7 +2236,7 @@ mod tests {
             "    ABI (path CString, produced OUT CPtr) AS status CInt32\n",
             "    SUCCESS_ON status = 0\n",
             "  END FUNC\n\n",
-            "  FUNC close(RES db AS Db) AS Nothing\n",
+            "  FUNC close(db AS Db) AS Nothing\n",
             "    SYMBOL \"sqlite3_close\"\n",
             "    ABI (db CPtr) AS status CInt32\n",
             "    SUCCESS_ON status = 0\n",
@@ -2259,7 +2262,7 @@ mod tests {
         assert!(resolve_source_fails(concat!(
             "RESOURCE Db CLOSE BY dbLink::missing\n\n",
             "LINK \"sqlite3\" AS dbLink\n",
-            "  FUNC close(RES db AS Db) AS Nothing\n",
+            "  FUNC close(db AS Db) AS Nothing\n",
             "    SYMBOL \"sqlite3_close\"\n",
             "    ABI (db CPtr) AS status CInt32\n",
             "    SUCCESS_ON status = 0\n",
@@ -2284,7 +2287,7 @@ mod tests {
         // `dbLink::notThere` names an unknown member of the LINK namespace.
         assert!(resolve_source_fails(concat!(
             "LINK \"sqlite3\" AS dbLink\n",
-            "  FUNC close(RES db AS Db) AS Nothing\n",
+            "  FUNC close(db AS Db) AS Nothing\n",
             "    SYMBOL \"sqlite3_close\"\n",
             "    ABI (db CPtr) AS status CInt32\n",
             "    SUCCESS_ON status = 0\n",
@@ -2509,7 +2512,7 @@ mod tests {
         assert_source_ok(concat!(
             "IMPORT fs\nIMPORT io\n\n",
             "TYPE FileState\n  pos AS Integer\nEND TYPE\n\n",
-            "FUNC advance(RES f AS fs::File STATE FileState, by AS Integer) AS Nothing\n",
+            "FUNC advance(f AS fs::File STATE FileState, by AS Integer) AS Nothing\n",
             "  f.state = WITH f.state { pos := f.state.pos + by }\n",
             "END FUNC\n\n",
             "FUNC main AS Integer\n",

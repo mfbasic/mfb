@@ -1,0 +1,47 @@
+IMPORT io
+IMPORT thread
+
+' bug-975: a ThreadWorker is a resource. `RES` is how a worker view is bound,
+' and a `RES` binding of the worker's own parameter is an alias of the one
+' resource: it shares the worker's STATE, and its scope exit never tears the
+' running worker down — the runtime closes the view when the worker returns.
+'
+' The alias is taken in an inner scope three times (a loop body), and the
+' worker keeps running and keeps its state after every one of those scopes has
+' exited. Each pass bumps the state through its alias, so the result is
+' 2 * n + 3 only if all three writes landed on the one STATE record. A record
+' may hold the view in a `RES` field, like any resource, and reading through the
+' field reaches the same running worker.
+
+TYPE W
+  hits AS Integer
+END TYPE
+
+TYPE Holder
+  view AS RES ThreadWorker OF String TO Integer STATE W
+END TYPE
+
+FUNC bumpThrough(t AS ThreadWorker OF String TO Integer STATE W) AS Nothing
+  t.state.hits = t.state.hits + 1
+END FUNC
+
+ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer STATE W, n AS Integer) AS Integer
+  MUT i = 0
+  WHILE i < 3
+    bumpThrough(t)
+    i = i + 1
+  END WHILE
+  RES alias AS ThreadWorker OF String TO Integer STATE W = t
+  alias.state.hits = alias.state.hits + 0
+  LET h = Holder[alias]
+  IF thread::isCancelled(h.view) THEN
+    RETURN 0
+  END IF
+  RETURN n * 2 + h.view.state.hits
+END FUNC
+
+FUNC main AS Integer
+  RES t = thread::start(spin, 21)
+  io::print("thread=" & toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

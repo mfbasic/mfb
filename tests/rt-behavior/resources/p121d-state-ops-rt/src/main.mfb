@@ -39,27 +39,27 @@ END TYPE
 
 ' Mutating through a `RES` parameter is the alias shape: the owner must observe
 ' every one of these, which is what `O4` (republishing the STATE pointer) buys.
-FUNC putMap(RES f AS fs::File STATE MapState, k AS String, v AS Integer) AS Nothing
+FUNC putMap(f AS fs::File STATE MapState, k AS String, v AS Integer) AS Nothing
   f.state.m = collections::set(f.state.m, k, v)
   f.state.n = f.state.n + 1
 END FUNC
 
-FUNC dropMap(RES f AS fs::File STATE MapState, k AS String) AS Nothing
+FUNC dropMap(f AS fs::File STATE MapState, k AS String) AS Nothing
   f.state.m = collections::removeKey(f.state.m, k)
   f.state.n = f.state.n - 1
 END FUNC
 
-FUNC addSet(RES f AS fs::File STATE SetState, v AS Integer) AS Nothing
+FUNC addSet(f AS fs::File STATE SetState, v AS Integer) AS Nothing
   f.state.s = collections::add(f.state.s, v)
   f.state.n = f.state.n + 1
 END FUNC
 
-FUNC setFixed(RES f AS fs::File STATE FixedListState, i AS Integer, v AS Integer) AS Nothing
+FUNC setFixed(f AS fs::File STATE FixedListState, i AS Integer, v AS Integer) AS Nothing
   f.state.xs = collections::set(f.state.xs, i, v)
   f.state.n = f.state.n + 1
 END FUNC
 
-FUNC setVar(RES f AS fs::File STATE VarListState, i AS Integer, v AS String) AS Nothing
+FUNC setVar(f AS fs::File STATE VarListState, i AS Integer, v AS String) AS Nothing
   ' DECLINES to the copying path (a variable-width element can outgrow what it
   ' replaces). It must still be CORRECT -- a decline is a slow path, never a
   ' wrong one -- which is the whole point of asserting it here.

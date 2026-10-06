@@ -13,7 +13,7 @@
 //! reading after an in-scope close. The compiler rejects both statically
 //! (`TYPE_USE_AFTER_MOVE`), which is a stronger guarantee than the runtime no-op —
 //! so the `ErrResourceClosed` case is reached the way it actually occurs, by closing
-//! through a `RES` parameter, where ownership floats up and the caller's binding is
+//! through a resource parameter, where ownership floats up and the caller's binding is
 //! closed without the checker being able to see it.
 
 #[path = "../common/mod.rs"]
@@ -44,10 +44,10 @@ FUNC badCreate() AS Integer
   RETURN 21
 END FUNC
 
-' Closing through a RES parameter: ownership floats up, so the caller's binding is
+' Closing through a resource parameter: ownership floats up, so the caller's binding is
 ' the same resource and is closed when this returns. The compiler cannot see that,
 ' which is exactly the path the runtime closed-flag guard exists for.
-FUNC closeIt(RES img AS canvas::Image) AS Nothing
+FUNC closeIt(img AS canvas::Image) AS Nothing
   canvas::destroyImage(img)
 END FUNC
 

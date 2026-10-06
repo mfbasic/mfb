@@ -105,7 +105,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 tcp::Socket\n\
         \x20 tls::Socket\n\
          END UNION\n\n\
-         FUNC serveOnce(RES listener AS tls::Listener) AS Integer\n\
+         FUNC serveOnce(listener AS tls::Listener) AS Integer\n\
         \x20 RES client AS Stream STATE PendingState = tls::accept(listener)\n\
         \x20 client.state.sentAll = TRUE\n\
         \x20 client.state.raw = collections::append(client.state.raw, toByte(65))\n\

@@ -6,7 +6,7 @@ END TYPE
 
 ' plan-59-C's POSITIVE fixture: the narrowing rule must reject only the
 ' unprovable case, and leave the bare-parameter opt-out intact. That opt-out is
-' load-bearing — every close op depends on it (`FUNC close(RES db AS Db)` names
+' load-bearing — every close op depends on it (`FUNC close(db AS Db)` names
 ' no STATE and works for every `Db`), so a rule that over-rejected here would
 ' require one overload of every close op per state type its callers might attach.
 '
@@ -14,13 +14,13 @@ END TYPE
 
 ' 1. opaque -> opaque. Passing an opaque value on as opaque claims nothing the
 '    checker cannot discharge. Opacity propagates as opacity.
-FUNC passThrough(RES f AS fs::File) AS Nothing
+FUNC passThrough(f AS fs::File) AS Nothing
   RES g AS fs::File = f
 END FUNC
 
 ' 2. concrete -> matching concrete. The state type is known on both sides and
 '    they agree, so the binding ADOPTS it (§15.5's binding row).
-FUNC adopt(RES f AS fs::File STATE Cursor) AS Nothing
+FUNC adopt(f AS fs::File STATE Cursor) AS Nothing
   RES g AS fs::File STATE Cursor = f
 END FUNC
 

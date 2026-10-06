@@ -448,7 +448,7 @@ impl<'a> Monomorphizer<'a> {
         }
         // Drop a resource's `STATE T` suffix, exactly as the former source checker's `parse_type`
         // does and for the same reason (plan-52-D §4): an imported signature
-        // spells a stateful `RES` parameter inline as `SoundFile STATE FileInfo`,
+        // spells a stateful resource parameter inline as `SoundFile STATE FileInfo`,
         // while the call site's argument type is the bare `SoundFile`. Without
         // this, `types_compatible` compares 3 tokens against 1 and NO overload
         // whose first parameter is a stateful resource can ever match — the call

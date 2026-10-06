@@ -13,7 +13,7 @@ END UNION
 ' plan-74: a resource union may carry a uniform STATE. Accepted at the binding
 ' and at a union->union same-type STATE parameter (an exact-type match, not the
 ' variant->union widening of plan-13-A).
-FUNC observe(RES p AS Stream STATE StreamState) AS Nothing
+FUNC observe(p AS Stream STATE StreamState) AS Nothing
   LET n = p.state.bytes
 END FUNC
 

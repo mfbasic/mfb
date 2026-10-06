@@ -34,9 +34,9 @@ fn prelude(data: &str) -> String {
          IMPORT io\n\
          IMPORT thread\n\
          FUNC fresh() AS RES fs::File\n  RETURN fs::openFile(\"{data}\")\nEND FUNC\n\
-         FUNC read(RES f AS fs::File) AS String\n  LET line = fs::readLine(f) TRAP(e)\n    RECOVER e.message\n  END TRAP\n  RETURN line\nEND FUNC\n\
+         FUNC read(f AS fs::File) AS String\n  LET line = fs::readLine(f) TRAP(e)\n    RECOVER e.message\n  END TRAP\n  RETURN line\nEND FUNC\n\
          ISOLATED FUNC worker(t AS ThreadWorker OF String RES fs::File TO Integer, seed AS String) AS Integer\n  LET signal = thread::receive(t)\n  RETURN 0\nEND FUNC\n\
-         FUNC same(RES f AS fs::File) AS RES fs::File\n  RETURN f\nEND FUNC\n\
+         FUNC same(f AS fs::File) AS RES fs::File\n  RETURN f\nEND FUNC\n\
          FUNC wait(text AS String) AS Integer\n  IF text = \"\" THEN\n    FAIL error(77050002, \"no wait\")\n  END IF\n  RETURN toInt(text)\nEND FUNC\n"
     )
 }

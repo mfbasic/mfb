@@ -28,7 +28,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' Scan `text`, then each further raw line of `file`, into records; "" from the
 ' file is the end of input. Stops after `maxRecords` records (0 = all).
-FUNC __csv_scan(RES file AS fs::File, text AS String, delimCode AS Integer, quoteCode AS Integer, maxRecords AS Integer) AS List OF List OF String
+FUNC __csv_scan(file AS fs::File, text AS String, delimCode AS Integer, quoteCode AS Integer, maxRecords AS Integer) AS List OF List OF String
   MUT chars AS List OF Integer = encoding::utf32Encode(text)
   MUT count AS Integer = len(chars)
   MUT rows AS List OF List OF String = []

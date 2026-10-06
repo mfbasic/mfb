@@ -8,7 +8,7 @@ ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer, n AS Integer) A
   RETURN n
 END FUNC
 
-FUNC peek(RES t AS Thread OF Integer TO Integer) AS Boolean
+FUNC peek(t AS Thread OF Integer TO Integer) AS Boolean
   RETURN thread::isRunning(t)
 END FUNC
 

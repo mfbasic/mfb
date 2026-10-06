@@ -1,0 +1,159 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "threadworker_res_binding_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 16,
+    "visibility": "public",
+    "name": "W",
+    "fields": [
+    { "visibility": null, "line": 17, "name": "hits", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 20,
+    "visibility": "public",
+    "name": "Holder",
+    "fields": [
+    { "visibility": null, "line": 21, "name": "view", "type": "RES ThreadWorker OF String TO Integer STATE W" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "bumpThrough",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 24, "type": "ThreadWorker OF String TO Integer STATE W", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "line": 25, "resource": "t", "value": { "kind": "with", "type": "W", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "t" }, "member": "state" }, "updates": [{ "field": "hits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "t" }, "member": "state" }, "member": "hits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } }
+    ]
+  },
+  {
+    "name": "spin",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 28, "type": "ThreadWorker OF String TO Integer STATE W", "default": null },
+    { "name": "n", "line": 28, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 29, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 30,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "bumpThrough", "args": [{ "kind": "local", "name": "t" }] } },
+      { "op": "assign", "line": 32, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 34, "mutable": false, "name": "alias", "type": "ThreadWorker OF String TO Integer STATE W", "value": { "kind": "local", "name": "t" } },
+    { "op": "stateAssign", "line": 35, "resource": "alias", "value": { "kind": "with", "type": "W", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "alias" }, "member": "state" }, "updates": [{ "field": "hits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "alias" }, "member": "state" }, "member": "hits" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "args": [{ "kind": "local", "name": "alias" }] } },
+    {
+      "op": "if",
+      "line": 37,
+      "condition": { "kind": "call", "type": "Boolean", "target": "thread.isCancelled", "args": [{ "kind": "memberAccess", "type": "ThreadWorker OF String TO Integer STATE W", "target": { "kind": "local", "name": "h" }, "member": "view" }] },
+      "then": [
+      { "op": "return", "line": 38, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 40, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "memberAccess", "type": "ThreadWorker OF String TO Integer STATE W", "target": { "kind": "local", "name": "h" }, "member": "view" }, "member": "state" }, "member": "hits" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 43,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 44, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "spin", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "21" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "thread=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] }] } }] } },
+    { "op": "return", "line": 46, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

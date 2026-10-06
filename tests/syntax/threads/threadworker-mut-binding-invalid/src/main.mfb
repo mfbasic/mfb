@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT thread
+
+' bug-975: a ThreadWorker is a resource, so a MUT binding of one is refused
+' (TYPE_RESOURCE_REQUIRES_RES), exactly as a MUT of a parent Thread is.
+
+ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  MUT t3 AS ThreadWorker OF String TO Integer = t
+  RETURN n * 2
+END FUNC
+
+FUNC main AS Integer
+  RES t = thread::start(spin, 21)
+  io::print("thread=" & toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC

@@ -241,10 +241,10 @@ impl TypeEnv {
                 }
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
-                // plan-59-E: a non-owning pointer (a `RES` parameter, a `FOR EACH`
+                // plan-59-E: a non-owning pointer (a resource parameter, a `FOR EACH`
                 // element) used to be forbidden from closing/returning/transferring
                 // here (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired). That rule
-                // is what made `closeSound(RES sound AS SoundFile)` — "take a
+                // is what made `closeSound(sound AS SoundFile)` — "take a
                 // handle, give it back" — unwritable in any form.
                 //
                 // Under scope ownership ANY holder of the pointer may close it, and
@@ -290,7 +290,7 @@ impl TypeEnv {
                 // IS the resource is the degenerate case of "reachable from".
                 if locals
                     .get(&held)
-                    .is_some_and(|t| self.close_op_for(&resource_base_type(t)).is_some())
+                    .is_some_and(|t| self.is_resource_base(&resource_base_type(t)))
                 {
                     for alias in alias_closure(&held, aliases) {
                         moved.insert(alias);
@@ -343,9 +343,10 @@ impl TypeEnv {
                     // resource local does not move ownership.
                     if owners.contains_key(name) {
                         if let Some(IrValue::Local(source)) = value {
-                            if locals.get(source).is_some_and(|t| {
-                                self.close_op_for(&resource_base_type(t)).is_some()
-                            }) {
+                            if locals
+                                .get(source)
+                                .is_some_and(|t| self.is_resource_base(&resource_base_type(t)))
+                            {
                                 moved.insert(source.clone());
                             }
                         }
@@ -392,7 +393,7 @@ impl TypeEnv {
                         | Some(IrValue::CallResult { args, type_, .. }) = value
                         {
                             let returned = resource_base_type(type_);
-                            if self.close_op_for(&returned).is_some() {
+                            if self.is_resource_base(&returned) {
                                 for arg in args {
                                     if let IrValue::Local(source) = arg {
                                         if locals
@@ -544,10 +545,12 @@ impl TypeEnv {
                 // function's own resources first (`trap_route_cleanups`, codegen:
                 // "trap-shared resources *are* still dropped here"), so inside the
                 // handler each one is used after its close — which read the closed
-                // handle's freed record and crashed. A `RES` parameter and a
+                // handle's freed record and crashed. A resource parameter and a
                 // `FOR EACH` element are not the function's to close (`non_owning`),
                 // and a thread is closed but readable (bug-622), so neither is
-                // counted.
+                // counted. A resource with no close op (a `ThreadWorker`, bug-975)
+                // is not closed by the routing either, so the test is the close op,
+                // not resource-ness.
                 IrOp::Trap { body, .. } => {
                     let closed: HashSet<String> = locals
                         .iter()
@@ -664,7 +667,7 @@ impl TypeEnv {
                 {
                     return true;
                 }
-                if self.close_op_for(other).is_some() {
+                if self.is_resource_base(other) {
                     return false;
                 }
                 if !seen.insert(other.clone()) {
@@ -673,7 +676,7 @@ impl TypeEnv {
                 let result = match self.unions.get(other) {
                     Some(union) => union.variant_order.iter().all(|variant| {
                         let variant = ParameterType::declared(variant);
-                        self.close_op_for(&variant).is_none()
+                        !self.is_resource_base(&variant)
                             && self.record_fields_copyable(&variant, seen)
                     }),
                     None => self.record_fields_copyable(other, seen),
@@ -702,12 +705,11 @@ impl TypeEnv {
         match type_ {
             ParameterType::Res(inner) => self.is_resource_type(inner),
             other => {
-                self.close_op_for(other).is_some()
+                self.is_resource_base(other)
                     || self.unions.get(other).is_some_and(|union| {
                         !union.variant_order.is_empty()
                             && union.variant_order.iter().all(|variant| {
-                                self.close_op_for(&ParameterType::declared(variant))
-                                    .is_some()
+                                self.is_resource_base(&ParameterType::declared(variant))
                             })
                     })
             }
@@ -775,7 +777,7 @@ impl TypeEnv {
                 {
                     return None;
                 }
-                if self.close_op_for(other).is_some() {
+                if self.is_resource_base(other) {
                     return self.resource_sendability_cause(other);
                 }
                 if !seen.insert(other.clone()) {
@@ -784,7 +786,7 @@ impl TypeEnv {
                 let result = match self.unions.get(other) {
                     Some(union) => union.variant_order.iter().find_map(|variant| {
                         let variant = ParameterType::declared(variant);
-                        if self.close_op_for(&variant).is_some() {
+                        if self.is_resource_base(&variant) {
                             return self.resource_sendability_cause(&variant);
                         }
                         self.record_fields_unsendable_cause(&variant, seen)
@@ -833,7 +835,7 @@ impl TypeEnv {
         // resource itself may cross (the cause walk answers `None` for a sendable
         // one): `thread::start`'s input and a thread's output are data planes. The
         // declared message plane checks this itself before calling here.
-        if plane == Plane::Data && self.is_resource_type(type_) {
+        if plane == Plane::Data && self.belongs_on_the_resource_plane(type_) {
             self.emit_thread_resource_plane_required(context, type_);
             return;
         }
@@ -855,6 +857,22 @@ impl TypeEnv {
                 ),
             ),
         }
+    }
+
+    /// Whether a resource on a DATA plane is a plane mix-up whose remedy is the
+    /// resource plane (`TYPE_THREAD_RESOURCE_PLANE_REQUIRED`).
+    ///
+    /// bug-975: a `ThreadWorker` is a resource, but it crosses on NEITHER plane —
+    /// it belongs to its worker for the worker's whole run — so naming the
+    /// resource plane as its remedy would be wrong advice. Its own rule keeps
+    /// precedence, as on the resource plane: on a data plane it stays
+    /// `TYPE_THREAD_NOT_SENDABLE`.
+    fn belongs_on_the_resource_plane(&self, type_: &ParameterType) -> bool {
+        self.is_resource_type(type_)
+            && !matches!(
+                self.thread_unsendable_cause(type_, &mut HashSet::new()),
+                Some(Unsendable::Worker(_))
+            )
     }
 
     /// The one place `2-203-0140` is worded.
@@ -918,7 +936,7 @@ impl TypeEnv {
                 // *sendable*, so the walk answers `None` for them. Rejecting the
                 // plane is a separate rule from rejecting the type, and the two
                 // are mutually exclusive so one mistake yields one diagnostic.
-                if self.is_resource_type(msg) {
+                if self.belongs_on_the_resource_plane(msg) {
                     self.emit_thread_resource_plane_required("Thread message type", msg);
                 } else {
                     self.require_thread_sendable("Thread message type", msg, Plane::Data);
@@ -1045,7 +1063,7 @@ impl TypeEnv {
                     // message plane, the plane rule and the sendability rule are
                     // mutually exclusive — a sendable resource still fails the
                     // plane rule, and the cause walk would not report it.
-                    if self.is_resource_type(msg) {
+                    if self.belongs_on_the_resource_plane(msg) {
                         self.emit_thread_resource_plane_required(
                             &format!("Call to `{display}` message type"),
                             msg,
@@ -1315,7 +1333,7 @@ impl TypeEnv {
         {
             return false;
         }
-        if self.close_op_for(type_).is_some()
+        if self.is_resource_base(type_)
             || self.unions.contains_key(type_)
             || self.enums.contains_key(type_)
         {

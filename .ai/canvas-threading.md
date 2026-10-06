@@ -294,8 +294,8 @@ the whole mechanism:
   again"* — a compile error rather than a runtime raise. The old guard
   (`canvas::imageRef` raising `ErrResourceClosed`) is gone with the member.
 
-  **"Directly" is load-bearing.** A `RES` parameter is an *alias*, so a close that
-  happens behind one consumes nothing at the caller: `closeIt(RES img AS canvas::Image)`
+  **"Directly" is load-bearing.** A resource parameter is an *alias*, so a close that
+  happens behind one consumes nothing at the caller: `closeIt(img AS canvas::Image)`
   leaves the caller's `img` usable, and `canvas::getSize(img)` afterwards compiles and
   raises `ErrResourceClosed` at run time — pinned by `closedRefuses` in
   `tests/cli/cli_canvas_image_resource.rs`. Any close performed *inside* the runtime is in
@@ -324,7 +324,7 @@ row names the rule from above that protects it.
 | R1 | present → `destroyImage` → graphics mid-record | the in-flight frame keeps sampling the image and completes normally | §7 "close never frees" |
 | R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the picture (there is no free — bug-484, §7) | §7 skip-in-new-frames |
 | R3 | `destroyImage(img)` → try to name `img` again | **Refused at compile time** — a direct `destroyImage` moves the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
-| R3b | close behind a `RES` parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A `RES` parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli/cli_canvas_image_resource.rs` |
+| R3b | close behind a resource parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A resource parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli/cli_canvas_image_resource.rs` |
 | R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
 | R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3 three slots |
 | R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |

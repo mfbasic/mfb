@@ -70,8 +70,9 @@ See `./mfb spec language threads` for the view-state contract.
 - The **worker view** (`ThreadWorker`, tag `RESOURCE_TAG_THREAD_WORKER`) is
   embedded in the control block at `CONTROL_OFFSET_WORKER_VIEW`, filled in by
   `thread::start`; the trampoline passes its address as the entry's first
-  argument. It has no close op: it lives exactly as long as the worker's
-  reference.
+  argument. It is a resource with no close op (bug-975): every resource rule
+  applies to a worker view (`RES`-only binding, moves, aliases), but no scope
+  drop closes or frees it — it lives exactly as long as the worker's reference.
 
 Handle-based channel and parent lifecycle operations reach the block through
 `emit_control_block_of`, which answers `ErrResourceClosed` for a null or closed

@@ -7,7 +7,7 @@ UNION Stream
   tcp::Socket
 END UNION
 
-FUNC useFile(RES f AS fs::File) AS Integer
+FUNC useFile(f AS fs::File) AS Integer
   RETURN 0
 END FUNC
 

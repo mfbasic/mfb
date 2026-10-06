@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/resources/param-res-keyword-invalid
+   6 | ' parameter list and in a LAMBDA's, with the error located on the keyword. The
+   7 | ' parser recovers past it, so both spellings are reported, not just the first.
+   8 | FUNC size(RES h AS fs::File) AS Integer
+     |           ^^^
+tests/syntax/resources/param-res-keyword-invalid/src/main.mfb:8 error[1-102-0015 MFB_PARSE_PARAMETER_RES]: a parameter takes no RES; its type already makes it a resource
+               Remove `RES` from parameter `h`: its type `fs::File` already makes it a resource. Write `h AS fs::File`.
+  13 |   RES f AS fs::File = fs::openFile("target/param-res-keyword.txt", "w")
+  14 |   LET n = size(f)
+  15 |   LET pick = LAMBDA(RES x AS fs::File) -> TRUE
+     |                     ^^^
+tests/syntax/resources/param-res-keyword-invalid/src/main.mfb:15 error[1-102-0015 MFB_PARSE_PARAMETER_RES]: a parameter takes no RES; its type already makes it a resource
+               Remove `RES` from parameter `x`: its type `fs::File` already makes it a resource. Write `x AS fs::File`.
+[exit 1]

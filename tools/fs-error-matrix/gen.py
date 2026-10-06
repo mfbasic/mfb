@@ -107,7 +107,7 @@ cases=[
  ("readLine closed","body",["RES h = fs::openFile(\"FX/lines.txt\", \"r\")", "closeIt(h)"], 'fs::readLine(h)'),
  ("close twice","bodysub",["RES h = fs::openFile(\"FX/lines.txt\", \"r\")", "closeIt(h)"], 'fs::close(h)'),
 ]
-out=["IMPORT fs","IMPORT io","","FUNC closeIt(RES x AS fs::File) AS Nothing","  fs::close(x)","END FUNC",""]
+out=["IMPORT fs","IMPORT io","","FUNC closeIt(x AS fs::File) AS Nothing","  fs::close(x)","END FUNC",""]
 names=[]
 for i,case in enumerate(cases):
     n=f"c{i}"; names.append(n)

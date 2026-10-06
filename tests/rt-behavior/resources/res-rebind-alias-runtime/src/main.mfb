@@ -23,7 +23,7 @@ IMPORT io
 IMPORT collections
 
 ' 1. The documented reproduction: an opaque -> opaque pass-through.
-FUNC passThrough(RES f AS fs::File) AS Nothing
+FUNC passThrough(f AS fs::File) AS Nothing
   RES g AS fs::File = f
 END FUNC
 

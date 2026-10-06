@@ -50,7 +50,7 @@ r#"' One non-blocking read of available bytes (gated on readiness so it never
 ' blocks), appended to `s.state.raw`. The MATCH only CALLS a top-level read helper
 ' and assigns into the pre-declared `r` — no `<call> TRAP` binding inside the CASE
 ' (Correction D3). A 0-byte read sets `closed`; a transport failure sets `err`.
-FUNC __http_pump(RES s AS Stream STATE PendingState) AS Nothing
+FUNC __http_pump(s AS Stream STATE PendingState) AS Nothing
   IF __http_ready(s) = FALSE THEN
     RETURN
   END IF

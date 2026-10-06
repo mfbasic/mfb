@@ -312,7 +312,7 @@ impl TypeEnv {
         );
     }
 
-    /// Reject a `RES` parameter whose declared `STATE` disagrees with the state
+    /// Reject a resource parameter whose declared `STATE` disagrees with the state
     /// its argument actually carries (`TYPE_STATE_MISMATCH`, plan-52-C).
     ///
     /// A resource's STATE type is fixed at its **owning binding**; parameters only
@@ -340,8 +340,8 @@ impl TypeEnv {
     ///
     /// Note the intuitive rule is the unsafe one: allowing `stateless → STATE T`
     /// so a parameter may attach is precisely what makes two disagreeing state types
-    /// reachable with **no stateful binding anywhere** — `a(RES p AS File STATE
-    /// Cursor)` allocates, then `b(RES p AS File STATE Label)` reads that block as
+    /// reachable with **no stateful binding anywhere** — `a(p AS File STATE
+    /// Cursor)` allocates, then `b(p AS File STATE Label)` reads that block as
     /// a Label.
     pub(super) fn check_argument_state_agreement(
         &self,
@@ -436,7 +436,7 @@ impl TypeEnv {
     /// frame, so forgetting the state is unobservable) and unsafe for a **binding**
     /// (an owner escapes). Yes for params, no for owners — the escape distinction
     /// is the whole rule.
-    /// plan-59-C: is `value` a direct read of a bare `RES` parameter — i.e. a value
+    /// plan-59-C: is `value` a direct read of a bare resource parameter — i.e. a value
     /// whose `STATE` is **opaque** ("some state or none") rather than known-absent?
     ///
     /// Deliberately narrow: only a direct `Var` read counts. Anything that has
@@ -458,7 +458,7 @@ impl TypeEnv {
         let Some(value) = value else {
             return;
         };
-        // plan-59-C: binding a bare `RES` parameter under a CONCRETE `STATE` is an
+        // plan-59-C: binding a bare resource parameter under a CONCRETE `STATE` is an
         // unprovable narrowing — the checker knows only that it carries *some*
         // state. Checked before the agreement arms below, which cannot see it: an
         // opaque value's type string names no STATE, so `state_type_name` returns
@@ -469,7 +469,7 @@ impl TypeEnv {
                 self.emit(
                     "TYPE_STATE_OPAQUE_NARROWING",
                     format!(
-                        "binding `{name}` declares `STATE {declared}`, but its initializer is a bare `RES` parameter whose STATE is opaque — it carries some state or none, and the compiler cannot prove it is a `{declared}`."
+                        "binding `{name}` declares `STATE {declared}`, but its initializer is a bare resource parameter whose STATE is opaque — it carries some state or none, and the compiler cannot prove it is a `{declared}`."
                     ),
                 );
                 return;

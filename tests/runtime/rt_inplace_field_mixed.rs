@@ -166,7 +166,7 @@ fn a_failing_scalar_leaves_the_whole_owner_unchanged() {
          RETURN 0\n\n  TRAP(e)\n    \
          io::print(\"record hp=\" & toString(r.hp) & \" n=\" & toString(r.n) & \" len=\" & toString(len(r.xs)))\n    \
          RETURN 1\n  END TRAP\nEND FUNC\n\n\
-         FUNC viaState(RES h AS fs::File STATE P, big AS Integer) AS Integer\n  \
+         FUNC viaState(h AS fs::File STATE P, big AS Integer) AS Integer\n  \
          h.state = WITH h.state {{ hp := h.state.hp + big, xs := collections::append(h.state.xs, 7), n := 9 }}\n  \
          RETURN 0\n\n  TRAP(e)\n    \
          io::print(\"state hp=\" & toString(h.state.hp) & \" n=\" & toString(h.state.n) & \" len=\" & toString(len(h.state.xs)))\n    \

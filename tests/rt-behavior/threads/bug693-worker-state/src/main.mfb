@@ -9,7 +9,7 @@ TYPE W
   n AS Integer
 END TYPE
 
-ISOLATED FUNC work(RES worker AS ThreadWorker OF Integer TO Integer STATE W, n AS Integer) AS Integer
+ISOLATED FUNC work(worker AS ThreadWorker OF Integer TO Integer STATE W, n AS Integer) AS Integer
   worker.state.n = 3
   RETURN n
 END FUNC

@@ -35,7 +35,7 @@ LINK "sqlite3" AS sqlite
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -182,7 +182,7 @@ and `OUT` slots, and becomes the list's length; below zero counts as zero, and
 above `SIZE` counts as `SIZE`.
 
 ```
-  FUNC readFrames(RES file AS SoundFile, frames AS Integer, channels AS Integer) AS List OF Byte
+  FUNC readFrames(file AS SoundFile, frames AS Integer, channels AS Integer) AS List OF Byte
     SYMBOL "sf_readf_short"
     ABI (file CPtr, buf OUT CBuffer, frames CInt64) AS read CInt64
     BUFFER buf SIZE frames * channels * 2
@@ -230,7 +230,7 @@ wrap native handles in `RESOURCE` types instead.
 | `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | a native `FUNC` omits `ABI` |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | a resource `CLOSE BY` target is not a native `LINK` function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | a resource names a missing function in a known `LINK` alias |
-| `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | a close op does not take exactly one `RES` parameter of the resource type |
+| `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | a close op does not take exactly one parameter of the resource type |
 | `2-203-0092` | `NATIVE_CPTR_ESCAPE` | a raw C ABI type appears outside an ABI slot |
 | `2-203-0093` | `NATIVE_ABI_RESULT_MARKER` | a `RETURN` clause is malformed or ambiguous, or a `Nothing` wrapper declares one |
 | `2-203-0094` | `NATIVE_ABI_UNBOUND_SLOT` | an input ABI slot is not bound to a parameter or `CONST` pin, or an expression names something that is not a slot |

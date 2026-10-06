@@ -34,7 +34,7 @@ END FUNC
 
 /// `piece` is appended into `out` directly.
 const DIRECT: &str = r#"
-FUNC wrap(RES f AS fs::File) AS List OF List OF RES fs::File
+FUNC wrap(f AS fs::File) AS List OF List OF RES fs::File
   MUT out AS List OF List OF RES fs::File = []
   LET piece AS List OF RES fs::File = [f]
   out = collections::append(out, piece)
@@ -50,7 +50,7 @@ FUNC box(xs AS List OF RES fs::File) AS List OF List OF RES fs::File
   RETURN out
 END FUNC
 
-FUNC wrap(RES f AS fs::File) AS List OF List OF RES fs::File
+FUNC wrap(f AS fs::File) AS List OF List OF RES fs::File
   LET piece AS List OF RES fs::File = [f]
   RETURN box(piece)
 END FUNC
@@ -59,7 +59,7 @@ END FUNC
 /// `collections::window`'s body binds each piece from `__collections_slice` and
 /// appends it to the result (the bug-643 fixture's `dwins` shape).
 const THROUGH_WINDOW: &str = r#"
-FUNC wrap(RES f AS fs::File) AS List OF List OF RES fs::File
+FUNC wrap(f AS fs::File) AS List OF List OF RES fs::File
   LET l AS List OF RES fs::File = [f]
   RETURN collections::window(l, 1)
 END FUNC

@@ -29,7 +29,7 @@ The compiler may choose stack storage, inline storage, or heap allocation. A `MU
 - **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
-Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource references (§15.6). Copying ordinary collection contents copies values — a function value included — while resource slots copy their references. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
+Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource references (§15.6). Copying ordinary collection contents copies values — a function value included — while resource slots copy their references. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable; both thread views, a parent `Thread` and a `ThreadWorker`, are resources (§15, §16). [[src/ir/verify/resources.rs:is_copyable]]
 
 The compiler may replace a semantic copy with a move when it proves the source is not used afterward. This is an optimization only; it must not change diagnostics or observable behavior except performance.
 
@@ -42,6 +42,8 @@ When the expression is a binding:
 - If the value's type is copyable and the binding is used again, assignment copies it.
 - If the value's type is copyable and the binding is not used again, the compiler may move it.
 - If the value's type is not copyable, assignment moves it and the source binding becomes unusable.
+
+A resource — either thread view included, a `ThreadWorker` as much as a parent `Thread` — is never the destination of a `LET` or `MUT`: it is bound with `RES` (`TYPE_RESOURCE_REQUIRES_RES`, §15), and `RES b = a` moves the name `a` while `b` refers to the same resource. [[src/ir/verify/ops.rs:check_ops]]
 
 Reassigning a `MUT` first drops the old value in the binding, then initializes the binding with the new value. If evaluating the right-hand side fails, the old value remains live.
 
@@ -197,7 +199,7 @@ Because the effect is attached to the success branch rather than to the call,
 `consumed_resource` (close and `RETURN`, which consume on every edge) does not
 list transfer; `transferred_resource` names the sent binding. A transfer through
 a name the check cannot connect to the caller's binding — a callee transferring
-its `RES` parameter — is still refused at run time: a later guarded operation
+its resource parameter — is still refused at run time: a later guarded operation
 raises `ErrResourceMoved`.
 [[src/ir/verify/link.rs:transferred_resource]]
 [[src/ir/verify/resources.rs:check_resource_moves]]

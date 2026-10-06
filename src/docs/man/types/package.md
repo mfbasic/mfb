@@ -153,9 +153,10 @@ user code. See `mfb man errors`.
   handed to another thread with `thread::transfer`, kept in a `List OF RES
   Thread …`, and given its own state with a trailing `STATE S`.
 - **`ThreadWorker OF Msg TO Out`** — the opaque worker-side handle to the same
-  thread, passed into the thread entry function. It belongs to the worker for as
-  long as the worker runs, so it never goes into a collection or to another
-  thread.
+  thread, passed into the thread entry function. It is a `RES` handle too: bind
+  it with `RES`, never `LET` or `MUT`. It belongs to the worker for as long as the
+  worker runs — it stays open until the worker function returns — so it never
+  goes into a collection or to another thread.
 
 ## Package types
 

@@ -20,7 +20,7 @@ FUNC dir() AS String
   RETURN "target"
 END FUNC
 
-FUNC state(RES h AS fs::File) AS String
+FUNC state(h AS fs::File) AS String
   LET line = fs::readLine(h) TRAP(e)
     IF e.code = errorCode::ErrResourceClosed THEN
       RECOVER "CLOSED"
@@ -37,7 +37,7 @@ FUNC data() AS RES fs::File
   RETURN fs::open(dir() & "/b755-data.txt", "read")
 END FUNC
 
-FUNC ident(RES h AS fs::File) AS RES fs::File
+FUNC ident(h AS fs::File) AS RES fs::File
   RETURN h
 END FUNC
 
@@ -61,18 +61,18 @@ FUNC addFresh(xs AS List OF RES fs::File) AS List OF RES fs::File
   RETURN collections::append(xs, fresh("b755-mixed.txt"))
 END FUNC
 
-FUNC pick(c AS Boolean, RES h AS fs::File) AS RES fs::File
+FUNC pick(c AS Boolean, h AS fs::File) AS RES fs::File
   IF c THEN
     RETURN h
   END IF
   RETURN fresh("b755-pick.txt")
 END FUNC
 
-FUNC addTo(xs AS List OF RES fs::File, RES h AS fs::File) AS List OF RES fs::File
+FUNC addTo(xs AS List OF RES fs::File, h AS fs::File) AS List OF RES fs::File
   RETURN collections::append(xs, h)
 END FUNC
 
-FUNC wrap(RES f AS fs::File) AS Holder
+FUNC wrap(f AS fs::File) AS Holder
   LET h = Holder["made", f]
   RETURN h
 END FUNC

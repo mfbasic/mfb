@@ -98,14 +98,14 @@ fn write_cert(root: &Path) -> (PathBuf, PathBuf) {
 fn build_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     let source = format!(
         "IMPORT errorCode\nIMPORT io\nIMPORT net\nIMPORT strings\nIMPORT tls\n\n\
-         FUNC liveWrite(RES conn AS tls::Socket) AS String\n\
+         FUNC liveWrite(conn AS tls::Socket) AS String\n\
         \x20 tls::write(conn, \"{PAYLOAD}\" & toString([toByte(10)]))\n\
         \x20 RETURN \"live=OK\"\n\
         \x20 TRAP(err)\n\
         \x20   RETURN \"live=RAISED \" & toString(err.code)\n\
         \x20 END TRAP\n\
          END FUNC\n\n\
-         FUNC writeAfterClose(RES conn AS tls::Socket) AS String\n\
+         FUNC writeAfterClose(conn AS tls::Socket) AS String\n\
         \x20 LET chunk AS String = strings::repeat(\"x\", 65536)\n\
         \x20 FOR i = 1 TO 200\n\
         \x20   tls::write(conn, chunk)\n\
@@ -115,7 +115,7 @@ fn build_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20   RETURN \"after=\" & toString(err.code = errorCode::ErrConnectionClosed) & \" code=\" & toString(err.code)\n\
         \x20 END TRAP\n\
          END FUNC\n\n\
-         FUNC readAfterClose(RES conn AS tls::Socket) AS String\n\
+         FUNC readAfterClose(conn AS tls::Socket) AS String\n\
         \x20 LET chunk AS List OF Byte = tls::read(conn, 4096)\n\
         \x20 RETURN \"read=GOT\"\n\
         \x20 TRAP(err)\n\

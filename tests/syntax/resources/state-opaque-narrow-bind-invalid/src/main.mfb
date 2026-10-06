@@ -15,7 +15,7 @@ END TYPE
 ' `state_type_name` cannot catch this on its own: an opaque value and a provably
 ' stateless one have the SAME type string, so only the parameter's provenance
 ' distinguishes them.
-FUNC launder(RES f AS fs::File) AS Nothing
+FUNC launder(f AS fs::File) AS Nothing
   RES g AS fs::File STATE Cursor = f
 END FUNC
 

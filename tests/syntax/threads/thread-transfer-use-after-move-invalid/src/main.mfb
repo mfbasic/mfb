@@ -5,7 +5,7 @@ IMPORT fs
 IMPORT io
 IMPORT thread
 
-FUNC same(RES f AS fs::File) AS RES fs::File
+FUNC same(f AS fs::File) AS RES fs::File
   RETURN f
 END FUNC
 

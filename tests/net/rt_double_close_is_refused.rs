@@ -24,7 +24,7 @@
 //! ```
 //!
 //! is refused at compile time (`TYPE_USE_AFTER_MOVE`) and never reaches a
-//! backend. The reachable shape is the one §15 describes: a `RES` parameter is
+//! backend. The reachable shape is the one §15 describes: a resource parameter is
 //! the same handle seen from a deeper scope, and any holder may close it — so a
 //! function taking `RES` and closing it, called twice, is a real double close and is
 //! how a program meets this in practice.
@@ -133,7 +133,7 @@ fn run(name: &str, source: &str) -> String {
     stdout
 }
 
-/// The shared shape: open a handle, close it through a `RES` parameter, close it
+/// The shared shape: open a handle, close it through a resource parameter, close it
 /// again the same way, and print the second call's outcome.
 ///
 /// `TRAP` has to sit at the bottom of a function, so the second close lives in
@@ -145,11 +145,11 @@ fn program(imports: &str, open: &str, type_: &str, close_call: &str) -> String {
          IMPORT errorCode\n\
          {imports}\n\
          \n\
-         FUNC closeIt(RES h AS {type_}) AS Nothing\n\
+         FUNC closeIt(h AS {type_}) AS Nothing\n\
         \x20 {close_call}\n\
          END FUNC\n\
          \n\
-         FUNC closeAgain(RES h AS {type_}) AS Integer\n\
+         FUNC closeAgain(h AS {type_}) AS Integer\n\
         \x20 closeIt(h)\n\
         \x20 RETURN 0\n\
         \x20 TRAP(e)\n\

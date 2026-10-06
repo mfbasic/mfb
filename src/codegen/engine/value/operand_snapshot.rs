@@ -25,7 +25,7 @@
 //! * `operand_reachable_by_later_call` — the operand must lower to a pointer into
 //!   storage a callee can *reassign*: a global, a by-ref or address-taken local
 //!   (reassignable through a callback's reference capture), a resource's STATE
-//!   (bug-487's copying half: a `RES` parameter is an alias), or a member/extract
+//!   (bug-487's copying half: a resource parameter is an alias), or a member/extract
 //!   of one of those. A plain local is unreachable — value semantics means no
 //!   callee can touch it — so `x = append(x, f())` and `s & f()` on locals stay
 //!   copy-free, and the in-place `x = append(x, <pure>)` fast path never sees a

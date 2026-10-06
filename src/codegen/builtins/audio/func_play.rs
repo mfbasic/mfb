@@ -15,7 +15,7 @@ use super::{param, AUDIO_OUTPUT_TYPE_ID};
 #[rustfmt::skip]
 const BODY_TRACK: &str =
 r#"' audio::play(output, mml) — parse a single MML track and write it to the stream.
-FUNC __audio_play(RES out AS audio::AudioOutput, mml AS String) AS Nothing
+FUNC __audio_play(out AS audio::AudioOutput, mml AS String) AS Nothing
   __audio_playSamples(out, __audio_mmlRenderSamples(mml))
 END FUNC"#;
 
@@ -24,7 +24,7 @@ const BODY_TRACKS: &str =
 r#"' audio::play(output, tracks) — parse each track, mix them, and write to the
 ' stream. Each track is isolated: tempo/length/octave/volume/instrument do not
 ' carry between tracks.
-FUNC __audio_playTracks(RES out AS audio::AudioOutput, tracks AS List OF String) AS Nothing
+FUNC __audio_playTracks(out AS audio::AudioOutput, tracks AS List OF String) AS Nothing
   MUT rendered AS List OF List OF Integer = []
   FOR EACH tk IN tracks
     rendered = collections::append(rendered, __audio_mmlRenderSamples(tk))

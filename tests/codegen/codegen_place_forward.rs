@@ -227,7 +227,7 @@ fn the_state_set_shape_goes_in_place() {
         "place_forward_state_set",
         &format!(
             "IMPORT fs\n{RECORD}\
-             FUNC work(RES f AS fs::File STATE R, n AS Integer) AS Integer\n\
+             FUNC work(f AS fs::File STATE R, n AS Integer) AS Integer\n\
             \x20 FOR j = 1 TO n\n\
             \x20   LET cur AS List OF Integer = f.state.xs\n\
             \x20   LET v AS Integer = collections::get(cur, 0)\n\
@@ -247,7 +247,7 @@ fn the_state_remove_at_shape_goes_in_place() {
         "place_forward_state_remove_at",
         &format!(
             "IMPORT fs\n{RECORD}\
-             FUNC work(RES f AS fs::File STATE R, n AS Integer) AS Integer\n\
+             FUNC work(f AS fs::File STATE R, n AS Integer) AS Integer\n\
             \x20 FOR j = 1 TO n\n\
             \x20   LET cur AS List OF Integer = f.state.xs\n\
             \x20   f.state.xs = collections::removeAt(cur, 0)\n\

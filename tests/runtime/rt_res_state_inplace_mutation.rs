@@ -90,7 +90,7 @@ fn scalar_state_field_assign_stores_in_place() {
         \x20 raw AS List OF Byte\n\
         \x20 n   AS Integer\n\
          END TYPE\n\
-         FUNC bump(RES f AS fs::File STATE Accum) AS Nothing\n\
+         FUNC bump(f AS fs::File STATE Accum) AS Nothing\n\
         \x20 f.state.n = f.state.n + 1\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -123,7 +123,7 @@ fn collection_state_field_grows_in_place() {
         \x20 raw AS List OF Byte\n\
         \x20 n   AS Integer\n\
          END TYPE\n\
-         FUNC grow(RES f AS fs::File STATE Accum, chunk AS List OF Byte) AS Nothing\n\
+         FUNC grow(f AS fs::File STATE Accum, chunk AS List OF Byte) AS Nothing\n\
         \x20 f.state.raw = collections::append(f.state.raw, chunk)\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -159,7 +159,7 @@ fn whole_state_replace_still_rebuilds() {
         \x20 raw AS List OF Byte\n\
         \x20 n   AS Integer\n\
          END TYPE\n\
-         FUNC reset(RES f AS fs::File STATE Accum) AS Nothing\n\
+         FUNC reset(f AS fs::File STATE Accum) AS Nothing\n\
         \x20 f.state = Accum[[], 0]\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -189,7 +189,7 @@ fn string_state_field_still_rebuilds() {
         \x20 name AS String\n\
         \x20 pos  AS Integer\n\
          END TYPE\n\
-         FUNC rename(RES f AS fs::File STATE Label) AS Nothing\n\
+         FUNC rename(f AS fs::File STATE Label) AS Nothing\n\
         \x20 f.state.name = \"hello\"\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -296,7 +296,7 @@ fn state_src(state_ty: &str, field: &str, body: &str) -> String {
         \x20 {field} AS {state_ty}\n\
         \x20 n AS Integer\n\
          END TYPE\n\
-         FUNC mutate(RES f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
+         FUNC mutate(f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
         \x20 {body}\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -486,7 +486,7 @@ fn a_second_updated_state_field_is_stored_beside_the_arm() {
         \x20 m AS Map OF String TO Integer\n\
         \x20 n AS Integer\n\
          END TYPE\n\
-         FUNC mutate(RES f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
+         FUNC mutate(f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
         \x20 f.state = WITH f.state { m := collections::removeKey(f.state.m, k), n := v }\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -560,7 +560,7 @@ fn remove_at_on_a_recursive_element_declines_in_the_state_container() {
         \x20 xs AS List OF Node\n\
         \x20 n AS Integer\n\
          END TYPE\n\
-         FUNC mutate(RES f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
+         FUNC mutate(f AS fs::File STATE St, k AS String, v AS Integer) AS Nothing\n\
         \x20 f.state.xs = collections::removeAt(f.state.xs, v)\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -720,11 +720,11 @@ fn g25_src(body: &str) -> String {
         \x20 xs AS List OF Integer\n\
         \x20 n AS Integer\n\
          END TYPE\n\
-         FUNC bump(RES f AS fs::File STATE St) AS Integer\n\
+         FUNC bump(f AS fs::File STATE St) AS Integer\n\
         \x20 f.state.n = f.state.n + 1\n\
         \x20 RETURN 7\n\
          END FUNC\n\
-         FUNC relay(RES f AS fs::File STATE St) AS Integer\n\
+         FUNC relay(f AS fs::File STATE St) AS Integer\n\
         \x20 RETURN bump(f)\n\
          END FUNC\n\
          FUNC inner(v AS Integer) AS Integer\n\
@@ -733,7 +733,7 @@ fn g25_src(body: &str) -> String {
          FUNC outer(v AS Integer) AS Integer\n\
         \x20 RETURN inner(v) * 2\n\
          END FUNC\n\
-         FUNC mutate(RES f AS fs::File STATE St, v AS Integer) AS Nothing\n\
+         FUNC mutate(f AS fs::File STATE St, v AS Integer) AS Nothing\n\
         \x20 {body}\n\
          END FUNC\n\
          FUNC main AS Integer\n\

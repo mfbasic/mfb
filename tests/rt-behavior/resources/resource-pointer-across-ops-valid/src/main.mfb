@@ -1,7 +1,7 @@
 IMPORT fs
 IMPORT io
 
-FUNC logLine(RES f AS fs::File, msg AS String) AS Nothing
+FUNC logLine(f AS fs::File, msg AS String) AS Nothing
   fs::writeAll(f, msg)
 END FUNC
 

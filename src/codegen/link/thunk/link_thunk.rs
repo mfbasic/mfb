@@ -308,7 +308,7 @@ pub(crate) fn emit_link_support(
     // without a `STATE S`. (plan-53-A wrapped only the stateful ones, so a
     // stateless `Db` was the raw handle and had nowhere to put a `closed` flag.)
     //
-    // Record-ness is per-TYPE, not per-declaration: a BARE `RES db AS R` param
+    // Record-ness is per-TYPE, not per-declaration: a BARE `db AS R` param
     // still receives a record pointer and must load the handle from FD@0 before
     // the native call (e.g. `close`/`exec`). This set is what lets a thunk tell a
     // record-resource param from a scalar one, and it must stay in lockstep with
@@ -1153,7 +1153,7 @@ fn lower_link_thunk(
                 // plan-59-A: a param whose resource TYPE is a native resource is a
                 // RECORD pointer, but the native symbol wants the handle it wraps.
                 // Load FD@0. Record-ness is per-TYPE and no longer depends on
-                // STATE: this fires for a BARE `RES db AS Db` param (e.g.
+                // STATE: this fires for a BARE `db AS Db` param (e.g.
                 // `close`/`exec`) just as it does for a stateful `SoundFile` —
                 // without it the record pointer, not the handle, reaches the C
                 // library.

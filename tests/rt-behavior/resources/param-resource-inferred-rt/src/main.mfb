@@ -1,0 +1,90 @@
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+' bug-976: a parameter is a resource because its type is one; there is no `RES`
+' keyword on a parameter. Each callee below takes a bare `AS fs::File` (or a
+' resource union) parameter and must behave exactly as the old `RES`-spelled
+' parameter did: lent on pass, never closed by the callee's scope, its STATE
+' shared with the owner, and returnable as an alias. Every assertion is a value
+' the caller observes AFTER the call.
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+TYPE Holder
+  name AS String
+  handle AS RES fs::File
+END TYPE
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+' An alias rebind inside the callee is not a second owner: the caller's handle
+' is still open after the call.
+FUNC alias(f AS fs::File) AS Nothing
+  RES g AS fs::File = f
+  fs::writeAll(g, "a")
+END FUNC
+
+' A STATE parameter, with no keyword: the write is visible to the owner.
+FUNC bump(f AS fs::File STATE Cursor) AS Nothing
+  f.state.pos = f.state.pos + 41
+END FUNC
+
+' A stateful argument passed to a bare (opaque) parameter.
+FUNC touch(f AS fs::File) AS Nothing
+  fs::writeAll(f, "b")
+END FUNC
+
+' Handing the parameter back: the caller's binding is a reference, not a second
+' owner.
+FUNC same(f AS fs::File) AS RES fs::File
+  RETURN f
+END FUNC
+
+' The parameter stored into a record that is returned: the caller's owner keeps
+' the cleanup obligation, and the record's view still writes.
+FUNC wrap(f AS fs::File) AS Holder
+  LET h = Holder["held", f]
+  RETURN h
+END FUNC
+
+' A resource-union parameter, by type alone.
+FUNC describe(s AS Stream) AS String
+  MATCH s
+    CASE fs::File(f)
+      fs::writeAll(f, "c")
+      RETURN "file"
+    CASE tcp::Socket(k)
+      RETURN "socket"
+  END MATCH
+END FUNC
+
+' The callee may invalidate what it was lent: an explicit close through the
+' parameter, after which the owner's scope exit is a no-op, not a double close.
+FUNC shut(f AS fs::File) AS Nothing
+  fs::close(f)
+END FUNC
+
+FUNC main AS Integer
+  RES f AS fs::File STATE Cursor = fs::openFile("target/param-resource-inferred.txt", "w")
+  alias(f)
+  bump(f)
+  touch(f)
+  io::print("state=" & toString(f.state.pos))
+  RES g AS fs::File STATE Cursor = same(f)
+  fs::writeAll(g, "d")
+  LET h = wrap(f)
+  fs::writeAll(h.handle, "e")
+  io::print("holder=" & h.name)
+  RES s AS Stream = fs::openFile("target/param-resource-inferred-union.txt", "w")
+  io::print("union=" & describe(s))
+  RES t AS fs::File = fs::openFile("target/param-resource-inferred-shut.txt", "w")
+  shut(t)
+  io::print("size=" & toString(fs::size(f)))
+  RETURN 0
+END FUNC

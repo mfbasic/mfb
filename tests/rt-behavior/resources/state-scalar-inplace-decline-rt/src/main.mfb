@@ -36,40 +36,40 @@ END TYPE
 ' Every mutation goes through a `RES` parameter -- the alias shape. The owner
 ' must observe all of them, which is what republishing the STATE pointer buys
 ' when a decline relays the block somewhere else.
-FUNC setCount(RES f AS fs::File STATE Mixed, v AS Integer) AS Nothing
+FUNC setCount(f AS fs::File STATE Mixed, v AS Integer) AS Nothing
   f.state.count = v
 END FUNC
 
-FUNC setFlag(RES f AS fs::File STATE Mixed, v AS Boolean) AS Nothing
+FUNC setFlag(f AS fs::File STATE Mixed, v AS Boolean) AS Nothing
   f.state.flag = v
 END FUNC
 
-FUNC setTag(RES f AS fs::File STATE Mixed, v AS String) AS Nothing
+FUNC setTag(f AS fs::File STATE Mixed, v AS String) AS Nothing
   f.state.tag = v
 END FUNC
 
-FUNC setItems(RES f AS fs::File STATE Mixed, v AS List OF Integer) AS Nothing
+FUNC setItems(f AS fs::File STATE Mixed, v AS List OF Integer) AS Nothing
   f.state.items = v
 END FUNC
 
-FUNC setInner(RES f AS fs::File STATE Mixed, v AS Leaf) AS Nothing
+FUNC setInner(f AS fs::File STATE Mixed, v AS Leaf) AS Nothing
   f.state.inner = v
 END FUNC
 
 ' A multi-field update mixing an eligible scalar with an inlined String. One
 ' ineligible field disqualifies the WHOLE update -- the recogniser cannot store
 ' half of it in place and rebuild the rest.
-FUNC setCountAndTag(RES f AS fs::File STATE Mixed, n AS Integer, v AS String) AS Nothing
+FUNC setCountAndTag(f AS fs::File STATE Mixed, n AS Integer, v AS String) AS Nothing
   f.state = WITH f.state { count := n, tag := v }
 END FUNC
 
 ' Both fields eligible: this one IS handled in place, and is here so the
 ' fixture covers the accept as well as the rejections.
-FUNC setCountAndFlag(RES f AS fs::File STATE Mixed, n AS Integer, b AS Boolean) AS Nothing
+FUNC setCountAndFlag(f AS fs::File STATE Mixed, n AS Integer, b AS Boolean) AS Nothing
   f.state = WITH f.state { count := n, flag := b }
 END FUNC
 
-FUNC show(label AS String, RES f AS fs::File STATE Mixed) AS Nothing
+FUNC show(label AS String, f AS fs::File STATE Mixed) AS Nothing
   io::print(label _
     & " count=" & toString(f.state.count) _
     & " flag=" & toString(f.state.flag) _

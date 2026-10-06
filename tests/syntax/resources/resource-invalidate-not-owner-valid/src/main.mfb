@@ -14,7 +14,7 @@
 ' back' becomes writable. Not expressible today in any form."
 IMPORT fs
 
-FUNC consume(RES f AS fs::File) AS Nothing
+FUNC consume(f AS fs::File) AS Nothing
   fs::close(f)
 END FUNC
 

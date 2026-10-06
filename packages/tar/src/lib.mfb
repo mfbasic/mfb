@@ -55,7 +55,7 @@ EXPORT FUNC open(data AS List OF Byte) AS Archive
 END FUNC
 
 ' Open an archive from a file you have open.
-EXPORT FUNC open(RES file AS fs::File) AS Archive
+EXPORT FUNC open(file AS fs::File) AS Archive
   RETURN walkArchive(FileSource[file])
 END FUNC
 

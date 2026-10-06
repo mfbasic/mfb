@@ -11,7 +11,7 @@ IMPORT errorCode
 
 LET PATH AS String = "/tmp/mfb_bug752_res_element_callbacks.txt"
 
-FUNC state(RES h AS fs::File) AS String
+FUNC state(h AS fs::File) AS String
   LET line = fs::readLine(h) TRAP(e)
     IF e.code = errorCode::ErrResourceClosed THEN
       RECOVER "CLOSED"
@@ -21,7 +21,7 @@ FUNC state(RES h AS fs::File) AS String
   RETURN line
 END FUNC
 
-FUNC rank(RES x AS fs::File) AS Integer
+FUNC rank(x AS fs::File) AS Integer
   RETURN 1
 END FUNC
 
@@ -33,13 +33,13 @@ FUNC main() AS Nothing
 
   LET groups = collections::groupBy(files, rank, rank)
   io::print("groupBy groups=" & toString(len(groups)))
-  LET parts = collections::partition(files, LAMBDA(RES x AS fs::File) -> TRUE)
+  LET parts = collections::partition(files, LAMBDA(x AS fs::File) -> TRUE)
   io::print("partition matched=" & toString(len(parts.matched)) & " unmatched=" & toString(len(parts.unmatched)))
   LET sorted = collections::sortBy(files, rank)
   io::print("sortBy len=" & toString(len(sorted)))
-  LET at = collections::findIndex(files, LAMBDA(RES x AS fs::File) -> TRUE)
-  LET last = collections::findLastIndex(files, LAMBDA(RES x AS fs::File) -> TRUE)
+  LET at = collections::findIndex(files, LAMBDA(x AS fs::File) -> TRUE)
+  LET last = collections::findLastIndex(files, LAMBDA(x AS fs::File) -> TRUE)
   io::print("findIndex=" & toString(at) & " findLastIndex=" & toString(last))
-  io::print("all=" & toString(collections::all(files, LAMBDA(RES x AS fs::File) -> TRUE)) & " any=" & toString(collections::any(files, LAMBDA(RES x AS fs::File) -> FALSE)))
+  io::print("all=" & toString(collections::all(files, LAMBDA(x AS fs::File) -> TRUE)) & " any=" & toString(collections::any(files, LAMBDA(x AS fs::File) -> FALSE)))
   io::print("a: " & state(a) & " b: " & state(b))
 END FUNC

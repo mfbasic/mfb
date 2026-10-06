@@ -227,7 +227,7 @@ fn hoist_element(
 }
 
 /// The type a synthesized `RES` binding of a value of `type_` declares, when
-/// `type_` is a resource: a built-in (a parent `Thread` included), a project
+/// `type_` is a resource: a built-in (either thread view included), a project
 /// `RESOURCE`, or a `RES`-returning function's result.
 fn resource_binding_type(
     type_: &ParameterType,
@@ -238,8 +238,8 @@ fn resource_binding_type(
         other => other.clone(),
     };
     let base = bare.without_state();
-    let is_resource = crate::codegen::resource::builtin_resource_close_function(&base).is_some()
-        || context.is_declared_resource(&base);
+    let is_resource =
+        crate::codegen::resource::is_builtin_resource(&base) || context.is_declared_resource(&base);
     is_resource.then_some(bare)
 }
 

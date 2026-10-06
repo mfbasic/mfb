@@ -29,7 +29,7 @@ PRIVATE FUNC sampleBytes() AS List OF Byte
 END FUNC
 
 ' The same bytes, in a temp file, as a `Source`.
-PRIVATE FUNC fileSourceOf(RES handle AS fs::File, bytes AS List OF Byte) AS Source
+PRIVATE FUNC fileSourceOf(handle AS fs::File, bytes AS List OF Byte) AS Source
   fs::writeAllBytes(handle, bytes)
   fs::flush(handle)
   RETURN FileSource[handle]
@@ -57,7 +57,7 @@ END FUNC
 ' Reading through a handle that a callee closed — the case the compiler's move
 ' rules cannot prove, so the runtime closed-flag is what refuses it
 ' (`mfb spec language resource-management` §15).
-PRIVATE FUNC closeHandle(RES f AS fs::File) AS Nothing
+PRIVATE FUNC closeHandle(f AS fs::File) AS Nothing
   fs::close(f)
 END FUNC
 

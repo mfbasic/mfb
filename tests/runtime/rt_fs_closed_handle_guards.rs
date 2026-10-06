@@ -8,7 +8,7 @@
 //! `flush` drained through the fd number the close had already released — a
 //! number the host may since have handed to an unrelated file.
 //!
-//! The handle is closed through a `RES` parameter, which leaves the caller's
+//! The handle is closed through a resource parameter, which leaves the caller's
 //! binding usable — the one source-level path that reaches a closed `File`.
 
 #[path = "../common/mod.rs"]
@@ -25,7 +25,7 @@ fn buffering_operations_refuse_a_closed_file() {
         r#"IMPORT fs
 IMPORT io
 
-FUNC closeIt(RES x AS fs::File) AS Nothing
+FUNC closeIt(x AS fs::File) AS Nothing
   fs::close(x)
 END FUNC
 

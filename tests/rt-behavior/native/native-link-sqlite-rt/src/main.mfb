@@ -16,7 +16,7 @@ LINK "sqlite3" AS sql
     RETURN db
     SUCCESS_ON status = 0
   END FUNC
-  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+  FUNC exec(db AS Db, statement AS String) AS Nothing
     SYMBOL "sqlite3_exec"
     ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
     CONST callback = NOTHING
@@ -24,7 +24,7 @@ LINK "sqlite3" AS sql
     CONST errmsg = NOTHING
     SUCCESS_ON status = 0
   END FUNC
-  FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
+  FUNC prepare(db AS Db, statement AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
     ABI (db CPtr, statement CString, nByte CInt32, stmt OUT CPtr, pzTail CPtr) AS status CInt32
     CONST nByte = -1
@@ -32,20 +32,20 @@ LINK "sqlite3" AS sql
     RETURN stmt
     SUCCESS_ON status = 0
   END FUNC
-  FUNC bindText(RES stmt AS Stmt, iCol AS Integer, value AS String) AS Nothing
+  FUNC bindText(stmt AS Stmt, iCol AS Integer, value AS String) AS Nothing
     SYMBOL "sqlite3_bind_text"
     ABI (stmt CPtr, iCol CInt32, value CString, nByte CInt32, destructor CPtr) AS status CInt32
     CONST nByte = -1
     CONST destructor = -1
     SUCCESS_ON status = 0
   END FUNC
-  FUNC step(RES stmt AS Stmt) AS Boolean
+  FUNC step(stmt AS Stmt) AS Boolean
     SYMBOL "sqlite3_step"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 100 OR status = 101
     RETURN status = 100
   END FUNC
-  FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
+  FUNC columnText(stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_text"
     ABI (stmt CPtr, col CInt32) AS text CPtr
     RETURN text
@@ -53,22 +53,22 @@ LINK "sqlite3" AS sql
   ' Exercises the CInt32-return and CDouble-return marshaling (§12.3): the
   ' result columns are read back as Integer and Float, with the column index
   ' passed through the CInt32 input range-check.
-  FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
+  FUNC columnInt(stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_int"
     ABI (stmt CPtr, col CInt32) AS value CInt32
     RETURN value
   END FUNC
-  FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
+  FUNC columnDouble(stmt AS Stmt, col AS Integer) AS Float
     SYMBOL "sqlite3_column_double"
     ABI (stmt CPtr, col CInt32) AS value CDouble
     RETURN value
   END FUNC
-  FUNC finalize(RES stmt AS Stmt) AS Nothing
+  FUNC finalize(stmt AS Stmt) AS Nothing
     SYMBOL "sqlite3_finalize"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0

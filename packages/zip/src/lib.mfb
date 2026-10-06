@@ -87,7 +87,7 @@ END FUNC
 '   ' f closes itself when this scope ends
 ' END FUNC
 ' ```
-EXPORT FUNC open(RES file AS fs::File) AS Archive
+EXPORT FUNC open(file AS fs::File) AS Archive
   RETURN parseArchive(FileSource[file])
 END FUNC
 

@@ -1832,12 +1832,12 @@ END FUNC
 #[test]
 fn function_signature_line_renders_visibility_isolated_and_params() {
     let file = parse_file(
-        "EXPORT ISOLATED FUNC f(x AS Integer, RES h AS File) AS String\n  RETURN \"\"\nEND FUNC\n",
+        "EXPORT ISOLATED FUNC f(x AS Integer, h AS File) AS String\n  RETURN \"\"\nEND FUNC\n",
     );
     let f = function(&file, "f");
     assert_eq!(
         f.signature_line(),
-        "EXPORT ISOLATED FUNC f(x AS Integer, RES h AS File) AS String"
+        "EXPORT ISOLATED FUNC f(x AS Integer, h AS File) AS String"
     );
 
     // An `AS Nothing` return clause is kept verbatim; a PACKAGE bare param has no `AS`.
@@ -1918,7 +1918,7 @@ fn serialize_covers_none_and_default_branches() {
     let src = r#"
 LET plain = 1
 RES bare AS File
-FUNC doer(a, RES h AS File)
+FUNC doer(a, h AS File)
   LET x = 1
   MUT y
   RETURN
@@ -2581,7 +2581,7 @@ fn inline_trap_error_paths() {
     assert!(json.contains("\"binding\": \"#err\""));
     // A state assignment with an inline trap.
     let json = project_json(
-        "FUNC f(RES h AS File STATE Integer)\n  h.state = risky() TRAP(e)\n    notify()\n  END TRAP\nEND FUNC\n",
+        "FUNC f(h AS File STATE Integer)\n  h.state = risky() TRAP(e)\n    notify()\n  END TRAP\nEND FUNC\n",
     );
     assert!(json.contains("\"kind\": \"stateAssignment\""));
 }
@@ -2961,4 +2961,29 @@ fn parse_still_binds_a_same_line_else_to_the_inline_if() {
     };
     assert_eq!(then_body.len(), 1);
     assert_eq!(else_body.len(), 1);
+}
+
+/// bug-976: a parameter carries no `RES` — its type already makes it a resource.
+/// The keyword is a located parse error in a FUNC, a LINK FUNC and a LAMBDA
+/// parameter list, and `STATE` parses after any parameter type (whether the type
+/// is a resource is decided after the parse).
+#[test]
+fn a_res_parameter_keyword_is_a_parse_error_and_state_needs_no_keyword() {
+    for source in [
+        "IMPORT fs\nFUNC f(RES h AS fs::File) AS Nothing\nEND FUNC\n",
+        "IMPORT fs\nFUNC f(n AS Integer, RES h AS fs::File) AS Nothing\nEND FUNC\n",
+        "IMPORT fs\nFUNC f AS Nothing\n  LET p = LAMBDA(RES h AS fs::File) -> TRUE\nEND FUNC\n",
+        "RESOURCE Db CLOSE BY l::close\nLINK \"x\" AS l\n  FUNC close(RES db AS Db) AS Nothing\n    SYMBOL \"x_close\"\n    ABI (db CPtr) AS st CInt32\n  END FUNC\nEND LINK\n",
+    ] {
+        assert!(
+            crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", source)
+                .is_err(),
+            "`RES` on a parameter must not parse: {source}"
+        );
+    }
+    let json = project_json(
+        "TYPE Cur\n  pos AS Integer\nEND TYPE\nFUNC f(h AS File STATE Cur, n AS Integer) AS Nothing\nEND FUNC\n",
+    );
+    assert!(json.contains("\"name\": \"h\", \"type\": \"File\", \"state\": \"Cur\""));
+    assert!(!json.contains("\"resource\": true, \"state\": null"));
 }

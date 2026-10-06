@@ -154,7 +154,7 @@ pub(crate) fn lower_set_bytes(
 /// liveness question is a `MATCH` over `DrawItem`, which codegen should not open-code.
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __canvas_setBytes(RES image AS Image, pixels AS List OF Byte) AS Nothing
+r#"FUNC __canvas_setBytes(image AS Image, pixels AS List OF Byte) AS Nothing
   canvas::setBytesRaw(image, pixels)
   LET handle AS Integer = canvas::imageHandle(image)
   MUT live AS Boolean = __canvas_anythingNamesImage(canvas::installedItems(), handle)

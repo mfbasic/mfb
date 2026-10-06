@@ -6,7 +6,7 @@ TYPE FileState
   len AS Integer
 END TYPE
 
-FUNC advance(RES f AS fs::File STATE FileState, by AS Integer) AS Nothing
+FUNC advance(f AS fs::File STATE FileState, by AS Integer) AS Nothing
   f.state = WITH f.state { pos := f.state.pos + by }
 END FUNC
 

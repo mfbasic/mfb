@@ -10,7 +10,7 @@ IMPORT tls
 IMPORT errorCode
 
 ' poll(conn, -1) is a genuine negative timeout → ErrInvalidArgument.
-FUNC pollNeg(RES conn AS tls::Socket) AS Boolean
+FUNC pollNeg(conn AS tls::Socket) AS Boolean
   LET r AS Boolean = tls::poll(conn, -1)
   RETURN FALSE
   TRAP(e)

@@ -1279,7 +1279,7 @@ impl<'a> Walker<'a> {
     }
 
     fn walk_function(&mut self, function: &HirFunction) {
-        // Parameter locals as `lower_function` seeds them: a `RES` parameter's
+        // Parameter locals as `lower_function` seeds them: a resource parameter's
         // `STATE T` rides in its type.
         let mut locals = HashMap::new();
         for param in &function.params {
@@ -2768,7 +2768,7 @@ impl<'a> Walker<'a> {
         // table row carries the bare name).
         let base = type_.without_state();
         let base_name = base.name();
-        crate::codegen::resource::builtin_resource_close_function(&base).is_some()
+        crate::codegen::resource::is_builtin_resource(&base)
             || self.resource_types.contains(&base)
             || base_name.rsplit_once('.').is_some_and(|(_, bare)| {
                 self.resource_types.contains(&ParameterType::declared(bare))
@@ -4580,7 +4580,7 @@ mod tests {
 
     fn link_project(body: &str) -> String {
         format!(
-            "RESOURCE Handle CLOSE BY demoLink::release\nLINK \"demo\" AS demoLink\n  FUNC release(RES h AS Handle) AS Nothing\n    SYMBOL \"demo_release\"\n    ABI (h CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n{body}END LINK\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n"
+            "RESOURCE Handle CLOSE BY demoLink::release\nLINK \"demo\" AS demoLink\n  FUNC release(h AS Handle) AS Nothing\n    SYMBOL \"demo_release\"\n    ABI (h CPtr) AS status CInt32\n    SUCCESS_ON status = 0\n  END FUNC\n{body}END LINK\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n"
         )
     }
 
@@ -4615,7 +4615,7 @@ mod tests {
     fn free_deallocator_signature() {
         let describe = |abi: &str| {
             link_project(&format!(
-                "  FUNC describe(RES h AS Handle) AS String\n    SYMBOL \"demo_describe\"\n    ABI (h CPtr) AS text CPtr\n    RETURN text\n    FREE text\n      SYMBOL \"demo_free\"\n      ABI {abi}\n    END FREE\n  END FUNC\n"
+                "  FUNC describe(h AS Handle) AS String\n    SYMBOL \"demo_describe\"\n    ABI (h CPtr) AS text CPtr\n    RETURN text\n    FREE text\n      SYMBOL \"demo_free\"\n      ABI {abi}\n    END FREE\n  END FUNC\n"
             ))
         };
         assert!(accepts(&describe("(ptr CPtr) AS CVoid")));

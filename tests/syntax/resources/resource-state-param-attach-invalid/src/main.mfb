@@ -12,7 +12,7 @@ END TYPE
 ' Param-attach is what makes two disagreeing declarations reachable with no stateful
 ' binding anywhere: a second parameter declaring `STATE Label` would then read
 ' this same block as a Label. See resource-state-param-mismatch-invalid.
-FUNC tag(RES p AS fs::File STATE Cursor) AS Nothing
+FUNC tag(p AS fs::File STATE Cursor) AS Nothing
   p.state.pos = 7
   io::print(toString(p.state.pos))
 END FUNC

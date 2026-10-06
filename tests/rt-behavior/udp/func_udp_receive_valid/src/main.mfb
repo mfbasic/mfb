@@ -13,7 +13,7 @@ IMPORT io
 ' datagram does not fit in `maxBytes` (ErrMessageTooLarge, 77070007). An oversized
 ' datagram must RAISE rather than be truncated: a clipped datagram is a corrupted
 ' message with no signal that anything was lost.
-FUNC recvCount(RES s AS udp::Socket, maxBytes AS Integer) AS Integer
+FUNC recvCount(s AS udp::Socket, maxBytes AS Integer) AS Integer
   LET dg = udp::receive(s, maxBytes)
   RETURN len(dg.bytes)
   TRAP(e)

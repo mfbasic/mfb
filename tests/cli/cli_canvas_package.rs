@@ -255,7 +255,7 @@ fn macos_canvas_surface_runs() {
 const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
      IMPORT color\n\
-     FUNC one(r AS Float, RES f AS canvas::Font) AS List OF canvas::DrawItem\n\
+     FUNC one(r AS Float, f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS color::Color = color::rgb(10, 20, 30)\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"abc\", font := f, size := 8.0, paint := canvas::fill(c)]\n\
