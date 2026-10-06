@@ -4638,3 +4638,199 @@ fn spread_pads_reflects_and_repeats_past_the_end() {
     assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 220));
     assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 320));
 }
+
+/// A radial ramp with plan-163-D's focal fields: centre `c`, end circle radius `r` (the
+/// end point is `c + (r, 0)`), the focal offset and radius, and the gradient's own
+/// transform.
+fn focal(c: (f64, f64), r: f64, offset: (f64, f64), fr: f64, t: [f64; 6]) -> String {
+    format!(
+        "canvas::Gradient[kind := canvas::GradientKind.Radial, \
+         startPoint := canvas::Point[x := {}, y := {}], endPoint := canvas::Point[x := {}, y := {}], \
+         stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], \
+         canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]], \
+         spread := canvas::GradientSpread.Pad, \
+         transform := canvas::Transform[a := {}, b := {}, c := {}, d := {}, tx := {}, ty := {}], \
+         focalOffset := canvas::Point[x := {}, y := {}], focalRadius := {}, \
+         strokeApply := canvas::GradientApply.FillOnly]",
+        lit(c.0), lit(c.1), lit(c.0 + r), lit(c.1), lit(t[0]), lit(t[1]), lit(t[2]), lit(t[3]),
+        lit(t[4]), lit(t[5]), lit(offset.0), lit(offset.1), lit(fr)
+    )
+}
+
+/// One filled rectangle over the whole test area, its paint's gradient `g`.
+fn ramp_box(name: &str, g: &str) -> Vec<u8> {
+    render(
+        name,
+        &scene(&format!(
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}]\n  \
+             canvas::present([box])\n"
+        )),
+    )
+    .0
+}
+
+/// plan-163-D: a radial gradient scaled `(2, 1)` by its own transform is an ellipse twice
+/// as wide as tall.
+///
+/// Hand-computed. The ramp is a circle of radius 50 about the origin; `G` scales by
+/// `(2, 1)` and moves it to (300.5, 200.5), so `G^-1` maps the pixel centre
+/// (300.5 + 2i, 200.5) to (i, 0) and (300.5, 200.5 + i) to (0, i) -- every term exact in
+/// float32 -- and both are at `t = i / 50`. So pixel (300 + 2i, 200) is pixel
+/// (300, 200 + i), and pixel (300 + i, 200), half as far out in the gradient, is not.
+#[test]
+fn a_radial_gradient_scaled_two_to_one_is_an_ellipse() {
+    let frame = ramp_box(
+        "canvas_gradient_ellipse",
+        &focal((0.0, 0.0), 50.0, (0.0, 0.0), 0.0, [2.0, 0.0, 0.0, 1.0, 300.5, 200.5]),
+    );
+    for i in [10usize, 20, 30, 40] {
+        assert_eq!(
+            pixel(&frame, 300 + 2 * i, 200),
+            pixel(&frame, 300, 200 + i),
+            "{i}: twice as far along x must be the same ring as once along y"
+        );
+        assert_ne!(pixel(&frame, 300 + i, 200), pixel(&frame, 300, 200 + i), "{i}: the ramp is still circular");
+    }
+}
+
+/// plan-163-D: an off-centre focus. Hand-computed with `c = (300.5, 200.5)`, `r = 100`
+/// and the focus `f = c + (50, 0)`: the pixel whose centre is `f` has `e = 0`, so `t = (0 -
+/// sqrt(0)) / a = 0`, the first stop exactly; the pixel at `c - (r, 0)` has `e = (-150, 0)`
+/// and `w = (-50, 0)`, so `a = -7500`, `b = 7500`, `c = 22500`, the discriminant
+/// `225000000` and `t = (7500 - 15000) / -7500 = 1`, the last stop exactly. A centred ramp
+/// would put the focus pixel at `t = 0.5`.
+#[test]
+fn a_focal_offset_moves_the_first_stop_to_the_focus() {
+    let frame = ramp_box("canvas_gradient_focal", &focal((300.5, 200.5), 100.0, (50.0, 0.0), 0.0, NO_T));
+    assert_eq!(pixel(&frame, 350, 200), (255, 0, 0, 255), "the focus is the first stop");
+    assert_eq!(pixel(&frame, 200, 200), (0, 0, 255, 255), "c - (r, 0) is on the end circle: the last stop");
+}
+
+/// plan-163-D: a focal offset past the end circle is pulled just inside it, so the ramp
+/// is defined everywhere: every sampled pixel is a mix of the two stops (no green from the
+/// flat fill, which a NaN `t` would not reach either, but an undefined colour would), and
+/// the ramp still runs from near the clamped focus to the far side.
+#[test]
+fn a_focal_offset_beyond_the_circle_is_clamped() {
+    let frame = ramp_box("canvas_gradient_focal_clamped", &focal((300.5, 200.5), 100.0, (500.0, 0.0), 0.0, NO_T));
+    for y in (60usize..340).step_by(20) {
+        for x in (110usize..540).step_by(20) {
+            let (r, g, b, a) = pixel(&frame, x, y);
+            assert!(g == 0 && a == 255 && u16::from(r) + u16::from(b) > 0, "({x}, {y}) is {:?}, not a ramp colour", (r, g, b, a));
+        }
+    }
+    // The clamped focus is c + (99.90234375, 0) = (400.40.., 200.5): beside it the ramp is
+    // barely started, on the far side of the circle it has ended.
+    let near = pixel(&frame, 399, 200);
+    let far = pixel(&frame, 201, 200);
+    assert!(near.0 > 240 && near.2 < 40, "beside the clamped focus the ramp is near its first stop: {near:?}");
+    assert!(far.0 < 40 && far.2 > 240, "across the circle it is near its last stop: {far:?}");
+}
+
+/// plan-163-D: a focal radius of `r / 4` fills a disc of that radius with the first stop.
+/// Hand-computed with no offset, `r = 100`, `fr = 25`: a point at distance `d` from the
+/// centre has `a = -5625`, `b = 1875`, `c = d^2 - 625`, so `t <= 0` exactly when `d <=
+/// 25` (Pad: the first stop), and at `d = 30` `t = (1875 - 2250) / -5625 = 1/15`.
+#[test]
+fn a_focal_radius_fills_a_disc_with_the_first_stop() {
+    let frame = ramp_box("canvas_gradient_focal_radius", &focal((300.5, 200.5), 100.0, (0.0, 0.0), 25.0, NO_T));
+    for i in [0usize, 10, 20, 24] {
+        assert_eq!(pixel(&frame, 300 + i, 200), (255, 0, 0, 255), "distance {i}: inside the focal disc");
+        assert_eq!(pixel(&frame, 300, 200 + i), (255, 0, 0, 255), "distance {i} down: inside the focal disc");
+    }
+    assert_ne!(pixel(&frame, 330, 200), (255, 0, 0, 255), "distance 30 is past the disc, t = 1/15");
+}
+
+/// A linear red-to-blue ramp along x from 100 to 500, with the given stroke apply.
+fn stroke_ramp(apply: &str) -> String {
+    format!(
+        "canvas::Gradient[kind := canvas::GradientKind.Linear, \
+         startPoint := canvas::Point[x := 100.0, y := 0.0], endPoint := canvas::Point[x := 500.0, y := 0.0], \
+         stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], \
+         canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]], \
+         spread := canvas::GradientSpread.Pad, \
+         transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, \
+         strokeApply := canvas::GradientApply.{apply}]"
+    )
+}
+
+/// plan-163-D: `FillAndStroke` paints the outline with the ramp, tinted by the stroke
+/// colour at the strength of its alpha -- the picture tint (`__canvas_tintChannel`).
+///
+/// Hand-computed against the fill: the ramp runs along x only, so the outline pixel at
+/// (x, 100) -- squarely inside the 24px band on the top edge -- has the ramp colour of
+/// the fill pixel at (x, 200). A white stroke at alpha 255 tints by `ramp * 255 / 255`,
+/// the ramp itself; a stroke at alpha 0 tints by nothing; both draw the plain ramp. A red
+/// stroke at alpha 128 keeps red and moves blue by `-(B * 128 + 127) / 255` (half away
+/// from zero) and green stays 0. A `Line`, which has no interior, is drawn in the ramp
+/// too, matching the fill at the same x.
+#[test]
+fn fill_and_stroke_paints_the_outline_with_the_tinted_ramp() {
+    let item = |name: &str, y: f64, stroke: &str| {
+        format!(
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := {y:?}, w := 400.0, h := 150.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), {stroke}, 24.0) {{ gradient := {} }}]\n",
+            stroke_ramp("FillAndStroke")
+        )
+    };
+    let (frame, _) = render(
+        "canvas_gradient_stroke_apply",
+        &scene(&format!(
+            "{}{}{}  LET line AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 620.0, x2 := 500.0, y2 := 620.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ gradient := {} }}]\n  \
+             canvas::present([white, clear, red, line])\n",
+            item("white", 30.0, "color::rgb(255, 255, 255)"),
+            item("clear", 230.0, "color::rgba(255, 255, 255, 0)"),
+            item("red", 430.0, "color::rgba(255, 0, 0, 128)"),
+            stroke_ramp("FillAndStroke")
+        )),
+    );
+    // Clear of the 24px bands on the left and right edges (x 88..112 and 488..512).
+    for x in [130usize, 200, 300, 400, 470] {
+        let fill = pixel(&frame, x, 105);
+        assert_eq!(fill.1, 0, "x = {x}: the fill is the ramp, not the flat green");
+        assert_eq!(pixel(&frame, x, 30), fill, "x = {x}: a white stroke at alpha 255 shows the plain ramp");
+        assert_eq!(pixel(&frame, x, 230), pixel(&frame, x, 305), "x = {x}: a stroke at alpha 0 shows the plain ramp");
+        let (r, g, b, _) = pixel(&frame, x, 505);
+        let want_b = i32::from(b) - (i32::from(b) * 128 + 127) / 255;
+        assert_eq!(pixel(&frame, x, 430), (r, g, want_b as u8, 255), "x = {x}: red at alpha 128 tints half way");
+        assert_eq!(pixel(&frame, x, 620), fill, "x = {x}: a Line under FillAndStroke is drawn in the ramp");
+    }
+}
+
+/// plan-163-D's negative cases: each draws exactly as its no-op form.
+///
+/// A `gradient.transform` that flattens the ramp (a zero determinant) is the identity,
+/// the `Paint.transform` rule; a gradient with fewer than two stops is no gradient, so
+/// `FillAndStroke` leaves a flat stroke and a zero-alpha stroke draws nothing; and a
+/// `focalRadius` above the outer radius is clamped to just under it, so `2r` and the
+/// clamp value `r (1 - 2^-10)` draw the same.
+#[test]
+fn degenerate_gradient_fields_draw_as_their_no_op_forms() {
+    let pair = |name: &str, a: &str, b: &str| {
+        let body = |g: &str| {
+            scene(&format!(
+                "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), color::rgba(255, 255, 0, 0), 12.0) {{ gradient := {g} }}]\n  \
+                 canvas::present([box])\n"
+            ))
+        };
+        let (left, _) = render(&format!("{name}_a"), &body(a));
+        let (right, _) = render(&format!("{name}_b"), &body(b));
+        assert!(left == right, "{name}: the degenerate form does not draw as its no-op");
+    };
+    let flat = |t: [f64; 6]| ramp("Linear", (100.0, 0.0), (500.0, 0.0), "Pad", t);
+    pair("canvas_gradient_singular", &flat([1.0, 2.0, 2.0, 4.0, 30.0, 0.0]), &flat(NO_T));
+    let one_stop = "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 100.0, y := 0.0], \
+         endPoint := canvas::Point[x := 500.0, y := 0.0], stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)]], \
+         spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillAndStroke]";
+    let no_gradient = "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], \
+         endPoint := canvas::Point[x := 0.0, y := 0.0], stops := [], \
+         spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]";
+    pair("canvas_gradient_one_stop_stroke", one_stop, no_gradient);
+    pair(
+        "canvas_gradient_focal_radius_clamped",
+        &focal((300.5, 200.5), 100.0, (0.0, 0.0), 200.0, NO_T),
+        &focal((300.5, 200.5), 100.0, (0.0, 0.0), 99.90234375, NO_T),
+    );
+}

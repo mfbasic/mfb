@@ -48,7 +48,11 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const STROKE_HALF: &str =
 r#"FUNC __canvas_strokeHalf(paint AS Paint) AS Float
-  IF toInt(paint.stroke.alpha) <= 0 THEN
+  ' plan-163-D: a stroke the gradient paints (`FillAndStroke`) is the ramp tinted by the
+  ' stroke colour, whose alpha is only the tint's strength -- so a zero-alpha stroke
+  ' still strokes, in the plain ramp.
+  LET ramped AS Boolean = len(paint.gradient.stops) >= 2 AND paint.gradient.strokeApply = GradientApply.FillAndStroke
+  IF toInt(paint.stroke.alpha) <= 0 AND NOT ramped THEN
     RETURN 0.0 - 1.0
   END IF
   IF paint.strokeWidth <= 0.0 THEN
@@ -179,6 +183,32 @@ END FUNC
 FUNC __canvas_clipPathDistance(offset AS Integer, x AS Float, y AS Float) AS Float
   LET edges AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_CLIP_EDGE_COUNT))
   RETURN __canvas_edgeDistanceRule(__canvas_clipEdgeBase(offset), edges, x, y, __canvas_geoAt(offset, __CANVAS_GEO_CLIP_RULE) <> 0.0)
+END FUNC
+
+' plan-163-D: a radial ramp's position at the gradient-space point (`px`, `py`) with a
+' focal circle: centre (`cx`, `cy`) and radius `r` the end circle's, the focus at the
+' clamped offset (`ox`, `oy`) from the centre with radius `fr`. `t` is the largest root of
+' `|p - f - t (c - f)|^2 = (fr + t (r - fr))^2`, the circle through `p` of the family that
+' runs from the focal circle at t = 0 to the end circle at t = 1. The builder's clamps
+' keep the leading coefficient `a = |c - f|^2 - (r - fr)^2` below zero, so the larger root
+' is `(b - sqrt(b^2 - a c)) / a`, and it always has `fr + t (r - fr) >= 0`. A zero
+' radius leaves `t` at 0, as a radial ramp's does.
+FUNC __canvas_focalT(px AS Float, py AS Float, cx AS Float, cy AS Float, r AS Float, ox AS Float, oy AS Float, fr AS Float) AS Float
+  IF NOT (r > 0.0) THEN
+    RETURN 0.0
+  END IF
+  LET fx AS Float = cx + ox
+  LET fy AS Float = cy + oy
+  LET ex AS Float = px - fx
+  LET ey AS Float = py - fy
+  LET wx AS Float = cx - fx
+  LET wy AS Float = cy - fy
+  LET dr AS Float = r - fr
+  LET a AS Float = wx * wx + wy * wy - dr * dr
+  LET b AS Float = ex * wx + ey * wy + fr * dr
+  LET c AS Float = ex * ex + ey * ey - fr * fr
+  LET disc AS Float = __canvas_maxF(b * b - a * c, 0.0)
+  RETURN (b - math::sqrt(disc)) / a
 END FUNC
 
 ' plan-163-C: a picture's texel channel tinted by its fill: towards `texel * fill / 255`
@@ -443,6 +473,22 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   LET gradLen2 AS Float = gradAX * gradAX + gradAY * gradAY
   LET gradLen AS Float = math::sqrt(gradLen2)
   LET gradSpread AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_SPREAD))
+  ' plan-163-D: a radial ramp's inverse transform (float32 bit patterns, decoded once) and
+  ' its focal circle, and whether the ramp paints the stroke -- for a Line or Arc, whose
+  ' stroke is drawn as a fill, the FILL tinted by the stroke colour in the fill slots.
+  LET gradHasInv AS Boolean = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_HAS_INV) > 0.5
+  LET gradIA AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV))
+  LET gradIB AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 1))
+  LET gradIC AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 2))
+  LET gradID AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 3))
+  LET gradITX AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 4))
+  LET gradITY AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 5))
+  LET gradOX AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FOCALX)
+  LET gradOY AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FOCALY)
+  LET gradFR AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FOCALR)
+  LET gradFocal AS Boolean = gradOX <> 0.0 OR gradOY <> 0.0 OR gradFR <> 0.0
+  LET gradApply AS Boolean = gradCount >= 2 AND __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_APPLY) > 0.5
+  LET gradTintFill AS Boolean = gradApply AND (kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC)
   LET fillR AS Byte = __canvas_geoByte(offset, 8)
   LET fillG AS Byte = __canvas_geoByte(offset, 9)
   LET fillB AS Byte = __canvas_geoByte(offset, 10)
@@ -642,6 +688,9 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       MUT gG AS Byte = fillG
       MUT gB AS Byte = fillB
       MUT gA AS Integer = fillA
+      MUT rampR AS Byte = fillR
+      MUT rampG AS Byte = fillG
+      MUT rampB AS Byte = fillB
       IF gradCount >= 2 THEN
         MUT t AS Float = 0.0
         ' plan-154-A: a PolyLine's stops are its per-point colours, and its ramp runs
@@ -650,9 +699,18 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         IF kind = __CANVAS_GEO_POLYLINE THEN
           t = __canvas_polylineScan(tail, edges, qx, qy, radius, cap, TRUE)
         ELSEIF gradRadial THEN
-          IF gradLen > 0.0 THEN
-            LET rdx AS Float = qx - gradFX
-            LET rdy AS Float = qy - gradFY
+          ' plan-163-D: the gradient-space point, through the radial ramp's own inverse.
+          MUT gx AS Float = qx
+          MUT gy AS Float = qy
+          IF gradHasInv THEN
+            gx = gradIA * qx + gradIC * qy + gradITX
+            gy = gradIB * qx + gradID * qy + gradITY
+          END IF
+          IF gradFocal THEN
+            t = __canvas_gradientSpread(__canvas_focalT(gx, gy, gradFX, gradFY, gradLen, gradOX, gradOY, gradFR), gradSpread)
+          ELSEIF gradLen > 0.0 THEN
+            LET rdx AS Float = gx - gradFX
+            LET rdy AS Float = gy - gradFY
             t = __canvas_gradientSpread(math::sqrt(rdx * rdx + rdy * rdy) / gradLen, gradSpread)
           END IF
         ELSE
@@ -665,6 +723,17 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         gG = gc.green
         gB = gc.blue
         gA = toInt(gc.alpha)
+        rampR = gc.red
+        rampG = gc.green
+        rampB = gc.blue
+        ' plan-163-D: a Line's or Arc's stroke IS its fill: the ramp tinted by the stroke
+        ' colour the fill slots carry, whose alpha is the tint's strength (the picture
+        ' tint, `__canvas_tintChannel`); the ramp's alpha is what draws.
+        IF gradTintFill THEN
+          gR = __canvas_tintChannel(toInt(gc.red), toInt(fillR), fillA)
+          gG = __canvas_tintChannel(toInt(gc.green), toInt(fillG), fillA)
+          gB = __canvas_tintChannel(toInt(gc.blue), toInt(fillB), fillA)
+        END IF
       END IF
       ' bug-484: a picture's fill colour is its image, sampled NEAREST -- the plan-116-C
       ' section 4.5 rule glyphs follow, for the same reason: `floor` and `+ - * /` only,
@@ -708,7 +777,19 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       END IF
 
       IF half > 0.0 THEN
-        IF strokeA > 0 THEN
+        ' plan-163-D: a stroke the ramp paints is the ramp tinted by the stroke colour,
+        ' at the ramp's alpha -- drawn even when the stroke colour's alpha is 0.
+        MUT sR AS Byte = strokeR
+        MUT sG AS Byte = strokeG
+        MUT sB AS Byte = strokeB
+        MUT sA AS Integer = strokeA
+        IF gradApply THEN
+          sR = __canvas_tintChannel(toInt(rampR), toInt(strokeR), strokeA)
+          sG = __canvas_tintChannel(toInt(rampG), toInt(strokeG), strokeA)
+          sB = __canvas_tintChannel(toInt(rampB), toInt(strokeB), strokeA)
+          sA = gA
+        END IF
+        IF sA > 0 THEN
           MUT strokeD AS Float = __canvas_absF(dRaw) - half
           IF dashed THEN
             strokeD = __canvas_dashedStroke(distKind, offset, qx, qy, half)
@@ -719,16 +800,16 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
           IF clipped THEN
             band = (band * clipCov) / 255
           END IF
-          LET salpha AS Integer = (strokeA * band) / 255
+          LET salpha AS Integer = (sA * band) / 255
           IF salpha >= 255 AND blendMode = 0 THEN
-            out = collections::set(out, idx, strokeR)
-            out = collections::set(out, idx + 1, strokeG)
-            out = collections::set(out, idx + 2, strokeB)
+            out = collections::set(out, idx, sR)
+            out = collections::set(out, idx + 1, sG)
+            out = collections::set(out, idx + 2, sB)
             out = collections::set(out, idx + 3, toByte(255))
           ELSEIF salpha > 0 THEN
-            out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), strokeR, salpha, blendMode))
-            out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), strokeG, salpha, blendMode))
-            out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), strokeB, salpha, blendMode))
+            out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), sR, salpha, blendMode))
+            out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), sG, salpha, blendMode))
+            out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), sB, salpha, blendMode))
             out = collections::set(out, idx + 3, toByte(255))
           END IF
         END IF

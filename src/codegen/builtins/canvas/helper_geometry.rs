@@ -389,7 +389,7 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, paint.gradient.endPoint.x)
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, paint.gradient.endPoint.y)
   IF stopCount >= 2 THEN
-    out = __canvas_gradientHeader(out, paint.gradient, kind)
+    out = __canvas_gradientHeader(out, paint, kind)
   END IF
   ' plan-116-C: the transform, INVERTED once here rather than per pixel in each of
   ' three renderers. `__canvas_invertTransform` is also the only place that knows an
@@ -460,7 +460,8 @@ END FUNC
 ' r (1 - 2^-10)]`, which keeps the focal quadratic's leading coefficient below zero.
 ' The identity transform, no focal offset and a zero focal radius leave every slot at
 ' zero, so such a gradient's record is the one it was before this letter.
-FUNC __canvas_gradientHeader(h AS List OF Float, g AS Gradient, kind AS Integer) AS List OF Float
+FUNC __canvas_gradientHeader(h AS List OF Float, paint AS Paint, kind AS Integer) AS List OF Float
+  LET g AS Gradient = paint.gradient
   MUT out AS List OF Float = h
   IF g.spread = GradientSpread.Reflect THEN
     out = collections::set(out, __CANVAS_GEO_GRADIENT_SPREAD, 1.0)
@@ -468,8 +469,12 @@ FUNC __canvas_gradientHeader(h AS List OF Float, g AS Gradient, kind AS Integer)
   IF g.spread = GradientSpread.Repeat THEN
     out = collections::set(out, __CANVAS_GEO_GRADIENT_SPREAD, 2.0)
   END IF
+  ' Under FillAndStroke the stroke alpha (slot 15, and a Line's or Arc's fill slot 11
+  ' after `__canvas_strokeAsFill`) is the tint's strength, so it keeps the RAW alpha: the
+  ' ramp's own stops carry the transparency fade, as a picture's texels do.
   IF g.strokeApply = GradientApply.FillAndStroke AND kind <> __CANVAS_GEO_PICTURE THEN
     out = collections::set(out, __CANVAS_GEO_GRADIENT_APPLY, 1.0)
+    out = collections::set(out, 15, toFloat(toInt(paint.stroke.alpha)))
   END IF
   LET inv AS List OF Float = __canvas_gradientInverse(g.transform)
   LET hasInv AS Boolean = collections::getOr(inv, 6, 0.0) > 0.5

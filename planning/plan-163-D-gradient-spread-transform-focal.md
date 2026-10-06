@@ -349,16 +349,23 @@ set is byte-identical.
   tests/golden/canvas` → empty, the measured list being empty. Also `cargo test --bin mfb
   canvas` → 111; `cli_canvas_package` 7, `inplace_self_update_census` 2, `rt_canvas_font`
   33, `rt_canvas_picture` 11 passed.
-Commit: —
+Commit: 7cedfaabd
 
 ### Phase 2 — Radial transform, focal point, stroke apply (software)
 
-- [ ] Both builders: radial `G⁻¹` and the focal fields with the §3 clamps.
+- [x] Both builders: radial `G⁻¹` and the focal fields with the §3 clamps.
       `emit_paint_supported` accepts them once native emits them.
       `MFB_CANVAS_GEO_VERIFY=1` under `--debug` reports no mismatch on the tests below.
-- [ ] Software radial per §3: `G⁻¹q`, then the focal quadratic. Stroke apply per §3 in
-      the stroke path.
-- [ ] Tests (hand-computed):
+      (`__canvas_gradientHeader`: `G⁻¹` as float32 bits in slots 57–62 with the flag in
+      63, the clamped focal offset and radius in 64–66, Corrections 8; under
+      `FillAndStroke` slot 15 keeps the raw stroke alpha, Corrections 9. The native and
+      GEO_VERIFY clauses are moot — the native builder declines every gradient paint, so
+      GEO_VERIFY never sees one, Corrections 4.)
+- [x] Software radial per §3: `G⁻¹q`, then the focal quadratic. Stroke apply per §3 in
+      the stroke path. (`__canvas_focalT` and the tint in `helper_items.rs`; a Line or
+      Arc tints its stroke-as-fill; `__canvas_strokeHalf` strokes a zero-alpha stroke
+      under `FillAndStroke`.)
+- [x] Tests (hand-computed):
       - a radial gradient scaled `(2, 1)` is an ellipse twice as wide as tall;
       - with `focalOffset := (r/2, 0)`, the pixel at the focus is stop 0 and the pixel
         at `c − (r, 0)` is the last stop;
@@ -369,10 +376,23 @@ Commit: —
       - a red stroke at alpha 128 gives a half-strength red tint;
       - a stroke colour at alpha 0 gives the plain ramp;
       - `FillOnly` leaves the stroke flat.
+      (`a_radial_gradient_scaled_two_to_one_is_an_ellipse`,
+      `a_focal_offset_moves_the_first_stop_to_the_focus`,
+      `a_focal_offset_beyond_the_circle_is_clamped`,
+      `a_focal_radius_fills_a_disc_with_the_first_stop`,
+      `fill_and_stroke_paints_the_outline_with_the_tinted_ramp` — white, alpha 0, red at
+      128 and a Line; `FillOnly` is `a_gradients_stroke_stays_a_flat_colour` and
+      `a_gradient_on_a_stroke_only_kind_is_ignored`. The Validation Plan's negative cases:
+      `degenerate_gradient_fields_draw_as_their_no_op_forms` — a singular transform, one
+      stop under `FillAndStroke`, `focalRadius` above `r`.)
+- [x] Discovered: regenerate the app-mouse-surface goldens for the Phase 2 helpers
+      (`sync-goldens.sh` → 5, `regen-native-goldens.sh` → 6 rewritten, 0 failures).
 
 Acceptance: per §3 in software, with Phase 1 results unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass, goldens unmodified since Phase 1 (est. 10 min, guess).
+  Result: rasteriser 86 passed (2 ignored), golden 22, geo_native 4, picture 11, font 33;
+  `git status --short tests/golden` → nothing.
 Commit: —
 
 ### Phase 3 — Item block growth and the GPU (largest blast radius)
@@ -492,6 +512,14 @@ user are recorded as decisions in §3.
    the leading coefficient strictly negative; at `fr = r` the focal offset is clamped to
    0 and `a = 0 − 0 = 0`. The upper clamp `r (1 − 2^-10)` keeps `r − fr ≥ r · 2^-10`, so
    `a < 0` whenever `r > 0`.
+9. **Under `FillAndStroke` the stroke alpha is the tint's strength, unfaded, and a
+   zero-alpha stroke still strokes.** §3 gives `a = g.a` and a tint at strength
+   `stroke.a`, and "any colour at alpha 0 draws the plain ramp" — but the header's stroke
+   alpha (slot 15) was faded by `transparency` and `__canvas_strokeHalf` reported a
+   zero-alpha stroke as no stroke. So under `FillAndStroke` slot 15 keeps the raw alpha
+   (the ramp's stops carry the fade, as a picture's texels do) and `__canvas_strokeHalf`
+   strokes a zero-alpha stroke when the paint's gradient has two or more stops. Its
+   native twin only sees paints with fewer than two stops, where nothing changed.
 
 ## Summary
 
