@@ -232,14 +232,14 @@ impl CodeBuilder<'_> {
         let sp = abi::stack_pointer();
         let done = self.label("closure_resource_op_done");
         let object = self.allocate_register();
-        self.emit(abi::load_u64(&object, sp, slot));
-        self.emit(abi::compare_immediate(&object, "0"));
+        self.emit(abi::load_u64(object, sp, slot));
+        self.emit(abi::compare_immediate(object, "0"));
         self.emit(abi::branch_eq(&done));
         let env = self.allocate_register();
-        self.emit(abi::load_u64(&env, &object, CLOSURE_OFFSET_ENV));
-        self.emit(abi::compare_immediate(&env, "0"));
+        self.emit(abi::load_u64(env, object, CLOSURE_OFFSET_ENV));
+        self.emit(abi::compare_immediate(env, "0"));
         self.emit(abi::branch_eq(&done));
-        let env_slot = self.spill_to_slot("closure_resource_op_env", &env);
+        let env_slot = self.spill_to_slot("closure_resource_op_env", env);
         self.emit(abi::move_immediate(
             abi::c_arg(0),
             "Integer",
@@ -250,9 +250,9 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(abi::c_arg(2 + index), sp, *arg_slot));
         }
         let routine = self.allocate_register();
-        self.emit(abi::load_u64(&routine, sp, env_slot));
-        self.emit(abi::load_u64(&routine, &routine, CLOSURE_ENV_OFFSET_OPS));
-        self.emit(abi::branch_link_register(&routine));
+        self.emit(abi::load_u64(routine, sp, env_slot));
+        self.emit(abi::load_u64(routine, routine, CLOSURE_ENV_OFFSET_OPS));
+        self.emit(abi::branch_link_register(routine));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -270,8 +270,8 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("union_box_copy_alloc_ok");
         self.emit(abi::store_u64(abi::ZERO, sp, result_slot));
         let source = self.allocate_register();
-        self.emit(abi::load_u64(&source, sp, slot));
-        self.emit(abi::compare_immediate(&source, "0"));
+        self.emit(abi::load_u64(source, sp, slot));
+        self.emit(abi::compare_immediate(source, "0"));
         self.emit(abi::branch_eq(&absent));
         self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
@@ -280,18 +280,18 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         let copy = self.allocate_register();
-        self.emit(abi::move_register(&copy, abi::mfb_return(1)));
-        self.emit(abi::store_u64(&copy, sp, result_slot));
+        self.emit(abi::move_register(copy, abi::mfb_return(1)));
+        self.emit(abi::store_u64(copy, sp, result_slot));
         let source = self.allocate_register();
-        self.emit(abi::load_u64(&source, sp, slot));
+        self.emit(abi::load_u64(source, sp, slot));
         for offset in [0, 8] {
             let word = self.allocate_register();
-            self.emit(abi::load_u64(&word, &source, offset));
-            self.emit(abi::store_u64(&word, &copy, offset));
+            self.emit(abi::load_u64(word, source, offset));
+            self.emit(abi::store_u64(word, copy, offset));
         }
         self.emit(abi::label(&absent));
         let result = self.allocate_register();
-        self.emit(abi::load_u64(&result, sp, result_slot));
+        self.emit(abi::load_u64(result, sp, result_slot));
         Ok(result)
     }
 
@@ -309,21 +309,21 @@ impl CodeBuilder<'_> {
         let record_slot = self.allocate_stack_object("closure_carry_record", 8);
         let tag_slot = self.allocate_stack_object("closure_carry_tag", 8);
         let value = self.allocate_register();
-        self.emit(abi::load_u64(&value, sp, slot));
-        self.emit(abi::compare_immediate(&value, "0"));
+        self.emit(abi::load_u64(value, sp, slot));
+        self.emit(abi::compare_immediate(value, "0"));
         self.emit(abi::branch_eq(skip));
         if self.resource_union_cleanup(leaf).is_some() {
             let tag = self.allocate_register();
-            self.emit(abi::load_u64(&tag, &value, 0));
-            self.emit(abi::store_u64(&tag, sp, tag_slot));
+            self.emit(abi::load_u64(tag, value, 0));
+            self.emit(abi::store_u64(tag, sp, tag_slot));
             let record = self.allocate_register();
-            self.emit(abi::load_u64(&record, &value, 8));
-            self.emit(abi::compare_immediate(&record, "0"));
+            self.emit(abi::load_u64(record, value, 8));
+            self.emit(abi::compare_immediate(record, "0"));
             self.emit(abi::branch_eq(skip));
-            self.emit(abi::store_u64(&record, sp, record_slot));
+            self.emit(abi::store_u64(record, sp, record_slot));
         } else {
             self.emit(abi::store_u64(abi::ZERO, sp, tag_slot));
-            self.emit(abi::store_u64(&value, sp, record_slot));
+            self.emit(abi::store_u64(value, sp, record_slot));
         }
         (record_slot, tag_slot)
     }
@@ -353,18 +353,18 @@ impl CodeBuilder<'_> {
         let push = self.label("dynamic_owned_push_node");
         let (record_slot, tag_slot) = self.emit_leaf_record_and_tag(slot, &leaf, &done);
         let record = self.allocate_register();
-        self.emit(abi::load_u64(&record, sp, record_slot));
+        self.emit(abi::load_u64(record, sp, record_slot));
         let owner = self.allocate_register();
-        self.emit(abi::load_u64(&owner, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
         let token = self.allocate_register();
-        self.emit(abi::load_u64(&token, sp, token_slot));
+        self.emit(abi::load_u64(token, sp, token_slot));
         // Unsigned: an unowned record (`0`) is below every token, so it is taken too;
         // one owned here or further out keeps its owner (ownership only floats up).
-        self.emit(abi::compare_registers(&owner, &token));
+        self.emit(abi::compare_registers(owner, token));
         self.emit(abi::branch_lo(&take));
         self.emit(abi::branch(if take_only { &done } else { &push }));
         self.emit(abi::label(&take));
-        self.emit(abi::store_u64(&token, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));
         self.emit(abi::label(&push));
         let alloc_ok = self.label("dynamic_owned_push_alloc_ok");
         self.emit(abi::move_immediate(
@@ -378,22 +378,22 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&alloc_ok));
         let node = self.allocate_register();
-        self.emit(abi::move_register(&node, abi::mfb_return(1)));
+        self.emit(abi::move_register(node, abi::mfb_return(1)));
         let field = self.allocate_register();
-        self.emit(abi::load_u64(&field, sp, record_slot));
-        self.emit(abi::store_u64(&field, &node, 0));
+        self.emit(abi::load_u64(field, sp, record_slot));
+        self.emit(abi::store_u64(field, node, 0));
         let kind_reg = self.allocate_register();
-        self.emit(abi::move_immediate(&kind_reg, "Integer", &kind.to_string()));
-        self.emit(abi::store_u64(&kind_reg, &node, 16));
+        self.emit(abi::move_immediate(kind_reg, "Integer", &kind.to_string()));
+        self.emit(abi::store_u64(kind_reg, node, 16));
         let field = self.allocate_register();
-        self.emit(abi::load_u64(&field, sp, tag_slot));
-        self.emit(abi::store_u64(&field, &node, 24));
+        self.emit(abi::load_u64(field, sp, tag_slot));
+        self.emit(abi::store_u64(field, node, 24));
         let head_address = self.allocate_register();
-        self.emit(abi::load_u64(&head_address, sp, head_address_slot));
+        self.emit(abi::load_u64(head_address, sp, head_address_slot));
         let head = self.allocate_register();
-        self.emit(abi::load_u64(&head, &head_address, 0));
-        self.emit(abi::store_u64(&head, &node, 8));
-        self.emit(abi::store_u64(&node, &head_address, 0));
+        self.emit(abi::load_u64(head, head_address, 0));
+        self.emit(abi::store_u64(head, node, 8));
+        self.emit(abi::store_u64(node, head_address, 0));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -406,13 +406,13 @@ impl CodeBuilder<'_> {
     ) -> Result<(usize, usize), String> {
         let address = self.allocate_register();
         self.emit(abi::add_immediate(
-            &address,
+            address,
             abi::stack_pointer(),
             list.head_slot,
         ));
-        let address_slot = self.spill_to_slot("dynamic_owned_head_address", &address);
+        let address_slot = self.spill_to_slot("dynamic_owned_head_address", address);
         let token = self.emit_scope_token(list.scope_depth)?;
-        let token_slot = self.spill_to_slot("dynamic_owned_token", &token);
+        let token_slot = self.spill_to_slot("dynamic_owned_token", token);
         Ok((address_slot, token_slot))
     }
 
@@ -432,22 +432,22 @@ impl CodeBuilder<'_> {
         let done = self.label("dynamic_drain_done");
         self.emit(abi::label(&top));
         let node = self.allocate_register();
-        self.emit(abi::load_u64(&node, sp, cleanup.head_slot));
-        self.emit(abi::compare_immediate(&node, "0"));
+        self.emit(abi::load_u64(node, sp, cleanup.head_slot));
+        self.emit(abi::compare_immediate(node, "0"));
         self.emit(abi::branch_eq(&done));
         let field = self.allocate_register();
-        self.emit(abi::load_u64(&field, &node, 8));
-        self.emit(abi::store_u64(&field, sp, cleanup.head_slot));
+        self.emit(abi::load_u64(field, node, 8));
+        self.emit(abi::store_u64(field, sp, cleanup.head_slot));
         let field = self.allocate_register();
-        self.emit(abi::load_u64(&field, &node, 0));
-        self.emit(abi::store_u64(&field, sp, record_slot));
+        self.emit(abi::load_u64(field, node, 0));
+        self.emit(abi::store_u64(field, sp, record_slot));
         let field = self.allocate_register();
-        self.emit(abi::load_u64(&field, &node, 16));
-        self.emit(abi::store_u64(&field, sp, kind_slot));
+        self.emit(abi::load_u64(field, node, 16));
+        self.emit(abi::store_u64(field, sp, kind_slot));
         let field = self.allocate_register();
-        self.emit(abi::load_u64(&field, &node, 24));
-        self.emit(abi::store_u64(&field, sp, tag_slot));
-        self.emit(abi::move_register(abi::c_arg(0), &node));
+        self.emit(abi::load_u64(field, node, 24));
+        self.emit(abi::store_u64(field, sp, tag_slot));
+        self.emit(abi::move_register(abi::c_arg(0), node));
         self.emit(abi::move_immediate(
             abi::c_arg(1),
             "Integer",
@@ -457,13 +457,13 @@ impl CodeBuilder<'_> {
         for (kind, leaf) in kinds.iter().enumerate() {
             let next_kind = self.label("dynamic_drain_next_kind");
             let current = self.allocate_register();
-            self.emit(abi::load_u64(&current, sp, kind_slot));
-            self.emit(abi::compare_immediate(&current, &kind.to_string()));
+            self.emit(abi::load_u64(current, sp, kind_slot));
+            self.emit(abi::compare_immediate(current, &kind.to_string()));
             self.emit(abi::branch_ne(&next_kind));
             // bug-755: close only a record this list's scope still owns.
             let record = self.allocate_register();
-            self.emit(abi::load_u64(&record, sp, record_slot));
-            self.emit(abi::compare_immediate(&record, "0"));
+            self.emit(abi::load_u64(record, sp, record_slot));
+            self.emit(abi::compare_immediate(record, "0"));
             self.emit(abi::branch_eq(&top));
             self.emit_skip_unless_owned(&Reg::from(record), cleanup.scope_depth, &top)?;
             self.emit_listed_record_close(record_slot, tag_slot, leaf, true, &top)?;
@@ -507,15 +507,15 @@ impl CodeBuilder<'_> {
             let closed = self.label("listed_close_closed");
             if let Some(tag) = tag {
                 let active = self.allocate_register();
-                self.emit(abi::load_u64(&active, abi::stack_pointer(), tag_slot));
+                self.emit(abi::load_u64(active, abi::stack_pointer(), tag_slot));
                 let expected = self.allocate_register();
-                self.emit(abi::move_immediate(&expected, "Integer", &tag.to_string()));
-                self.emit(abi::compare_registers(&active, &expected));
+                self.emit(abi::move_immediate(expected, "Integer", &tag.to_string()));
+                self.emit(abi::compare_registers(active, expected));
                 self.emit(abi::branch_ne(&other));
             }
             let record = self.allocate_register();
-            self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
-            self.emit(abi::move_register(abi::return_register(), &record));
+            self.emit(abi::load_u64(record, abi::stack_pointer(), record_slot));
+            self.emit(abi::move_register(abi::return_register(), record));
             self.emit_symbol_call(&close);
             self.emit_drop_close_outcome(&closed);
             self.emit(abi::label(&closed));
@@ -553,13 +553,13 @@ impl CodeBuilder<'_> {
         for (index, type_) in resource_words {
             let capture_slot = self.allocate_stack_object("closure_env_resource", 8);
             let source = self.allocate_register();
-            self.emit(abi::load_u64(&source, sp, env_slot));
+            self.emit(abi::load_u64(source, sp, env_slot));
             self.emit(abi::load_u64(
-                &source,
-                &source,
+                source,
+                source,
                 closure_env_word_offset(*index),
             ));
-            self.emit(abi::store_u64(&source, sp, capture_slot));
+            self.emit(abi::store_u64(source, sp, capture_slot));
             let arg_slots = arg_slots.to_vec();
             self.emit_for_each_resource(capture_slot, type_, &mut |builder, leaf_slot, leaf| {
                 builder.emit_resource_op_leaf(op, leaf_slot, leaf, &arg_slots)

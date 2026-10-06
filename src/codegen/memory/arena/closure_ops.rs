@@ -190,11 +190,8 @@ fn emit_resource_operations(
     builder.emit(abi::store_u64(abi::c_arg(3), sp, second_slot));
     let ordinary = builder.label("closure_env_ordinary_op");
     let op = builder.allocate_register();
-    builder.emit(abi::load_u64(&op, sp, op_slot));
-    builder.emit(abi::compare_immediate(
-        &op,
-        &CLOSURE_ENV_OP_COPY.to_string(),
-    ));
+    builder.emit(abi::load_u64(op, sp, op_slot));
+    builder.emit(abi::compare_immediate(op, &CLOSURE_ENV_OP_COPY.to_string()));
     builder.emit(abi::branch_ls(&ordinary));
     let module_float = builder.module_globals_reach_closures();
     let operations: [(usize, Vec<usize>, bool); 5] = [
@@ -212,8 +209,8 @@ fn emit_resource_operations(
         }
         let next = builder.label("closure_env_next_op");
         let op = builder.allocate_register();
-        builder.emit(abi::load_u64(&op, sp, op_slot));
-        builder.emit(abi::compare_immediate(&op, &code.to_string()));
+        builder.emit(abi::load_u64(op, sp, op_slot));
+        builder.emit(abi::compare_immediate(op, &code.to_string()));
         builder.emit(abi::branch_ne(&next));
         builder.emit_closure_env_resource_op(code, env_slot, &args, &layout.resource_words)?;
         builder.emit(abi::branch(finish));
@@ -254,7 +251,7 @@ pub(crate) fn lower_closure_env_ops(
     let op = if builder.closures_carry_resources() {
         emit_resource_operations(&mut builder, layout, op_slot, env_slot, &finish)?;
         let reloaded = builder.allocate_register();
-        builder.emit(abi::load_u64(&reloaded, sp, op_slot));
+        builder.emit(abi::load_u64(reloaded, sp, op_slot));
         reloaded
     } else {
         op
@@ -272,15 +269,15 @@ pub(crate) fn lower_closure_env_ops(
             // it names belongs to its own scope, so only the box is freed.
             let skip = builder.label("closure_env_union_box_absent");
             let source = builder.allocate_register();
-            builder.emit(abi::load_u64(&source, sp, env_slot));
+            builder.emit(abi::load_u64(source, sp, env_slot));
             builder.emit(abi::load_u64(
-                &source,
-                &source,
+                source,
+                source,
                 closure_env_word_offset(index),
             ));
-            builder.emit(abi::compare_immediate(&source, "0"));
+            builder.emit(abi::compare_immediate(source, "0"));
             builder.emit(abi::branch_eq(&skip));
-            builder.emit(abi::move_register(abi::c_arg(0), &source));
+            builder.emit(abi::move_register(abi::c_arg(0), source));
             builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
             builder.emit_arena_free_call();
             builder.emit(abi::label(&skip));
@@ -345,7 +342,7 @@ pub(crate) fn lower_closure_env_ops(
         let stored = match owned {
             // bug-843: each environment owns its own copy of a captured union box.
             None if word == Some(&ClosureEnvWord::ResourceUnionBox) => {
-                let box_slot = builder.spill_to_slot("closure_env_union_box", &value);
+                let box_slot = builder.spill_to_slot("closure_env_union_box", value);
                 builder.emit_copy_resource_union_box(box_slot)?
             }
             None => value,

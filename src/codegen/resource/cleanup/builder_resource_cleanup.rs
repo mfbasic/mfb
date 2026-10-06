@@ -714,13 +714,13 @@ impl CodeBuilder<'_> {
         for benign in ["ErrResourceClosed", "ErrResourceMoved"] {
             let code = self.temporary_vreg();
             self.emit(abi::move_immediate(
-                &code,
+                code,
                 "Integer",
                 crate::codegen::registry::runtime_error(benign)
                     .expect("errorCode name")
                     .0,
             ));
-            self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, &code));
+            self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, code));
             self.emit(abi::branch_eq(ok));
         }
         self.record_secondary_cleanup_failure();
@@ -873,9 +873,9 @@ impl CodeBuilder<'_> {
             let live = self.label("resource_cleanup_not_moved");
             let flags = self.allocate_register();
             let record = self.allocate_register();
-            self.emit(abi::load_u64(&record, abi::stack_pointer(), offset));
-            self.emit(abi::load_u64(&flags, &record, FILE_OFFSET_CLOSED));
-            self.emit(abi::compare_immediate(&flags, RESOURCE_MOVED_CLOSED_VALUE));
+            self.emit(abi::load_u64(record, abi::stack_pointer(), offset));
+            self.emit(abi::load_u64(flags, record, FILE_OFFSET_CLOSED));
+            self.emit(abi::compare_immediate(flags, RESOURCE_MOVED_CLOSED_VALUE));
             self.emit(abi::branch_ne(&live));
             if cleanup.frees_record {
                 self.emit_free_moved_tombstone(offset, &cleanup.name)?;

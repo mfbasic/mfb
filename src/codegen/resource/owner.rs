@@ -214,27 +214,27 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let done = self.label("resource_release_against_done");
         let record = self.allocate_register();
-        self.emit(abi::load_u64(&record, abi::stack_pointer(), leaf_slot));
-        self.emit(abi::compare_immediate(&record, "0"));
+        self.emit(abi::load_u64(record, abi::stack_pointer(), leaf_slot));
+        self.emit(abi::compare_immediate(record, "0"));
         self.emit(abi::branch_eq(&done));
         if self.resource_union_cleanup(leaf).is_some() {
-            self.emit(abi::load_u64(&record, &record, 8));
-            self.emit(abi::compare_immediate(&record, "0"));
+            self.emit(abi::load_u64(record, record, 8));
+            self.emit(abi::compare_immediate(record, "0"));
             self.emit(abi::branch_eq(&done));
         }
         let owner = self.allocate_register();
-        self.emit(abi::load_u64(&owner, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
         self.emit(abi::shift_right_immediate(
-            &owner,
-            &owner,
+            owner,
+            owner,
             SCOPE_TOKEN_DEPTH_BITS,
         ));
-        self.emit(abi::add_immediate(&owner, &owner, 1));
+        self.emit(abi::add_immediate(owner, owner, 1));
         let base = self.allocate_register();
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), base_slot));
-        self.emit(abi::compare_registers(&owner, &base));
+        self.emit(abi::load_u64(base, abi::stack_pointer(), base_slot));
+        self.emit(abi::compare_registers(owner, base));
         self.emit(abi::branch_ne(&done));
-        self.emit(abi::store_u64(abi::ZERO, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::store_u64(abi::ZERO, record, RESOURCE_OFFSET_OWNER));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -269,7 +269,7 @@ impl CodeBuilder<'_> {
                 // bug-843: a returned closure releases what it carries, through its
                 // environment routine, against this frame's token base.
                 let base = builder.emit_scope_token_base();
-                let base_slot = builder.spill_to_slot("returned_closure_base", &base);
+                let base_slot = builder.spill_to_slot("returned_closure_base", base);
                 return builder.emit_closure_resource_op(
                     leaf_slot,
                     CLOSURE_ENV_OP_RELEASE,
@@ -334,17 +334,17 @@ impl CodeBuilder<'_> {
             }
             let done = builder.label("resource_temp_close_done");
             let record = builder.allocate_register();
-            builder.emit(abi::load_u64(&record, abi::stack_pointer(), leaf_slot));
-            builder.emit(abi::compare_immediate(&record, "0"));
+            builder.emit(abi::load_u64(record, abi::stack_pointer(), leaf_slot));
+            builder.emit(abi::compare_immediate(record, "0"));
             builder.emit(abi::branch_eq(&done));
             if builder.resource_union_cleanup(leaf).is_some() {
-                builder.emit(abi::load_u64(&record, &record, 8));
-                builder.emit(abi::compare_immediate(&record, "0"));
+                builder.emit(abi::load_u64(record, record, 8));
+                builder.emit(abi::compare_immediate(record, "0"));
                 builder.emit(abi::branch_eq(&done));
             }
             let flag = builder.allocate_register();
-            builder.emit(abi::load_u64(&flag, &record, RESOURCE_OFFSET_CLOSED));
-            builder.emit(abi::compare_immediate(&flag, "0"));
+            builder.emit(abi::load_u64(flag, record, RESOURCE_OFFSET_CLOSED));
+            builder.emit(abi::compare_immediate(flag, "0"));
             builder.emit(abi::branch_ne(&done));
             builder.emit_close_unowned_at(leaf_slot, leaf)?;
             builder.emit(abi::label(&done));
@@ -366,7 +366,7 @@ impl CodeBuilder<'_> {
         self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
             if builder.is_closure_leaf(leaf) {
                 let token = builder.emit_scope_token(depth)?;
-                let token_slot = builder.spill_to_slot("returned_claim_token", &token);
+                let token_slot = builder.spill_to_slot("returned_claim_token", token);
                 return builder.emit_closure_resource_op(
                     leaf_slot,
                     CLOSURE_ENV_OP_CLAIM,
@@ -392,21 +392,21 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let done = self.label("resource_claim_against_done");
         let record = self.allocate_register();
-        self.emit(abi::load_u64(&record, abi::stack_pointer(), leaf_slot));
-        self.emit(abi::compare_immediate(&record, "0"));
+        self.emit(abi::load_u64(record, abi::stack_pointer(), leaf_slot));
+        self.emit(abi::compare_immediate(record, "0"));
         self.emit(abi::branch_eq(&done));
         if self.resource_union_cleanup(leaf).is_some() {
-            self.emit(abi::load_u64(&record, &record, 8));
-            self.emit(abi::compare_immediate(&record, "0"));
+            self.emit(abi::load_u64(record, record, 8));
+            self.emit(abi::compare_immediate(record, "0"));
             self.emit(abi::branch_eq(&done));
         }
         let owner = self.allocate_register();
-        self.emit(abi::load_u64(&owner, &record, RESOURCE_OFFSET_OWNER));
-        self.emit(abi::compare_immediate(&owner, "0"));
+        self.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::compare_immediate(owner, "0"));
         self.emit(abi::branch_ne(&done));
         let token = self.allocate_register();
-        self.emit(abi::load_u64(&token, abi::stack_pointer(), token_slot));
-        self.emit(abi::store_u64(&token, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::load_u64(token, abi::stack_pointer(), token_slot));
+        self.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));
         self.emit(abi::label(&done));
         Ok(())
     }

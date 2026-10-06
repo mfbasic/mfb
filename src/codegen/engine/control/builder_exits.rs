@@ -1023,7 +1023,7 @@ impl CodeBuilder<'_> {
                 // from the slot the walk read it from. bug-842: so do the closes.
                 if resource_temps || self.type_reaches_closure_leaf(&result.type_) {
                     let reloaded = self.allocate_register();
-                    self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
+                    self.emit(abi::load_u64(reloaded, abi::stack_pointer(), slot));
                     result.location = Operand::from(reloaded);
                 }
                 Some(result)
