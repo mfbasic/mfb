@@ -59,6 +59,42 @@ FUNC main() AS Integer
 END FUNC
 ```
 
+### The read side too (bs17-agent-g, re-measured by the coordinator on main 468ff0f94)
+
+An unbuffered file opened for reading, bound straight into the union and read through `MATCH`,
+leaks the read buffer: **16 KiB per drop**. `--debug`, arena 0: N=10 gives 52 alloc / 42 free /
+163840 live bytes; N=100 gives 502 / 402 / 1638400. So both the read and the write buffers are
+missed; the fix must reclaim every I/O buffer the variant's record owns, as the concrete drop does.
+It needs an existing `/tmp/g933/data.txt` with at least one line.
+
+```
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+FUNC once() AS Integer
+  RES s AS Stream = fs::openFile("/tmp/g933/data.txt")
+  MATCH s
+    CASE fs::File(h)
+      RETURN len(fs::readLine(h))
+    CASE tcp::Socket(k)
+      RETURN 0
+  END MATCH
+  RETURN 0
+END FUNC
+FUNC main() AS Nothing
+  MUT t AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+END FUNC
+```
+
 ## Related
 
 - bug-1000 (the same buffer leak through an owned-list drain).
