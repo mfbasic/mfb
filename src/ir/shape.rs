@@ -2768,7 +2768,7 @@ impl<'a> Walker<'a> {
         // table row carries the bare name).
         let base = type_.without_state();
         let base_name = base.name();
-        crate::codegen::resource::builtin_resource_close_function(&base).is_some()
+        crate::codegen::resource::is_builtin_resource(&base)
             || self.resource_types.contains(&base)
             || base_name.rsplit_once('.').is_some_and(|(_, bare)| {
                 self.resource_types.contains(&ParameterType::declared(bare))

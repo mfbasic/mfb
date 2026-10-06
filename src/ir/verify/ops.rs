@@ -811,6 +811,9 @@ impl TypeEnv {
                         &self.total_functions,
                         &self.globals,
                     );
+                    // The close op, not resource-ness: these are the locals the
+                    // routing CLOSES (bug-676's set), and a resource with no close
+                    // op (a `ThreadWorker`, bug-975) is not among them.
                     unbound.retain(|name| {
                         locals.get(name).is_none_or(|type_| {
                             self.close_op_for(&resource_base_type(type_)).is_none()

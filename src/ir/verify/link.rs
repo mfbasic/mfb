@@ -938,28 +938,43 @@ impl TypeEnv {
             || base.is_named("AttributedString")
             || crate::codegen::engine::types::typed_is_collection_type(base)
             || matches!(base, ParameterType::Func(..))
-            || (self.records.contains_key(base) && self.close_op_for(base).is_none())
+            || (self.records.contains_key(base) && !self.is_resource_base(base))
             || self.enums.contains_key(base)
             || self
                 .unions
                 .get(base)
-                .is_some_and(|u| u.variants.iter().all(|v| self.close_op_for(v).is_none()))
+                .is_some_and(|u| u.variants.iter().all(|v| !self.is_resource_base(v)))
     }
 
     /// Whether `base` is a resource type or a resource union (a union any of
     /// whose variants is a resource — mixed unions are already rejected).
     pub(super) fn is_resource_or_resource_union(&self, base: &ParameterType) -> bool {
-        if self.close_op_for(base).is_some() {
+        if self.is_resource_base(base) {
             return true;
         }
         self.unions
             .get(base)
-            .is_some_and(|u| u.variants.iter().any(|v| self.close_op_for(v).is_some()))
+            .is_some_and(|u| u.variants.iter().any(|v| self.is_resource_base(v)))
+    }
+
+    /// Whether `base` is a resource type: a user-declared or imported native
+    /// resource, or a built-in one (either thread view included).
+    ///
+    /// bug-975: this is NOT [`close_op_for`](Self::close_op_for)`.is_some()`. A
+    /// `ThreadWorker` is a resource with no close op — the runtime closes it when
+    /// the worker returns — so "is a resource" and "has a close" are separate
+    /// questions, and every resource rule (the `RES` binding rule, moves,
+    /// aliasing, slots, comparability) asks this one.
+    pub(super) fn is_resource_base(&self, base: &ParameterType) -> bool {
+        self.resource_closers.contains_key(base)
+            || crate::codegen::resource::is_builtin_resource(base)
     }
 
     /// The registered close op for a resource type: user-declared native
     /// resources first (`RESOURCE T CLOSE BY alias.func`), then the builtin
-    /// close table.
+    /// close table. `None` for a non-resource AND for a resource with no close
+    /// op (a `ThreadWorker`); ask [`is_resource_base`](Self::is_resource_base)
+    /// whether a type is a resource.
     pub(super) fn close_op_for(&self, base: &ParameterType) -> Option<&str> {
         self.resource_closers
             .get(base)
@@ -1067,7 +1082,7 @@ impl TypeEnv {
             IrValue::Local(name) => {
                 if locals
                     .get(name)
-                    .is_some_and(|t| self.close_op_for(&resource_base_type(t)).is_some())
+                    .is_some_and(|t| self.is_resource_base(&resource_base_type(t)))
                 {
                     out.insert(name.clone());
                 } else if let Some(held) = contains.get(name) {
@@ -1137,8 +1152,8 @@ impl TypeEnv {
             return None;
         };
         let type_ = locals.get(name)?;
-        self.close_op_for(&resource_base_type(type_))
-            .map(|_| name.clone())
+        self.is_resource_base(&resource_base_type(type_))
+            .then(|| name.clone())
     }
 
     /// The resource binding consumed by an op, if any: a call to the binding's
@@ -1185,7 +1200,7 @@ impl TypeEnv {
                 ..
             } => {
                 let type_ = locals.get(name)?;
-                if self.close_op_for(&resource_base_type(type_)).is_some() {
+                if self.is_resource_base(&resource_base_type(type_)) {
                     Some(name.clone())
                 } else {
                     None

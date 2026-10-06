@@ -5,10 +5,10 @@
 //! [`HirParam::resource`](super::HirParam) and
 //! [`HirLinkParam::resource`](super::HirLinkParam) — is derived here instead, from
 //! the parameter's type, with the predicate `ir::verify` uses to decide that a
-//! binding of a type needs `RES` (`TypeEnv::is_resource_or_resource_union`): a type
-//! with a registered close op (a built-in resource, a parent `Thread`, a project
-//! `RESOURCE`, an imported package's `RESOURCE_TABLE` row), or a union with a
-//! variant that has one. A parameter that carries a `STATE` clause is a resource
+//! binding of a type needs `RES` (`TypeEnv::is_resource_or_resource_union`): a
+//! resource type (a built-in resource, either thread view — bug-975: a resource
+//! need not have a close op — a project `RESOURCE`, an imported package's
+//! `RESOURCE_TABLE` row), or a union with a resource variant. A parameter that carries a `STATE` clause is a resource
 //! claim too, exactly as the `RES p AS T STATE S` spelling was.
 //!
 //! The spelling alone cannot answer it — `db AS Db` is a resource only because
@@ -33,9 +33,9 @@ use crate::types::ParameterType;
 /// The resource types a project can name, for deciding a parameter's resource-ness.
 #[derive(Default)]
 pub(crate) struct ResourceTypes {
-    /// Declared resource types with a close op: the project's `RESOURCE`
+    /// Declared resource types: the project's `RESOURCE`
     /// declarations and the imported packages' resources. Built-in resources are
-    /// answered by the registry (`builtin_resource_close_function`), not stored.
+    /// answered by `codegen::resource::is_builtin_resource`, not stored.
     declared: HashSet<ParameterType>,
     /// Union type → its direct variant types (the shape `ir::verify`'s
     /// `UnionInfo::variants` holds), local and imported.
@@ -110,10 +110,10 @@ impl ResourceTypes {
         self
     }
 
-    /// `ir::verify`'s `close_op_for(base).is_some()`.
-    fn has_close_op(&self, base: &ParameterType) -> bool {
-        self.declared.contains(base)
-            || crate::codegen::resource::builtin_resource_close_function(base).is_some()
+    /// `ir::verify`'s `is_resource_base`: a declared resource, or a built-in one
+    /// (either thread view included — bug-975: a resource need not have a close).
+    fn is_resource_base(&self, base: &ParameterType) -> bool {
+        self.declared.contains(base) || crate::codegen::resource::is_builtin_resource(base)
     }
 
     /// Whether `type_` is a resource or a resource union — `ir::verify`'s
@@ -121,11 +121,12 @@ impl ResourceTypes {
     /// need `RES`.
     pub(crate) fn is_resource(&self, type_: &ParameterType) -> bool {
         let base = type_.without_state();
-        self.has_close_op(&base)
-            || self
-                .unions
-                .get(&base)
-                .is_some_and(|variants| variants.iter().any(|variant| self.has_close_op(variant)))
+        self.is_resource_base(&base)
+            || self.unions.get(&base).is_some_and(|variants| {
+                variants
+                    .iter()
+                    .any(|variant| self.is_resource_base(variant))
+            })
     }
 
     /// A parameter's resource-ness: its type is a resource, or it carries `STATE`.
@@ -394,9 +395,9 @@ mod tests {
     }
 
     /// The decision table: a parameter is a resource exactly when its type is one
-    /// (built-in, a parent `Thread`, a project `RESOURCE`, a resource union) or it
-    /// carries `STATE`; a data type, a record, a data union and a worker view (no
-    /// close op today) are not.
+    /// (built-in, either thread view, a project `RESOURCE`, a resource union) or it
+    /// carries `STATE`; a data type, a record and a data union are not. bug-975: the
+    /// worker view is a resource with no close op, and still a resource.
     #[test]
     fn a_parameter_is_a_resource_exactly_when_its_type_is_one() {
         let hir = project(
@@ -421,7 +422,7 @@ mod tests {
             ("r", false),
             ("u", false),
             ("t", true),
-            ("w", false),
+            ("w", true),
             // A STATE clause is a resource claim, exactly as `RES s AS Integer
             // STATE Cur` was: the derivation keeps what the keyword meant.
             ("s", true),

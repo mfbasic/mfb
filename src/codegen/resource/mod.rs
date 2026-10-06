@@ -98,14 +98,28 @@ pub(crate) fn is_builtin_backed_resource(type_: &ParameterType) -> bool {
         .any(|p| p.resources().iter().any(|r| r.name == bare))
 }
 
-/// The built-in close op for `type_name`, if it is a built-in resource.
+/// Whether `type_` is a built-in RESOURCE: a registry resource (`fs.File`,
+/// `tcp.Socket`, …) or either thread view.
+///
+/// bug-975: being a resource is not the same question as having a close op. Both
+/// thread views are resources (plan-156-A: "two views, two resources"); the
+/// `ThreadWorker` view simply has no close, because the runtime closes it when the
+/// worker function returns. Every "is this a resource?" predicate asks this;
+/// [`builtin_resource_close_function`] answers only "which op closes it?".
+pub(crate) fn is_builtin_resource(type_: &ParameterType) -> bool {
+    matches!(type_.without_state(), ParameterType::ThreadHandle { .. })
+        || builtin_resource_close_function(type_).is_some()
+}
+
+/// The built-in close op for `type_name`, if it is a built-in resource that has one.
 ///
 /// plan-156-C: a parent `Thread` view is a resource whose close op is the hidden
-/// `thread.drop`; a `ThreadWorker` view has none (the runtime owns it). A thread type
-/// has no single nominal, so it is matched structurally rather than through the
-/// registry — which is also why [`is_builtin_resource_type`] still answers `false`
-/// for it: the codegen paths that ask that question (layouts, copies, transfers) keep
-/// their own thread arms.
+/// `thread.drop`; a `ThreadWorker` view is a resource with none (the runtime owns
+/// it), so this answers `None` for it — ask [`is_builtin_resource`] whether a type
+/// is a resource. A thread type has no single nominal, so it is matched structurally
+/// rather than through the registry — which is also why [`is_builtin_resource_type`]
+/// still answers `false` for it: the codegen paths that ask that question (layouts,
+/// copies, transfers) keep their own thread arms.
 pub(crate) fn builtin_resource_close_function(type_: &ParameterType) -> Option<&'static str> {
     if let ParameterType::ThreadHandle { worker, .. } = type_.without_state() {
         return (!worker).then_some(crate::codegen::builtins::thread::DROP);

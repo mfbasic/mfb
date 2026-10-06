@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/threads/threadworker-let-binding-invalid
+   8 | 
+   9 | ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  10 |   LET inferred = t
+     | ^
+tests/syntax/threads/threadworker-let-binding-invalid/src/main.mfb:10 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               binding `inferred` holds resource `ThreadWorker OF String TO Integer`; bind it with `RES`, not `LET`/`MUT`.
+   9 | ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  10 |   LET inferred = t
+  11 |   LET typed AS ThreadWorker OF String TO Integer = t
+     | ^
+tests/syntax/threads/threadworker-let-binding-invalid/src/main.mfb:11 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
+               binding `typed` holds resource `ThreadWorker OF String TO Integer`; bind it with `RES`, not `LET`/`MUT`.
+[exit 1]

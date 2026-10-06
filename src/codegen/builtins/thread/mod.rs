@@ -110,6 +110,12 @@ left to finish on its own. Passing it to a function lends it, so the caller
 still holds it afterwards; it can also sit in a `List OF RES Thread …` (a pool of
 workers) or in a record's `RES` field.
 
+The worker's `ThreadWorker` is a `RES` handle too: inside the worker, bind it with
+`RES`, never `LET` or `MUT`, and a `RES` binding of it is an alias — another name
+for the same handle, with the same state. Nothing closes it from your code: it
+stays open until the worker function returns. It never goes into a collection or
+to another thread.
+
 Each end of a thread can keep its own state. `RES t AS Thread OF Msg TO Out STATE
 P` gives the parent's handle a `P` record at `t.state`, and the worker declares
 its own on its first parameter, `worker AS ThreadWorker OF Msg TO Out STATE W`.

@@ -9,10 +9,16 @@ IMPORT thread
 ' The alias is taken in an inner scope three times (a loop body), and the
 ' worker keeps running and keeps its state after every one of those scopes has
 ' exited. Each pass bumps the state through its alias, so the result is
-' 2 * n + 3 only if all three writes landed on the one STATE record.
+' 2 * n + 3 only if all three writes landed on the one STATE record. A record
+' may hold the view in a `RES` field, like any resource, and reading through the
+' field reaches the same running worker.
 
 TYPE W
   hits AS Integer
+END TYPE
+
+TYPE Holder
+  view AS RES ThreadWorker OF String TO Integer STATE W
 END TYPE
 
 FUNC bumpThrough(t AS ThreadWorker OF String TO Integer STATE W) AS Nothing
@@ -27,10 +33,11 @@ ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer STATE W, n AS Integer)
   END WHILE
   RES alias AS ThreadWorker OF String TO Integer STATE W = t
   alias.state.hits = alias.state.hits + 0
-  IF thread::isCancelled(alias) THEN
+  LET h = Holder[alias]
+  IF thread::isCancelled(h.view) THEN
     RETURN 0
   END IF
-  RETURN n * 2 + alias.state.hits
+  RETURN n * 2 + h.view.state.hits
 END FUNC
 
 FUNC main AS Integer
