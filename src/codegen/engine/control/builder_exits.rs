@@ -160,8 +160,8 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let not_exit = self.label("inline_trap_not_program_exit");
         let tag = self.temporary_vreg();
-        self.emit(abi::load_u64(&tag, abi::stack_pointer(), tag_slot));
-        self.emit(abi::compare_immediate(&tag, RESULT_PROGRAM_EXIT_TAG));
+        self.emit(abi::load_u64(tag, abi::stack_pointer(), tag_slot));
+        self.emit(abi::compare_immediate(tag, RESULT_PROGRAM_EXIT_TAG));
         self.emit(abi::branch_ne(&not_exit));
         self.emit(abi::move_immediate(
             RESULT_TAG_REGISTER,
