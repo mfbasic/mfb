@@ -78,9 +78,9 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
-[ ] P5: 998 (STATE on a non-resource parameter; needs owner decision on the diagnostic)
+[ ] P5: 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
 [ ] P8: 985 (setMode window has no mouse controllers; after 982), 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
