@@ -1139,6 +1139,10 @@ pub(crate) fn app_mode_imports(
         // makes the key handler's write() return EAGAIN instead of blocking the
         // GTK main thread (bug-114).
         (libc, "fcntl"),
+        // bug-902: `_main` reserves each closed standard descriptor with
+        // `/dev/null` (`emit_reserve_standard_fds`), aborting if even that fails.
+        (libc, "open"),
+        (libc, "abort"),
         // Output marshaling to the GTK main thread + the worker park-on-finish.
         (libc, "malloc"),
         (libc, "free"),

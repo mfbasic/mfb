@@ -1549,6 +1549,11 @@ pub(crate) fn lower_module_for_platform(
             size: 8,
             value: "0000000000000000".to_string(),
         });
+        // bug-902: the path the POSIX entry (or app bootstrap) opens onto each
+        // standard descriptor the process was started without.
+        if platform.family() != crate::codegen::engine::types::PlatformFamily::Windows {
+            data_objects.push(crate::codegen::engine::function::entry::dev_null_path_data_object());
+        }
     }
     // plan-130-A: the `--debug` report's data (once-guard, key and line strings)
     // and each registered section's. Empty unless the report is on, so every

@@ -3,6 +3,7 @@
 //! append/finish helpers (plan-11 split, pure relocation).
 
 use super::*;
+use crate::codegen::engine::function::entry::{emit_reserve_standard_fds, DEV_NULL_PATH_SYMBOL};
 use crate::codegen::memory::data::push_symbol_address;
 use crate::codegen::runtime::canvas::{GRAPHICS_OFFSET_FRAMES, GRAPHICS_STATE_SYMBOL};
 
@@ -126,6 +127,29 @@ pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, Str
                                                                        // reach these locals (bug-240).
     asm.store_state(abi::c_arg(0), ST_ARGC);
     asm.store_state(abi::c_arg(1), ST_ARGV);
+
+    // bug-902: reserve every standard descriptor the process was started without,
+    // before GTK opens its display connection or `activate` its window pipe — either
+    // would otherwise be numbered 0, 1 or 2 and receive the program's console I/O.
+    // The program entry, called later on the worker, leaves this to the bootstrap.
+    emit_reserve_standard_fds(
+        GTK_MAIN_SYMBOL,
+        &mut asm.ins,
+        &mut asm.rel,
+        &mut |ins, rel, dst| {
+            let mut call = Asm::new(GTK_MAIN_SYMBOL);
+            call.local_address(dst, DEV_NULL_PATH_SYMBOL);
+            ins.extend(call.ins);
+            rel.extend(call.rel);
+        },
+        &mut |ins, rel, base| {
+            let mut call = Asm::new(GTK_MAIN_SYMBOL);
+            call.call_external(base);
+            ins.extend(call.ins);
+            rel.extend(call.rel);
+            Ok(())
+        },
+    )?;
 
     // plan-98-F: the headless gate, the Linux twin of `MFB_MACAPP_HEADLESS` and
     // `MFB_WINAPP_HEADLESS`.

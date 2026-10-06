@@ -1735,6 +1735,10 @@ mod tests {
             "exit_group",
             "mmap",
             "munmap",
+            // bug-902: the standard-descriptor reservation (`entry_imports`).
+            "fcntl",
+            "open",
+            "abort",
         ]
         .into_iter()
         .map(|s| (s.to_string(), "libc.so.6".to_string()))

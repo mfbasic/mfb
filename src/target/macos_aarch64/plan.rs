@@ -51,6 +51,15 @@ impl plan::NativePlanPlatform for Platform {
             symbol: "_signal".to_string(),
             required_by: "_main".to_string(),
         });
+        // bug-902: reserve each closed standard descriptor with `/dev/null` at
+        // startup (`emit_reserve_standard_fds`), aborting if even that fails.
+        for symbol in ["_fcntl", "_open", "_abort"] {
+            imports.push(PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: symbol.to_string(),
+                required_by: "_main".to_string(),
+            });
+        }
         // bug-789: every thread's entry (the program entry and the worker trampoline)
         // asks for its exact stack to set its stack-limit word.
         for symbol in [

@@ -251,6 +251,38 @@ pub(crate) fn lower_program_entry(
         &mut instructions,
         &mut relocations,
     )?;
+    // bug-902: reserve every standard descriptor the process was started without,
+    // before anything in this program can open one. Runs on the process's main
+    // thread for a console program. An app-mode entry is CALLED on the toolkit's
+    // worker thread long after the bootstrap opened its display connection and
+    // window pipe, so the bootstrap does this itself as its first act and the
+    // called entry skips it. Windows has no lowest-free-number descriptor
+    // allocation for its standard handles, so it is POSIX-only.
+    if platform.family() != PlatformFamily::Windows && !entry_called_as_function {
+        emit_reserve_standard_fds(
+            "entry",
+            &mut instructions,
+            &mut relocations,
+            &mut |instructions, relocations, dst| {
+                push_symbol_address(
+                    entry_symbol,
+                    DEV_NULL_PATH_SYMBOL,
+                    dst,
+                    instructions,
+                    relocations,
+                )
+            },
+            &mut |instructions, relocations, base| {
+                platform.emit_external_call(
+                    base,
+                    entry_symbol,
+                    platform_imports,
+                    instructions,
+                    relocations,
+                )
+            },
+        )?;
+    }
     // plan-130: each active `--debug` feature's entry work (the perf section maps its
     // region and opens the whole-program span). The calls clobber x0–x17, but argc/argv
     // are already parked in the callee-saved SCRATCH[17]/SCRATCH[18] (or irrelevant
@@ -796,6 +828,92 @@ pub(crate) fn lower_program_entry(
 /// physical registers, all dead afterward) and touches only the initial stack +
 /// the global, so it does not disturb the argc/argv the rest of the entry loads
 /// from `[sp]`. A syscall-free scan — no libc `getauxval`.
+/// bug-902: the read-only `"/dev/null"` C string [`emit_reserve_standard_fds`] opens.
+/// Emitted for every POSIX module with an entry.
+pub(crate) const DEV_NULL_PATH_SYMBOL: &str = "_mfb_rt_dev_null_path";
+
+/// The data object behind [`DEV_NULL_PATH_SYMBOL`].
+pub(crate) fn dev_null_path_data_object() -> CodeDataObject {
+    let text = "/dev/null";
+    CodeDataObject {
+        symbol: DEV_NULL_PATH_SYMBOL.to_string(),
+        kind: "raw".to_string(),
+        layout: "C string (NUL-terminated)".to_string(),
+        align: 1,
+        size: text.len() + 1,
+        value: text
+            .bytes()
+            .chain(std::iter::once(0))
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    }
+}
+
+/// bug-902: reserve each standard descriptor (0, 1, 2) the process was started
+/// without, by opening `/dev/null` onto it — `O_RDONLY` for 0, `O_WRONLY` for 1 and
+/// 2 — as Rust std and Go do.
+///
+/// POSIX hands the lowest free number to the next `open`, so a program started with
+/// `<&-` gave fd 0 to its first `fs::open`: `io::readLine` then read the program's own
+/// file, and `io::print` (fd 1) / the error banners (fd 2) wrote into one it had
+/// opened. With the numbers reserved, a closed stdin reads as end-of-input, a closed
+/// stdout or stderr swallows writes, and no file the program opens can be 0, 1 or 2.
+///
+/// Checked in order 0, 1, 2 with `fcntl(fd, F_GETFD)`; a `-1` (`EBADF`) means closed.
+/// Because every lower number is open by then, the `open` returns exactly `fd`. If
+/// even `/dev/null` cannot be opened the process `abort`s rather than run with the
+/// hazard, which is what Rust std does.
+///
+/// Shared by the console entry and the two app-mode bootstraps, which reach the
+/// data symbol and their external calls differently: `address_of_dev_null` writes
+/// the string's address into the given register, and `call` emits a call to the
+/// libc function named by its base name (`fcntl`, `open`, `abort`). Clobbers the
+/// caller-saved registers.
+pub(crate) fn emit_reserve_standard_fds(
+    label_prefix: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    address_of_dev_null: &mut dyn FnMut(
+        &mut Vec<CodeInstruction>,
+        &mut Vec<CodeRelocation>,
+        abi::Reg,
+    ),
+    call: &mut dyn FnMut(
+        &mut Vec<CodeInstruction>,
+        &mut Vec<CodeRelocation>,
+        &str,
+    ) -> Result<(), String>,
+) -> Result<(), String> {
+    const F_GETFD: &str = "1";
+    const O_RDONLY: &str = "0";
+    const O_WRONLY: &str = "1";
+    for (fd, flags) in [("0", O_RDONLY), ("1", O_WRONLY), ("2", O_WRONLY)] {
+        let open = format!("{label_prefix}_std_fd_{fd}_open");
+        instructions.extend([
+            abi::move_immediate(abi::c_arg(0), "Integer", fd),
+            abi::move_immediate(abi::c_arg(1), "Integer", F_GETFD),
+        ]);
+        call(instructions, relocations, "fcntl")?;
+        // A C `int`: the upper half of the return register is unspecified.
+        instructions.extend([
+            abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+            abi::compare_immediate(abi::c_return(0), "0"),
+            abi::branch_ge(&open),
+        ]);
+        address_of_dev_null(instructions, relocations, abi::c_arg(0));
+        instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", flags));
+        call(instructions, relocations, "open")?;
+        instructions.extend([
+            abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
+            abi::compare_immediate(abi::c_return(0), "0"),
+            abi::branch_ge(&open),
+        ]);
+        call(instructions, relocations, "abort")?;
+        instructions.push(abi::label(&open));
+    }
+    Ok(())
+}
+
 fn emit_riscv_hwcap_probe(
     entry_symbol: &str,
     instructions: &mut Vec<CodeInstruction>,

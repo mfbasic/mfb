@@ -2,6 +2,7 @@
 //! launch/terminate/append/finish delegate helpers (plan-11 split, pure relocation).
 
 use super::*;
+use crate::codegen::engine::function::entry::{emit_reserve_standard_fds, DEV_NULL_PATH_SYMBOL};
 
 /// Wire the window input pipe: `pipe(fds)`; `dup2(fds[0], 0)` so the console read
 /// helpers consume window input; stash `fds[1]` (the write end) on `NSApp` under
@@ -96,6 +97,31 @@ pub(super) fn emit_main_bootstrap(
         abi::stack_pointer(),
         OFF_ARGV,
     ));
+
+    // bug-902: reserve every standard descriptor the process was started without,
+    // before AppKit or the window pipe opens anything that would otherwise be
+    // numbered 0, 1 or 2 and receive the program's console I/O. The program entry,
+    // called later on the worker, leaves this to the bootstrap.
+    let reserved = emit_reserve_standard_fds(
+        MAIN_SYMBOL,
+        &mut asm.ins,
+        &mut asm.rel,
+        &mut |ins, rel, dst| {
+            let mut call = Asm::new(MAIN_SYMBOL);
+            call.local_address(dst, DEV_NULL_PATH_SYMBOL);
+            ins.extend(call.ins);
+            rel.extend(call.rel);
+        },
+        &mut |ins, rel, base| {
+            let mut call = Asm::new(MAIN_SYMBOL);
+            call.call_external(&format!("_{base}"), LIB_SYSTEM);
+            ins.extend(call.ins);
+            rel.extend(call.rel);
+            Ok(())
+        },
+    );
+    // The two closures above cannot fail, so neither can the emitter.
+    debug_assert!(reserved.is_ok());
 
     // app = [NSApplication sharedApplication]
     asm.external_data(REG_APP, CLASS_NS_APPLICATION, LIB_APPKIT);

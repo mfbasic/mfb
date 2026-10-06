@@ -18,8 +18,13 @@ force-loads AppKit/Foundation. No private API is used.
 
 `_main` runs on the process main thread (AppKit's required home). It reserves a
 32-byte frame and stashes `argc`/`argv` (passed in `x0`/`x1` by the kernel)
-before any external call clobbers them. Persistent objects are held in
-callee-saved registers across the `objc_msgSend` sequence.
+before any external call clobbers them. Its first calls reserve every standard
+descriptor the process was started without, opening `/dev/null` onto it. AppKit and
+the window pipe open descriptors of their own, and without this one of them would be
+numbered 0, 1 or 2 and receive the program's console I/O (bug-902). The program entry
+the worker later calls skips that step (`./mfb spec memory program-startup`).
+[[src/codegen/engine/function/entry.rs:emit_reserve_standard_fds]] Persistent objects
+are held in callee-saved registers across the `objc_msgSend` sequence.
 
 | Register | Holds |
 |----------|-------|
