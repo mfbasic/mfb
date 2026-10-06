@@ -742,6 +742,10 @@ name = "rt_http_server_dos"
 path = "tests/net/rt_http_server_dos.rs"
 
 [[test]]
+name = "rt_http_client_request_target_percent_encoding"
+path = "tests/net/rt_http_client_request_target_percent_encoding.rs"
+
+[[test]]
 name = "rt_http_tls_handshake_failure_costs_one_connection"
 path = "tests/net/rt_http_tls_handshake_failure_costs_one_connection.rs"
 
