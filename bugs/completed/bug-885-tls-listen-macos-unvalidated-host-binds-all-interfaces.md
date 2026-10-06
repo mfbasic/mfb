@@ -5,8 +5,38 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/tls/tls-listen-host-validation-rt (to add; macOS-relevant, asserts on every target)
+Status: Resolved (2026-10-05)
+Regression Test: tests/net/rt_tls_listen_host_validation.rs (macOS-only; the other backends already resolve correctly)
+
+## Resolution
+
+Fixed in `lower_tls_listen_macos` (`gen_macos/server.rs`): a non-empty host
+is now resolved with `getaddrinfo` under an AF_INET hint (mirroring
+`tcp::listen`) before `nw_endpoint_create_host`, and the resolved address is
+formatted back to a dotted-decimal string with `inet_ntop` for the bind
+target; `REC_LHOST` (what `tls::localAddress` reports) keeps the caller's
+original string, unaffected. `src/target/macos_aarch64/plan.rs` needed the
+matching static import declaration (`_getaddrinfo`/`_freeaddrinfo`/
+`_inet_ntop` for `tls.listen`) — without it, calling these symbols broke
+import resolution for every program importing `http`/`net`, even ones that
+never call `tls::listen`, since `http::serverSSL`'s body unconditionally
+references it.
+
+RED: `bug-885 RED: pin macOS tls::listen host validation` (commit
+`bf202c337`) — measured against the unfixed backend: `tls::listen("localhost",
+54216, ...)` bound an ephemeral port 21224 instead (wildcard-address
+fallback), and `tls::listen("not-an-ip", ...)` hung past the test's 10 s
+bound (the same class of hang the bug doc measured for `"fe80::1"`).
+GREEN: `bug-885: validate and resolve tls::listen's host on macOS` (commit
+`c4c9ed650`).
+
+Runtime proof beyond the committed test (this Mac, `lsof`):
+`tls::listen("localhost", 19876, ...)` reports `localAddress` port 19876 (the
+exact requested port) and `lsof -nP -a -p <pid> -iTCP` shows
+`127.0.0.1:19876 (LISTEN)`, not `*:19876`. `"::1"`, `"fe80::1"`, `"not-an-ip"`,
+`"999.1.1.1"`, `"garbage::zz"` all raise `77070001` instantly (0 s) — matching
+`tcp::listen`'s behavior on the same inputs byte-for-byte.
+
 
 On macOS, `tls::listen(host, port, cert, key)` hands `host` straight to
 `nw_endpoint_create_host` with no check that it is an IPv4 literal (or the empty
