@@ -4031,56 +4031,46 @@
     { "op": "bind", "line": 1417, "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     {
       "op": "forEach",
-      "line": 1418,
-      "name": "ch",
-      "type": "String",
-      "iterable": { "kind": "call", "type": "List OF String", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "text" }] },
+      "line": 1425,
+      "name": "point",
+      "type": "Integer",
+      "iterable": { "kind": "call", "type": "List OF Integer", "target": "#encoding_codepoints", "args": [{ "kind": "local", "name": "text" }] },
       "body": [
       {
         "op": "if",
-        "line": 1420,
-        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "ch" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
-        "then": [
-        { "op": "fail", "line": 1421, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1421" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
-        ],
-        "else": [
-        ]
-      },
-      { "op": "bind", "line": 1423, "mutable": false, "name": "point", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF Integer", "target": "#encoding_codepoints", "args": [{ "kind": "local", "name": "ch" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-      {
-        "op": "if",
-        "line": 1424,
+        "line": 1426,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "point" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
         "then": [
-        { "op": "assign", "line": 1425, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "point" }] }] } }
+        { "op": "assign", "line": 1427, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "point" }] }] } }
         ],
         "else": [
         {
           "op": "if",
-          "line": 1429,
-          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "�" } },
+          "line": 1431,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "point" }, "right": { "kind": "const", "type": "Integer", "value": "65533" } },
           "then": [
-          { "op": "fail", "line": 1430, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1430" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "line": 1432, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1432" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
         },
+        { "op": "bind", "line": 1434, "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "type": "String", "target": "#encoding_fromCodepoint", "args": [{ "kind": "local", "name": "point" }] } },
         {
           "op": "if",
-          "line": 1432,
+          "line": 1435,
           "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "table" }, { "kind": "local", "name": "ch" }] } },
           "then": [
-          { "op": "fail", "line": 1433, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1433" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "line": 1436, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1436" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
         },
-        { "op": "assign", "line": 1435, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "strings.find", "args": [{ "kind": "local", "name": "table" }, { "kind": "local", "name": "ch" }] }, "right": { "kind": "const", "type": "Integer", "value": "128" } }] }] } }
+        { "op": "assign", "line": 1438, "name": "out", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "strings.find", "args": [{ "kind": "local", "name": "table" }, { "kind": "local", "name": "ch" }] }, "right": { "kind": "const", "type": "Integer", "value": "128" } }] }] } }
         ]
       }
       ]
     },
-    { "op": "return", "line": 1438, "value": { "kind": "local", "name": "out" } }
+    { "op": "return", "line": 1441, "value": { "kind": "local", "name": "out" } }
     ]
   }
   ]

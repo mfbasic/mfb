@@ -40,6 +40,9 @@
   { "library": "libSystem", "symbol": "_getentropy" },
   { "library": "libSystem", "symbol": "_clock_gettime" },
   { "library": "libSystem", "symbol": "_signal" },
+  { "library": "libSystem", "symbol": "_fcntl" },
+  { "library": "libSystem", "symbol": "_open" },
+  { "library": "libSystem", "symbol": "_abort" },
   { "library": "libSystem", "symbol": "_pthread_self" },
   { "library": "libSystem", "symbol": "_pthread_get_stackaddr_np" },
   { "library": "libSystem", "symbol": "_pthread_get_stacksize_np" },
@@ -53,13 +56,16 @@
   { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 26 },
   { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 38 },
   { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 53 },
-  { "name": "_pthread_self", "kind": "imported", "section": null, "value": null, "stringTableOffset": 61 },
-  { "name": "_pthread_get_stackaddr_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 75 },
-  { "name": "_pthread_get_stacksize_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 101 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 127 }
+  { "name": "_fcntl", "kind": "imported", "section": null, "value": null, "stringTableOffset": 61 },
+  { "name": "_open", "kind": "imported", "section": null, "value": null, "stringTableOffset": 68 },
+  { "name": "_abort", "kind": "imported", "section": null, "value": null, "stringTableOffset": 74 },
+  { "name": "_pthread_self", "kind": "imported", "section": null, "value": null, "stringTableOffset": 81 },
+  { "name": "_pthread_get_stackaddr_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 95 },
+  { "name": "_pthread_get_stacksize_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 121 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 147 }
   ],
   "stringTable": {
-    "size": 134,
+    "size": 154,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
@@ -67,10 +73,13 @@
     { "value": "_getentropy", "offset": 26 },
     { "value": "_clock_gettime", "offset": 38 },
     { "value": "_signal", "offset": 53 },
-    { "value": "_pthread_self", "offset": 61 },
-    { "value": "_pthread_get_stackaddr_np", "offset": 75 },
-    { "value": "_pthread_get_stacksize_np", "offset": 101 },
-    { "value": "_write", "offset": 127 }
+    { "value": "_fcntl", "offset": 61 },
+    { "value": "_open", "offset": 68 },
+    { "value": "_abort", "offset": 74 },
+    { "value": "_pthread_self", "offset": 81 },
+    { "value": "_pthread_get_stackaddr_np", "offset": 95 },
+    { "value": "_pthread_get_stacksize_np", "offset": 121 },
+    { "value": "_write", "offset": 147 }
     ]
   },
   "relocations": [
@@ -79,6 +88,9 @@
   { "from": "_main", "to": "_getentropy", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_fcntl", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_open", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_abort", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_self", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stackaddr_np", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stacksize_np", "kind": "externalCall", "section": "__TEXT,__text" },

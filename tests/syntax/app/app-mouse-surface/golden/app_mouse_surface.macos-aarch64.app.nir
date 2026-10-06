@@ -15163,20 +15163,10 @@
     { "op": "bind", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     {
       "op": "forEach",
-      "name": "ch",
-      "type": "String",
-      "iterable": { "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "text" }] },
+      "name": "point",
+      "type": "Integer",
+      "iterable": { "kind": "call", "target": "#encoding_codepoints", "args": [{ "kind": "local", "name": "text" }] },
       "body": [
-      {
-        "op": "if",
-        "condition": { "kind": "binary", "op": "<>", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "ch" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
-        "then": [
-        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1421" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
-        ],
-        "else": [
-        ]
-      },
-      { "op": "bind", "mutable": false, "name": "point", "type": "Integer", "value": { "kind": "call", "target": "collections.get", "args": [{ "kind": "call", "target": "#encoding_codepoints", "args": [{ "kind": "local", "name": "ch" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } },
       {
         "op": "if",
         "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "point" }, "right": { "kind": "const", "type": "Integer", "value": "128" } },
@@ -15186,18 +15176,19 @@
         "else": [
         {
           "op": "if",
-          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "�" } },
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "point" }, "right": { "kind": "const", "type": "Integer", "value": "65533" } },
           "then": [
-          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1430" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1432" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
         },
+        { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "target": "#encoding_fromCodepoint", "args": [{ "kind": "local", "name": "point" }] } },
         {
           "op": "if",
           "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "local", "name": "table" }, { "kind": "local", "name": "ch" }] } },
           "then": [
-          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1433" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "character not representable in this codepage" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/encoding.mfb" }, { "kind": "const", "type": "Integer", "value": "1436" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
