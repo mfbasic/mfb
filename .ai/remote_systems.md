@@ -8,10 +8,9 @@
 - ssh -p 2227 test@127.0.0.1 # Alpine x86_64 (musl)
 - ssh -p 2228 test@127.0.0.1 # Ubuntu x86_64 gtk (libc)
 - ssh -p 2229 test@127.0.0.1 # Alpine riscv64 (musl)
-- ssh -p 2230 test@127.0.0.1 # Win11 x86_64
 - ssh -p 2231 test@127.0.0.1 # Android aarch64
 - ssh -p 2232 test@127.0.0.1 # Debian riscv64 (libc)
-- ssh test@192.168.1.206 # Win11 x86_64, REAL hardware + real Vulkan GPU (Intel UHD 630) — see below
+- ssh test@192.168.1.206 # Win11 x86_64, REAL hardware + real Vulkan GPU (Intel UHD 630) — see below. The ONLY Windows box (owner, 2026-10-06: 2230 is retired; run every Windows test here)
 
 ## Which boxes have a Rust toolchain — probe, do not read
 
@@ -119,7 +118,6 @@ correctness (the software-oracle comparison) is meaningful there, performance is
 | box | GPU as the VM sees it | Vulkan driver | display |
 |---|---|---|---|
 | 2226 Debian 12 aarch64 glibc | virtio GPU | Mesa lavapipe, system ICD (`lvp_icd.aarch64.json`) | a live GNOME **Wayland** session (`/run/user/1001/wayland-0`) |
-| 2230 Win11 x86_64 (emulated) | Red Hat VirtIO GPU DOD | Mesa lavapipe under `C:\mfbvk\mesa\x64`, registered in `HKLM\SOFTWARE\Khronos\Vulkan\Drivers` | none used (headless) |
 | 206 Win11 x86_64 (real hardware, Intel Coffee Lake 6-core) | Intel UHD Graphics 630 | the real Intel driver, Vulkan 1.3 (`vulkaninfo --summary` works) | `test` logged in at the console (session 5); launch into it with `schtasks /it` (below) |
 
 * 2226 runs aarch64 natively, so it is the fast box for Vulkan rows
@@ -127,11 +125,6 @@ correctness (the software-oracle comparison) is meaningful there, performance is
   `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` — but its glslang (Debian 11:12.0.0) is not
   2228's, so an unchanged `.vert` comes back with different bytes. Restore a blob whose GLSL
   did not change rather than committing the churn.
-* 2230 is x86-64 under emulation: a software-oracle render of a large polygon scene takes
-  tens of minutes there. Order the geometry rows first when time matters.
-* **Do not run Windows GPU rows on 2230** (owner, 2026-09-26): its lavapipe faults in about 1
-  of 7 GPU runs whatever the scene, at base too, and never on 206's real driver (0 of 40;
-  bug-741). 2230 stays the box for non-GPU Windows tests (console, `--app`, TLS, fs).
 * Probe: `ls /usr/share/vulkan/icd.d` (Linux); on Windows,
   `Get-ItemProperty HKLM:\SOFTWARE\Khronos\Vulkan\Drivers` from PowerShell.
 
@@ -141,8 +134,7 @@ correctness (the software-oracle comparison) is meaningful there, performance is
 the credentials are the owner's and are not stored in the repo). Windows 11 (10.0.26200) on
 a real Intel Coffee Lake 6-core with an Intel UHD Graphics 630. `test` is not an
 administrator (WMI/`Get-CimInstance` is access-denied; probe with `ver`, `vulkaninfo
---summary`, `reg query`). Home is `C:\Users\test`. The cmd.exe quirks listed for 2230 below
-apply here too.
+--summary`, `reg query`). Home is `C:\Users\test`. The cmd.exe quirks are listed below.
 
 **A visible window from ssh.** An ssh session has no desktop, but `test` is logged in at the
 console, so a scheduled task with `/it` runs inside that desktop session (verified: the task's
@@ -168,11 +160,11 @@ the background even windowed. GDI grabs are fine for GDI-only windows (the trans
 readback blit). Also: `schtasks /end` leaves the task's PowerShell child running, and an ssh
 `taskkill` of it is access-denied — kill it from another `/it` task (`taskkill /pid N /f`).
 
-## Box 2230 (Windows): ssh quirks and crash diagnosis without a debugger
+## Box 206 (Windows): ssh quirks and crash diagnosis without a debugger
 
 `cmd.exe` over ssh produces several things that look like a broken box but aren't:
 
-- `ssh -p 2230 test@127.0.0.1 true` fails because `cmd.exe` has no `true`. Probe with `ver`.
+- `ssh test@192.168.1.206 true` fails because `cmd.exe` has no `true`. Probe with `ver`.
 - `The system cannot find the path specified.` prints on almost every command. It is session noise.
 - `set X=1 && prog` gives `X` a trailing space, and quoting through ssh is unreliable. Write a
   **CRLF** `.bat`, `scp` it, and run that.
@@ -180,6 +172,9 @@ readback blit). Also: `schtasks /end` leaves the task's PowerShell child running
 - No C compiler and no `openssl`. Probe Win32 struct layouts with a PowerShell `Add-Type` C#
   P/Invoke snippet; for a TLS client, use PowerShell `SslStream`.
 - An access violation exits with `-1073741819` (`0xC0000005`).
+- `prog.exe & echo %ERRORLEVEL%` on one ssh command line always prints the value from BEFORE the
+  line ran (cmd expands `%…%` when it parses the line). Read exit codes through PowerShell:
+  `powershell -NoProfile -Command "& .\prog.exe; $LASTEXITCODE"`.
 
 To find a fault without cdb/windbg:
 1. `Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='Application Error'} -MaxEvents 1`
