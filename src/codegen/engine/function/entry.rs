@@ -849,6 +849,16 @@ pub(crate) fn dev_null_path_data_object() -> CodeDataObject {
     }
 }
 
+/// Writes the `/dev/null` path's address into the given register
+/// ([`emit_reserve_standard_fds`]).
+pub(crate) type AddressOfDevNull<'a> =
+    dyn FnMut(&mut Vec<CodeInstruction>, &mut Vec<CodeRelocation>, abi::Reg) + 'a;
+
+/// Emits a call to the libc function with the given base name
+/// ([`emit_reserve_standard_fds`]).
+pub(crate) type CallLibc<'a> =
+    dyn FnMut(&mut Vec<CodeInstruction>, &mut Vec<CodeRelocation>, &str) -> Result<(), String> + 'a;
+
 /// bug-902: reserve each standard descriptor (0, 1, 2) the process was started
 /// without, by opening `/dev/null` onto it — `O_RDONLY` for 0, `O_WRONLY` for 1 and
 /// 2 — as Rust std and Go do.
@@ -873,16 +883,8 @@ pub(crate) fn emit_reserve_standard_fds(
     label_prefix: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-    address_of_dev_null: &mut dyn FnMut(
-        &mut Vec<CodeInstruction>,
-        &mut Vec<CodeRelocation>,
-        abi::Reg,
-    ),
-    call: &mut dyn FnMut(
-        &mut Vec<CodeInstruction>,
-        &mut Vec<CodeRelocation>,
-        &str,
-    ) -> Result<(), String>,
+    address_of_dev_null: &mut AddressOfDevNull<'_>,
+    call: &mut CallLibc<'_>,
 ) -> Result<(), String> {
     const F_GETFD: &str = "1";
     const O_RDONLY: &str = "0";
