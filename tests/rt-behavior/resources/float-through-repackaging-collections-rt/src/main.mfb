@@ -67,6 +67,24 @@ FUNC viaMerge(base AS Integer) AS Nothing
   io::print("merge open=" & toString(fds() - base) & " " & rd(collections::values(m)))
 END FUNC
 
+FUNC viaValues(base AS Integer) AS Nothing
+  MUT xs AS List OF RES fs::File = []
+  IF TRUE THEN
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt")
+    xs = collections::values(Map OF String TO RES fs::File { "a" := f })
+  END IF
+  io::print("values open=" & toString(fds() - base) & " " & rd(xs))
+END FUNC
+
+FUNC viaGet(base AS Integer) AS Nothing
+  MUT xs AS List OF RES fs::File = []
+  IF TRUE THEN
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt")
+    xs = [collections::get(collections::append(xs, f), 0)]
+  END IF
+  io::print("get open=" & toString(fds() - base) & " " & rd(xs))
+END FUNC
+
 FUNC main() AS Nothing
   LET base AS Integer = fds()
   viaTake(base)
@@ -74,5 +92,7 @@ FUNC main() AS Nothing
   viaFlatten(base)
   viaLoop(base)
   viaMerge(base)
+  viaValues(base)
+  viaGet(base)
   io::print("after open=" & toString(fds() - base))
 END FUNC

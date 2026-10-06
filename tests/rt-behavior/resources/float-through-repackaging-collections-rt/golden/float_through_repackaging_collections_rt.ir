@@ -247,21 +247,73 @@
     ]
   },
   {
-    "name": "main",
+    "name": "viaValues",
     "line": 70,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 70, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 71, "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    {
+      "op": "if",
+      "line": 72,
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "then": [
+      { "op": "bind", "line": 73, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] } },
+      { "op": "assign", "line": 74, "name": "xs", "value": { "kind": "call", "type": "List OF fs.File", "target": "collections.values", "args": [{ "kind": "map", "type": "Map OF String TO RES fs.File", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "local", "name": "f" } }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "values open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "rd", "args": [{ "kind": "local", "name": "xs" }] } }] } }
+    ]
+  },
+  {
+    "name": "viaGet",
+    "line": 79,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 79, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 80, "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    {
+      "op": "if",
+      "line": 81,
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "then": [
+      { "op": "bind", "line": 82, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] } },
+      { "op": "assign", "line": 83, "name": "xs", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [{ "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "f" }] }, { "kind": "const", "type": "Integer", "value": "0" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "get open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "rd", "args": [{ "kind": "local", "name": "xs" }] } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 88,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 71, "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "fds", "args": [] } },
-    { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "viaTake", "args": [{ "kind": "local", "name": "base" }] } },
-    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "viaDrop", "args": [{ "kind": "local", "name": "base" }] } },
-    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "viaFlatten", "args": [{ "kind": "local", "name": "base" }] } },
-    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "viaLoop", "args": [{ "kind": "local", "name": "base" }] } },
-    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "viaMerge", "args": [{ "kind": "local", "name": "base" }] } },
-    { "op": "eval", "line": 77, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "after open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }] } }
+    { "op": "bind", "line": 89, "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "fds", "args": [] } },
+    { "op": "eval", "line": 90, "value": { "kind": "call", "type": "Nothing", "target": "viaTake", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 91, "value": { "kind": "call", "type": "Nothing", "target": "viaDrop", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "viaFlatten", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "viaLoop", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "viaMerge", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "viaValues", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "viaGet", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "eval", "line": 97, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "after open=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "fds", "args": [] }, "right": { "kind": "local", "name": "base" } }] } }] } }
     ]
   },
   {

@@ -11,5 +11,7 @@ drop open=1 hello,
 flatten open=1 hello,
 loop open=2 hello,hello,
 merge open=1 hello,
+values open=1 hello,
+get open=1 hello,
 after open=0
 [exit 0]

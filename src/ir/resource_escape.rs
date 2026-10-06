@@ -441,6 +441,26 @@ impl Analyzer {
                     }
                 }
             }
+            // bug-933: a `collections` member that re-packages its arguments'
+            // elements (`take`, `drop`, `flatten`, `merge`, `distinct`, `zip`, …)
+            // hands every handle its collection arguments held on to its result, so
+            // each of those arguments flows into the target just as an insertion's
+            // argument 0 does. This arm was `_ => {}`, so in `xs = take(append(xs,
+            // f), 10)` neither `f` nor `xs` routed into `xs`. `f` stayed `Local` to
+            // the inner block, which closed it while `xs` still held it. Every
+            // argument is an element position (`scan_element`) because
+            // `flatten([xs, [f]])` nests the handle one level down. A member whose
+            // result is no container of its arguments' values (`len`, `findIndex`,
+            // and `get`, whose bare element only carries inside a container, see
+            // `scan_element`) routes nothing here. That keeps a scalar or a borrowed
+            // `RES` binding from becoming a float target.
+            HirExpression::Call {
+                callee, arguments, ..
+            } if collections_carry(callee) == CollectionsCarry::Container => {
+                for arg in arguments {
+                    self.scan_element(call_arg_expr(arg), res_elems, src_collections);
+                }
+            }
             // bug-290: an inline `TRAP` wraps the expression it guards, and this
             // scan previously fell through to `_ => {}` for it -- so
             // `xs = insert(xs, 0, f) TRAP … END TRAP` routed no ownership at all,
@@ -478,6 +498,19 @@ impl Analyzer {
         if let HirExpression::Identifier(name) = expr {
             if self.res_names.contains(name) {
                 res_elems.push(name.clone());
+                return;
+            }
+        }
+        // bug-933: an element read (`[collections::get(ys, 0)]`) puts one of
+        // its arguments' values into this container, so that argument flows in.
+        if let HirExpression::Call {
+            callee, arguments, ..
+        } = expr
+        {
+            if collections_carry(callee) == CollectionsCarry::Element {
+                for arg in arguments {
+                    self.scan_element(call_arg_expr(arg), res_elems, src_collections);
+                }
                 return;
             }
         }
@@ -700,6 +733,73 @@ pub(super) fn is_insertion_builtin(callee: &str) -> bool {
         member,
         Some("append" | "prepend" | "insert" | "set" | "mid" | "removeAt" | "filter" | "reduce")
     )
+}
+
+/// What a `collections` member's result can carry of the values its arguments
+/// held (bug-933).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CollectionsCarry {
+    /// Nothing an argument held: a scalar (`len`, `findIndex`, `contains`), or not a
+    /// `collections` member at all.
+    Nothing,
+    /// A container of the arguments' values (`take`'s `List OF T`, `flatten`,
+    /// `merge`, `values`, `zip`'s `List OF Pair OF A, B`).
+    Container,
+    /// One of the arguments' values itself (`get`'s `T`).
+    Element,
+}
+
+/// Classify `callee` by its registry signature, so a new member needs no list
+/// update. An implementation carries when its return type mentions a type variable
+/// one of its parameters also mentions. That can be a collection's element (`take`),
+/// a bare element (`repeat`'s `value AS T`), or a callback's return (`transform`'s
+/// `FUNC(T) AS U`, whose callback may hand an argument's handle straight back). A
+/// bare-variable return is an [`Element`](CollectionsCarry::Element). It is no
+/// container, so a binding of it (`RES g = collections::get(xs, 0)`, a borrow) is
+/// never a float target. It carries the handle only where it is itself put into
+/// a container (`[collections::get(ys, 0)]`, [`Analyzer::scan_element`]).
+pub(super) fn collections_carry(callee: &str) -> CollectionsCarry {
+    use crate::codegen::cleanup::owned::builder_owned_cleanup::{
+        collections_call_member, type_variables,
+    };
+    use crate::types::ParameterType;
+    // A native member arrives as `collections.take`; a source-generic one is
+    // already instantiated by the time this analysis runs
+    // (`#collections_take$RES$fs$File`).
+    let Some(member) = collections_call_member(callee) else {
+        return CollectionsCarry::Nothing;
+    };
+    let Some(function) = crate::codegen::registry::registry()
+        .resolve_package("collections")
+        .and_then(|package| package.function(member))
+    else {
+        return CollectionsCarry::Nothing;
+    };
+    let mut carry = CollectionsCarry::Nothing;
+    for implementation in &function.implementations {
+        let return_type = match &implementation.return_type {
+            ParameterType::Arg(index) => implementation
+                .params
+                .get(*index)
+                .map_or(&implementation.return_type, |parameter| &parameter.ty),
+            other => other,
+        };
+        let mut returned = Vec::new();
+        type_variables(return_type, &mut returned);
+        let carries = implementation.params.iter().any(|parameter| {
+            let mut held = Vec::new();
+            type_variables(&parameter.ty, &mut held);
+            held.iter().any(|var| returned.contains(var))
+        });
+        if !carries {
+            continue;
+        }
+        if !matches!(return_type, ParameterType::Var(_)) {
+            return CollectionsCarry::Container;
+        }
+        carry = CollectionsCarry::Element;
+    }
+    carry
 }
 
 fn call_arg_expr(arg: &HirCallArg) -> &HirExpression {
@@ -1197,6 +1297,120 @@ mod tests {
         ]));
         assert_eq!(result.owner("f"), ResOwner::Float("xs".to_string()));
         assert!(result.floats("f"));
+    }
+
+    fn call(callee: &str, arguments: Vec<HirExpression>) -> HirExpression {
+        HirExpression::Call {
+            callee: callee.to_string(),
+            arguments: arguments.into_iter().map(HirCallArg::Positional).collect(),
+            line: 1,
+            column: 1,
+        }
+    }
+
+    /// `MUT xs = []; WHILE { RES f; xs = <value> }` — the owner `f` gets.
+    fn owner_after_inner_assign(value: HirExpression) -> ResOwner {
+        analyze_function(&func(vec![
+            list("xs", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "xs".to_string(),
+                        value,
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]))
+        .owner("f")
+    }
+
+    /// bug-933: a re-packaging member around the insertion still routes the
+    /// handle into the outer list, so it floats there instead of closing early.
+    #[test]
+    fn a_resource_floats_through_a_repackaging_member() {
+        let float = ResOwner::Float("xs".to_string());
+        let take = call(
+            "collections.take",
+            vec![append("xs", "f"), HirExpression::Number("10".to_string())],
+        );
+        assert_eq!(owner_after_inner_assign(take), float);
+        let drop = call(
+            "collections.drop",
+            vec![append("xs", "f"), HirExpression::Number("0".to_string())],
+        );
+        assert_eq!(owner_after_inner_assign(drop), float);
+        let flatten = call(
+            "collections.flatten",
+            vec![HirExpression::ListLiteral(vec![
+                ident("xs"),
+                HirExpression::ListLiteral(vec![ident("f")]),
+            ])],
+        );
+        assert_eq!(owner_after_inner_assign(flatten), float);
+    }
+
+    /// bug-933's arm admits only members whose result can carry an argument's
+    /// values. A scalar result (`findIndex`) or a bare element (`get`) is no
+    /// container, so assigning one to an outer binding floats nothing to it.
+    /// An element read placed INTO a container does carry its argument's handle.
+    #[test]
+    fn a_scalar_or_element_result_is_not_a_float_target() {
+        use CollectionsCarry::{Container, Element, Nothing};
+        assert_eq!(collections_carry("collections.take"), Container);
+        assert_eq!(collections_carry("#collections_take$RES$fs$File"), Container);
+        assert_eq!(collections_carry("collections.flatten"), Container);
+        assert_eq!(collections_carry("collections.merge"), Container);
+        assert_eq!(collections_carry("collections.values"), Container);
+        assert_eq!(collections_carry("collections.findIndex"), Nothing);
+        assert_eq!(collections_carry("collections.get"), Element);
+        assert_eq!(collections_carry("strings.mid"), Nothing);
+        let result = analyze_function(&func(vec![
+            HirStatement::Let {
+                mutable: true,
+                resource: false,
+                state_type: None,
+                name: "n".to_string(),
+                type_: ParameterType::parse("Integer"),
+                explicit_type: true,
+                value: Some(HirExpression::Number("0".to_string())),
+                line: 1,
+            },
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    list("ys", HirExpression::ListLiteral(vec![ident("f")])),
+                    HirStatement::Assign {
+                        name: "n".to_string(),
+                        value: call(
+                            "collections.findIndex",
+                            vec![ident("ys"), ident("isOpen")],
+                        ),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Local);
+    }
+
+    #[test]
+    fn an_element_read_put_into_a_container_floats_its_source() {
+        let get = call(
+            "collections.get",
+            vec![append("xs", "f"), HirExpression::Number("0".to_string())],
+        );
+        assert_eq!(
+            owner_after_inner_assign(HirExpression::ListLiteral(vec![get])),
+            ResOwner::Float("xs".to_string())
+        );
     }
 
     #[test]

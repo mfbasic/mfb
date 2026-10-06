@@ -1,12 +1,12 @@
 # bug-933: a `RES` added to an outer list through `collections::take`/`drop`/`flatten` is closed at the inner scope exit; the outer list keeps a dead handle (reported as ErrResourceMoved)
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/resources/float-through-repackaging-collections-rt (new; name suggested)
+Status: Fixed
+Regression Test: tests/rt-behavior/resources/float-through-repackaging-collections-rt; `ir::resource_escape::tests::{a_resource_floats_through_a_repackaging_member, an_element_read_put_into_a_container_floats_its_source, a_scalar_or_element_result_is_not_a_float_target}`
 
 A resource produced in an inner scope and put into an outer-scope `List OF RES` floats to the
 list's scope (language resource-management §15.6 rule 2: "Adding it to a collection whose scope is
@@ -140,3 +140,78 @@ close emission that runs at scope exit versus `fs::close`.
 - `builder_owned_cleanup.rs:call_result_holds_only_argument_resources` — same list; must stay consistent.
 - Not measured: `Map OF K TO RES V` through `collections::merge` / `removeKey`; resource unions through
   the same wrappers (fixture comment says the union variant SIGSEGVs).
+
+## Resolution
+
+`ir::resource_escape` now models every `collections` member whose result can
+carry its arguments' values. A new `collections_carry(callee)` classifies a
+member from its registry signature. `Container` means some implementation returns a
+non-variable type that mentions a type variable a parameter also mentions (`take`,
+`drop`, `flatten`, `merge`, `values`, `zip`, `transform`, …). `Element` means the
+return is a bare type variable (`get`). `Nothing` covers everything else. It accepts
+both spellings a call reaches the analysis in: native `collections.X` and
+instantiated `#collections_X$…`. `take` is the second kind. The first cut keyed only
+on `collections.`, and the fixture stayed red because of that. It now uses the
+existing `builder_owned_cleanup::collections_call_member`.
+
+- `scan_collection_expr` scans every argument of a `Container` call as an element
+  position, which covers `flatten([xs, [f]])`'s nested handle.
+- `scan_element` scans the arguments of an `Element` call
+  (`xs = [collections::get(collections::append(xs, f), 0)]`). This was a sibling
+  route the doc did not list, and it failed the same way.
+- A `Container`/`Element` call bound as a whole scalar or `RES` binding routes
+  nothing new. That keeps `n = collections::findIndex(ys, …)` and
+  `RES g = collections::get(xs, 0)` (a borrow) from becoming float targets
+  (`a_scalar_or_element_result_is_not_a_float_target`).
+
+The codegen adoption skip (`call_result_holds_only_argument_resources`, bug-643) is
+unchanged. Once the static decision is `Float`, the handle rides `xs`'s owned-list,
+so no runtime owner raise is needed. bug-643's own fixture
+(`bug643-collection-helpers-keep-caller-handles-rt`) is unchanged.
+
+**Why the code was `ErrResourceMoved`.** It was a read of a freed record, not a
+mis-set flag. `fs.File` is in `resource_record_freed_at_drop`, so the inner block's
+close also freed the record. The debugger shows this on the repro built with main at
+-O0: at `fs::close` the record at `x0` reads `01 00 … 03 00 …`; at the later
+`fs::readLine` through `xs`, the same address reads `00 00 … 70 00 … e2 9c 84 c8 …`
+(the entropy scrub). A random closed word with bit 1 set reports "moved". So goal 2
+("a scope-closed handle read through a surviving view reports ErrResourceClosed")
+cannot be met by a flag while the record is freed. It is met by having no surviving
+view, which this fix provides for every route the scan now models.
+
+Measured (macOS AArch64, `mfb build` + run of the fixture):
+
+- Before (main at 468ff0f94): every row `open=0 ERR77030009`.
+- After: `take/drop/flatten/merge/values/get open=1 hello,`,
+  `loop open=2 hello,hello,`, `after open=0`. The handle is open after the block
+  and closed by the end.
+- `transform(append(xs, f), LAMBDA(h) -> h)` already worked before and still does.
+
+Checks: `scripts/test-accept.sh` over the 110 fixtures that name a `RES` collection
+or live in `resources/` gave only the 24 `.ast` mismatches bug-976 predicted (no
+`build.log`/`.run`). `scripts/artifact-gate.sh … all`: 62 diffs, exactly bug-976's
+61 `.ast` + 1 `.nir` (`app-mouse-surface`, its class 4); no `.ncode`/`.ncodesum`/`.nplan`
+diff. `cargo test --bin mfb resource`: 217 passed.
+
+Spec: `architecture/23_escape-analysis.md` ("Scanning a collection-valued
+expression", new "Re-packaging members").
+
+## Found while fixing (not this bug)
+
+A `List OF RES T` local that is iterated (`FOR EACH h IN xs`) or read
+(`collections::get(xs, 0)`) never frees its own block. `record_ownership`'s
+`owning_collections` deliberately refuses such a list ("a FOR EACH iterable"
+counts as holding the block elsewhere, and so does "no element is read back out"),
+and accepts the bounded leak. Measured with main, `--debug`, 10 vs 100 calls of a
+function that does `RES f = open; xs = append(xs, f); FOR EACH h IN xs …`: 10
+unfreed allocations vs 100, 2400 B vs 24000 B live. One 232-byte list block per
+call, shown by the debugger's `_mfb_arena_alloc`/`_mfb_arena_free` trace. When `f`
+floats into the iterated list, the drain then reclaims nothing either, so the
+`fs.File` record and its 16 KiB read buffer also stay (16,736 B per call). This is a
+pre-existing design trade-off in the ownership proof, separate from this bug.
+Reported to the coordinator for its own ticket.
+
+## Golden impact
+
+None. The fixture is new, and the artifact gate shows no diff outside bug-976's
+base set.

@@ -188,19 +188,73 @@
       "kind": "func",
       "visibility": "public",
       "isolated": false,
-      "name": "main",
+      "name": "viaValues",
       "line": 70,
+      "params": [
+      { "name": "base", "type": "Integer", "default": null, "line": 70 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 71 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 72,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] }, "line": 73 },
+        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.values", "arguments": [{ "kind": "map", "keyType": "String", "valueType": "RES fs.File", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "identifier", "value": "f" } }] }] }, "line": 74 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "values open=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "fds", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "rd", "arguments": [{ "kind": "identifier", "value": "xs" }] } }] }, "line": 76 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "viaGet",
+      "line": 79,
+      "params": [
+      { "name": "base", "type": "Integer", "default": null, "line": 79 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 80 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 81,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/float-through-repackaging-collections-rt/data.txt" }] }, "line": 82 },
+        { "kind": "assignment", "name": "xs", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "f" }] }, { "kind": "number", "value": "0" }] }] }, "line": 83 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "get open=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "fds", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "rd", "arguments": [{ "kind": "identifier", "value": "xs" }] } }] }, "line": 85 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 88,
       "params": [
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "call", "callee": "fds", "arguments": [] }, "line": 71 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "viaTake", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 72 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "viaDrop", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 73 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "viaFlatten", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 74 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "viaLoop", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 75 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "viaMerge", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 76 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after open=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "fds", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] } }] }, "line": 77 }
+      { "kind": "binding", "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "call", "callee": "fds", "arguments": [] }, "line": 89 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaTake", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaDrop", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaFlatten", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaLoop", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaMerge", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaValues", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaGet", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 96 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after open=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "fds", "arguments": [] }, "right": { "kind": "identifier", "value": "base" } }] } }] }, "line": 97 }
       ]
     }
     ]
