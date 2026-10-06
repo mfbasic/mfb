@@ -564,6 +564,10 @@ name = "rt_exit_program_through_inline_trap"
 path = "tests/runtime/rt_exit_program_through_inline_trap.rs"
 
 [[test]]
+name = "rt_thread_exit_program_in_worker"
+path = "tests/runtime/rt_thread_exit_program_in_worker.rs"
+
+[[test]]
 name = "rt_callback_failure_frees"
 path = "tests/runtime/rt_callback_failure_frees.rs"
 
