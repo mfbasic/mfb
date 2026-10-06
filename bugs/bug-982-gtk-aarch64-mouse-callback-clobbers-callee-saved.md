@@ -89,7 +89,7 @@ Expected: rc 0, with one `event` line logged per mouse action, and a final `done
 ## Related
 
 - Found while proving bug-962 (`term::` in an `app::setMode` program has no drawing area).
-- A follow-up suspected by the same agent, not yet reproduced: the window built by
+- bug-985 (reproduced): the window built by
   `emit_reconcile_build_helper` never attaches the mouse controllers, so a `setMode` program
   gets no mouse events at all. It can only be reproduced once bug-962 has landed, and it must
   be fixed after this bug, because attaching the controllers first would turn "no events"
