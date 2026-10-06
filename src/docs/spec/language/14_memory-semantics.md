@@ -170,6 +170,22 @@ bindings the outer scope knows propagate; branch-local resources die with the
 branch. Because "moved on *some* fall-through path" unions into the set, a
 subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/resources.rs:check_resource_moves]]
 
+A loop body is also reached round its **back edge**, from an earlier iteration.
+Before the body is checked, it is scanned once (its diagnostics discarded) for the
+outer names it leaves moved on a path that reaches that edge — falling off the end
+of the body, or a `CONTINUE` of this loop — and the check then runs the body
+against the entering set plus those names. So `fs::close(f)` of a resource declared
+outside the loop, on a path that goes round again, is a use-after-move on the
+next pass. A path that leaves the loop — `RETURN`, `FAIL`, `EXIT PROGRAM`, an
+`EXIT` that targets this loop or an outer one, a `CONTINUE` of an outer loop —
+does not reach the back edge; an `EXIT` or `CONTINUE` of a loop nested inside the
+body does. A `thread::transfer`'s move is not carried round: a retry loop that
+leaves once a transfer succeeds is valid, the flag that ends it is not something
+this check tracks, and a transfer actually repeated is refused at run time with
+`ErrResourceMoved`. A resource the body declares itself is fresh each iteration. One scan
+suffices: a pass only adds moves, so the set after one pass is the set after any
+number. [[src/ir/verify/resources.rs:loop_carried_moves]] [[src/ir/verify/resources.rs:leaves_scanned_loop]]
+
 A resource's cleanup scope follows the production, container-routing and
 escape rules in §15; merely reading or passing a pointer does not change it.
 Any holder — a resource parameter, a `FOR EACH`

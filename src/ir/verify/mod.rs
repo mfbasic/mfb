@@ -755,6 +755,13 @@ struct TypeEnv {
     /// already closed, while its handler is being checked — so a read of one is
     /// reported as that, not as an ordinary move.
     trap_closed: RefCell<HashSet<String>>,
+    /// bug-852: set while the move pass computes the moves a loop body carries
+    /// round its back edge — the loop's own kind, and the kinds of the loops nested
+    /// inside the body on the path being scanned, innermost last. A branch counts as
+    /// reaching the back edge unless it leaves the loop (`RETURN`, `FAIL`,
+    /// `EXIT PROGRAM`, or an `EXIT`/`CONTINUE` that targets this loop's kind past
+    /// every nested loop, or an outer one). Nested loops scan once in this mode.
+    back_edge_scan: RefCell<Option<(crate::ast::LoopKind, Vec<crate::ast::LoopKind>)>>,
     /// bug-804: an inline-`TRAP` check chain's failure flag (`$trap_failedN`) →
     /// the resources a transfer inside the chain moves on success. The chain's
     /// handler runs behind that flag only when no transfer succeeded, so it sees
@@ -1027,6 +1034,7 @@ impl TypeEnv {
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),
             trap_closed: RefCell::new(HashSet::new()),
+            back_edge_scan: RefCell::new(None),
             transfer_failure_flags: RefCell::new(HashMap::new()),
             current_file: RefCell::new(String::new()),
             current_sites: RefCell::new(Vec::new()),
