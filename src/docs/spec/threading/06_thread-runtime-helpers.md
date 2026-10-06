@@ -185,15 +185,20 @@ main arena there) and exits the process with `n`, ending every thread. The main
 instance's module-level resources are not drained on this path — that teardown runs
 on the main thread's own arena, which the worker cannot use while the main thread
 may still be running — exactly as for the signal handler. Only `x1` is read; `x2`
-and `x3` hold nothing for this tag. Otherwise it does, under the block lock: unless the parent already
-dropped its view (the block is `CLOSED`; the result is discarded), deep-copy the result into the
-block arena — a success value through the result type's copy function, a failure's
-message (`String`) and origin (`ErrorLoc`) through their fixed copy functions; a
-copy that runs out of memory replaces the result with a plain `ErrOutOfMemory` —
-store it and mark the thread `COMPLETED`; close the inbound and both resource
-queues and wake every waiter of all four; and give up the worker's reference. It
-then unmaps the worker's own arena (`_mfb_arena_destroy` with the pinned arena
-register still on it). If its reference was the last (the handle side let go of a
+and `x3` hold nothing for this tag.
+
+Otherwise it does, under the block lock: unless the parent already dropped its
+view (the block is `CLOSED`; the result is discarded), deep-copy the result into the block arena — a success value through the
+result type's copy function, a failure's message (`String`) and origin (`ErrorLoc`)
+through their fixed copy functions; a copy that runs out of memory replaces the
+result with a plain `ErrOutOfMemory` — and store it. It then unlocks and unmaps the
+worker's own arena (`_mfb_arena_destroy` with the pinned arena register still on
+it), and only after that, under the lock again: marks the thread `COMPLETED` (unless
+it was `CLOSED` meanwhile), closes the inbound and both resource queues, wakes every
+waiter of all four, and gives up the worker's reference. The destroy runs on the
+worker's arena-state block, which goes with the control block, so it must finish
+while the worker still holds its reference; after the release the worker touches
+only its own stack. If its reference was the last (the handle side let go of a
 running thread), the worker frees the control block itself.
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
 

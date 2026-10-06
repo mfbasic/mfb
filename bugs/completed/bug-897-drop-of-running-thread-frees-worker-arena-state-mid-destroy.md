@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: tests/rt-behavior/threads/thread-drop-running-finish-race-rt (proposed)
+Status: FIXED (bs16-agent-a; see Resolution)
+Regression Test: tests/runtime/rt_thread_drop_running_finish_race.rs
 
 Dropping a parent `Thread` view while its worker is still running races with the
 worker's exit and can free memory the worker is still using. When it does, the
@@ -139,3 +139,43 @@ only way to wait for the worker (the join).
 - `lower_thread_finish` and `emit_release_reference`/`Drop`: fixed here.
 - Windows (`CreateThread` + `CloseHandle` detach) and the Linux trampolines share
   the generated finish path, so they very likely have the same race. Not run here.
+
+## Resolution
+
+The first of the two Goal options: the worker gives up its reference only after
+`_mfb_arena_destroy` has returned. `lower_thread_finish` now has two critical
+sections: (1) lock, copy and store the result into the block arena unless
+`CLOSED`, unlock; then `_mfb_arena_destroy`; (2) lock, publish `COMPLETED` unless
+the thread was `CLOSED` meanwhile, close the inbound/resource queues and wake every
+waiter, drop the worker's reference, unlock; then free the block if that release
+was the last. After (2) the worker touches only its own stack (the trampoline
+epilogue). Publishing `COMPLETED` together with the release keeps the joining
+paths (`waitFor`, a drop that sees `COMPLETED`) as they were: whoever sees
+`COMPLETED` joins, and the join waits for a worker that has already finished the
+destroy. A drop that sees `RUNNING` still cancels, detaches and releases without
+blocking (non-goal kept); its release can no longer be the last one while the
+worker is inside the destroy, because the worker has not released yet. The
+`waitFor` path is unchanged. Windows and Linux share the generated finish.
+
+Debugger: `dis _mfb_rt_thread_finish 400` on a fixed `--debug` build shows the
+call order `pthread_mutex_unlock` -> `mfb_arena_destroy` -> `pthread_mutex_lock` ->
+broadcasts -> `pthread_mutex_unlock` -> `mfb_rt_thread_block_release`.
+
+Proof (doc repro, macOS AArch64, default `-O`):
+
+- `for i in 1..250` runs: base compiler `145 x exit 134, 11 x exit 139, 94 x 12800/0`;
+  fixed `250 x 12800/0`.
+- Under `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`: base 4 of 10 runs
+  SIGSEGV; fixed 60 of 60 runs `12800`/0.
+- `tests/runtime/rt_thread_drop_running_finish_race.rs` (20 runs): base 11/20 and
+  15/20 failing in two runs of the test; fixed 20/20.
+
+Spec: `mfb spec threading control-block` § Lifetime (the corrected sentence and
+the ordering that makes the detach path safe) and `mfb spec threading
+thread-runtime-helpers` § Trampoline.
+
+## Golden impact
+
+`_mfb_rt_thread_finish` gains a second lock/unlock pair and a state re-check, so
+the native-code goldens of every fixture that starts a thread are expected to
+change (the same set as bug-898's). No AST/IR/run-output golden changes.

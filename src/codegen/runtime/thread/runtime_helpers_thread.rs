@@ -1379,14 +1379,15 @@ pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
 /// exit code, through the shared teardown `_mfb_shutdown` (when the program has an
 /// entry, `program_shutdown`) and the platform's process exit — it is not a result
 /// to publish, and its message/origin registers hold nothing (bug-898). Under the
-/// block lock it copies the result
-/// into the block arena and publishes it with `COMPLETED` (unless the handle side
-/// already closed the thread, which then reads nothing), closes the inbound and both
-/// resource queues and wakes every waiter of every queue, and drops the worker's
-/// reference. Then it unmaps the worker's arena — nothing another thread can read
-/// points into it any more (plan-156-B) — and, if its reference was the last, frees
-/// the control block itself (the handle side let go of a thread that was still
-/// running).
+/// block lock it copies the result into the block arena and stores it (unless the
+/// handle side already closed the thread, which then reads nothing). It then unmaps
+/// the worker's arena — nothing another thread can read points into it any more
+/// (plan-156-B) — and only then, under the lock again, publishes `COMPLETED` (unless
+/// the thread was closed meanwhile), closes the inbound and both resource queues,
+/// wakes every waiter of every queue, and drops the worker's reference (bug-897: the
+/// destroy runs on the worker's arena-state block, which the last release frees). If
+/// its reference was the last, it frees the control block itself (the handle side
+/// let go of a thread that was still running).
 pub(crate) fn lower_thread_finish(
     drain_stdout: bool,
     program_shutdown: bool,
@@ -1561,9 +1562,41 @@ pub(crate) fn lower_thread_finish(
         abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_ERROR),
         abi::load_u64(&r.v9, abi::stack_pointer(), SOURCE),
         abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_RESULT_SOURCE),
+        abi::label(&result_closed),
+    ]);
+    emit_block_unlock(&mut ctx, BLOCK)?;
+    // plan-156-B: return the worker's arena to the OS. The result (just stored), the
+    // messages and the transferred resources are all block-arena copies, and the
+    // worker's own scope drops already ran, so nothing reads the arena after this:
+    // unmap every chunk it mapped (`_mfb_arena_destroy` walks the arena the pinned
+    // register names, which here is the worker's).
+    //
+    // bug-897: this runs BEFORE the worker gives up its reference, not after. The
+    // destroy works on the worker's arena-state block through the arena register,
+    // and that block is freed with the control block by whichever side releases
+    // last. A parent view dropped while the worker was RUNNING detaches it (no join)
+    // and releases; when that release came after the worker's, it freed the arena
+    // state while the worker was still inside the destroy (malloc free-list
+    // corruption, SIGABRT/SIGSEGV). While the worker holds its reference nobody can
+    // free the block, and after it lets go below it touches nothing but its own
+    // stack. `COMPLETED` is published with that release, in one critical section, so
+    // a handle side that sees it — and joins — never races the destroy either.
+    ctx.instructions
+        .push(abi::branch_link(ARENA_DESTROY_SYMBOL));
+    ctx.relocations
+        .push(internal_branch(symbol, ARENA_DESTROY_SYMBOL));
+    emit_block_lock(&mut ctx, BLOCK)?;
+    // Publish `COMPLETED` unless the handle side closed the thread meanwhile (it
+    // then reads nothing; `CLOSED` stays).
+    let closed_meanwhile = format!("{symbol}_closed_meanwhile");
+    ctx.instructions.extend([
+        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
+        abi::compare_immediate(&r.v9, THREAD_STATE_CLOSED),
+        abi::branch_eq(&closed_meanwhile),
         abi::move_immediate(&r.v9, "Integer", THREAD_STATE_COMPLETED),
         abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
-        abi::label(&result_closed),
+        abi::label(&closed_meanwhile),
     ]);
     // Wake any parent blocked writing the inbound queue or waiting on the resource
     // planes; the outbound queue stays open so the parent can still read what was
@@ -1579,17 +1612,6 @@ pub(crate) fn lower_thread_finish(
         abi::store_u64(&r.v9, abi::stack_pointer(), REFS),
     ]);
     emit_block_unlock(&mut ctx, BLOCK)?;
-    // plan-156-B: return the worker's arena to the OS. The result, the messages and
-    // the transferred resources are all block-arena copies, and the worker's own
-    // scope drops already ran, so nothing reads the arena after this: unmap every
-    // chunk it mapped (`_mfb_arena_destroy` walks the arena the pinned register names,
-    // which here is the worker's). Its arena-state block is not freed here; it goes
-    // with the control block, after a handle side that frees the block has joined
-    // this thread.
-    ctx.instructions
-        .push(abi::branch_link(ARENA_DESTROY_SYMBOL));
-    ctx.relocations
-        .push(internal_branch(symbol, ARENA_DESTROY_SYMBOL));
     let kept = format!("{symbol}_kept");
     ctx.instructions.extend([
         abi::load_u64(&r.v9, abi::stack_pointer(), REFS),

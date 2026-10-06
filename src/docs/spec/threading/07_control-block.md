@@ -141,7 +141,8 @@ The block carries two references (`refs`, 2 at start): the handle side's and the
 worker's. Each is given up exactly once, under the block lock:
 
 - **The worker's**, by `_mfb_rt_thread_finish` at the end of its run, after it has
-  published its result.
+  stored its result and unmapped its own arena, in the same critical section that
+  publishes `COMPLETED`.
 - **The handle side's**, by the parent view's `thread.drop`. There is one parent
   view per thread and one drop of it — the resource rules give the record a single
   owner — so the drop is the handle side's one release. It closes the view first,
@@ -159,7 +160,12 @@ registry first); and the block.
 
 A handle-side release that reaches zero first joins a worker it has not joined or
 detached — the worker has already given up its reference, so it has nothing left
-to do but unlock and return. The first `thread::waitFor` to see `COMPLETED` joins
+to do but unlock and return: its arena-state block is no longer in use, because the
+worker unmaps its arena (`_mfb_arena_destroy`, which runs on that block) BEFORE it
+releases. That ordering is what makes the detach path safe: a drop that detached a
+`RUNNING` worker and then released last frees the block without waiting for the
+worker, so the worker must not touch the block, or its arena state, after its own
+release. The first `thread::waitFor` to see `COMPLETED` joins
 the worker and zeroes the OS handle; the drop joins a `COMPLETED` worker and
 detaches a `RUNNING` one (after cancelling it), zeroing the OS handle either way,
 and skips both when the handle is already zero. A worker whose handle
