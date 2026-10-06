@@ -42,22 +42,13 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV,
-    HEADER_GRADIENT_SPREAD, ITEM_OFFSET_GRADIENT_FOCAL, ITEM_OFFSET_GRADIENT_INV,
-    HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_PICTURE_TRANSPARENCY,
-    ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE, ITEM_CLIP_PATH_PICTURE_T,
-    ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH, HEADER_DASH_COUNT, HEADER_DASH_PHASE, HEADER_JOIN_COUNT, VULKAN_DASH_BASE_WORDS,
-    VULKAN_MAX_FRAME_DASH_WORDS, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
-    ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
-};
-use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_polygon_rule, emit_square_cap_reach, emit_item_residual_field, emit_item_stroke_sign,
-    push_symbol_address,
-    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT,
-    CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
-    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
-    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
+    emit_square_cap_reach, push_symbol_address, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES,
+    BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE,
+    CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_PICTURE,
+    GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
+    GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
     GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
     GRAPHICS_OFFSET_VULKAN_DESC_SET, GRAPHICS_OFFSET_VULKAN_DEVICE,
     GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
@@ -91,6 +82,16 @@ use crate::codegen::runtime::canvas::{
     VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS, VULKAN_PICTURE_INDEX_OFFSET,
     VULKAN_PICTURE_INDEX_SLOTS, VULKAN_PICTURE_RECORDS, VULKAN_PICTURE_RECORDS_OFFSET,
     VULKAN_SPEC_CONSTANTS,
+};
+use crate::codegen::runtime::canvas::{
+    HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_DASH_COUNT,
+    HEADER_DASH_PHASE, HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV,
+    HEADER_GRADIENT_INV, HEADER_GRADIENT_SPREAD, HEADER_JOIN_COUNT, HEADER_JOIN_REACH,
+    HEADER_PICTURE_TRANSPARENCY, ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE,
+    ITEM_CLIP_PATH_PICTURE_T, ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH,
+    ITEM_OFFSET_GRADIENT_FOCAL, ITEM_OFFSET_GRADIENT_INV, ITEM_OFFSET_STROKE_STYLE,
+    ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
+    VULKAN_DASH_BASE_WORDS, VULKAN_MAX_FRAME_DASH_WORDS,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -3733,8 +3734,15 @@ fn emit_item_block(
         ));
     }
     debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
-    builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", FIXED_POINT_SCALE));
-    builder.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[1]));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[1],
+    ));
     for index in 0..3 {
         builder.emit(abi::load_double(
             abi::FP_SCRATCH[1],
@@ -3792,17 +3800,33 @@ fn emit_item_block(
         header,
         HEADER_GRADIENT_SPREAD * 8,
     ));
-    builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
-    builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    builder.emit(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
+    builder.emit(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
     builder.emit(abi::load_double(
         abi::FP_SCRATCH[2],
         header,
         HEADER_GRADIENT_APPLY * 8,
     ));
     for _ in 0..3 {
-        builder.emit(abi::float_add_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[2], abi::FP_SCRATCH[2]));
+        builder.emit(abi::float_add_d(
+            abi::FP_SCRATCH[2],
+            abi::FP_SCRATCH[2],
+            abi::FP_SCRATCH[2],
+        ));
     }
-    builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    builder.emit(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
     builder.emit(abi::float_convert_to_signed_x(
         abi::SCRATCH[1],
         abi::FP_SCRATCH[1],
@@ -4292,41 +4316,119 @@ fn emit_clip_upload(
 
     builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
     for word in [0usize, 4, 8, 12] {
-        builder.emit(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), band + word));
-        builder.emit(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), clip + word));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            band + word,
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            clip + word,
+        ));
     }
     builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
     // mode | rule << 2, and T.
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_MODE * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_RULE * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
-    builder.emit(abi::shift_left_immediate(abi::SCRATCH[7], abi::SCRATCH[7], 2));
-    builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[5]));
-    builder.emit(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_MODE));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_PICTURE_TRANSPARENCY * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
-    builder.emit(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_PICTURE_T));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_MODE * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[5],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_RULE * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        2,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[5],
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_MODE,
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_TRANSPARENCY * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_PICTURE_T,
+    ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[5], "2"));
     builder.emit(abi::branch_ne(&done));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
     builder.emit(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
     builder.emit(abi::compare_immediate(count, "0"));
     builder.emit(abi::branch_le(&done));
-    builder.emit(abi::load_u64(abi::SCRATCH[5], abi::stack_pointer(), off_edge_cursor));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
     builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[5], count));
-    builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", &VULKAN_MAX_FRAME_EDGES.to_string()));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[8],
+        "Integer",
+        &VULKAN_MAX_FRAME_EDGES.to_string(),
+    ));
     builder.emit(abi::compare_registers(abi::SCRATCH[7], abi::SCRATCH[8]));
     builder.emit(abi::branch_le(&copy));
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&copy));
-    builder.emit(abi::store_u64(abi::SCRATCH[7], abi::stack_pointer(), off_edge_cursor));
-    builder.emit(abi::store_u32(abi::SCRATCH[5], abi::stack_pointer(), clip + ITEM_CLIP_PATH_BASE));
-    builder.emit(abi::store_u32(count, abi::stack_pointer(), clip + ITEM_CLIP_PATH_COUNT));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_BASE,
+    ));
+    builder.emit(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_COUNT,
+    ));
     // target = mapped + base * 16; the residuals a fixed distance past it.
-    builder.emit(abi::shift_left_immediate(abi::SCRATCH[7], abi::SCRATCH[5], 4));
-    emit_state_load(builder, off_state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, target);
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[7],
+        abi::SCRATCH[5],
+        4,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
     builder.emit(abi::add_registers(target, target, abi::SCRATCH[7]));
     builder.emit(abi::move_immediate(
         residual_target,
@@ -4334,19 +4436,41 @@ fn emit_clip_upload(
         &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
     ));
     builder.emit(abi::add_registers(residual_target, residual_target, target));
-    builder.emit(abi::move_immediate(abi::SCRATCH[5], "Integer", EDGE_RESIDUAL_SCALE));
-    builder.emit(abi::signed_convert_to_float_d(residual_scale, abi::SCRATCH[5]));
-    builder.emit(abi::move_immediate(abi::SCRATCH[5], "Integer", FIXED_POINT_SCALE));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[5],
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
     builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     // source = header + (slot1 - stops * 5 - count * 5) * 8.
     builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, 8));
     builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], count));
     builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
-    builder.emit(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
     builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     builder.emit(abi::shift_left_immediate(source, source, 3));
     builder.emit(abi::add_registers(source, header, source));
@@ -4358,16 +4482,41 @@ fn emit_clip_upload(
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
         if let Some(delta) = delta {
             builder.emit(abi::load_double(abi::FP_SCRATCH[2], source, delta * 8));
-            builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+            builder.emit(abi::float_add_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[2],
+            ));
         }
-        builder.emit(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], scale));
-        builder.emit(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
         builder.emit(abi::store_u32(abi::SCRATCH[5], target, 0));
         builder.emit(abi::add_immediate(target, target, 4));
-        builder.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[5]));
-        builder.emit(abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
-        builder.emit(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], residual_scale));
-        builder.emit(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        builder.emit(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[5],
+        ));
+        builder.emit(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
         builder.emit(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
         builder.emit(abi::add_immediate(residual_target, residual_target, 4));
     }
@@ -4411,7 +4560,11 @@ fn emit_dash_upload(
     let style = off_item + ITEM_OFFSET_STROKE_STYLE;
 
     builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_COUNT * 8));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_DASH_COUNT * 8,
+    ));
     builder.emit(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
     builder.emit(abi::compare_immediate(count, "0"));
     builder.emit(abi::branch_le(&done));
@@ -4428,8 +4581,16 @@ fn emit_dash_upload(
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&copy));
-    builder.emit(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), off_dash_cursor));
-    builder.emit(abi::store_u32(cursor, abi::stack_pointer(), style + ITEM_STROKE_DASH_BASE));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_dash_cursor,
+    ));
+    builder.emit(abi::store_u32(
+        cursor,
+        abi::stack_pointer(),
+        style + ITEM_STROKE_DASH_BASE,
+    ));
     builder.emit(abi::add_immediate(abi::SCRATCH[7], count, 1));
     builder.emit(abi::store_u32(
         abi::SCRATCH[7],
@@ -4437,29 +4598,74 @@ fn emit_dash_upload(
         style + ITEM_STROKE_DASH_COUNT,
     ));
     // target = mapped + (VULKAN_DASH_BASE_WORDS + cursor) * 4.
-    builder.emit(abi::add_immediate(abi::SCRATCH[1], cursor, VULKAN_DASH_BASE_WORDS));
-    builder.emit(abi::shift_left_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 2));
-    emit_state_load(builder, off_state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, target);
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[1],
+        cursor,
+        VULKAN_DASH_BASE_WORDS,
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        2,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
     builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
     // The header again: the state load may have used the scratch bank.
     builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_PHASE * 8));
-    builder.emit(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
-    builder.emit(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_DASH_PHASE * 8,
+    ));
+    builder.emit(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::float_move_x_from_d(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     builder.emit(abi::store_u32(abi::SCRATCH[7], target, 0));
     builder.emit(abi::add_immediate(target, target, 4));
     // source = header + (slot1 - stops * 5 - count) * 8.
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, 8));
     builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
-    builder.emit(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
     builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     // plan-163-C: the path clip's edges sit between the dashes and the stops.
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
-    builder.emit(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
     builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     builder.emit(abi::subtract_registers(source, source, count));
     builder.emit(abi::shift_left_immediate(source, source, 3));
@@ -4469,8 +4675,14 @@ fn emit_dash_upload(
     builder.emit(abi::compare_registers(index, count));
     builder.emit(abi::branch_ge(&done));
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 0));
-    builder.emit(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
-    builder.emit(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::float_move_x_from_d(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     builder.emit(abi::store_u32(abi::SCRATCH[7], target, 0));
     builder.emit(abi::add_immediate(target, target, 4));
     builder.emit(abi::add_immediate(source, source, 8));
@@ -4502,7 +4714,11 @@ fn emit_join_upload(
 
     builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     for word in [ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT] {
-        builder.emit(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            style + word,
+        ));
     }
     builder.emit(abi::load_u64(source, abi::stack_pointer(), off_header));
     builder.emit(abi::load_double(
@@ -4590,20 +4806,45 @@ fn emit_join_upload(
         source,
         HEADER_GRADIENT_COUNT * 8,
     ));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
     builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
-    builder.emit(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[7],
+    ));
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     builder.emit(abi::shift_left_immediate(abi::SCRATCH[0], records, 3));
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_DASH_COUNT * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_DASH_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     // plan-163-C: and the path clip's edges, five floats each, after the dashes.
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_CLIP_EDGE_COUNT * 8));
-    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
     builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
-    builder.emit(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[7],
+    ));
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     builder.emit(abi::shift_left_immediate(index, index, 3));
     builder.emit(abi::add_registers(source, source, index));
@@ -4653,7 +4894,11 @@ fn emit_join_upload(
     builder.emit(abi::label(&none));
     builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     for word in [ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT] {
-        builder.emit(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            style + word,
+        ));
     }
     builder.emit(abi::label(&done));
 }
@@ -4790,11 +5035,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: BandSet) {
     builder.emit(abi::branch_lt(&none));
 
     // --- the edges: P = mapped + base*16, END = P + E*16 ------------------------------
-    builder.emit(abi::load_u32(
-        s[0],
-        sp(),
-        at.item + set.base,
-    ));
+    builder.emit(abi::load_u32(s[0], sp(), at.item + set.base));
     builder.emit(abi::shift_left_immediate(s[0], s[0], 4));
     emit_state_load(builder, at.state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, s[1]);
     builder.emit(abi::add_registers(s[0], s[0], s[1]));
@@ -5817,7 +6058,10 @@ fn emit_split_or_publish(
         abi::stack_pointer(),
         off_item + ITEM_OFFSET_MISC,
     ));
-    builder.emit(abi::compare_immediate(abi::SCRATCH[0], &GEO_KIND_PICTURE.to_string()));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[0],
+        &GEO_KIND_PICTURE.to_string(),
+    ));
     builder.emit(abi::branch_ne(&single));
     builder.emit(abi::label(&fills));
 
@@ -5875,7 +6119,11 @@ fn emit_split_or_publish(
     // not come from the fill alpha, so a zero there left record two drawing the ramp or
     // the image a second time under the blend. The stroke still reads the ramp
     // (`FillAndStroke`). Spelled unsigned; the store keeps the low 32 bits.
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "4294967295"));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        "4294967295",
+    ));
     builder.emit(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -7467,7 +7715,14 @@ pub(crate) fn emit_vulkan_draw_scene(
     emit_join_upload(builder, off_state, off_item, off_header, off_edge_cursor);
     emit_dash_upload(builder, off_state, off_item, off_header, off_dash_cursor);
     // plan-163-C: the clip's words and a path clip's edges, after the join records.
-    emit_clip_upload(builder, off_state, off_item, off_header, off_edge_cursor, &bands);
+    emit_clip_upload(
+        builder,
+        off_state,
+        off_item,
+        off_header,
+        off_edge_cursor,
+        &bands,
+    );
     emit_gradient_upload(builder, off_state, off_item, off_header, off_grad_cursor);
     // bug-484: after the edge upload (which zeroes the slice fields for non-polygons)
     // and before the split, so both records of a split picture name its texels.

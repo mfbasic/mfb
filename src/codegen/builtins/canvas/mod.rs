@@ -86,6 +86,7 @@ mod gen_system_fonts_windows;
 mod helper_clamp_byte;
 mod helper_color;
 mod helper_damage;
+mod helper_dashes;
 mod helper_draw;
 mod helper_font;
 mod helper_font_name;
@@ -93,7 +94,6 @@ mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
 mod helper_items;
-mod helper_dashes;
 mod helper_joins;
 mod helper_paint_defaults;
 mod helper_png;
@@ -974,9 +974,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "clip",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
-                    "Point",
-                ))),
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
                 description: "Restricts drawing to the area these rings enclose, \
                               under `clipRule` — each ring a closed path of points, \
                               as a `canvas::Polygon`'s `contours` are. The empty list, \
@@ -1157,9 +1155,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "contours",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
-                    "Point",
-                ))),
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
                 description: "The rings, each a list of vertices in order. Every \
                               ring closes from its own last point back to its own \
                               first point automatically. The direction a ring runs \

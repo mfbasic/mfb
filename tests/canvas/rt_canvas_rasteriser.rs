@@ -534,7 +534,8 @@ fn polygons_sharing_a_header_keep_their_own_points() {
 /// `sq(x, y, s)`: the `s`-sided square at `(x, y)`, its corners clockwise under Y-down
 /// (top-left, top-right, bottom-right, bottom-left). `sqCcw` is the same square run the
 /// other way. Shared by the plan-163-A ring tests below.
-const RING_HELPERS: &str = "\nFUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n  \
+const RING_HELPERS: &str =
+    "\nFUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n  \
      RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x + s, y := y], \
      canvas::Point[x := x + s, y := y + s], canvas::Point[x := x, y := y + s]]\n\
      END FUNC\n\
@@ -585,7 +586,11 @@ fn a_polygon_draws_each_of_its_rings() {
     let blue = (0, 0, 255, 255);
     let black = (0, 0, 0, 255);
     assert_eq!(pixel(&frame, 200, 200), black, "the hole's centre");
-    assert_eq!(pixel(&frame, 160, 200), black, "inside the hole, near its edge");
+    assert_eq!(
+        pixel(&frame, 160, 200),
+        black,
+        "inside the hole, near its edge"
+    );
     assert_eq!(pixel(&frame, 125, 200), blue, "the band left of the hole");
     assert_eq!(pixel(&frame, 275, 200), blue, "the band right of the hole");
     assert_eq!(pixel(&frame, 200, 125), blue, "the band above the hole");
@@ -596,13 +601,29 @@ fn a_polygon_draws_each_of_its_rings() {
     assert_eq!(pixel(&frame, 525, 125), green, "the second disjoint ring");
     assert_eq!(pixel(&frame, 475, 125), black, "between the two rings");
 
-    assert_eq!(pixel(&frame, 625, 425), (255, 0, 0, 255), "the real ring beside a 1-point one");
-    assert_eq!(pixel(&frame, 700, 500), black, "a 1-point ring draws no dot");
+    assert_eq!(
+        pixel(&frame, 625, 425),
+        (255, 0, 0, 255),
+        "the real ring beside a 1-point one"
+    );
+    assert_eq!(
+        pixel(&frame, 700, 500),
+        black,
+        "a 1-point ring draws no dot"
+    );
     assert_eq!(pixel(&frame, 699, 499), black, "nor next to it");
 
     let white = (255, 255, 255, 255);
-    assert_eq!(pixel(&frame, 200, 559), white, "a 2-point ring's stroke, above the line");
-    assert_eq!(pixel(&frame, 200, 560), white, "a 2-point ring's stroke, below the line");
+    assert_eq!(
+        pixel(&frame, 200, 559),
+        white,
+        "a 2-point ring's stroke, above the line"
+    );
+    assert_eq!(
+        pixel(&frame, 200, 560),
+        white,
+        "a 2-point ring's stroke, below the line"
+    );
     assert_eq!(pixel(&frame, 200, 570), black, "a 2-point ring has no fill");
     assert_eq!(pixel(&frame, 200, 550), black, "nor above it");
 }
@@ -706,18 +727,63 @@ fn non_zero_fills_by_winding_and_even_odd_by_parity() {
 
     let blue = (0, 0, 255, 255);
     let black = (0, 0, 0, 255);
-    assert_eq!(pixel(&frame, 125, 125), blue, "NonZero, inner ring wound the same way: filled");
-    assert_eq!(pixel(&frame, 325, 125), black, "EvenOdd, inner ring wound the same way: a hole");
-    assert_eq!(pixel(&frame, 525, 125), black, "NonZero, inner ring wound the other way: a hole");
-    assert_eq!(pixel(&frame, 725, 125), black, "EvenOdd, inner ring wound the other way: a hole");
-    for (x, label) in [(75, "NonZero same"), (275, "EvenOdd same"), (475, "NonZero opposite"), (675, "EvenOdd opposite")] {
-        assert_eq!(pixel(&frame, x, 125), blue, "{label}: the band between the rings");
-        assert_eq!(pixel(&frame, x - 40, 125), black, "{label}: outside the outer ring");
+    assert_eq!(
+        pixel(&frame, 125, 125),
+        blue,
+        "NonZero, inner ring wound the same way: filled"
+    );
+    assert_eq!(
+        pixel(&frame, 325, 125),
+        black,
+        "EvenOdd, inner ring wound the same way: a hole"
+    );
+    assert_eq!(
+        pixel(&frame, 525, 125),
+        black,
+        "NonZero, inner ring wound the other way: a hole"
+    );
+    assert_eq!(
+        pixel(&frame, 725, 125),
+        black,
+        "EvenOdd, inner ring wound the other way: a hole"
+    );
+    for (x, label) in [
+        (75, "NonZero same"),
+        (275, "EvenOdd same"),
+        (475, "NonZero opposite"),
+        (675, "EvenOdd opposite"),
+    ] {
+        assert_eq!(
+            pixel(&frame, x, 125),
+            blue,
+            "{label}: the band between the rings"
+        );
+        assert_eq!(
+            pixel(&frame, x - 40, 125),
+            black,
+            "{label}: outside the outer ring"
+        );
     }
-    assert_eq!(pixel(&frame, 225, 420), blue, "NonZero pentagram: the centre is wound twice, filled");
-    assert_eq!(pixel(&frame, 575, 420), black, "EvenOdd pentagram: the centre is a hole");
-    assert_eq!(pixel(&frame, 225, 335), blue, "NonZero pentagram: a point's tip");
-    assert_eq!(pixel(&frame, 575, 335), blue, "EvenOdd pentagram: a point's tip");
+    assert_eq!(
+        pixel(&frame, 225, 420),
+        blue,
+        "NonZero pentagram: the centre is wound twice, filled"
+    );
+    assert_eq!(
+        pixel(&frame, 575, 420),
+        black,
+        "EvenOdd pentagram: the centre is a hole"
+    );
+    assert_eq!(
+        pixel(&frame, 225, 335),
+        blue,
+        "NonZero pentagram: a point's tip"
+    );
+    assert_eq!(
+        pixel(&frame, 575, 335),
+        blue,
+        "EvenOdd pentagram: a point's tip"
+    );
 }
 
 /// plan-163-A: a single convex ring has winding 0 or ±1 everywhere, so `NonZero` and
@@ -747,8 +813,16 @@ fn a_convex_ring_draws_the_same_under_both_rules() {
         differing, 0,
         "a convex ring drew differently under NonZero than under EvenOdd in {differing} pixels",
     );
-    assert_eq!(pixel(&even_odd, 330, 250).3, 255, "the triangle drew at all");
-    assert_ne!(pixel(&even_odd, 330, 250), (0, 0, 0, 255), "the triangle drew at all");
+    assert_eq!(
+        pixel(&even_odd, 330, 250).3,
+        255,
+        "the triangle drew at all"
+    );
+    assert_ne!(
+        pixel(&even_odd, 330, 250),
+        (0, 0, 0, 255),
+        "the triangle drew at all"
+    );
 }
 
 /// plan-163-B: a `Square` cap extends the stroke `half` past each end and cuts it square,
@@ -797,27 +871,71 @@ fn a_square_cap_extends_the_stroke_square_past_each_end() {
     );
     let white = (255, 255, 255, 255);
     let black = (0, 0, 0, 255);
-    assert_eq!(pixel(&frame, 190, 300), white, "half a stroke past the line's start");
-    assert_eq!(pixel(&frame, 189, 300), black, "more than half a stroke past it");
+    assert_eq!(
+        pixel(&frame, 190, 300),
+        white,
+        "half a stroke past the line's start"
+    );
+    assert_eq!(
+        pixel(&frame, 189, 300),
+        black,
+        "more than half a stroke past it"
+    );
     assert_eq!(pixel(&frame, 190, 290), white, "the square end's corner");
     assert_eq!(pixel(&frame, 409, 309), white, "the far end's corner");
     assert_eq!(pixel(&frame, 410, 300), black, "past the far end");
 
-    assert_eq!(pixel(&frame, 286, 100), (203, 203, 203, 255), "the 45° end's corner tip, coverage 153");
-    assert_eq!(pixel(&frame, 288, 100), white, "inside the 45° end's square");
+    assert_eq!(
+        pixel(&frame, 286, 100),
+        (203, 203, 203, 255),
+        "the 45° end's corner tip, coverage 153"
+    );
+    assert_eq!(
+        pixel(&frame, 288, 100),
+        white,
+        "inside the 45° end's square"
+    );
     assert_eq!(pixel(&frame, 284, 100), black, "past the 45° end's corner");
 
-    assert_eq!(pixel(&frame, 490, 490), white, "a zero-length square end is an axis-aligned square");
+    assert_eq!(
+        pixel(&frame, 490, 490),
+        white,
+        "a zero-length square end is an axis-aligned square"
+    );
     assert_eq!(pixel(&frame, 509, 509), white, "its opposite corner");
     assert_eq!(pixel(&frame, 489, 500), black, "outside it");
 
-    assert_eq!(pixel(&frame, 759, 291), white, "the arc start's square corner");
-    assert_eq!(pixel(&frame, 759, 289), black, "past the arc start's square");
-    assert_eq!(pixel(&frame, 541, 291), white, "the arc end's square corner");
+    assert_eq!(
+        pixel(&frame, 759, 291),
+        white,
+        "the arc start's square corner"
+    );
+    assert_eq!(
+        pixel(&frame, 759, 289),
+        black,
+        "past the arc start's square"
+    );
+    assert_eq!(
+        pixel(&frame, 541, 291),
+        white,
+        "the arc end's square corner"
+    );
 
-    assert_eq!(pixel(&frame, 90, 490), white, "the polyline's square start corner");
-    assert_eq!(pixel(&frame, 209, 609), white, "the polyline's square end corner");
-    assert_eq!(pixel(&frame, 209, 491), black, "the polyline's turn stays round");
+    assert_eq!(
+        pixel(&frame, 90, 490),
+        white,
+        "the polyline's square start corner"
+    );
+    assert_eq!(
+        pixel(&frame, 209, 609),
+        white,
+        "the polyline's square end corner"
+    );
+    assert_eq!(
+        pixel(&frame, 209, 491),
+        black,
+        "the polyline's turn stays round"
+    );
 }
 
 /// plan-163-B: `Paint.join` at a corner, in the software renderer — the oracle, so every
@@ -902,34 +1020,78 @@ fn a_join_shapes_every_corner_of_a_stroke() {
     let white = (255, 255, 255, 255);
     let black = (0, 0, 0, 255);
     // Round, V = (100, 100).
-    assert_eq!(pixel(&frame, 93, 93), white, "a round join covers 9.19 from its vertex");
+    assert_eq!(
+        pixel(&frame, 93, 93),
+        white,
+        "a round join covers 9.19 from its vertex"
+    );
     assert_eq!(pixel(&frame, 91, 91), black, "but not 12.02");
     // Miter, V = (300, 100).
-    assert_eq!(pixel(&frame, 291, 91), white, "a miter fills the square corner");
+    assert_eq!(
+        pixel(&frame, 291, 91),
+        white,
+        "a miter fills the square corner"
+    );
     assert_eq!(pixel(&frame, 290, 90), white, "to its point");
     assert_eq!(pixel(&frame, 289, 89), black, "and no further");
     // Bevel, V = (500, 100).
-    assert_eq!(pixel(&frame, 495, 95), white, "a bevel covers inside its cut");
+    assert_eq!(
+        pixel(&frame, 495, 95),
+        white,
+        "a bevel covers inside its cut"
+    );
     assert_eq!(pixel(&frame, 494, 94), black, "and stops at it");
-    assert_eq!(pixel(&frame, 493, 93), black, "where a round join would cover");
+    assert_eq!(
+        pixel(&frame, 493, 93),
+        black,
+        "where a round join would cover"
+    );
     // The 20° spike: limit 4 bevels, limit 10 miters.
-    assert_eq!(pixel(&frame, 400, 290), black, "miterLimit 4 bevels a 20° spike");
-    assert_eq!(pixel(&frame, 400, 250), black, "so nothing reaches up the spike");
+    assert_eq!(
+        pixel(&frame, 400, 290),
+        black,
+        "miterLimit 4 bevels a 20° spike"
+    );
+    assert_eq!(
+        pixel(&frame, 400, 250),
+        black,
+        "so nothing reaches up the spike"
+    );
     assert_eq!(pixel(&frame, 600, 290), white, "miterLimit 10 miters it");
     assert_eq!(pixel(&frame, 600, 250), white, "up to its point");
     // PolyLine corners, V = (x + 100, 500) for x = 50, 300, 550.
     assert_eq!(pixel(&frame, 156, 494), white, "a round polyline turn");
     assert_eq!(pixel(&frame, 159, 491), black, "is round");
-    assert_eq!(pixel(&frame, 409, 491), white, "a mitered polyline turn is square");
-    assert_eq!(pixel(&frame, 654, 496), white, "a beveled polyline turn covers inside its cut");
+    assert_eq!(
+        pixel(&frame, 409, 491),
+        white,
+        "a mitered polyline turn is square"
+    );
+    assert_eq!(
+        pixel(&frame, 654, 496),
+        white,
+        "a beveled polyline turn covers inside its cut"
+    );
     assert_eq!(pixel(&frame, 656, 494), black, "and not past it");
     for x in [49usize, 299, 549] {
-        assert_eq!(pixel(&frame, x, 500), black, "a Butt end at x = {x} takes no join");
+        assert_eq!(
+            pixel(&frame, x, 500),
+            black,
+            "a Butt end at x = {x} takes no join"
+        );
     }
     // Rectangles.
-    assert_eq!(pixel(&frame, 691, 91), white, "a mitered rectangle's corner is square");
+    assert_eq!(
+        pixel(&frame, 691, 91),
+        white,
+        "a mitered rectangle's corner is square"
+    );
     assert_eq!(pixel(&frame, 689, 89), black, "and ends at its point");
-    assert_eq!(pixel(&frame, 695, 295), white, "a beveled rectangle covers inside its cut");
+    assert_eq!(
+        pixel(&frame, 695, 295),
+        white,
+        "a beveled rectangle covers inside its cut"
+    );
     assert_eq!(pixel(&frame, 693, 293), black, "and not past it");
 }
 
@@ -983,7 +1145,11 @@ fn a_dash_crossing_a_corner_stays_one_dash() {
         let off = |px: usize, py: usize, what: &str| {
             assert_eq!(pixel(&frame, px, py), black, "{cap}: {what}");
         };
-        on(x + 125, 95, "the dash crossing the top-right corner takes its join");
+        on(
+            x + 125,
+            95,
+            "the dash crossing the top-right corner takes its join",
+        );
         on(x + 112, 108, "and the corner's inner side");
         off(x + 120, 145, "the right side's gap");
         on(x + 120, 129, "the dash runs to its end");
@@ -999,14 +1165,22 @@ fn a_dash_crossing_a_corner_stays_one_dash() {
             on(x + 120, 131, "a round dash end's disc");
             on(x + 120, 137, "reaches 7.5 past the end");
             off(x + 120, 141, "not 11.5");
-            on(x - 5, 225, "the dash starting at the corner takes its round cap");
+            on(
+                x - 5,
+                225,
+                "the dash starting at the corner takes its round cap",
+            );
             on(x + 25, 220, "the round end's disc reaches 4.5 into the gap");
         }
         if cap == "Square" {
             on(x + 120, 131, "a square dash end");
             on(x + 120, 139, "reaches 9.5 past the end");
             off(x + 120, 141, "not 11.5");
-            on(x - 5, 225, "the dash starting at the corner runs its square end straight on");
+            on(
+                x - 5,
+                225,
+                "the dash starting at the corner runs its square end straight on",
+            );
             on(x + 25, 220, "the square end reaches 4.5 into the gap");
         }
     }
@@ -1070,12 +1244,19 @@ fn a_dashed_ellipse_is_cut_by_arc_length() {
     let mut k = 0;
     while 37.5 + 45.0 * k as f64 + 7.5 < perimeter {
         let s = 15.0 + 45.0 * k as f64;
-        assert_eq!(at(s), (255, 255, 255, 255), "the middle of dash {k}, s = {s}");
+        assert_eq!(
+            at(s),
+            (255, 255, 255, 255),
+            "the middle of dash {k}, s = {s}"
+        );
         let g = 37.5 + 45.0 * k as f64;
         assert_eq!(at(g), (0, 0, 0, 255), "the middle of gap {k}, s = {g}");
         k += 1;
     }
-    assert!(k >= 16, "the ellipse's perimeter {perimeter} holds 16 periods");
+    assert!(
+        k >= 16,
+        "the ellipse's perimeter {perimeter} holds 16 periods"
+    );
 }
 
 /// plan-163-B: the ellipse dash table's resolution, `__CANVAS_DASH_ELLIPSE_STEPS`,
@@ -1090,7 +1271,13 @@ fn a_dashed_ellipse_is_cut_by_arc_length() {
 fn an_ellipse_dash_table_is_within_a_tenth_of_a_pixel() {
     const STEPS: usize = 256;
     let mut worst: f64 = 0.0;
-    for (rx, ry) in [(400.0f64, 5.0f64), (400.0, 200.0), (200.0, 10.0), (50.0, 40.0), (8.0, 400.0)] {
+    for (rx, ry) in [
+        (400.0f64, 5.0f64),
+        (400.0, 200.0),
+        (200.0, 10.0),
+        (50.0, 40.0),
+        (8.0, 400.0),
+    ] {
         let dt = std::f64::consts::TAU / STEPS as f64;
         let f = |a: f64| (rx * rx * a.sin() * a.sin() + ry * ry * a.cos() * a.cos()).sqrt();
         let mut table = vec![0.0f64];
@@ -1098,7 +1285,13 @@ fn an_ellipse_dash_table_is_within_a_tenth_of_a_pixel() {
             let t0 = k as f64 * dt;
             let mut sum = 0.0;
             for j in 0..=8 {
-                let w = if j == 0 || j == 8 { 1.0 } else if j % 2 == 1 { 4.0 } else { 2.0 };
+                let w = if j == 0 || j == 8 {
+                    1.0
+                } else if j % 2 == 1 {
+                    4.0
+                } else {
+                    2.0
+                };
                 sum += w * f(t0 + j as f64 * dt / 8.0);
             }
             table.push(table[k] + sum * dt / 24.0);
@@ -1162,7 +1355,12 @@ fn a_dashed_line_draws_its_pattern() {
         for i in 0..200usize {
             let s = i as f64 + 0.5;
             let want = if on(s) { white } else { black };
-            assert_eq!(pixel(&frame, 100 + i, y), want, "{what}: column {}, s = {s}", 100 + i);
+            assert_eq!(
+                pixel(&frame, 100 + i, y),
+                want,
+                "{what}: column {}, s = {s}",
+                100 + i
+            );
         }
     };
     expect(40, "[10, 5]", &|s| s % 15.0 < 10.0);
@@ -1200,15 +1398,35 @@ fn a_dash_end_takes_the_cap() {
     );
     let white = (255, 255, 255, 255);
     let black = (0, 0, 0, 255);
-    assert_eq!(pixel(&frame, 111, 50), black, "a butt dash stops at its end");
+    assert_eq!(
+        pixel(&frame, 111, 50),
+        black,
+        "a butt dash stops at its end"
+    );
     assert_eq!(pixel(&frame, 113, 46), black, "and has no corner past it");
     assert_eq!(pixel(&frame, 96, 50), black, "nor before the path's start");
-    assert_eq!(pixel(&frame, 111, 100), white, "a round dash end reaches past it");
+    assert_eq!(
+        pixel(&frame, 111, 100),
+        white,
+        "a round dash end reaches past it"
+    );
     assert_eq!(pixel(&frame, 113, 96), black, "as a disc");
-    assert_eq!(pixel(&frame, 97, 100), white, "and the path's start is capped round");
-    assert_eq!(pixel(&frame, 111, 150), white, "a square dash end reaches past it");
+    assert_eq!(
+        pixel(&frame, 97, 100),
+        white,
+        "and the path's start is capped round"
+    );
+    assert_eq!(
+        pixel(&frame, 111, 150),
+        white,
+        "a square dash end reaches past it"
+    );
     assert_eq!(pixel(&frame, 113, 146), white, "with a square corner");
-    assert_eq!(pixel(&frame, 96, 150), white, "and the path's start is capped square");
+    assert_eq!(
+        pixel(&frame, 96, 150),
+        white,
+        "and the path's start is capped square"
+    );
 }
 
 /// plan-163-B: each Polygon ring restarts the pattern at its own first point, and a
@@ -1238,11 +1456,23 @@ fn each_ring_restarts_the_pattern_and_a_circle_starts_at_plus_x() {
     );
     let white = (255, 255, 255, 255);
     let black = (0, 0, 0, 255);
-    assert_eq!(pixel(&frame, 105, 300), white, "the first ring starts with a dash");
+    assert_eq!(
+        pixel(&frame, 105, 300),
+        white,
+        "the first ring starts with a dash"
+    );
     assert_eq!(pixel(&frame, 115, 300), black, "then a gap");
-    assert_eq!(pixel(&frame, 205, 300), white, "the second ring restarts with a dash");
+    assert_eq!(
+        pixel(&frame, 205, 300),
+        white,
+        "the second ring restarts with a dash"
+    );
     assert_eq!(pixel(&frame, 215, 300), black, "then a gap");
-    assert_eq!(pixel(&frame, 648, 309), white, "the circle's dash starts at +X, going clockwise");
+    assert_eq!(
+        pixel(&frame, 648, 309),
+        white,
+        "the circle's dash starts at +X, going clockwise"
+    );
     assert_eq!(pixel(&frame, 648, 290), black, "not counter-clockwise");
     assert_eq!(pixel(&frame, 550, 300), black, "the far side is in the gap");
 }
@@ -1273,12 +1503,32 @@ fn a_rounded_rect_and_an_arc_start_their_dashes_where_the_contract_says() {
     );
     let white = (255, 255, 255, 255);
     let black = (0, 0, 0, 255);
-    assert_eq!(pixel(&frame, 125, 400), white, "the rounded rectangle's dash starts on its top side");
+    assert_eq!(
+        pixel(&frame, 125, 400),
+        white,
+        "the rounded rectangle's dash starts on its top side"
+    );
     assert_eq!(pixel(&frame, 155, 400), black, "and ends 30 along it");
-    assert_eq!(pixel(&frame, 115, 400), black, "the corner before the start is the pattern's end, in the gap");
-    assert_eq!(pixel(&frame, 590, 499), white, "the arc's dash starts at startAngle");
-    assert_eq!(pixel(&frame, 553, 468), black, "and ends 20 along the sweep");
-    assert_eq!(pixel(&frame, 609, 499), black, "nothing is drawn before the start");
+    assert_eq!(
+        pixel(&frame, 115, 400),
+        black,
+        "the corner before the start is the pattern's end, in the gap"
+    );
+    assert_eq!(
+        pixel(&frame, 590, 499),
+        white,
+        "the arc's dash starts at startAngle"
+    );
+    assert_eq!(
+        pixel(&frame, 553, 468),
+        black,
+        "and ends 20 along the sweep"
+    );
+    assert_eq!(
+        pixel(&frame, 609, 499),
+        black,
+        "nothing is drawn before the start"
+    );
 }
 
 /// A clip cuts a circle in half, leaving the other half untouched.
@@ -1380,7 +1630,10 @@ fn an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item() {
         ))
     };
     let (unset, _) = render("canvas_clip_unset", &body("canvas::fill(c)"));
-    let (empty, _) = render("canvas_clip_empty", &body("WITH canvas::fill(c) { clip := [] }"));
+    let (empty, _) = render(
+        "canvas_clip_empty",
+        &body("WITH canvas::fill(c) { clip := [] }"),
+    );
     assert_eq!(
         unset, empty,
         "an empty clip must render byte-identically to no clip at all"
@@ -1412,9 +1665,21 @@ fn an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item() {
 fn transparency_fades_fill_stroke_and_gradient_alphas() {
     let body = |faded: bool| {
         let (fill, stroke, s0, s1, t) = if faded {
-            ("color::rgb(255, 0, 0)", "color::rgb(0, 255, 0)", "color::rgb(0, 0, 255)", "color::rgba(255, 255, 0, 200)", " transparency := 0.5,")
+            (
+                "color::rgb(255, 0, 0)",
+                "color::rgb(0, 255, 0)",
+                "color::rgb(0, 0, 255)",
+                "color::rgba(255, 255, 0, 200)",
+                " transparency := 0.5,",
+            )
         } else {
-            ("color::rgba(255, 0, 0, 127)", "color::rgba(0, 255, 0, 127)", "color::rgba(0, 0, 255, 127)", "color::rgba(255, 255, 0, 100)", "")
+            (
+                "color::rgba(255, 0, 0, 127)",
+                "color::rgba(0, 255, 0, 127)",
+                "color::rgba(0, 0, 255, 127)",
+                "color::rgba(255, 255, 0, 100)",
+                "",
+            )
         };
         scene(&format!(
             "  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 400.0, y := 0.0], endPoint := canvas::Point[x := 600.0, y := 0.0], \
@@ -1426,8 +1691,15 @@ fn transparency_fades_fill_stroke_and_gradient_alphas() {
     };
     let (faded, _) = render("canvas_transparency", &body(true));
     let (spelled, _) = render("canvas_transparency_spelled", &body(false));
-    assert!(faded == spelled, "transparency 0.5 must draw exactly as alpha 127 (and a 200 stop as 100)");
-    assert_ne!(pixel(&faded, 150, 120), (0, 0, 0, 255), "the faded fill still draws");
+    assert!(
+        faded == spelled,
+        "transparency 0.5 must draw exactly as alpha 127 (and a 200 stop as 100)"
+    );
+    assert_ne!(
+        pixel(&faded, 150, 120),
+        (0, 0, 0, 255),
+        "the faded fill still draws"
+    );
 
     let item = |t: &str| {
         scene(&format!(
@@ -1438,9 +1710,20 @@ fn transparency_fades_fill_stroke_and_gradient_alphas() {
     let (opaque, _) = render("canvas_transparency_zero", &item("0.0"));
     let (low, _) = render("canvas_transparency_low", &item("0.0 - 1.0"));
     let (high, _) = render("canvas_transparency_high", &item("2.0"));
-    assert!(low == opaque, "transparency -1 clamps to 0, the opaque identity");
-    assert_eq!(pixel(&opaque, 300, 300), (255, 0, 0, 255), "transparency 0 is opaque");
-    assert_eq!(pixel(&high, 300, 300), (0, 0, 0, 255), "transparency 2 clamps to 1: nothing drawn");
+    assert!(
+        low == opaque,
+        "transparency -1 clamps to 0, the opaque identity"
+    );
+    assert_eq!(
+        pixel(&opaque, 300, 300),
+        (255, 0, 0, 255),
+        "transparency 0 is opaque"
+    );
+    assert_eq!(
+        pixel(&high, 300, 300),
+        (0, 0, 0, 255),
+        "transparency 2 clamps to 1: nothing drawn"
+    );
 }
 
 /// A clip ring from points, as MFBASIC source.
@@ -1470,8 +1753,19 @@ fn clip_ring(points: &[(f64, f64)]) -> String {
 fn a_path_clip_draws_only_inside_its_rings() {
     let tri = clip_ring(&[(100.0, 100.0), (300.0, 100.0), (100.0, 300.0)]);
     let outer = clip_ring(&[(400.0, 50.0), (600.0, 50.0), (600.0, 250.0), (400.0, 250.0)]);
-    let inner = clip_ring(&[(450.0, 100.0), (550.0, 100.0), (550.0, 200.0), (450.0, 200.0)]);
-    let half = clip_ring(&[(-50.0, -50.0), (0.0, -50.0), (0.0, 50.0), (-50.0, 50.0), (-50.0, 0.0)]);
+    let inner = clip_ring(&[
+        (450.0, 100.0),
+        (550.0, 100.0),
+        (550.0, 200.0),
+        (450.0, 200.0),
+    ]);
+    let half = clip_ring(&[
+        (-50.0, -50.0),
+        (0.0, -50.0),
+        (0.0, 50.0),
+        (-50.0, 50.0),
+        (-50.0, 0.0),
+    ]);
     let corner = clip_ring(&[(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)]);
     let body = |rule: &str| {
         scene(&format!(
@@ -1489,15 +1783,31 @@ fn a_path_clip_draws_only_inside_its_rings() {
     let black = (0, 0, 0, 255);
     let (even, _) = render("canvas_path_clip", &body("EvenOdd"));
     assert_eq!(pixel(&even, 150, 150), white, "inside the triangle");
-    assert_eq!(pixel(&even, 250, 250), black, "beyond the triangle's hypotenuse");
+    assert_eq!(
+        pixel(&even, 250, 250),
+        black,
+        "beyond the triangle's hypotenuse"
+    );
     assert_eq!(pixel(&even, 420, 150), white, "the band between the rings");
     assert_eq!(pixel(&even, 500, 150), black, "the hole under EvenOdd");
-    assert_eq!(pixel(&even, 678, 437), white, "the rotated square's clipped-in half");
+    assert_eq!(
+        pixel(&even, 678, 437),
+        white,
+        "the rotated square's clipped-in half"
+    );
     assert_eq!(pixel(&even, 721, 462), black, "its clipped-out half");
-    assert_eq!(pixel(&even, 320, 420), white, "the group's clip moved with it");
+    assert_eq!(
+        pixel(&even, 320, 420),
+        white,
+        "the group's clip moved with it"
+    );
     assert_eq!(pixel(&even, 380, 480), black, "beyond the moved triangle");
     let (non_zero, _) = render("canvas_path_clip_nz", &body("NonZero"));
-    assert_eq!(pixel(&non_zero, 500, 150), white, "the same-direction inner ring is clip under NonZero");
+    assert_eq!(
+        pixel(&non_zero, 500, 150),
+        white,
+        "the same-direction inner ring is clip under NonZero"
+    );
 }
 
 /// plan-163-C: a transformed clip's edge is antialiased exactly as a transformed shape's
@@ -1538,7 +1848,11 @@ fn a_sheared_clip_edge_matches_a_sheared_shape_edge() {
             );
         }
     }
-    assert_eq!(pixel(&clipped, 250, 500), (255, 255, 255, 255), "the half inside the clip draws");
+    assert_eq!(
+        pixel(&clipped, 250, 500),
+        (255, 255, 255, 255),
+        "the half inside the clip draws"
+    );
 }
 
 /// plan-163-C: an untransformed axis-aligned rectangle clip takes the rectangle path
@@ -1548,8 +1862,19 @@ fn a_sheared_clip_edge_matches_a_sheared_shape_edge() {
 /// than two points encloses nothing and hides the item.
 #[test]
 fn a_rectangle_clip_draws_the_same_through_either_path() {
-    let four = clip_ring(&[(100.25, 80.5), (300.75, 80.5), (300.75, 240.25), (100.25, 240.25)]);
-    let five = clip_ring(&[(100.25, 80.5), (300.75, 80.5), (300.75, 240.25), (100.25, 240.25), (100.25, 240.25)]);
+    let four = clip_ring(&[
+        (100.25, 80.5),
+        (300.75, 80.5),
+        (300.75, 240.25),
+        (100.25, 240.25),
+    ]);
+    let five = clip_ring(&[
+        (100.25, 80.5),
+        (300.75, 80.5),
+        (300.75, 240.25),
+        (100.25, 240.25),
+        (100.25, 240.25),
+    ]);
     let body = |clip: &str| {
         scene(&format!(
             "  LET a AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 160.0, radius := 120.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) {{ clip := [{clip}] }}]\n  \
@@ -1558,9 +1883,19 @@ fn a_rectangle_clip_draws_the_same_through_either_path() {
     };
     let (rect, _) = render("canvas_clip_mode1", &body(&four));
     let (path, _) = render("canvas_clip_mode2", &body(&five));
-    assert!(rect == path, "the rectangle clip and the same rectangle as a path differ");
-    let (none, _) = render("canvas_clip_degenerate", &body("[canvas::Point[x := 200.0, y := 160.0]]"));
-    assert_eq!(pixel(&none, 200, 160), (0, 0, 0, 255), "a clip of one point encloses nothing");
+    assert!(
+        rect == path,
+        "the rectangle clip and the same rectangle as a path differ"
+    );
+    let (none, _) = render(
+        "canvas_clip_degenerate",
+        &body("[canvas::Point[x := 200.0, y := 160.0]]"),
+    );
+    assert_eq!(
+        pixel(&none, 200, 160),
+        (0, 0, 0, 255),
+        "a clip of one point encloses nothing"
+    );
 }
 
 /// A clip entirely outside the item draws nothing.
@@ -4547,7 +4882,13 @@ const NO_T: [f64; 6] = [0.0; 6];
 /// more.
 #[test]
 fn a_linear_gradient_turned_by_its_transform_runs_top_to_bottom() {
-    let turned = ramp("Linear", (0.0, 0.0), (101.0, 0.0), "Pad", [0.0, 1.0, -1.0, 0.0, 0.0, 0.0]);
+    let turned = ramp(
+        "Linear",
+        (0.0, 0.0),
+        (101.0, 0.0),
+        "Pad",
+        [0.0, 1.0, -1.0, 0.0, 0.0, 0.0],
+    );
     let upright = ramp("Linear", (0.0, 0.0), (0.0, 101.0), "Pad", NO_T);
     let (frame, _) = render(
         "canvas_gradient_turned",
@@ -4560,10 +4901,18 @@ fn a_linear_gradient_turned_by_its_transform_runs_top_to_bottom() {
     for y in [3usize, 25, 50, 75, 97] {
         let row = pixel(&frame, 110, y);
         for x in [150usize, 200, 290] {
-            assert_eq!(pixel(&frame, x, y), row, "the turned ramp varies along row {y}, so it does not run top to bottom");
+            assert_eq!(
+                pixel(&frame, x, y),
+                row,
+                "the turned ramp varies along row {y}, so it does not run top to bottom"
+            );
         }
         let reference = pixel(&frame, 500, y);
-        for (got, want) in [(row.0, reference.0), (row.1, reference.1), (row.2, reference.2)] {
+        for (got, want) in [
+            (row.0, reference.0),
+            (row.1, reference.1),
+            (row.2, reference.2),
+        ] {
             assert!(
                 got.abs_diff(want) <= 1,
                 "row {y}: the turned ramp is {row:?}, the upright reference {reference:?}"
@@ -4575,7 +4924,10 @@ fn a_linear_gradient_turned_by_its_transform_runs_top_to_bottom() {
         mid.0.abs_diff(187) <= 1 && mid.1 == 0 && mid.2.abs_diff(188) <= 1,
         "t = 0.5 at y = 50.5 is the red-to-blue midpoint (187, 0, 188) in linear light, got {mid:?}"
     );
-    assert!(pixel(&frame, 200, 3).0 > 240 && pixel(&frame, 200, 97).2 > 240, "red at the top, blue at the bottom");
+    assert!(
+        pixel(&frame, 200, 3).0 > 240 && pixel(&frame, 200, 97).2 > 240,
+        "red at the top, blue at the bottom"
+    );
 }
 
 /// plan-163-D: a linear gradient on a rotated item rotates with it -- the ramp is in the
@@ -4603,9 +4955,16 @@ fn a_linear_gradient_on_a_rotated_item_rotates_with_it() {
     for (i, j) in [(-45i64, -40i64), (-20, 10), (0, 0), (17, -33), (44, 44)] {
         let up = pixel(&frame, (200 + i) as usize, (200 + j) as usize);
         let turned = pixel(&frame, (499 - j) as usize, (200 + i) as usize);
-        assert_eq!(turned, up, "shape point ({i}.5, {j}.5): the turned copy's ramp did not turn with it");
+        assert_eq!(
+            turned, up,
+            "shape point ({i}.5, {j}.5): the turned copy's ramp did not turn with it"
+        );
     }
-    assert_ne!(pixel(&frame, 160, 200), pixel(&frame, 240, 200), "the ramp is flat, so nothing above was tested");
+    assert_ne!(
+        pixel(&frame, 160, 200),
+        pixel(&frame, 240, 200),
+        "the ramp is flat, so nothing above was tested"
+    );
 }
 
 /// plan-163-D: the spread past the ramp's end. The ramp runs from x = 99.5 to 199.5, so
@@ -4630,10 +4989,26 @@ fn spread_pads_reflects_and_repeats_past_the_end() {
             item("again", 300.0, "Repeat")
         )),
     );
-    assert_eq!(pixel(&frame, 224, 120), (0, 0, 255, 255), "Pad at t = 1.25 is the last stop");
-    assert_eq!(pixel(&frame, 224, 220), pixel(&frame, 174, 220), "Reflect at t = 1.25 is t = 0.75");
-    assert_eq!(pixel(&frame, 224, 320), pixel(&frame, 124, 320), "Repeat at t = 1.25 is t = 0.25");
-    assert_ne!(pixel(&frame, 174, 220), pixel(&frame, 124, 320), "t = 0.75 and t = 0.25 must differ, or the two above prove nothing");
+    assert_eq!(
+        pixel(&frame, 224, 120),
+        (0, 0, 255, 255),
+        "Pad at t = 1.25 is the last stop"
+    );
+    assert_eq!(
+        pixel(&frame, 224, 220),
+        pixel(&frame, 174, 220),
+        "Reflect at t = 1.25 is t = 0.75"
+    );
+    assert_eq!(
+        pixel(&frame, 224, 320),
+        pixel(&frame, 124, 320),
+        "Repeat at t = 1.25 is t = 0.25"
+    );
+    assert_ne!(
+        pixel(&frame, 174, 220),
+        pixel(&frame, 124, 320),
+        "t = 0.75 and t = 0.25 must differ, or the two above prove nothing"
+    );
     // Inside the ramp all three agree: the spread only acts past the ends.
     assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 220));
     assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 320));
@@ -4681,7 +5056,13 @@ fn ramp_box(name: &str, g: &str) -> Vec<u8> {
 fn a_radial_gradient_scaled_two_to_one_is_an_ellipse() {
     let frame = ramp_box(
         "canvas_gradient_ellipse",
-        &focal((0.0, 0.0), 50.0, (0.0, 0.0), 0.0, [2.0, 0.0, 0.0, 1.0, 300.5, 200.5]),
+        &focal(
+            (0.0, 0.0),
+            50.0,
+            (0.0, 0.0),
+            0.0,
+            [2.0, 0.0, 0.0, 1.0, 300.5, 200.5],
+        ),
     );
     for i in [10usize, 20, 30, 40] {
         assert_eq!(
@@ -4689,7 +5070,11 @@ fn a_radial_gradient_scaled_two_to_one_is_an_ellipse() {
             pixel(&frame, 300, 200 + i),
             "{i}: twice as far along x must be the same ring as once along y"
         );
-        assert_ne!(pixel(&frame, 300 + i, 200), pixel(&frame, 300, 200 + i), "{i}: the ramp is still circular");
+        assert_ne!(
+            pixel(&frame, 300 + i, 200),
+            pixel(&frame, 300, 200 + i),
+            "{i}: the ramp is still circular"
+        );
     }
 }
 
@@ -4701,9 +5086,20 @@ fn a_radial_gradient_scaled_two_to_one_is_an_ellipse() {
 /// would put the focus pixel at `t = 0.5`.
 #[test]
 fn a_focal_offset_moves_the_first_stop_to_the_focus() {
-    let frame = ramp_box("canvas_gradient_focal", &focal((300.5, 200.5), 100.0, (50.0, 0.0), 0.0, NO_T));
-    assert_eq!(pixel(&frame, 350, 200), (255, 0, 0, 255), "the focus is the first stop");
-    assert_eq!(pixel(&frame, 200, 200), (0, 0, 255, 255), "c - (r, 0) is on the end circle: the last stop");
+    let frame = ramp_box(
+        "canvas_gradient_focal",
+        &focal((300.5, 200.5), 100.0, (50.0, 0.0), 0.0, NO_T),
+    );
+    assert_eq!(
+        pixel(&frame, 350, 200),
+        (255, 0, 0, 255),
+        "the focus is the first stop"
+    );
+    assert_eq!(
+        pixel(&frame, 200, 200),
+        (0, 0, 255, 255),
+        "c - (r, 0) is on the end circle: the last stop"
+    );
 }
 
 /// plan-163-D: a focal offset past the end circle is pulled just inside it, so the ramp
@@ -4712,19 +5108,32 @@ fn a_focal_offset_moves_the_first_stop_to_the_focus() {
 /// the ramp still runs from near the clamped focus to the far side.
 #[test]
 fn a_focal_offset_beyond_the_circle_is_clamped() {
-    let frame = ramp_box("canvas_gradient_focal_clamped", &focal((300.5, 200.5), 100.0, (500.0, 0.0), 0.0, NO_T));
+    let frame = ramp_box(
+        "canvas_gradient_focal_clamped",
+        &focal((300.5, 200.5), 100.0, (500.0, 0.0), 0.0, NO_T),
+    );
     for y in (60usize..340).step_by(20) {
         for x in (110usize..540).step_by(20) {
             let (r, g, b, a) = pixel(&frame, x, y);
-            assert!(g == 0 && a == 255 && u16::from(r) + u16::from(b) > 0, "({x}, {y}) is {:?}, not a ramp colour", (r, g, b, a));
+            assert!(
+                g == 0 && a == 255 && u16::from(r) + u16::from(b) > 0,
+                "({x}, {y}) is {:?}, not a ramp colour",
+                (r, g, b, a)
+            );
         }
     }
     // The clamped focus is c + (99.90234375, 0) = (400.40.., 200.5): beside it the ramp is
     // barely started, on the far side of the circle it has ended.
     let near = pixel(&frame, 399, 200);
     let far = pixel(&frame, 201, 200);
-    assert!(near.0 > 240 && near.2 < 40, "beside the clamped focus the ramp is near its first stop: {near:?}");
-    assert!(far.0 < 40 && far.2 > 240, "across the circle it is near its last stop: {far:?}");
+    assert!(
+        near.0 > 240 && near.2 < 40,
+        "beside the clamped focus the ramp is near its first stop: {near:?}"
+    );
+    assert!(
+        far.0 < 40 && far.2 > 240,
+        "across the circle it is near its last stop: {far:?}"
+    );
 }
 
 /// plan-163-D: a focal radius of `r / 4` fills a disc of that radius with the first stop.
@@ -4733,12 +5142,27 @@ fn a_focal_offset_beyond_the_circle_is_clamped() {
 /// 25` (Pad: the first stop), and at `d = 30` `t = (1875 - 2250) / -5625 = 1/15`.
 #[test]
 fn a_focal_radius_fills_a_disc_with_the_first_stop() {
-    let frame = ramp_box("canvas_gradient_focal_radius", &focal((300.5, 200.5), 100.0, (0.0, 0.0), 25.0, NO_T));
+    let frame = ramp_box(
+        "canvas_gradient_focal_radius",
+        &focal((300.5, 200.5), 100.0, (0.0, 0.0), 25.0, NO_T),
+    );
     for i in [0usize, 10, 20, 24] {
-        assert_eq!(pixel(&frame, 300 + i, 200), (255, 0, 0, 255), "distance {i}: inside the focal disc");
-        assert_eq!(pixel(&frame, 300, 200 + i), (255, 0, 0, 255), "distance {i} down: inside the focal disc");
+        assert_eq!(
+            pixel(&frame, 300 + i, 200),
+            (255, 0, 0, 255),
+            "distance {i}: inside the focal disc"
+        );
+        assert_eq!(
+            pixel(&frame, 300, 200 + i),
+            (255, 0, 0, 255),
+            "distance {i} down: inside the focal disc"
+        );
     }
-    assert_ne!(pixel(&frame, 330, 200), (255, 0, 0, 255), "distance 30 is past the disc, t = 1/15");
+    assert_ne!(
+        pixel(&frame, 330, 200),
+        (255, 0, 0, 255),
+        "distance 30 is past the disc, t = 1/15"
+    );
 }
 
 /// A linear red-to-blue ramp along x from 100 to 500, with the given stroke apply.
@@ -4787,13 +5211,32 @@ fn fill_and_stroke_paints_the_outline_with_the_tinted_ramp() {
     // Clear of the 24px bands on the left and right edges (x 88..112 and 488..512).
     for x in [130usize, 200, 300, 400, 470] {
         let fill = pixel(&frame, x, 105);
-        assert_eq!(fill.1, 0, "x = {x}: the fill is the ramp, not the flat green");
-        assert_eq!(pixel(&frame, x, 30), fill, "x = {x}: a white stroke at alpha 255 shows the plain ramp");
-        assert_eq!(pixel(&frame, x, 230), pixel(&frame, x, 305), "x = {x}: a stroke at alpha 0 shows the plain ramp");
+        assert_eq!(
+            fill.1, 0,
+            "x = {x}: the fill is the ramp, not the flat green"
+        );
+        assert_eq!(
+            pixel(&frame, x, 30),
+            fill,
+            "x = {x}: a white stroke at alpha 255 shows the plain ramp"
+        );
+        assert_eq!(
+            pixel(&frame, x, 230),
+            pixel(&frame, x, 305),
+            "x = {x}: a stroke at alpha 0 shows the plain ramp"
+        );
         let (r, g, b, _) = pixel(&frame, x, 505);
         let want_b = i32::from(b) - (i32::from(b) * 128 + 127) / 255;
-        assert_eq!(pixel(&frame, x, 430), (r, g, want_b as u8, 255), "x = {x}: red at alpha 128 tints half way");
-        assert_eq!(pixel(&frame, x, 620), fill, "x = {x}: a Line under FillAndStroke is drawn in the ramp");
+        assert_eq!(
+            pixel(&frame, x, 430),
+            (r, g, want_b as u8, 255),
+            "x = {x}: red at alpha 128 tints half way"
+        );
+        assert_eq!(
+            pixel(&frame, x, 620),
+            fill,
+            "x = {x}: a Line under FillAndStroke is drawn in the ramp"
+        );
     }
 }
 
@@ -4815,10 +5258,17 @@ fn degenerate_gradient_fields_draw_as_their_no_op_forms() {
         };
         let (left, _) = render(&format!("{name}_a"), &body(a));
         let (right, _) = render(&format!("{name}_b"), &body(b));
-        assert!(left == right, "{name}: the degenerate form does not draw as its no-op");
+        assert!(
+            left == right,
+            "{name}: the degenerate form does not draw as its no-op"
+        );
     };
     let flat = |t: [f64; 6]| ramp("Linear", (100.0, 0.0), (500.0, 0.0), "Pad", t);
-    pair("canvas_gradient_singular", &flat([1.0, 2.0, 2.0, 4.0, 30.0, 0.0]), &flat(NO_T));
+    pair(
+        "canvas_gradient_singular",
+        &flat([1.0, 2.0, 2.0, 4.0, 30.0, 0.0]),
+        &flat(NO_T),
+    );
     let one_stop = "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 100.0, y := 0.0], \
          endPoint := canvas::Point[x := 500.0, y := 0.0], stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)]], \
          spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], \

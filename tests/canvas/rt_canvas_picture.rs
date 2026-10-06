@@ -240,17 +240,58 @@ fn the_fill_is_a_tint_and_transparency_is_the_opacity() {
         )
         .0
     };
-    assert_eq!(pixel(&draw("canvas_tint_zero", "zero"), 8, 8), (200, 100, 50, 255), "the zero Paint draws the image unchanged and opaque");
-    assert_eq!(pixel(&draw("canvas_tint_white", "canvas::fill(color::rgb(255, 255, 255))"), 8, 8), (200, 100, 50, 255), "a white tint changes nothing");
-    assert_eq!(pixel(&draw("canvas_tint_red", "canvas::fill(color::rgb(255, 0, 0))"), 8, 8), (200, 0, 0, 255), "an opaque red tint is the multiply");
-    assert_eq!(pixel(&draw("canvas_tint_half", "canvas::fill(color::rgba(255, 0, 0, 128))"), 8, 8), (200, 50, 25, 255), "a half-strength red tint goes halfway");
-    let faded = draw("canvas_tint_faded", "WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 0.5 }");
+    assert_eq!(
+        pixel(&draw("canvas_tint_zero", "zero"), 8, 8),
+        (200, 100, 50, 255),
+        "the zero Paint draws the image unchanged and opaque"
+    );
+    assert_eq!(
+        pixel(
+            &draw(
+                "canvas_tint_white",
+                "canvas::fill(color::rgb(255, 255, 255))"
+            ),
+            8,
+            8
+        ),
+        (200, 100, 50, 255),
+        "a white tint changes nothing"
+    );
+    assert_eq!(
+        pixel(
+            &draw("canvas_tint_red", "canvas::fill(color::rgb(255, 0, 0))"),
+            8,
+            8
+        ),
+        (200, 0, 0, 255),
+        "an opaque red tint is the multiply"
+    );
+    assert_eq!(
+        pixel(
+            &draw(
+                "canvas_tint_half",
+                "canvas::fill(color::rgba(255, 0, 0, 128))"
+            ),
+            8,
+            8
+        ),
+        (200, 50, 25, 255),
+        "a half-strength red tint goes halfway"
+    );
+    let faded = draw(
+        "canvas_tint_faded",
+        "WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 0.5 }",
+    );
     let spelled = render(
         "canvas_tint_spelled",
         &scene("  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 16.0, h := 16.0, paint := canvas::fill(color::rgba(200, 100, 50, 127))]\n  canvas::present([a])\n"),
     )
     .0;
-    assert_eq!(pixel(&faded, 8, 8), pixel(&spelled, 8, 8), "transparency 0.5 fades the texel to alpha 127");
+    assert_eq!(
+        pixel(&faded, 8, 8),
+        pixel(&spelled, 8, 8),
+        "transparency 0.5 fades the texel to alpha 127"
+    );
 }
 
 /// A picture honours `Paint.clip`, `Paint.blend` and `Paint.transform` exactly as a

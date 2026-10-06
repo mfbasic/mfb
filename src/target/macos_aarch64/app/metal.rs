@@ -51,21 +51,12 @@ use crate::codegen::error::constants::error_constants::{
     COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
 };
 // plan-163-B: the stroke-style words and the join-record header slots.
-use crate::codegen::runtime::canvas::{
-    HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV,
-    HEADER_GRADIENT_SPREAD, ITEM_OFFSET_GRADIENT_FOCAL, ITEM_OFFSET_GRADIENT_INV,
-    HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_PICTURE_TRANSPARENCY,
-    ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE, ITEM_CLIP_PATH_PICTURE_T,
-    ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH, HEADER_DASH_COUNT, HEADER_DASH_PHASE, METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
-    HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
-    ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
-};
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_polygon_rule, emit_square_cap_reach, emit_item_residual_field, emit_item_stroke_sign,
-    BAND_LIST_PER_EDGE,
-    BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP,
-    ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
+    emit_square_cap_reach, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT,
+    ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS,
+    METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
     BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_MTL_DEVICE,
@@ -99,6 +90,16 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_DRAWABLE_H, GRAPHICS_OFFSET_MTL_DRAWABLE_W, GRAPHICS_OFFSET_MTL_LAYER,
     GRAPHICS_OFFSET_MTL_LAYER_READY, GRAPHICS_OFFSET_MTL_LAYER_SHOW,
     GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
+};
+use crate::codegen::runtime::canvas::{
+    HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_DASH_COUNT,
+    HEADER_DASH_PHASE, HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV,
+    HEADER_GRADIENT_INV, HEADER_GRADIENT_SPREAD, HEADER_JOIN_COUNT, HEADER_JOIN_REACH,
+    HEADER_PICTURE_TRANSPARENCY, ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE,
+    ITEM_CLIP_PATH_PICTURE_T, ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH,
+    ITEM_OFFSET_GRADIENT_FOCAL, ITEM_OFFSET_GRADIENT_INV, ITEM_OFFSET_STROKE_STYLE,
+    ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
+    METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
 };
 use std::sync::LazyLock;
 
@@ -4702,8 +4703,15 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         ));
     }
     debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
-    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", FIXED_POINT_SCALE));
-    asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[1]));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[1],
+    ));
     for index in 0..3 {
         asm.push(abi::load_double(
             abi::FP_SCRATCH[1],
@@ -4759,17 +4767,33 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         header,
         HEADER_GRADIENT_SPREAD * 8,
     ));
-    asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
-    asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    asm.push(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
+    asm.push(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
     asm.push(abi::load_double(
         abi::FP_SCRATCH[2],
         header,
         HEADER_GRADIENT_APPLY * 8,
     ));
     for _ in 0..3 {
-        asm.push(abi::float_add_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[2], abi::FP_SCRATCH[2]));
+        asm.push(abi::float_add_d(
+            abi::FP_SCRATCH[2],
+            abi::FP_SCRATCH[2],
+            abi::FP_SCRATCH[2],
+        ));
     }
-    asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    asm.push(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
     asm.push(abi::float_convert_to_signed_x(
         abi::SCRATCH[1],
         abi::FP_SCRATCH[1],
@@ -4957,7 +4981,10 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_MISC,
     ));
-    asm.push(abi::compare_immediate(abi::SCRATCH[0], &GEO_KIND_PICTURE.to_string()));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[0],
+        &GEO_KIND_PICTURE.to_string(),
+    ));
     asm.push(abi::branch_ne(&single));
     asm.push(abi::label(&fills));
 
@@ -5007,7 +5034,11 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     // not come from the fill alpha, so a zero there left record two drawing the ramp or
     // the image a second time under the blend. The stroke still reads the ramp
     // (`FillAndStroke`). Spelled unsigned; the store keeps the low 32 bits.
-    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "4294967295"));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        "4294967295",
+    ));
     asm.push(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -5434,44 +5465,125 @@ fn emit_clip_buffer(asm: &mut Asm) {
 
     asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
     for word in [0usize, 4, 8, 12] {
-        asm.push(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), band + word));
-        asm.push(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), clip + word));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            band + word,
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            clip + word,
+        ));
     }
-    asm.push(abi::load_u64(header, abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_u64(
+        header,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
     // mode | rule << 2, and T.
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_MODE * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_RULE * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
-    asm.push(abi::shift_left_immediate(abi::SCRATCH[7], abi::SCRATCH[7], 2));
-    asm.push(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[5]));
-    asm.push(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_MODE));
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_PICTURE_TRANSPARENCY * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
-    asm.push(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_PICTURE_T));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_MODE * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[5],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_RULE * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        2,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[5],
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_MODE,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_TRANSPARENCY * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_PICTURE_T,
+    ));
     asm.push(abi::compare_immediate(abi::SCRATCH[5], "2"));
     asm.push(abi::branch_ne(&done));
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
     asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
     asm.push(abi::compare_immediate(count, "0"));
     asm.push(abi::branch_le(&done));
-    asm.push(abi::load_u64(abi::SCRATCH[5], abi::stack_pointer(), OFF_EDGE_CURSOR));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_EDGE_CURSOR,
+    ));
     asm.push(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[5], count));
-    asm.push(abi::move_immediate(abi::SCRATCH[8], "Integer", &METAL_MAX_FRAME_EDGES.to_string()));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[8],
+        "Integer",
+        &METAL_MAX_FRAME_EDGES.to_string(),
+    ));
     asm.push(abi::compare_registers(abi::SCRATCH[7], abi::SCRATCH[8]));
     asm.push(abi::branch_le(&copy));
     asm.push(abi::branch(&done));
 
     asm.push(abi::label(&copy));
-    asm.push(abi::store_u64(abi::SCRATCH[7], abi::stack_pointer(), OFF_EDGE_CURSOR));
-    asm.push(abi::store_u32(abi::SCRATCH[5], abi::stack_pointer(), clip + ITEM_CLIP_PATH_BASE));
-    asm.push(abi::store_u32(count, abi::stack_pointer(), clip + ITEM_CLIP_PATH_COUNT));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        OFF_EDGE_CURSOR,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_BASE,
+    ));
+    asm.push(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_COUNT,
+    ));
     // target = contents + METAL_EDGE_BASE_WORDS * 4 + base * 16, through registers (the
     // offset is past an `add`'s immediate); the residuals a fixed distance past it.
     asm.push(abi::shift_left_immediate(target, abi::SCRATCH[5], 4));
-    asm.push(abi::load_u64(abi::SCRATCH[7], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        OFF_CONTENTS,
+    ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
-    asm.push(abi::move_immediate(abi::SCRATCH[7], "Integer", &(METAL_EDGE_BASE_WORDS * 4).to_string()));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &(METAL_EDGE_BASE_WORDS * 4).to_string(),
+    ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
     asm.push(abi::move_immediate(
         residual_target,
@@ -5479,19 +5591,45 @@ fn emit_clip_buffer(asm: &mut Asm) {
         &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
     ));
     asm.push(abi::add_registers(residual_target, residual_target, target));
-    asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", EDGE_RESIDUAL_SCALE));
-    asm.push(abi::signed_convert_to_float_d(residual_scale, abi::SCRATCH[5]));
-    asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", FIXED_POINT_SCALE));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[5],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
     asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     // source = header + (slot1 - stops * 5 - count * 5) * 8.
-    asm.push(abi::load_u64(header, abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_u64(
+        header,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
     asm.push(abi::load_double(abi::FP_SCRATCH[1], header, 8));
     asm.push(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     asm.push(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], count));
     asm.push(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
-    asm.push(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
     asm.push(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     asm.push(abi::shift_left_immediate(source, source, 3));
     asm.push(abi::add_registers(source, header, source));
@@ -5503,16 +5641,41 @@ fn emit_clip_buffer(asm: &mut Asm) {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
         if let Some(delta) = delta {
             asm.push(abi::load_double(abi::FP_SCRATCH[2], source, delta * 8));
-            asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+            asm.push(abi::float_add_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[2],
+            ));
         }
-        asm.push(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], scale));
-        asm.push(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
         asm.push(abi::store_u32(abi::SCRATCH[5], target, 0));
         asm.push(abi::add_immediate(target, target, 4));
-        asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[5]));
-        asm.push(abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
-        asm.push(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], residual_scale));
-        asm.push(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        asm.push(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[5],
+        ));
+        asm.push(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
         asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
         asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
@@ -5549,8 +5712,16 @@ fn emit_dash_buffer(asm: &mut Asm) {
     let target = abi::SCRATCH[6];
     let style = OFF_ITEM + ITEM_OFFSET_STROKE_STYLE;
 
-    asm.push(abi::load_u64(header, abi::stack_pointer(), OFF_GLYPH_HEADER));
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_COUNT * 8));
+    asm.push(abi::load_u64(
+        header,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_DASH_COUNT * 8,
+    ));
     asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
     asm.push(abi::compare_immediate(count, "0"));
     asm.push(abi::branch_le(&done));
@@ -5568,14 +5739,30 @@ fn emit_dash_buffer(asm: &mut Asm) {
     asm.push(abi::branch(&done));
 
     asm.push(abi::label(&copy));
-    asm.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), OFF_DASH_CURSOR));
-    asm.push(abi::store_u32(cursor, abi::stack_pointer(), style + ITEM_STROKE_DASH_BASE));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DASH_CURSOR,
+    ));
+    asm.push(abi::store_u32(
+        cursor,
+        abi::stack_pointer(),
+        style + ITEM_STROKE_DASH_BASE,
+    ));
     asm.push(abi::add_immediate(abi::SCRATCH[7], count, 1));
-    asm.push(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), style + ITEM_STROKE_DASH_COUNT));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        style + ITEM_STROKE_DASH_COUNT,
+    ));
     // target = contents + METAL_DASH_BASE_WORDS * 4 + cursor * 4, through registers for
     // `emit_edge_buffer`'s reason (the offset is past an `add`'s immediate).
     asm.push(abi::shift_left_immediate(target, cursor, 2));
-    asm.push(abi::load_u64(abi::SCRATCH[7], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        OFF_CONTENTS,
+    ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
     asm.push(abi::move_immediate(
         abi::SCRATCH[7],
@@ -5584,23 +5771,55 @@ fn emit_dash_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
     // The phase.
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_DASH_PHASE * 8));
-    asm.push(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
-    asm.push(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_DASH_PHASE * 8,
+    ));
+    asm.push(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::float_move_x_from_d(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     asm.push(abi::store_u32(abi::SCRATCH[7], target, 0));
     asm.push(abi::add_immediate(target, target, 4));
     // source = header + (slot1 - stops * 5 - count) * 8.
     asm.push(abi::load_double(abi::FP_SCRATCH[1], header, 8));
     asm.push(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
-    asm.push(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
     asm.push(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     // plan-163-C: the path clip's edges sit between the dashes and the stops.
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
-    asm.push(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
     asm.push(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     asm.push(abi::subtract_registers(source, source, count));
     asm.push(abi::shift_left_immediate(source, source, 3));
@@ -5610,8 +5829,14 @@ fn emit_dash_buffer(asm: &mut Asm) {
     asm.push(abi::compare_registers(index, count));
     asm.push(abi::branch_ge(&done));
     asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 0));
-    asm.push(abi::float_convert_s_from_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1]));
-    asm.push(abi::float_move_x_from_d(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::float_move_x_from_d(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
     asm.push(abi::store_u32(abi::SCRATCH[7], target, 0));
     asm.push(abi::add_immediate(target, target, 4));
     asm.push(abi::add_immediate(source, source, 8));
@@ -5982,9 +6207,17 @@ fn emit_join_buffer(asm: &mut Asm) {
 
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     for word in [ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT] {
-        asm.push(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            style + word,
+        ));
     }
-    asm.push(abi::load_u64(source, abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_u64(
+        source,
+        abi::stack_pointer(),
+        OFF_GLYPH_HEADER,
+    ));
     asm.push(abi::load_double(
         abi::FP_SCRATCH[1],
         source,
@@ -6071,20 +6304,45 @@ fn emit_join_buffer(asm: &mut Asm) {
         source,
         HEADER_GRADIENT_COUNT * 8,
     ));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
-    asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[7],
+    ));
     asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     asm.push(abi::shift_left_immediate(abi::SCRATCH[0], records, 3));
     asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_DASH_COUNT * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_DASH_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
     asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     // plan-163-C: and the path clip's edges, five floats each, after the dashes.
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_CLIP_EDGE_COUNT * 8));
-    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
     asm.push(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
-    asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[7],
+    ));
     asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     asm.push(abi::shift_left_immediate(index, index, 3));
     asm.push(abi::add_registers(source, source, index));
@@ -6134,7 +6392,11 @@ fn emit_join_buffer(asm: &mut Asm) {
     asm.push(abi::label(&none));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     for word in [ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT] {
-        asm.push(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            style + word,
+        ));
     }
     asm.push(abi::label(&done));
 }
@@ -6453,11 +6715,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     let block = |field: usize| set.header + field;
 
     // --- which polygons: E >= BAND_MIN_EDGES --------------------------------
-    asm.push(abi::load_u32(
-        s[2],
-        abi::stack_pointer(),
-        set.count,
-    ));
+    asm.push(abi::load_u32(s[2], abi::stack_pointer(), set.count));
     asm.push(abi::move_immediate(
         s[3],
         "Integer",
@@ -6467,11 +6725,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     asm.push(abi::branch_lt(&none));
 
     // --- the edges: P = contents + EDGE_BASE*4 + base*16, END = P + E*16 ------------
-    asm.push(abi::load_u32(
-        s[0],
-        abi::stack_pointer(),
-        set.base,
-    ));
+    asm.push(abi::load_u32(s[0], abi::stack_pointer(), set.base));
     asm.push(abi::shift_left_immediate(s[0], s[0], 4));
     asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_CONTENTS));
     asm.push(abi::add_registers(s[0], s[0], s[1]));
@@ -6648,11 +6902,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     // --- height = max(minimum, ceil(span / (min(E, BAND_MAX) - 1))) -----------
     // At most `min(E, BAND_MAX)` bands: span / height <= that - 1.
     let bands_capped = label("bands_capped");
-    asm.push(abi::load_u32(
-        s[6],
-        abi::stack_pointer(),
-        set.count,
-    ));
+    asm.push(abi::load_u32(s[6], abi::stack_pointer(), set.count));
     asm.push(abi::move_immediate(s[7], "Integer", &BAND_MAX.to_string()));
     asm.push(abi::compare_registers(s[6], s[7]));
     asm.push(abi::branch_le(&bands_capped));
@@ -6690,11 +6940,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     asm.push(abi::add_immediate(s[0], s[0], 16));
     asm.push(abi::branch(&label("size_head")));
     asm.push(abi::label(&label("size_done")));
-    asm.push(abi::load_u32(
-        s[4],
-        abi::stack_pointer(),
-        set.count,
-    ));
+    asm.push(abi::load_u32(s[4], abi::stack_pointer(), set.count));
     asm.push(abi::move_immediate(
         s[5],
         "Integer",
@@ -7291,7 +7537,10 @@ mod tests {
         // plan-163-D: the ramp is in the item's own space, so it takes `q`, the
         // inverse-mapped twin of `p` -- still the shape-space point, never `in.pos.xy`.
         for (call, what) in [
-            ("float2 q = hasTransform(item) ? inverseMap(item, p) : p;", "the ramp's point"),
+            (
+                "float2 q = hasTransform(item) ? inverseMap(item, p) : p;",
+                "the ramp's point",
+            ),
             ("gradientColour(q, edges, item)", "the gradient ramp"),
             ("inverseMap(item, p) : p", "the glyph sample"),
         ] {

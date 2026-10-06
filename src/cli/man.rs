@@ -1753,7 +1753,11 @@ mod tests {
         }
 
         // And nowhere else: one source for the value.
-        for record in ["#### canvas::Line", "#### canvas::Arc", "#### canvas::PolyLine"] {
+        for record in [
+            "#### canvas::Line",
+            "#### canvas::Arc",
+            "#### canvas::PolyLine",
+        ] {
             let table = entry(record);
             assert!(
                 !table.contains("| `cap` |"),

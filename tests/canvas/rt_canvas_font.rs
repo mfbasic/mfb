@@ -499,9 +499,17 @@ END FUNC
 fn transparency_fades_text_and_stroked_text() {
     let source = |faded: bool| {
         let (fill, stroke, t) = if faded {
-            ("color::rgb(255, 255, 0)", "color::rgb(255, 255, 255)", " { transparency := 0.5 }")
+            (
+                "color::rgb(255, 255, 0)",
+                "color::rgb(255, 255, 255)",
+                " { transparency := 0.5 }",
+            )
         } else {
-            ("color::rgba(255, 255, 0, 127)", "color::rgba(255, 255, 255, 127)", " { transparency := 0.0 }")
+            (
+                "color::rgba(255, 255, 0, 127)",
+                "color::rgba(255, 255, 255, 127)",
+                " { transparency := 0.0 }",
+            )
         };
         format!(
             r#"IMPORT app
@@ -525,8 +533,14 @@ END FUNC
     };
     let faded = run_with_font_frame("canvas_text_faded", &source(true));
     let spelled = run_with_font_frame("canvas_text_spelled", &source(false));
-    assert!(faded == spelled, "transparency 0.5 must draw text exactly as alpha 127");
-    assert!(faded.chunks(4).any(|p| p[0] > 0 && p[1] > 0 && p[2] == 0), "the faded filled run drew");
+    assert!(
+        faded == spelled,
+        "transparency 0.5 must draw text exactly as alpha 127"
+    );
+    assert!(
+        faded.chunks(4).any(|p| p[0] > 0 && p[1] > 0 && p[2] == 0),
+        "the faded filled run drew"
+    );
 }
 
 const MEASURE: &str = r#"IMPORT app

@@ -520,7 +520,10 @@ fn put_color(
 
 /// `__canvas_transparencyStep(paint)`: `toInt(maxF(minF(t, 1.0), 0.0) * 255.0 + 0.5)`,
 /// the product and the add one `fmadd`.
-fn emit_transparency_step(builder: &mut CodeBuilder, view: &PaintView) -> Result<VirtualRegister, String> {
+fn emit_transparency_step(
+    builder: &mut CodeBuilder,
+    view: &PaintView,
+) -> Result<VirtualRegister, String> {
     let t = fload(
         builder,
         &view.paint,
@@ -604,13 +607,23 @@ fn emit_clip_shape(builder: &mut CodeBuilder, view: &PaintView) -> Result<ClipSh
     // across: a.y = b.y, b.x = c.x, c.y = d.y, d.x = a.x; down: the other axis first.
     let down = builder.label("canvas_geo_clip_down");
     let rect = builder.label("canvas_geo_clip_rect");
-    for (l, r) in [(&ys[0], &ys[1]), (&xs[1], &xs[2]), (&ys[2], &ys[3]), (&xs[3], &xs[0])] {
+    for (l, r) in [
+        (&ys[0], &ys[1]),
+        (&xs[1], &xs[2]),
+        (&ys[2], &ys[3]),
+        (&xs[3], &xs[0]),
+    ] {
         builder.emit(abi::float_compare_d(l, r));
         builder.emit(abi::branch_ne(&down));
     }
     builder.emit(abi::branch(&rect));
     builder.emit(abi::label(&down));
-    for (l, r) in [(&xs[0], &xs[1]), (&ys[1], &ys[2]), (&xs[2], &xs[3]), (&ys[3], &ys[0])] {
+    for (l, r) in [
+        (&xs[0], &xs[1]),
+        (&ys[1], &ys[2]),
+        (&xs[2], &xs[3]),
+        (&ys[3], &ys[0]),
+    ] {
         builder.emit(abi::float_compare_d(l, r));
         builder.emit(abi::branch_ne(&done));
     }
@@ -659,7 +672,10 @@ fn emit_clip_rings(
 }
 
 /// The points of a path clip's contributing rings: `__canvas_clipHeader`'s count.
-fn emit_clip_point_count(builder: &mut CodeBuilder, view: &PaintView) -> Result<VirtualRegister, String> {
+fn emit_clip_point_count(
+    builder: &mut CodeBuilder,
+    view: &PaintView,
+) -> Result<VirtualRegister, String> {
     let total = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&total, "Integer", "0"));
     emit_clip_rings(builder, view, |builder, _, n, _, _| {
@@ -669,14 +685,22 @@ fn emit_clip_point_count(builder: &mut CodeBuilder, view: &PaintView) -> Result<
 }
 
 /// `n += 5 * points` when the paint's clip is a path (mode 2).
-fn emit_clip_size(builder: &mut CodeBuilder, view: &PaintView, n: &VirtualRegister) -> Result<(), String> {
+fn emit_clip_size(
+    builder: &mut CodeBuilder,
+    view: &PaintView,
+    n: &VirtualRegister,
+) -> Result<(), String> {
     let shape = emit_clip_shape(builder, view)?;
     let skip = builder.label("canvas_geo_size_clip_skip");
     builder.emit(abi::compare_immediate(&shape.mode, "2"));
     builder.emit(abi::branch_ne(&skip));
     let points = emit_clip_point_count(builder, view)?;
     let five = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&five, "Integer", &EDGE_FLOATS.to_string()));
+    builder.emit(abi::move_immediate(
+        &five,
+        "Integer",
+        &EDGE_FLOATS.to_string(),
+    ));
     builder.emit(abi::multiply_registers(&points, &points, &five));
     builder.emit(abi::add_registers(n, n, &points));
     builder.emit(abi::label(&skip));
@@ -982,7 +1006,11 @@ fn cap_pad(
 
 /// `__canvas_dashCapReach(half, paint)` for `half = maxF(strokeHalf, 0.0)`: `half *
 /// 1.4142135623730951` for a dashed Square paint, else `half`.
-fn dash_cap_reach(builder: &mut CodeBuilder, m: &VirtualRegister, style: &JoinStyle) -> VirtualRegister {
+fn dash_cap_reach(
+    builder: &mut CodeBuilder,
+    m: &VirtualRegister,
+    style: &JoinStyle,
+) -> VirtualRegister {
     let reach = builder.temporary_fp_vreg();
     builder.emit(abi::float_move_d_from_d(&reach, m));
     let plain = builder.label("canvas_geo_dash_reach_plain");
@@ -1435,7 +1463,11 @@ fn branch_unless_joined(
 }
 
 /// `__canvas_joinReach(half, paint)`: `half * limit` for a Miter, else `half`.
-fn emit_join_reach(builder: &mut CodeBuilder, half: &VirtualRegister, style: &JoinStyle) -> VirtualRegister {
+fn emit_join_reach(
+    builder: &mut CodeBuilder,
+    half: &VirtualRegister,
+    style: &JoinStyle,
+) -> VirtualRegister {
     let reach = builder.temporary_fp_vreg();
     builder.emit(abi::float_move_d_from_d(&reach, half));
     let plain = builder.label("canvas_geo_join_reach_plain");
@@ -1462,7 +1494,11 @@ fn emit_put_joins(
     put(builder, out, SLOT_JOIN_COUNT, &records_f);
     put(builder, out, SLOT_JOIN_REACH, reach);
     let eight = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&eight, "Integer", &JOIN_FLOATS.to_string()));
+    builder.emit(abi::move_immediate(
+        &eight,
+        "Integer",
+        &JOIN_FLOATS.to_string(),
+    ));
     let total = builder.temporary_vreg();
     builder.emit(abi::multiply_registers(&total, records, &eight));
     builder.emit(abi::add_registers(&total, &total, length));
@@ -1474,7 +1510,11 @@ fn emit_put_joins(
 /// `n += records * 8`.
 fn emit_add_join_floats(builder: &mut CodeBuilder, records: &VirtualRegister, n: &VirtualRegister) {
     let eight = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&eight, "Integer", &JOIN_FLOATS.to_string()));
+    builder.emit(abi::move_immediate(
+        &eight,
+        "Integer",
+        &JOIN_FLOATS.to_string(),
+    ));
     let floats = builder.temporary_vreg();
     builder.emit(abi::multiply_registers(&floats, records, &eight));
     builder.emit(abi::add_registers(n, n, &floats));
@@ -1770,7 +1810,9 @@ fn emit_dash_phase(
     let whole_f = builder.temporary_fp_vreg();
     builder.emit(abi::signed_convert_to_float_d(&whole_f, &whole));
     let p = builder.temporary_fp_vreg();
-    builder.emit(abi::float_negate_multiply_sub_d(&p, &offset, &whole_f, period));
+    builder.emit(abi::float_negate_multiply_sub_d(
+        &p, &offset, &whole_f, period,
+    ));
     builder.emit(abi::float_compare_d(&p, &zero));
     builder.emit(abi::branch_mi(&done));
     builder.emit(abi::float_compare_d(&p, period));
@@ -2007,7 +2049,11 @@ fn fill_rect(
     builder.emit(abi::move_immediate(&four, "Integer", "4"));
     emit_ring_joins(builder, &sides, &four, true, &cursor, &stroke_half, &style);
     let length = builder.temporary_vreg();
-    builder.emit(abi::move_immediate(&length, "Integer", &GEO_HEADER.to_string()));
+    builder.emit(abi::move_immediate(
+        &length,
+        "Integer",
+        &GEO_HEADER.to_string(),
+    ));
     let reach = emit_join_reach(builder, &stroke_half, &style);
     emit_put_joins(builder, out, &four, &length, &reach);
     builder.emit(abi::label(&no_joins));
@@ -2017,19 +2063,31 @@ fn fill_rect(
     let pattern = emit_dash_pattern(builder, view, &stroke_half, &solid)?;
     let cursor = emit_record_end(builder, out);
     let dash_sides_slot = builder.allocate_stack_object("canvas_geo_rect_dash_sides", 160);
-    emit_dash_tail(builder, out, &cursor, view, &pattern, &style.cap, |builder, cursor| {
-        let curved = builder.label("canvas_geo_rect_dash_curved");
-        let zero = fconst(builder, 0.0);
-        builder.emit(abi::float_compare_d(&radius, &zero));
-        builder.emit(abi::branch_ne(&curved));
-        let sides = builder.temporary_vreg();
-        builder.emit(abi::add_immediate(&sides, abi::stack_pointer(), dash_sides_slot));
-        emit_rect_sides(builder, &sides, &cx, &cy, &ex, &ey);
-        let four = builder.temporary_vreg();
-        builder.emit(abi::move_immediate(&four, "Integer", "4"));
-        emit_ring_dash_data(builder, &sides, &four, true, cursor);
-        builder.emit(abi::label(&curved));
-    })?;
+    emit_dash_tail(
+        builder,
+        out,
+        &cursor,
+        view,
+        &pattern,
+        &style.cap,
+        |builder, cursor| {
+            let curved = builder.label("canvas_geo_rect_dash_curved");
+            let zero = fconst(builder, 0.0);
+            builder.emit(abi::float_compare_d(&radius, &zero));
+            builder.emit(abi::branch_ne(&curved));
+            let sides = builder.temporary_vreg();
+            builder.emit(abi::add_immediate(
+                &sides,
+                abi::stack_pointer(),
+                dash_sides_slot,
+            ));
+            emit_rect_sides(builder, &sides, &cx, &cy, &ex, &ey);
+            let four = builder.temporary_vreg();
+            builder.emit(abi::move_immediate(&four, "Integer", "4"));
+            emit_ring_dash_data(builder, &sides, &four, true, cursor);
+            builder.emit(abi::label(&curved));
+        },
+    )?;
     builder.emit(abi::label(&solid));
     builder.emit(abi::branch(done));
     builder.emit(abi::label(&empty));
@@ -2139,11 +2197,19 @@ fn fill_line(
     builder.emit(abi::store_double(&dx, &edge, 16));
     builder.emit(abi::store_double(&dy, &edge, 24));
     let cursor = emit_record_end(builder, out);
-    emit_dash_tail(builder, out, &cursor, view, &pattern, &cap, |builder, cursor| {
-        let one = builder.temporary_vreg();
-        builder.emit(abi::move_immediate(&one, "Integer", "1"));
-        emit_ring_dash_data(builder, &edge, &one, false, cursor);
-    })?;
+    emit_dash_tail(
+        builder,
+        out,
+        &cursor,
+        view,
+        &pattern,
+        &cap,
+        |builder, cursor| {
+            let one = builder.temporary_vreg();
+            builder.emit(abi::move_immediate(&one, "Integer", "1"));
+            emit_ring_dash_data(builder, &edge, &one, false, cursor);
+        },
+    )?;
     builder.emit(abi::branch(done));
     builder.emit(abi::label(&empty));
     put_empty(builder, out);
@@ -2158,7 +2224,9 @@ fn ring_point_offsets(
     ring_type: &ParameterType,
 ) -> Result<(usize, usize), String> {
     let ParameterType::ListOf(point) = ring_type else {
-        return Err(format!("canvas: a polygon ring '{ring_type}' is not a list"));
+        return Err(format!(
+            "canvas: a polygon ring '{ring_type}' is not a list"
+        ));
     };
     let point_type = record_type(builder, point)?;
     Ok((
@@ -2385,7 +2453,15 @@ fn fill_polygon(
     builder.emit(abi::load_u64(&n, &ring, COLLECTION_OFFSET_COUNT));
     builder.emit(abi::compare_immediate(&n, "2"));
     builder.emit(abi::branch_lt(&join_ring_next));
-    emit_ring_joins(builder, &ring_edges, &n, true, &cursor, &stroke_half, &style);
+    emit_ring_joins(
+        builder,
+        &ring_edges,
+        &n,
+        true,
+        &cursor,
+        &stroke_half,
+        &style,
+    );
     let bytes = builder.temporary_vreg();
     let forty = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&forty, "Integer", "40"));
@@ -2403,31 +2479,39 @@ fn fill_polygon(
     // plan-163-B: `__canvas_edgeDashes` -- each contributing ring's perimeter data, after
     // the join records.
     let pattern = emit_dash_pattern(builder, view, &stroke_half, done)?;
-    emit_dash_tail(builder, out, &cursor, view, &pattern, &style.cap, |builder, cursor| {
-        let ring_edges = builder.temporary_vreg();
-        builder.emit(abi::add_immediate(&ring_edges, out, GEO_HEADER * 8));
-        let ring_head = builder.label("canvas_geo_poly_dash_ring");
-        let ring_next = builder.label("canvas_geo_poly_dash_ring_next");
-        let rings_walked = builder.label("canvas_geo_poly_dash_rings_done");
-        builder.emit(abi::move_immediate(&r, "Integer", "0"));
-        builder.emit(abi::label(&ring_head));
-        builder.emit(abi::compare_registers(&r, &ring_count));
-        builder.emit(abi::branch_ge(&rings_walked));
-        emit_list_element(builder, &ring, &outer, &r);
-        builder.emit(abi::load_u64(&n, &ring, COLLECTION_OFFSET_COUNT));
-        builder.emit(abi::compare_immediate(&n, "2"));
-        builder.emit(abi::branch_lt(&ring_next));
-        emit_ring_dash_data(builder, &ring_edges, &n, true, cursor);
-        let bytes = builder.temporary_vreg();
-        let forty = builder.temporary_vreg();
-        builder.emit(abi::move_immediate(&forty, "Integer", "40"));
-        builder.emit(abi::multiply_registers(&bytes, &n, &forty));
-        builder.emit(abi::add_registers(&ring_edges, &ring_edges, &bytes));
-        builder.emit(abi::label(&ring_next));
-        builder.emit(abi::add_immediate(&r, &r, 1));
-        builder.emit(abi::branch(&ring_head));
-        builder.emit(abi::label(&rings_walked));
-    })?;
+    emit_dash_tail(
+        builder,
+        out,
+        &cursor,
+        view,
+        &pattern,
+        &style.cap,
+        |builder, cursor| {
+            let ring_edges = builder.temporary_vreg();
+            builder.emit(abi::add_immediate(&ring_edges, out, GEO_HEADER * 8));
+            let ring_head = builder.label("canvas_geo_poly_dash_ring");
+            let ring_next = builder.label("canvas_geo_poly_dash_ring_next");
+            let rings_walked = builder.label("canvas_geo_poly_dash_rings_done");
+            builder.emit(abi::move_immediate(&r, "Integer", "0"));
+            builder.emit(abi::label(&ring_head));
+            builder.emit(abi::compare_registers(&r, &ring_count));
+            builder.emit(abi::branch_ge(&rings_walked));
+            emit_list_element(builder, &ring, &outer, &r);
+            builder.emit(abi::load_u64(&n, &ring, COLLECTION_OFFSET_COUNT));
+            builder.emit(abi::compare_immediate(&n, "2"));
+            builder.emit(abi::branch_lt(&ring_next));
+            emit_ring_dash_data(builder, &ring_edges, &n, true, cursor);
+            let bytes = builder.temporary_vreg();
+            let forty = builder.temporary_vreg();
+            builder.emit(abi::move_immediate(&forty, "Integer", "40"));
+            builder.emit(abi::multiply_registers(&bytes, &n, &forty));
+            builder.emit(abi::add_registers(&ring_edges, &ring_edges, &bytes));
+            builder.emit(abi::label(&ring_next));
+            builder.emit(abi::add_immediate(&r, &r, 1));
+            builder.emit(abi::branch(&ring_head));
+            builder.emit(abi::label(&rings_walked));
+        },
+    )?;
     builder.emit(abi::branch(done));
 
     builder.emit(abi::label(&empty));
@@ -2766,7 +2850,9 @@ fn fill_polyline(
     branch_unless_joined(builder, &style, &scan.half, &no_joins);
     let segments = builder.temporary_vreg();
     builder.emit(abi::add_immediate(&segments, out, GEO_HEADER * 8));
-    emit_ring_joins(builder, &segments, &segs, false, &cursor, &scan.half, &style);
+    emit_ring_joins(
+        builder, &segments, &segs, false, &cursor, &scan.half, &style,
+    );
     let reach = emit_join_reach(builder, &scan.half, &style);
     emit_put_joins(builder, out, &segs, &length, &reach);
     builder.emit(abi::label(&no_joins));
@@ -2775,11 +2861,19 @@ fn fill_polyline(
     // the stops.
     let solid = builder.label("canvas_geo_pl_solid");
     let pattern = emit_dash_pattern(builder, view, &scan.half, &solid)?;
-    emit_dash_tail(builder, out, &cursor, view, &pattern, &scan.cap, |builder, cursor| {
-        let segments = builder.temporary_vreg();
-        builder.emit(abi::add_immediate(&segments, out, GEO_HEADER * 8));
-        emit_ring_dash_data(builder, &segments, &segs, false, cursor);
-    })?;
+    emit_dash_tail(
+        builder,
+        out,
+        &cursor,
+        view,
+        &pattern,
+        &scan.cap,
+        |builder, cursor| {
+            let segments = builder.temporary_vreg();
+            builder.emit(abi::add_immediate(&segments, out, GEO_HEADER * 8));
+            emit_ring_dash_data(builder, &segments, &segs, false, cursor);
+        },
+    )?;
     builder.emit(abi::label(&solid));
     // plan-163-C: a path clip's edges, between the dash tail and the stops.
     emit_clip_edges(builder, out, view, &cursor)?;
@@ -2982,11 +3076,26 @@ pub(super) fn emit_record_size(
         // plan-163-B: a sharp-cornered rectangle's four join records, and its dash tail.
         if *kind == Kind::Rect || *kind == Kind::Rounded {
             let no_joins = builder.label("canvas_geo_size_rect_no_joins");
-            emit_rect_joined(builder, &rec, record, &view, *kind == Kind::Rounded, &no_joins)?;
+            emit_rect_joined(
+                builder,
+                &rec,
+                record,
+                &view,
+                *kind == Kind::Rounded,
+                &no_joins,
+            )?;
             builder.emit(abi::add_immediate(n, n, 4 * JOIN_FLOATS));
             builder.emit(abi::label(&no_joins));
             let solid = builder.label("canvas_geo_size_rect_solid");
-            emit_rect_dash_size(builder, &rec, record, &view, *kind == Kind::Rounded, &solid, n)?;
+            emit_rect_dash_size(
+                builder,
+                &rec,
+                record,
+                &view,
+                *kind == Kind::Rounded,
+                &solid,
+                n,
+            )?;
             builder.emit(abi::label(&solid));
         }
         // plan-163-B: a circle's and a line's dash tails.
@@ -3372,16 +3481,16 @@ mod tests {
             SLOT_GRADIENT_KIND as f64
         );
         assert_eq!(value("__CANVAS_GEO_CAP"), SLOT_CAP as f64);
-        assert_eq!(
-            value("__CANVAS_GEO_POLYGON_RULE"),
-            SLOT_POLYGON_RULE as f64
-        );
+        assert_eq!(value("__CANVAS_GEO_POLYGON_RULE"), SLOT_POLYGON_RULE as f64);
         assert_eq!(value("__CANVAS_GEO_JOIN_COUNT"), SLOT_JOIN_COUNT as f64);
         assert_eq!(value("__CANVAS_GEO_JOIN_REACH"), SLOT_JOIN_REACH as f64);
         assert_eq!(value("__CANVAS_GEO_DASH_COUNT"), SLOT_DASH_COUNT as f64);
         assert_eq!(value("__CANVAS_GEO_DASH_PHASE"), SLOT_DASH_PHASE as f64);
         assert_eq!(value("__CANVAS_GEO_CLIP_MODE"), SLOT_CLIP_MODE as f64);
         assert_eq!(value("__CANVAS_GEO_CLIP_RULE"), SLOT_CLIP_RULE as f64);
-        assert_eq!(value("__CANVAS_GEO_CLIP_EDGE_COUNT"), SLOT_CLIP_EDGE_COUNT as f64);
+        assert_eq!(
+            value("__CANVAS_GEO_CLIP_EDGE_COUNT"),
+            SLOT_CLIP_EDGE_COUNT as f64
+        );
     }
 }

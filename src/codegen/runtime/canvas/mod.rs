@@ -1361,8 +1361,7 @@ pub(crate) const METAL_MAX_FRAME_DASH_WORDS: usize = 1 << 20;
 pub(crate) const METAL_DASH_BASE_WORDS: usize =
     METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// Where Metal's glyph region starts, in 32-bit words — after the dash words.
-pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
-    METAL_DASH_BASE_WORDS + METAL_MAX_FRAME_DASH_WORDS;
+pub(crate) const METAL_GLYPH_BASE_WORDS: usize = METAL_DASH_BASE_WORDS + METAL_MAX_FRAME_DASH_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
 /// their residuals (four words each, bug-687), then the band index (bug-686), then gradient stops (five each), then dash words (one
 /// float32 each, plan-163-B), then glyph coverage (one sample a word), then the picture
