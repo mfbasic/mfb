@@ -306,17 +306,26 @@ fn malformed_or_ipv6_hosts_raise_address_invalid_promptly() {
 
 // ---------------------------------------------------------------------------
 // bug-885 review (coordinator): the fix's getaddrinfo/inet_ntop resolve path
-// allocated a 64-byte scratch buffer on every call, including for a host
-// that was already a numeric IPv4 literal -- round-tripping through the
-// resolver bought nothing there but cost an arena alloc+free pair per call,
-// visible in a `tls::listen("127.0.0.1", ...)` loop's `--debug` arena
-// counters. The fix now checks `inet_pton` first and skips the whole
-// resolve path for an already-numeric host. This test pins that: it builds
-// a loop of `tls::listen("127.0.0.1", 0, ...) + tls::close` at N and 2N
-// iterations and asserts the alloc_calls delta between them is exactly
-// proportional to N, with no extra per-iteration allocation -- the shape a
-// reintroduced "always resolve" regression would break (it would add 2 more
-// allocs per iteration: the inet_ntop buffer plus its implied round trip).
+// allocated a 64-byte scratch buffer (RESOLVEDCSTR) on every call and never
+// freed it, nor balanced a successful `getaddrinfo` with `freeaddrinfo` on
+// every exit. A numeric host (`"127.0.0.1"`) now skips that resolve path
+// entirely (`inet_pton` short-circuit, so an already-bind-ready literal costs
+// nothing extra), which means a numeric-host loop alone cannot exercise the
+// code that leaked -- only a NAME host (`"localhost"`) reaches
+// getaddrinfo/inet_ntop/RESOLVEDCSTR at all.
+//
+// `main` itself already leaks 3 of 6 allocations per `tls::listen`+`close`
+// call for a NUMERIC host (filed separately as bug-984; not this bug's to
+// fix, and NOT asserted on here by absolute value or ratio, because fixing
+// bug-984 changes `free_calls` and would break an assertion pinned to its
+// current, wrong count). So this test does not assert "N allocs are freed"
+// for either host. It asserts something that holds regardless of bug-984:
+// the per-iteration (allocs - frees) gap for a NAME host equals the gap for
+// a NUMERIC host -- i.e. the resolve path (getaddrinfo/inet_ntop/
+// RESOLVEDCSTR) leaks nothing BEYOND whatever the numeric path already
+// leaks. A reintroduced RESOLVEDCSTR leak adds exactly 1 extra
+// unfreed-per-iteration block to the NAME host only, breaking this equality
+// without touching the numeric host's own (bug-984) gap at all.
 // ---------------------------------------------------------------------------
 
 /// Build with `--debug -O0`, run, and return the arena totals
@@ -324,10 +333,11 @@ fn malformed_or_ipv6_hosts_raise_address_invalid_promptly() {
 /// `mfb.debug.begin`/`mfb.debug.end` report on STDERR (`.ai/testing-gates.md`:
 /// a `--debug` build's report is always stderr; the program's own `io::print`
 /// output is stdout).
-fn numeric_host_listen_loop_arena_totals(
+fn host_listen_loop_arena_totals(
     root: &Path,
     cert: &Path,
     key: &Path,
+    host: &str,
     n: u32,
 ) -> (u64, u64) {
     let source = format!(
@@ -337,7 +347,7 @@ IMPORT io
 FUNC main AS Integer
   MUT i AS Integer = 0
   WHILE i < {n}
-    RES s AS tls::Listener = tls::listen("127.0.0.1", 0, "{cert}", "{key}")
+    RES s AS tls::Listener = tls::listen("{host}", 0, "{cert}", "{key}")
     tls::close(s)
     i = i + 1
   END WHILE
@@ -348,7 +358,7 @@ END FUNC
         cert = common::mfb_path_literal(cert),
         key = common::mfb_path_literal(key),
     );
-    let project = root.join(format!("loop_{n}"));
+    let project = root.join(format!("loop_{host}_{n}"));
     std::fs::create_dir_all(project.join("src")).expect("create src dir");
     std::fs::write(
         project.join("project.json"),
@@ -367,7 +377,7 @@ END FUNC
     let build_stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(
         out.status.success(),
-        "n={n}: build --debug failed:\n{build_stdout}\n{}",
+        "host={host} n={n}: build --debug failed:\n{build_stdout}\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
     let exe = build_stdout
@@ -380,7 +390,7 @@ END FUNC
     let report = String::from_utf8_lossy(&run.stderr).into_owned();
     assert!(
         run.status.success(),
-        "n={n}: program failed:\n{}\n{report}",
+        "host={host} n={n}: program failed:\n{}\n{report}",
         String::from_utf8_lossy(&run.stdout)
     );
 
@@ -397,7 +407,7 @@ END FUNC
 }
 
 #[test]
-fn numeric_host_listen_adds_no_per_call_resolve_allocation() {
+fn resolve_path_leaks_nothing_beyond_the_numeric_path() {
     if !have_openssl() {
         eprintln!("skipping: openssl not available");
         return;
@@ -411,40 +421,73 @@ fn numeric_host_listen_adds_no_per_call_resolve_allocation() {
     let (cert, key) = write_cert(&root);
 
     const N: u32 = 10;
-    let (alloc_n, free_n) = numeric_host_listen_loop_arena_totals(&root, &cert, &key, N);
-    let (alloc_2n, free_2n) = numeric_host_listen_loop_arena_totals(&root, &cert, &key, 2 * N);
+    let (numeric_alloc_n, numeric_free_n) =
+        host_listen_loop_arena_totals(&root, &cert, &key, "127.0.0.1", N);
+    let (numeric_alloc_2n, numeric_free_2n) =
+        host_listen_loop_arena_totals(&root, &cert, &key, "127.0.0.1", 2 * N);
+    let (name_alloc_n, name_free_n) =
+        host_listen_loop_arena_totals(&root, &cert, &key, "localhost", N);
+    let (name_alloc_2n, name_free_2n) =
+        host_listen_loop_arena_totals(&root, &cert, &key, "localhost", 2 * N);
 
     let _ = std::fs::remove_dir_all(&root);
 
-    let per_iter_alloc = alloc_n / u64::from(N);
-    let per_iter_free = free_n / u64::from(N);
+    // Linear scaling: no fixed per-call overhead hiding in a constant term,
+    // for either host. This holds independent of bug-984 -- fixing it
+    // changes the per-iteration free_calls value, not its linearity.
     assert_eq!(
-        alloc_2n,
-        2 * alloc_n,
-        "alloc_calls must scale exactly linearly with the iteration count \
-         for a numeric host (N={N}: {alloc_n}, 2N: {alloc_2n}) -- a \
-         reintroduced \"always resolve through getaddrinfo/inet_ntop\" \
-         regression adds a fixed extra allocation per call that breaks \
-         this proportionality"
+        numeric_alloc_2n,
+        2 * numeric_alloc_n,
+        "127.0.0.1: alloc_calls must scale linearly (N={N}: {numeric_alloc_n}, 2N: {numeric_alloc_2n})"
     );
     assert_eq!(
-        free_2n,
-        2 * free_n,
-        "free_calls must scale exactly linearly with the iteration count \
-         (N={N}: {free_n}, 2N: {free_2n})"
+        numeric_free_2n,
+        2 * numeric_free_n,
+        "127.0.0.1: free_calls must scale linearly (N={N}: {numeric_free_n}, 2N: {numeric_free_2n})"
     );
     assert_eq!(
-        alloc_n,
-        free_n * 2,
-        "every allocation from a numeric-host `tls::listen` + `tls::close` \
-         must still be freed at the SAME per-iteration ratio the fix found \
-         (2 allocs per free, measured); a changed ratio here is itself \
-         evidence of a new per-call leak, not just an added allocation"
+        name_alloc_2n,
+        2 * name_alloc_n,
+        "localhost: alloc_calls must scale linearly (N={N}: {name_alloc_n}, 2N: {name_alloc_2n})"
     );
+    assert_eq!(
+        name_free_2n,
+        2 * name_free_n,
+        "localhost: free_calls must scale linearly (N={N}: {name_free_n}, 2N: {name_free_2n})"
+    );
+
+    // A numeric host must not cost more than the pre-bug-885 baseline
+    // (measured: 6 allocs per `tls::listen`+`tls::close`, via the inet_pton
+    // short-circuit). Not asserting a free_calls bound here -- see bug-984.
+    let numeric_per_iter_alloc = numeric_alloc_n / u64::from(N);
     assert!(
-        per_iter_alloc <= 6 && per_iter_free <= 3,
-        "a numeric host must not cost more than the pre-bug-885 baseline \
-         (measured: 6 allocs / 3 frees per `tls::listen`+`tls::close`); \
-         got {per_iter_alloc} allocs / {per_iter_free} frees per iteration"
+        numeric_per_iter_alloc <= 6,
+        "127.0.0.1 must not cost more than the pre-bug-885 baseline \
+         (measured: 6 allocs per tls::listen+tls::close); got \
+         {numeric_per_iter_alloc} allocs per iteration"
+    );
+
+    // The leak-coverage assertion: bug-984 (main's own 3-blocks-per-iteration
+    // close/listen shortfall on a NUMERIC host) is NOT this bug's leak and is
+    // deliberately not pinned here by absolute value -- fixing it changes
+    // free_calls, which would make an absolute or ratio assertion here fail
+    // for the RIGHT fix. What IS this bug's to guarantee: the resolve path
+    // (getaddrinfo/inet_ntop/RESOLVEDCSTR), reached only by a NAME host,
+    // leaks nothing ADDITIONAL beyond whatever bug-984 already leaks for a
+    // numeric host. So the per-iteration (allocs - frees) gap must be the
+    // SAME for both -- a reintroduced RESOLVEDCSTR leak adds exactly one
+    // extra unfreed block per iteration to the name host only, breaking this
+    // equality without changing the numeric host's own gap.
+    let numeric_gap_per_iter = (numeric_alloc_n as i64 - numeric_free_n as i64) / i64::from(N);
+    let name_gap_per_iter = (name_alloc_n as i64 - name_free_n as i64) / i64::from(N);
+    assert_eq!(
+        name_gap_per_iter, numeric_gap_per_iter,
+        "a NAME host's per-iteration (allocs - frees) gap ({name_gap_per_iter}) \
+         must equal a NUMERIC host's ({numeric_gap_per_iter}) -- the resolve \
+         path (getaddrinfo/inet_ntop/RESOLVEDCSTR) must leak nothing beyond \
+         what the numeric path already does (bug-984, out of scope here); \
+         localhost: {name_alloc_n} allocs / {name_free_n} frees over {N} \
+         iterations, 127.0.0.1: {numeric_alloc_n} allocs / {numeric_free_n} \
+         frees"
     );
 }
