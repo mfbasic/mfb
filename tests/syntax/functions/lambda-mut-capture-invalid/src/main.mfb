@@ -4,7 +4,7 @@ IMPORT thread
 
 ' Capturing a `MUT` binding is allowed only in a compiler-proven non-escaping
 ' callback position (`forEach`). Every escaping use stays rejected, and the
-' non-escaping exception never extends to resources or threads
+' non-escaping exception never extends to threads
 ' (plan-08-lambda-mut.md §10, §12.4).
 
 FUNC applyTwice(action AS FUNC(Integer) AS Nothing) AS Nothing
@@ -30,8 +30,8 @@ FUNC main AS Integer
   ' Sent to a thread (not a non-escaping position). Rejected.
   RES worker AS Thread OF Integer TO Integer = thread::start(LAMBDA(input AS Integer) -> total = total + input, 1, 1, 1)
 
-  ' A resource is never capturable, even though `forEach` is non-escaping and
-  ' the `MUT lastLine` capture alone would be allowed (§12.4).
+  ' bug-843: a resource IS capturable (capture = List append), so this
+  ' non-escaping `forEach` action capturing `handle` and `MUT lastLine` builds.
   LET numbers AS List OF Integer = [1, 2, 3]
   RES handle = fs::openFile("tests/syntax/functions/lambda-mut-capture-invalid/data/input.txt")
   MUT lastLine AS String = ""

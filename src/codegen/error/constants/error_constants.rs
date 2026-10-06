@@ -167,6 +167,21 @@ pub(crate) const CLOSURE_ENV_OP_DROP: usize = 0;
 /// The environment routine's operation in argument 0: return a deep copy of the
 /// environment in argument 1.
 pub(crate) const CLOSURE_ENV_OP_COPY: usize = 1;
+/// bug-843: release to the caller every resource the environment reaches that a
+/// scope of the returning frame owns; argument 2 is that frame's token base
+/// (`sp + token_slot`, `resource::owner`). A routine handles this and the three
+/// operations below only when the module's closures carry resources.
+pub(crate) const CLOSURE_ENV_OP_RELEASE: usize = 2;
+/// bug-843: close every resource the environment reaches that nobody owns (a
+/// discarded call result's).
+pub(crate) const CLOSURE_ENV_OP_CLOSE_UNOWNED: usize = 3;
+/// bug-843: raise every resource the environment reaches to the module instance
+/// (a store into a module-level binding).
+pub(crate) const CLOSURE_ENV_OP_MODULE_FLOAT: usize = 4;
+/// bug-843: float every resource the environment reaches to the scope whose token
+/// is argument 3, and list each one that scope takes on the dynamic owned-list
+/// whose head word argument 2 addresses (a binding adopting a call result).
+pub(crate) const CLOSURE_ENV_OP_ADOPT: usize = 5;
 
 /// `_mfb_rt_closure_drop(object)`: free a function value — nothing for a null
 /// pointer or a static descriptor (`env = 0`), otherwise the environment (through
@@ -178,7 +193,7 @@ pub(crate) const CLOSURE_DROP_SYMBOL: &str = "_mfb_rt_closure_drop";
 pub(crate) const CLOSURE_COPY_SYMBOL: &str = "_mfb_rt_closure_copy";
 
 /// The environment routine of the `LAMBDA` lifted to `lambda_symbol`:
-/// `(op, env) -> env` with `op` one of `CLOSURE_ENV_OP_DROP` / `CLOSURE_ENV_OP_COPY`.
+/// `(op, env[, a, b]) -> env` with `op` one of the `CLOSURE_ENV_OP_*` operations.
 /// `lambda_symbol` is already a valid symbol, so concatenation is unique.
 pub(crate) fn closure_env_ops_symbol(lambda_symbol: &str) -> String {
     format!("_mfb_rt_closure_env_{lambda_symbol}")

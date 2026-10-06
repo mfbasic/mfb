@@ -66,7 +66,7 @@ impl CodeBuilder<'_> {
     }
 
     /// `sp + token_slot` into a fresh register.
-    fn emit_scope_token_base(&mut self) -> Reg {
+    pub(crate) fn emit_scope_token_base(&mut self) -> Reg {
         let slot = self.scope_token_slot();
         let base = self.allocate_register();
         self.emit(abi::add_immediate(&base, abi::stack_pointer(), slot));
@@ -202,6 +202,43 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-843: [`Self::emit_resource_release`] measured against the frame whose
+    /// token base (`sp + token_slot`) is in `base_slot` rather than this one's: an
+    /// environment routine releasing, for the frame that is returning a closure, the
+    /// records that frame owns. A resource-union leaf releases its active variant.
+    pub(crate) fn emit_leaf_release_against(
+        &mut self,
+        leaf_slot: usize,
+        leaf: &ParameterType,
+        base_slot: usize,
+    ) -> Result<(), String> {
+        let done = self.label("resource_release_against_done");
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(&record, abi::stack_pointer(), leaf_slot));
+        self.emit(abi::compare_immediate(&record, "0"));
+        self.emit(abi::branch_eq(&done));
+        if self.resource_union_cleanup(leaf).is_some() {
+            self.emit(abi::load_u64(&record, &record, 8));
+            self.emit(abi::compare_immediate(&record, "0"));
+            self.emit(abi::branch_eq(&done));
+        }
+        let owner = self.allocate_register();
+        self.emit(abi::load_u64(&owner, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::shift_right_immediate(
+            &owner,
+            &owner,
+            SCOPE_TOKEN_DEPTH_BITS,
+        ));
+        self.emit(abi::add_immediate(&owner, &owner, 1));
+        let base = self.allocate_register();
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), base_slot));
+        self.emit(abi::compare_registers(&owner, &base));
+        self.emit(abi::branch_ne(&done));
+        self.emit(abi::store_u64(abi::ZERO, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
     /// Whether a value of `type_` can carry a record a scope of this function owns:
     /// one that reaches a resource at any depth (bug-805) — a resource, a resource
     /// union, or a list, map, record or data union holding one (see
@@ -228,6 +265,17 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
     ) -> Result<(), String> {
         self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
+            if builder.is_closure_leaf(leaf) {
+                // bug-843: a returned closure releases what it carries, through its
+                // environment routine, against this frame's token base.
+                let base = builder.emit_scope_token_base();
+                let base_slot = builder.spill_to_slot("returned_closure_base", &base);
+                return builder.emit_closure_resource_op(
+                    leaf_slot,
+                    CLOSURE_ENV_OP_RELEASE,
+                    &[base_slot],
+                );
+            }
             let value = builder.allocate_register();
             builder.emit(abi::load_u64(&value, abi::stack_pointer(), leaf_slot));
             if builder.resource_union_cleanup(leaf).is_some() {
@@ -272,8 +320,16 @@ impl CodeBuilder<'_> {
     }
 
     /// Close the resource (or resource-union box) a slot holds when it is non-null
-    /// and unowned.
-    fn emit_close_unowned_at(&mut self, slot: usize, type_: &ParameterType) -> Result<(), String> {
+    /// and unowned. bug-843: a closure leaf closes what its closure carries that
+    /// nobody owns, through its environment routine.
+    pub(crate) fn emit_close_unowned_at(
+        &mut self,
+        slot: usize,
+        type_: &ParameterType,
+    ) -> Result<(), String> {
+        if self.is_closure_leaf(type_) {
+            return self.emit_closure_resource_op(slot, CLOSURE_ENV_OP_CLOSE_UNOWNED, &[]);
+        }
         let done = self.label("discarded_close_done");
         let value = self.allocate_register();
         self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));

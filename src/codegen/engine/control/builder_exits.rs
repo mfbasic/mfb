@@ -1005,12 +1005,22 @@ impl CodeBuilder<'_> {
         // before the cleanups below, which then skip it on the owner test. Spilled
         // because the walk reads it from a slot; it makes no call, so the value's
         // register is still live afterwards.
-        if let Some(result) = &result {
-            if self.value_may_carry_owned_resources(&result.type_) {
+        let result = match result {
+            Some(mut result) if self.value_may_carry_owned_resources(&result.type_) => {
                 let slot = self.spill_to_slot("returned_resources", &result.location);
                 self.emit_release_returned_value(slot, &result.type_)?;
+                // bug-843: a function value's release calls its environment routine,
+                // which clobbers every caller-saved register; the value is reloaded
+                // from the slot the walk read it from.
+                if self.type_reaches_closure_leaf(&result.type_) {
+                    let reloaded = self.allocate_register();
+                    self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
+                    result.location = Operand::from(reloaded);
+                }
+                Some(result)
             }
-        }
+            other => other,
+        };
         if self.active_cleanups.is_empty() {
             let mut escaping = None;
             if let Some(result) = &result {

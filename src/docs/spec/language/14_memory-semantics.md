@@ -29,7 +29,7 @@ The compiler may choose stack storage, inline storage, or heap allocation. A `MU
 - **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
-Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource references (§15.6). Copying ordinary collection contents copies values — a function value included — while resource slots copy their references. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
+Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource references (§15.6). Copying ordinary collection contents copies values — a function value included — while resource slots copy their references. Functions and lambdas are copyable only when their captured environment is copyable; a captured resource is a reference, exactly as a `RES` list element is, so it does not make the closure non-copyable (§14.4). Threads and resource handles are not copyable. [[src/ir/verify/resources.rs:is_copyable]]
 
 The compiler may replace a semantic copy with a move when it proves the source is not used afterward. This is an optimization only; it must not change diagnostics or observable behavior except performance.
 
@@ -69,7 +69,9 @@ A failed heap allocation surfaces as an ordinary language-level error — `ErrIn
 
 Closures capture `LET` bindings by value when the closure is created. Capturing a copyable value copies it into the closure environment unless the compiler can move it without changing later validity.
 
-An ordinary closure cannot capture `MUT` or resource bindings. A lambda supplied directly as the `collections::forEach` action may capture a `MUT` by reference for that synchronous call, but still cannot capture resources. [[src/codegen/builtins/mod.rs:is_nonescaping_callback_arg]]
+An ordinary closure cannot capture `MUT` bindings. A lambda supplied directly as the `collections::forEach` action may capture a `MUT` by reference for that synchronous call. [[src/codegen/builtins/mod.rs:is_nonescaping_callback_arg]]
+
+Capturing a resource — a `RES` binding, or a value that reaches one, such as a record with a `RES` field or a `List OF RES` — works exactly like appending it to a `List` (§15.6). The closure holds a reference to the one resource and never owns it. When the closure is held by a longer-lived scope, the resource's cleanup scope rises to that scope, and the resource is still closed exactly once, at the end of its own (possibly raised) scope. Every movement of the closure — a copy, a `RETURN`, a discarded call result, a store into a module-level binding, an element of a collection — follows the rule a `List` follows for the same movement. [[src/ir/verify/compat.rs:check_closure_captures]] [[src/codegen/resource/closure_carry.rs:closure_capture_types]]
 
 A function value has one owner, like any ordinary value. Copying it into a second holder — a binding, a field, a collection slot, a return — copies the closure and its environment; a move (§14.2) hands the same closure over. Dropping the holder (scope end, reassignment, or the drop of a record, union or collection that holds it) reclaims the closure and its environment, and a closure passed as an argument and kept by no one is reclaimed when its statement ends, including on error exits. A closure cannot change after it is created and functions are not comparable (§4.11), so no program can tell a copy from the original. A function reference that captures nothing (a named function, or a lambda with no captures) allocates nothing, and copying or dropping it does nothing. See `./mfb spec memory closures`. [[src/codegen/engine/value/builder_values.rs:needs_graph_copy]] [[src/codegen/memory/arena/closure_ops.rs:lower_closure_drop]]
 
@@ -128,7 +130,6 @@ The compiler must diagnose:
 - Copy attempts for non-copyable types.
 - Cyclic value construction.
 - Capturing `MUT` bindings outside the direct `collections::forEach` callback exception.
-- Capturing resource handles in ordinary closures.
 - Capturing other non-copyable values in ordinary closures.
 - Storing a `ThreadWorker` in an ordinary collection, or using a resource handle as a `Map` key.
 - Any control-flow path that could drop the same resource or owned value more than once.

@@ -15,6 +15,7 @@
 //! plan-103. Pure code motion.)
 
 pub(crate) mod cleanup;
+pub(crate) mod closure_carry;
 pub(crate) mod module_owner;
 pub(crate) mod owner;
 pub(crate) mod walk;

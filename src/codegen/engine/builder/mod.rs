@@ -1053,6 +1053,11 @@ pub(crate) struct ResourceUnionCleanup {
 /// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum OwnedListDrop {
+    /// bug-843: a list whose nodes may hold any kind a closure can carry
+    /// (`closure_resource_kinds`). Each node records its own kind (and a union
+    /// leaf's active-variant tag) beside the record, because a `FUNC` holder's type
+    /// does not name what its closures captured. See `closure_carry`.
+    Dynamic,
     /// A single registered close op applied to each node's record pointer, plus what
     /// the drain may reclaim behind it (bug-645): the element's uniform `STATE` block,
     /// its two per-`File` I/O buffers, and — for a `resource_record_freed_at_drop`
@@ -1234,6 +1239,10 @@ pub(crate) struct ClosureEnvLayout {
     /// the creating frame (a borrowed self-update scratch, a shared capacity
     /// shadow, the `os::appResourcePath` base cache). Never owned.
     pub(crate) auxiliary_words: usize,
+    /// bug-843: the by-value capture words whose type reaches a resource, as
+    /// `(capture index, type)` — what the routine's resource operations walk.
+    /// Empty unless the module's closures carry resources.
+    pub(crate) resource_words: Vec<(usize, ParameterType)>,
 }
 
 /// bug-781: what one capture word of an environment holds.
@@ -1245,6 +1254,12 @@ pub(crate) enum ClosureEnvWord {
     /// A word copied verbatim and never freed: a scalar, a by-ref capture's slot
     /// address, a resource or thread handle.
     Plain,
+    /// bug-843: a captured resource union. A union value is a 16-byte
+    /// `{tag@0, record@8}` box owned by the binding that wrapped it and freed at that
+    /// binding's scope exit whoever owns the record, so the environment holds its
+    /// own copy of the box: copied with the environment, freed with it, and never
+    /// closed through (the record belongs to its own, possibly raised, scope).
+    ResourceUnionBox,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -1389,6 +1404,13 @@ pub(crate) struct TypeModel {
     /// collection types that only reach a cycle (`graph_drop_kind_names`). Empty for a model
     /// built without a module.
     pub(crate) graph_drop_kinds: Vec<String>,
+    /// bug-843: the type of every by-value `LAMBDA` capture in the module that can
+    /// reach a resource (`closure_carry::closure_capture_types`), in first-seen
+    /// order. A `FUNC` type does not say what its closure captured, so this
+    /// module-wide set is what tells codegen a function value can carry resource
+    /// references at all — and which kinds. Empty for nearly every program, which
+    /// then lowers exactly as before.
+    pub(crate) closure_capture_types: Vec<ParameterType>,
 }
 
 pub(crate) fn lower_module_for_platform(

@@ -28,7 +28,10 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
     ) -> Result<(), String> {
         let leaves = self.resource_leaf_types(type_);
-        if leaves.is_empty() {
+        // bug-843: a holder of function values can come to own whatever kinds the
+        // module's closures carry, which its type does not name.
+        let dynamic = self.type_reaches_closure_leaf(type_);
+        if leaves.is_empty() && !dynamic {
             return Err(format!(
                 "owned-list owner '{name}' of type '{type_}' reaches no resource"
             ));
@@ -62,7 +65,13 @@ impl CodeBuilder<'_> {
         // fields walk unstripped to the `Res(_)` arm) and so already has its own
         // `OwnedValue` from the bind — adding a second here would be the double free
         // this whole file guards against.
-        if owns_elements && typed_is_collection_type(type_) && !self.is_freeable_flat_value(type_) {
+        // A collection of function values owns its block through its own drop, like
+        // any graph-owning value; the RES-collection block free is not for it.
+        if owns_elements
+            && typed_is_collection_type(type_)
+            && !self.is_freeable_flat_value(type_)
+            && !dynamic
+        {
             if let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) {
                 self.register_res_collection_block_free(name, type_, stack_offset);
             }
@@ -83,6 +92,9 @@ impl CodeBuilder<'_> {
                     scope_depth: self.current_scope_depth(),
                     leaf,
                 }));
+        }
+        if dynamic {
+            self.setup_dynamic_owned_list(name);
         }
         Ok(())
     }
@@ -215,6 +227,26 @@ impl CodeBuilder<'_> {
         leaf: &ParameterType,
     ) -> Result<(), String> {
         let leaf = typed_strip_res_marker(leaf).clone();
+        // bug-843: a container holding function values lists what each closure
+        // carries on its dynamic owned-list. A closure leaf (an adopted call result's
+        // function value) is asked through its environment routine; a resource that
+        // no static list of the container names (one a captured value carried in) is
+        // pushed there directly.
+        let dynamic = self.dynamic_owned_list(collection);
+        if self.is_closure_leaf(&leaf) {
+            let Some(list) = dynamic else {
+                return Err(format!(
+                    "a function value floats to '{collection}', which has no dynamic \
+                     owned-list (bug-843)"
+                ));
+            };
+            let (address_slot, token_slot) = self.emit_dynamic_list_arguments(list)?;
+            return self.emit_closure_resource_op(
+                resource_slot,
+                CLOSURE_ENV_OP_ADOPT,
+                &[address_slot, token_slot],
+            );
+        }
         let lists: Vec<(ParameterType, usize)> = self
             .owned_list_heads
             .iter()
@@ -233,8 +265,20 @@ impl CodeBuilder<'_> {
                     _ => None,
                 }
             })
-            .or_else(|| (lists.len() == 1).then(|| &lists[0]))
+            .or_else(|| (lists.len() == 1 && dynamic.is_none()).then(|| &lists[0]))
             .cloned();
+        if chosen.is_none() {
+            if let Some(list) = dynamic {
+                let (address_slot, token_slot) = self.emit_dynamic_list_arguments(list)?;
+                return self.emit_dynamic_owned_push(
+                    resource_slot,
+                    &leaf,
+                    address_slot,
+                    token_slot,
+                    false,
+                );
+            }
+        }
         let Some((kind, head_slot)) = chosen else {
             return Err(format!(
                 "resource of type '{leaf}' floats to '{collection}', which has no owned-list \
@@ -391,6 +435,9 @@ impl CodeBuilder<'_> {
         &mut self,
         cleanup: &OwnedListCleanup,
     ) -> Result<(), String> {
+        if matches!(cleanup.drop, OwnedListDrop::Dynamic) {
+            return self.emit_dynamic_owned_list_drain(cleanup);
+        }
         let loop_label = self.label("owned_list_drain_loop");
         let done_label = self.label("owned_list_drain_done");
         let close_ok = self.label("owned_list_close_ok");
@@ -415,6 +462,12 @@ impl CodeBuilder<'_> {
         // field 0 is the value to close — the record pointer for a concrete
         // element, the union block pointer (`{tag@0, record-ptr@8}`) for a union.
         match &cleanup.drop {
+            OwnedListDrop::Dynamic => {
+                return Err(format!(
+                    "the dynamic owned-list of '{}' reached the per-kind drain (bug-843)",
+                    cleanup.name
+                ));
+            }
             OwnedListDrop::Concrete {
                 close,
                 state_type,

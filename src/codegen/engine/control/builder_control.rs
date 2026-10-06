@@ -2735,9 +2735,17 @@ impl CodeBuilder<'_> {
                         // capture, the binding owns nothing.
                         // bug-781: a captured function value (or a value holding one)
                         // is owned by the environment the same way.
+                        //
+                        // bug-843: so is a captured resource. The environment holds a
+                        // reference to it, exactly as a `List` element does; the
+                        // resource belongs to its own (possibly raised) scope, so the
+                        // binding neither claims an unowned record nor closes one.
                         let borrowed_capture = !*mutable
                             && matches!(value, Some(NirValue::Capture { by_ref: false, .. }))
-                            && (self.is_freeable_flat_value(type_) || self.owns_graph(type_));
+                            && (self.is_freeable_flat_value(type_)
+                                || self.owns_graph(type_)
+                                || self.resource_cleanup_symbol(type_).is_some()
+                                || self.resource_union_cleanup(type_).is_some());
                         let aliases_capture = by_ref_capture_slot || borrowed_capture;
                         // A reference local must never carry a folded constant: its
                         // value lives in the parent slot and can change underneath
@@ -3666,7 +3674,8 @@ impl CodeBuilder<'_> {
                                 // one does (`call_assigned_owner_containers` gave it its
                                 // owned-lists at its bind).
                                 if crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
-                                    && self.owned_list_heads.keys().any(|(list, _)| list == name)
+                                    && (self.owned_list_heads.keys().any(|(list, _)| list == name)
+                                        || self.dynamic_owned_list(name).is_some())
                                 {
                                     self.emit_owned_list_seed_from_collection(
                                         name,

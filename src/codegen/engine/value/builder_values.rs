@@ -1651,6 +1651,9 @@ impl CodeBuilder<'_> {
         ) {
             return ClosureEnvWord::Plain;
         }
+        if self.resource_union_cleanup(type_).is_some() {
+            return ClosureEnvWord::ResourceUnionBox;
+        }
         if self.is_freeable_flat_value(type_) || self.owns_graph(type_) {
             ClosureEnvWord::Owned(type_.clone())
         } else {
@@ -2019,6 +2022,7 @@ impl CodeBuilder<'_> {
                     CLOSURE_ENV_OFFSET_OPS,
                 ));
                 let mut words = Vec::with_capacity(captures.len());
+                let mut resource_words = Vec::new();
                 for (index, capture) in captures.iter().enumerate() {
                     // The closure env outlives the capturing scope, so it must
                     // own each captured value independently (plan-02 Phase 8).
@@ -2026,7 +2030,31 @@ impl CodeBuilder<'_> {
                     // `arena_alloc` clobbers caller-saved scratch (incl.
                     // `env_register`), so reload the env from its slot.
                     let value = self.lower_value_owned(capture)?;
-                    words.push(self.closure_env_word(capture, &value.type_));
+                    let word = self.closure_env_word(capture, &value.type_);
+                    // bug-843: the environment owns its own copy of a captured
+                    // resource-union box (`ClosureEnvWord::ResourceUnionBox`).
+                    let value = if word == ClosureEnvWord::ResourceUnionBox {
+                        let box_slot =
+                            self.spill_to_slot("closure_capture_union_box", &value.location);
+                        let copied = self.emit_copy_resource_union_box(box_slot)?;
+                        ValueResult {
+                            location: Operand::from(copied),
+                            ..value
+                        }
+                    } else {
+                        value
+                    };
+                    words.push(word);
+                    // bug-843: a by-value capture that reaches a resource is a
+                    // reference the closure carries, walked by the routine's
+                    // resource operations (`closure_carry`).
+                    let by_ref = matches!(
+                        capture,
+                        NirValue::LocalRef { .. } | NirValue::Capture { by_ref: true, .. }
+                    );
+                    if !by_ref && self.type_carries_resources(&value.type_) {
+                        resource_words.push((index, value.type_.clone()));
+                    }
                     // Observation boundary: a `Float` captured into the
                     // closure env is read back when the closure runs, so it
                     // must be finite (plan-17).
@@ -2108,6 +2136,7 @@ impl CodeBuilder<'_> {
                     symbol: ops_symbol,
                     words,
                     auxiliary_words,
+                    resource_words,
                 })?;
                 let closure_register = self.allocate_register();
                 let alloc_ok = self.label("closure_alloc_ok");

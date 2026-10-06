@@ -63,7 +63,14 @@ explains copies in full.
   closure would observe a frozen copy rather than the live cell. This is distinct
   from reassigning an outer `MUT` from an inner block, which is allowed because
   that scope is still live.
-- Capturing a resource (`RES`) handle or any other non-copyable value is also
+- A resource (`RES`) handle may be captured, directly or inside a record or a
+  `List OF RES`. The closure gets an alias of the handle, exactly as a list
+  element is one — never a second open thing. If the closure outlives the block
+  that opened the handle (it is returned, stored in an outer variable or list, or
+  kept in a module-level variable), the handle stays open while that longer-lived
+  variable is in scope and closes once when its scope ends — the same rule a list
+  holding the handle follows. `mfb man variable` explains aliases.
+- Capturing any other non-copyable value is also
   `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`.
 
 ### The non-escaping callback exception
