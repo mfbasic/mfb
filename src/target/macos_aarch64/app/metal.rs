@@ -52,6 +52,8 @@ use crate::codegen::error::constants::error_constants::{
 };
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
+    HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV,
+    HEADER_GRADIENT_SPREAD, ITEM_OFFSET_GRADIENT_FOCAL, ITEM_OFFSET_GRADIENT_INV,
     HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_PICTURE_TRANSPARENCY,
     ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE, ITEM_CLIP_PATH_PICTURE_T,
     ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH, HEADER_DASH_COUNT, HEADER_DASH_PHASE, METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
@@ -179,7 +181,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 arc;\n",
     "  int2 surface;\n",  // width, height (px)
     "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
-    "  int gradientKind;\n", // 0 linear, 1 radial (plan-116-F); was the block's pad
+    // 0 linear, 1 radial (plan-116-F); was the block's pad. plan-163-D: `kind | spread
+    // << 1 | apply << 3`.
+    "  int gradientKind;\n",
     "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
     "  int4 xform1;\n", // itx, ity (float32 bits), hasTransform (0 or 1), unused
@@ -198,6 +202,11 @@ const METAL_SHADER_BODY: &str = concat!(
     // << 2 and a picture's transparency step.
     "  int4 clipBand;\n",
     "  int4 clipPath;\n",
+    // plan-163-D: a radial gradient's own inverse transform (float32 bits) and flag, then
+    // its focal offset and focal radius (16.16).
+    "  int4 gradInv0;\n",
+    "  int4 gradInv1;\n",
+    "  int4 gradFocal;\n",
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -1730,19 +1739,64 @@ const METAL_SHADER_BODY: &str = concat!(
     "              gradientChannel(edges[lo + 3], edges[hi + 3], num),\n",
     "              loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));\n",
     "}\n",
-    "static int4 gradientColour(float2 p, constant int *edges, constant MfbItem &item) {\n",
+    // plan-163-D: the spread past the ramp's ends, the focal radial's position, the ramp
+    // at the SHAPE-space point `q` (radial through its own inverse; `gradientKind` packs
+    // `kind | spread << 1 | apply << 3`), and the stroke tint -- `mfb_canvas.frag`'s
+    // `gradientSpread`, `focalT`, `gradientColour` and `tintRamp`, line for line.
+    "static float gradientSpread(float t, int spread) {\n",
+    "  if (spread == 0) { return t; }\n",
+    "  float tt = clamp(t, -1.0e9, 1.0e9);\n",
+    "  if (spread == 2) { return tt - floor(tt); }\n",
+    "  float u = tt - 2.0 * floor(tt / 2.0);\n",
+    "  return u > 1.0 ? 2.0 - u : u;\n",
+    "}\n",
+    "static float focalT(float2 p, float2 c, float r, float2 o, float fr) {\n",
+    "  if (!(r > 0.0)) { return 0.0; }\n",
+    "  float2 f = c + o;\n",
+    "  float2 e = p - f;\n",
+    "  float2 w = c - f;\n",
+    "  float dr = r - fr;\n",
+    "  float a = w.x * w.x + w.y * w.y - dr * dr;\n",
+    "  float b = e.x * w.x + e.y * w.y + fr * dr;\n",
+    "  float cc = e.x * e.x + e.y * e.y - fr * fr;\n",
+    "  float disc = max(b * b - a * cc, 0.0);\n",
+    "  return (b - sqrt(disc)) / a;\n",
+    "}\n",
+    "static int4 gradientColour(float2 q, constant int *edges, constant MfbItem &item) {\n",
     "  float2 gfrom = float2(fx(item.gradient.x), fx(item.gradient.y));\n",
     "  float2 gto = float2(fx(item.gradient.z), fx(item.gradient.w));\n",
     "  float2 axis = gto - gfrom;\n",
     "  float len2 = dot(axis, axis);\n",
     "  float t = 0.0;\n",
-    "  if (item.gradientKind == 1) {\n",
+    "  if ((item.gradientKind & 1) == 1) {\n",
+    "    float2 g = q;\n",
+    "    if (item.gradInv1.z != 0) {\n",
+    "      g = float2(as_type<float>(item.gradInv0.x) * q.x + as_type<float>(item.gradInv0.z) * q.y\n",
+    "                     + as_type<float>(item.gradInv1.x),\n",
+    "                 as_type<float>(item.gradInv0.y) * q.x + as_type<float>(item.gradInv0.w) * q.y\n",
+    "                     + as_type<float>(item.gradInv1.y));\n",
+    "    }\n",
+    "    float2 o = float2(fx(item.gradFocal.x), fx(item.gradFocal.y));\n",
+    "    float fr = fx(item.gradFocal.z);\n",
     "    float len = sqrt(len2);\n",
-    "    if (len > 0.0) { t = length(p - gfrom) / len; }\n",
+    "    if (o.x != 0.0 || o.y != 0.0 || fr != 0.0) {\n",
+    "      t = focalT(g, gfrom, len, o, fr);\n",
+    "    } else if (len > 0.0) {\n",
+    "      t = length(g - gfrom) / len;\n",
+    "    }\n",
     "  } else {\n",
-    "    if (len2 > 0.0) { t = dot(p - gfrom, axis) / len2; }\n",
+    "    if (len2 > 0.0) { t = dot(q - gfrom, axis) / len2; }\n",
     "  }\n",
-    "  return gradientAt(t, edges, item);\n",
+    "  return gradientAt(gradientSpread(t, (item.gradientKind >> 1) & 3), edges, item);\n",
+    "}\n",
+    "static int4 tintRamp(int4 ramp, int4 by) {\n",
+    "  int4 tint = (ramp * by) / 255;\n",
+    "  int4 out = ramp;\n",
+    "  for (int c = 0; c < 3; ++c) {\n",
+    "    int dc = (tint[c] - ramp[c]) * by.w;\n",
+    "    out[c] = ramp[c] + (dc >= 0 ? (dc + 127) / 255 : -((127 - dc) / 255));\n",
+    "  }\n",
+    "  return out;\n",
     "}\n",
     // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
     // NEAREST and tinted by the fill (plan-163-C: towards `texel * fill / 255` by
@@ -1845,26 +1899,33 @@ const METAL_SHADER_BODY: &str = concat!(
     // the surface distance and the stroke subtracts `half` BEFORE converting, so the
     // outline scales with the shape (section 4.3).
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
-    "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
+    // plan-163-D: at the shape-space point `q`, so the transform carries the ramp; and
+    // with `FillAndStroke` the stroke -- a Line's or Arc's fill -- is the ramp tinted by
+    // its colour.
+    "  float2 q = hasTransform(item) ? inverseMap(item, p) : p;\n",
+    "  int4 ramp = item.ellipse.z >= 2 ? gradientColour(q, edges, item) : item.fill;\n",
+    "  bool rampStroke = item.ellipse.z >= 2 && (item.gradientKind & 8) != 0;\n",
+    "  int4 fillRgba = ramp;\n",
+    "  if (rampStroke && (item.misc.x == 2 || item.misc.x == 3)) { fillRgba = tintRamp(ramp, item.fill); }\n",
     // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
     // the path -- the parameter of the nearest point, in shape space, from the same band
     // the distance used.
     "  if (item.misc.x == 10 && item.ellipse.z >= 2) {\n",
-    "    float2 q = hasTransform(item) ? inverseMap(item, p) : p;\n",
     "    fillRgba = gradientAt(polylineScan(item, edges, polygonBand(item, edges, q.y), q).y, edges, item);\n",
     "  }\n",
     // bug-484: a picture's image replaces the fill COLOUR the same way, sampled at the
     // inverse-mapped point under a transform (plan-116-C section 4.5, as a glyph is).
     "  if (item.misc.x == 9) {\n",
-    "    fillRgba = pictureColour(item, edges, hasTransform(item) ? inverseMap(item, p) : p);\n",
+    "    fillRgba = pictureColour(item, edges, q);\n",
     "  }\n",
-    "  float4 colour = covered(fillRgba, (cov.x * clipCov) / 255);\n",
+    // plan-163-D: a fill alpha of -1 is the stroke record of a split blended item.
+    "  float4 colour = item.fill.w < 0 ? float4(0.0) : covered(fillRgba, (cov.x * clipCov) / 255);\n",
     "  if (cov.z != 0) {\n",
     // plan-116-B: this stroke-over-fill composition equals the oracle's two sequential
     // blends only under `Normal`, which is why a non-`Normal` item that both fills and
     // strokes is emitted as two adjacent instances (`emit_split_or_publish`). By the
     // time such an item reaches here it is fill-only or stroke-only.
-    "    float4 s = covered(item.stroke, (cov.y * clipCov) / 255);\n",
+    "    float4 s = covered(rampStroke ? tintRamp(ramp, item.stroke) : item.stroke, (cov.y * clipCov) / 255);\n",
     "    colour = s + colour * (1.0 - s.w);\n",
     "  }\n",
     "  return colour;\n",
@@ -4621,6 +4682,50 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         ));
     }
 
+    // plan-163-D: a radial gradient's own inverse -- six float32 bit patterns and the
+    // flag, header slots 57-63 -- word for word into `gradInv0`/`gradInv1`, the
+    // transform's layout; and its focal offset and radius narrowed to 16.16 (`gradFocal`).
+    for index in 0..7 {
+        asm.push(abi::load_double(
+            abi::FP_SCRATCH[1],
+            header,
+            (HEADER_GRADIENT_INV + index) * 8,
+        ));
+        asm.push(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_GRADIENT_INV + index * 4,
+        ));
+    }
+    debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", FIXED_POINT_SCALE));
+    asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[1]));
+    for index in 0..3 {
+        asm.push(abi::load_double(
+            abi::FP_SCRATCH[1],
+            header,
+            (HEADER_GRADIENT_FOCAL_X + index) * 8,
+        ));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_GRADIENT_FOCAL + index * 4,
+        ));
+    }
+
     // The blend tag, a whole 0..3 beside the surface size (plan-116-B). `Normal` is 0,
     // so an item that never set `Paint.blend` writes the value the pipeline it selects
     // has always had.
@@ -4642,11 +4747,29 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     // The cap tag, in the per-kind block's last free word (plan-116-D) — the twin of
     // the block in `runtime/canvas/vulkan.rs`, and unconditional for the same reason.
     // plan-116-F: the gradient's kind, a whole 0 or 1 in the block's last spare word.
+    // plan-163-D: packed with the spread and the stroke apply, `kind + 2 * spread + 8 *
+    // apply` (`ITEM_SURFACE_GRADIENT_KIND`), every term a small whole number.
     asm.push(abi::load_double(
         abi::FP_SCRATCH[1],
         header,
         HEADER_GRADIENT_KIND * 8,
     ));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[2],
+        header,
+        HEADER_GRADIENT_SPREAD * 8,
+    ));
+    asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[2],
+        header,
+        HEADER_GRADIENT_APPLY * 8,
+    ));
+    for _ in 0..3 {
+        asm.push(abi::float_add_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[2], abi::FP_SCRATCH[2]));
+    }
+    asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
     asm.push(abi::float_convert_to_signed_x(
         abi::SCRATCH[1],
         abi::FP_SCRATCH[1],
@@ -4808,13 +4931,35 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     // ...and actually fills. A `Line` or an `Arc` arrives with its stroke colour
     // already moved into the fill slots and `strokeHalf` negative
     // (`__canvas_strokeAsFill`), so it is fill-only and takes the single path.
+    //
+    // plan-163-D: "fills" is a visible fill alpha, OR a gradient (its ramp is the fill
+    // colour whatever the fill alpha), OR a picture (its image is, and since plan-163-C
+    // its fill alpha is only the tint's strength). Testing the fill alpha alone sent a
+    // blended stroked gradient or picture with a transparent fill down the single path,
+    // composing stroke over fill in the shader under a mode where that is wrong.
+    let fills = format!("{METAL_DRAW_SYMBOL}_publish_fills");
     asm.push(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_FILL + 12,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    asm.push(abi::branch_le(&single));
+    asm.push(abi::branch_gt(&fills));
+    asm.push(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_COUNT,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "2"));
+    asm.push(abi::branch_ge(&fills));
+    asm.push(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM + ITEM_OFFSET_MISC,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], &GEO_KIND_PICTURE.to_string()));
+    asm.push(abi::branch_ne(&single));
+    asm.push(abi::label(&fills));
 
     // Record one: the fill, with the stroke switched off. `strokeHalf` is parked on the
     // STACK — `emit_item_publish` owns the low scratch registers, so a register saved
@@ -4857,7 +5002,12 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     ));
 
     // Record two: the stroke, with the fill made fully transparent.
-    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    // plan-163-D: marked OFF -- alpha -1, which every shader reads as "no fill in this
+    // record" -- rather than made transparent: a gradient's or a picture's colour does
+    // not come from the fill alpha, so a zero there left record two drawing the ramp or
+    // the image a second time under the blend. The stroke still reads the ramp
+    // (`FillAndStroke`). Spelled unsigned; the store keeps the low 32 bits.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "4294967295"));
     asm.push(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -7138,8 +7288,11 @@ mod tests {
             "the clip must come out of `shapeCoverage`, at the SHAPE-space point — \
              evaluating it at the surface point leaves it behind when the group moves",
         );
+        // plan-163-D: the ramp is in the item's own space, so it takes `q`, the
+        // inverse-mapped twin of `p` -- still the shape-space point, never `in.pos.xy`.
         for (call, what) in [
-            ("gradientColour(p, edges, item)", "the gradient ramp"),
+            ("float2 q = hasTransform(item) ? inverseMap(item, p) : p;", "the ramp's point"),
+            ("gradientColour(q, edges, item)", "the gradient ramp"),
             ("inverseMap(item, p) : p", "the glyph sample"),
         ] {
             assert!(

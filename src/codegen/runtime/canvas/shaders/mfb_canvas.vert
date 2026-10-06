@@ -44,6 +44,11 @@ struct ItemBlock {
     ivec4 strokeStyle; // 272
     ivec4 clipBand;    // 288, plan-163-C
     ivec4 clipPath;    // 304
+    // plan-163-D: a radial gradient's inverse (float32 bits) and flag, and its focal
+    // offset and radius (16.16). The vertex stage reads none of them.
+    ivec4 gradInv0;    // 320
+    ivec4 gradInv1;    // 336
+    ivec4 gradFocal;   // 352
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {

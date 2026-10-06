@@ -3,7 +3,8 @@ use crate::codegen::runtime::canvas::{
     GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
     HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
     HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT, HEADER_JOIN_COUNT, HEADER_JOIN_REACH, HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST,
-    HEADER_POLYLINE_LAST, HEADER_SLOTS,
+    HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV,
+    HEADER_GRADIENT_SPREAD, HEADER_POLYLINE_LAST, HEADER_SLOTS,
     PICTURE_SHADOW_SPLIT_BITS,
 };
 
@@ -106,17 +107,19 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
 #[test]
 fn the_gradient_slots_follow_the_clip_slots_and_fill_the_header() {
     let slots = [
-        ("__CANVAS_GEO_GRADIENT_SPREAD", 55),
-        ("__CANVAS_GEO_GRADIENT_APPLY", 56),
-        ("__CANVAS_GEO_GRADIENT_INV", 57),
-        ("__CANVAS_GEO_GRADIENT_HAS_INV", 63),
-        ("__CANVAS_GEO_GRADIENT_FOCALX", 64),
-        ("__CANVAS_GEO_GRADIENT_FOCALY", 65),
-        ("__CANVAS_GEO_GRADIENT_FOCALR", 66),
+        ("__CANVAS_GEO_GRADIENT_SPREAD", HEADER_GRADIENT_SPREAD),
+        ("__CANVAS_GEO_GRADIENT_APPLY", HEADER_GRADIENT_APPLY),
+        ("__CANVAS_GEO_GRADIENT_INV", HEADER_GRADIENT_INV),
+        ("__CANVAS_GEO_GRADIENT_HAS_INV", HEADER_GRADIENT_HAS_INV),
+        ("__CANVAS_GEO_GRADIENT_FOCALX", HEADER_GRADIENT_FOCAL_X),
+        ("__CANVAS_GEO_GRADIENT_FOCALY", HEADER_GRADIENT_FOCAL_X + 1),
+        ("__CANVAS_GEO_GRADIENT_FOCALR", HEADER_GRADIENT_FOCAL_X + 2),
     ];
     for (name, slot) in slots {
-        assert_eq!(declared(name), slot, "{name} moved");
+        assert_eq!(declared(name), slot, "{name} and the emitters' constant disagree");
     }
+    assert_eq!(HEADER_GRADIENT_SPREAD, 55, "the first gradient slot follows the clip slots");
+    assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
     assert!(declared("__CANVAS_GEO_PICTURE_TRANSPARENCY") < 55);
     assert_eq!(declared("__CANVAS_GEO_HEADER"), 67);
     assert_eq!(HEADER_SLOTS, 67);

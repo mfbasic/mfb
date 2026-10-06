@@ -393,13 +393,23 @@ Acceptance: per §3 in software, with Phase 1 results unchanged.
   rt_canvas_geo_native` → pass, goldens unmodified since Phase 1 (est. 10 min, guess).
   Result: rasteriser 86 passed (2 ignored), golden 22, geo_native 4, picture 11, font 33;
   `git status --short tests/golden` → nothing.
-Commit: —
+Commit: 54e7684d7
 
 ### Phase 3 — Item block growth and the GPU (largest blast radius)
 
-- [ ] Item block +48 bytes per §5, with every guard passing.
-- [ ] Emitters (`metal.rs`, `vulkan.rs`): the new words, and `surface.w` packing.
-- [ ] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line):
+- [x] Item block +48 bytes per §5, with every guard passing. (320 → 368:
+      `ITEM_OFFSET_GRADIENT_INV` 320, `ITEM_OFFSET_GRADIENT_FOCAL` 352; `gradInv0`,
+      `gradInv1`, `gradFocal` in both GLSL structs and the MSL one; `cargo test --bin mfb
+      -- the_draw_frame_slots_do_not_overlap the_metal_shader_region_bases_match_the_buffer_layout
+      the_pipeline_specializes_every_region_base the_shared_buffer_holds_every_region
+      vulkan spirv metal` → 19 passed.)
+- [x] Emitters (`metal.rs`, `vulkan.rs`): the new words, and `surface.w` packing.
+      (`emit_item_block` in both: header 57–63 word for word, 64–66 in 16.16, `kind + 2 ·
+      spread + 8 · apply`.)
+- [x] Discovered: the blend split published a gradient's or picture's fill twice —
+      Corrections 10. (`emit_split_or_publish` in both emitters, `emit_block_instances`,
+      `__canvas_blockInstances`; record two's fill alpha −1, read by both shaders.)
+- [x] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line):
       - `gradientColour` takes `q`;
       - radial `G⁻¹` and the focal quadratic;
       - the spread helper;
@@ -407,7 +417,15 @@ Commit: —
       Replace every `surface.w == 1`: first run `grep -nE "surface\.w *== *1"
       src/codegen/runtime/canvas/shaders/mfb_canvas.frag src/target/macos_aarch64/app/metal.rs`,
       record the count here, and bring it to 0. Regenerate both `.spv` on box 2228.
-- [ ] Tests: the Phase 1 and Phase 2 scenes as `rt_canvas_metal.rs` rows.
+      (At 54e7684d7: 1 in `mfb_canvas.frag`, and Metal's twin `gradientKind == 1` 1 —
+      Metal names the word `gradientKind`; now 0 and 0, every reader unpacking `& 1`.
+      `gradientSpread`, `focalT`, `tintRamp`, `gradientColour(q)`. `.spv` regenerated on
+      2226 — vert 6208, frag 248628 bytes; Corrections 12.)
+- [x] Tests: the Phase 1 and Phase 2 scenes as `rt_canvas_metal.rs` rows.
+      (`gradients_match_the_software_oracle_on_metal` over `scenes/gradients_on_black.mfb`
+      — every Phase 1 and 2 case plus two stroked gradients under Multiply; the picture
+      row gains a blended stroked picture with a clear tint; Vulkan row `gradientsblack`
+      — Corrections 13.)
 
 Acceptance: both GPUs match the software renderer within tolerance, and the layout
 guards pass.
@@ -417,6 +435,15 @@ guards pass.
   within `GPU_DEFAULT` (est. 15 min, guess);
   `scripts/test-canvas-gpu-rows.sh <focal scene> --target windows-x86_64` on box 206
   (the only real GPU) → within tolerance (est. 10 min, guess).
+  Result: `cargo test --bin mfb canvas` → 111 passed; `cargo test --test rt_canvas_metal
+  --test rt_canvas_golden` → 45 and 22 passed (`gpuFrames≠0` asserted per row; the
+  gradient and picture rows re-run after Corrections 13 → passed); `test-canvas-gpu-rows.sh
+  target/release/mfb --target linux-aarch64 --rows gradientsblack` on 2226 → passed, worst=1
+  0.9458%; the same with `--target windows-x86_64` on 206 → passed, worst=1 0.7720%;
+  pathclips, groupsblack, xformblack and matrix on both → passed;
+  `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64` →
+  passed, main scene worst=2 0.8160%. Focal and spread are both in `gradientsblack`.
+  app-mouse-surface goldens regenerated (5 synced, 6 rewritten).
 Commit: —
 
 ### Phase 4 — Docs and spec
@@ -520,6 +547,34 @@ user are recorded as decisions in §3.
    (the ramp's stops carry the fade, as a picture's texels do) and `__canvas_strokeHalf`
    strokes a zero-alpha stroke when the paint's gradient has two or more stops. Its
    native twin only sees paints with fewer than two stops, where nothing changed.
+10. **A pre-existing bug: the blend split drew a gradient's or picture's fill twice.**
+    `emit_split_or_publish` publishes a blended item that fills and strokes as a fill
+    record and a stroke record, and made record two stroke-only by zeroing the fill
+    alpha — but a gradient's colour (since plan-116-F) and a picture's (since plan-163-C,
+    whose fill alpha is a tint) do not come from it, so record two drew the fill again
+    under the blend; and the split test, fill alpha > 0, sent a stroke-only paint with a
+    ramp down the single path. Measured on Metal over the gradient scene before the fix:
+    the Multiply rectangle 12492 pixels off by up to 54, the stroke-only one 4390 by up
+    to 43. Fixed in both emitters, the native counter `emit_block_instances` and
+    `__canvas_blockInstances` (which must agree, or every later draw base shifts — the
+    first attempt changed only the MFBASIC counter and moved a later item's pixels by
+    160): "fills" is fill alpha > 0, two or more stops, or a picture, and record two marks
+    its fill off with alpha −1, which both shaders skip. After: both within 1.
+11. **`the_metal_fragment_clips_and_samples_in_shape_space` pinned the ramp at `p`.** It
+    guards that the fragment samples in shape space, not at `in.pos.xy` (plan-116-H); the
+    ramp now takes `q`, the inverse-mapped twin of `p` (this plan's item-space decision),
+    so the pinned call is `gradientColour(q, edges, item)` and the line defining `q` from
+    `p` is pinned beside it.
+12. **Box 2228 is down; 2226 stands in, as in plan-163-C (Correction 6).** The `.spv` were
+    regenerated with `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`; the Linux Vulkan rows
+    ran on 2226 (`--target linux-aarch64`) and the same rows on 206's real GPU.
+13. **The Vulkan row is `gradientsblack`, and its blended items are small.** A row named
+    `gradients` already ran `many_gradients.mfb`; `test-canvas-gpu-rows.sh` runs every
+    table row matching a name, so both ran under one label. Renamed. And the first scene
+    put 2·180×80 px of Multiply over grey: on 2226's lavapipe 2.27% of the frame drifted
+    one step (worst 1; 5452 and 5833 of those pixels in the two blended items), past
+    `GPU_DEFAULT`'s 2% — the blend-precision drift the script's header already records.
+    The two items exist for the split, so they are 80×56 now.
 
 ## Summary
 

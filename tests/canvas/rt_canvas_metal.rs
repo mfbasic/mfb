@@ -870,7 +870,11 @@ FUNC main() AS Nothing
   LET untinted AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }]
   LET halfRed AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgba(255, 0, 0, 128))]
   LET faded AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { transparency := 0.6 }]
-  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node, untinted, halfRed, faded])
+  ' plan-163-D: a blended stroked picture whose fill is transparent (the zero tint) still
+  ' fills with its image, so the GPUs publish it as two records like any blended item
+  ' that fills and strokes.
+  LET blendedClear AS canvas::DrawItem = canvas::Picture[x := 300.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH canvas::fillStroke(color::rgba(0, 0, 0, 0), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
+  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node, untinted, halfRed, faded, blendedClear])
 END FUNC
 "#;
 
@@ -1246,6 +1250,21 @@ fn joins_match_the_software_oracle_on_metal() {
         "canvas_metal_joins",
         JOINS,
         "the mitered and beveled polygons, polylines and rectangles over black",
+    );
+}
+
+/// plan-163-D: gradients in the item's own space -- turned by their own transform and by
+/// the item's, the three spreads, a 2:1 radial, a focus and a focal disc, the ramp painting
+/// strokes under three stroke colours and a Line, and two stroked gradients under
+/// Multiply.
+const GRADIENTS: &str = include_str!("scenes/gradients_on_black.mfb");
+
+#[test]
+fn gradients_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_gradients",
+        GRADIENTS,
+        "the gradients over black",
     );
 }
 

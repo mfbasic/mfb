@@ -45,6 +45,11 @@ struct ItemBlock {
     // transparency step T.
     ivec4 clipBand;
     ivec4 clipPath;
+    // plan-163-D: a radial gradient's own inverse transform (float32 bits) and its flag,
+    // then its focal offset and focal radius (16.16).
+    ivec4 gradInv0;
+    ivec4 gradInv1;
+    ivec4 gradFocal;
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -1563,21 +1568,79 @@ ivec4 gradientAt(float t) {
         loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));
 }
 
-ivec4 gradientColour(vec2 p) {
+// plan-163-D: a ramp position past its ends, per the spread -- `__canvas_gradientSpread`,
+// operation for operation: Pad (0) leaves it for `gradientAt`'s clamp, Repeat (2) is
+// `t - floor(t)`, Reflect (1) folds `t - 2 floor(t / 2)` back at 1. Metal's, line for line.
+float gradientSpread(float t, int spread) {
+    if (spread == 0) { return t; }
+    float tt = clamp(t, -1.0e9, 1.0e9);
+    if (spread == 2) { return tt - floor(tt); }
+    float u = tt - 2.0 * floor(tt / 2.0);
+    return u > 1.0 ? 2.0 - u : u;
+}
+
+// plan-163-D: a focal radial's ramp position at the gradient-space point `p` --
+// `__canvas_focalT`, operation for operation: the larger root of `|p - f - t (c - f)|^2 =
+// (fr + t (r - fr))^2`, whose leading coefficient the builder's clamps keep below zero.
+// Metal's, line for line.
+float focalT(vec2 p, vec2 c, float r, vec2 o, float fr) {
+    if (!(r > 0.0)) { return 0.0; }
+    vec2 f = c + o;
+    vec2 e = p - f;
+    vec2 w = c - f;
+    float dr = r - fr;
+    float a = w.x * w.x + w.y * w.y - dr * dr;
+    float b = e.x * w.x + e.y * w.y + fr * dr;
+    float cc = e.x * e.x + e.y * e.y - fr * fr;
+    float disc = max(b * b - a * cc, 0.0);
+    return (b - sqrt(disc)) / a;
+}
+
+// plan-163-D: the ramp at the SHAPE-space point `q` (the inverse-mapped point under a
+// transform), so the item's transform and group carry it; a linear gradient's own
+// transform is folded into its axis at build, a radial one's maps `q` through
+// `gradInv0`/`gradInv1` here, and `surface.w` packs `kind | spread << 1 | apply << 3`.
+ivec4 gradientColour(vec2 q) {
     vec2 from = vec2(fx(item.gradient.x), fx(item.gradient.y));
     vec2 to = vec2(fx(item.gradient.z), fx(item.gradient.w));
     vec2 axis = to - from;
     float len2 = dot(axis, axis);
     float t = 0.0;
-    if (item.surface.w == 1) {
+    if ((item.surface.w & 1) == 1) {
         // Radial: distance from the centre, over the axis length. A zero-length axis
         // leaves t at 0, so the first stop fills — defined, not a divide by zero.
+        vec2 g = q;
+        if (item.gradInv1.z != 0) {
+            g = vec2(intBitsToFloat(item.gradInv0.x) * q.x + intBitsToFloat(item.gradInv0.z) * q.y
+                         + intBitsToFloat(item.gradInv1.x),
+                     intBitsToFloat(item.gradInv0.y) * q.x + intBitsToFloat(item.gradInv0.w) * q.y
+                         + intBitsToFloat(item.gradInv1.y));
+        }
+        vec2 o = vec2(fx(item.gradFocal.x), fx(item.gradFocal.y));
+        float fr = fx(item.gradFocal.z);
         float len = sqrt(len2);
-        if (len > 0.0) { t = length(p - from) / len; }
+        if (o.x != 0.0 || o.y != 0.0 || fr != 0.0) {
+            t = focalT(g, from, len, o, fr);
+        } else if (len > 0.0) {
+            t = length(g - from) / len;
+        }
     } else {
-        if (len2 > 0.0) { t = dot(p - from, axis) / len2; }
+        if (len2 > 0.0) { t = dot(q - from, axis) / len2; }
     }
-    return gradientAt(t);
+    return gradientAt(gradientSpread(t, (item.surface.w >> 1) & 3));
+}
+
+// plan-163-D: a ramp colour tinted by `by` at the strength of its alpha -- the picture
+// tint (`__canvas_tintChannel`) -- keeping the ramp's alpha. A stroke the ramp paints
+// (`FillAndStroke`) is this of the stroke colour; a Line's or Arc's, of its fill slots.
+ivec4 tintRamp(ivec4 ramp, ivec4 by) {
+    ivec4 tint = (ramp * by) / 255;
+    ivec4 outc = ramp;
+    for (int c = 0; c < 3; ++c) {
+        int dc = (tint[c] - ramp[c]) * by.w;
+        outc[c] = ramp[c] + (dc >= 0 ? (dc + 127) / 255 : -((127 - dc) / 255));
+    }
+    return outc;
 }
 
 vec4 covered(ivec4 rgba, int coverage) {
@@ -1742,20 +1805,28 @@ void main() {
     // scales with the shape (§4.3).
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else — the shape's
     // distance, its coverage and its stroke are untouched.
-    ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p) : item.fill;
+    // plan-163-D: at the shape-space point `q`, so the transform carries the ramp; and
+    // with `FillAndStroke` (`surface.w & 8`) the stroke -- a Line's or Arc's fill -- is the
+    // ramp tinted by its colour.
+    vec2 q = hasTransform() ? inverseMap(p) : p;
+    ivec4 ramp = item.ellipse.z >= 2 ? gradientColour(q) : item.fill;
+    bool rampStroke = item.ellipse.z >= 2 && (item.surface.w & 8) != 0;
+    ivec4 fillRgba = ramp;
+    if (rampStroke && (item.misc.x == 2 || item.misc.x == 3)) { fillRgba = tintRamp(ramp, item.fill); }
     // plan-154-C: a PolyLine's stops are its per-point colours, and its ramp runs along
     // the path -- the parameter of the nearest point, in shape space, from the same band
     // the distance used.
     if (item.misc.x == 10 && item.ellipse.z >= 2) {
-        vec2 q = hasTransform() ? inverseMap(p) : p;
         fillRgba = gradientAt(polylineScan(polygonBand(q.y), q).y);
     }
     // bug-484: a picture's image replaces the fill colour the same way — sampled at the
     // shape-space point, the inverse-mapped one under a transform.
     if (item.misc.x == 9) {
-        fillRgba = pictureColour(hasTransform() ? inverseMap(p) : p);
+        fillRgba = pictureColour(q);
     }
-    vec4 colour = covered(fillRgba, (cov.x * clipCov) / 255);
+    // plan-163-D: a fill alpha of -1 is the stroke record of a split blended item
+    // (`emit_split_or_publish`): no fill here, whatever its colour would be.
+    vec4 colour = item.fill.w < 0 ? vec4(0.0) : covered(fillRgba, (cov.x * clipCov) / 255);
     if (cov.z != 0) {
         // Stroke over fill, then the hardware puts that over the destination — which
         // is what makes this one fragment equal to the software path's two sequential
@@ -1765,7 +1836,7 @@ void main() {
         // stroked-and-filled item is emitted as two adjacent instances instead (§4.3).
         // By the time such an item reaches here it is either fill-only or stroke-only,
         // so this branch composes two sources only under `Normal`, where it is exact.
-        vec4 s = covered(item.stroke, (cov.y * clipCov) / 255);
+        vec4 s = covered(rampStroke ? tintRamp(ramp, item.stroke) : item.stroke, (cov.y * clipCov) / 255);
         colour = s + colour * (1.0 - s.w);
     }
     fragColor = colour;

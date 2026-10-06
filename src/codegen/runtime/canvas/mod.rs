@@ -445,11 +445,12 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize =
 /// 16 bytes (`glslangValidator -V -q mfb_canvas.vert`; 208 with members at
 /// 0/16/.../192 when plan-116-F added the gradient axis `ivec4`, 272 with the four
 /// residual `ivec4`s at 208/224/240/256 since bug-735, 288 with plan-163-B's
-/// `strokeStyle` at 272; plan-163-C's `clipBand` at 288 and `clipPath` at 304), matching the
+/// `strokeStyle` at 272; plan-163-C's `clipBand` at 288 and `clipPath` at 304; plan-163-D's
+/// `gradInv0`/`gradInv1` at 320/336 and `gradFocal` at 352), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 320;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 368;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -627,6 +628,13 @@ pub(crate) const ITEM_CLIP_PATH_BASE: usize = 0;
 pub(crate) const ITEM_CLIP_PATH_COUNT: usize = 4;
 pub(crate) const ITEM_CLIP_PATH_MODE: usize = 8;
 pub(crate) const ITEM_CLIP_PATH_PICTURE_T: usize = 12;
+/// plan-163-D: a radial gradient's own inverse transform -- `ia, ib, ic, id` then `itx,
+/// ity` as float32 BIT PATTERNS and its flag (0 or 1), the `xform0`/`xform1` layout --
+/// copied word for word from header slots 57-63 into `gradInv0` and `gradInv1`.
+pub(crate) const ITEM_OFFSET_GRADIENT_INV: usize = 320;
+/// plan-163-D: a radial gradient's focal offset from its centre and focal radius, 16.16
+/// (`gradFocal`), already clamped by the builder.
+pub(crate) const ITEM_OFFSET_GRADIENT_FOCAL: usize = 352;
 /// The word inside `ITEM_OFFSET_ARC` holding an arc's `reflex` flag, 0 or 1 (bug-735):
 /// `endAngle - startAngle > PI`, decided by the emitter in the oracle's own f64
 /// (`__canvas_drawGeometry`), so the sweep test's union-or-intersection choice cannot
@@ -876,8 +884,18 @@ pub(crate) fn emit_item_polygon_rule(
     ]
 }
 /// The gradient's kind (0 linear, 1 radial) in `surface.w`, which was the block's last
-/// spare word.
+/// spare word -- since plan-163-D packed with the spread and the stroke apply as `kind |
+/// spread << 1 | apply << 3` (spread 0 Pad, 1 Reflect, 2 Repeat), which the shaders
+/// unpack with `& 1`, `>> 1 & 3` and `& 8`.
 pub(crate) const ITEM_SURFACE_GRADIENT_KIND: usize = 12;
+/// plan-163-D: `__CANVAS_GEO_GRADIENT_SPREAD`, `_APPLY`, the radial inverse's first word
+/// (`_INV`, six float32 bit patterns) and its flag (`_HAS_INV`), and the focal offset's x
+/// (`_FOCALX`, then y and the focal radius).
+pub(crate) const HEADER_GRADIENT_SPREAD: usize = 55;
+pub(crate) const HEADER_GRADIENT_APPLY: usize = 56;
+pub(crate) const HEADER_GRADIENT_INV: usize = 57;
+pub(crate) const HEADER_GRADIENT_HAS_INV: usize = 63;
+pub(crate) const HEADER_GRADIENT_FOCAL_X: usize = 64;
 /// The gradient's axis in the geometry header — `startPoint.x` at 43, running to
 /// `endPoint.y` at 46 — and its kind at 42.
 pub(crate) const HEADER_GRADIENT_KIND: usize = 42;

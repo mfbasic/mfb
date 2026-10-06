@@ -42,6 +42,8 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
+    HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV,
+    HEADER_GRADIENT_SPREAD, ITEM_OFFSET_GRADIENT_FOCAL, ITEM_OFFSET_GRADIENT_INV,
     HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_PICTURE_TRANSPARENCY,
     ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE, ITEM_CLIP_PATH_PICTURE_T,
     ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH, HEADER_DASH_COUNT, HEADER_DASH_PHASE, HEADER_JOIN_COUNT, VULKAN_DASH_BASE_WORDS,
@@ -3711,6 +3713,50 @@ fn emit_item_block(
         ));
     }
 
+    // plan-163-D: a radial gradient's own inverse -- six float32 bit patterns and the
+    // flag, header slots 57-63 -- word for word into `gradInv0`/`gradInv1`, the
+    // transform's layout; and its focal offset and radius narrowed to 16.16 (`gradFocal`).
+    for index in 0..7 {
+        builder.emit(abi::load_double(
+            abi::FP_SCRATCH[1],
+            header,
+            (HEADER_GRADIENT_INV + index) * 8,
+        ));
+        builder.emit(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_GRADIENT_INV + index * 4,
+        ));
+    }
+    debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
+    builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", FIXED_POINT_SCALE));
+    builder.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[1]));
+    for index in 0..3 {
+        builder.emit(abi::load_double(
+            abi::FP_SCRATCH[1],
+            header,
+            (HEADER_GRADIENT_FOCAL_X + index) * 8,
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_GRADIENT_FOCAL + index * 4,
+        ));
+    }
+
     // The blend tag, a whole 0..3 beside the surface size (plan-116-B). `Normal` is 0,
     // so an item that never set `Paint.blend` writes the value the pipeline it selects
     // has always had.
@@ -3734,11 +3780,29 @@ fn emit_item_block(
     // and the branch would cost more than it saves while giving the word two meanings
     // depending on how the item got here.
     // plan-116-F: the gradient's kind, a whole 0 or 1 in the block's last spare word.
+    // plan-163-D: packed with the spread and the stroke apply, `kind + 2 * spread + 8 *
+    // apply` (`ITEM_SURFACE_GRADIENT_KIND`), every term a small whole number.
     builder.emit(abi::load_double(
         abi::FP_SCRATCH[1],
         header,
         HEADER_GRADIENT_KIND * 8,
     ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[2],
+        header,
+        HEADER_GRADIENT_SPREAD * 8,
+    ));
+    builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[2],
+        header,
+        HEADER_GRADIENT_APPLY * 8,
+    ));
+    for _ in 0..3 {
+        builder.emit(abi::float_add_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[2], abi::FP_SCRATCH[2]));
+    }
+    builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
     builder.emit(abi::float_convert_to_signed_x(
         abi::SCRATCH[1],
         abi::FP_SCRATCH[1],
@@ -5727,13 +5791,35 @@ fn emit_split_or_publish(
     // ...and actually fills (fill alpha > 0). A `Line` or an `Arc` reaches here with
     // its stroke colour already moved into the fill slots and `strokeHalf` negative
     // (`__canvas_strokeAsFill`), so it is fill-only and takes the single path.
+    //
+    // plan-163-D: "fills" is a visible fill alpha, OR a gradient (its ramp is the fill
+    // colour whatever the fill alpha), OR a picture (its image is, and since plan-163-C
+    // its fill alpha is only the tint's strength). Testing the fill alpha alone sent a
+    // blended stroked gradient or picture with a transparent fill down the single path,
+    // composing stroke over fill in the shader under a mode where that is wrong.
+    let fills = builder.label("vk_publish_fills");
     builder.emit(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_item + ITEM_OFFSET_FILL + 12,
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    builder.emit(abi::branch_le(&single));
+    builder.emit(abi::branch_gt(&fills));
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_COUNT,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "2"));
+    builder.emit(abi::branch_ge(&fills));
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], &GEO_KIND_PICTURE.to_string()));
+    builder.emit(abi::branch_ne(&single));
+    builder.emit(abi::label(&fills));
 
     // Record one: the fill, with the stroke switched off.
     //
@@ -5784,7 +5870,12 @@ fn emit_split_or_publish(
     ));
 
     // Record two: the stroke, with the fill made fully transparent.
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    // plan-163-D: marked OFF -- alpha -1, which every shader reads as "no fill in this
+    // record" -- rather than made transparent: a gradient's or a picture's colour does
+    // not come from the fill alpha, so a zero there left record two drawing the ramp or
+    // the image a second time under the blend. The stroke still reads the ramp
+    // (`FillAndStroke`). Spelled unsigned; the store keeps the low 32 bits.
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "4294967295"));
     builder.emit(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),

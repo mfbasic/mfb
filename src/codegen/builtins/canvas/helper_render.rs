@@ -369,15 +369,16 @@ FUNC __canvas_blockInstances(offset AS Integer) AS Integer
     RETURN toInt(__canvas_geoAt(offset, 20))
   END IF
   ' A blended item that BOTH strokes and fills is published as two records -- fill with
-  ' the stroke switched off, then stroke with the fill made transparent -- because one
+  ' the stroke switched off, then stroke with the fill marked off -- because one
   ' blended draw cannot composite the two against each other correctly. The three
   ' conditions are `emit_split_or_publish`'s, in its order: a non-Normal blend mode,
-  ' a positive strokeHalf, and a non-zero fill alpha. A Line or an Arc arrives here
-  ' fill-only with a negative strokeHalf (`__canvas_strokeAsFill`) and takes the
-  ' single-record path.
+  ' a positive strokeHalf, and a fill -- a non-zero fill alpha, or (plan-163-D) a
+  ' gradient or a picture, whose colour does not come from the fill alpha. A Line or an
+  ' Arc arrives here fill-only with a negative strokeHalf (`__canvas_strokeAsFill`) and
+  ' takes the single-record path.
   IF toInt(__canvas_geoAt(offset, 26)) <> 0 THEN
     IF __canvas_geoAt(offset, 7) > 0.0 THEN
-      IF toInt(__canvas_geoAt(offset, 11)) > 0 THEN
+      IF toInt(__canvas_geoAt(offset, 11)) > 0 OR toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_COUNT)) >= 2 OR toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_PICTURE THEN
         RETURN 2
       END IF
     END IF
