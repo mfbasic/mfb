@@ -1463,8 +1463,8 @@ pub(crate) fn lower_thread_finish(
     // `ErrorLoc` (SIGSEGV, or a wild length reported as `ErrOutOfMemory`).
     let not_program_exit = format!("{symbol}_not_program_exit");
     ctx.instructions.extend([
-        abi::load_u64(&r.v9, abi::stack_pointer(), TAG),
-        abi::compare_immediate(&r.v9, RESULT_PROGRAM_EXIT_TAG),
+        abi::load_u64(r.v9, abi::stack_pointer(), TAG),
+        abi::compare_immediate(r.v9, RESULT_PROGRAM_EXIT_TAG),
         abi::branch_ne(&not_program_exit),
     ]);
     if program_shutdown {

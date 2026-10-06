@@ -126,8 +126,7 @@ fn exit_program_in_a_worker_ends_the_process_with_its_code() {
                 let output = Command::new(&exe).output().expect("run program");
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                if output.status.code() != Some(7) || stdout != *want_stdout || !stderr.is_empty()
-                {
+                if output.status.code() != Some(7) || stdout != *want_stdout || !stderr.is_empty() {
                     failures.push(format!(
                         "{name} -O{level} run {run}: want exit 7 and stdout {want_stdout:?}, got {} stdout {stdout:?} stderr {stderr:?}",
                         common::exit_description(&output.status)
