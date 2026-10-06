@@ -744,7 +744,7 @@ Acceptance: man and spec render and cite.
   `man-run-examples.sh canvas --run` → 32 examples built and ran, 0 failed; `spec-census.sh --citations` → 0
   missing paths, lines and symbols, `--links` → 0 unresolved; `cargo test --bin mfb
   spec` → 46 passed; `mfb spec app canvas` shows no `[[`.
-Commit: —
+Commit: 686758d3d
 
 ## Validation Plan
 
