@@ -19,7 +19,9 @@
 //!   larger bodies).
 //! - **Duplicate consecutive labels** — two labels in a row with nothing
 //!   between them describe one point in the program; the second's references
-//!   are retargeted at the first and the redundant label goes.
+//!   are retargeted at the first and the redundant label goes. The function's
+//!   own first label is the exception: the prologue is inserted after it, so the
+//!   label that follows it is past the prologue, a different point.
 //!
 //! Every rewrite here deletes or retargets control flow only where the two
 //! paths provably reach the same instruction, so nothing about evaluation
@@ -46,8 +48,16 @@ pub(crate) fn simplify(instructions: &mut Vec<CodeInstruction>) {
 
     // 1. Retarget references away from a duplicate consecutive label, then
     //    drop it. Done first so the two rewrites below see canonical labels.
+    //
+    //    Never onto the function's first label: that is its ENTRY, and
+    //    `finalize_frame` inserts the prologue right after it, so the label that
+    //    follows marks a different run-time point (past the prologue). A loop
+    //    header collapsed onto the entry re-runs the prologue on every back edge.
     let mut alias: HashMap<String, String> = HashMap::new();
-    for window in instructions.windows(2) {
+    for (index, window) in instructions.windows(2).enumerate() {
+        if index == 0 {
+            continue;
+        }
         if window[0].op == CodeOp::Label && window[1].op == CodeOp::Label {
             if let (Some(first), Some(second)) = (window[0].get("name"), window[1].get("name")) {
                 // Chase, so a run of three collapses onto the first.
@@ -230,6 +240,32 @@ mod tests {
         );
         assert_eq!(stream[0].get("target").as_deref(), Some("first"));
         assert_eq!(stream[1].get("name").as_deref(), Some("first"));
+    }
+
+    /// The function's first label is its ENTRY: `finalize_frame` inserts the
+    /// prologue right after a leading label, so a label that follows it is a
+    /// different point at run time — past the prologue. Collapsing a loop header
+    /// onto the entry made every back edge re-run the prologue: the module
+    /// resource drain (`_mfb_module_resource_drain`), whose body opens with its
+    /// loop label, grew the stack by a frame per iteration and never returned, so
+    /// every `-O2` program that stored a resource in a module-level binding hung
+    /// at exit (found during bug-843).
+    #[test]
+    fn a_label_after_the_entry_label_is_not_collapsed_onto_it() {
+        let mut stream = vec![
+            ci("label", &[("name", "entry")]),
+            ci("label", &[("name", "loop")]),
+            ci(
+                "str_u64",
+                &[("src", "%v1"), ("base", "sp"), ("offset", "8")],
+            ),
+            ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "0")]),
+            ci("b.ne", &[("target", "loop")]),
+            ci("ret", &[]),
+        ];
+        run(&mut stream, 2);
+        assert_eq!(stream[1].get("name").as_deref(), Some("loop"));
+        assert_eq!(stream[4].get("target").as_deref(), Some("loop"));
     }
 
     /// The two rewrites compose: collapsing the labels exposes a
