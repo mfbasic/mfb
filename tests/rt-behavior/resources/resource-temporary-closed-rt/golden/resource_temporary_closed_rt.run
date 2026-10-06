@@ -1,0 +1,9 @@
+arg [arg]
+list [list]
+record [record]
+member [member] z=42
+forEach [each!]
+bound []
+returned []
+trapped []
+after bound [bound+] returned [returned+] trapped [trapped+]

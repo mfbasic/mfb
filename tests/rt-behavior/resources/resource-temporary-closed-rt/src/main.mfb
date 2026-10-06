@@ -1,0 +1,102 @@
+' bug-842: a resource produced inline -- a call argument, the target of a member
+' read, an element of a list or record literal passed on -- that nothing binds is
+' closed at the end of the statement that produced it, exactly as a discarded call
+' statement's result is. Nothing leaks, and a temporary that something DID take (a
+' binding, a returned value, an adopted list) keeps its own owner.
+'
+' How a close is observed: every file is written with buffering on, so its bytes
+' reach the disk only when it is closed. `[]` reads "still open", `[x]` reads
+' "closed, and the write landed".
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+TYPE Cur
+  pos AS Integer
+END TYPE
+
+TYPE Holder
+  handle AS RES fs::File
+END TYPE
+
+FUNC path(n AS String) AS String
+  RETURN fs::pathJoin([fs::tempDirectory(), "mfb-bug842-" & n & ".txt"])
+END FUNC
+
+FUNC seen(n AS String) AS String
+  RETURN "[" & fs::readText(path(n)) & "]"
+END FUNC
+
+FUNC mk(n AS String) AS RES fs::File
+  RES f AS fs::File = fs::openFile(path(n), "w")
+  fs::setBuffered(f, TRUE)
+  fs::writeAll(f, n)
+  RETURN f
+END FUNC
+
+FUNC mkS(n AS String) AS RES fs::File STATE Cur
+  RES f AS fs::File STATE Cur = mk(n)
+  f.state.pos = 42
+  RETURN f
+END FUNC
+
+FUNC mkList(n AS String) AS List OF RES fs::File
+  RES f AS fs::File = mk(n)
+  RETURN [f]
+END FUNC
+
+FUNC ident(f AS fs::File) AS RES fs::File
+  RETURN f
+END FUNC
+
+FUNC useIt(f AS fs::File) AS Integer
+  RETURN 1
+END FUNC
+
+FUNC useList(xs AS List OF RES fs::File) AS Integer
+  RETURN len(xs)
+END FUNC
+
+FUNC useH(h AS Holder) AS Integer
+  RETURN 2
+END FUNC
+
+FUNC handBack(n AS String) AS RES fs::File
+  RETURN ident(mk(n))
+END FUNC
+
+' The four shapes of the report: each temporary closes at its statement's end.
+FUNC caseShapes() AS Nothing
+  LET a = useIt(mk("arg"))
+  io::print("arg " & seen("arg"))
+  LET b = useList([mk("list")])
+  io::print("list " & seen("list"))
+  LET c = useH(Holder[mk("record")])
+  io::print("record " & seen("record"))
+  LET z = mkS("member").state.pos
+  io::print("member " & seen("member") & " z=" & toString(z))
+  collections::forEach([Holder[mk("each")]], LAMBDA(h AS Holder) -> fs::writeAll(h.handle, "!"))
+  io::print("forEach " & seen("each"))
+END FUNC
+
+' A temporary that something takes keeps that owner.
+FUNC caseTaken() AS Nothing
+  RES k AS fs::File = ident(mk("bound"))
+  fs::writeAll(k, "+")
+  io::print("bound " & seen("bound"))
+  RES r AS fs::File = handBack("returned")
+  fs::writeAll(r, "+")
+  io::print("returned " & seen("returned"))
+  LET xs = mkList("trapped") TRAP(e)
+    RECOVER []
+  END TRAP
+  fs::writeAll(collections::get(xs, 0), "+")
+  io::print("trapped " & seen("trapped"))
+END FUNC
+
+FUNC main() AS Integer
+  caseShapes()
+  caseTaken()
+  io::print("after bound " & seen("bound") & " returned " & seen("returned") & " trapped " & seen("trapped"))
+  RETURN 0
+END FUNC
