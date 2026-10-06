@@ -1,12 +1,12 @@
 # bug-842: a resource produced inline in a non-statement expression (call argument, member read, list/record literal argument) is never closed
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/resources/<new>-temporary-argument-resource-closed-rt (proposed)
+Status: Fixed (bs17-agent-f)
+Regression Test: tests/rt-behavior/resources/resource-temporary-closed-rt, tests/runtime/rt_resource_temporary_close.rs
 
 A resource returned by a producer call that is never bound with `RES` — because it
 is used directly as a call argument (`useF(fs::open(p, "read"))`), read through a
@@ -179,3 +179,68 @@ a compile-time rejection — the spec explicitly shows `openTagged(p).state.pos`
 Silent resource leak on a common, spec-endorsed shape; the risk is in not
 double-closing a temp later claimed by an owner — the owner-word check already
 provides the guard.
+
+## Resolution
+
+A resource produced inline is a **resource temporary**, closed at the end of its
+statement when it is still unowned — the rule a discarded call statement already
+had, applied to every nested producer.
+
+- `lower_value` registers a producer call (`Call`/`CallResult`/`RuntimeCall`) whose
+  result IS a resource or resource union as a `PendingTemp { resource: true }`
+  (`register_resource_temp`), unless it is the root a binding, assignment,
+  module-level store, `Eval` or `RETURN` takes itself (`resource_temp_exempt`, looking
+  through a resource-union bind's `UnionWrap`; `value_discarded_armed`), or a borrowed
+  element (`get`/`getOr`/`poll`). The pending-temp machinery then drops it on every
+  exit: statement end, loop-condition evaluation, error exits, `EXIT`/`CONTINUE`,
+  `FAIL`.
+- The drop (`emit_resource_temp_close`) closes the resource only when its owner word
+  is still `0` and it is not already closed, then nulls the slot: a binding, adopting
+  container or global that took it, a callee that closed or transferred it, and a
+  handle a callee was handed back all leave it alone.
+- A record constructor's argument-temp drop keeps resource temps (the record now
+  holds the reference; `drop_arg_block_temps_to`) — without that, `useH(Holder[mk()])`
+  closed the handle before `useH` ran.
+- `RETURN` claims every resource its value carries before closing the statement's
+  resource temps, then releases as before (`emit_claim_returned_value`; a closure leaf
+  claims through the new environment operation `CLAIM`), so `RETURN ident(mk())` and
+  `RETURN wrap(mk())` hand the handle out open.
+- Inline `TRAP` adoption (`trap_call_result_locals`, `adopts_from_trapped_call`): the
+  desugar's `$trap_valN = resultValue($trap_resN)` into a container adopts what the
+  call handed out. `LET xs = mkList() TRAP … END TRAP` previously never closed the
+  list's resources (also true of the closure case found in bug-843).
+- The close op of every resource a call can return is defined in the object plan
+  (`plan::symbols::produced_resource_closes`). **Found on the way**: a discarded
+  `fs::createTempFile()` in a program that binds no `fs::File` did not build on main
+  (`internal relocation target '_mfb_rt_fs_fs_close' is not defined`); it does now.
+
+Aggregates a call returns nested inside an expression (`len(mkList())`) are NOT
+temporaries: a builtin aggregate can be a view of resources someone else holds with
+no owner word to say so (`canvas::groupItems`), and registering them doubled the size
+of the canvas renderer's helpers (measured: `_mfb_ifn_canvas_5FdrawGroup` 477 → 1635
+instructions) while risking a close of the group store's images. They keep today's
+behavior.
+
+### Runtime proof
+
+- `resource-temporary-closed-rt` (buffered-file close detector): argument, list
+  literal, record literal, member read, `forEach` element each close at their
+  statement's end; a bound, returned and TRAP-adopted handle stays open until its
+  scope ends. Main: none of the first five ever close (bytes never reach disk, even
+  after exit) and the TRAP-adopted list never closes.
+- `rt_resource_temporary_close`: 2000 inline temporaries under `ulimit -n 64` →
+  `n=2000`; against main (`MFB_TEST_EXE=/tmp/main-dbg-target/release/mfb`) it fails
+  with `Error: 7-702-0001`.
+- Matrix probe (`IF` condition → closed after the `IF`; `WHILE` condition → closed per
+  evaluation; short-circuited producer → no crash; `RETURN wrap(mk())` and a returned
+  closure over `mk()` → open in the caller; error exit → closed) identical at -O1/-O2.
+- `--debug`: `double_free_skips 0`; 100 → 200 iterations of
+  `useIt(fs::createTempFile())` grow 112 B/iteration, the same as main (the record
+  tombstone every discard leaves); the descriptor no longer leaks.
+
+## Golden impact
+
+- `scripts/artifact-gate.sh <mfb> all` → 1634 tests, 2286 goldens, 0 diffs.
+- No existing acceptance golden moves (`scripts/test-accept.sh` over `syntax/*` and
+  over `*resource* *thread* *trap* *close* *loop* *lambda* *closure* *fs* *tcp*`: the
+  only mismatches are other bugs' expected ones).

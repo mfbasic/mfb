@@ -197,8 +197,9 @@ fn emit_resource_operations(
     ));
     builder.emit(abi::branch_ls(&ordinary));
     let module_float = builder.module_globals_reach_closures();
-    let operations: [(usize, Vec<usize>, bool); 4] = [
+    let operations: [(usize, Vec<usize>, bool); 5] = [
         (CLOSURE_ENV_OP_RELEASE, vec![first_slot], true),
+        (CLOSURE_ENV_OP_CLAIM, vec![first_slot], true),
         (CLOSURE_ENV_OP_CLOSE_UNOWNED, Vec::new(), true),
         // Only a store into a global that can hold a function value runs it; a
         // module with no such global never calls it, and has no list to raise to.

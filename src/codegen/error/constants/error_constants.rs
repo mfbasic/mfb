@@ -182,6 +182,10 @@ pub(crate) const CLOSURE_ENV_OP_MODULE_FLOAT: usize = 4;
 /// is argument 3, and list each one that scope takes on the dynamic owned-list
 /// whose head word argument 2 addresses (a binding adopting a call result).
 pub(crate) const CLOSURE_ENV_OP_ADOPT: usize = 5;
+/// bug-842: claim every unowned resource the environment reaches for the scope whose
+/// token is argument 2 (a `RETURN` closing its statement's resource temporaries
+/// keeps the ones its returned closure carries out).
+pub(crate) const CLOSURE_ENV_OP_CLAIM: usize = 6;
 
 /// `_mfb_rt_closure_drop(object)`: free a function value — nothing for a null
 /// pointer or a static descriptor (`env = 0`), otherwise the environment (through

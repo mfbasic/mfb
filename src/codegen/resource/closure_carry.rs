@@ -600,6 +600,7 @@ impl CodeBuilder<'_> {
             CLOSURE_ENV_OP_ADOPT => {
                 self.emit_dynamic_owned_push(leaf_slot, leaf, arg_slots[0], arg_slots[1], true)
             }
+            CLOSURE_ENV_OP_CLAIM => self.emit_leaf_claim_against(leaf_slot, leaf, arg_slots[0]),
             other => Err(format!("unknown closure resource operation {other}")),
         }
     }

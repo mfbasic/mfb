@@ -357,17 +357,22 @@ impl CodeBuilder<'_> {
     ) -> std::collections::HashSet<String> {
         use crate::target::shared::nir::visit::walk_op;
         use crate::target::shared::nir::NirOp;
-        struct Scan {
+        struct Scan<'t> {
             types: std::collections::HashMap<String, ParameterType>,
             assigned: Vec<String>,
+            trapped: &'t std::collections::HashSet<String>,
         }
-        impl NirVisitor for Scan {
+        impl NirVisitor for Scan<'_> {
             fn visit_op(&mut self, op: &NirOp) {
                 match op {
                     NirOp::Bind { name, type_, .. } => {
                         self.types.insert(name.clone(), type_.clone());
                     }
-                    NirOp::Assign { name, value } if adopts_from_call(value) => {
+                    NirOp::Assign { name, value }
+                        if adopts_from_call(value)
+                            || trapped_call_source(value)
+                                .is_some_and(|source| self.trapped.contains(source)) =>
+                    {
                         self.assigned.push(name.clone());
                     }
                     _ => {}
@@ -375,9 +380,11 @@ impl CodeBuilder<'_> {
                 walk_op(self, op);
             }
         }
+        let trapped = trap_call_result_locals(body);
         let mut scan = Scan {
             types: std::collections::HashMap::new(),
             assigned: Vec::new(),
+            trapped: &trapped,
         };
         scan.visit_ops(body);
         scan.assigned
@@ -930,6 +937,61 @@ pub(crate) fn call_result_holds_only_argument_resources(value: &NirValue) -> boo
 pub(crate) fn adopts_from_call(value: &NirValue) -> bool {
     matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. })
         && !call_result_holds_only_argument_resources(value)
+}
+
+/// bug-842: the `Result` local a `resultValue(<local>)` reads — the inline-`TRAP`
+/// desugar's delivery `$trap_valN = resultValue($trap_resN)`.
+fn trapped_call_source(value: &NirValue) -> Option<&str> {
+    match value {
+        NirValue::ResultValue { value } => match value.as_ref() {
+            NirValue::Local(name) => Some(name),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// bug-842: the locals bound to a resource-adopting call's `Result` — the inline
+/// `TRAP` desugar binds `$trap_resN = callResult f(…)` and delivers the success
+/// value by assignment, so the binding that receives it is assigned no call at all.
+/// Without this, `LET xs = mkList() TRAP … END TRAP` adopted nothing and the list's
+/// resources were never closed.
+pub(crate) fn trap_call_result_locals(
+    body: &[crate::target::shared::nir::NirOp],
+) -> std::collections::HashSet<String> {
+    use crate::target::shared::nir::visit::walk_op;
+    use crate::target::shared::nir::NirOp;
+    struct Scan {
+        names: std::collections::HashSet<String>,
+    }
+    impl NirVisitor for Scan {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Bind {
+                name,
+                value: Some(value @ NirValue::CallResult { .. }),
+                ..
+            } = op
+            {
+                if adopts_from_call(value) {
+                    self.names.insert(name.clone());
+                }
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut scan = Scan {
+        names: std::collections::HashSet::new(),
+    };
+    scan.visit_ops(body);
+    scan.names
+}
+
+impl CodeBuilder<'_> {
+    /// bug-842: whether an assignment of `value` delivers a resource-adopting call's
+    /// success value through the inline-`TRAP` desugar (`trap_call_result_locals`).
+    pub(crate) fn adopts_from_trapped_call(&self, value: &NirValue) -> bool {
+        trapped_call_source(value).is_some_and(|source| self.trap_call_results.contains(source))
+    }
 }
 
 /// An argument subtree whose resources are all pointers already bound to a name:

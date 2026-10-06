@@ -50,7 +50,17 @@ Every scope exit — normal, `EXIT`, `CONTINUE`, `FAIL`, `PROPAGATE`, an
 auto-propagated failure, `TRAP` routing, `EXIT PROGRAM` — closes a resource it
 registered only when that scope is still the resource's owner. A call statement
 that discards a resource result closes it when nobody owns it (a resource the callee
-produced or released) and leaves a resource that still has an owner alone.
+produced or released) and leaves a resource that still has an owner alone. The same
+rule closes a resource produced **inline** that nothing takes — a producer call
+used as a call argument (`useF(fs::open(p, "read"))`), as the target of a member
+read (`openTagged(p).state.pos`), or as an element of a list or record literal that
+is itself passed on (`useList([mk()])`): at the end of its statement, every
+resource the value reaches that is still unowned and not already closed is closed,
+on every exit from the statement. One a binding, an adopting container, a global or
+a `RETURN` took by then has an owner and is left to it, so `RES k = ident(mk())`
+and `RETURN ident(mk())` keep theirs. An inline `TRAP` over a call that hands out
+resources (`LET xs = mkList() TRAP … END TRAP`) adopts them into the binding's scope
+exactly as the plain call does. [[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/resource/owner.rs:emit_claim_returned_value]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:trap_call_result_locals]]
 
 The owner is a word on the resource record (`./mfb spec memory heap-values`, "The
 owner word"): `0` while unowned, else the token of the owning scope. A binding

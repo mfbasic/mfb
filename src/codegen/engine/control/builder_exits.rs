@@ -1005,14 +1005,23 @@ impl CodeBuilder<'_> {
         // before the cleanups below, which then skip it on the owner test. Spilled
         // because the walk reads it from a slot; it makes no call, so the value's
         // register is still live afterwards.
+        let resource_temps = self.pending_temp_frees.iter().any(|temp| temp.resource);
         let result = match result {
             Some(mut result) if self.value_may_carry_owned_resources(&result.type_) => {
                 let slot = self.spill_to_slot("returned_resources", &result.location);
+                // bug-842: the statement's resource temporaries close before the
+                // release, with every resource the returned value carries claimed
+                // first, so a temporary the value hands out (`RETURN ident(mk())`)
+                // is not closed under the caller; the release then frees the claim.
+                if resource_temps {
+                    self.emit_claim_returned_value(slot, &result.type_)?;
+                    self.close_resource_temps_before_return()?;
+                }
                 self.emit_release_returned_value(slot, &result.type_)?;
                 // bug-843: a function value's release calls its environment routine,
                 // which clobbers every caller-saved register; the value is reloaded
-                // from the slot the walk read it from.
-                if self.type_reaches_closure_leaf(&result.type_) {
+                // from the slot the walk read it from. bug-842: so do the closes.
+                if resource_temps || self.type_reaches_closure_leaf(&result.type_) {
                     let reloaded = self.allocate_register();
                     self.emit(abi::load_u64(&reloaded, abi::stack_pointer(), slot));
                     result.location = Operand::from(reloaded);

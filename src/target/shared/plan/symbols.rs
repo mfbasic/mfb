@@ -56,6 +56,14 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             runtime::symbol_for_call(runtime::RuntimeHelper::Thread, "thread.drop"),
         );
     }
+    // bug-842: a resource a call produces and nothing binds is closed by codegen at
+    // its statement's end (or at a discarding `Eval`), so its close is defined
+    // whether or not the program binds that resource type anywhere.
+    for close in produced_resource_closes(module) {
+        if let Some(helper) = runtime::helper_for_call(close) {
+            push_unique(&mut symbols, runtime::symbol_for_call(helper, close));
+        }
+    }
     // A resource-union bind drops by dispatching to each variant's close op
     // (codegen-emitted on scope exit), so pull in every variant's close helper.
     let mut bind_types = std::collections::HashSet::new();
@@ -166,6 +174,12 @@ pub(super) fn platform_imports(
             &function.body,
             &mut imports,
         );
+    }
+    // bug-842: the closes `produced_resource_closes` adds to the runtime symbols.
+    for close in produced_resource_closes(module) {
+        for import in platform_imports_for_runtime_call(platform, close) {
+            push_platform_import(&mut imports, import);
+        }
     }
     if module_has_thread_owner(module) {
         for import in platform_imports_for_runtime_call(platform, "thread.drop") {
@@ -366,6 +380,65 @@ fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<String> {
         })
         .filter(|helper| symbols.iter().any(|symbol| symbol == helper))
         .collect()
+}
+
+/// bug-842: the builtin close op of every resource a call in `module` can hand back
+/// — a call's static return type (a user function's declared return, else the
+/// builtin registry's) walked through `RES`, `List`, `Map` and `Result` to its
+/// resource leaves. Codegen closes such a result when nothing takes it (a discarded
+/// call statement, an inline temporary), so the close must be defined even in a
+/// program that binds no resource of that type. A user function's own resources
+/// are bound inside its body, which defines their closes already; this adds the
+/// ones only a call site can reach, e.g. `useIt(fs::createTempFile())`.
+pub(super) fn produced_resource_closes(module: &NirModule) -> Vec<&'static str> {
+    use super::nir::visit::{walk_value, NirVisitor};
+    fn leaves(type_: &ParameterType, out: &mut Vec<&'static str>) {
+        match type_ {
+            ParameterType::Res(inner) | ParameterType::ResultOf(inner) => leaves(inner, out),
+            ParameterType::ListOf(element) => leaves(element, out),
+            ParameterType::MapOf(_, value) => leaves(value, out),
+            other => {
+                if let Some(close) = crate::codegen::builtins::resource_close_function(other) {
+                    if !out.contains(&close) {
+                        out.push(close);
+                    }
+                }
+            }
+        }
+    }
+    struct Calls<'m> {
+        returns: HashMap<&'m str, &'m ParameterType>,
+        closes: Vec<&'static str>,
+    }
+    impl NirVisitor for Calls<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } = value
+            {
+                let returned = match self.returns.get(target.as_str()) {
+                    Some(type_) => Some((*type_).clone()),
+                    None => crate::codegen::builtins::call_return_type(target),
+                };
+                if let Some(returned) = returned {
+                    leaves(&returned, &mut self.closes);
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut calls = Calls {
+        returns: module
+            .functions
+            .iter()
+            .map(|function| (function.name.as_str(), &function.returns))
+            .collect(),
+        closes: Vec::new(),
+    };
+    for function in &module.functions {
+        calls.visit_ops(&function.body);
+    }
+    calls.closes
 }
 
 pub(super) fn is_thread_type(type_: &ParameterType) -> bool {

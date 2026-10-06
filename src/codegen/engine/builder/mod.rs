@@ -221,6 +221,23 @@ pub(crate) struct CodeBuilder<'a> {
     /// value position, where a `Nothing`-typed call's `void` result is
     /// materialized as the unit value `NOTHING` (0).
     pub(crate) value_discarded_armed: bool,
+    /// bug-842: the root `NirValue` (by address) of the value a `LET`/`MUT` binding,
+    /// an assignment or a module-level store is lowering. That statement takes the
+    /// resources its own value carries — a binding claims them, a container adopts
+    /// them, a global raises them — so only a producer call NESTED inside it is an
+    /// unclaimed temporary (`register_resource_temp`). An `Eval` and a `RETURN`
+    /// exempt their root through `value_discarded_armed` instead.
+    pub(crate) resource_temp_exempt: Option<usize>,
+    /// bug-842: locals bound to a resource-adopting `callResult` — the inline-`TRAP`
+    /// desugar's `$trap_resN`. A `$trap_valN = resultValue($trap_resN)` assignment
+    /// into a container adopts the resources that call handed out, exactly as a
+    /// direct `xs = f()` does (`adopts_from_trapped_call`).
+    pub(crate) trap_call_results: HashSet<String>,
+    /// bug-842: set by a `RETURN` that closed its statement's resource temporaries
+    /// ahead of the release (`close_resource_temps_before_return`); the interior drop
+    /// that path emits next frees their blocks without closing them twice, then
+    /// clears it.
+    pub(crate) resource_temps_closed_on_path: bool,
     /// plan-86 K1: true while lowering a function whose every value-return is a bare
     /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
     /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
@@ -751,6 +768,9 @@ impl<'a> CodeBuilder<'a> {
             map_settle_exempt_armed: false,
             record_member_read: false,
             value_discarded_armed: false,
+            resource_temp_exempt: None,
+            trap_call_results: HashSet::new(),
+            resource_temps_closed_on_path: false,
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
@@ -1225,6 +1245,11 @@ pub(crate) struct PendingTemp {
     /// plan-134-G: free only this block, not the graph it points into — a recursive value whose
     /// top block a store byte-copied, so its children now belong to that store's owner.
     pub(crate) shallow: bool,
+    /// bug-842: a resource temporary — a producer call's resource result that no
+    /// binding took. Its drop closes the resource when it is still unowned (and not
+    /// already closed) instead of freeing a block (`emit_resource_temp_close`); its
+    /// identity token is a register no owner names, so no claim can take it.
+    pub(crate) resource: bool,
 }
 
 /// bug-781: one capturing `LAMBDA`'s environment, as its routine copies and drops

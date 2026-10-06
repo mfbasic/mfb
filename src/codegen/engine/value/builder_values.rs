@@ -222,6 +222,15 @@ impl CodeBuilder<'_> {
             if !placed_in_record_temp {
                 self.register_pending_temp(value, result, fresh_string);
             }
+            // bug-842: a producer call's resources that this node's consumer does not
+            // take are closed at the end of the statement. The root of a binding, an
+            // assignment, a module-level store, an `Eval` or a `RETURN` is taken by
+            // that statement itself, so only a NESTED producer is a temporary.
+            let root_taken = value_discarded
+                || self.resource_temp_exempt == Some(value as *const NirValue as usize);
+            if !root_taken {
+                self.register_resource_temp(value, result);
+            }
         }
         // bug-496: if THIS value is such an operand of the enclosing node, hand
         // its consumer a statement-scope deep copy instead of the live pointer.
@@ -280,6 +289,48 @@ impl CodeBuilder<'_> {
             slot,
             location: result.location.clone(),
             shallow: false,
+            resource: false,
+        });
+    }
+
+    /// bug-842: register a producer call's resource result as a resource temporary.
+    /// A resource produced inline — a call argument, the target of a member read, an
+    /// element of a literal passed on — used to be claimed by nothing and closed by
+    /// nothing. Its statement now closes it when it is still unowned at the end
+    /// (`emit_resource_temp_close`): one a binding, a container or a global took by
+    /// then has an owner and is left to it, and one a callee was handed and handed
+    /// back keeps its owner.
+    ///
+    /// Only a call whose result IS a resource (or a resource union) is a producer
+    /// here. An aggregate a call returns may be a view of resources someone else
+    /// holds without an owner word to say so — `canvas::groupItems` hands back the
+    /// group store's own items — so closing what it reaches is not this rule's to
+    /// decide. A borrowed element (`collections::get`, a `poll`) produces nothing.
+    fn register_resource_temp(&mut self, value: &NirValue, result: &ValueResult) {
+        if self.borrow_get_result {
+            return;
+        }
+        let (NirValue::Call { target, .. }
+        | NirValue::CallResult { target, .. }
+        | NirValue::RuntimeCall { target, .. }) = value
+        else {
+            return;
+        };
+        if !self.is_resource_leaf(&result.type_) || Self::target_returns_borrowed_resource(target) {
+            return;
+        }
+        let slot = self.allocate_stack_object("resource_temp", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
+        // A slot a skipped producer (a short-circuited operand, an earlier loop
+        // iteration's path) never wrote must read null, not stack garbage.
+        self.owned_value_slots.push(slot);
+        let token = self.allocate_register();
+        self.pending_temp_frees.push(PendingTemp {
+            type_: result.type_.clone(),
+            slot,
+            location: Operand::from(token),
+            shallow: false,
+            resource: true,
         });
     }
 
@@ -373,6 +424,7 @@ impl CodeBuilder<'_> {
             slot,
             location,
             shallow: false,
+            resource: false,
         });
     }
 
@@ -470,6 +522,7 @@ impl CodeBuilder<'_> {
             slot,
             location: Operand::from(pointer),
             shallow,
+            resource: false,
         });
     }
 
@@ -551,6 +604,27 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// [`Self::drop_pending_temps_to`] for a record constructor's argument temps: the
+    /// record byte-inlines each argument block, so those blocks are dead — but the
+    /// resources an argument carries are now the record's references, still live, so
+    /// a resource temporary (bug-842) stays registered and is closed with the rest
+    /// of its statement's temps.
+    pub(crate) fn drop_arg_block_temps_to(&mut self, watermark: usize) -> Result<(), String> {
+        let watermark = watermark.min(self.pending_temp_frees.len());
+        let above = self.pending_temp_frees.split_off(watermark);
+        let mut kept = Vec::new();
+        for temp in above.into_iter().rev() {
+            if temp.resource {
+                kept.push(temp);
+            } else {
+                self.emit_pending_temp_free(&temp)?;
+            }
+        }
+        kept.reverse();
+        self.pending_temp_frees.extend(kept);
+        Ok(())
+    }
+
     /// Free every pending temporary on the path being emitted WITHOUT forgetting them: a
     /// failing call's error exit leaves the statement, so the statement-end drop the
     /// success path still reaches never runs on it. Each free nulls its slot, and every
@@ -589,6 +663,17 @@ impl CodeBuilder<'_> {
     }
 
     fn emit_pending_temp_free(&mut self, temp: &PendingTemp) -> Result<(), String> {
+        // bug-842: a resource temporary closes its resource when nobody took it —
+        // unless this path's `RETURN` already did — and owns no block to free. The
+        // slot is nulled so a loop that re-reaches this drop without the producer
+        // running again closes nothing.
+        if temp.resource {
+            if !self.resource_temps_closed_on_path {
+                self.emit_resource_temp_close(temp.slot, &temp.type_)?;
+            }
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), temp.slot));
+            return Ok(());
+        }
         if temp.shallow {
             return self.emit_shallow_block_free(&temp.type_, temp.slot);
         }
@@ -599,6 +684,23 @@ impl CodeBuilder<'_> {
             loop_alias_slot: None,
             result_wrapper: None,
         })
+    }
+
+    /// bug-842: close every pending resource temporary now, at a `RETURN` whose
+    /// value can carry resources (after `emit_claim_returned_value`, before the
+    /// release). The interior drop this path emits next only nulls their slots.
+    pub(crate) fn close_resource_temps_before_return(&mut self) -> Result<(), String> {
+        let temps = self.pending_temp_frees.clone();
+        for temp in temps.iter().rev() {
+            if temp.resource {
+                self.emit_resource_temp_close(temp.slot, &temp.type_)?;
+            }
+        }
+        // The list itself stays: an enclosing statement's temps are still its own on
+        // every path that does not take this `RETURN`. Only the interior drop this
+        // path emits next must not close them again.
+        self.resource_temps_closed_on_path = true;
+        Ok(())
     }
 
     /// Discard pending temporaries above `watermark` WITHOUT freeing them.
@@ -668,6 +770,7 @@ impl CodeBuilder<'_> {
         escaping: EscapingValue,
     ) -> Result<Option<Operand>, String> {
         if self.pending_temp_frees.is_empty() {
+            self.resource_temps_closed_on_path = false;
             return Ok(match escaping {
                 EscapingValue::InRegister(location) => Some(location),
                 EscapingValue::InSlot(_) | EscapingValue::None => None,
@@ -708,21 +811,12 @@ impl CodeBuilder<'_> {
                 }
                 None => None,
             };
-            if temp.shallow {
-                self.emit_shallow_block_free(&temp.type_, temp.slot)?;
-            } else {
-                self.emit_owned_value_drop(&OwnedValueCleanup {
-                    type_: temp.type_,
-                    stack_offset: temp.slot,
-                    capacity_slot: None,
-                    loop_alias_slot: None,
-                    result_wrapper: None,
-                })?;
-            }
+            self.emit_pending_temp_free(&temp)?;
             if let Some(kept) = kept {
                 self.emit(abi::label(&kept));
             }
         }
+        self.resource_temps_closed_on_path = false;
         if !reload {
             return Ok(None);
         }
@@ -1555,6 +1649,7 @@ impl CodeBuilder<'_> {
             slot,
             location: result.location.clone(),
             shallow: true,
+            resource: false,
         });
     }
 
@@ -2834,7 +2929,7 @@ impl CodeBuilder<'_> {
                     // calls cannot clobber it.
                     let result_slot = self.allocate_stack_object("constructor_result", 8);
                     self.emit(abi::store_u64(&register, abi::stack_pointer(), result_slot));
-                    self.drop_pending_temps_to(arg_temp_watermark)?;
+                    self.drop_arg_block_temps_to(arg_temp_watermark)?;
                     let result = self.temporary_vreg();
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
                     crate::trace::count_tally(

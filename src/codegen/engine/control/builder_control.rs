@@ -2701,6 +2701,30 @@ impl CodeBuilder<'_> {
                 || crate::codegen::engine::expansion::op_key(op).to_string(),
                 self.instructions.len(),
             );
+            // bug-842: a binding, an assignment and a module-level store take the
+            // resources their own value carries, so that root is no temporary.
+            let enclosing_temp_exempt = std::mem::replace(
+                &mut self.resource_temp_exempt,
+                match op {
+                    NirOp::Bind {
+                        value: Some(value), ..
+                    }
+                    | NirOp::Assign { value, .. }
+                    | NirOp::StoreGlobal {
+                        value: Some(value), ..
+                    } => {
+                        // A resource union's bind wraps its producer
+                        // (`RES s AS Stream = tls::connect(…)`): the producer is
+                        // the root the binding claims.
+                        let mut root = value;
+                        while let NirValue::UnionWrap { value: inner, .. } = root {
+                            root = inner;
+                        }
+                        Some(root as *const NirValue as usize)
+                    }
+                    _ => None,
+                },
+            );
             let result = (|| -> Result<(), String> {
                 match op {
                     NirOp::Bind {
@@ -3673,7 +3697,8 @@ impl CodeBuilder<'_> {
                                 // resources the callee handed out, exactly as a bind of
                                 // one does (`call_assigned_owner_containers` gave it its
                                 // owned-lists at its bind).
-                                if crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
+                                if (crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
+                                    || self.adopts_from_trapped_call(value))
                                     && (self.owned_list_heads.keys().any(|(list, _)| list == name)
                                         || self.dynamic_owned_list(name).is_some())
                                 {
@@ -4234,6 +4259,7 @@ impl CodeBuilder<'_> {
             })();
             crate::codegen::engine::expansion::exit(self.instructions.len());
             self.current_op_key = enclosing_op_key;
+            self.resource_temp_exempt = enclosing_temp_exempt;
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
             // plan-134-F: the drop walker's symmetry probe — emits nothing unless the
             // build's environment names this local (`graph_drop.rs`).
