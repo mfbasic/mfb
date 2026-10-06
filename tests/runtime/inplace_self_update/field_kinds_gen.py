@@ -156,7 +156,7 @@ LITERALS = {
     "canvas::Paint": "canvas::fill(color::fromName(\"red\"))",
     "canvas::FrameStats": "canvas::FrameStats[dt := 0.0, pps := 0.0, fps := 0.0, displayHz := 0.0, frameSeconds := 0.0, presents := 0, frames := 0, renderer := canvas::Renderer.Software]",
     "canvas::MouseEvent": "canvas::MouseEvent[kind := canvas::MouseKind.None, button := canvas::MouseButton.None, position := canvas::Point[0.0, 0.0], shift := FALSE, ctrl := FALSE, alt := FALSE]",
-    "canvas::Gradient": "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[0.0, 0.0], endPoint := canvas::Point[1.0, 1.0], stops := []]",
+    "canvas::Gradient": "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[0.0, 0.0], endPoint := canvas::Point[1.0, 1.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]",
     "canvas::Rectangle": "canvas::Rectangle[x := 1.0, y := 1.0, w := 2.0, h := 2.0, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::RoundedRect": "canvas::RoundedRect[x := 1.0, y := 1.0, w := 2.0, h := 2.0, cornerRadius := 0.5, paint := canvas::fill(color::fromName(\"red\"))]",
     "canvas::Circle": "canvas::Circle[x := 1.0, y := 1.0, radius := 2.0, paint := canvas::fill(color::fromName(\"red\"))]",

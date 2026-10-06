@@ -442,6 +442,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' rather than a divide by zero: `t` stays 0, so the first stop fills.
   LET gradLen2 AS Float = gradAX * gradAX + gradAY * gradAY
   LET gradLen AS Float = math::sqrt(gradLen2)
+  LET gradSpread AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_SPREAD))
   LET fillR AS Byte = __canvas_geoByte(offset, 8)
   LET fillG AS Byte = __canvas_geoByte(offset, 9)
   LET fillB AS Byte = __canvas_geoByte(offset, 10)
@@ -632,9 +633,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
 
       ' plan-116-F: the gradient replaces the fill COLOUR and nothing else -- the
       ' shape's distance, its coverage and its stroke are untouched, which is what
-      ' keeps a gradient-filled shape's edge identical to a flat-filled one's. `t` is
-      ' computed in surface pixels, so the ramp composes with `Paint.transform` the
-      ' same way the shape does.
+      ' keeps a gradient-filled shape's edge identical to a flat-filled one's.
+      ' plan-163-D: `t` is computed at the SHAPE-space point `q`, so `Paint.transform`
+      ' and the group offset carry the ramp with the item (a linear gradient's own
+      ' transform is already folded into its points), and the spread is applied before
+      ' the stop lookup.
       MUT gR AS Byte = fillR
       MUT gG AS Byte = fillG
       MUT gB AS Byte = fillB
@@ -648,13 +651,13 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
           t = __canvas_polylineScan(tail, edges, qx, qy, radius, cap, TRUE)
         ELSEIF gradRadial THEN
           IF gradLen > 0.0 THEN
-            LET rdx AS Float = px - gradFX
-            LET rdy AS Float = py - gradFY
-            t = math::sqrt(rdx * rdx + rdy * rdy) / gradLen
+            LET rdx AS Float = qx - gradFX
+            LET rdy AS Float = qy - gradFY
+            t = __canvas_gradientSpread(math::sqrt(rdx * rdx + rdy * rdy) / gradLen, gradSpread)
           END IF
         ELSE
           IF gradLen2 > 0.0 THEN
-            t = ((px - gradFX) * gradAX + (py - gradFY) * gradAY) / gradLen2
+            t = __canvas_gradientSpread(((qx - gradFX) * gradAX + (qy - gradFY) * gradAY) / gradLen2, gradSpread)
           END IF
         END IF
         LET gc AS color::Color = __canvas_gradientColor(gradBase, gradCount, t)

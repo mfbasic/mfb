@@ -39,7 +39,7 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-A gradient instead of a flat colour. `fillGradient` replaces the fill's *colour* and
+A gradient instead of a flat colour. `gradient` replaces the fill's *colour* and
 nothing else, so start from `canvas::fill` and set the field — the colour you pass is
 what shows if the gradient turns out to have fewer than two stops:
 
@@ -51,13 +51,13 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 0.0], endPoint := canvas::Point[x := 360.0, y := 0.0], stops := stops]
-  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { fillGradient := ramp }]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 0.0], endPoint := canvas::Point[x := 360.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := ramp }]
 
   ' The same stops, radial. `startPoint` is the centre and `endPoint` a point on the
   ' outer circle, so this ramp is circular whatever shape it fills.
-  LET glow AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 200.0, y := 300.0], endPoint := canvas::Point[x := 290.0, y := 300.0], stops := stops]
-  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { fillGradient := glow }]
+  LET glow AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 200.0, y := 300.0], endPoint := canvas::Point[x := 290.0, y := 300.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := glow }]
 
   canvas::present([bar, orb])
 END FUNC

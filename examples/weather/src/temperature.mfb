@@ -55,7 +55,7 @@ FUNC temperatureGradient(bottom AS Float, top AS Float) AS canvas::Gradient
     LET stop AS canvas::GradientStop = canvas::GradientStop[offset := heatPosition(collections::get(HEAT_DEGREES, k)), color := collections::get(HEAT_COLORS, k)]
     stops = collections::append(stops, stop)
   NEXT
-  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops]
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
 END FUNC
 
 ' The key, in a panel whose top left corner is at (left, top), drawn at a
@@ -90,7 +90,7 @@ FUNC temperatureKey(face AS canvas::Font, size AS Float, left AS Float, top AS F
   items = collections::append(items, [heading, divider])
 
   LET barLeft AS Float = left + pad
-  LET bar AS canvas::DrawItem = canvas::RoundedRect[x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(HEAT_COLORS, 0)) { fillGradient := temperatureGradient(barBottom, barTop) }]
+  LET bar AS canvas::DrawItem = canvas::RoundedRect[x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(HEAT_COLORS, 0)) { gradient := temperatureGradient(barBottom, barTop) }]
   items = collections::append(items, bar)
 
   FOR k = 0 TO len(HEAT_LABELS) - 1

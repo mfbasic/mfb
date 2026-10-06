@@ -55,7 +55,7 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 
 /// `__CANVAS_GEO_HEADER`: the fixed header's length in floats.
-pub(super) const GEO_HEADER: usize = 55;
+pub(super) const GEO_HEADER: usize = 67;
 /// `__CANVAS_KIND_RECT`, `__CANVAS_KIND_CIRCLE`, `__CANVAS_KIND_SEGMENT`,
 /// `__CANVAS_GEO_POLYGON`, `__CANVAS_GEO_NONE` — the slot-0 kind tags.
 pub(super) const KIND_RECT: f64 = 0.0;
@@ -893,7 +893,7 @@ fn emit_paint_header(
         &gradient,
         &view.paint,
         &view.paint_type,
-        "fillGradient",
+        "gradient",
     )?;
     let (kind_index, kind_type) = field(builder, &gradient_type, "kind")?;
     let radial = enum_ordinal(builder, &kind_type, "Radial")?;
@@ -1087,7 +1087,7 @@ fn emit_paint_supported(
         &gradient,
         &view.paint,
         &view.paint_type,
-        "fillGradient",
+        "gradient",
     )?;
     let stops = builder.temporary_vreg();
     emit_field_block(builder, &stops, &gradient, &gradient_type, "stops")?;

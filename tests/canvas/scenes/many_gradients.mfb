@@ -11,8 +11,8 @@ FUNC main() AS Nothing
   WHILE k < 2100
     LET x AS Float = toFloat((k MOD 60) * 15)
     LET y AS Float = toFloat((k / 60) * 18)
-    LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := x, y := y], endPoint := canvas::Point[x := x + 12.0, y := y + 15.0], stops := stops]
-    LET r AS canvas::DrawItem = canvas::Rectangle[x := x, y := y, w := 12.0, h := 15.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := ramp }]
+    LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := x, y := y], endPoint := canvas::Point[x := x + 12.0, y := y + 15.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+    LET r AS canvas::DrawItem = canvas::Rectangle[x := x, y := y, w := 12.0, h := 15.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }]
     scene = collections::append(scene, r)
     k = k + 1
   END WHILE

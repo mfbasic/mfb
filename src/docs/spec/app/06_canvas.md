@@ -531,7 +531,7 @@ still comes from the round walk, so it stays continuous round a corner.
   colours are stored as the record's gradient stops, one per point at offset
   `k / (n − 1)`, after its segments. A pixel whose nearest segment is `i`, at clamped
   parameter `t` along it, is drawn in the gradient colour at `(i + t) / (n − 1)`. That
-  mixes the colours of the segment's two points exactly as `Paint.fillGradient` mixes
+  mixes the colours of the segment's two points exactly as `Paint.gradient` mixes
   two stops, in linear light with straight alpha. The segment that picks the colour is the
   one that sets the distance, because a single walk answers both. The parameter is
   continuous at a corner, so a tie between two segments picks the same colour either
@@ -540,7 +540,7 @@ still comes from the round walk, so it stays continuous round a corner.
   [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineTail]]
   [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHalf]]
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
-  is negative. So `Paint.fill` and `Paint.fillGradient` never reach a polyline.
+  is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
 **`Paint.transform` maps the item's coordinates onto the surface.** The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
@@ -597,7 +597,7 @@ product (the multiply an opaque tint always was), a half-transparent red fill go
 halfway to the red-only image, and a white fill or the zero `Paint` — alpha 0 — draws
 the image unchanged. The picture's alpha is the texel's, faded by `Paint.transparency`
 alone: `(texel.alpha * (255 - T) + 127) / 255`, `T` the transparency step below. The
-fill's alpha never fades it. `Paint.fillGradient` is ignored — the image, not a ramp,
+fill's alpha never fades it. `Paint.gradient` is ignored — the image, not a ramp,
 fills a picture. An item whose image has been closed draws nothing (see *Images are
 named, not embedded*).
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
@@ -684,7 +684,7 @@ alpha is, at draw time, by `T` in header slot 54.
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_PICTURE_TRANSPARENCY]]
 
-**`Paint.fillGradient` replaces an item's fill colour with a ramp.** It replaces the
+**`Paint.gradient` replaces an item's fill colour with a ramp.** It replaces the
 *colour* and nothing else: the shape's distance, its coverage, its stroke and its blend
 mode are exactly what they would be with a flat `Paint.fill`. A stroke is never a
 gradient — an outline is one colour.
@@ -845,7 +845,7 @@ translation places it. Two things travel with that translation because of what t
 
 * **`Paint.clip` moves** — it is in the item's own coordinates, so a group places the
   clipped item and its clip together.
-* **`Paint.fillGradient` moves too**, which is the one place the surface-anchored rule is
+* **`Paint.gradient` moves too**, which is the one place the surface-anchored rule is
   set aside. A group exists to be drawn somewhere else, and an item whose colours depend
   on where its group was placed would not be reusable.
 

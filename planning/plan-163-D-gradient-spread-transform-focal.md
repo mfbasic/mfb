@@ -51,7 +51,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-163-C complete and archived | `ls planning/completed/plan-163-C-*` → match | NOT MET (2026-09-28: C not started) |
+| plan-163-C complete and archived | `ls planning/completed/plan-163-C-*` → match | MET (2026-10-05: `planning/completed/plan-163-C-clip-path-transparency.md`, archived in 81b47828a) |
 
 A and B are complete by transitivity. Everything below assumes C has landed:
 
@@ -136,11 +136,11 @@ The command for every counted row is `grep -rn "<pattern>" --exclude-dir=target 
 
 | What | Count |
 |---|---|
-| `fillGradient` references (the rename) | 101 |
-| `fillGradient :=` sites | 38 |
-| `canvas::Gradient[` constructions (each gains 5 fields) | 39 |
-| Gradient items that also have a transform or sit in a translated group (pixels change) | UNMEASURED (Phase 1's first task) |
-| Gradient on a Line or an Arc under today's `__canvas_strokeAsFill` | UNVERIFIED (Phase 1 reads the builders and records whether it draws today) |
+| `fillGradient` references (the rename) | 105 (Corrections 1) |
+| `fillGradient :=` sites | 42 (Corrections 1) |
+| `canvas::Gradient[` constructions (each gains 5 fields) | 43 (Corrections 1) |
+| Gradient items that also have a transform or sit in a translated group (pixels change) | 0 (Corrections 2) |
+| Gradient on a Line or an Arc under today's `__canvas_strokeAsFill` | draws nothing — the line is flat (Corrections 3) |
 
 ## 3. Design Overview
 
@@ -291,40 +291,64 @@ remains "no gradient", because it has fewer than two stops.
 
 ### Phase 1 — Types, rename, item-space linear gradients, spread (software)
 
-- [ ] Measure §2's UNMEASURED row and resolve the UNVERIFIED row. Record the file
-      lists here; they are the tests whose expectations change.
-- [ ] `mod.rs`: the two enums and the new `Gradient` fields per §4. Rename
+- [x] Measure §2's UNMEASURED row and resolve the UNVERIFIED row. Record the file
+      lists here; they are the tests whose expectations change. (Every file `grep -rln
+      "fillGradient"` lists was read: no gradient item has a `paint.transform`, and a
+      group offset already moved the ramp — so the list of tests whose expectations
+      change is empty, Corrections 2. A Line's or Arc's gradient draws nothing today,
+      Corrections 3.)
+- [x] `mod.rs`: the two enums and the new `Gradient` fields per §4. Rename
       `fillGradient` → `gradient`. Write the descriptions, including that
       `gradient.transform`, `paint.transform` and the group translation all apply to
       the ramp, and the `strokeApply` tint rule. Update `__canvas_noGradient`.
-- [ ] Rename all 101 `fillGradient` references. Add the five fields to the 39
+- [x] Rename all 101 `fillGradient` references. Add the five fields to the 39
       `canvas::Gradient[` sites.
       Check: `grep -rn "fillGradient" --exclude-dir=target --exclude-dir=.git
-      --exclude-dir=planning --exclude-dir=bugs .` → 0.
-- [ ] Both builders:
+      --exclude-dir=planning --exclude-dir=bugs .` → 0. (105 references, 43
+      constructions — Corrections 1; the grep → 0 outside the app-mouse-surface goldens,
+      which were then regenerated, and → 0 after.)
+- [x] Both builders:
       - the linear fold of §3 (f64);
       - the spread and apply slots;
       - the new slots with pin tests.
       `emit_paint_supported` refuses a radial gradient with a non-identity `transform`
-      or a focal field until Phase 2.
-- [ ] Software (`helper_items.rs`): take the ramp point from `q` instead of `p`, and
+      or a focal field until Phase 2. (`__canvas_gradientHeader`/`__canvas_gradientInverse`
+      in `helper_geometry.rs`, slots 55–66, header 55 → 67; the native builder already
+      refuses every paint with two or more stops, so its share is the header length —
+      Corrections 4. Pin: `the_gradient_slots_follow_the_clip_slots_and_fill_the_header`.)
+- [x] Software (`helper_items.rs`): take the ramp point from `q` instead of `p`, and
       apply spread before `__canvas_gradientColor`, via one `__canvas_gradientSpread`
-      helper.
-- [ ] `__canvas_hashPaint`: fold the new gradient fields.
-- [ ] Tests (hand-computed, `rt_canvas_rasteriser.rs`/`rt_canvas_golden.rs`):
+      helper. (`__canvas_gradientSpread` in `helper_color.rs`.)
+- [x] `__canvas_hashPaint`: fold the new gradient fields. (Spread and apply as one step,
+      the transform, the focal offset and radius; every other kind hashes structurally
+      in `func_item_hash.rs`, which takes the new fields from the type model.)
+- [x] Tests (hand-computed, `rt_canvas_rasteriser.rs`/`rt_canvas_golden.rs`):
       - a linear gradient rotated 90° by `gradient.transform` runs top to bottom;
       - a linear gradient on a rotated item rotates with it;
       - Reflect and Repeat at `t = 1.25` give the colours of `t = 0.75` and `t = 0.25`;
       - Pad at `t = 1.25` gives the last stop.
       Re-derive each changed expectation from the Phase 1 measurement by hand.
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
-      `.ir` diff: it should be the type surface only.
+      (`a_linear_gradient_turned_by_its_transform_runs_top_to_bottom`,
+      `a_linear_gradient_on_a_rotated_item_rotates_with_it`,
+      `spread_pads_reflects_and_repeats_past_the_end`. No expectation changed by the
+      measurement; one bound changed by the type growth — Corrections 6.)
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
+      `.ir` diff: it should be the type surface only. (`sync-goldens.sh` → 5 synced,
+      `regen-native-goldens.sh` → 6 rewritten, 0 failures. The `.ir` diff is not the type
+      surface only — Corrections 5.)
+- [x] Discovered: `tests/cli/cli_canvas_package.rs`'s zero-values program still read
+      `filled.clip.w`, plan-163-C's removed `Bounds` — Corrections 7.
 
 Acceptance: item-space linear gradients and spread hold in software, and §3's sub-gate
 set is byte-identical.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass. `git diff --stat tests/golden/canvas` must list only
   scenes in the Phase 1 measured list (est. 10 min, guess).
+  Result: rasteriser 79 passed, 1 failed (the drain bound, Corrections 6; re-run alone
+  after it → passed), 2 ignored; golden 22, geo_native 4; `git diff --stat
+  tests/golden/canvas` → empty, the measured list being empty. Also `cargo test --bin mfb
+  canvas` → 111; `cli_canvas_package` 7, `inplace_self_update_census` 2, `rt_canvas_font`
+  33, `rt_canvas_picture` 11 passed.
 Commit: —
 
 ### Phase 2 — Radial transform, focal point, stroke apply (software)
@@ -424,7 +448,50 @@ user are recorded as decisions in §3.
 
 ## Corrections
 
-(none yet)
+1. **The populations grew with B and C.** `grep -rn "fillGradient" --exclude-dir=target
+   --exclude-dir=.git --exclude-dir=planning --exclude-dir=bugs --exclude-dir=.claude . |
+   wc -l` → 105 (not 101), `"fillGradient :="` → 42 (not 38), `"canvas::Gradient\["` →
+   43 (not 39), measured at 81b47828a. The scope is the same rename and the same five
+   fields at each site; nothing else was derived from those counts.
+2. **No test's pixels move.** Every file listing `fillGradient` was read: no gradient item
+   carries a `paint.transform`. A group offset already moved the ramp — the software
+   ramp read the group-relative point since plan-116-G §4.5
+   (`a_gradient_inside_a_group_moves_with_the_group`) — so only `paint.transform` changes
+   pixels, and no golden or hand test exercises it. `git diff --stat tests/golden/canvas`
+   is empty after Phase 1.
+3. **A gradient on a Line or Arc draws nothing today.** `__canvas_paintHeader` zeroes
+   their stop count (plan-116-F Correction F17), and
+   `a_gradient_on_a_stroke_only_kind_is_ignored` pins it. So `FillOnly` keeps that flat
+   line, and only `FillAndStroke` gives the two kinds the stops — through
+   `__canvas_strokeRampTail` in both record builders.
+4. **The native builder never builds a gradient paint.** `emit_paint_supported` declines
+   every paint with two or more stops (`func_geo_build.rs`), so a gradient record is
+   always the MFBASIC builder's and "both builders" is the MFBASIC one plus the native
+   header length (`GEO_HEADER` 67). The "refuses a radial with a transform until Phase 2"
+   clause is already true of every gradient. The linear fold is skipped for the identity
+   transform: folding the identity would project the start point onto the axis line
+   through the origin, the same `t` in exact arithmetic but rounded differently, which
+   would break §3's byte-identical sub-gate.
+5. **The app-mouse-surface `.ir` is not the type surface only.** It records every canvas
+   helper global with its source line, so any helper edit moves it (the mechanism of
+   plan-163-C's Correction 3). Its diff is the new slot globals, the shifted line
+   numbers, and the changed helpers.
+6. **`the_group_drain_does_not_depend_on_the_scene_changing`'s bound was one buffer's
+   size, and the buffer grew.** Written in plan-116-G Phase 5 (G7) as "a bound of one
+   outstanding buffer"; it guards that retired group buffers drain while the scene never
+   changes; nothing else depends on it. Proof the number is stale: one installed
+   eight-rectangle group measures `groupBytes=4082` at 81b47828a (a detached worktree,
+   `MFB_CANVAS_STATS`) and 4914 now — 104 bytes an item, the five new `Gradient` words;
+   the failure's 4923 is that one buffer with a 9-byte longer name. The bound is now
+   8192 (one buffer, not two) and its comment the measured size.
+7. **A plan-163-C leftover.** `tests/cli/cli_canvas_package.rs`'s
+   `macos_paint_zero_values_are_no_ops` still read `filled.clip.w`, a `Bounds` field C
+   removed, so the program did not build — at C's HEAD too. Its contract (the zero clip
+   is the no-op) is now `len(filled.clip) <> 0`. C's own checks did not run that suite.
+8. **`focalRadius` is clamped to `r (1 − 2^-10)`, not `r`.** §3 said `fr ∈ [0, r]` keeps
+   the leading coefficient strictly negative; at `fr = r` the focal offset is clamped to
+   0 and `a = 0 − 0 = 0`. The upper clamp `r (1 − 2^-10)` keeps `r − fr ≥ r · 2^-10`, so
+   `a < 0` whenever `r > 0`.
 
 ## Summary
 

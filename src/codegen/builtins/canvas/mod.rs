@@ -515,7 +515,62 @@ pub(crate) fn register(r: &mut Registry) {
                               position on the ramp is its distance FROM the centre \
                               over that radius, so the ramp is circular whatever shape \
                               it fills — an ellipse's radial gradient does not become \
-                              elliptical.",
+                              elliptical unless the gradient's own `transform` \
+                              stretches it. `focalOffset` and `focalRadius` move where \
+                              the ramp starts off the centre.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
+        name: "GradientSpread",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Pad",
+                description: "Past either end of the ramp, keep that end's colour: the \
+                              first stop before the start and the last stop after the \
+                              end. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Reflect",
+                description: "Past the end, run the ramp backwards to the start, then \
+                              forwards again, and so on, so the colours mirror at each \
+                              end with no seam.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Repeat",
+                description: "Past the end, start the ramp again from the first stop, \
+                              so it repeats as stripes or rings with a hard edge where \
+                              the last stop meets the first.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
+        name: "GradientApply",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "FillOnly",
+                description: "The ramp colours the item's interior and its outline \
+                              stays the flat `canvas::Paint.stroke` colour. A \
+                              `canvas::Line` or `canvas::Arc`, which has no interior, \
+                              stays flat. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "FillAndStroke",
+                description: "The ramp colours the outline too, tinted by \
+                              `canvas::Paint.stroke` as a `canvas::Picture` is tinted \
+                              by its fill: the stroke colour's alpha is how strongly it \
+                              tints, so a white stroke, or any stroke colour with alpha \
+                              0, shows the plain ramp. A `canvas::Line` or \
+                              `canvas::Arc` is drawn in the tinted ramp.",
                 advisory: None,
             },
         ],
@@ -766,20 +821,20 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Gradient",
         export: true,
         description: "A colour ramp used as an item's interior instead of a flat \
-                      `canvas::Paint.fill`. **Fewer than two stops is not a \
-                      gradient** — the item falls back to `fill`, so the all-zero \
-                      value is inert like every other `canvas::Paint` field. One stop \
-                      is a flat colour you should write as `canvas::fill`, and zero \
-                      stops name no colour at all. The ramp is measured in surface \
-                      pixels — from its own two points, never from the shape's bounds \
-                      — so `canvas::Paint.transform` does **not** carry it: rotating an \
-                      item spins the shape through a ramp that stays where you put it. \
-                      That is also what keeps a radial gradient circular inside an \
-                      ellipse. Colours between two stops are mixed in \
-                      **linear light**, the same space everything else on the surface \
-                      is blended in, so a black-to-white ramp is evenly bright across \
-                      its width rather than dark for most of it — see \
-                      `mfb spec app canvas`.",
+                      `canvas::Paint.fill`, and with `strokeApply` its outline too. \
+                      **Fewer than two stops is not a gradient** — the item falls \
+                      back to `fill`, so the all-zero value is inert like every other \
+                      `canvas::Paint` field. One stop is a flat colour you should \
+                      write as `canvas::fill`, and zero stops name no colour at all. \
+                      The ramp is placed in the item's own coordinates, from its own \
+                      two points and never from the shape's bounds: the gradient's \
+                      `transform` maps it first, then the item's \
+                      `canvas::Paint.transform` and a group's translation, so a \
+                      rotated or moved item carries its ramp with it. Colours between \
+                      two stops are mixed in **linear light**, the same space \
+                      everything else on the surface is blended in, so a \
+                      black-to-white ramp is evenly bright across its width rather \
+                      than dark for most of it — see `mfb spec app canvas`.",
         props: vec![
             RecordProp {
                 name: "kind",
@@ -803,6 +858,50 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "stops",
                 ty: ParameterType::list_of(ParameterType::named("GradientStop")),
                 description: "The colours along the ramp, in the order given.",
+            },
+            RecordProp {
+                name: "spread",
+                ty: ParameterType::named("GradientSpread"),
+                description: "What the ramp does past its ends. `Pad`, the zero value, \
+                              keeps the end colours; `Reflect` mirrors the ramp and \
+                              `Repeat` starts it again.",
+            },
+            RecordProp {
+                name: "transform",
+                ty: ParameterType::named("Transform"),
+                description: "Maps the ramp before the item's own \
+                              `canvas::Paint.transform` does: scale, turn or shear the \
+                              gradient without touching the shape. Scaling a radial \
+                              gradient by different amounts in x and y makes it \
+                              elliptical. The all-zero value is the identity, and a \
+                              transform that flattens the ramp to a line is treated as \
+                              the identity, as for `canvas::Paint.transform`.",
+            },
+            RecordProp {
+                name: "focalOffset",
+                ty: ParameterType::named("Point"),
+                description: "Radial only: where the ramp starts, as an offset from \
+                              `startPoint` — an off-centre highlight on a sphere. The \
+                              zero value starts it at the centre. An offset that would \
+                              put the focus on or outside the outer circle is pulled \
+                              just inside it.",
+            },
+            RecordProp {
+                name: "focalRadius",
+                ty: ParameterType::Float,
+                description: "Radial only: the radius of the circle at the focus that \
+                              the ramp starts from, so the first stop's colour fills a \
+                              disc rather than a point. The zero value is a point. It \
+                              is held between `0.0` and just under the outer radius.",
+            },
+            RecordProp {
+                name: "strokeApply",
+                ty: ParameterType::named("GradientApply"),
+                description: "Whether the ramp colours the outline as well as the \
+                              interior. `FillOnly`, the zero value, leaves the outline \
+                              the flat `canvas::Paint.stroke`; `FillAndStroke` paints \
+                              it with the ramp tinted by the stroke colour, as a \
+                              `canvas::Picture` is tinted by its fill.",
             },
         ],
     });
@@ -870,8 +969,8 @@ pub(crate) fn register(r: &mut Registry) {
                               is smaller than 1e-12 — is treated as the identity \
                               instead, because there is no sensible picture of a \
                               shape with no area and silently drawing nothing is the \
-                              worse answer. It applies to `canvas::Paint.clip` as \
-                              well as to the item.",
+                              worse answer. It applies to `canvas::Paint.clip` and \
+                              `canvas::Paint.gradient` as well as to the item.",
             },
             RecordProp {
                 name: "clip",
@@ -900,20 +999,20 @@ pub(crate) fn register(r: &mut Registry) {
                               run opposite ways.",
             },
             RecordProp {
-                name: "fillGradient",
+                name: "gradient",
                 ty: ParameterType::named("Gradient"),
                 description: "Fill the item with a colour ramp instead of the flat \
                               `fill`. A gradient with **fewer than two stops is \
                               ignored** and `fill` is used, which is what makes the \
                               zero value inert like every other field here. The ramp \
-                              is measured in surface pixels, from the gradient's own \
-                              two points — so `transform` does **not** carry it: \
-                              rotating an item spins the shape through a ramp that \
-                              stays where you put it. `stroke` is \
-                              unaffected — an outline is always a flat colour — and a \
-                              `canvas::Text` item ignores this field, because a glyph \
-                              is drawn from a cached coverage bitmap rather than from \
-                              a distance field.",
+                              is in the item's own coordinates, so `transform` carries \
+                              it: rotating an item turns its ramp with it. The outline \
+                              stays the flat `stroke` colour unless the gradient's \
+                              `strokeApply` is `FillAndStroke`. A `canvas::Text` item \
+                              ignores this field, because a glyph is drawn from a \
+                              cached coverage bitmap rather than from a distance \
+                              field; a `canvas::PolyLine` takes its colours from \
+                              `colors` and a `canvas::Picture` from its image.",
             },
             RecordProp {
                 name: "cap",
@@ -1356,7 +1455,7 @@ pub(crate) fn register(r: &mut Registry) {
                       segment. Colours mix in linear light, as a `canvas::Gradient`'s \
                       do. A path has no interior, so it is drawn from \
                       `paint.strokeWidth` and ignores `paint.fill` and \
-                      `paint.fillGradient`. Fewer than two points draws nothing.",
+                      `paint.gradient`. Fewer than two points draws nothing.",
         props: vec![
             RecordProp {
                 name: "points",

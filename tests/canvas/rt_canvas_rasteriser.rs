@@ -1418,9 +1418,9 @@ fn transparency_fades_fill_stroke_and_gradient_alphas() {
         };
         scene(&format!(
             "  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 400.0, y := 0.0], endPoint := canvas::Point[x := 600.0, y := 0.0], \
-             stops := [canvas::GradientStop[offset := 0.0, color := {s0}], canvas::GradientStop[offset := 1.0, color := {s1}]]]\n  \
+             stops := [canvas::GradientStop[offset := 0.0, color := {s0}], canvas::GradientStop[offset := 1.0, color := {s1}]], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET a AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fillStroke({fill}, {stroke}, 12.0) {{{t} blend := canvas::BlendMode.Normal }}]\n  \
-             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fill(color::rgb(9, 9, 9)) {{{t} fillGradient := ramp }}]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fill(color::rgb(9, 9, 9)) {{{t} gradient := ramp }}]\n  \
              canvas::present([a, b])\n"
         ))
     };
@@ -2895,14 +2895,14 @@ fn gradients_sharing_a_header_keep_their_own_stops() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET gA AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET gB AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) { fillGradient := gA }]\n  \
+             h := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) { gradient := gA }]\n  \
              LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 255)) { fillGradient := gB }]\n  \
+             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 255)) { gradient := gB }]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -2953,7 +2953,7 @@ fn a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill() {
             if extra.is_empty() {
                 "canvas::fill(color::rgb(220, 90, 40))".to_string()
             } else {
-                "WITH canvas::fill(color::rgb(220, 90, 40)) { fillGradient := g }".to_string()
+                "WITH canvas::fill(color::rgb(220, 90, 40)) { gradient := g }".to_string()
             }
         )
     };
@@ -2970,7 +2970,7 @@ fn a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill() {
             "  LET s AS List OF canvas::GradientStop = {stops}\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 300.0, y := 100.0], stops := s]\n"
+             endPoint := canvas::Point[x := 300.0, y := 100.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n"
         );
         let (got, _) = render(name, &scene(&flat(&decl)));
         assert_eq!(
@@ -2999,9 +2999,9 @@ fn a_linear_gradient_interpolates_between_its_stops() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 0.0], \
-             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
-             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) { fillGradient := g }]\n  \
+             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3050,9 +3050,9 @@ fn a_radial_gradient_runs_outward_from_its_centre() {
              color := color::rgb(0, 0, 0)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, \
              startPoint := canvas::Point[x := 400.0, y := 300.0], \
-             endPoint := canvas::Point[x := 520.0, y := 300.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 520.0, y := 300.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET c AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, radius := 120.0, \
-             paint := WITH canvas::fill(color::rgb(0, 255, 0)) { fillGradient := g }]\n  \
+             paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }]\n  \
              canvas::present([c])\n",
         ),
     );
@@ -3108,15 +3108,15 @@ fn gradients_draw_their_own_ramps() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET gA AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET gB AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET base AS canvas::Paint = canvas::fill(color::rgb(0, 255, 0))\n  \
              LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH base { fillGradient := gA }]\n  \
+             h := 100.0, paint := WITH base { gradient := gA }]\n  \
              LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH base { fillGradient := gB }]\n  \
+             h := 100.0, paint := WITH base { gradient := gB }]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -3149,9 +3149,9 @@ fn a_zero_length_gradient_axis_takes_the_first_stops_colour() {
              color := color::rgb(200, 30, 90)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 250.0, y := 250.0], \
-             endPoint := canvas::Point[x := 250.0, y := 250.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 250.0, y := 250.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 300.0, \
-             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3185,9 +3185,9 @@ fn gradient_offsets_out_of_order_are_clamped_not_sorted() {
              canvas::GradientStop[offset := 1.0, color := color::rgb(255, 255, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 0.0], \
-             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3214,7 +3214,7 @@ fn gradient_offsets_out_of_order_are_clamped_not_sorted() {
 
 /// A gradient fills the interior and leaves the outline a flat colour.
 ///
-/// plan-116-F **F15**. `Paint.fillGradient`'s description and `06_canvas.md` both
+/// plan-116-F **F15**. `Paint.gradient`'s description and `06_canvas.md` both
 /// promise this — *"`stroke` is unaffected — an outline is always a flat colour"* — and
 /// before this test the seven gradient cases here were all fill-only, so nothing in the
 /// tree would have noticed the ramp leaking into the stroke.
@@ -3237,10 +3237,10 @@ fn a_gradients_stroke_stays_a_flat_colour() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 0.0], \
-             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
              h := 200.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), \
-             color::rgb(255, 255, 0), 24.0) { fillGradient := g }]\n  \
+             color::rgb(255, 255, 0), 24.0) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3309,16 +3309,16 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
          color := color::rgb(255, 0, 255)]]\n  \
          LET g1 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
          startPoint := canvas::Point[x := 40.0, y := 0.0], \
-         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s1]\n  \
+         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s1, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
          LET g2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
          startPoint := canvas::Point[x := 40.0, y := 0.0], \
-         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s2]\n  \
+         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s2, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
          LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
          x2 := 360.0, y2 := 60.0, \
-         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { fillGradient := g1, cap := canvas::CapStyle.Butt }]\n  \
+         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { gradient := g1, cap := canvas::CapStyle.Butt }]\n  \
          LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
          startAngle := 0.0, endAngle := 3.14159, \
-         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { fillGradient := g2, cap := canvas::CapStyle.Butt }]\n  \
+         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { gradient := g2, cap := canvas::CapStyle.Butt }]\n  \
          canvas::present([a, b])\n";
 
     let (plain, _) = render("canvas_stroke_only_plain", &scene(PLAIN));
@@ -3337,7 +3337,7 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
     assert_eq!(
         differing, 0,
         "a gradient changed what a stroke-only item draws: `Line` and `Arc` are drawn \
-         entirely from `Paint.stroke` and have no interior, so `fillGradient` has no \
+         entirely from `Paint.stroke` and have no interior, so `gradient` has no \
          fill to replace and `__canvas_paintHeader` must skip them — {differing} \
          pixels differ"
     );
@@ -3658,7 +3658,7 @@ fn a_group_cycle_and_an_over_deep_chain_both_raise() {
 /// A gradient inside a group **moves with the group** — settling plan-116-G §4.5's open
 /// decision, and pinning it with the scene that can tell the two answers apart.
 ///
-/// The decision was genuinely open. `Paint.fillGradient` is evaluated at the surface
+/// The decision was genuinely open. `Paint.gradient` is evaluated at the surface
 /// point against an axis read straight from the record, so a gradient is
 /// surface-anchored and `Paint.transform` does **not** drag it (`06_canvas.md` says so
 /// deliberately). A group offset could consistently have gone either way.
@@ -3679,8 +3679,8 @@ fn a_gradient_inside_a_group_moves_with_the_group() {
         "canvas_group_gradient",
         &scene(
             "  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]]\n  \
-             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 200.0, y := 0.0], stops := stops]\n  \
-             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 200.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
+             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
              canvas::setGroup(\"bar\", [bar])\n  \
              LET left AS canvas::DrawItem = canvas::Group[dx := 50.0, dy := 100.0, name := \"bar\"]\n  \
              LET right AS canvas::DrawItem = canvas::Group[dx := 400.0, dy := 300.0, name := \"bar\"]\n  \
@@ -3831,11 +3831,12 @@ fn the_group_drain_does_not_depend_on_the_scene_changing() {
         .expect("groupBytes is a number");
     let groups = stat(stats.last().unwrap(), "groups=");
     assert_eq!(groups, "0", "every scratch group was removed: {stats:?}");
-    // One eight-item group is ~1 KB, so 200 undrained ones would be ~200 KB. The bound
-    // allows a single outstanding buffer: the last iteration's may legitimately still
-    // be retired, since the gate needs a frame to complete after it.
+    // One eight-item group is 4914 bytes (measured, plan-163-D: 4082 before the gradient
+    // gained five fields, 104 bytes an item), so 200 undrained ones would be ~1 MB. The
+    // bound allows a single outstanding buffer and not two: the last iteration's may
+    // legitimately still be retired, since the gate needs a frame to complete after it.
     assert!(
-        bytes < 4096,
+        bytes < 8192,
         "the table still owns {bytes} bytes after 200 install/remove cycles, so the \
          buffers were not drained. Every present in that loop showed an unchanged scene \
          and was skipped, which is exactly the case a free placed on the publish path \
@@ -4504,4 +4505,136 @@ fn destroying_a_font_mid_frame_is_clean() {
         frame_path.exists(),
         "no frame was written, so the race never actually ran",
     );
+}
+
+/// A red-to-blue ramp's stops and a `canvas::Gradient` over them with every plan-163-D
+/// field spelled: `kind`, the two points, the spread (`Pad`/`Reflect`/`Repeat`) and the
+/// gradient's own transform as `a, b, c, d, tx, ty`.
+fn ramp(kind: &str, from: (f64, f64), to: (f64, f64), spread: &str, t: [f64; 6]) -> String {
+    format!(
+        "canvas::Gradient[kind := canvas::GradientKind.{kind}, \
+         startPoint := canvas::Point[x := {}, y := {}], endPoint := canvas::Point[x := {}, y := {}], \
+         stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], \
+         canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]], \
+         spread := canvas::GradientSpread.{spread}, \
+         transform := canvas::Transform[a := {}, b := {}, c := {}, d := {}, tx := {}, ty := {}], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, \
+         strokeApply := canvas::GradientApply.FillOnly]",
+        lit(from.0), lit(from.1), lit(to.0), lit(to.1), lit(t[0]), lit(t[1]), lit(t[2]), lit(t[3]), lit(t[4]), lit(t[5])
+    )
+}
+
+/// A `Float` literal as MFBASIC spells it: a negative one as `(0.0 - n)`.
+fn lit(v: f64) -> String {
+    if v < 0.0 {
+        format!("(0.0 - {:?})", -v)
+    } else {
+        format!("{v:?}")
+    }
+}
+
+/// The all-zero transform: the identity.
+const NO_T: [f64; 6] = [0.0; 6];
+
+/// plan-163-D: a linear gradient turned 90° by its own `transform` runs top to bottom.
+///
+/// Hand-computed. `G` maps `(x, y)` to `(-y, x)`, so `G^-1 q = (q.y, -q.x)` and the ramp
+/// from `(0, 0)` to `(101, 0)` gives `t = q.y / 101`: constant along a row, `0.5` at the
+/// row whose centre is `y = 50.5`. The reference is the same ramp written as `(0, 0)` to
+/// `(0, 101)` with no transform, whose `t` is the same expression; the turned one goes
+/// through the build-time fold (`__canvas_gradientHeader`), so its points carry the
+/// fold's rounding and the two may differ by a step at a quantisation boundary, never
+/// more.
+#[test]
+fn a_linear_gradient_turned_by_its_transform_runs_top_to_bottom() {
+    let turned = ramp("Linear", (0.0, 0.0), (101.0, 0.0), "Pad", [0.0, 1.0, -1.0, 0.0, 0.0, 0.0]);
+    let upright = ramp("Linear", (0.0, 0.0), (0.0, 101.0), "Pad", NO_T);
+    let (frame, _) = render(
+        "canvas_gradient_turned",
+        &scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {turned} }}]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {upright} }}]\n  \
+             canvas::present([a, b])\n"
+        )),
+    );
+    for y in [3usize, 25, 50, 75, 97] {
+        let row = pixel(&frame, 110, y);
+        for x in [150usize, 200, 290] {
+            assert_eq!(pixel(&frame, x, y), row, "the turned ramp varies along row {y}, so it does not run top to bottom");
+        }
+        let reference = pixel(&frame, 500, y);
+        for (got, want) in [(row.0, reference.0), (row.1, reference.1), (row.2, reference.2)] {
+            assert!(
+                got.abs_diff(want) <= 1,
+                "row {y}: the turned ramp is {row:?}, the upright reference {reference:?}"
+            );
+        }
+    }
+    let mid = pixel(&frame, 200, 50);
+    assert!(
+        mid.0.abs_diff(187) <= 1 && mid.1 == 0 && mid.2.abs_diff(188) <= 1,
+        "t = 0.5 at y = 50.5 is the red-to-blue midpoint (187, 0, 188) in linear light, got {mid:?}"
+    );
+    assert!(pixel(&frame, 200, 3).0 > 240 && pixel(&frame, 200, 97).2 > 240, "red at the top, blue at the bottom");
+}
+
+/// plan-163-D: a linear gradient on a rotated item rotates with it -- the ramp is in the
+/// item's own coordinates (the user's 2026-09-28 decision reversed the surface-anchored
+/// ramp).
+///
+/// The same item twice: translated to (200, 200), and turned 90° and translated to
+/// (500, 200). The turn maps the shape point (x, y) to (-y, x), so the upright copy's
+/// pixel (200 + i, 200 + j) and the turned copy's (499 - j, 200 + i) have the same
+/// shape-space centre (0.5 + i, 0.5 + j) exactly -- the matrix terms are 0 and +-1 -- and
+/// must draw the same colour. A surface-anchored ramp would run across the turned copy
+/// left to right instead and fail at every sample.
+#[test]
+fn a_linear_gradient_on_a_rotated_item_rotates_with_it() {
+    let g = ramp("Linear", (-50.0, 0.0), (50.0, 0.0), "Pad", NO_T);
+    let (frame, _) = render(
+        "canvas_gradient_item_space",
+        &scene(&format!(
+            "  LET g AS canvas::Gradient = {g}\n  \
+             LET up AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g, transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 200.0, ty := 200.0] }}]\n  \
+             LET turned AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g, transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 200.0] }}]\n  \
+             canvas::present([up, turned])\n"
+        )),
+    );
+    for (i, j) in [(-45i64, -40i64), (-20, 10), (0, 0), (17, -33), (44, 44)] {
+        let up = pixel(&frame, (200 + i) as usize, (200 + j) as usize);
+        let turned = pixel(&frame, (499 - j) as usize, (200 + i) as usize);
+        assert_eq!(turned, up, "shape point ({i}.5, {j}.5): the turned copy's ramp did not turn with it");
+    }
+    assert_ne!(pixel(&frame, 160, 200), pixel(&frame, 240, 200), "the ramp is flat, so nothing above was tested");
+}
+
+/// plan-163-D: the spread past the ramp's end. The ramp runs from x = 99.5 to 199.5, so
+/// the pixel centre x + 0.5 is at `t = (x - 99) / 100` -- exactly 1.25 at x = 224, 0.75
+/// at x = 174 and 0.25 at x = 124, every one exact in binary. `Pad` there is the last
+/// stop, `(0, 0, 255)`; `Reflect` folds 1.25 to 0.75 and `Repeat` wraps it to 0.25, so
+/// each must equal its own ramp's pixel at that `t` inside the ramp.
+#[test]
+fn spread_pads_reflects_and_repeats_past_the_end() {
+    let item = |name: &str, y: f64, spread: &str| {
+        let g = ramp("Linear", (99.5, 0.0), (199.5, 0.0), spread, NO_T);
+        format!(
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := {y:?}, w := 300.0, h := 40.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}]\n"
+        )
+    };
+    let (frame, _) = render(
+        "canvas_gradient_spread",
+        &scene(&format!(
+            "{}{}{}  canvas::present([pad, reflect, again])\n",
+            item("pad", 100.0, "Pad"),
+            item("reflect", 200.0, "Reflect"),
+            item("again", 300.0, "Repeat")
+        )),
+    );
+    assert_eq!(pixel(&frame, 224, 120), (0, 0, 255, 255), "Pad at t = 1.25 is the last stop");
+    assert_eq!(pixel(&frame, 224, 220), pixel(&frame, 174, 220), "Reflect at t = 1.25 is t = 0.75");
+    assert_eq!(pixel(&frame, 224, 320), pixel(&frame, 124, 320), "Repeat at t = 1.25 is t = 0.25");
+    assert_ne!(pixel(&frame, 174, 220), pixel(&frame, 124, 320), "t = 0.75 and t = 0.25 must differ, or the two above prove nothing");
+    // Inside the ramp all three agree: the spread only acts past the ends.
+    assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 220));
+    assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 320));
 }

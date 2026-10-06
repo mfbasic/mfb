@@ -50,7 +50,20 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 55
+r#"LET __CANVAS_GEO_HEADER AS Integer = 67
+' plan-163-D: the gradient's per-pixel words, after plan-163-C's. 55 is the spread
+' (0 Pad, 1 Reflect, 2 Repeat), 56 whether the ramp also paints the stroke (1 for
+' FillAndStroke on a kind that has a stroke to paint), 57-62 a RADIAL gradient's inverse
+' transform as float32 bit patterns (the slots 27-32 convention) with 63 its flag, and
+' 64-66 the focal offset from the centre and the focal radius, already clamped. A linear
+' gradient's transform is folded into slots 43-46 at build and leaves 57-63 at zero.
+LET __CANVAS_GEO_GRADIENT_SPREAD AS Integer = 55
+LET __CANVAS_GEO_GRADIENT_APPLY AS Integer = 56
+LET __CANVAS_GEO_GRADIENT_INV AS Integer = 57
+LET __CANVAS_GEO_GRADIENT_HAS_INV AS Integer = 63
+LET __CANVAS_GEO_GRADIENT_FOCALX AS Integer = 64
+LET __CANVAS_GEO_GRADIENT_FOCALY AS Integer = 65
+LET __CANVAS_GEO_GRADIENT_FOCALR AS Integer = 66
 ' plan-163-C: the clip and transparency slots, after plan-163-B's. 51 is the clip's mode
 ' (0 none, 1 an axis-aligned rectangle in slots 22-25, 2 a path of clip edges), 52 the
 ' clip edge count, 53 the clip's FillRule ordinal, 54 a picture's transparency step T
@@ -338,21 +351,23 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   ' stops -- the same collision the polygon points guard against below. Skipping is what
   ' makes those two bare returns correct by construction rather than by luck.
   LET kind AS Integer = toInt(collections::getOr(out, 0, 0.0))
-  MUT stopCount AS Integer = len(paint.fillGradient.stops)
+  MUT stopCount AS Integer = len(paint.gradient.stops)
   IF kind = __CANVAS_GEO_TEXT THEN
     stopCount = 0
   END IF
   IF kind = __CANVAS_GEO_NONE THEN
     stopCount = 0
   END IF
-  IF kind = __CANVAS_KIND_SEGMENT THEN
+  IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC THEN
     stopCount = 0
   END IF
-  IF kind = __CANVAS_GEO_ARC THEN
-    stopCount = 0
+  ' plan-163-D: unless the ramp paints the stroke (`FillAndStroke`): a Line or Arc is
+  ' then drawn in it, so it keeps the stops -- `__canvas_strokeRampTail` appends them.
+  IF (kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC) AND paint.gradient.strokeApply = GradientApply.FillAndStroke THEN
+    stopCount = len(paint.gradient.stops)
   END IF
   ' plan-154-A: a PolyLine is stroke-as-fill too. Its tail does carry stops -- its
-  ' per-point colours, never `fillGradient`'s -- and `__canvas_polylineHeader` writes
+  ' per-point colours, never `gradient`'s -- and `__canvas_polylineHeader` writes
   ' their count itself after this returns.
   IF kind = __CANVAS_GEO_POLYLINE THEN
     stopCount = 0
@@ -365,14 +380,17 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   out = collections::set(out, 1, collections::getOr(out, 1, 0.0) + toFloat(stopCount * 5))
   out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, toFloat(stopCount))
   MUT gkind AS Float = 0.0
-  IF paint.fillGradient.kind = GradientKind.Radial THEN
+  IF paint.gradient.kind = GradientKind.Radial THEN
     gkind = 1.0
   END IF
   out = collections::set(out, __CANVAS_GEO_GRADIENT_KIND, gkind)
-  out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMX, paint.fillGradient.startPoint.x)
-  out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMY, paint.fillGradient.startPoint.y)
-  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, paint.fillGradient.endPoint.x)
-  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, paint.fillGradient.endPoint.y)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMX, paint.gradient.startPoint.x)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMY, paint.gradient.startPoint.y)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, paint.gradient.endPoint.x)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, paint.gradient.endPoint.y)
+  IF stopCount >= 2 THEN
+    out = __canvas_gradientHeader(out, paint.gradient, kind)
+  END IF
   ' plan-116-C: the transform, INVERTED once here rather than per pixel in each of
   ' three renderers. `__canvas_invertTransform` is also the only place that knows an
   ' all-zero `Transform` means the identity, and the only place that decides what a
@@ -408,6 +426,115 @@ END FUNC
 ' integers, which is `alpha` itself at T = 0.
 FUNC __canvas_fadeAlpha(alpha AS Integer, fade AS Integer) AS Integer
   RETURN (alpha * (255 - fade) + 127) / 255
+END FUNC
+
+' plan-163-D: a gradient's transform inverted in f64, `[ia, ib, ic, id, itx, ity, 1]`
+' with `x' = ia*x + ic*y + itx`; the identity `[1, 0, 0, 1, 0, 0, 0]` for the all-zero
+' transform and for one `__canvas_invertTransform` would refuse (a determinant under
+' 1e-12) -- that helper's rule, kept in f64 for the linear fold.
+FUNC __canvas_gradientInverse(t AS Transform) AS List OF Float
+  LET identity AS List OF Float = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+  IF t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0 THEN
+    RETURN identity
+  END IF
+  LET det AS Float = t.a * t.d - t.b * t.c
+  IF __canvas_absF(det) < 0.000000000001 THEN
+    RETURN identity
+  END IF
+  LET ia AS Float = t.d / det
+  LET ib AS Float = (0.0 - t.b) / det
+  LET ic AS Float = (0.0 - t.c) / det
+  LET id AS Float = t.a / det
+  RETURN [ia, ib, ic, id, 0.0 - (ia * t.tx + ic * t.ty), 0.0 - (ib * t.tx + id * t.ty), 1.0]
+END FUNC
+
+' plan-163-D: the gradient's spread, stroke apply, transform and focal slots, for a paint
+' whose ramp the record carries (two or more stops on a kind that draws one).
+'
+' A LINEAR gradient's transform G folds into its two points: its `t = dot(G^-1 q - s, d)
+' / |d|^2` is affine in the item point q, `t = u.q + c`, which is the plain linear ramp
+' from `-c u / |u|^2` along `u / |u|^2`. So the renderers see an ordinary linear
+' gradient. A RADIAL one cannot fold (a transformed circle is an ellipse), so its inverse
+' rides slots 57-62 and the renderers map q through it per pixel. The focal offset is
+' pulled inside `(r - fr)(1 - 2^-10)` of the centre and the focal radius into `[0,
+' r (1 - 2^-10)]`, which keeps the focal quadratic's leading coefficient below zero.
+' The identity transform, no focal offset and a zero focal radius leave every slot at
+' zero, so such a gradient's record is the one it was before this letter.
+FUNC __canvas_gradientHeader(h AS List OF Float, g AS Gradient, kind AS Integer) AS List OF Float
+  MUT out AS List OF Float = h
+  IF g.spread = GradientSpread.Reflect THEN
+    out = collections::set(out, __CANVAS_GEO_GRADIENT_SPREAD, 1.0)
+  END IF
+  IF g.spread = GradientSpread.Repeat THEN
+    out = collections::set(out, __CANVAS_GEO_GRADIENT_SPREAD, 2.0)
+  END IF
+  IF g.strokeApply = GradientApply.FillAndStroke AND kind <> __CANVAS_GEO_PICTURE THEN
+    out = collections::set(out, __CANVAS_GEO_GRADIENT_APPLY, 1.0)
+  END IF
+  LET inv AS List OF Float = __canvas_gradientInverse(g.transform)
+  LET hasInv AS Boolean = collections::getOr(inv, 6, 0.0) > 0.5
+  LET sx AS Float = g.startPoint.x
+  LET sy AS Float = g.startPoint.y
+  LET dx AS Float = g.endPoint.x - sx
+  LET dy AS Float = g.endPoint.y - sy
+  IF g.kind = GradientKind.Linear THEN
+    LET len2 AS Float = dx * dx + dy * dy
+    IF hasInv AND len2 > 0.0 THEN
+      LET ia AS Float = collections::getOr(inv, 0, 1.0)
+      LET ib AS Float = collections::getOr(inv, 1, 0.0)
+      LET ic AS Float = collections::getOr(inv, 2, 0.0)
+      LET id AS Float = collections::getOr(inv, 3, 1.0)
+      LET itx AS Float = collections::getOr(inv, 4, 0.0)
+      LET ity AS Float = collections::getOr(inv, 5, 0.0)
+      LET ux AS Float = (dx * ia + dy * ib) / len2
+      LET uy AS Float = (dx * ic + dy * id) / len2
+      LET c AS Float = (dx * (itx - sx) + dy * (ity - sy)) / len2
+      LET u2 AS Float = ux * ux + uy * uy
+      IF u2 > 0.0 THEN
+        LET fromX AS Float = (0.0 - c) * ux / u2
+        LET fromY AS Float = (0.0 - c) * uy / u2
+        out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMX, fromX)
+        out = collections::set(out, __CANVAS_GEO_GRADIENT_FROMY, fromY)
+        out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, fromX + ux / u2)
+        out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, fromY + uy / u2)
+      END IF
+    END IF
+    RETURN out
+  END IF
+  IF hasInv THEN
+    MUT k AS Integer = 0
+    WHILE k < 6
+      out = collections::set(out, __CANVAS_GEO_GRADIENT_INV + k, toFloat(__canvas_float32Bits(collections::getOr(inv, k, 0.0))))
+      k = k + 1
+    END WHILE
+    out = collections::set(out, __CANVAS_GEO_GRADIENT_HAS_INV, 1.0)
+  END IF
+  LET r AS Float = math::sqrt(dx * dx + dy * dy)
+  LET frMax AS Float = r * 0.9990234375
+  LET fr AS Float = __canvas_maxF(__canvas_minF(g.focalRadius, frMax), 0.0)
+  MUT ox AS Float = g.focalOffset.x
+  MUT oy AS Float = g.focalOffset.y
+  LET reach AS Float = (r - fr) * 0.9990234375
+  LET olen AS Float = math::sqrt(ox * ox + oy * oy)
+  IF olen > reach THEN
+    IF olen > 0.0 THEN
+      ox = ox * reach / olen
+      oy = oy * reach / olen
+    END IF
+  END IF
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_FOCALX, ox)
+  out = collections::set(out, __CANVAS_GEO_GRADIENT_FOCALY, oy)
+  RETURN collections::set(out, __CANVAS_GEO_GRADIENT_FOCALR, fr)
+END FUNC
+
+' plan-163-D: a Line's or Arc's tail with the ramp's stops after it when the ramp paints
+' the stroke (`FillAndStroke`) -- the only time `__canvas_paintHeader` counts them for
+' those two kinds.
+FUNC __canvas_strokeRampTail(base AS List OF Float, paint AS Paint) AS List OF Float
+  IF paint.gradient.strokeApply = GradientApply.FillAndStroke THEN
+    RETURN __canvas_appendGradientTail(base, paint)
+  END IF
+  RETURN base
 END FUNC
 
 ' A clip of one ring of four points that is an axis-aligned rectangle (its sides
@@ -1005,7 +1132,7 @@ END FUNC
 ' k / (count - 1), and the renderer asks `__canvas_gradientColor` for the colour at the
 ' path parameter (segment + t) / (count - 1), which falls between the stops of that
 ' segment's two points -- so the colour is the gradient mix of those two, in linear
-' light, exactly as a `Paint.fillGradient` ramp mixes.
+' light, exactly as a `Paint.gradient` ramp mixes.
 FUNC __canvas_polylineTail(p AS PolyLine) AS List OF Float
   LET segments AS List OF Float = __canvas_polylineSegments(p)
   ' plan-163-B: the join records go between the segments and the colour stops, which
@@ -1081,7 +1208,7 @@ END FUNC
 
 ' The five floats one stop contributes: offset, then its colour's four channels.
 FUNC __canvas_gradientTail(paint AS Paint) AS List OF Float
-  LET count AS Integer = len(paint.fillGradient.stops)
+  LET count AS Integer = len(paint.gradient.stops)
   MUT out AS List OF Float = []
   IF count < 2 THEN
     RETURN out
@@ -1094,7 +1221,7 @@ FUNC __canvas_gradientTail(paint AS Paint) AS List OF Float
   MUT prev AS Float = 0.0
   MUT i AS Integer = 0
   WHILE i < count
-    LET st AS GradientStop = collections::getOr(paint.fillGradient.stops, i, GradientStop[offset := 0.0, color := __canvas_transparent()])
+    LET st AS GradientStop = collections::getOr(paint.gradient.stops, i, GradientStop[offset := 0.0, color := __canvas_transparent()])
     MUT o AS Float = st.offset
     IF o < 0.0 THEN
       o = 0.0
@@ -1361,12 +1488,14 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       header = __canvas_withDashes(header, dashes, c.paint)
     CASE Line(l)
       header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint)
-      tail = __canvas_lineDashes(header, l)
-      header = __canvas_withDashes(header, tail, l.paint)
+      LET dashes AS List OF Float = __canvas_lineDashes(header, l)
+      tail = __canvas_strokeRampTail(dashes, l.paint)
+      header = __canvas_withDashes(header, dashes, l.paint)
     CASE Arc(a)
       header = __canvas_arcHeader(a)
-      tail = __canvas_arcDashes(header, a)
-      header = __canvas_withDashes(header, tail, a.paint)
+      LET dashes AS List OF Float = __canvas_arcDashes(header, a)
+      tail = __canvas_strokeRampTail(dashes, a.paint)
+      header = __canvas_withDashes(header, dashes, a.paint)
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
       LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
@@ -1520,7 +1649,7 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
   LET t AS Transform = paint.transform
   LET hasClip AS Boolean = len(paint.clip) > 0
   LET hasTransform AS Boolean = NOT (t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0)
-  LET stopCount AS Integer = len(paint.fillGradient.stops)
+  LET stopCount AS Integer = len(paint.gradient.stops)
   MUT flags AS Integer = 0
   IF hasClip THEN
     flags = flags + 1
@@ -1554,17 +1683,34 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
   ' those slots only when the count says there is a ramp.
   IF stopCount >= 2 THEN
     MUT radial AS Integer = 0
-    IF paint.fillGradient.kind = GradientKind.Radial THEN
+    IF paint.gradient.kind = GradientKind.Radial THEN
       radial = 1
     END IF
     h = __canvas_hashStep(h, radial)
-    h = __canvas_hashPoint(h, paint.fillGradient.startPoint)
-    h = __canvas_hashPoint(h, paint.fillGradient.endPoint)
+    h = __canvas_hashPoint(h, paint.gradient.startPoint)
+    h = __canvas_hashPoint(h, paint.gradient.endPoint)
     h = __canvas_hashStep(h, stopCount)
-    FOR EACH stop IN paint.fillGradient.stops
+    FOR EACH stop IN paint.gradient.stops
       h = __canvas_hashFloat(h, stop.offset)
       h = __canvas_hashStep(h, ((toInt(stop.color.red) * 256 + toInt(stop.color.green)) * 256 + toInt(stop.color.blue)) * 256 + toInt(stop.color.alpha))
     NEXT
+    ' plan-163-D: the spread and stroke apply as one step, then the transform, the focal
+    ' offset and the focal radius.
+    MUT ramp AS Integer = 0
+    IF paint.gradient.spread = GradientSpread.Reflect THEN
+      ramp = 1
+    END IF
+    IF paint.gradient.spread = GradientSpread.Repeat THEN
+      ramp = 2
+    END IF
+    IF paint.gradient.strokeApply = GradientApply.FillAndStroke THEN
+      ramp = ramp + 4
+    END IF
+    LET gt AS Transform = paint.gradient.transform
+    h = __canvas_hashStep(h, ramp)
+    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, gt.a), gt.b), gt.c)
+    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, gt.d), gt.tx), gt.ty)
+    h = __canvas_hashFloat(__canvas_hashPoint(h, paint.gradient.focalOffset), paint.gradient.focalRadius)
   END IF
   ' plan-163-B: the stroke's shape -- cap and join as one step, then the miter limit,
   ' the dash lengths after their count, and the offset.
@@ -1760,8 +1906,9 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       header = __canvas_withDashes(header, dashes, c.paint)
     CASE Line(l)
       header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint)
-      tail = __canvas_lineDashes(header, l)
-      header = __canvas_withDashes(header, tail, l.paint)
+      LET dashes AS List OF Float = __canvas_lineDashes(header, l)
+      tail = __canvas_strokeRampTail(dashes, l.paint)
+      header = __canvas_withDashes(header, dashes, l.paint)
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
       LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
@@ -1773,8 +1920,9 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint)), dashes, p.paint)
     CASE Arc(a)
       header = __canvas_arcHeader(a)
-      tail = __canvas_arcDashes(header, a)
-      header = __canvas_withDashes(header, tail, a.paint)
+      LET dashes AS List OF Float = __canvas_arcDashes(header, a)
+      tail = __canvas_strokeRampTail(dashes, a.paint)
+      header = __canvas_withDashes(header, dashes, a.paint)
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
       LET joins AS List OF Float = __canvas_rectJoins(header, pic.paint)

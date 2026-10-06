@@ -75,7 +75,7 @@ want it to stay put."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __canvas_fillStroke(fill AS color::Color, stroke AS color::Color, width AS Float) AS Paint
-  RETURN Paint[fill := fill, stroke := stroke, strokeWidth := width, blend := BlendMode.Normal, transform := __canvas_noTransform(), clip := __canvas_noClip(), clipRule := FillRule.EvenOdd, fillGradient := __canvas_noGradient(), cap := CapStyle.Butt, join := JoinStyle.Round, miterLimit := 4.0, dashes := [], dashOffset := 0.0, transparency := 0.0]
+  RETURN Paint[fill := fill, stroke := stroke, strokeWidth := width, blend := BlendMode.Normal, transform := __canvas_noTransform(), clip := __canvas_noClip(), clipRule := FillRule.EvenOdd, gradient := __canvas_noGradient(), cap := CapStyle.Butt, join := JoinStyle.Round, miterLimit := 4.0, dashes := [], dashOffset := 0.0, transparency := 0.0]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

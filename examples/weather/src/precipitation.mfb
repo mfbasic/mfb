@@ -152,7 +152,7 @@ FUNC rainGradient(bottom AS Float, top AS Float) AS canvas::Gradient
     LET stop AS canvas::GradientStop = canvas::GradientStop[offset := toFloat(k) / toFloat(steps), color := collections::get(RAIN_COLORS, k)]
     stops = collections::append(stops, stop)
   NEXT
-  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops]
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
 END FUNC
 
 ' The key, in a panel whose top left corner is at (left, top), drawn at a
@@ -191,7 +191,7 @@ FUNC precipitationKey(face AS canvas::Font, size AS Float, left AS Float, top AS
   items = collections::append(items, [heading, divider])
 
   LET barLeft AS Float = left + pad
-  LET bar AS canvas::DrawItem = canvas::RoundedRect[x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(RAIN_COLORS, 0)) { fillGradient := rainGradient(barBottom, barTop) }]
+  LET bar AS canvas::DrawItem = canvas::RoundedRect[x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(RAIN_COLORS, 0)) { gradient := rainGradient(barBottom, barTop) }]
   items = collections::append(items, bar)
 
   FOR k = 0 TO len(RAIN_LABELS) - 1

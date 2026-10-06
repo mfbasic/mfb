@@ -167,7 +167,8 @@ r#"FUNC __canvas_noClip() AS List OF List OF Point
   RETURN []
 END FUNC"#;
 
-/// The all-zero `Gradient`: no stops, so no gradient (plan-116-F).
+/// The all-zero `Gradient`: no stops, so no gradient (plan-116-F); plan-163-D's five
+/// fields at their zero values (Pad, the identity, a centred point focus, FillOnly).
 ///
 /// The empty stop list is the no-op, and it is the *only* one that matters — the kind
 /// and the two points mean nothing without stops to interpolate between. That is the
@@ -176,7 +177,7 @@ END FUNC"#;
 #[rustfmt::skip]
 const NO_GRADIENT: &str =
 r#"FUNC __canvas_noGradient() AS Gradient
-  RETURN Gradient[kind := GradientKind.Linear, startPoint := Point[x := 0.0, y := 0.0], endPoint := Point[x := 0.0, y := 0.0], stops := []]
+  RETURN Gradient[kind := GradientKind.Linear, startPoint := Point[x := 0.0, y := 0.0], endPoint := Point[x := 0.0, y := 0.0], stops := [], spread := GradientSpread.Pad, transform := __canvas_noTransform(), focalOffset := Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := GradientApply.FillOnly]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

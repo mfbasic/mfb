@@ -99,6 +99,29 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
     assert_eq!(declared("__CANVAS_GEO_CLIP_EDGE_COUNT"), HEADER_CLIP_EDGE_COUNT);
 }
 
+/// plan-163-D: the gradient's per-pixel slots sit after every older slot, one each, in
+/// the order the header comment gives -- spread, apply, the six radial-inverse words, its
+/// flag, then the focal offset and radius -- and end exactly at the header's length, so
+/// none overlaps another reader's slot or the first tail float.
+#[test]
+fn the_gradient_slots_follow_the_clip_slots_and_fill_the_header() {
+    let slots = [
+        ("__CANVAS_GEO_GRADIENT_SPREAD", 55),
+        ("__CANVAS_GEO_GRADIENT_APPLY", 56),
+        ("__CANVAS_GEO_GRADIENT_INV", 57),
+        ("__CANVAS_GEO_GRADIENT_HAS_INV", 63),
+        ("__CANVAS_GEO_GRADIENT_FOCALX", 64),
+        ("__CANVAS_GEO_GRADIENT_FOCALY", 65),
+        ("__CANVAS_GEO_GRADIENT_FOCALR", 66),
+    ];
+    for (name, slot) in slots {
+        assert_eq!(declared(name), slot, "{name} moved");
+    }
+    assert!(declared("__CANVAS_GEO_PICTURE_TRANSPARENCY") < 55);
+    assert_eq!(declared("__CANVAS_GEO_HEADER"), 67);
+    assert_eq!(HEADER_SLOTS, 67);
+}
+
 /// bug-484: a picture's pixel-block slots and split equal what the emitters rebuild
 /// the address from, and they sit where no other reader of a picture looks.
 ///
