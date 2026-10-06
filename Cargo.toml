@@ -919,6 +919,10 @@ name = "rt_io_set_buffered_drain_failure"
 path = "tests/runtime/rt_io_set_buffered_drain_failure.rs"
 
 [[test]]
+name = "rt_closed_std_fds_not_reused"
+path = "tests/runtime/rt_closed_std_fds_not_reused.rs"
+
+[[test]]
 name = "rt_global_argument_reassigned_by_callee"
 path = "tests/runtime/rt_global_argument_reassigned_by_callee.rs"
 
