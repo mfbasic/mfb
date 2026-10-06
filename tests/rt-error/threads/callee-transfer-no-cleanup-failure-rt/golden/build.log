@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt
+Wrote AST to tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt/callee_transfer_no_cleanup_failure_rt.ast
+Wrote IR to tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt/callee_transfer_no_cleanup_failure_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt
+Wrote executable to tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt/build/callee_transfer_no_cleanup_failure_rt.out
+[exit 0]
+$ tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt/build/callee_transfer_no_cleanup_failure_rt.out
+w=0
+Error: 7-705-0002
+boom
+[exit 255]

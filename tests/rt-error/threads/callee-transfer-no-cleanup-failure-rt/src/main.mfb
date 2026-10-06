@@ -1,0 +1,23 @@
+' bug-854: a callee that `thread::transfer`s its caller's resource argument moves the
+' caller's handle at run time -- the move the static check cannot see (§14.9). The
+' caller's scope drop of a moved handle is a no-op: no close, and no
+' `Cleanup failure: 7-703-0009` after the program's real error. Before the fix the
+' banner followed the `FAIL` here.
+IMPORT io
+IMPORT fs
+IMPORT thread
+ISOLATED FUNC w(t AS ThreadWorker OF String RES fs::File TO Integer, seed AS String) AS Integer
+  RES g AS fs::File = thread::accept(t)
+  RETURN fs::size(g)
+END FUNC
+FUNC send(t AS Thread OF String RES fs::File TO Integer, f AS fs::File) AS Nothing
+  thread::transfer(t, f)
+END FUNC
+FUNC main() AS Integer
+  RES t AS Thread OF String RES fs::File TO Integer = thread::start(w, "s")
+  RES f AS fs::File = fs::createTempFile()
+  send(t, f)
+  io::print("w=" & toString(thread::waitFor(t)))
+  FAIL error(77050002, "boom")
+  RETURN 0
+END FUNC
