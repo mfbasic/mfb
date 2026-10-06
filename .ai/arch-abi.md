@@ -402,6 +402,18 @@ linux-riscv64` for "`t0` written, then an `sp` store before `t0` is read". It
 measured 398 live sites in 12 corpus projects before the fix, including
 `examples/browser`, and 0 after.
 
+### A hand-written routine that C calls must save the `s` registers its scratch maps to (bug-957)
+
+`map_scratch_register` (`src/arch/riscv64/select.rs`) realizes AArch64 caller-saved
+scratch `x13`–`x18` as callee-saved `s0`, `s3`–`s7`. "Over-preserving is safe" only holds
+for a routine MFB code calls. A routine **libc** calls and returns to (a pthread start
+routine, a callback) must save each of those it writes. glibc's `start_thread` reads `pd`
+from `s0` right after the start routine returns, so a clobbered `s0` crashed every
+`thread::start` on riscv64 glibc. musl did not read it, so 2229 never saw the crash.
+To run a glibc riscv64 binary when 2232 is down, put Debian's `libc6_*_riscv64.deb`
+`usr/lib/riscv64-linux-gnu` on 2229. Then run
+`./ld-linux-riscv64-lp64d.so.1 --library-path . ./prog-glibc.out`.
+
 ### riscv64 pool-shrink allocator fault (OPEN latent bug)
 
 Removing a single caller-saved temporary (`t3`) from `src/arch/riscv64/regmodel.rs` `INT_ALLOCATABLE` (11→ tried as a fix shape) made **12 unrelated rt-behavior fixtures SIGSEGV on 2229** — fixtures that never touch the flag path (their `.ncode` has no `gp`/`t3`). Restoring `t3` fixed them. So the rv64 linear-scan allocator has a **latent fault that only manifests with a smaller register pool** — a real miscompile, not just more spilling.

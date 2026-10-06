@@ -41,11 +41,20 @@ pthread_create(&controlBlock.osHandle, attr, _mfb_rt_thread_trampoline, controlB
   ; attr = a pthread_attr_t initialized with an 8 MiB stack (pthread_attr_setstacksize)
 ```
 
-The Linux trampoline is a normal pthread start routine. It preserves the
-callee-saved runtime registers required by generated code, restores the worker
-arena state, calls the worker function, stores the returned result in the control
-block through `_mfb_rt_thread_finish`, and returns `NULL` to pthread. The result
-is copied into the block arena; the worker destroys its own arena before returning.
+The Linux trampoline is a normal pthread start routine, so it is a C-ABI callee
+that returns into libc: it leaves every register the target ABI calls
+callee-saved exactly as it found it. That includes its own scratch, not only the
+runtime's pinned registers. On riscv64 the scratch is `s0`, which lp64d makes
+callee-saved, and glibc's `start_thread` reads its thread descriptor from `s0`
+right after the start routine returns. So the riscv64 trampoline parks `s0` in
+the last free slot of its 80-byte frame and restores it before `ret`. On AArch64
+(`x13`) and x86-64 (`r9`) that scratch is caller-saved, so nothing extra is parked
+there. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
+
+The trampoline restores the worker arena state, calls the worker function,
+stores the returned result in the control block through `_mfb_rt_thread_finish`,
+and returns `NULL` to pthread. The result is copied into the block arena; the
+worker destroys its own arena before returning.
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
 
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
