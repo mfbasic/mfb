@@ -805,6 +805,10 @@ path = "tests/net/rt_tls_listener_local_address.rs"
 name = "rt_tls_listener_thread_transfer"
 path = "tests/net/rt_tls_listener_thread_transfer.rs"
 
+[[test]]
+name = "rt_tls_listen_host_validation"
+path = "tests/net/rt_tls_listen_host_validation.rs"
+
 # --- tests/runtime/ ---------------------------------------------------
 [[test]]
 name = "rt_audio_alias_trap_resource_result"
