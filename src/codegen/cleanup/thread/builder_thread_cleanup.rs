@@ -98,7 +98,9 @@ impl CodeBuilder<'_> {
         // remains owned by the caller (the former source checker restores the binding
         // into the handler scope); the success continuation treats it as moved.
         if raw {
-            self.deactivate_moved_resource_arguments(target, args);
+            // bug-899: the raw result reaches here on failure too; a failed
+            // transfer keeps the sender's close.
+            self.deactivate_closed_resource_arguments(target, args);
             // thread.send/emit errors originate at this call site, not a worker.
             // bug-566: `thread.send`/`emit`/`transferResource`/`emitResource` all
             // return `Nothing` — there is no success block at all — and every

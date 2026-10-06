@@ -1,12 +1,12 @@
 # bug-899: a `thread::transfer` that fails under an inline `TRAP` retires the sender's scope drop — the resource is never closed (fd leak, buffered writes lost)
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (resource leak)
 
-Status: Open
-Regression Test: tests/rt-behavior/threads/thread-transfer-inline-trap-fail-drop-rt (proposed)
+Status: Fixed (bs17-agent-f)
+Regression Test: tests/rt-behavior/threads/thread-transfer-inline-trap-fail-drop-rt, tests/runtime/rt_thread_transfer_trap_fail_drop.rs
 
 When `thread::transfer(t, f)` fails (worker completed → `ErrInterrupted`, queue full
 → `ErrTimeout`, …) and the call carries an **inline** `TRAP`, the sender keeps the
@@ -120,3 +120,34 @@ conditional for the raw path, but not this compile-time cleanup retirement.)
 - `src/codegen/engine/builder/builder_emit_helpers.rs` has other raw-path
   `deactivate_moved_resource_arguments` calls (grep lines ~554/679/777); each must be
   checked for the same unconditional retirement on a fallible move.
+
+## Resolution
+
+The raw (inline-`TRAP`) paths no longer retire a thread-moved argument's cleanup
+at compile time: `deactivate_closed_resource_arguments` still retires a consumed
+close (a close invalidates the handle whatever it reports) but leaves a
+`thread.start/send/emit/transferResource/emitResource` move to the scope drop, which
+now tests the record's `moved|closed` flag at run time (bug-854). A failed transfer
+therefore keeps its close; a successful one closes nothing and frees only the
+tombstone. Both raw sites named in the blast radius are changed
+(`emit_thread_send_runtime_helper_call`'s raw branch and the raw runtime-call branch
+of `builder_emit_helpers`, which `thread::start` reaches). The other
+`deactivate_moved_resource_arguments` call sites are success-gated (after the
+result-tag branch) and are unchanged.
+
+### Runtime proof
+
+- `thread-transfer-inline-trap-fail-drop-rt`: the buffered byte written before a
+  transfer that fails (`ErrInterrupted`, handler `RETURN`s) reaches the disk:
+  `failed=1 file=[P]`; on main `file=[]`.
+- `rt_thread_transfer_trap_fail_drop` (300 failures under `ulimit -n 64`) passes.
+- The report's loop extended with a SUCCESSFUL inline-trapped transfer per
+  iteration (600 + 600, `ulimit -n 256`, `--debug`): `ok 600 3000`, main arena
+  `live_bytes 0`, `double_free_skips 0`; main dies `failed at 252 77020001`.
+
+## Golden impact
+
+`.ncode`/`.ncodesum` of fixtures with an inline-trapped transfer or `thread::start`
+whose resource argument has a cleanup: the static retirement no longer fires there,
+so the full drop (with bug-854's moved test) is emitted instead of the moved-only
+drop.

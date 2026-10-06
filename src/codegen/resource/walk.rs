@@ -35,8 +35,9 @@ use crate::types::ParameterType;
 use std::collections::HashSet;
 
 /// What one resource visit is handed: the stack slot holding the leaf value (a
-/// record pointer, or a resource-union box pointer), and the leaf's type with the
-/// `RES` marker stripped and any `STATE` kept.
+/// record pointer, a resource-union box pointer, or — bug-843 — a function value whose
+/// closure may carry resources), and the leaf's type with the `RES` marker stripped
+/// and any `STATE` kept.
 pub(crate) type ResourceVisit<'a> =
     dyn FnMut(&mut CodeBuilder<'_>, usize, &ParameterType) -> Result<(), String> + 'a;
 
@@ -74,7 +75,7 @@ impl CodeBuilder<'_> {
         seen: &mut HashSet<ParameterType>,
     ) -> bool {
         let bare = typed_strip_res_marker(type_);
-        if self.is_resource_leaf(bare) {
+        if self.is_resource_leaf(bare) || self.is_closure_leaf(bare) {
             return true;
         }
         match bare {
@@ -92,6 +93,34 @@ impl CodeBuilder<'_> {
                     .any(|(_, _, part)| self.carries_resources_inner(&part, seen));
                 seen.remove(bare);
                 carries
+            }
+        }
+    }
+
+    /// bug-843: whether a value of `type_` can hold a function value that carries
+    /// resources — a closure leaf at any depth. Such a holder can come to own
+    /// resources of kinds its type does not name, so it needs a dynamic owned-list
+    /// (`closure_carry`).
+    pub(crate) fn type_reaches_closure_leaf(&self, type_: &ParameterType) -> bool {
+        self.closures_carry_resources() && self.reaches_func_inner(type_, &mut HashSet::new())
+    }
+
+    fn reaches_func_inner(&self, type_: &ParameterType, seen: &mut HashSet<ParameterType>) -> bool {
+        let bare = typed_strip_res_marker(type_);
+        match bare {
+            ParameterType::Func(..) => true,
+            ParameterType::ListOf(element) => self.reaches_func_inner(element, seen),
+            ParameterType::MapOf(_, value) => self.reaches_func_inner(value, seen),
+            _ => {
+                if self.is_resource_leaf(bare) || !seen.insert(bare.clone()) {
+                    return false;
+                }
+                let reaches = self
+                    .composite_parts(bare)
+                    .into_iter()
+                    .any(|(_, _, part)| self.reaches_func_inner(&part, seen));
+                seen.remove(bare);
+                reaches
             }
         }
     }
@@ -195,7 +224,9 @@ impl CodeBuilder<'_> {
         deferred: &mut Option<Deferred>,
     ) -> Result<(), String> {
         let bare = typed_strip_res_marker(type_).clone();
-        if self.is_resource_leaf(&bare) {
+        // bug-843: a function value is a leaf too — its closure is asked, through its
+        // environment routine, for the resources it carries (`closure_carry`).
+        if self.is_resource_leaf(&bare) || self.is_closure_leaf(&bare) {
             return visit(self, slot, &bare);
         }
         if !self.type_carries_resources(&bare) {

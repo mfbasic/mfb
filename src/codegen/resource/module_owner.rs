@@ -112,6 +112,12 @@ pub(crate) fn model_type_reaches_resource(model: &TypeModel, type_: &ParameterTy
         {
             return true;
         }
+        // bug-843: a function value reaches whatever some closure in the module
+        // captured (`closure_carry::closure_capture_types`, empty while that table
+        // is itself being built).
+        if matches!(current, ParameterType::Func(..)) && !model.closure_capture_types.is_empty() {
+            return true;
+        }
         stack.extend(
             crate::codegen::collection::layout::builder_collection_layout::type_components(
                 model, &current,
@@ -153,7 +159,13 @@ impl CodeBuilder<'_> {
         globals.sort_by_key(|(name, global)| (global.offset, (*name).clone()));
         let mut leaves: Vec<ParameterType> = Vec::new();
         for (_, global) in globals {
-            for leaf in self.resource_leaf_types(&global.type_) {
+            let mut reached = self.resource_leaf_types(&global.type_);
+            // bug-843: a global holding function values can hold whatever the
+            // module's closures carry.
+            if self.type_reaches_closure_leaf(&global.type_) {
+                reached.extend(self.closure_resource_kinds());
+            }
+            for leaf in reached {
                 if !leaves.contains(&leaf) {
                     leaves.push(leaf);
                 }
@@ -263,8 +275,29 @@ impl CodeBuilder<'_> {
         type_: &ParameterType,
     ) -> Result<(), String> {
         self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
+            if builder.is_closure_leaf(leaf) {
+                // bug-843: a stored closure raises what it carries, through its
+                // environment routine.
+                return builder.emit_closure_resource_op(
+                    leaf_slot,
+                    CLOSURE_ENV_OP_MODULE_FLOAT,
+                    &[],
+                );
+            }
             builder.emit_module_float(leaf_slot, leaf)
         })
+    }
+
+    /// bug-843: whether some module-level binding can hold a function value that
+    /// carries resources — the only way a closure's resources reach the module
+    /// instance, and so the only case an environment routine's `MODULE_FLOAT` runs.
+    pub(crate) fn module_globals_reach_closures(&self) -> bool {
+        self.has_module_resources()
+            && self
+                .globals
+                .iter()
+                .filter(|(name, _)| name.as_str() != MODULE_RESOURCES_GLOBAL)
+                .any(|(_, global)| self.type_reaches_closure_leaf(&global.type_))
     }
 
     /// Raise to the module instance every resource a store into global `name`
@@ -548,19 +581,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
             self.emit(abi::move_register(abi::return_register(), &record));
             self.emit_symbol_call(&close);
-            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-            self.emit(abi::branch_eq(next));
-            let closed_code = self.temporary_vreg();
-            self.emit(abi::move_immediate(
-                &closed_code,
-                "Integer",
-                crate::codegen::registry::runtime_error("ErrResourceClosed")
-                    .expect("errorCode name")
-                    .0,
-            ));
-            self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, &closed_code));
-            self.emit(abi::branch_eq(next));
-            self.record_secondary_cleanup_failure();
+            self.emit_drop_close_outcome(next);
             self.emit(abi::branch(next));
             self.emit(abi::label(&other));
         }

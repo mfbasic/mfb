@@ -1,12 +1,12 @@
 # bug-843: a lambda may capture a record/list that holds a resource; once it escapes, the closure uses a freed resource record (reads/writes another file)
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety (owner-confirmed: closure capture = List append semantics)
 
-Status: Open
-Regression Test: tests/rt-behavior/memory/closure-capture-resource-holder-rejected (new, compile-fail) — name suggested
+Status: Fixed (bs17-agent-f)
+Regression Test: tests/rt-behavior/memory/closure-capture-resource-append-rt, tests/syntax/resources/closure-capture-resource-return-order-invalid
 
 **Owner decision (2026-10-05): capture works exactly like `collections::append` of a resource into a List.**
 A Resource is a single item that owns its own scope. A `RES` is only an alias to it. A
@@ -180,3 +180,86 @@ Commit: —
 
 Silent use-after-free reachable from safe source. The risk is in the capture predicate only; the
 fix is a type-walk plus a diagnostic.
+
+## Resolution
+
+Capture follows `collections::append`, as the owner decided. Nothing new was
+invented: every movement reuses the rule the `List` path already has.
+
+**Front end.**
+- `ir::verify::check_closure_captures` no longer rejects a resource capture; a
+  `MUT` capture and a non-copyable non-resource capture are still
+  `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`.
+- `ir::resource_escape::scan_collection_expr` treats a `LAMBDA` as a container whose
+  elements are its captures (`ir::lower::lambda_captured_names`, the list lowering
+  builds the environment from). So a resource captured by a closure stored in an
+  outer binding floats there, and a returned closure meets the ordering gate exactly
+  as a returned list does. An explicitly typed `FUNC` binding counts as a container
+  for that gate (the twin of `LET xs AS List OF RES File = [f]; RETURN xs`).
+  **The repro is therefore refused with `TYPE_RESOURCE_RETURN_ORDER`** — the
+  `List` twin `LET h = H[f]; RETURN [h]` is refused with the same diagnostic
+  (measured on main: `l4` probe). A closure over a parameter, or over a container
+  declared before the resource, compiles and runs.
+
+**Codegen** (`src/codegen/resource/closure_carry.rs`, module doc). A `FUNC` type
+does not say what its closure captured, so across a function boundary the closure
+is asked: in a module where some `LAMBDA` captures a resource-reaching value
+(`TypeModel::closure_capture_types`), a function value is a *closure leaf* of the
+type walk (`resource::walk`), and every environment routine answers four resource
+operations — release (RETURN), close-unowned (discarded result), module float
+(store into a global), adopt (binding of a call result) — each running the
+`List` path's per-resource step over its captures. A holder of function values
+gets a dynamic owned-list (`{record, next, kind, tag}` nodes) because its type
+cannot name the kinds. A captured resource-union box is copied into the
+environment (`ClosureEnvWord::ResourceUnionBox`); the lambda body's binding of a
+captured resource is a non-owning alias. A module with no such capture lowers
+byte-identically (artifact gate: 0 diffs).
+
+**Found and fixed on the way** (own commit): `simplifycfg` collapsed a loop label
+onto the function's entry label, so `_mfb_module_resource_drain` re-ran its
+prologue on every node and every `-O2`/`-O3` program that stores a resource in a
+global hung at exit (pre-existing on main).
+
+### Runtime proof
+
+- Fixture `closure-capture-resource-append-rt`, every closure movement beside its
+  `List` twin; identical output at `-O0/-O1/-O2/-O3` (md5 of stdout equal across
+  levels). The record-capture case alone, built by main, dies with a bogus
+  `7-703-0009 ErrResourceMoved`; the debugger (`be any`, `bt`, `show error`) stops
+  in `put` called from `lambda`, reading the flag word of a reclaimed record. After
+  the fix, `bp put` + `show mem x0 48` shows the closure's record live
+  (`closed = 0`) with its owner word raised to the enclosing function's scope token
+  (depth 1 instead of the inner block's 2).
+- `--debug -O0`: `double_free_skips 0`. Per-iteration live-byte growth (100 vs 200
+  iterations) is 112 B for each closure case — the 96-byte record tombstone a
+  raised resource leaves, as a `List`-held resource does — against 4,208–4,448 B
+  for the `List` twins on main itself (pre-existing; see below).
+- Matrix probes (two levels of return, a closure capturing a closure, a closure in a
+  returned record, `forEach` capture, `Map OF K TO FUNC`, inline `TRAP`, a closure
+  stored into a global through a parameter, resource union, thread handle, closures
+  built in a loop, a capture closed explicitly → `ErrResourceClosed` 77030004):
+  all match their `List` twins.
+
+### Known gaps shared with the `List` path (not regressions)
+
+- A `List`/closure adopted through an inline `TRAP` (`LET xs = mk() TRAP ...`) is
+  never adopted, so its resource is never closed (fd leak) — same on main for a
+  `List OF RES`. Taken up under bug-842 (unclaimed temporaries).
+- A floated or adopted `List OF RES` element leaks its I/O buffer and record
+  (~4.3 KB per resource, measured on main); a resource-union binding's drop leaks
+  its variant's I/O buffer (4,096 B per drop, measured on main). Closures avoid the
+  buffer leak (their drain reclaims buffers and `STATE`) and keep only the record
+  tombstone.
+
+## Golden impact
+
+- `tests/syntax/functions/lambda-capture-invalid/golden/build.log` and
+  `tests/syntax/functions/lambda-mut-capture-invalid/golden/build.log`: each loses
+  its `Lambda captures resource local ...` diagnostic block (the rule the owner
+  retired). Measured: `scripts/test-accept.sh <mfb> <out> '*lambda*' '*closure*'
+  '*resource*' '*capture*'` → 150 tests, exactly these 2 mismatches. The
+  `lambda-mut-capture-invalid` source comment that claimed resources are never
+  capturable was corrected without moving any line.
+- `scripts/artifact-gate.sh <mfb> all` → 1629 tests, 2282 goldens, 0 diffs (codegen
+  for modules without resource-reaching captures is unchanged, and no committed
+  `-O2` golden hit the simplifycfg case).

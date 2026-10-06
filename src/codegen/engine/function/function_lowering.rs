@@ -1105,6 +1105,9 @@ pub(crate) fn lower_function(
         map_settle_exempt_armed: false,
         record_member_read: false,
         value_discarded_armed: false,
+        resource_temp_exempt: None,
+        trap_call_results: HashSet::new(),
+        resource_temps_closed_on_path: false,
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -1389,6 +1392,11 @@ pub(crate) fn lower_function(
     // hands out, so it needs its owned-lists from its bind, like a float target.
     let call_assigned = builder.call_assigned_owner_containers(&function.body);
     builder.owner_containers.extend(call_assigned);
+    // bug-842: and the inline-`TRAP` deliveries of such a call's success value.
+    builder.trap_call_results =
+        crate::codegen::cleanup::owned::builder_owned_cleanup::trap_call_result_locals(
+            &function.body,
+        );
     // bug-648: which inline-`TRAP` temps are handed borrowed values.
     builder.trap_ownership =
         crate::codegen::resource::cleanup::trap_ownership::collect_trap_ownership(&function.body);
@@ -1761,6 +1769,9 @@ pub(crate) fn lower_abi_function_helper(
         map_settle_exempt_armed: false,
         record_member_read: false,
         value_discarded_armed: false,
+        resource_temp_exempt: None,
+        trap_call_results: HashSet::new(),
+        resource_temps_closed_on_path: false,
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -2014,6 +2025,9 @@ pub(crate) fn helper_code_builder<'a>(
         map_settle_exempt_armed: false,
         record_member_read: false,
         value_discarded_armed: false,
+        resource_temp_exempt: None,
+        trap_call_results: HashSet::new(),
+        resource_temps_closed_on_path: false,
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),

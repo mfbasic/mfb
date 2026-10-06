@@ -6142,6 +6142,42 @@ fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {
     }
 }
 
+/// bug-843: the names a `LAMBDA` captures from the enclosing function, in the order
+/// lowering lays out its environment (`captured_locals`, then the assignment
+/// target). `outer` is every local and parameter name the lambda can see.
+///
+/// The resource escape analysis asks this because a closure is a container in the
+/// §15.6 sense: capturing a value copies its resource references into the
+/// environment exactly as `collections::append` copies one into a `List`.
+pub(crate) fn lambda_captured_names(
+    params: &[crate::hir::HirParam],
+    body: &HirExpression,
+    assign_target: Option<&str>,
+    outer: &HashSet<String>,
+) -> Vec<String> {
+    let outer_locals = outer
+        .iter()
+        .map(|name| (name.clone(), ParameterType::Unknown))
+        .collect::<HashMap<_, _>>();
+    let param_names = params
+        .iter()
+        .map(|param| param.name.clone())
+        .collect::<HashSet<_>>();
+    let mut names = captured_locals(body, &outer_locals, &param_names)
+        .into_iter()
+        .map(|capture| capture.name)
+        .collect::<Vec<_>>();
+    if let Some(target) = assign_target {
+        if !param_names.contains(target)
+            && outer.contains(target)
+            && !names.iter().any(|name| name == target)
+        {
+            names.push(target.to_string());
+        }
+    }
+    names
+}
+
 fn captured_locals(
     expression: &HirExpression,
     outer_locals: &HashMap<String, ParameterType>,

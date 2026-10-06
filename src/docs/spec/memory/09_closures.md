@@ -163,7 +163,7 @@ no program can tell a copy from the original.
 
 A `FUNC(Float) AS Float` type does not say what a closure captured, so neither the
 copy nor the drop can be generated from the holder's type. Each capturing `LAMBDA`
-instead gets one routine, `_mfb_rt_closure_env_<lambda symbol>(op, env) -> env`,
+instead gets one routine, `_mfb_rt_closure_env_<lambda symbol>(op, env[, a, b]) -> env`,
 emitted once per module from the capture types its creating function recorded,
 and the environment's header word points at it: [[src/codegen/memory/arena/closure_ops.rs:lower_closure_env_ops]] [[src/codegen/error/constants/error_constants.rs:closure_env_ops_symbol]]
 
@@ -178,8 +178,41 @@ A capture word is **owned** when its value is a block the environment holds (a
 by-value `String`, flat composite, or graph-owning value) and **plain** otherwise:
 a scalar, a resource or thread handle, the parent-slot address of a by-reference
 capture, and every auxiliary word (the addresses of slots in the creating frame).
-A `LAMBDA` created at several sites must have one layout at all of them; the
-compiler reports an internal error otherwise. [[src/codegen/engine/value/builder_values.rs:closure_env_word]] [[src/codegen/engine/value/builder_values.rs:record_closure_env_layout]]
+A captured **resource union** is a third kind: the union value is a 16-byte
+`{tag@0, record@8}` box that the wrapping binding frees at its scope exit, so the
+environment holds its own copy of the box — copied at capture and with the
+environment, freed with it, and never closed through. A `LAMBDA` created at
+several sites must have one layout at all of them; the compiler reports an
+internal error otherwise. [[src/codegen/engine/value/builder_values.rs:closure_env_word]] [[src/codegen/engine/value/builder_values.rs:record_closure_env_layout]] [[src/codegen/engine/builder/mod.rs:ClosureEnvWord]]
+
+### Resource operations
+
+A captured resource is a reference the closure carries (`./mfb spec language
+resource-management` §15.6): its cleanup scope follows the closure the way it
+follows a `List`. Inside one function that routing is static. Across a function
+boundary a `List` is walked by its type, and a `FUNC` type names nothing, so in a
+module where some `LAMBDA` captures a value that reaches a resource every
+environment routine also answers four resource operations, each walking the
+captures that reach a resource and running, per resource, the step the type walk
+runs for a `List`. A captured function value forwards the same operation to its
+own routine. [[src/codegen/resource/closure_carry.rs:emit_closure_env_resource_op]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_OP_RELEASE]]
+
+| `op` | Arguments 2, 3 | Per resource |
+| --- | --- | --- |
+| `2` release | the returning frame's token base | release it to the caller when a scope of that frame owns it (a `RETURN`) |
+| `3` close unowned | — | close it when nobody owns it (a discarded call result) |
+| `4` module float | — | raise it to the module instance (a store into a module-level binding) |
+| `5` adopt | the address of a dynamic owned-list's head word, a scope token | float it to that scope, and list it when the scope takes it (a binding of a call result) |
+
+A binding that holds function values — a `FUNC`, a `List OF FUNC`, a record with a
+`FUNC` field — can come to own resources of any kind a closure in the module
+carries, which its type cannot name. It gets one **dynamic owned-list** whose
+32-byte nodes record their own kind: `{record@0, next@8, kind@16, tag@24}`, the
+kind indexing the module's closure-carried resource kinds and the tag naming a
+resource-union leaf's active variant. Its drain closes each node's record when the
+scope still owns it and reclaims the record's buffers and `STATE`, never the
+record itself. A module none of whose `LAMBDA`s captures a resource-reaching value
+emits none of this: its routines keep the two operations above. [[src/codegen/resource/closure_carry.rs:emit_dynamic_owned_list_drain]] [[src/codegen/resource/closure_carry.rs:DYNAMIC_NODE_SIZE]]
 
 Each *evaluation* of a capturing `Closure` allocates a fresh object and
 environment, and its owner frees both, so creating capturing closures in a loop

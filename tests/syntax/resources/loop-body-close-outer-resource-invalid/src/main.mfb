@@ -1,0 +1,70 @@
+IMPORT fs
+
+' bug-852: a loop body that closes a resource declared OUTSIDE the loop, and then
+' falls through to the next iteration, closes it a second time there. The back edge
+' makes the binding moved-on-some-path at the body's start, so the close is a use
+' after move (§14.8, §14.9) -- one diagnostic per loop kind. Before the fix each
+' compiled and died at run time with 7-703-0004 ErrResourceClosed.
+
+FUNC closeInFor() AS Nothing
+  RES f AS fs::File = fs::createTempFile()
+  FOR i = 1 TO 2
+    fs::close(f)
+  NEXT
+END FUNC
+
+FUNC closeInWhile() AS Nothing
+  RES f AS fs::File = fs::createTempFile()
+  MUT n AS Integer = 0
+  WHILE n < 2
+    fs::close(f)
+    n = n + 1
+  END WHILE
+END FUNC
+
+FUNC closeInDo() AS Nothing
+  RES f AS fs::File = fs::createTempFile()
+  MUT n AS Integer = 0
+  DO
+    n = n + 1
+    fs::close(f)
+  LOOP UNTIL n = 2
+END FUNC
+
+FUNC closeInForEach() AS Nothing
+  RES f AS fs::File = fs::createTempFile()
+  FOR EACH x IN [1, 2]
+    fs::close(f)
+  NEXT
+END FUNC
+
+' The close is in a branch, and the read that follows it is on the next pass.
+FUNC closeThenReadNextPass() AS Nothing
+  RES f AS fs::File = fs::createTempFile()
+  FOR i = 1 TO 2
+    fs::writeAll(f, "x")
+    IF i = 1 THEN
+      fs::close(f)
+    END IF
+  NEXT
+END FUNC
+
+' A CONTINUE reaches the back edge as surely as falling off the end does.
+FUNC closeThenContinue() AS Nothing
+  RES f AS fs::File = fs::createTempFile()
+  FOR i = 1 TO 2
+    fs::writeAll(f, "x")
+    fs::close(f)
+    CONTINUE FOR
+  NEXT
+END FUNC
+
+FUNC main() AS Integer
+  closeInFor()
+  closeInWhile()
+  closeInDo()
+  closeInForEach()
+  closeThenReadNextPass()
+  closeThenContinue()
+  RETURN 0
+END FUNC

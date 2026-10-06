@@ -1,0 +1,12 @@
+returned list [] closure []
+after returned list [L] closure [R]
+param list [] closure []
+after param list [L] closure [P]
+inner list [] closure []
+after inner list [L] closure [I]
+stored closure []
+after stored closure [S]
+copy closure []
+after copy closure [C2]
+discarded list [x] closure [x]
+global closure [] wrote 1

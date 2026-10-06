@@ -229,6 +229,7 @@ impl CodeBuilder<'_> {
             slot,
             location: location.clone(),
             shallow: false,
+            resource: false,
         });
         Ok(ValueResult {
             origin: result.origin,

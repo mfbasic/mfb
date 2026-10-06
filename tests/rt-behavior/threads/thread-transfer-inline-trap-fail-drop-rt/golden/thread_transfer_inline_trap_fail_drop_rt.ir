@@ -1,0 +1,144 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_transfer_inline_trap_fail_drop_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "ignorer",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "w", "line": 9, "type": "ThreadWorker OF RES fs.File TO Integer", "default": null },
+    { "name": "n", "line": 9, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "path",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 13, "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] }, { "kind": "const", "type": "String", "value": "mfb-bug899-fail-drop.txt" }] }] } }
+    ]
+  },
+  {
+    "name": "once",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 16, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "call", "type": "String", "target": "path", "args": [] }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "fs.setBuffered", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "P" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "t", "type": "Thread OF RES fs.File TO Integer", "value": { "kind": "call", "type": "Thread OF RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "ignorer", "type": "ISOLATED FUNC(ThreadWorker OF RES fs.File TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "f" }] } },
+    {
+      "op": "if",
+      "line": 21,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 27, "mutable": false, "name": "x", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "once", "args": [] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "failed=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }, "right": { "kind": "const", "type": "String", "value": " file=[" } }, "right": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "call", "type": "String", "target": "path", "args": [] }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

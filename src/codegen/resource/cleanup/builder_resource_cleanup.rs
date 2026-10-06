@@ -469,12 +469,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::and_registers(&moved_mask, &flags, &moved_mask));
         self.emit(abi::compare_immediate(&moved_mask, "0"));
         self.emit(abi::branch_eq(&done));
+        self.emit_free_moved_tombstone(offset, &cleanup.name)?;
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// Free the moved tombstone record in the slot at `offset` (binding `name`) and
+    /// its STATE block, then null the slot. The caller has established that the
+    /// record carries the moved bit and that this scope owns it.
+    fn emit_free_moved_tombstone(&mut self, offset: usize, name: &str) -> Result<(), String> {
         // bug-650: the STATE block first, while the record still points at it.
-        if let Some(state_type) = self
-            .locals
-            .get(&cleanup.name)
-            .and_then(|local| local.type_.state())
-        {
+        if let Some(state_type) = self.locals.get(name).and_then(|local| local.type_.state()) {
             self.emit_free_resource_state_block(offset, &state_type)?;
         }
         let record = self.allocate_register();
@@ -487,7 +492,6 @@ impl CodeBuilder<'_> {
         ));
         self.emit_arena_free_call();
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), offset));
-        self.emit(abi::label(&done));
         Ok(())
     }
 
@@ -644,9 +648,7 @@ impl CodeBuilder<'_> {
                 "resource_union_drop_arg",
             )?;
             let after = self.label("resource_union_drop_check");
-            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-            self.emit(abi::branch_eq(&after));
-            self.record_secondary_cleanup_failure();
+            self.emit_drop_close_outcome(&after);
             self.emit(abi::label(&after));
             // plan-74: after the tag-dispatched close, free the active variant
             // record's uniform STATE block. `payload_slot` holds the variant
@@ -697,7 +699,55 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-854: what follows every drop-path close call. An `Ok` close, and the two
+    /// closes that find nothing to do — `ErrResourceClosed` (the program already
+    /// closed it) and `ErrResourceMoved` (`thread::transfer` moved it to another
+    /// thread, possibly through a callee the static move check cannot see) — branch
+    /// to `ok`; any other failure is recorded in the cleanup-failure ledger, then
+    /// falls through. A drop is never where a close of a closed or moved handle is
+    /// reported (§15, transfer outcome: "Sender cleanup must not close it").
+    pub(crate) fn emit_drop_close_outcome(&mut self, ok: &str) {
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(ok));
+        // Compared through a register: the codes are 8-digit values beyond the
+        // immediate range some backends allow.
+        for benign in ["ErrResourceClosed", "ErrResourceMoved"] {
+            let code = self.temporary_vreg();
+            self.emit(abi::move_immediate(
+                code,
+                "Integer",
+                crate::codegen::registry::runtime_error(benign)
+                    .expect("errorCode name")
+                    .0,
+            ));
+            self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, code));
+            self.emit(abi::branch_eq(ok));
+        }
+        self.record_secondary_cleanup_failure();
+    }
+
     pub(crate) fn deactivate_moved_resource_arguments(&mut self, target: &str, args: &[NirValue]) {
+        self.deactivate_resource_arguments_with(target, args, true);
+    }
+
+    /// bug-899: [`Self::deactivate_moved_resource_arguments`] for an inline-`TRAP`
+    /// (raw) call, which reaches this point on its failure path too. A close is
+    /// still retired (a close invalidates the handle whatever it reports), but a
+    /// thread move is NOT: a failed transfer leaves the resource the sender's, and
+    /// a successful one leaves the record flagged `moved|closed`, which the scope
+    /// drop recognizes at run time (`emit_resource_cleanup_call`, bug-854).
+    /// Retiring it here took the close away from the failure path, and the handle
+    /// leaked.
+    pub(crate) fn deactivate_closed_resource_arguments(&mut self, target: &str, args: &[NirValue]) {
+        self.deactivate_resource_arguments_with(target, args, false);
+    }
+
+    fn deactivate_resource_arguments_with(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+        retire_thread_moves: bool,
+    ) {
         for (index, arg) in args.iter().enumerate() {
             let NirValue::Local(name) = arg else {
                 continue;
@@ -740,6 +790,9 @@ impl CodeBuilder<'_> {
                 false
             };
             if consumed && moved_to_thread {
+                if !retire_thread_moves {
+                    continue;
+                }
                 // The cleanup to retire is the OWNER's. A non-owning alias (bug-375:
                 // `RES f = …` over a live resource — which is exactly how an inline
                 // `TRAP` bind lands, `f` aliasing the desugar's `$trap_val`) has no
@@ -812,6 +865,23 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_registers(&ptr, &escaping_ptr));
                 self.emit(abi::branch_eq(&done));
             }
+            // bug-854: a record `thread::transfer` moved to another thread — through
+            // a callee, or under an inline `TRAP` whose success the static retirement
+            // cannot see (bug-899) — is the receiver's: no close and no reclaim.
+            // What is left here is the sender's tombstone, freed exactly as the
+            // retired drop of a statically seen transfer frees it.
+            let live = self.label("resource_cleanup_not_moved");
+            let flags = self.allocate_register();
+            let record = self.allocate_register();
+            self.emit(abi::load_u64(record, abi::stack_pointer(), offset));
+            self.emit(abi::load_u64(flags, record, FILE_OFFSET_CLOSED));
+            self.emit(abi::compare_immediate(flags, RESOURCE_MOVED_CLOSED_VALUE));
+            self.emit(abi::branch_ne(&live));
+            if cleanup.frees_record {
+                self.emit_free_moved_tombstone(offset, &cleanup.name)?;
+            }
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&live));
         }
         let arg = NirValue::Local(cleanup.name.clone());
         self.emit_raw_call(
@@ -819,8 +889,6 @@ impl CodeBuilder<'_> {
             std::slice::from_ref(&arg),
             "resource_drop_arg",
         )?;
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&reclaim));
         // A close on an already-closed resource returns `ERR_RESOURCE_CLOSED`
         // (File/net's deliberate bug-63 re-close error). On the *drop* path this
         // is a benign no-op — the handle is already closed (e.g. the offset-16
@@ -830,17 +898,8 @@ impl CodeBuilder<'_> {
         // cleanup-failure ledger (plan-38 F2). Every other non-OK close *is* a
         // genuine failure and still records. Compare via a register (the code is
         // an 8-digit value beyond the immediate range some backends allow).
-        let closed_code = self.temporary_vreg();
-        self.emit(abi::move_immediate(
-            &closed_code,
-            "Integer",
-            crate::codegen::registry::runtime_error("ErrResourceClosed")
-                .expect("errorCode name")
-                .0,
-        ));
-        self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, &closed_code));
-        self.emit(abi::branch_eq(&reclaim));
-        self.record_secondary_cleanup_failure();
+        // bug-854: so is a moved one (`emit_drop_close_outcome`).
+        self.emit_drop_close_outcome(&reclaim);
         self.emit(abi::label(&reclaim));
         if let Some(offset) = resource_slot {
             self.emit_resource_block_reclaim(

@@ -172,6 +172,55 @@ pub(crate) fn lower_closure_copy(
     finish_helper(builder, "runtime.closureCopy", CLOSURE_COPY_SYMBOL)
 }
 
+/// bug-843: the resource operations of an environment routine (see
+/// `resource::closure_carry`). Arguments 2 and 3 are saved first; an operation past
+/// copy and drop runs its walk over `layout.resource_words` and branches to `finish`,
+/// and copy and drop fall through to the routine's own dispatch.
+fn emit_resource_operations(
+    builder: &mut CodeBuilder<'_>,
+    layout: &ClosureEnvLayout,
+    op_slot: usize,
+    env_slot: usize,
+    finish: &str,
+) -> Result<(), String> {
+    let sp = abi::stack_pointer();
+    let first_slot = builder.allocate_stack_object("closure_env_arg2", 8);
+    let second_slot = builder.allocate_stack_object("closure_env_arg3", 8);
+    builder.emit(abi::store_u64(abi::c_arg(2), sp, first_slot));
+    builder.emit(abi::store_u64(abi::c_arg(3), sp, second_slot));
+    let ordinary = builder.label("closure_env_ordinary_op");
+    let op = builder.allocate_register();
+    builder.emit(abi::load_u64(op, sp, op_slot));
+    builder.emit(abi::compare_immediate(op, &CLOSURE_ENV_OP_COPY.to_string()));
+    builder.emit(abi::branch_ls(&ordinary));
+    let module_float = builder.module_globals_reach_closures();
+    let operations: [(usize, Vec<usize>, bool); 5] = [
+        (CLOSURE_ENV_OP_RELEASE, vec![first_slot], true),
+        (CLOSURE_ENV_OP_CLAIM, vec![first_slot], true),
+        (CLOSURE_ENV_OP_CLOSE_UNOWNED, Vec::new(), true),
+        // Only a store into a global that can hold a function value runs it; a
+        // module with no such global never calls it, and has no list to raise to.
+        (CLOSURE_ENV_OP_MODULE_FLOAT, Vec::new(), module_float),
+        (CLOSURE_ENV_OP_ADOPT, vec![first_slot, second_slot], true),
+    ];
+    for (code, args, emitted) in operations {
+        if !emitted || layout.resource_words.is_empty() {
+            continue;
+        }
+        let next = builder.label("closure_env_next_op");
+        let op = builder.allocate_register();
+        builder.emit(abi::load_u64(op, sp, op_slot));
+        builder.emit(abi::compare_immediate(op, &code.to_string()));
+        builder.emit(abi::branch_ne(&next));
+        builder.emit_closure_env_resource_op(code, env_slot, &args, &layout.resource_words)?;
+        builder.emit(abi::branch(finish));
+        builder.emit(abi::label(&next));
+    }
+    builder.emit(abi::branch(finish));
+    builder.emit(abi::label(&ordinary));
+    Ok(())
+}
+
 /// The environment routine for one `LAMBDA`'s `layout`.
 pub(crate) fn lower_closure_env_ops(
     tables: &ClosureHelperTables<'_>,
@@ -195,6 +244,18 @@ pub(crate) fn lower_closure_env_ops(
     builder.emit(abi::store_u64(&op, sp, op_slot));
     builder.emit(abi::store_u64(&env, sp, env_slot));
     builder.emit(abi::store_u64(abi::ZERO, sp, result_slot));
+    // bug-843: in a module whose closures carry resources, every routine also
+    // answers the four resource operations (`resource::closure_carry`), which walk
+    // the captures that reach a resource. Any other module keeps the two-operation
+    // routine exactly.
+    let op = if builder.closures_carry_resources() {
+        emit_resource_operations(&mut builder, layout, op_slot, env_slot, &finish)?;
+        let reloaded = builder.allocate_register();
+        builder.emit(abi::load_u64(reloaded, sp, op_slot));
+        reloaded
+    } else {
+        op
+    };
     builder.emit(abi::compare_immediate(
         &op,
         &CLOSURE_ENV_OP_DROP.to_string(),
@@ -203,6 +264,25 @@ pub(crate) fn lower_closure_env_ops(
 
     // Drop: every owned capture, as its own owner would drop it, then the block.
     for (index, word) in layout.words.iter().enumerate() {
+        if *word == ClosureEnvWord::ResourceUnionBox {
+            // bug-843: the environment's own copy of a resource-union box; the record
+            // it names belongs to its own scope, so only the box is freed.
+            let skip = builder.label("closure_env_union_box_absent");
+            let source = builder.allocate_register();
+            builder.emit(abi::load_u64(source, sp, env_slot));
+            builder.emit(abi::load_u64(
+                source,
+                source,
+                closure_env_word_offset(index),
+            ));
+            builder.emit(abi::compare_immediate(source, "0"));
+            builder.emit(abi::branch_eq(&skip));
+            builder.emit(abi::move_register(abi::c_arg(0), source));
+            builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+            builder.emit_arena_free_call();
+            builder.emit(abi::label(&skip));
+            continue;
+        }
         let ClosureEnvWord::Owned(type_) = word else {
             continue;
         };
@@ -249,17 +329,22 @@ pub(crate) fn lower_closure_env_ops(
     for word_index in 0..=total_words {
         // Word 0 is the header (the routine address); capture `i` is word `i + 1`.
         let offset = word_index * 8;
-        let owned = word_index
+        let word = word_index
             .checked_sub(CLOSURE_ENV_HEADER_WORDS)
-            .and_then(|capture| layout.words.get(capture))
-            .and_then(|word| match word {
-                ClosureEnvWord::Owned(type_) => Some(type_.clone()),
-                ClosureEnvWord::Plain => None,
-            });
+            .and_then(|capture| layout.words.get(capture));
+        let owned = word.and_then(|word| match word {
+            ClosureEnvWord::Owned(type_) => Some(type_.clone()),
+            ClosureEnvWord::Plain | ClosureEnvWord::ResourceUnionBox => None,
+        });
         let value = builder.allocate_register();
         builder.emit(abi::load_u64(&value, sp, env_slot));
         builder.emit(abi::load_u64(&value, &value, offset));
         let stored = match owned {
+            // bug-843: each environment owns its own copy of a captured union box.
+            None if word == Some(&ClosureEnvWord::ResourceUnionBox) => {
+                let box_slot = builder.spill_to_slot("closure_env_union_box", value);
+                builder.emit_copy_resource_union_box(box_slot)?
+            }
             None => value,
             Some(type_) => {
                 let copied_slot = builder.allocate_stack_object("closure_env_copied", 8);

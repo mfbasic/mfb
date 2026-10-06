@@ -151,6 +151,9 @@ struct Analyzer {
     /// never produces them, so the bug-291 ordering rule does not apply — there
     /// is no production point for a container's owned-list to be missing at.
     res_params: HashSet<String>,
+    /// bug-843: every parameter name, resource or not — a `LAMBDA` may capture
+    /// any of them, and the capture is a routing edge whatever the type.
+    params: HashSet<String>,
     res_depth: HashMap<String, usize>,
     routings: Vec<Routing>,
     next_order: usize,
@@ -208,6 +211,11 @@ pub fn analyze_function_with(
         decl_type: HashMap::new(),
         res_field_records: res_field_records.clone(),
         res_params: HashSet::new(),
+        params: function
+            .params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect(),
         res_depth: HashMap::new(),
         routings: Vec::new(),
         next_order: 0,
@@ -441,6 +449,31 @@ impl Analyzer {
                     }
                 }
             }
+            // bug-843: a closure is a container. Each value it captures is copied
+            // into its environment, so the capture is an element position exactly
+            // as `collections::append`'s item is: a captured `RES` binding is a
+            // direct insertion, and a captured record, list or closure carries its
+            // own reachable resources in (owner decision: capture = List append).
+            HirExpression::Lambda {
+                params,
+                body,
+                assign_target,
+            } => {
+                let visible = self
+                    .decl_depth
+                    .keys()
+                    .chain(self.params.iter())
+                    .cloned()
+                    .collect::<HashSet<_>>();
+                for name in super::lower::lambda_captured_names(
+                    params,
+                    body,
+                    assign_target.as_deref(),
+                    &visible,
+                ) {
+                    self.scan_element(&HirExpression::Identifier(name), res_elems, src_collections);
+                }
+            }
             // bug-290: an inline `TRAP` wraps the expression it guards, and this
             // scan previously fell through to `_ => {}` for it -- so
             // `xs = insert(xs, 0, f) TRAP … END TRAP` routed no ownership at all,
@@ -596,6 +629,9 @@ impl Analyzer {
                     if !self.decl_type.get(collection).is_some_and(|type_| {
                         is_res_marked_resource_collection(type_)
                             || self.res_field_records.contains(type_)
+                            // bug-843: a closure holds the references it captured,
+                            // as a `List OF RES` holds its elements.
+                            || matches!(type_, crate::types::ParameterType::Func(..))
                     }) {
                         continue;
                     }
@@ -1299,6 +1335,138 @@ mod tests {
         ]));
         // ys is the outermost referencing collection.
         assert_eq!(result.owner("f"), ResOwner::Float("ys".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // bug-843 — a closure is a container: capture = `collections::append`.
+    // -----------------------------------------------------------------------
+
+    /// `LAMBDA(s) -> <body>`
+    fn lambda(body: HirExpression) -> HirExpression {
+        HirExpression::Lambda {
+            params: vec![crate::hir::HirParam {
+                name: "s".to_string(),
+                type_: ParameterType::String,
+                resource: false,
+                state_type: None,
+                default: None,
+                line: 1,
+            }],
+            body: Box::new(body),
+            assign_target: None,
+        }
+    }
+
+    /// `use(<name>, s)` — a body that reads a captured name.
+    fn reads(name: &str) -> HirExpression {
+        HirExpression::Call {
+            callee: "use".to_string(),
+            arguments: vec![
+                HirCallArg::Positional(ident(name)),
+                HirCallArg::Positional(ident("s")),
+            ],
+            line: 1,
+            column: 1,
+        }
+    }
+
+    fn closure_binding(name: &str, value: HirExpression, explicit: bool) -> HirStatement {
+        HirStatement::Let {
+            mutable: true,
+            resource: false,
+            state_type: None,
+            name: name.to_string(),
+            type_: ParameterType::Func(
+                vec![ParameterType::String],
+                Box::new(ParameterType::Integer),
+                false,
+            ),
+            explicit_type: explicit,
+            value: Some(value),
+            line: 1,
+        }
+    }
+
+    /// The `List` twin is `inner_resource_floats_to_outer_collection`: a resource
+    /// captured by a closure stored in an outer binding floats to that binding.
+    #[test]
+    fn a_resource_captured_into_an_outer_closure_floats_to_it() {
+        let result = analyze_function(&func(vec![
+            closure_binding("g", lambda(HirExpression::Number("0".into())), true),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("f", open()),
+                    HirStatement::Assign {
+                        name: "g".to_string(),
+                        value: lambda(reads("f")),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::Float("g".to_string()));
+    }
+
+    /// A lambda's own parameter shadows an outer name: it is not a capture.
+    #[test]
+    fn a_lambda_parameter_is_not_a_capture() {
+        let result = analyze_function(&func(vec![
+            closure_binding("g", lambda(HirExpression::Number("0".into())), true),
+            HirStatement::While {
+                kind: crate::ast::LoopKind::While,
+                condition: HirExpression::Boolean(true),
+                body: vec![
+                    res("s", open()),
+                    HirStatement::Assign {
+                        name: "g".to_string(),
+                        value: lambda(reads("unrelated")),
+                        line: 1,
+                    },
+                ],
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("s"), ResOwner::Local);
+    }
+
+    /// The bug's repro, whose `List` twin is `LET h = H[f]; RETURN [h]`: a
+    /// returned closure carrying a record declared after its resource is
+    /// refused exactly as the record would be (`TYPE_RESOURCE_RETURN_ORDER`).
+    #[test]
+    fn a_returned_closure_over_a_later_record_is_blocked() {
+        let mut records = HashSet::new();
+        records.insert(ParameterType::declared("Holder"));
+        let result = analyze_function_with(
+            &func(vec![
+                res("f", open()),
+                holder("h", false, construct("f")),
+                HirStatement::Return {
+                    value: Some(lambda(reads("h"))),
+                    line: 1,
+                },
+            ]),
+            &records,
+            &HashSet::new(),
+        );
+        assert_eq!(result.owner("f"), ResOwner::FloatBlocked("h".to_string()));
+    }
+
+    /// The twin of `LET xs AS List OF RES File = [f]; RETURN xs`: an explicitly
+    /// typed closure binding is a container that can own the resource.
+    #[test]
+    fn a_returned_closure_binding_declared_after_its_resource_is_blocked() {
+        let result = analyze_function(&func(vec![
+            res("f", open()),
+            closure_binding("g", lambda(reads("f")), true),
+            HirStatement::Return {
+                value: Some(ident("g")),
+                line: 1,
+            },
+        ]));
+        assert_eq!(result.owner("f"), ResOwner::FloatBlocked("g".to_string()));
     }
 
     // -----------------------------------------------------------------------

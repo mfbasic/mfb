@@ -293,6 +293,7 @@ impl CodeBuilder<'_> {
             slot,
             location: block.location.clone(),
             shallow: false,
+            resource: false,
         });
         Ok(block)
     }

@@ -162,10 +162,23 @@ scan_collection_expr(expr):
   Trapped{expression,handler}
                           -> scan_collection_expr(expression), and
                              scan_collection_expr on each RECOVER value in handler
+  Lambda(params, body)    -> scan_element on each name the lambda captures
   _                       -> ignore
 ```
 
 [[src/ir/resource_escape.rs:scan_collection_expr]]
+
+A `LAMBDA` is a container (bug-843): every value it captures is copied into its
+environment, so each capture is an element position exactly as an insertion
+builtin's item is. A captured `RES` binding is a direct insertion, and a captured
+record, list or function value carries in what it reaches. The captured names are
+the ones lowering builds the environment from — the free names of the body that
+the function binds, a lambda parameter shadowing an outer name.
+[[src/ir/lower.rs:lambda_captured_names]] So a resource captured by a closure that
+is stored in an outer binding floats to that binding, and a closure `RETURN`ed
+over a container declared after the resource it carries meets the ordering gate
+below, as a returned list does. An explicitly typed `FUNC` binding counts as a
+container that can own a resource for that gate, as a `List OF RES` does.
 
 An inline `TRAP` is *unwrapped*, not ignored: both of its arms produce the same
 target, so the guarded expression and each handler `RECOVER` value flow into it

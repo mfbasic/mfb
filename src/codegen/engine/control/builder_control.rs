@@ -2701,6 +2701,30 @@ impl CodeBuilder<'_> {
                 || crate::codegen::engine::expansion::op_key(op).to_string(),
                 self.instructions.len(),
             );
+            // bug-842: a binding, an assignment and a module-level store take the
+            // resources their own value carries, so that root is no temporary.
+            let enclosing_temp_exempt = std::mem::replace(
+                &mut self.resource_temp_exempt,
+                match op {
+                    NirOp::Bind {
+                        value: Some(value), ..
+                    }
+                    | NirOp::Assign { value, .. }
+                    | NirOp::StoreGlobal {
+                        value: Some(value), ..
+                    } => {
+                        // A resource union's bind wraps its producer
+                        // (`RES s AS Stream = tls::connect(…)`): the producer is
+                        // the root the binding claims.
+                        let mut root = value;
+                        while let NirValue::UnionWrap { value: inner, .. } = root {
+                            root = inner;
+                        }
+                        Some(root as *const NirValue as usize)
+                    }
+                    _ => None,
+                },
+            );
             let result = (|| -> Result<(), String> {
                 match op {
                     NirOp::Bind {
@@ -2735,9 +2759,17 @@ impl CodeBuilder<'_> {
                         // capture, the binding owns nothing.
                         // bug-781: a captured function value (or a value holding one)
                         // is owned by the environment the same way.
+                        //
+                        // bug-843: so is a captured resource. The environment holds a
+                        // reference to it, exactly as a `List` element does; the
+                        // resource belongs to its own (possibly raised) scope, so the
+                        // binding neither claims an unowned record nor closes one.
                         let borrowed_capture = !*mutable
                             && matches!(value, Some(NirValue::Capture { by_ref: false, .. }))
-                            && (self.is_freeable_flat_value(type_) || self.owns_graph(type_));
+                            && (self.is_freeable_flat_value(type_)
+                                || self.owns_graph(type_)
+                                || self.resource_cleanup_symbol(type_).is_some()
+                                || self.resource_union_cleanup(type_).is_some());
                         let aliases_capture = by_ref_capture_slot || borrowed_capture;
                         // A reference local must never carry a folded constant: its
                         // value lives in the parent slot and can change underneath
@@ -3665,8 +3697,10 @@ impl CodeBuilder<'_> {
                                 // resources the callee handed out, exactly as a bind of
                                 // one does (`call_assigned_owner_containers` gave it its
                                 // owned-lists at its bind).
-                                if crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
-                                    && self.owned_list_heads.keys().any(|(list, _)| list == name)
+                                if (crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
+                                    || self.adopts_from_trapped_call(value))
+                                    && (self.owned_list_heads.keys().any(|(list, _)| list == name)
+                                        || self.dynamic_owned_list(name).is_some())
                                 {
                                     self.emit_owned_list_seed_from_collection(
                                         name,
@@ -4225,6 +4259,7 @@ impl CodeBuilder<'_> {
             })();
             crate::codegen::engine::expansion::exit(self.instructions.len());
             self.current_op_key = enclosing_op_key;
+            self.resource_temp_exempt = enclosing_temp_exempt;
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
             // plan-134-F: the drop walker's symmetry probe — emits nothing unless the
             // build's environment names this local (`graph_drop.rs`).

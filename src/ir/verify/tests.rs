@@ -9169,8 +9169,13 @@ fn accepts_a_by_ref_capture_of_a_mut_local() {
     );
 }
 
+/// bug-843 (owner decision): a closure's capture of a resource works exactly like
+/// `collections::append` of it into a `List` — a reference, never the resource — so
+/// neither shape is `TYPE_LAMBDA_CAPTURE_UNSUPPORTED` any longer. This test pinned
+/// the retired rejection; it now pins the acceptance. (The binding is a `LET`:
+/// a by-value capture of a `MUT` is the separate mutable-capture rejection.)
 #[test]
-fn rejects_a_resource_capture_in_either_shape() {
+fn accepts_a_resource_capture_in_either_shape() {
     for capture in [
         IrValue::Local("handle".to_string()),
         IrValue::LocalRef {
@@ -9179,24 +9184,27 @@ fn rejects_a_resource_capture_in_either_shape() {
         },
     ] {
         let body = vec![
-            bind("handle", "fs.File", Some(int_const("0")), true, true),
+            bind("handle", "fs.File", Some(int_const("0")), true, false),
             closure_bind(vec![capture]),
             ret(int_const("0")),
         ];
-        expect_rule(
-            &project(vec![func("run", vec![], body)], vec![]),
-            "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+        let got = rules(&project(vec![func("run", vec![], body)], vec![]));
+        assert!(
+            !got.iter().any(|r| r == "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"),
+            "{got:?}"
         );
     }
 }
 
 #[test]
 fn rejects_a_non_copyable_capture() {
-    // A thread handle is neither a resource nor copyable.
+    // A worker's view of its own thread is neither a resource nor copyable. (A
+    // parent `Thread` handle is a resource since plan-156, and since bug-843 a
+    // resource capture is a reference, as a `List OF RES Thread` element is.)
     let body = vec![
         bind(
             "t",
-            "Thread OF Integer TO Integer",
+            "ThreadWorker OF Integer TO Integer",
             Some(int_const("0")),
             true,
             false,

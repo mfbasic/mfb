@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/syntax/resources/loop-body-close-outer-resource-invalid
+  10 |   RES f AS fs::File = fs::createTempFile()
+  11 |   FOR i = 1 TO 2
+  12 |     fs::close(f)
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:12 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  18 |   MUT n AS Integer = 0
+  19 |   WHILE n < 2
+  20 |     fs::close(f)
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:20 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  28 |   DO
+  29 |     n = n + 1
+  30 |     fs::close(f)
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:30 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  35 |   RES f AS fs::File = fs::createTempFile()
+  36 |   FOR EACH x IN [1, 2]
+  37 |     fs::close(f)
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:37 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  43 |   RES f AS fs::File = fs::createTempFile()
+  44 |   FOR i = 1 TO 2
+  45 |     fs::writeAll(f, "x")
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:45 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  45 |     fs::writeAll(f, "x")
+  46 |     IF i = 1 THEN
+  47 |       fs::close(f)
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:47 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  54 |   RES f AS fs::File = fs::createTempFile()
+  55 |   FOR i = 1 TO 2
+  56 |     fs::writeAll(f, "x")
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:56 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+  55 |   FOR i = 1 TO 2
+  56 |     fs::writeAll(f, "x")
+  57 |     fs::close(f)
+     | ^
+tests/syntax/resources/loop-body-close-outer-resource-invalid/src/main.mfb:57 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+               Binding `f` was moved and cannot be used again.
+[exit 1]

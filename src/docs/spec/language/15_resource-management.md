@@ -50,7 +50,17 @@ Every scope exit — normal, `EXIT`, `CONTINUE`, `FAIL`, `PROPAGATE`, an
 auto-propagated failure, `TRAP` routing, `EXIT PROGRAM` — closes a resource it
 registered only when that scope is still the resource's owner. A call statement
 that discards a resource result closes it when nobody owns it (a resource the callee
-produced or released) and leaves a resource that still has an owner alone.
+produced or released) and leaves a resource that still has an owner alone. The same
+rule closes a resource produced **inline** that nothing takes — a producer call
+used as a call argument (`useF(fs::open(p, "read"))`), as the target of a member
+read (`openTagged(p).state.pos`), or as an element of a list or record literal that
+is itself passed on (`useList([mk()])`): at the end of its statement, every
+resource the value reaches that is still unowned and not already closed is closed,
+on every exit from the statement. One a binding, an adopting container, a global or
+a `RETURN` took by then has an owner and is left to it, so `RES k = ident(mk())`
+and `RETURN ident(mk())` keep theirs. An inline `TRAP` over a call that hands out
+resources (`LET xs = mkList() TRAP … END TRAP`) adopts them into the binding's scope
+exactly as the plain call does. [[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/resource/owner.rs:emit_claim_returned_value]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:trap_call_result_locals]]
 
 The owner is a word on the resource record (`./mfb spec memory heap-values`, "The
 owner word"): `0` while unowned, else the token of the owning scope. A binding
@@ -65,7 +75,7 @@ scope's token. `thread::accept` produces an unowned copy that its binding claims
 
 An already-closed resource record is flagged, and a second close is a defined no-op reported as `ErrResourceClosed` rather than an operation on a dead handle. There is no source `MOVE` annotation. A call site need not reveal a close or transfer performed inside its callee.
 
-Because two names can denote one resource, closing through either marks both, and a later *use* of a closed name is `TYPE_USE_AFTER_MOVE` wherever the compiler can still prove it. Where it cannot — through a call that may hand the same resource back — the runtime flag catches it instead. A resource handle cannot be printed, compared, serialized, or captured by a lambda or ordinary closure. A reference to it may be copied into a `List` element, a `Map` value, or a record field (§15.6) — never duplicating the resource, and never as a `Map` key. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
+Because two names can denote one resource, closing through either marks both, and a later *use* of a closed name is `TYPE_USE_AFTER_MOVE` wherever the compiler can still prove it. Where it cannot — through a call that may hand the same resource back — the runtime flag catches it instead. A resource handle cannot be printed, compared, or serialized. A reference to it may be copied into a `List` element, a `Map` value, a record field, or a closure's captures (§15.6) — never duplicating the resource, and never as a `Map` key. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
 
 ### Resource identity, views, cleanup, and binding validity
 
@@ -301,7 +311,7 @@ failure handler is not permission to reuse a local resource after unwinding.
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
 [[src/ir/verify/resources.rs:check_resource_moves]]
 
-A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead. Re-closing an already-closed handle during a drop is not such a failure — it is a benign no-op and is never reported as a drop-close failure.
+A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead. Re-closing an already-closed handle during a drop is not such a failure — it is a benign no-op and is never reported as a drop-close failure. Nor is a handle `thread::transfer` moved to another thread: the scope drop recognizes the record's `moved|closed` flag and closes nothing, frees only the sender's tombstone where the binding owns the record, and records no failure — whether the transfer was the binding's own, a callee's transfer of the caller's handle (which the static move check cannot see, §14.9), or one under an inline `TRAP` that succeeded. A transfer that fails leaves the handle open and the sender's drop closes it, inline `TRAP` or not. Every drop path — a binding's, an owned-list drain, a resource union's, a discarded result's, the module instance's teardown — treats `ErrResourceClosed` and `ErrResourceMoved` from its close the same way. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_drop_close_outcome]] [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:deactivate_closed_resource_arguments]]
 
 Failure of an acquisition supplies no successful resource value for the source
 binding. An inline handler that `RECOVER`s supplies the value that initializes
@@ -357,6 +367,24 @@ This is a language rule, not a limitation note: a `STATE` write names the resour
 A resource element placed into a collection may be any reference to the resource — a named `RES` binding or a temporary alike. The collection holds references to resources whose cleanup placement follows the container-routing rules above.
 
 **Returning a resource collection transfers scope-ownership to the caller**, exactly as `AS RES fs::File` does for a single resource. A function returning `AS List OF RES fs::File` releases each referenced resource that one of its scopes owns — it does not close them — and the caller's binding scope takes each released resource, and no other, closing each once at its own exit. A returned element still owned further out (a handle the caller passed in) keeps its owner. The same holds for **any returned value that reaches a resource**, at any depth: a record with a `RES` field, a `List OF Holder`, a `List OF List OF Holder`, a `Map` of such records, a data-union variant carrying one, a recursive record — every resource the value reaches is released if the returning function owns it and taken by the caller's binding, and a call whose result is discarded closes the resources nobody took at the call statement. A record reaching two kinds of resource (a `File` field and a resource-union field) transfers both. Assigning such a call result to an existing container binding (`rows = make()`) adopts the same way, into that binding's own scope rather than the assignment's. [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:call_assigned_owner_containers]] A resource that floated into the returned container but was removed from it before the `RETURN` is not transferred: it stays the returning function's, which closes it at its exit. [[src/codegen/resource/owner.rs:emit_release_returned_value]] [[src/codegen/resource/walk.rs:emit_for_each_resource]] (A bare `List OF File` return is rejected for the missing `RES` marker.) On an error exit *before* the return, the resources are still closed by the function's scope, because they ride its owned-list until the `RETURN` transfers it. A resource collection may also be passed to a function, where the callee receives references to its elements (and may close them, subject to the same shared closed flag). The resources must be added to the collection at or after the collection's own binding so the obligation rides the collection; violating this is rejected (`TYPE_RESOURCE_RETURN_ORDER`) rather than compiled. [[src/rules/table.rs:TYPE_RESOURCE_RETURN_ORDER]] A resource collection cannot cross a thread data plane: a `RES`-marked collection on a thread's **data** plane — its message, output, input, or a resource plane's `STATE` payload — is rejected with `TYPE_THREAD_RESOURCE_PLANE_REQUIRED`, which names the resource and points at the resource plane. [[src/rules/table.rs:TYPE_THREAD_RESOURCE_PLANE_REQUIRED]] A resource crosses a thread only on that plane, moved with `thread::transfer`/`thread::accept` (§16).
+
+**A closure is a container too.** Capturing a resource in a `LAMBDA` — a `RES`
+binding directly, or a value that reaches one — copies a reference into the
+closure exactly as `collections::append` copies one into a `List`. The closure
+never owns the resource: when it is held by a longer-lived scope the resource's
+cleanup scope rises to that scope, and otherwise nothing changes. Each movement
+of a closure follows the `List` rule for the same movement: a closure stored in
+an outer binding or an outer collection floats the resources it captured there;
+a `RETURN`ed closure releases the ones the function owns and the caller's binding
+takes them; a call result that is discarded closes the ones nobody took; a store
+into a module-level binding raises them to the module instance; a copy holds the
+same references. A closure `RETURN`ed over a container declared after the
+resource it carries is refused with `TYPE_RESOURCE_RETURN_ORDER`, as the same
+container would be. [[src/ir/resource_escape.rs:scan_collection_expr]]
+[[src/codegen/resource/closure_carry.rs:emit_closure_resource_op]]
+A `FUNC` type does not say what its closure captured, so across a function
+boundary the closure is asked: each capturing `LAMBDA`'s environment routine
+walks the resources its captures reach (`./mfb spec memory closures`).
 
 Removing the final stored reference does not close the resource or move its
 cleanup scope inward. The cleanup obligation is retained independently of the

@@ -264,6 +264,7 @@ impl TypeModel {
             sendable_resource_names: HashSet::new(),
             resource_closers: HashMap::new(),
             graph_drop_kinds: Vec::new(),
+            closure_capture_types: Vec::new(),
         }
     }
 
@@ -305,6 +306,8 @@ impl TypeModel {
         model.finish();
         model.graph_drop_kinds =
             crate::codegen::collection::layout::graph_drop_kind_names(&model, module);
+        model.closure_capture_types =
+            crate::codegen::resource::closure_carry::closure_capture_types(&model, module);
         Ok(model)
     }
 
@@ -506,6 +509,7 @@ impl TypeModel {
             sendable_resource_names,
             resource_closers,
             graph_drop_kinds: Vec::new(),
+            closure_capture_types: Vec::new(),
         })
     }
 
@@ -704,6 +708,8 @@ impl TypeModel {
         model.finish();
         model.graph_drop_kinds =
             crate::codegen::collection::layout::graph_drop_kind_names(&model, module);
+        model.closure_capture_types =
+            crate::codegen::resource::closure_carry::closure_capture_types(&model, module);
         Ok(model)
     }
 

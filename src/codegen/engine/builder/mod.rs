@@ -221,6 +221,23 @@ pub(crate) struct CodeBuilder<'a> {
     /// value position, where a `Nothing`-typed call's `void` result is
     /// materialized as the unit value `NOTHING` (0).
     pub(crate) value_discarded_armed: bool,
+    /// bug-842: the root `NirValue` (by address) of the value a `LET`/`MUT` binding,
+    /// an assignment or a module-level store is lowering. That statement takes the
+    /// resources its own value carries — a binding claims them, a container adopts
+    /// them, a global raises them — so only a producer call NESTED inside it is an
+    /// unclaimed temporary (`register_resource_temp`). An `Eval` and a `RETURN`
+    /// exempt their root through `value_discarded_armed` instead.
+    pub(crate) resource_temp_exempt: Option<usize>,
+    /// bug-842: locals bound to a resource-adopting `callResult` — the inline-`TRAP`
+    /// desugar's `$trap_resN`. A `$trap_valN = resultValue($trap_resN)` assignment
+    /// into a container adopts the resources that call handed out, exactly as a
+    /// direct `xs = f()` does (`adopts_from_trapped_call`).
+    pub(crate) trap_call_results: HashSet<String>,
+    /// bug-842: set by a `RETURN` that closed its statement's resource temporaries
+    /// ahead of the release (`close_resource_temps_before_return`); the interior drop
+    /// that path emits next frees their blocks without closing them twice, then
+    /// clears it.
+    pub(crate) resource_temps_closed_on_path: bool,
     /// plan-86 K1: true while lowering a function whose every value-return is a bare
     /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
     /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
@@ -751,6 +768,9 @@ impl<'a> CodeBuilder<'a> {
             map_settle_exempt_armed: false,
             record_member_read: false,
             value_discarded_armed: false,
+            resource_temp_exempt: None,
+            trap_call_results: HashSet::new(),
+            resource_temps_closed_on_path: false,
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
@@ -1053,6 +1073,11 @@ pub(crate) struct ResourceUnionCleanup {
 /// is freed — the same drop a lone `RES u AS Union STATE S` binding runs.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum OwnedListDrop {
+    /// bug-843: a list whose nodes may hold any kind a closure can carry
+    /// (`closure_resource_kinds`). Each node records its own kind (and a union
+    /// leaf's active-variant tag) beside the record, because a `FUNC` holder's type
+    /// does not name what its closures captured. See `closure_carry`.
+    Dynamic,
     /// A single registered close op applied to each node's record pointer, plus what
     /// the drain may reclaim behind it (bug-645): the element's uniform `STATE` block,
     /// its two per-`File` I/O buffers, and — for a `resource_record_freed_at_drop`
@@ -1220,6 +1245,11 @@ pub(crate) struct PendingTemp {
     /// plan-134-G: free only this block, not the graph it points into — a recursive value whose
     /// top block a store byte-copied, so its children now belong to that store's owner.
     pub(crate) shallow: bool,
+    /// bug-842: a resource temporary — a producer call's resource result that no
+    /// binding took. Its drop closes the resource when it is still unowned (and not
+    /// already closed) instead of freeing a block (`emit_resource_temp_close`); its
+    /// identity token is a register no owner names, so no claim can take it.
+    pub(crate) resource: bool,
 }
 
 /// bug-781: one capturing `LAMBDA`'s environment, as its routine copies and drops
@@ -1234,6 +1264,10 @@ pub(crate) struct ClosureEnvLayout {
     /// the creating frame (a borrowed self-update scratch, a shared capacity
     /// shadow, the `os::appResourcePath` base cache). Never owned.
     pub(crate) auxiliary_words: usize,
+    /// bug-843: the by-value capture words whose type reaches a resource, as
+    /// `(capture index, type)` — what the routine's resource operations walk.
+    /// Empty unless the module's closures carry resources.
+    pub(crate) resource_words: Vec<(usize, ParameterType)>,
 }
 
 /// bug-781: what one capture word of an environment holds.
@@ -1245,6 +1279,12 @@ pub(crate) enum ClosureEnvWord {
     /// A word copied verbatim and never freed: a scalar, a by-ref capture's slot
     /// address, a resource or thread handle.
     Plain,
+    /// bug-843: a captured resource union. A union value is a 16-byte
+    /// `{tag@0, record@8}` box owned by the binding that wrapped it and freed at that
+    /// binding's scope exit whoever owns the record, so the environment holds its
+    /// own copy of the box: copied with the environment, freed with it, and never
+    /// closed through (the record belongs to its own, possibly raised, scope).
+    ResourceUnionBox,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -1389,6 +1429,13 @@ pub(crate) struct TypeModel {
     /// collection types that only reach a cycle (`graph_drop_kind_names`). Empty for a model
     /// built without a module.
     pub(crate) graph_drop_kinds: Vec<String>,
+    /// bug-843: the type of every by-value `LAMBDA` capture in the module that can
+    /// reach a resource (`closure_carry::closure_capture_types`), in first-seen
+    /// order. A `FUNC` type does not say what its closure captured, so this
+    /// module-wide set is what tells codegen a function value can carry resource
+    /// references at all — and which kinds. Empty for nearly every program, which
+    /// then lowers exactly as before.
+    pub(crate) closure_capture_types: Vec<ParameterType>,
 }
 
 pub(crate) fn lower_module_for_platform(

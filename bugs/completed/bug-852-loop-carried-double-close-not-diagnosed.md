@@ -1,12 +1,12 @@
 # bug-852: closing an outer resource inside a loop body is not diagnosed; the second iteration double-closes at run time (`ErrResourceClosed`)
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/compile-fail (or verifier unit) loop-body-close-outer-resource — name suggested
+Status: Fixed (bs17-agent-f)
+Regression Test: tests/syntax/resources/loop-body-close-outer-resource-invalid, tests/rt-behavior/resources/loop-body-close-resource-rt
 
 `fs::close(f)` of a resource declared outside a `FOR`/`WHILE` loop, inside the loop body,
 compiles. The second iteration closes an already-closed handle and the program dies with
@@ -105,3 +105,38 @@ Commit: —
 ## Summary
 
 Static gap only; the runtime guard prevents a real double close, so no memory hazard.
+
+## Resolution
+
+Diagnosed statically (the recommended option; §14.8). Before a loop body is
+checked, `loop_carried_moves` scans it once in back-edge mode with its diagnostics
+discarded, collecting the outer names it leaves moved on a path that reaches the
+back edge; the real check then runs the body from the entering set plus those
+names. In back-edge mode a branch that leaves the loop — `RETURN`, `FAIL`,
+`EXIT PROGRAM`, an `EXIT` aimed at this loop or an outer one, a `CONTINUE` of an
+outer loop — does not contribute (`leaves_scanned_loop`, with a stack of the loops
+nested in the body so an inner loop's `EXIT`/`CONTINUE` stays inside). Nested loops
+scan once in that mode, so the work is linear in nesting, not exponential.
+
+A `thread::transfer`'s move is **not** carried round the back edge. Measured first:
+carrying it rejected `syntax/threads/thread-transfer-failure-handler-valid`'s
+`retry` (bug-804's `WHILE NOT sent … transfer(t, f) TRAP … sent = FALSE`), a valid
+retry loop whose success path ends the loop through a flag the check does not track.
+A transfer really repeated is still refused at run time (`ErrResourceMoved`).
+Recorded in §14.9.
+
+Proof: `loop-body-close-outer-resource-invalid` — FOR, WHILE, DO, FOR EACH, a close in
+a branch read on the next pass, a close before `CONTINUE FOR` — each
+`TYPE_USE_AFTER_MOVE` (a case whose next pass first reads the handle reports that
+read too); on main every one compiled and ran to `7-703-0004`. The non-goals fixture
+`loop-body-close-resource-rt` (loop-local close, close+`EXIT FOR`, close+`RETURN`, an
+inner loop's `EXIT`) builds and prints `3 2 2 4` on main and after.
+
+## Golden impact
+
+- `tests/syntax/resources/use-after-move-still-fires-invalid/golden/build.log` gains
+  one diagnostic (line 49, the close inside `afterLoop`'s `WHILE`) — exactly the case
+  its comment called plan-59-E Correction C4's unreported fourth case; the comment is
+  corrected without moving a line. `scripts/test-accept.sh <mfb> <out> 'syntax/*'`:
+  746 tests, this the only bug-852 mismatch.
+- `scripts/artifact-gate.sh <mfb> all`: 0 diffs.

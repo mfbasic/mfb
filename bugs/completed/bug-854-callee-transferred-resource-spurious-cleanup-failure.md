@@ -1,12 +1,12 @@
 # bug-854: when a callee `thread::transfer`s a caller's `RES` argument, the caller's scope drop still closes it and logs a spurious `Cleanup failure: 7-703-0009`
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/resources/callee-transfer-no-cleanup-failure-rt (new) — name suggested
+Status: Fixed (bs17-agent-f)
+Regression Test: tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt
 
 A function that receives `RES f` and transfers it (`thread::transfer(t, f)`) moves the caller's
 resource at run time (the statically untracked case §14.9 describes). At the caller's scope
@@ -116,3 +116,38 @@ Commit: —
 ## Summary
 
 Small drop-path predicate gap; noise in the error banner and audit ledger, no resource misuse.
+
+## Resolution
+
+Both halves of the suggested fix, on every drop path rather than one:
+
+- `emit_resource_cleanup_call` tests the record's flag word after the owner and
+  escaping checks: a `moved|closed` (3) record closes nothing and reclaims nothing;
+  when the binding frees records at drop it frees the sender's tombstone and its
+  STATE — exactly what the retired drop of a statically seen transfer does
+  (`emit_free_moved_tombstone`, extracted from `emit_moved_resource_record_free`).
+- Every drop-path close outcome goes through `emit_drop_close_outcome`: `Ok`,
+  `ErrResourceClosed` and `ErrResourceMoved` are the benign no-op; anything else is
+  recorded. Before, the binding drop accepted only `ErrResourceClosed`, the module
+  teardown and the dynamic owned-list (bug-843) likewise, and the static owned-list
+  drain, the resource-union drop and the discarded-result close accepted nothing.
+
+**Found on the way (same class):** an owned-list drain of an element the program had
+closed explicitly logged a spurious failure. On main:
+`MUT xs AS List OF RES fs::File = []; IF … RES f = …; xs = append(xs, f); fs::close(f)
+END IF; FAIL …` printed `Cleanup failure: 7-703-0004 Resource handle is already
+closed.` after the program's error. It prints nothing now.
+
+### Runtime proof
+
+`callee-transfer-no-cleanup-failure-rt` (the report's repro) ends at the `FAIL`'s own
+banner; on main it appended `Cleanup failure: 7-703-0009 …`. Debugger
+(`bp _mfb_rt_fs_fs_close bt`) shows the only close of the file is the worker's `g`.
+
+## Golden impact
+
+Every fixture whose code contains a resource binding drop, an owned-list drain, a
+resource-union drop, a discarded resource result or a module teardown gets the
+benign-code compares (and a binding drop the moved test) in its `.ncode`/`.ncodesum`
+goldens; `.ast`/`.ir`/`build.log`/`.run` goldens do not move. See the artifact-gate
+count recorded in the bs17-agent-f report.

@@ -15,10 +15,10 @@ IMPORT fs
 ' must keep firing; the golden records one error per case, and losing any line is
 ' the regression.
 '
-' The three cases are the ones §14.9's algorithm actually promises. See this
-' sub-plan's Correction C4 for the fourth case that does NOT fire (a close in a
-' loop body observed across the back edge) — that is specified behaviour, not a
-' gap this fixture should assert.
+' The three cases are the ones §14.9's algorithm actually promises. Case 3 also
+' fires INSIDE the loop since bug-852: its body's close goes round the back edge
+' and closes `f` again on the next pass, the fourth case plan-59-E's Correction C4
+' left unreported (`loop-body-close-outer-resource-invalid` covers it in full).
 
 ' 1. Straight-line: the simplest and most important case.
 FUNC straightLine(p AS String) AS Nothing
