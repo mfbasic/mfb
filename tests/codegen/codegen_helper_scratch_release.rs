@@ -492,6 +492,29 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
 /// `tls_local_address_reports_the_port_a_listener_bound_to` in
 /// `tests/net/rt_tls_listener_local_address.rs` is the test that catches it, and
 /// the bind-all spelling does NOT: that path parks a rodata pointer.
+///
+/// **bug-885: `listen` grew to 7/4/2.** A non-empty `host` is now resolved with
+/// `getaddrinfo`/`inet_ntop` (under an AF_INET hint, exactly as `tcp::listen`
+/// resolves it) before `nw_endpoint_create_host`, instead of handing
+/// Network.framework a raw, unvalidated string — which used to silently bind
+/// the wildcard address on an OS-chosen port for any non-numeric host. That is
+/// ONE new allocation (`RESOLVEDCSTR`, the 64-byte `inet_ntop` output buffer)
+/// and TWO new frees of it: one after `nw_endpoint_create_host` has read it
+/// (success or failure of that call — it has read `BINDHOSTCSTR` by then
+/// either way), guarded non-NULL (label `..._resolved_buf_freed`, since the
+/// empty-host/numeric-literal paths never allocate it); and one on the
+/// `inet_ntop`-failure exit (label `..._inet_ntop_fail_buf_freed`), also
+/// guarded non-NULL for defence in depth even though that exit is reached
+/// only after the allocation already ran. `RESOLVEDCSTR` is never the block
+/// `listen` returns — it is read once by `nw_endpoint_create_host`, which
+/// copies it into its OWN representation, and `REC_LHOST` (what
+/// `tls::localAddress` reports) stores the ORIGINAL `HOSTCSTR`, not this
+/// buffer. The guarded-scratch-release count stays 2 (unchanged): neither new
+/// free uses the `HelperScratch`/`_scratch_kept_N` convention
+/// `guarded_scratch_releases` specifically counts (that convention is for
+/// `cert_scratch`/`key_scratch`); it is a hand-written compare+branch guard
+/// with a different label, verified by direct inspection of the emitted
+/// `.ncode` rather than by this test's label-matching.
 const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
     // bug-623 D: the connection and listener ctx blocks moved from the arena to the C
     // heap (`gen_macos::emit_ctx_calloc` / `emit_ctx_free`), so accept, connect and
@@ -502,7 +525,10 @@ const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
     ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
     ("_mfb_rt_tls_tls_connect", (3, 2, 2)),
     ("_mfb_rt_tls_tls_connectAddr", (3, 2, 2)),
-    ("_mfb_rt_tls_tls_listen", (6, 2, 2)),
+    // bug-885: +1 alloc (RESOLVEDCSTR), +2 frees of it (both guarded non-NULL,
+    // neither using the counted _scratch_kept_N convention) -- see the comment
+    // above the table.
+    ("_mfb_rt_tls_tls_listen", (7, 4, 2)),
     ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
     // plan-132: `emit_address_from_host_and_port` allocates the scratch host
     // `String` and the record, and frees the scratch once the record holds it.
