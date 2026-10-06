@@ -225,9 +225,7 @@ FUNC card(f AS Fonts, info AS DemoInfo, text AS CardText, badge AS Tracked, b AS
   ' The emblem: a round window onto a small picture of the scene, clipped to
   ' its circle.
   out = collections::append(out, circle(cx, ey, er + 5.0, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.25 + 0.5 * hover), strokeWidth := 1.0 }))
-  ' A clip costs per edge of its rings on every pixel it covers, so the ring is
-  ' kept as coarse as still looks round at this size.
-  LET clipRing AS List OF List OF canvas::Point = [ovalRing(cx, ey, er, er, 28, 0.0)]
+  LET clipRing AS List OF List OF canvas::Point = [ovalRing(cx, ey, er, er, 40, 0.0)]
   out = collections::append(out, emblem(index, cx, ey, er, t, hover, clipRing, sigil))
   out = collections::append(out, circle(cx, ey, er, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.75), strokeWidth := 1.5 }))
   MUT ty AS Float = ey + er + 22.0
@@ -340,10 +338,10 @@ FUNC emblem(index AS Integer, cx AS Float, cy AS Float, r AS Float, t AS Float, 
     CASE 7
       ' The bestiary: the Grove's sigil, an SVG drawn by the demo's SVG reader.
       out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := radial(cx, cy, r, [gstop(0.0, hex("#f6ead0")), gstop(1.0, hex("#c8a870"))]) }))
+      ' The sigil is round and drawn inside the window, so it needs no clip -
+      ' and a clip on a transformed item is costly on the GPU (bug-995).
       LET view AS canvas::Transform = compose(place(cx, cy, math::sin(t * 0.5) * 0.1, r * 1.7 / sigil.vw), translate(-sigil.vw / 2.0, -sigil.vh / 2.0))
-      FOR EACH it IN svgItems(sigil, view, FALSE, t)
-        out = collections::append(out, clipped(it, localRing(clip, viewOf(it))))
-      NEXT
+      out = collections::append(out, svgItems(sigil, view, FALSE, t))
     CASE 8
       ' The cathedral: a small rose window of coloured glass, glowing.
       out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { fill := hex("#140f12") }))
@@ -376,14 +374,5 @@ FUNC clipped(d AS canvas::DrawItem, clip AS List OF List OF canvas::Point) AS ca
     CASE canvas::Ellipse(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }
     CASE canvas::Circle(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }
     CASE ELSE : RETURN d
-  END MATCH
-END FUNC
-
-' The transform an item is placed by.
-FUNC viewOf(d AS canvas::DrawItem) AS canvas::Transform
-  MATCH d
-    CASE canvas::Polygon(v) : RETURN v.paint.transform
-    CASE canvas::PolyLine(v) : RETURN v.paint.transform
-    CASE ELSE : RETURN identity()
   END MATCH
 END FUNC

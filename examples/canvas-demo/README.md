@@ -79,6 +79,28 @@ an item's antialiasing margin is currently added in its own units, so a polygon
 magnified many times by its transform costs the GPU several times what the
 same polygon costs given in pixels (bug-991, found while building this demo).
 
+## Known issues
+
+Runtime and compiler bugs found while building this demo, open at the time of
+writing (see `bugs/`):
+
+- **macOS: scrolling with a trackpad crashes the app** (bug-993). The macOS
+  mouse handlers clobber a register AppKit relies on, and a trackpad sends a
+  zero-delta scroll event at the start and end of every gesture. A mouse wheel
+  is unaffected.
+- **Windows: Float values can be overwritten across calls into sin, cos or
+  pow** (bug-994). The SVG reader keeps its viewBox in a list to stay clear of
+  it; other scenes may show small numeric glitches on Windows until it is
+  fixed.
+- **Windows (Intel Vulkan): the first launch of a new build shows an empty
+  window for about 25 seconds** while the driver compiles the canvas shader
+  (bug-996); later launches start at once.
+- **Windows: new windows open at 400 by 300** (bug-997), so the demo switches
+  to full screen at startup when its window is that small.
+- The demo also works around bug-991 (transformed polygons cost the GPU more
+  than they should), bug-992 (`strings::graphemesCount` leaks) and bug-995 (a
+  clip on a transformed item is slow).
+
 ## Assets
 
 See [CREDITS.md](CREDITS.md): the fonts (OFL), the pixel-art sprites
