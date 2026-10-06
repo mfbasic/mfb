@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: (proposed) GUI (non-headless) macOS run of `setMode(Console); setMode(None); os::sleep(1000); <write marker>` asserts the marker is written and the exit code is the program's
+Status: Fixed (bs16-agent-c)
+Regression Test: `scripts/test-macapp.sh` case 3d2 (GUI, `MFB_MACAPP_GUI=1`): Console→None and Canvas→None, then sleep 1.5 s, print, `RETURN 7`; expects `HIDDEN_ALIVE|code=7`. Unit: `target::macos_aarch64::app::canvas_reconcile_tests::a_program_hiding_its_window_does_not_terminate_the_app`.
 
 On macOS, `app::setMode(app::Mode.None)` after the window has been shown (from
 `Console` or `Canvas`) orders the window out. With the delegate answering
@@ -100,3 +100,47 @@ presentation mode is `None` (or answer NO and terminate explicitly from a real
 - macOS reconcile `none_path` + `SHOULD_TERMINATE_SYMBOL` — fixed by this bug.
 - Windows: not run (no host); `win_x86_64/app` reconcile hides via its own path —
   unverified.
+
+## Resolution
+
+The hypothesis's first shape: answer NO while the program, not the user, has hidden the
+window. The reconcile (`emit_reconcile_helper`) now records the mode on NSApp under
+`_mfb_macapp_program_hidden_key` before it dispatches: `None` sets it (to NSApp, ASSIGN),
+and `Console` and `Canvas` clear it. For a None-start program, `emit_should_terminate_helper`
+reads the key from the `sender` (NSApp): set → NO, clear → YES. A Console-default program
+cannot hide its window, so its IMP stays the constant YES with unchanged bytes (the unit test
+checks that it has no relocations). Headless, GTK and Windows are untouched. Spec:
+`mfb spec app macos-runtime`, "App delegate". The man page already described the intended
+behaviour (`mfb man app setMode`: entering None "tears the window down and routes io::print
+to standard output").
+
+### Proof (this Mac, macOS 15 / Darwin 24.6 aarch64, GUI session)
+
+- Doc repro (`ms3`, `RETURN 7` added), base compiler, 2 runs: rc 0. stdout is only
+  `printed in none (initial)`, and the log stops at `switched to none`. Fixed: rc 7,
+  `printed in none (after console)` on stdout, and the log ends with `end`, 2/2.
+- `scripts/test-macapp.sh` case 3d2, run alone (`MFB_MACAPP_GUI=1`). Base: both variants
+  `got 'code=0'` (FAIL). Fixed: both `ok: ... (HIDDEN_ALIVE|code=7)`.
+- A user close still quits. Each app was started with `open -W` and then
+  `osascript -e 'tell application "System Events" to tell process "<p>" to click button 1
+  of window 1'` was run at 2.5–3 s:
+  - Console window shown, never hidden: the process ended 3 s after launch, and the
+    "not closed" marker it would have written after its 10 s sleep is absent.
+  - Console → None → Console, then close: also ended at 3 s, with no "not closed" marker.
+- Debugger (`mfb dbg` on a `--debug -O0` build, `bp _mfb_macapp_should_terminate`, `run`,
+  `bt 4`, `finish`): the stop is under
+  `-[NSApplication(NSWindowCache) _checkForTerminateAfterLastWindowClosed:saveWindows:]`
+  ← `_scheduleCheckForTerminateAfterLastWindowClosed]_block_invoke` (the doc's lldb chain).
+  `finish` reports `x0 = 0` (NO), and the program then runs to `end`.
+- `scripts/test-macapp.sh <mfb>` (default, headless): "macOS app mode runtime tests passed",
+  12 ok, GUI cases skipped.
+
+## Golden impact
+
+None-start macOS app programs change: the reconcile gains the key store (about 10
+instructions plus relocations) and `_mfb_macapp_should_terminate` grows its key read. The data
+gains the 1-byte `_mfb_macapp_program_hidden_key`. `scripts/artifact-gate.sh <mfb> all`
+shows exactly one new diff beyond the previous set:
+`syntax/app/app-window-surface/app_window_surface.macos-aarch64.app.ncode`.
+`syntax/app/app-mouse-surface`'s macOS golden (a setMode program) was already in the branch
+base's diff set and takes this change too.

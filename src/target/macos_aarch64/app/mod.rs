@@ -469,6 +469,12 @@ const RECONCILE_BUILD_SYMBOL: &str = "_mfb_macapp_reconcile_build";
 /// `None`→`Console` re-points `ASSOC_KEY` (the io-routing key) at it without
 /// rebuilding the window. Only reconcile-built (None-start) windows use it.
 const RECONCILE_TV_KEY: &str = "_mfb_macapp_reconcile_tv_key";
+/// bug-963: assoc key on NSApp, set (to NSApp itself, ASSIGN) while the PROGRAM has
+/// hidden its window with `setMode(None)` and cleared by every windowed arm. The
+/// delegate's `applicationShouldTerminateAfterLastWindowClosed:` answers NO while it
+/// is set, so ordering the window out does not end the program; a user closing a
+/// shown window still finds it clear and quits. Only None-start programs emit it.
+const PROGRAM_HIDDEN_KEY: &str = "_mfb_macapp_program_hidden_key";
 /// bug-699: the `MFBTextView` class a `None`-start bootstrap registers, stashed
 /// for the reconcile's builder to instantiate on the first `setMode(Console)`.
 const RECONCILE_TV_CLASS_KEY: &str = "_mfb_macapp_reconcile_tv_class_key";
@@ -885,7 +891,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_worker_shim(spec),
         emit_append_helper(),
         emit_finish_helper(spec.uses_term, spec.debug_hooks),
-        emit_should_terminate_helper(),
+        emit_should_terminate_helper(spec.initial_mode == PresentationMode::None),
         emit_did_finish_launching_helper(),
         emit_key_down_helper(),
         // bug-699: the shared key translator and the raw-mode keyUp: IMP.
@@ -1336,6 +1342,7 @@ pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
         RECONCILE_TV_KEY,
         RECONCILE_TV_CLASS_KEY,
         CANVAS_VIEW_ASSOC_KEY,
+        PROGRAM_HIDDEN_KEY,
     ] {
         objects.push(CodeDataObject {
             symbol: key.to_string(),

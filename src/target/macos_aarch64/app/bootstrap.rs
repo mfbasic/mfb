@@ -1874,7 +1874,21 @@ pub(super) fn emit_reconcile_helper(uses_window: bool) -> CodeFunction {
     asm.local_address(abi::c_arg(1), WINDOW_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // window (or nil)
-                                                                // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
+                                                                // bug-963: record whether the PROGRAM is hiding the window, before any arm runs,
+                                                                // so the delegate's terminate-after-last-window check can tell it from a user
+                                                                // close. None sets the key (to NSApp, ASSIGN — any non-nil pointer); Console and
+                                                                // Canvas clear it. See `emit_should_terminate_helper`.
+    let hidden_set = format!("{RECONCILE_SYMBOL}_hidden_set");
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.local_address(abi::c_arg(1), PROGRAM_HIDDEN_KEY);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // nil: shown
+    asm.push(abi::compare_immediate(abi::LOCAL[4], "1"));
+    asm.push(abi::branch_ne(&hidden_set));
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[0])); // non-nil: hidden
+    asm.push(abi::label(&hidden_set));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // ASSIGN
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+    // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
     asm.push(abi::compare_immediate(abi::LOCAL[4], "2"));
     asm.push(abi::branch_eq(&canvas_path));
     asm.push(abi::compare_immediate(abi::LOCAL[4], "0"));
@@ -2444,10 +2458,43 @@ pub(super) fn emit_did_finish_launching_helper() -> CodeFunction {
 
 /// IMP for `applicationShouldTerminateAfterLastWindowClosed:` — returns YES so
 /// closing the transcript window quits the app (plan §5.7).
-pub(super) fn emit_should_terminate_helper() -> CodeFunction {
+///
+/// bug-963: a program that can change mode can also hide its own window
+/// (`setMode(None)` sends `orderOut:`), and AppKit treats the last visible window
+/// going away exactly like the user closing it: it asks this method and, on YES,
+/// runs `terminate:`, ending the process with status 0 mid-program. So for such a
+/// program (`can_hide_window`) the answer is NO while the reconcile has recorded a
+/// program hide under `PROGRAM_HIDDEN_KEY` on NSApp (the `sender`, `x2`), and YES
+/// otherwise — a user closing a shown window still quits. A Console-default program
+/// cannot hide its window and keeps the constant YES, byte-for-byte.
+pub(super) fn emit_should_terminate_helper(can_hide_window: bool) -> CodeFunction {
     let mut asm = Asm::new(SHOULD_TERMINATE_SYMBOL);
     asm.push(abi::label("entry"));
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1")); // YES
+    if can_hide_window {
+        let visible = format!("{SHOULD_TERMINATE_SYMBOL}_user_closed");
+        let done = format!("{SHOULD_TERMINATE_SYMBOL}_done");
+        asm.push(abi::subtract_stack(16));
+        asm.push(abi::store_u64(
+            abi::link_register(),
+            abi::stack_pointer(),
+            0,
+        ));
+        // hidden = objc_getAssociatedObject(sender /* NSApp */, PROGRAM_HIDDEN_KEY)
+        asm.push(abi::move_register(abi::c_arg(0), abi::c_arg(2)));
+        asm.local_address(abi::c_arg(1), PROGRAM_HIDDEN_KEY);
+        asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+        asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+        asm.push(abi::branch_eq(&visible));
+        asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0")); // NO
+        asm.push(abi::branch(&done));
+        asm.push(abi::label(&visible));
+        asm.push(abi::move_immediate(abi::c_return(0), "Integer", "1")); // YES
+        asm.push(abi::label(&done));
+        asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+        asm.push(abi::add_stack(16));
+    } else {
+        asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1")); // YES
+    }
     asm.push(abi::return_());
     CodeFunction {
         name: "macapp.shouldTerminate".to_string(),

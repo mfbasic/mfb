@@ -93,7 +93,16 @@ The GUI path constructs, in order:
    synthesized with two methods and set as `[app setDelegate:]`:
    - `applicationShouldTerminateAfterLastWindowClosed:` (type `"c@:@"`,
      `STR_DELEGATE_TYPES`), IMP `_mfb_macapp_should_terminate` — returns YES so
-     closing the window quits the app.
+     closing the window quits the app. AppKit also asks this when the PROGRAM
+     hides its last visible window: `setMode(None)` sends `orderOut:`, and a YES
+     then runs `terminate:`, which would end the process with status 0 in the middle
+     of the program (bug-963). So in a program that references `app::setMode`, the
+     reconcile records each switch on NSApp under `_mfb_macapp_program_hidden_key`.
+     `None` sets it (to NSApp, `OBJC_ASSOCIATION_ASSIGN`); `Console` and `Canvas`
+     clear it. While it is set the IMP returns NO. A user who closes a shown window
+     still finds it clear and quits. A Console-default program cannot hide its window
+     and keeps the constant YES.
+     [[src/target/macos_aarch64/app/bootstrap.rs:emit_reconcile_helper]]
    - `applicationDidFinishLaunching:` (type `"v@:@"`, `STR_INPUT_TYPES`), IMP
      `_mfb_macapp_did_finish_launching` — spawns the worker thread (below).
 
