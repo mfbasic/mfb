@@ -35,6 +35,11 @@ const ARG1_OFFSET: usize = 16;
 /// Scratch buffer for runtime decimal formatting and the `winsize` struct.
 const SCRATCH_OFFSET: usize = 32;
 const SCRATCH_END: usize = 56;
+/// bug-967: `term::on` parks the grid it is replacing here (a re-entered `on`)
+/// across the new grid's allocation. The last word of `LOCALS_SIZE`; `term::on`
+/// is a helper of its own, so it shares the word with nothing (`term::sync`'s
+/// present uses the same offset in its own frame).
+const PREVIOUS_GRID_OFFSET: usize = SCRATCH_END;
 
 // plan-94-B: the two mouse members need 16 more bytes than every other helper —
 // a `struct timespec` (or a pair of `LARGE_INTEGER`s on Windows) for the ring's
@@ -567,6 +572,20 @@ fn emit_on(
         // GetConsoleScreenBufferInfo); a placeholder keeps the match total.
         PlatformFamily::Windows => "0",
     };
+    // bug-967: a re-entered `term::on` (TUI already on) finds the current grid in
+    // slot 48. Park it, allocate the new one (sized to the terminal as it is NOW),
+    // and free the parked one only once the new block is in place — so an
+    // allocation failure still leaves the running TUI its grid, and the
+    // replacement no longer orphans ~445 KB (24x80) per call.
+    let previous_grid: Reg = vregs.next().into();
+    ctx.instructions.extend([
+        abi::load_u64(
+            &previous_grid,
+            ARENA_STATE_REGISTER,
+            term_state_offset + term_grid::TERM_STATE_GRID_OFFSET,
+        ),
+        abi::store_u64(&previous_grid, abi::stack_pointer(), PREVIOUS_GRID_OFFSET),
+    ]);
     term_grid::emit_grid_alloc(
         symbol,
         term_state_offset,
@@ -581,6 +600,13 @@ fn emit_on(
         ctx.relocations,
         vregs,
     )?;
+    term_grid::emit_grid_free_previous(
+        symbol,
+        PREVIOUS_GRID_OFFSET,
+        ctx.instructions,
+        ctx.relocations,
+        vregs,
+    );
     // Reset all state to defaults (plan §4.2). Foreground white, background
     // black, bold/underline off, cursor visible, active on.
     let writes: &[(usize, &str)] = &[

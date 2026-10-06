@@ -434,7 +434,11 @@ cell stays 16 bytes with a width byte at offset 14 (`C_WIDTH`).
 [[src/codegen/term/grid/term_grid.rs:POOL_BYTES_PER_CELL]]
 
 `term::off` runs the final present, frees the block, and zeroes slot 48;
-`_mfb_shutdown` frees it if `off` was skipped. On a terminal resize between frames
+`_mfb_shutdown` frees it if `off` was skipped. A `term::on` while TUI mode is
+already on allocates the new block (sized to the terminal as it is now) first and
+then frees the one slot 48 held, so a failed allocation leaves the running grid in
+place and N `on` calls followed by one `off` leave no grid behind.
+[[src/codegen/term/grid/term_grid.rs:emit_grid_free_previous]] On a terminal resize between frames
 the present reallocs the block, latches the slot-56 `didResize` flag (for
 `term::didResize`), and forces a full repaint (`life` re-queries the
 size each loop). Slot 56 stays reserved. The console grid writer + diff presenter

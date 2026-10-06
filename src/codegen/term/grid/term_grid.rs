@@ -552,10 +552,7 @@ pub(crate) fn emit_grid_free(
     vregs: &mut Vregs,
 ) {
     let gp: Reg = vregs.next().into();
-    let rowsv: Reg = vregs.next().into();
-    let colsv: Reg = vregs.next().into();
-    let t: Reg = vregs.next().into();
-    let m: Reg = vregs.next().into();
+    let size_regs = GridSizeRegs::next(vregs);
     let zero: Reg = vregs.next().into();
     let skip = format!("{symbol}_gf_skip");
     instrs.extend([
@@ -566,6 +563,77 @@ pub(crate) fn emit_grid_free(
         ),
         abi::compare_immediate(gp, "0"),
         abi::branch_eq(&skip),
+    ]);
+    emit_grid_block_free(symbol, gp, &size_regs, instrs, relocations);
+    instrs.extend([
+        abi::move_immediate(zero, "Integer", "0"),
+        abi::store_u64(
+            zero,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_GRID_OFFSET,
+        ),
+        abi::label(&skip),
+    ]);
+}
+
+/// bug-967: free the grid block a re-entered `term::on` replaced. `term::on`
+/// parks the slot-48 pointer at `previous_slot` (an sp local) before it allocates
+/// the new grid, and calls this after the new block is in slot 48. A no-op when
+/// TUI mode was off (the parked pointer is null). Slot 48 is not touched: it
+/// already names the new block.
+pub(crate) fn emit_grid_free_previous(
+    symbol: &str,
+    previous_slot: usize,
+    instrs: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) {
+    let gp: Reg = vregs.next().into();
+    let size_regs = GridSizeRegs::next(vregs);
+    let skip = format!("{symbol}_gf_previous_skip");
+    instrs.extend([
+        abi::load_u64(gp, abi::stack_pointer(), previous_slot),
+        abi::compare_immediate(gp, "0"),
+        abi::branch_eq(&skip),
+    ]);
+    emit_grid_block_free(symbol, gp, &size_regs, instrs, relocations);
+    instrs.push(abi::label(&skip));
+}
+
+/// The scratch registers [`emit_grid_block_free`] sizes a block with.
+struct GridSizeRegs {
+    rows: Reg,
+    cols: Reg,
+    total: Reg,
+    per_cell: Reg,
+}
+
+impl GridSizeRegs {
+    fn next(vregs: &mut Vregs) -> Self {
+        Self {
+            rows: vregs.next().into(),
+            cols: vregs.next().into(),
+            total: vregs.next().into(),
+            per_cell: vregs.next().into(),
+        }
+    }
+}
+
+/// Return the non-null grid block `gp` to the arena, sized from its own header.
+fn emit_grid_block_free(
+    symbol: &str,
+    gp: Reg,
+    regs: &GridSizeRegs,
+    instrs: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let GridSizeRegs {
+        rows: rowsv,
+        cols: colsv,
+        total: t,
+        per_cell: m,
+    } = *regs;
+    instrs.extend([
         abi::load_u64(rowsv, gp, H_ROWS),
         abi::load_u64(colsv, gp, H_COLS),
         abi::multiply_registers(t, rowsv, colsv),
@@ -581,15 +649,6 @@ pub(crate) fn emit_grid_free(
         abi::branch_link(ARENA_FREE_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
-    instrs.extend([
-        abi::move_immediate(zero, "Integer", "0"),
-        abi::store_u64(
-            zero,
-            ARENA_STATE_REGISTER,
-            term_state_offset + TERM_STATE_GRID_OFFSET,
-        ),
-        abi::label(&skip),
-    ]);
 }
 
 /// Grid writer, inlined into the console `io::write` helper's TUI-active branch.
