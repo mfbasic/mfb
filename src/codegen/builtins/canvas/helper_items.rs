@@ -392,6 +392,9 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   LET strokeA AS Integer = toInt(__canvas_geoAt(offset, 15))
   LET edges AS Integer = toInt(__canvas_geoAt(offset, 20))
   LET tail AS Integer = offset + __CANVAS_GEO_HEADER
+  ' plan-163-B: a Miter or Bevel stroke's join records (`helper_joins.rs`); zero for
+  ' every Round stroke, which keeps the band `|d| - half` it always had.
+  LET joinCount AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_JOIN_COUNT))
   ' plan-116-D. Read once per item, not per pixel: it is a per-shape constant like the
   ' arc's sweep vectors below. Only Line and Arc ever write it; every other kind leaves
   ' it at the blank header's zero and never reaches a cap branch.
@@ -630,7 +633,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
 
       IF half > 0.0 THEN
         IF strokeA > 0 THEN
-          MUT band AS Integer = __canvas_coverage((__canvas_absF(dRaw) - half) / dScale)
+          MUT strokeD AS Float = __canvas_absF(dRaw) - half
+          IF joinCount > 0 THEN
+            strokeD = __canvas_joinedStroke(kind, offset, tail, edges, qx, qy, p0, p1, p2, p3, half)
+          END IF
+          MUT band AS Integer = __canvas_coverage(strokeD / dScale)
           IF clipped THEN
             band = (band * clipCov) / 255
           END IF

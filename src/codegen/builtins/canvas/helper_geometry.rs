@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 47-float header carrying the
+//! draws. Generation turns one into the other: a fixed 50-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 47-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 50-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 47 float compares
+//! is worse than a common slow one, and the confirmation costs 50 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,7 +50,11 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 47
+r#"LET __CANVAS_GEO_HEADER AS Integer = 50
+' plan-163-B: the stroke-style slots, appended after every older slot so none of them
+' moved. 47 is the number of join records in the tail (`__canvas_joinBase`); 48 and 49
+' are the dash pattern's float count and offset.
+LET __CANVAS_GEO_JOIN_COUNT AS Integer = 47
 LET __CANVAS_GEO_GRADIENT_COUNT AS Integer = 41
 LET __CANVAS_GEO_GRADIENT_KIND AS Integer = 42
 LET __CANVAS_GEO_GRADIENT_FROMX AS Integer = 43
@@ -201,13 +205,13 @@ END FUNC"#;
 
 /// The fixed header builders, one per kind.
 ///
-/// Every builder writes the same 47 slots, so the rasteriser and the emitters can be
+/// Every builder writes the same 50 slots, so the rasteriser and the emitters can be
 /// written once against the layout instead of per kind. `__canvas_geometryFor` picks the
 /// builder in one `MATCH` that is exhaustive over the frozen `DrawItem` set, so a new
 /// variant fails to compile there rather than silently generating nothing.
 #[rustfmt::skip]
 const GEO_HEADER: &str =
-r#"' bug-686: a copy of one prebuilt all-zero header rather than 47 appends -- one small
+r#"' bug-686: a copy of one prebuilt all-zero header rather than 50 appends -- one small
 ' block copy against ~0.9 us per item, on every geometry build.
 FUNC __canvas_blankHeader() AS List OF Float
   IF len(__CANVAS_GEO_BLANK) <> __CANVAS_GEO_HEADER THEN
@@ -467,7 +471,7 @@ FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerR
   out = collections::set(out, 5, h / 2.0 - radius)
   out = collections::set(out, 6, radius)
   out = __canvas_paintHeader(out, paint)
-  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(paint), 0.0) + 1.0
+  LET pad AS Float = __canvas_strokePad(paint)
   RETURN __canvas_boundsHeader(out, x - pad, y - pad, x + w + pad, y + h + pad)
 END FUNC
 
@@ -668,7 +672,7 @@ FUNC __canvas_polygonHeader(rings AS List OF List OF Point, rule AS FillRule, pa
   IF rule = FillRule.NonZero THEN
     out = collections::set(out, __CANVAS_GEO_POLYGON_RULE, 1.0)
   END IF
-  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(paint), 0.0) + 1.0
+  LET pad AS Float = __canvas_strokePad(paint)
   RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC
 
@@ -763,7 +767,7 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_POLYLINE_LAST, toFloat(last))
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, 0.0)
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, 0.0)
-  LET pad AS Float = __canvas_capReach(half, cap) + 1.0
+  LET pad AS Float = __canvas_maxF(__canvas_capReach(half, cap), __canvas_joinReach(half, p.paint)) + 1.0
   RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC"#;
 
@@ -821,6 +825,19 @@ END FUNC
 ' segment's two points -- so the colour is the gradient mix of those two, in linear
 ' light, exactly as a `Paint.fillGradient` ramp mixes.
 FUNC __canvas_polylineTail(p AS PolyLine) AS List OF Float
+  LET segments AS List OF Float = __canvas_polylineSegments(p)
+  ' plan-163-B: the join records go between the segments and the colour stops, which
+  ' stay last.
+  LET joins AS List OF Float = __canvas_joinTail(segments, [0], FALSE, __canvas_polylineHalf(p), p.paint)
+  RETURN collections::append(collections::append(segments, joins), __canvas_polylineStops(p))
+END FUNC
+
+' The number of join records a polyline's tail holds (`__canvas_polylineTail`).
+FUNC __canvas_polylineJoins(p AS PolyLine) AS List OF Float
+  RETURN __canvas_joinTail(__canvas_polylineSegments(p), [0], FALSE, __canvas_polylineHalf(p), p.paint)
+END FUNC
+
+FUNC __canvas_polylineSegments(p AS PolyLine) AS List OF Float
   LET count AS Integer = len(p.points)
   MUT out AS List OF Float = []
   IF count < 2 THEN
@@ -845,8 +862,14 @@ FUNC __canvas_polylineTail(p AS PolyLine) AS List OF Float
     END IF
     i = i + 1
   END WHILE
+  RETURN out
+END FUNC
+
+FUNC __canvas_polylineStops(p AS PolyLine) AS List OF Float
+  LET count AS Integer = len(p.points)
+  MUT out AS List OF Float = []
   LET given AS Integer = len(p.colors)
-  IF given = 0 THEN
+  IF given = 0 OR count < 2 THEN
     RETURN out
   END IF
   LET segs AS Float = toFloat(count - 1)
@@ -974,6 +997,7 @@ END FUNC
 ' A `Text` names one font, so every triple of its shaped run has font index 0 and `b`
 ' is the file its outlines come from.
 FUNC __canvas_textEdges(t AS Text) AS List OF Float
+  __CANVAS_RING_MARKS = []
   LET font AS Integer = canvas::fontHandle(t.font)
   LET b AS List OF Byte = __canvas_fontBlob(font)
   IF len(b) = 0 THEN
@@ -988,11 +1012,13 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
   MUT edges AS List OF Float = []
   MUT pen AS Float = t.x
   MUT c AS Integer = 0
+  __CANVAS_RING_MARKING = TRUE
   WHILE c * 3 < len(shaped)
     edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * 3 + 1, 0), scale, pen, t.y, edges)
     pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE
+  __CANVAS_RING_MARKING = FALSE
   RETURN edges
 END FUNC
 
@@ -1041,7 +1067,7 @@ FUNC __canvas_textHeader(t AS Text, tail AS List OF Float) AS List OF Float
     maxY = __canvas_maxF(maxY, __canvas_maxF(y0, y1))
     i = i + 5
   END WHILE
-  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(t.paint), 0.0) + 1.0
+  LET pad AS Float = __canvas_strokePad(t.paint)
   RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
 END FUNC"#;
 
@@ -1125,11 +1151,15 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   MUT header AS List OF Float = []
   MATCH item
     CASE Rectangle(r)
-      tail = __canvas_appendGradientTail([], r.paint)
       header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
+      LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
+      tail = __canvas_appendGradientTail(joins, r.paint)
+      header = __canvas_withJoins(header, joins)
     CASE RoundedRect(rr)
-      tail = __canvas_appendGradientTail([], rr.paint)
       header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
+      LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
+      tail = __canvas_appendGradientTail(joins, rr.paint)
+      header = __canvas_withJoins(header, joins)
     CASE Circle(c)
       tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
@@ -1139,34 +1169,43 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       header = __canvas_arcHeader(a)
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
+      LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
       IF len(edges) > 0 THEN
-        tail = __canvas_appendGradientTail(edges, p.paint)
+        tail = __canvas_appendGradientTail(collections::append(edges, joins), p.paint)
       END IF
-      header = __canvas_polygonHeader(p.contours, p.rule, p.paint)
+      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins)
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
+      tail = __canvas_rectJoins(header, pic.paint)
+      header = __canvas_withJoins(header, tail)
     CASE Ellipse(e)
       tail = __canvas_appendGradientTail([], e.paint)
       header = __canvas_ellipseHeader(e)
     CASE Text(t)
       IF __canvas_strokeHalf(t.paint) > 0.0 THEN
-        tail = __canvas_textEdges(t)
+        ' plan-163-B: a stroked run is a polygon of the glyph contours, so it joins
+        ' like one -- each contour a ring (`__CANVAS_RING_MARKS`).
+        LET edges AS List OF Float = __canvas_textEdges(t)
+        LET joins AS List OF Float = __canvas_joinTail(edges, __CANVAS_RING_MARKS, TRUE, __canvas_strokeHalf(t.paint), t.paint)
+        tail = collections::append(edges, joins)
+        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins)
       ELSE
         tail = __canvas_textGlyphRun(t)
+        header = __canvas_textHeader(t, tail)
       END IF
-      header = __canvas_textHeader(t, tail)
     ' plan-116-G: a Group has no geometry of its own -- it names one -- so no tail, and
     ' the empty header, whose NONE kind every renderer skips. It never reaches here from
     ' the walk (a group is expanded, not cached); the arm is what keeps MATCH exhaustive.
     CASE Group(g)
       header = __canvas_emptyHeader()
     ' plan-154-A. The tail only when the header is a real polyline: an empty header
-    ' declares a 47-float record, and a tail appended behind it would be floats the
+    ' declares a 50-float record, and a tail appended behind it would be floats the
     ' record does not own.
     CASE PolyLine(pl)
       header = __canvas_polylineHeader(pl)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
         tail = __canvas_polylineTail(pl)
+        header = __canvas_withJoins(header, __canvas_polylineJoins(pl))
       END IF
   END MATCH
   ' The header is always exactly `__CANVAS_GEO_HEADER` floats -- every builder starts
@@ -1224,7 +1263,7 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
 END FUNC
 
 ' bug-686: every item's hash is folded from its own FIELDS, kind by kind. It used to be
-' a hash of the item's built geometry header -- 47 floats, the transform inverted, the
+' a hash of the item's built geometry header -- 50 floats, the transform inverted, the
 ' bounds computed -- which made `canvas::present` build every item's header on the
 ' worker only to hash it, and was most of the 3-4 us per item a present cost. The
 ' fields determine the header, so hashing them keys the cache exactly as well; what the
@@ -1479,11 +1518,15 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
   MUT header AS List OF Float = []
   MATCH item
     CASE Rectangle(r)
-      tail = __canvas_appendGradientTail([], r.paint)
       header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
+      LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
+      tail = __canvas_appendGradientTail(joins, r.paint)
+      header = __canvas_withJoins(header, joins)
     CASE RoundedRect(rr)
-      tail = __canvas_appendGradientTail([], rr.paint)
       header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
+      LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
+      tail = __canvas_appendGradientTail(joins, rr.paint)
+      header = __canvas_withJoins(header, joins)
     CASE Circle(c)
       tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
@@ -1491,30 +1534,37 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint)
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
+      LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
       IF len(edges) > 0 THEN
-        tail = __canvas_appendGradientTail(edges, p.paint)
+        tail = __canvas_appendGradientTail(collections::append(edges, joins), p.paint)
       END IF
-      header = __canvas_polygonHeader(p.contours, p.rule, p.paint)
+      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins)
     CASE Arc(a)
       header = __canvas_arcHeader(a)
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
+      tail = __canvas_rectJoins(header, pic.paint)
+      header = __canvas_withJoins(header, tail)
     CASE Ellipse(e)
       tail = __canvas_appendGradientTail([], e.paint)
       header = __canvas_ellipseHeader(e)
     CASE Text(t)
       IF __canvas_strokeHalf(t.paint) > 0.0 THEN
-        tail = __canvas_textEdges(t)
+        LET edges AS List OF Float = __canvas_textEdges(t)
+        LET joins AS List OF Float = __canvas_joinTail(edges, __CANVAS_RING_MARKS, TRUE, __canvas_strokeHalf(t.paint), t.paint)
+        tail = collections::append(edges, joins)
+        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins)
       ELSE
         tail = __canvas_geoRunReference(t, offset)
+        header = __canvas_textHeader(t, tail)
       END IF
-      header = __canvas_textHeader(t, tail)
     CASE Group(g)
       header = __canvas_emptyHeader()
     CASE PolyLine(pl)
       header = __canvas_polylineHeader(pl)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
         tail = __canvas_polylineTail(pl)
+        header = __canvas_withJoins(header, __canvas_polylineJoins(pl))
       END IF
   END MATCH
   MUT out AS List OF Float = header

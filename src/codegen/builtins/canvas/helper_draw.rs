@@ -231,6 +231,11 @@ r#"FUNC __canvas_polylineScan(tail AS Integer, edges AS Integer, px AS Float, py
   LET offset AS Integer = tail - __CANVAS_GEO_HEADER
   LET first AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_POLYLINE_FIRST, 0.0))
   LET last AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_POLYLINE_LAST, 0.0))
+  ' plan-163-B: with join records the inner ends are cut butt and the corners are the
+  ' records; the colour parameter still comes from the round walk, so it stays
+  ' continuous round a corner.
+  LET joins AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
+  MUT joined AS Float = 1000000.0
   MUT best AS Float = 1000000.0
   MUT bestParam AS Float = 0.0
   MUT e AS Integer = first
@@ -290,11 +295,27 @@ r#"FUNC __canvas_polylineScan(tail AS Integer, edges AS Integer, px AS Float, py
         best = d
         bestParam = (toFloat(e) + clamped) / toFloat(edges)
       END IF
+      IF joins > 0 THEN
+        MUT dj AS Float = d
+        IF len2 > 0.0 THEN
+          LET inner AS Float = math::sqrt(len2)
+          IF e <> first THEN
+            dj = __canvas_maxF(dj, 0.0 - t * inner)
+          END IF
+          IF e <> last THEN
+            dj = __canvas_maxF(dj, (t - 1.0) * inner)
+          END IF
+        END IF
+        joined = __canvas_minF(joined, dj)
+      END IF
     END IF
     e = e + 1
   END WHILE
   IF wantParam THEN
     RETURN bestParam
+  END IF
+  IF joins > 0 THEN
+    RETURN __canvas_minF(joined, __canvas_joinsDistance(offset, px, py))
   END IF
   RETURN best
 END FUNC"#;

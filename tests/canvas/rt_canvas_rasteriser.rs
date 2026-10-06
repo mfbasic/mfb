@@ -820,6 +820,119 @@ fn a_square_cap_extends_the_stroke_square_past_each_end() {
     assert_eq!(pixel(&frame, 209, 491), black, "the polyline's turn stays round");
 }
 
+/// plan-163-B: `Paint.join` at a corner, in the software renderer — the oracle, so every
+/// expectation is a hand-computed fact about a white 20 px stroke (`half` = 10) over
+/// black, at pixel centres at least half a pixel inside or outside each shape.
+///
+/// * **A 90° polygon corner.** Each square's top-left vertex V has the bands' outer
+///   corners A = V − (10, 0) and B = V − (0, 10):
+///   - `Round` (today's join) is the disc of radius 10 about V: the centre (−6.5, −6.5)
+///     from V is 9.19 away, covered; (−8.5, −8.5) is 12.02 away, not;
+///   - `Miter` adds the square V, A, (V − (10, 10)), B: (−8.5, −8.5) and (−9.5, −9.5)
+///     are inside it, (−10.5, −10.5) is not;
+///   - `Bevel` adds the triangle V, A, B, the half-plane `x + y ≥ −10` from V:
+///     (−4.5, −4.5) is inside by 0.71, (−5.5, −5.5) outside by 0.71 and (−6.5, −6.5)
+///     outside by 2.12 — where the round join covers.
+/// * **A 20° spike.** The apex V = (x, 300) of a triangle whose sides leave V at ±10°
+///   from straight down: a miter would reach `10 / sin(10°) = 57.6` px above V, a ratio
+///   of 5.76. Under `miterLimit := 4.0` that bevels — (x, 290) is 7.8 px above the
+///   bevel's top edge, empty — and under `10.0` it miters — (x, 290) is inside the
+///   spike, where it is 8.5 px wide each side, and so is (x, 250).
+/// * **A PolyLine's interior corner** (100, 500) → (200, 500) → (200, 600), Butt ends:
+///   V = (200, 500), A = (200, 490), B = (210, 500): the round join covers the centre
+///   (206.5, 494.5) (8.5 from V) but not (209.5, 491.5) (12.75 from V); the bevel
+///   covers (204.5, 496.5) and not (206.5, 494.5); the miter covers (209.5, 491.5). The
+///   path's two ends are Butt and take no join: (99, 500) is empty under every join.
+/// * **Rectangles**: a mitered one's corner is square — its top-left (−8.5, −8.5) is
+///   covered — and a beveled one's is cut, as the polygon's.
+#[test]
+fn a_join_shapes_every_corner_of_a_stroke() {
+    let corners = |x: f64, y: f64| -> String {
+        format!(
+            "[[canvas::Point[x := {x:?}, y := {y:?}], canvas::Point[x := {:?}, y := {y:?}], \
+             canvas::Point[x := {:?}, y := {:?}], canvas::Point[x := {x:?}, y := {:?}]]]",
+            x + 120.0,
+            x + 120.0,
+            y + 120.0,
+            y + 120.0
+        )
+    };
+    let spike = |x: f64| -> String {
+        format!(
+            "[[canvas::Point[x := {x:?}, y := 300.0], canvas::Point[x := {:?}, y := 447.72116], \
+             canvas::Point[x := {:?}, y := 447.72116]]]",
+            x + 26.04723,
+            x - 26.04723
+        )
+    };
+    let bend = |x: f64| -> String {
+        format!(
+            "[canvas::Point[x := {:?}, y := 500.0], canvas::Point[x := {:?}, y := 500.0], \
+             canvas::Point[x := {:?}, y := 600.0]]",
+            x,
+            x + 100.0,
+            x + 100.0
+        )
+    };
+    let body = format!(
+        "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 20.0)\n  \
+         LET miter AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Miter }}\n  \
+         LET bevel AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Bevel }}\n  \
+         LET r1 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
+         LET r2 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter]\n  \
+         LET r3 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := bevel]\n  \
+         LET s4 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter]\n  \
+         LET s10 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := WITH miter {{ miterLimit := 10.0 }}]\n  \
+         LET b1 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := ink]\n  \
+         LET b2 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := miter]\n  \
+         LET b3 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := bevel]\n  \
+         LET q1 AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 100.0, w := 120.0, h := 120.0, paint := miter]\n  \
+         LET q2 AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 300.0, w := 120.0, h := 120.0, paint := bevel]\n  \
+         canvas::present([r1, r2, r3, s4, s10, b1, b2, b3, q1, q2])\n",
+        corners(100.0, 100.0),
+        corners(300.0, 100.0),
+        corners(500.0, 100.0),
+        spike(400.0),
+        spike(600.0),
+        bend(50.0),
+        bend(300.0),
+        bend(550.0),
+    );
+    let (frame, _) = render("canvas_joins", &scene(&body));
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    // Round, V = (100, 100).
+    assert_eq!(pixel(&frame, 93, 93), white, "a round join covers 9.19 from its vertex");
+    assert_eq!(pixel(&frame, 91, 91), black, "but not 12.02");
+    // Miter, V = (300, 100).
+    assert_eq!(pixel(&frame, 291, 91), white, "a miter fills the square corner");
+    assert_eq!(pixel(&frame, 290, 90), white, "to its point");
+    assert_eq!(pixel(&frame, 289, 89), black, "and no further");
+    // Bevel, V = (500, 100).
+    assert_eq!(pixel(&frame, 495, 95), white, "a bevel covers inside its cut");
+    assert_eq!(pixel(&frame, 494, 94), black, "and stops at it");
+    assert_eq!(pixel(&frame, 493, 93), black, "where a round join would cover");
+    // The 20° spike: limit 4 bevels, limit 10 miters.
+    assert_eq!(pixel(&frame, 400, 290), black, "miterLimit 4 bevels a 20° spike");
+    assert_eq!(pixel(&frame, 400, 250), black, "so nothing reaches up the spike");
+    assert_eq!(pixel(&frame, 600, 290), white, "miterLimit 10 miters it");
+    assert_eq!(pixel(&frame, 600, 250), white, "up to its point");
+    // PolyLine corners, V = (x + 100, 500) for x = 50, 300, 550.
+    assert_eq!(pixel(&frame, 156, 494), white, "a round polyline turn");
+    assert_eq!(pixel(&frame, 159, 491), black, "is round");
+    assert_eq!(pixel(&frame, 409, 491), white, "a mitered polyline turn is square");
+    assert_eq!(pixel(&frame, 654, 496), white, "a beveled polyline turn covers inside its cut");
+    assert_eq!(pixel(&frame, 656, 494), black, "and not past it");
+    for x in [49usize, 299, 549] {
+        assert_eq!(pixel(&frame, x, 500), black, "a Butt end at x = {x} takes no join");
+    }
+    // Rectangles.
+    assert_eq!(pixel(&frame, 691, 91), white, "a mitered rectangle's corner is square");
+    assert_eq!(pixel(&frame, 689, 89), black, "and ends at its point");
+    assert_eq!(pixel(&frame, 695, 295), white, "a beveled rectangle covers inside its cut");
+    assert_eq!(pixel(&frame, 693, 293), black, "and not past it");
+}
+
 /// A clip cuts a circle in half, leaving the other half untouched.
 ///
 /// The circle is the right shape to clip with, because a clip that were secretly

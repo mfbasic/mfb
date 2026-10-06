@@ -530,16 +530,31 @@ Acceptance: Square caps draw per SVG, and Butt/Round pixels are unchanged.
   squarecaps,linesblack,arcsblack,polylinesblack,strokedblack,matrix` → all ok
   (squarecaps worst=1 1.1936%; the four regression rows worst=1); box 206 `--target
   windows-x86_64 --rows squarecaps,polylinesblack` → ok (worst=1 1.1318%, 1.0231%).
-Commit: —
+Commit: 854746e15
 
 ### Phase 3 — Joins in software (the oracle)
 
-- [ ] Join tail in both builders per §6, emitted only when `join ≠ Round` and the
+- [x] **Added (Corrections 3): the geometry header grows 47 → 50 here**, not in Phase 4:
+      the join tail needs `JOIN_COUNT` (slot 47) now. `__CANVAS_GEO_HEADER`,
+      `GEO_HEADER` and `HEADER_SLOTS` → 50, slot 47 `__CANVAS_GEO_JOIN_COUNT` pinned
+      against the native `SLOT_JOIN_COUNT`; slots 48–49 (dashes) are named in Phase 5.
+      (`grep -rn "\b47\b"` over the canvas sources found only the three constants and
+      comments, which now say 50.)
+- [x] Join tail in both builders per §6, emitted only when `join ≠ Round` and the
       stroke is live. `emit_paint_supported` accepts `join ≠ Round` once the native
-      builder emits it.
-- [ ] Software stroke distance per §6 in `helper_items.rs`/`helper_draw.rs`. Items
-      without a join tail take the exact current path.
-- [ ] Tests (hand-computed, `rt_canvas_rasteriser.rs`):
+      builder emits it. (`helper_joins.rs`: `__canvas_joinTail` / `__canvas_joinRecord`
+      for polygons (rings from `__canvas_ringStarts`), rectangles and pictures with no
+      corner radius (`__canvas_rectJoins`), polylines (open path) and stroked text (its
+      contours, recorded by `__canvas_textEdges` in `__CANVAS_RING_MARKS`); the bounds
+      pad grows to the miter reach (`__canvas_strokePad`, `__canvas_joinReach`). Native
+      twins in `func_geo_build.rs` (rect, polygon, polyline, and the record-size pass);
+      `emit_paint_supported` now declines only dashes. Corrections 4 for the record
+      format.)
+- [x] Software stroke distance per §6 in `helper_items.rs`/`helper_draw.rs`. Items
+      without a join tail take the exact current path. (`__canvas_joinedStroke` when
+      slot 47 > 0; the polyline scan cuts inner segment ends butt and takes the min
+      with `__canvas_joinsDistance`, keeping its colour parameter from the round walk.)
+- [x] Tests (hand-computed, `rt_canvas_rasteriser.rs`):
       - a 90° Polygon corner under Miter is a sharp square outer corner, under Bevel a
         45° cut, and under Round unchanged;
       - a 20° spike with `miterLimit := 4.0` bevels (because `1/sin(10°) ≈ 5.76 > 4`),
@@ -549,6 +564,10 @@ Commit: —
       - a Rectangle under Miter has sharp outer corners;
       - `MFB_CANVAS_GEO_VERIFY=1` under `--debug` reports no builder mismatch on a
         mitered polygon.
+      (`a_join_shapes_every_corner_of_a_stroke` → ok, every bullet above in one scene;
+      the GEO_VERIFY matrix gained Miter (limit 4, 25.5, 0.5), Bevel and a
+      non-stroking Miter paint crossed with every native shape → `geoVerifyMismatches=0`
+      with every item built natively.)
 
 Acceptance: joins draw per SVG in software, and Round is byte-identical.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
@@ -687,6 +706,22 @@ Commit: —
    Vulkan row and SPIR-V regeneration runs on 2226 (Debian aarch64 lavapipe), and the
    Vulkan commands are `scripts/test-canvas-gpu-rows.sh <mfb> --rows <row>` over a
    shared scene file, not `scripts/test-canvas-vulkan.sh <scene>`.
+3. **The header growth moved from Phase 4 to Phase 3.** §6 puts the join count in a new
+   header slot, and §7 grew the header only in Phase 4 — after the software joins that
+   need it. The geometry header (47 → 50) lands with Phase 3; the item block (272 → 288)
+   stays in Phase 4, which is the first phase that needs a GPU word.
+4. **Every corner has a record.** §6 has a join emit no record when there is no wedge.
+   The native builder sizes a record before it builds it ("allocates nothing and calls
+   nothing"), and whether two edges are parallel is a sqrt-and-divide computation the
+   size pass would have to repeat bit for bit. So a corner between two live edges always
+   gets a 9-float record, with `n = 0` (nine zeros) where `cross = 0`; the count is the
+   live-edge count (closed ring: that count when ≥ 2; open path: one fewer), which the
+   size pass already computes. A 0-point record draws nothing in every renderer.
+5. **Stroked text's rings.** A stroked run's edge tail is every glyph contour
+   concatenated, with no ring boundary in it. `__canvas_textEdges` now records each
+   contour's first edge in `__CANVAS_RING_MARKS` (graphics-thread state, set only while
+   it walks, so the glyph-bitmap walks that share the contour readers never grow it),
+   and the Text arm builds the joins from it.
 
 ## Summary
 

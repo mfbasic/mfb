@@ -30,6 +30,15 @@ FUNC paints() AS List OF canvas::Paint
   out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { stroke := color::rgb(4, 5, 6), strokeWidth := 2.0, fillGradient := ramp })
   out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { fillGradient := flat, blend := canvas::BlendMode.Add })
   out = collections::append(out, WITH canvas::stroke(color::rgb(4, 5, 6), 3.0) { transform := negZero })
+  ' plan-163-B. Join records, built natively: Miter at the default limit (sharp corners
+  ' bevel), Miter at a high one and below 1.0 (every corner bevels), and Bevel, each on a
+  ' fill-and-stroke, plus a Miter paint whose stroke draws nothing (no tail at all).
+  LET inked AS canvas::Paint = canvas::fillStroke(color::rgba(10, 20, 30, 200), color::rgba(200, 100, 50, 255), 2.75)
+  out = collections::append(out, WITH inked { join := canvas::JoinStyle.Miter })
+  out = collections::append(out, WITH inked { join := canvas::JoinStyle.Miter, miterLimit := 25.5 })
+  out = collections::append(out, WITH inked { join := canvas::JoinStyle.Miter, miterLimit := 0.5 })
+  out = collections::append(out, WITH inked { join := canvas::JoinStyle.Bevel })
+  out = collections::append(out, WITH inked { join := canvas::JoinStyle.Miter, strokeWidth := 0.0 })
   RETURN out
 END FUNC
 

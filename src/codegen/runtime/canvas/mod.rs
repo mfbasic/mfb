@@ -994,7 +994,7 @@ pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 /// subtracts and a round, the only float operations every assembler has.
 pub(crate) const EDGE_RESIDUAL_SCALE: &str = "2147483648";
 
-/// Slots of `__canvas_headerFor`'s fixed 47-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 50-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -1092,7 +1092,7 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 47;
+pub(crate) const HEADER_SLOTS: usize = 50;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one **frame** may carry on the Vulkan path.

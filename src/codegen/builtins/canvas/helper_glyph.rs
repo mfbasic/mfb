@@ -147,6 +147,12 @@ END FUNC"#;
 #[rustfmt::skip]
 const GLYPH_EDGES: &str =
 r#"LET __CANVAS_GLYPH_STEPS AS Integer = 6
+' plan-163-B: while `__canvas_textEdges` walks a run, the edge index each contour starts
+' at, so a stroked run's joins know where one contour's ring ends and the next begins.
+' Recorded only while it is set, so the glyph-bitmap walks, which share the contour
+' readers, never grow the list.
+MUT __CANVAS_RING_MARKING AS Boolean = FALSE
+MUT __CANVAS_RING_MARKS AS List OF Integer = []
 
 FUNC __canvas_glyphEdges(b AS List OF Byte, gid AS Integer, scale AS Float, penX AS Float, penY AS Float, edges AS List OF Float) AS List OF Float
   MUT out AS List OF Float = edges
@@ -339,6 +345,9 @@ FUNC __canvas_contourEdgesMapped(flags AS List OF Integer, px AS List OF Float, 
   IF count < 2 THEN
     RETURN out
   END IF
+  IF __CANVAS_RING_MARKING THEN
+    __CANVAS_RING_MARKS = collections::append(__CANVAS_RING_MARKS, len(out) / 5)
+  END IF
   MUT startIndex AS Integer = 0 - 1
   MUT i AS Integer = 0
   WHILE i < count
@@ -423,6 +432,9 @@ FUNC __canvas_contourEdges(flags AS List OF Integer, xs AS List OF Integer, ys A
   LET count AS Integer = last - from + 1
   IF count < 2 THEN
     RETURN out
+  END IF
+  IF __CANVAS_RING_MARKING THEN
+    __CANVAS_RING_MARKS = collections::append(__CANVAS_RING_MARKS, len(out) / 5)
   END IF
   MUT startIndex AS Integer = 0 - 1
   MUT i AS Integer = 0
