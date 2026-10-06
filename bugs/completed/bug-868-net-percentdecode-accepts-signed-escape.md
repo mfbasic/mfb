@@ -5,8 +5,25 @@ Effort: small (<1h)
 Severity: LOW
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-error/net (add `%+5` / `%+A` percentDecode cases)
+Status: Resolved (2026-10-05)
+Regression Test: tests/rt-behavior/net/func_net_percentDecode_valid, func_net_parseQuery_valid (extended)
+
+## Resolution
+
+Fixed in `__net_percentDecodeImpl` (`helper_percent_decode_impl.rs`): both
+characters after a `%` are now validated as hex digits (new
+`__net_isHexDigitChar` helper) before `toInt(.., 16)` parses them, matching
+`encoding::percentDecode`'s existing `__encoding_hexValue`-based validation.
+`net::parseQuery`'s `__net_decodeQueryComponent` already traps any `FAIL`
+from this helper and falls back to the raw text, so it needed no change —
+once the signed escape fails, it is automatically kept raw.
+
+RED: `bug-868 RED: pin the signed percent-escape rejection` (commit
+`67429ec57`) — `percentDecode("%+5")` did not raise, and
+`parseQuery("k=%+5")` decoded to byte `0x05` instead of keeping `"%+5"` raw.
+GREEN: `bug-868: reject a signed percent-escape in net::percentDecode`
+(commit `ba8744b5a`).
+
 
 `net::percentDecode` parses the two characters after `%` with `toInt(text, 16)`, which
 accepts a leading `+`. So `"%+5"` decodes to byte 0x05 and `"%+A"` to 0x0A (line feed)
