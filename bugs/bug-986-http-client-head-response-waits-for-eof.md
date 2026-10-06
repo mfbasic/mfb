@@ -5,7 +5,7 @@ Effort: small (<1h) once the owner decides the API question below
 Severity: LOW
 Class: Correctness
 
-Status: Open (needs an owner decision)
+Status: Open
 Regression Test: (proposed) a HEAD case in `tests/net/rt_http_close_delimited_body.rs`: the peer answers `200` with `Content-Length: 5` and no body, then holds the socket 6 s; the read must finish well under the hold time
 
 `http::read(url, headers, "HEAD")` (and a `startRead` stream driven to `done` with method
@@ -26,7 +26,13 @@ completion is late. Against a server that keeps the connection open, the client 
 `sentAll`/`closed`/`raw`/`err`, and `__http_startExchange` drops the `method` argument once
 the request is built.
 
-**Owner decision needed:** fixing this means recording the method (or a "bodyless" flag) on
+**Owner decision (2026-10-06): add a `method` field to the exported `http::PendingState`.**
+`__http_startExchange` records the request's (normalized) method on the stream, and
+`__http_frameComplete` treats a response to `HEAD` as complete at the end of its head, alongside the
+1xx/204/304 arm (bug-858). The new field is public API: document it in the `http::PendingState`
+descriptor and man page, and update the spec (stdlib http) in the same change.
+
+Background (the question as filed): fixing this means recording the method (or a "bodyless" flag) on
 the stream. Either add a field to the exported `http::PendingState` record, which is
 user-visible API, or keep the flag somewhere that isn't exported. bs16-agent-d stopped here
 because it is an API surface change beyond bug-858's doc.

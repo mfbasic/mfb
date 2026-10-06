@@ -203,3 +203,7 @@ identical before and after. One fixture was checked
 (`syntax/project/project-entry-nothing-main`, linux-x86_64 `.ncode`, branch base vs fix): the
 diff is exactly the `fcntl`/`open`/`abort` block, its relocations, the imports and the data
 object.
+
+**Owner decision (2026-10-06):** keep `abort()` (exit 134) when a closed fd 0/1/2 cannot be
+filled because `/dev/null` itself fails to open at startup. The program fails closed rather than
+running with a reusable standard fd number.
