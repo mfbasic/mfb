@@ -156,3 +156,12 @@ arm) and `mfb spec language control-flow` (a worker's `EXIT PROGRAM`). Man:
 sequence, so the native-code goldens of every fixture that starts a thread
 (`tests/rt-behavior/threads/**`, thread-using byte-identity covers) are expected
 to change. No AST/IR/run-output golden changes.
+
+### Measured
+
+Measured with `scripts/artifact-gate.sh <mfb> all` (all five bs16-agent-a fixes built in; 59 diffs in total, attributed per function by comparing base and fixed `--ncode` for macos-aarch64): `_mfb_rt_thread_finish` is the only changed function in
+`tests/byte-identity/thread/thread_codegen_cover_rt` and
+`tests/byte-identity/resource-xfer-slots/resource_xfer_slots_cover_rt` (`.ncodesum`,
+all five targets); bug-897 and bug-898 both change that helper, so both explain
+those ten diffs. `scripts/test-accept.sh` on the thread fixtures
+(`thread*`, `func_thread*`, `bug69*`, `bug630*`, `bug221*`) passes.
