@@ -42,6 +42,8 @@ struct ItemBlock {
     // plan-163-B: join records' first edge slot and count, dash pattern's first entry
     // and count. The vertex stage reads none of them either.
     ivec4 strokeStyle; // 272
+    ivec4 clipBand;    // 288, plan-163-C
+    ivec4 clipPath;    // 304
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {

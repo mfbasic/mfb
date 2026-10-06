@@ -866,7 +866,11 @@ FUNC main() AS Nothing
   LET inner AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 40.0, h := 40.0, image := grouped, paint := white]
   canvas::setGroup("pics", [inner])
   LET node AS canvas::DrawItem = canvas::Group[name := "pics", dx := 600.0, dy := 120.0]
-  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node])
+  ' plan-163-C: the tint's strength is the fill's alpha, the opacity is transparency.
+  LET untinted AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }]
+  LET halfRed AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgba(255, 0, 0, 128))]
+  LET faded AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { transparency := 0.6 }]
+  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node, untinted, halfRed, faded])
 END FUNC
 "#;
 
@@ -1242,6 +1246,20 @@ fn joins_match_the_software_oracle_on_metal() {
         "canvas_metal_joins",
         JOINS,
         "the mitered and beveled polygons, polylines and rectangles over black",
+    );
+}
+
+/// plan-163-C: path clips -- a triangle, a ring with a hole under each rule, rotated,
+/// sheared and grouped items clipped in their own coordinates, a rectangle clip by either
+/// path, and a dashed stroke clipped by a triangle.
+const PATH_CLIPS: &str = include_str!("scenes/path_clips_on_black.mfb");
+
+#[test]
+fn path_clips_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_path_clips",
+        PATH_CLIPS,
+        "the path-clipped shapes over black",
     );
 }
 

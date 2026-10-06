@@ -536,21 +536,41 @@ Phase 1.
   `the_gpu_draws_the_group_scene_the_reference_shows` fails because the GPUs still
   evaluate the clip at the surface point, which Phase 3 changes (the software golden
   tests pass); no golden file modified since Phase 1.
-Commit: —
+Commit: 283177028
 
 ### Phase 3 — Item block growth, and the path clip and tint on the GPU (largest blast radius)
 
-- [ ] Item block 288 → 320 per §7, with every guard test passing.
-- [ ] Emitters (`metal.rs`, `vulkan.rs`):
+- [x] Item block 288 → 320 per §7, with every guard test passing.
+      (`ITEM_BLOCK_SIZE` 320, `ITEM_OFFSET_CLIP_BAND` 288, `ITEM_OFFSET_CLIP_PATH` 304, both
+      shader structs and `mfb_canvas.vert`; `cargo test --bin mfb --
+      the_draw_frame_slots_do_not_overlap the_metal_shader_region_bases_match_the_buffer_layout
+      the_pipeline_specializes_every_region_base the_shared_buffer_holds_every_region
+      vulkan spirv` → 11 passed.)
+- [x] Emitters (`metal.rs`, `vulkan.rs`):
       - clip edges into the edge region, and a clip band index via a parameterised
         `emit_band_index`;
       - `clipBand`/`clipPath` words and picture `T`;
       - the frame-sum predicate in `helper_render.rs` counts clip edges.
-- [ ] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line): `clipCoverage`
+      (`emit_clip_buffer` / `emit_clip_upload` after the dash copy; `emit_band_index`
+      takes a `BandSet` — `ITEM_BANDS` or `CLIP_BANDS` — whose clip reach drops the
+      stroke, cap and join terms and keeps the guard and `2F`. Proof the clip bands are
+      read: with Metal's `clipBandAt` forced to an empty band, `cargo test --test
+      rt_canvas_metal path_clips` fails, 25970 of 576000 pixels differing; restored, it
+      passes. `RENDER_CAPS` counts clip edges against the edge cap.)
+- [x] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line): `clipCoverage`
       on the shape-space point per §5, and the picture tint per §6. Regenerate both
-      `.spv` on box 2228.
-- [ ] Tests: the Phase 1 picture and group-clip scenes and the Phase 2 premise scenes as
-      `rt_canvas_metal.rs` rows.
+      `.spv` on box 2228. (`shapeCoverage` returns the clip in `.w` from samples 5–9 at
+      the shape-space point, divided by the clip's own gradient; `clipBandAt`;
+      `clipRect`; the tint and `T` in the picture path. `.spv` regenerated on 2226 —
+      Corrections 6: vert 5776, frag 240848 bytes.)
+- [x] Tests: the Phase 1 picture and group-clip scenes and the Phase 2 premise scenes as
+      `rt_canvas_metal.rs` rows. (`path_clips_match_the_software_oracle_on_metal` over
+      `scenes/path_clips_on_black.mfb` — triangle, hole under both rules, rotated,
+      sheared, grouped, a rectangle clip through either path, a dashed stroke clipped,
+      and a 40-edge star clip plain and rotated, past the 32-edge band threshold; the
+      picture row gains an untinted, a half-red and a faded picture; the group scene's
+      golden row; Vulkan row `pathclips` in `scripts/test-canvas-gpu-rows.sh`, and the
+      tint and fade in `scripts/test-canvas-vulkan.sh`'s scene.)
 
 Acceptance: both GPUs match the software renderer within tolerance, and the layout
 guards pass.
@@ -561,6 +581,14 @@ guards pass.
   Vulkan lane, `.ai/remote_systems.md:112–137`);
   `scripts/test-canvas-gpu-rows.sh <path-clip scene> --target windows-x86_64` on box 206
   (the only real GPU) → within tolerance (est. 10 min, guess).
+  Result: `cargo test --bin mfb canvas` → 110 passed; `cargo test --test rt_canvas_metal
+  --test rt_canvas_golden` → 44 and 22 passed (`gpuFrames≠0` asserted per row);
+  `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64 --rows
+  pathclips,xformblack,groupsblack,dashes,joins,matrix` on 2226 → passed (pathclips
+  worst=1, 0.4217%); the same rows bar `joins` with `--target windows-x86_64` on 206 →
+  passed (pathclips worst=1, 0.3497%); `scripts/test-canvas-vulkan.sh target/release/mfb
+  --box 2226 --target linux-aarch64` (its scene now holds the tinted and faded pictures)
+  → passed, main scene worst=2, 0.8160%. Box 2228 refused connections — Corrections 6.
 Commit: —
 
 ### Phase 4 — Docs and spec
@@ -645,6 +673,11 @@ Commit: —
    not count; the full suite runs again with nothing built alongside it. The same run
    found `collections::take`/`drop` unresolvable from a builtin helper; the clip-edge
    splice uses loops.
+6. **Box 2228 is down; 2226 stands in for the Linux Vulkan lane.** `ssh -p 2228
+   test@127.0.0.1 true` → `Connection refused` (re-measured at Phase 3). The `.spv` were
+   regenerated with `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` (glslang there, same
+   script), and the Linux Vulkan checks ran on 2226 (`--target linux-aarch64`), as plan-163-B
+   did; Windows 206 ran the same rows on its real GPU.
 
 ## Summary
 

@@ -40,6 +40,11 @@ struct ItemBlock {
     // plan-163-B: the stroke's join records -- first edge slot, record count -- then
     // its dash pattern's first entry and entry count.
     ivec4 strokeStyle;
+    // plan-163-C: a path clip's band header (`arcCaps`'s shape, for the clip's edges),
+    // then its first edge, its edge count, its mode | rule << 2, and a picture's
+    // transparency step T.
+    ivec4 clipBand;
+    ivec4 clipPath;
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -615,6 +620,17 @@ ivec2 polygonBand(float y) {
     float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));
     int band = int(clamp(k, 0.0, float(nb - 1)));
     int t = BAND_BASE + item.arcCaps.w;
+    return ivec2(t + nb * 2 + edges.values[t + band * 2], edges.values[t + band * 2 + 1]);
+}
+
+// plan-163-C: a path clip's band, the clip's twin of `polygonBand`: its band header in
+// `clipBand`, or every clip edge (band count 0). Metal's, line for line.
+ivec2 clipBandAt(float y) {
+    int nb = item.clipBand.z;
+    if (nb <= 0) { return ivec2(-1, item.clipPath.y); }
+    float k = floor((y - fx(item.clipBand.x)) / fx(item.clipBand.y));
+    int band = int(clamp(k, 0.0, float(nb - 1)));
+    int t = BAND_BASE + item.clipBand.w;
     return ivec2(t + nb * 2 + edges.values[t + band * 2], edges.values[t + band * 2 + 1]);
 }
 
@@ -1370,13 +1386,18 @@ vec2 dashedStroke(ivec2 band, vec2 x, vec2 y, float halfW) {
 // bug-735: one sample's distance at the double-float shape-space point, for every kind a
 // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
 // then `dfShapeDistance`. One call site each.
-vec2 sampleDistance(ivec2 band, vec2 x, vec2 y, float reach) {
+vec2 sampleDistance(ivec2 band, vec2 x, vec2 y, float reach, bool clip) {
     int kind = item.misc.x;
+    // plan-163-C: a path clip's edges under its own rule, through the polygon's walk -- one
+    // `edgeDistance` call site, for lavapipe's compile time.
+    if (clip || kind == 4) {
+        return edgeDistance(clip ? item.clipPath.x : item.arc.z, band.y, band.x, x, y, reach,
+                            clip ? (item.clipPath.z >> 2) : item.arc.y);
+    }
     // plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke.
     if (item.strokeStyle.w > 0 && (kind == 2 || kind == 3 || kind == 10)) {
         return dashedStroke(band, x, y, dfF(dfFixed(item.misc.y, item.miscLo.x)));
     }
-    if (kind == 4) { return edgeDistance(item.arc.z, band.y, band.x, x, y, reach, item.arc.y); }
     if (kind == 10) { return polylineDistance(band, x, y, reach); }
     float v = farBound(vec2(x.x, y.x));
     if (abs(v) > reach) { return vec2(v, 0.0); }
@@ -1430,7 +1451,17 @@ ivec4 pictureColour(vec2 q) {
     int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);
     int word = edges.values[GLYPH_BASE + item.arc.z + v * iw + u];
     ivec4 tex = ivec4(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255);
-    return (tex * item.fill) / 255;
+    // plan-163-C: towards `texel * fill / 255` by `fill.a / 255`, rounded half away from
+    // zero, and the alpha faded by the transparency step (`__canvas_tintChannel`).
+    ivec4 tint = (tex * item.fill) / 255;
+    int a = item.fill.w;
+    ivec4 outc = tex;
+    for (int c = 0; c < 3; ++c) {
+        int dc = (tint[c] - tex[c]) * a;
+        outc[c] = tex[c] + (dc >= 0 ? (dc + 127) / 255 : -((127 - dc) / 255));
+    }
+    outc.w = (tex.w * (255 - item.clipPath.w) + 127) / 255;
+    return outc;
 }
 
 float srgbToLinear(float c) {
@@ -1556,22 +1587,20 @@ vec4 covered(ivec4 rgba, int coverage) {
                 srgbToLinear(float(rgba.z)) * a, a);
 }
 
-// The clip's own antialiased coverage at this pixel, 0..255 (plan-116-B).
-//
-// The same rectangle distance and the same `clamp(0.5 - d, 0, 1)` quantization the shape
-// edges use, so a fractional clip edge is antialiased identically to a shape edge — which
-// is what lets the oracle and this shader agree on it rather than merely come close.
-// `__canvas_clipCoverage` in `helper_items.rs` is the same three lines.
-//
-// An empty rectangle means unclipped and returns 255, matching `__canvas_hasClip`:
-// testing both extents also rejects a negative one, which `Bounds` cannot forbid.
+// The clip rectangle's own antialiased coverage, 0..255 (plan-116-B): the same rectangle
+// distance and the same `clamp(0.5 - d, 0, 1)` quantization the shape edges use, so a
+// fractional clip edge is antialiased identically to a shape edge. plan-163-C: at the
+// SHAPE-space point (`x`, `y`, the group offset taken off), because the clip is in the
+// item's own coordinates, and only for a mode-1 clip, whose zero-area rectangle encloses
+// nothing and hides the item. `__canvas_clipCoverage` is the same lines.
 //
 // bug-735: in double-float, from the clip's words plus residuals, wherever the fp32
 // rectangle distance (with `edgeSlack`'s bound) cannot say the pixel is wholly in or out.
-// Metal's `clipCoverage`, line for line.
-int clipCoverage(vec2 p) {
+// Metal's `clipRect`, line for line.
+int clipRect(vec2 x, vec2 y) {
     if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)
-        || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return 255; }
+        || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return 0; }
+    vec2 p = vec2(x.x, y.x);
     vec2 lo = vec2(fx(item.clip.x), fx(item.clip.y));
     vec2 hi = vec2(fx(item.clip.z), fx(item.clip.w));
     float d = rectDistance(p, (lo + hi) * 0.5, (hi - lo) * 0.5);
@@ -1582,8 +1611,8 @@ int clipCoverage(vec2 p) {
     vec2 y0 = dfFixed(item.clip.y, item.clipLo.y);
     vec2 x1 = dfFixed(item.clip.z, item.clipLo.z);
     vec2 y1 = dfFixed(item.clip.w, item.clipLo.w);
-    vec2 dx = dfSub(vec2(p.x, 0.0), dfMulF(dfAdd(x0, x1), 0.5));
-    vec2 dy = dfSub(vec2(p.y, 0.0), dfMulF(dfAdd(y0, y1), 0.5));
+    vec2 dx = dfSub(x, dfMulF(dfAdd(x0, x1), 0.5));
+    vec2 dy = dfSub(y, dfMulF(dfAdd(y0, y1), 0.5));
     return dfCoverage(dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5)));
 }
 
@@ -1607,7 +1636,7 @@ vec2 dfMapY(vec2 x, vec2 y) {
 // Frobenius norm, which bounds the gradient) decides the coverage by its sign and the four
 // neighbours are skipped; never for an arc, whose distance jumps. Metal's `shapeCoverage`,
 // line for line, where the bound is argued.
-ivec3 shapeCoverage(vec2 x, vec2 y) {
+ivec4 shapeCoverage(vec2 x, vec2 y) {
     bool mapped = hasTransform();
     ivec2 band = polygonBand(mapped ? dfMapY(x, y).x : y.x);
     vec2 half2 = dfFixed(item.misc.z, item.miscLo.y);
@@ -1626,16 +1655,26 @@ ivec3 shapeCoverage(vec2 x, vec2 y) {
     bool dashed = item.strokeStyle.w > 0;
     bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10;
     float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;
-    vec2 d[5];
+    // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
+    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
+    // one loop keeps one `sampleDistance` call site. Metal's, line for line.
+    int clipMode = item.clipPath.z & 3;
+    bool clipMapped = hasTransform();
+    ivec2 cband = clipMode == 2 ? clipBandAt(clipMapped ? dfMapY(x, y).x : y.x) : ivec2(-1, 0);
+    vec2 d[10];
     vec2 cqx = x;
     vec2 cqy = y;
-    for (int k = 0; k < (mapped ? 5 : 1); ++k) {
-        vec2 sx = dfAdd(x, vec2(k == 1 ? 0.5 : (k == 2 ? -0.5 : 0.0), 0.0));
-        vec2 sy = dfAdd(y, vec2(k == 3 ? 0.5 : (k == 4 ? -0.5 : 0.0), 0.0));
-        vec2 qx = mapped ? dfMapX(sx, sy) : sx;
-        vec2 qy = mapped ? dfMapY(sx, sy) : sy;
+    for (int k = 0; k < 10; ++k) {
+        bool clipK = k >= 5;
+        int j = clipK ? k - 5 : k;
+        if (clipK ? (clipMode != 2 || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }
+        bool mapK = clipK ? clipMapped : mapped;
+        vec2 sx = dfAdd(x, vec2(j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0), 0.0));
+        vec2 sy = dfAdd(y, vec2(j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0), 0.0));
+        vec2 qx = mapK ? dfMapX(sx, sy) : sx;
+        vec2 qy = mapK ? dfMapY(sx, sy) : sy;
         if (k == 0) { cqx = qx; cqy = qy; }
-        d[k] = sampleDistance(band, qx, qy, k == 0 ? reach : 1.0e30);
+        d[k] = sampleDistance(clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);
         if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }
     }
     vec2 dRaw = d[0];
@@ -1653,7 +1692,17 @@ ivec3 shapeCoverage(vec2 x, vec2 y) {
             : (joined ? joinedStroke(band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2));
         stroke = dfCoverage(mapped ? dfDiv(s, g) : s);
     }
-    return ivec3(fill, stroke, stroked ? 1 : 0);
+    int clipCov = 255;
+    if (clipMode == 1) { clipCov = clipRect(x, y); }
+    if (clipMode == 2) {
+        vec2 cg = vec2(1.0, 0.0);
+        if (clipMapped) {
+            cg = dfLength(dfSub(d[6], d[7]), dfSub(d[8], d[9]));
+            if (!(cg.x > 0.000001)) { cg = vec2(1.0, 0.0); }
+        }
+        clipCov = dfCoverage(clipMapped ? dfDiv(d[5], cg) : d[5]);
+    }
+    return ivec4(fill, stroke, stroked ? 1 : 0, clipCov);
 }
 
 void main() {
@@ -1668,12 +1717,12 @@ void main() {
     // the distance field is evaluated at p - offset — the same translation-as-inverse-map
     // rule plan-116-C established for `Paint.transform` and plan-116-G §4.5 restated for
     // groups. One rule, three renderers.
-    //
-    // The CLIP deliberately keeps `gl_FragCoord.xy`. `Paint.clip` is a surface rectangle
-    // by definition (plan-116-B), so a group translates the shape THROUGH it — G5's
-    // first exception, and the reason this is two variables rather than one substitution.
     vec2 p = gl_FragCoord.xy - vec2(fx(draw.offset.x), fx(draw.offset.y));
-    int clipCov = clipCoverage(gl_FragCoord.xy);
+    // plan-163-C: the clip is evaluated in `shapeCoverage` at the SHAPE-space point -- it
+    // travels with the item's transform and its group -- for every kind, glyphs included.
+    ivec4 cov = shapeCoverage(dfSub(vec2(gl_FragCoord.x, 0.0), dfFixed(draw.offset.x, draw.offset.z)),
+                              dfSub(vec2(gl_FragCoord.y, 0.0), dfFixed(draw.offset.y, draw.offset.w)));
+    int clipCov = cov.w;
     if (item.misc.x == 6) {
         // A glyph is fill-only: a text item's stroke was turned into an outline
         // polygon by the geometry builder, so there is nothing here to stroke.
@@ -1691,8 +1740,6 @@ void main() {
     // exactly: a polygon since bug-687, every other kind since bug-735. The fill uses the
     // surface distance and the stroke subtracts `half` BEFORE converting, so the outline
     // scales with the shape (§4.3).
-    ivec3 cov = shapeCoverage(dfSub(vec2(gl_FragCoord.x, 0.0), dfFixed(draw.offset.x, draw.offset.z)),
-                              dfSub(vec2(gl_FragCoord.y, 0.0), dfFixed(draw.offset.y, draw.offset.w)));
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else — the shape's
     // distance, its coverage and its stroke are untouched.
     ivec4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p) : item.fill;

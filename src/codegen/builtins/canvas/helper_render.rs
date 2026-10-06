@@ -815,6 +815,8 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     ' dash words a region of their own, a frame SUM like the stops'.
     total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
     dashWords = dashWords + __canvas_dashWords(offset)
+    ' plan-163-C: a path clip's edges ride the edge region too, one slot each.
+    total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_CLIP_EDGE_COUNT, 0.0))
   NEXT
   IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN
     RETURN FALSE
@@ -967,6 +969,8 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     ' dash words a region of their own, a frame SUM like the stops'.
     total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
     dashWords = dashWords + __canvas_dashWords(offset)
+    ' plan-163-C: a path clip's edges ride the edge region too, one slot each.
+    total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_CLIP_EDGE_COUNT, 0.0))
   NEXT
   IF quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS THEN
     RETURN FALSE

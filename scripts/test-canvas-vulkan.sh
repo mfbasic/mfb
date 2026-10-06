@@ -238,6 +238,10 @@ FUNC main() AS Nothing
   LET picHalf AS canvas::Transform = canvas::Transform[a := 0.5, b := 0.0, c := 0.0, d := 0.5, tx := 840.0, ty := 548.0]
   LET picScaled AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 128, 0)) { transform := picHalf }]
   LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 705.0, y := 578.0], canvas::Point[x := 741.0, y := 578.0], canvas::Point[x := 741.0, y := 638.0], canvas::Point[x := 705.0, y := 638.0]]] }]
+  ' plan-163-C: the tint's strength is the fill's alpha (half-strength red here), and a
+  ' picture fades through `transparency`, the item block's `clipPath.w`.
+  LET picTint AS canvas::DrawItem = canvas::Picture[x := 765.0, y := 550.0, w := 30.0, h := 30.0, image := quadImg, paint := canvas::fill(color::rgba(255, 0, 0, 128))]
+  LET picFade AS canvas::DrawItem = canvas::Picture[x := 765.0, y := 590.0, w := 30.0, h := 30.0, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 0.6 }]
   ' bug-484: a text run with a SPACE in it, early in the scene. A space has an empty
   ' bitmap and draws nothing, but `__canvas_blockInstances` counts it as one instance
   ' like every glyph -- so an emitter that skipped publishing its block shifted every
@@ -245,7 +249,7 @@ FUNC main() AS Nothing
   ' last reading a block never written). "AAAA" above has no space, which is how that
   ' stayed invisible here; Metal's picture scene is where it was found.
   LET spaced AS canvas::DrawItem = canvas::Text[x := 470.0, y := 636.0, text := "A A", font := face, size := 20.0, paint := canvas::fill(color::rgb(255, 255, 255))]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, spaced, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, spaced, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge, picTint, picFade]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

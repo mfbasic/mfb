@@ -52,7 +52,9 @@ use crate::codegen::error::constants::error_constants::{
 };
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT, HEADER_DASH_PHASE, METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
+    HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_PICTURE_TRANSPARENCY,
+    ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE, ITEM_CLIP_PATH_PICTURE_T,
+    ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH, HEADER_DASH_COUNT, HEADER_DASH_PHASE, METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
     HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
     ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
 };
@@ -192,6 +194,10 @@ const METAL_SHADER_BODY: &str = concat!(
     // plan-163-B: join records' first edge slot and count, dash pattern's first entry
     // and count.
     "  int4 strokeStyle;\n",
+    // plan-163-C: a path clip's band header, then its edge base, edge count, mode | rule
+    // << 2 and a picture's transparency step.
+    "  int4 clipBand;\n",
+    "  int4 clipPath;\n",
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -729,6 +735,16 @@ const METAL_SHADER_BODY: &str = concat!(
     // end. A zero-length segment is skipped unless it is the whole path (first == last),
     // where it is the round dot. `t` is (segment + clamped t) / segments, continuous at a
     // corner, and the same walk sets both, so the colour's segment is the distance's.
+    // plan-163-C: a path clip's band, the clip's twin of `polygonBand`: its band header
+    // in `clipBand`, or every clip edge (band count 0).
+    "static int2 clipBandAt(constant MfbItem &item, constant int *edges, float y) {\n",
+    "  int nb = item.clipBand.z;\n",
+    "  if (nb <= 0) { return int2(-1, item.clipPath.y); }\n",
+    "  float k = floor((y - fx(item.clipBand.x)) / fx(item.clipBand.y));\n",
+    "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
+    "  int t = METAL_BAND_BASE + item.clipBand.w;\n",
+    "  return int2(t + nb * 2 + edges[t + band * 2], edges[t + band * 2 + 1]);\n",
+    "}\n",
     "static float2 polylineScan(constant MfbItem &item, constant int *edges, int2 band, float2 p) {\n",
     "  int first = item.gradient.x;\n",
     "  int last = item.gradient.y;\n",
@@ -1498,13 +1514,18 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool curve = kind == 1 || kind == 3 || kind == 7 || rounded;\n",
     "  return float2(curve ? dashedCurve(item, edges, x, y, halfW, item.arc.w) : dashedEdges(item, edges, band, x, y, halfW, item.arc.w), 0.0);\n",
     "}\n",
-    "static float2 sampleDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach) {\n",
+    "static float2 sampleDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach, bool clip) {\n",
     "  int kind = item.misc.x;\n",
+    // plan-163-C: a path clip's edges under its own rule, through the polygon's walk -- one
+    // `edgeDistance` call site, for the shader compilers' sake.
+    "  if (clip || kind == 4) {\n",
+    "    return edgeDistance(edges, clip ? item.clipPath.x : item.arc.z, band.y, band.x, x, y, reach,\n",
+    "                        clip ? (item.clipPath.z >> 2) : item.arc.y);\n",
+    "  }\n",
     // plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke.
     "  if (item.strokeStyle.w > 0 && (kind == 2 || kind == 3 || kind == 10)) {\n",
     "    return dashedStroke(item, edges, band, x, y, dfF(dfFixed(item.misc.y, item.miscLo.x)));\n",
     "  }\n",
-    "  if (kind == 4) { return edgeDistance(edges, item.arc.z, band.y, band.x, x, y, reach, item.arc.y); }\n",
     "  if (kind == 10) { return polylineDistance(item, edges, band, x, y, reach); }\n",
     "  float v = farBound(item, float2(x.x, y.x));\n",
     "  if (abs(v) > reach) { return float2(v, 0.0); }\n",
@@ -1522,6 +1543,35 @@ const METAL_SHADER_BODY: &str = concat!(
     // 16.16 word plus, since bug-735, its residual -- taken off exactly.
     "static float4 dfShapePoint(float2 surface, int4 offset) {\n",
     "  return float4(dfSub(float2(surface.x, 0.0), dfFixed(offset.x, offset.z)), dfSub(float2(surface.y, 0.0), dfFixed(offset.y, offset.w)));\n",
+    "}\n",
+    // The clip rectangle's own antialiased coverage, 0..255 (plan-116-B): the same
+    // rectangle SDF and the same quantization the shape edges use, so a fractional clip
+    // edge is antialiased identically to a shape edge. plan-163-C: at the SHAPE-space
+    // point (`x`, `y`, the group offset taken off), because the clip is in the item's own
+    // coordinates, and only for a mode-1 clip, whose zero-area rectangle encloses nothing
+    // and hides the item. `__canvas_clipCoverage` and `mfb_canvas.frag`'s `clipRect` are
+    // the same lines.
+    //
+    // bug-735: in double-float, from the clip's words plus residuals, wherever the fp32
+    // rectangle distance (with `edgeSlack`'s bound) cannot say the pixel is wholly in or
+    // out.
+    "static int clipRect(constant MfbItem &item, float2 x, float2 y) {\n",
+    "  if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)\n",
+    "      || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return 0; }\n",
+    "  float2 p = float2(x.x, y.x);\n",
+    "  float2 lo = float2(fx(item.clip.x), fx(item.clip.y));\n",
+    "  float2 hi = float2(fx(item.clip.z), fx(item.clip.w));\n",
+    "  float d = rectDistance(p, (lo + hi) * 0.5, (hi - lo) * 0.5);\n",
+    "  float slack = edgeSlack(p, lo, hi);\n",
+    "  if (d - slack > 0.5) { return 0; }\n",
+    "  if (d + slack < -0.5) { return 255; }\n",
+    "  float2 x0 = dfFixed(item.clip.x, item.clipLo.x);\n",
+    "  float2 y0 = dfFixed(item.clip.y, item.clipLo.y);\n",
+    "  float2 x1 = dfFixed(item.clip.z, item.clipLo.z);\n",
+    "  float2 y1 = dfFixed(item.clip.w, item.clipLo.w);\n",
+    "  float2 dx = dfSub(x, dfMulF(dfAdd(x0, x1), 0.5));\n",
+    "  float2 dy = dfSub(y, dfMulF(dfAdd(y0, y1), 0.5));\n",
+    "  return dfCoverage(dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5)));\n",
     "}\n",
     // bug-687, extended to every kind by bug-735: an item's fill and stroke coverage, 0..255
     // each, and whether it strokes, from its distance in double-float at the double-float
@@ -1542,7 +1592,7 @@ const METAL_SHADER_BODY: &str = concat!(
     // which is Lipschitz only to its own ~1e-4 px. An arc is not Lipschitz at all (out
     // of sweep it jumps to 1e6), so a transformed arc takes no shortcut; neither does
     // any neighbour sample, whose exact value the gradient needs.
-    "static int3 shapeCoverage(constant MfbItem &item, constant int *edges, float4 pt) {\n",
+    "static int4 shapeCoverage(constant MfbItem &item, constant int *edges, float4 pt) {\n",
     "  float2 x = pt.xy;\n",
     "  float2 y = pt.zw;\n",
     "  bool mapped = hasTransform(item);\n",
@@ -1563,16 +1613,26 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool dashed = item.strokeStyle.w > 0;\n",
     "  bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10;\n",
     "  float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;\n",
-    "  float2 d[5];\n",
+    // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
+    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
+    // one loop keeps one `sampleDistance` call site.
+    "  int clipMode = item.clipPath.z & 3;\n",
+    "  bool clipMapped = hasTransform(item);\n",
+    "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, clipMapped ? dfMapY(item, x, y).x : y.x) : int2(-1, 0);\n",
+    "  float2 d[10];\n",
     "  float2 cqx = x;\n",
     "  float2 cqy = y;\n",
-    "  for (int k = 0; k < (mapped ? 5 : 1); ++k) {\n",
-    "    float2 sx = dfAdd(x, float2(k == 1 ? 0.5 : (k == 2 ? -0.5 : 0.0), 0.0));\n",
-    "    float2 sy = dfAdd(y, float2(k == 3 ? 0.5 : (k == 4 ? -0.5 : 0.0), 0.0));\n",
-    "    float2 qx = mapped ? dfMapX(item, sx, sy) : sx;\n",
-    "    float2 qy = mapped ? dfMapY(item, sx, sy) : sy;\n",
+    "  for (int k = 0; k < 10; ++k) {\n",
+    "    bool clipK = k >= 5;\n",
+    "    int j = clipK ? k - 5 : k;\n",
+    "    if (clipK ? (clipMode != 2 || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }\n",
+    "    bool mapK = clipK ? clipMapped : mapped;\n",
+    "    float2 sx = dfAdd(x, float2(j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0), 0.0));\n",
+    "    float2 sy = dfAdd(y, float2(j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0), 0.0));\n",
+    "    float2 qx = mapK ? dfMapX(item, sx, sy) : sx;\n",
+    "    float2 qy = mapK ? dfMapY(item, sx, sy) : sy;\n",
     "    if (k == 0) { cqx = qx; cqy = qy; }\n",
-    "    d[k] = sampleDistance(item, edges, band, qx, qy, k == 0 ? reach : 1.0e30);\n",
+    "    d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);\n",
     "    if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }\n",
     "  }\n",
     "  float2 dRaw = d[0];\n",
@@ -1590,7 +1650,17 @@ const METAL_SHADER_BODY: &str = concat!(
     "        : (joined ? joinedStroke(item, edges, band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2));\n",
     "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
     "  }\n",
-    "  return int3(fill, stroke, stroked ? 1 : 0);\n",
+    "  int clipCov = 255;\n",
+    "  if (clipMode == 1) { clipCov = clipRect(item, x, y); }\n",
+    "  if (clipMode == 2) {\n",
+    "    float2 cg = float2(1.0, 0.0);\n",
+    "    if (clipMapped) {\n",
+    "      cg = dfLength(dfSub(d[6], d[7]), dfSub(d[8], d[9]));\n",
+    "      if (!(cg.x > 0.000001)) { cg = float2(1.0, 0.0); }\n",
+    "    }\n",
+    "    clipCov = dfCoverage(clipMapped ? dfDiv(d[5], cg) : d[5]);\n",
+    "  }\n",
+    "  return int4(fill, stroke, stroked ? 1 : 0, clipCov);\n",
     "}\n",
     "static float srgbToLinear(float c) {\n",
     "  c = c / 255.0;\n",
@@ -1675,7 +1745,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  return gradientAt(t, edges, item);\n",
     "}\n",
     // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
-    // NEAREST and tinted by the fill, the twin of the `isPicture` arm of
+    // NEAREST and tinted by the fill (plan-163-C: towards `texel * fill / 255` by
+    // `fill.a / 255`, rounded half away from zero, and its alpha faded by the transparency
+    // step in `clipPath.w` -- `__canvas_tintChannel`), the twin of the `isPicture` arm of
     // `__canvas_drawGeometry`. Same operation order as the oracle, `(q - x0) * iw / dw`,
     // and `floor` rather than a cast, so all renderers pick the same texel; the index is
     // CLAMPED because the antialiased pixels just outside the destination belong to the
@@ -1696,7 +1768,15 @@ const METAL_SHADER_BODY: &str = concat!(
     "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
     "  int4 tex = int4(int(word & 255u), int((word >> 8) & 255u),\n",
     "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
-    "  return (tex * item.fill) / 255;\n",
+    "  int4 tint = (tex * item.fill) / 255;\n",
+    "  int a = item.fill.w;\n",
+    "  int4 out = tex;\n",
+    "  for (int c = 0; c < 3; ++c) {\n",
+    "    int dc = (tint[c] - tex[c]) * a;\n",
+    "    out[c] = tex[c] + (dc >= 0 ? (dc + 127) / 255 : -((127 - dc) / 255));\n",
+    "  }\n",
+    "  out.w = (tex.w * (255 - item.clipPath.w) + 127) / 255;\n",
+    "  return out;\n",
     "}\n",
     // The oracle quantizes coverage to a whole 0..255 and then takes an integer
     // `(colourAlpha * coverage) / 255`. Matching that here rather than blending in
@@ -1710,36 +1790,6 @@ const METAL_SHADER_BODY: &str = concat!(
     "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
     "                srgbToLinear(float(rgba.y)) * a,\n",
     "                srgbToLinear(float(rgba.z)) * a, a);\n",
-    "}\n",
-    // The clip's own antialiased coverage, 0..255 (plan-116-B). The same rectangle SDF
-    // and the same quantization the shape edges use, so a fractional clip edge is
-    // antialiased identically to a shape edge -- which is what lets the oracle and this
-    // shader agree on it rather than merely come close. `__canvas_clipCoverage` in
-    // `helper_items.rs` and `clipCoverage` in `mfb_canvas.frag` are the same three
-    // lines. An empty rectangle means unclipped and returns 255, matching
-    // `__canvas_hasClip`: testing both extents also rejects a negative one, which
-    // `Bounds` cannot forbid.
-    //
-    // bug-735: in double-float, from the clip's words plus residuals, wherever the fp32
-    // rectangle distance (with `edgeSlack`'s bound) cannot say the pixel is wholly in or
-    // out. A clip edge beside a coverage step flipped the step from the 16.16 narrowing
-    // alone, by up to 12 sRGB levels near black.
-    "static int clipCoverage(constant MfbItem &item, float2 p) {\n",
-    "  if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)\n",
-    "      || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return 255; }\n",
-    "  float2 lo = float2(fx(item.clip.x), fx(item.clip.y));\n",
-    "  float2 hi = float2(fx(item.clip.z), fx(item.clip.w));\n",
-    "  float d = rectDistance(p, (lo + hi) * 0.5, (hi - lo) * 0.5);\n",
-    "  float slack = edgeSlack(p, lo, hi);\n",
-    "  if (d - slack > 0.5) { return 0; }\n",
-    "  if (d + slack < -0.5) { return 255; }\n",
-    "  float2 x0 = dfFixed(item.clip.x, item.clipLo.x);\n",
-    "  float2 y0 = dfFixed(item.clip.y, item.clipLo.y);\n",
-    "  float2 x1 = dfFixed(item.clip.z, item.clipLo.z);\n",
-    "  float2 y1 = dfFixed(item.clip.w, item.clipLo.w);\n",
-    "  float2 dx = dfSub(float2(p.x, 0.0), dfMulF(dfAdd(x0, x1), 0.5));\n",
-    "  float2 dy = dfSub(float2(p.y, 0.0), dfMulF(dfAdd(y0, y1), 0.5));\n",
-    "  return dfCoverage(dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5)));\n",
     "}\n",
     // `items` and `edges` are the SAME buffer bound twice, at offset zero both times:
     // one view typed as blocks, one as raw words. Two bindings rather than one pointer
@@ -1755,11 +1805,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "                            constant int4 &drawOffset [[buffer(3)]]) {\n",
     "  constant MfbItem &item = items[in.item];\n",
     // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
-    // offset taken back off -- and every distance, gradient and glyph lookup below uses
-    // it. `in.pos.xy` stays the SURFACE point and only the clip uses it, because a clip
-    // is expressed in surface coordinates and does not travel with the group
-    // (section 4.2). Getting that backwards moves the clip window with the group, which
-    // is a plausible wrong picture rather than a fault.
+    // offset taken back off -- and every distance, gradient, glyph lookup and (since
+    // plan-163-C) the clip below uses it.
     "  float2 p = in.pos.xy - float2(fx(drawOffset.x), fx(drawOffset.y));\n",
     // A glyph has coverage, not a distance: the CPU rasterised its outline once and
     // cached the bitmap (plan-98-G Phase 2), so the GPU's job here is a lookup. It
@@ -1772,7 +1819,10 @@ const METAL_SHADER_BODY: &str = concat!(
     // `(coverage * clipCov) / 255` does. Integer, and by 255 rather than a shift, so
     // the two quantize identically -- a float multiply here would disagree on the
     // boundary pixels, which are the only ones a clip can affect.
-    "  int clipCov = clipCoverage(item, in.pos.xy);\n",
+    // plan-163-C: the clip is evaluated in `shapeCoverage` at the SHAPE-space point -- it
+    // travels with the item's transform and its group -- for every kind, glyphs included.
+    "  int4 cov = shapeCoverage(item, edges, dfShapePoint(in.pos.xy, drawOffset));\n",
+    "  int clipCov = cov.w;\n",
     // plan-116-C section 4.5: a transformed glyph samples its bitmap at the
     // inverse-mapped point, nearest. The index arithmetic is already whole-pixel, so
     // mapping the query point is the whole change -- the cache stays untransformed and
@@ -1794,7 +1844,6 @@ const METAL_SHADER_BODY: &str = concat!(
     // exactly: a polygon since bug-687, every other kind since bug-735. The fill uses
     // the surface distance and the stroke subtracts `half` BEFORE converting, so the
     // outline scales with the shape (section 4.3).
-    "  int3 cov = shapeCoverage(item, edges, dfShapePoint(in.pos.xy, drawOffset));\n",
     // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
     "  int4 fillRgba = item.ellipse.z >= 2 ? gradientColour(p, edges, item) : item.fill;\n",
     // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
@@ -3294,6 +3343,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // dash words, after the join copy has zeroed their block words.
     emit_join_buffer(&mut asm);
     emit_dash_buffer(&mut asm);
+    // plan-163-C: the clip's words and a path clip's edges, after the join records.
+    emit_clip_buffer(&mut asm);
     emit_gradient_buffer(&mut asm);
     // bug-484: after the edge buffer, which zeroes `arc.z` for every non-polygon, and
     // before the split, so both records of a blended stroked picture name its texels.
@@ -5207,6 +5258,123 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::label(&done));
 }
 
+/// plan-163-C: the clip's item-block words -- `clipPath` = (first clip edge, clip edge
+/// count, mode | rule << 2, a picture's transparency step T) and `clipBand`'s band count
+/// 0 (the shader walks every clip edge) -- and a path clip's edges, copied from the
+/// record's tail (`slot1 − stops·5 − edges·5`, right before the stops) into the frame's
+/// edge region after the item's own edges and join records, as 16.16 words with their
+/// residuals, exactly as a polygon's edges are (`emit_edge_buffer`). The frame-sum edge cap
+/// counts them, so the over-cap arm is unreachable; it leaves the edge count 0, which the
+/// shader reads as a clip enclosing nothing -- hidden, never drawn unclipped.
+fn emit_clip_buffer(asm: &mut Asm) {
+    let head = format!("{METAL_DRAW_SYMBOL}_clip_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_clip_done");
+    let copy = format!("{METAL_DRAW_SYMBOL}_clip_copy");
+    let banded = format!("{METAL_DRAW_SYMBOL}_clip_banded");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[6];
+    let residual_target = abi::SCRATCH[1];
+    let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
+    let clip = OFF_ITEM + ITEM_OFFSET_CLIP_PATH;
+    let band = OFF_ITEM + ITEM_OFFSET_CLIP_BAND;
+
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    for word in [0usize, 4, 8, 12] {
+        asm.push(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), band + word));
+        asm.push(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), clip + word));
+    }
+    asm.push(abi::load_u64(header, abi::stack_pointer(), OFF_GLYPH_HEADER));
+    // mode | rule << 2, and T.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_MODE * 8));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_RULE * 8));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::shift_left_immediate(abi::SCRATCH[7], abi::SCRATCH[7], 2));
+    asm.push(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[5]));
+    asm.push(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_MODE));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_PICTURE_TRANSPARENCY * 8));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_PICTURE_T));
+    asm.push(abi::compare_immediate(abi::SCRATCH[5], "2"));
+    asm.push(abi::branch_ne(&done));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
+    asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    asm.push(abi::compare_immediate(count, "0"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::load_u64(abi::SCRATCH[5], abi::stack_pointer(), OFF_EDGE_CURSOR));
+    asm.push(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[5], count));
+    asm.push(abi::move_immediate(abi::SCRATCH[8], "Integer", &METAL_MAX_FRAME_EDGES.to_string()));
+    asm.push(abi::compare_registers(abi::SCRATCH[7], abi::SCRATCH[8]));
+    asm.push(abi::branch_le(&copy));
+    asm.push(abi::branch(&done));
+
+    asm.push(abi::label(&copy));
+    asm.push(abi::store_u64(abi::SCRATCH[7], abi::stack_pointer(), OFF_EDGE_CURSOR));
+    asm.push(abi::store_u32(abi::SCRATCH[5], abi::stack_pointer(), clip + ITEM_CLIP_PATH_BASE));
+    asm.push(abi::store_u32(count, abi::stack_pointer(), clip + ITEM_CLIP_PATH_COUNT));
+    // target = contents + METAL_EDGE_BASE_WORDS * 4 + base * 16, through registers (the
+    // offset is past an `add`'s immediate); the residuals a fixed distance past it.
+    asm.push(abi::shift_left_immediate(target, abi::SCRATCH[5], 4));
+    asm.push(abi::load_u64(abi::SCRATCH[7], abi::stack_pointer(), OFF_CONTENTS));
+    asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
+    asm.push(abi::move_immediate(abi::SCRATCH[7], "Integer", &(METAL_EDGE_BASE_WORDS * 4).to_string()));
+    asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
+    asm.push(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(residual_target, residual_target, target));
+    asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", EDGE_RESIDUAL_SCALE));
+    asm.push(abi::signed_convert_to_float_d(residual_scale, abi::SCRATCH[5]));
+    asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", FIXED_POINT_SCALE));
+    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
+    // source = header + (slot1 - stops * 5 - count * 5) * 8.
+    asm.push(abi::load_u64(header, abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, 8));
+    asm.push(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], count));
+    asm.push(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
+    asm.push(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    asm.push(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    asm.push(abi::shift_left_immediate(source, source, 3));
+    asm.push(abi::add_registers(source, header, source));
+    asm.push(abi::move_immediate(index, "Integer", "0"));
+    asm.push(abi::label(&head));
+    asm.push(abi::compare_registers(index, count));
+    asm.push(abi::branch_ge(&banded));
+    for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
+        if let Some(delta) = delta {
+            asm.push(abi::load_double(abi::FP_SCRATCH[2], source, delta * 8));
+            asm.push(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+        }
+        asm.push(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], scale));
+        asm.push(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        asm.push(abi::store_u32(abi::SCRATCH[5], target, 0));
+        asm.push(abi::add_immediate(target, target, 4));
+        asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[5]));
+        asm.push(abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+        asm.push(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], residual_scale));
+        asm.push(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
+        asm.push(abi::add_immediate(residual_target, residual_target, 4));
+    }
+    asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
+    asm.push(abi::add_immediate(index, index, 1));
+    asm.push(abi::branch(&head));
+    // The clip's edges are in the region; index them by band.
+    asm.push(abi::label(&banded));
+    emit_band_index(asm, CLIP_BANDS);
+    asm.push(abi::label(&done));
+}
+
 /// plan-163-B: copy this item's dash words into the frame buffer's dash region, and name
 /// the slice in its item block — `strokeStyle.z` the first word, `strokeStyle.w` the word
 /// count (`emit_join_buffer` zeroed both, which the shader reads as a solid stroke).
@@ -6040,12 +6208,42 @@ fn emit_edge_buffer(asm: &mut Asm) {
 
     // bug-686: the polygon's edges are in the region; index them by band.
     asm.push(abi::label(&band));
-    emit_band_index(asm);
+    emit_band_index(asm, ITEM_BANDS);
     asm.push(abi::label(&done));
 }
 
+/// Which edge set a band index is built for: the item's own edges, its header in
+/// `arcCaps`, or (plan-163-C) a path clip's, its header in `clipBand`. A clip's reach has
+/// no stroke in it -- its coverage clamps at `|d| >= 0.5` -- and the transform terms
+/// apply as they do to the shape, whose five samples the clip's five mirror.
+#[derive(Clone, Copy)]
+struct BandSet {
+    count: usize,
+    base: usize,
+    header: usize,
+    clip: bool,
+    tag: &'static str,
+}
+
+const ITEM_BANDS: BandSet = BandSet {
+    count: OFF_ITEM + ITEM_OFFSET_MISC + 12,
+    base: OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    header: OFF_ITEM + ITEM_OFFSET_ARC_CAPS,
+    clip: false,
+    tag: "band",
+};
+
+const CLIP_BANDS: BandSet = BandSet {
+    count: OFF_ITEM + ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_COUNT,
+    base: OFF_ITEM + ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_BASE,
+    header: OFF_ITEM + ITEM_OFFSET_CLIP_BAND,
+    clip: true,
+    tag: "clipband",
+};
+
 /// Build this polygon's band index in the frame buffer's band region and write its
-/// header into the item block's `arcCaps` (bug-686; layout at `METAL_BAND_BASE_WORDS`).
+/// header into the item block's `arcCaps` (bug-686; layout at `METAL_BAND_BASE_WORDS`) --
+/// or a path clip's into `clipBand` (`set`).
 ///
 /// Runs after `emit_edge_buffer` has converted the polygon's edges, and works on those
 /// 16.16 words — exactly what the shader reads — rather than on the header's doubles,
@@ -6095,19 +6293,20 @@ fn emit_edge_buffer(asm: &mut Asm) {
 /// No calls; `SCRATCH[0..8]` only (9 is Apple's x18, 10+ the loop state's callee-saved
 /// registers). `compare_immediate` is used only against values that fit 12 bits: a
 /// wider one borrows x16/x17, which are `SCRATCH[7]`/`SCRATCH[8]`.
-fn emit_band_index(asm: &mut Asm) {
-    let none = format!("{METAL_DRAW_SYMBOL}_band_none");
-    let done = format!("{METAL_DRAW_SYMBOL}_band_done");
+fn emit_band_index(asm: &mut Asm, set: BandSet) {
+    let tag = set.tag;
+    let none = format!("{METAL_DRAW_SYMBOL}_{tag}_none");
+    let done = format!("{METAL_DRAW_SYMBOL}_{tag}_done");
     let s = abi::SCRATCH;
     let f = abi::FP_SCRATCH;
-    let label = |name: &str| format!("{METAL_DRAW_SYMBOL}_band_{name}");
-    let block = |field: usize| OFF_ITEM + ITEM_OFFSET_ARC_CAPS + field;
+    let label = |name: &str| format!("{METAL_DRAW_SYMBOL}_{tag}_{name}");
+    let block = |field: usize| set.header + field;
 
     // --- which polygons: E >= BAND_MIN_EDGES --------------------------------
     asm.push(abi::load_u32(
         s[2],
         abi::stack_pointer(),
-        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+        set.count,
     ));
     asm.push(abi::move_immediate(
         s[3],
@@ -6121,7 +6320,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::load_u32(
         s[0],
         abi::stack_pointer(),
-        OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+        set.base,
     ));
     asm.push(abi::shift_left_immediate(s[0], s[0], 4));
     asm.push(abi::load_u64(s[1], abi::stack_pointer(), OFF_CONTENTS));
@@ -6168,6 +6367,14 @@ fn emit_band_index(asm: &mut Asm) {
     // --- the reach r (f1) and the minimum band height (f4), in shape units --------
     asm.push(abi::load_u64(s[0], abi::stack_pointer(), OFF_GLYPH_HEADER));
     asm.push(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    // plan-163-C: a clip's coverage clamps at `|d| >= 0.5` -- no stroke reaches past it --
+    // so its half-width is 0 (and its own cap and join reach do not apply).
+    let stroke_reach_done = label("stroke_reach_done");
+    if set.clip {
+        asm.push(abi::move_immediate(s[4], "Integer", "0"));
+        asm.push(abi::signed_convert_to_float_d(f[1], s[4]));
+        asm.push(abi::branch(&stroke_reach_done));
+    }
     // plan-154-B: a PolyLine is stroke-as-fill, so its half-width is the RADIUS slot and
     // slot 7 is -1. A polygon never writes the radius slot (it stays the blank header's
     // 0), so taking the larger of the two leaves every polygon's reach as it was.
@@ -6186,6 +6393,7 @@ fn emit_band_index(asm: &mut Asm) {
     // point in a row's band is reached through the edge it sits at the start of.
     asm.push(abi::load_double(f[2], s[0], HEADER_JOIN_REACH * 8));
     asm.push(abi::float_max_d(f[1], f[1], f[2]));
+    asm.push(abi::label(&stroke_reach_done));
     asm.push(abi::move_immediate(s[4], "Integer", "3"));
     asm.push(abi::signed_convert_to_float_d(f[2], s[4]));
     asm.push(abi::move_immediate(s[4], "Integer", "2"));
@@ -6293,7 +6501,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::load_u32(
         s[6],
         abi::stack_pointer(),
-        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+        set.count,
     ));
     asm.push(abi::move_immediate(s[7], "Integer", &BAND_MAX.to_string()));
     asm.push(abi::compare_registers(s[6], s[7]));
@@ -6325,7 +6533,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::label(&label("size_head")));
     asm.push(abi::compare_registers(s[0], s[1]));
     asm.push(abi::branch_ge(&label("size_done")));
-    emit_band_range(asm, "size");
+    emit_band_range(asm, tag, "size");
     asm.push(abi::subtract_registers(s[5], s[5], s[4]));
     asm.push(abi::add_immediate(s[5], s[5], 1));
     asm.push(abi::add_registers(s[2], s[2], s[5]));
@@ -6335,7 +6543,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::load_u32(
         s[4],
         abi::stack_pointer(),
-        OFF_ITEM + ITEM_OFFSET_MISC + 12,
+        set.count,
     ));
     asm.push(abi::move_immediate(
         s[5],
@@ -6425,7 +6633,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::label(&label("count_head")));
     asm.push(abi::compare_registers(s[0], s[1]));
     asm.push(abi::branch_ge(&label("count_done")));
-    emit_band_range(asm, "count");
+    emit_band_range(asm, tag, "count");
     asm.push(abi::label(&label("count_band")));
     asm.push(abi::compare_registers(s[4], s[5]));
     asm.push(abi::branch_gt(&label("count_next")));
@@ -6467,7 +6675,7 @@ fn emit_band_index(asm: &mut Asm) {
     asm.push(abi::label(&label("fill_head")));
     asm.push(abi::compare_registers(s[0], s[1]));
     asm.push(abi::branch_ge(&label("fill_done")));
-    emit_band_range(asm, "fill");
+    emit_band_range(asm, tag, "fill");
     asm.push(abi::label(&label("fill_band")));
     asm.push(abi::compare_registers(s[4], s[5]));
     asm.push(abi::branch_gt(&label("fill_next")));
@@ -6525,9 +6733,9 @@ fn emit_band_index(asm: &mut Asm) {
 /// ⌊(yhi + r − top) / h⌋ = ⌊(yhi − ymin + 2r) / h⌋. Both numerators are non-negative
 /// (every y is at least ymin), so the unsigned divide is exact, and the last is at most
 /// ⌊span / h⌋ = bands − 1.
-fn emit_band_range(asm: &mut Asm, site: &str) {
+fn emit_band_range(asm: &mut Asm, tag: &str, site: &str) {
     let s = abi::SCRATCH;
-    let ordered = format!("{METAL_DRAW_SYMBOL}_band_{site}_ordered");
+    let ordered = format!("{METAL_DRAW_SYMBOL}_{tag}_{site}_ordered");
     asm.push(abi::load_u32(s[4], s[0], 4));
     asm.push(abi::sign_extend_word(s[4], s[4]));
     asm.push(abi::load_u32(s[5], s[0], 12));
@@ -6910,25 +7118,25 @@ mod tests {
         );
     }
 
-    /// The fragment stage evaluates the CLIP in surface space and everything else in
-    /// shape space.
+    /// The fragment stage evaluates everything — the clip included — in shape space.
     ///
     /// `p` is the surface point with the group offset removed; `in.pos.xy` is the
-    /// surface point itself. A clip does not travel with its group (plan-116-H §4.2),
-    /// so it is the one consumer that must keep `in.pos.xy` — and the distance,
-    /// gradient and glyph lookups must all use `p`, because each is evaluated per
-    /// fragment and would otherwise be sampled at the wrong point inside a correctly
-    /// positioned quad.
+    /// surface point itself. Since plan-163-C the clip is in the item's own coordinates
+    /// and travels with its group (reversing plan-116-H §4.2's surface clip, which this
+    /// test pinned until then), so it comes out of `shapeCoverage` with the distance —
+    /// and the distance, gradient and glyph lookups must all use `p`, because each is
+    /// evaluated per fragment and would otherwise be sampled at the wrong point inside a
+    /// correctly positioned quad.
     #[test]
-    fn the_metal_fragment_clips_in_surface_space_and_samples_in_shape_space() {
+    fn the_metal_fragment_clips_and_samples_in_shape_space() {
         let body = METAL_SHADER_SOURCE
             .split("fragment float4 mfbFragment")
             .nth(1)
             .expect("the fragment entry point is in the shader");
         assert!(
-            body.contains("clipCoverage(item, in.pos.xy)"),
-            "the clip must be evaluated at the SURFACE point — evaluating it at `p` \
-             drags the clip window along with the group",
+            body.contains("int clipCov = cov.w;"),
+            "the clip must come out of `shapeCoverage`, at the SHAPE-space point — \
+             evaluating it at the surface point leaves it behind when the group moves",
         );
         for (call, what) in [
             ("gradientColour(p, edges, item)", "the gradient ramp"),
@@ -6959,8 +7167,8 @@ mod tests {
         );
         assert_eq!(
             body.matches("in.pos.xy").count(),
-            3,
-            "only the clip, `p`'s own definition and its double-float twin may mention \
+            2,
+            "only `p`'s own definition and its double-float twin may mention \
              `in.pos.xy` — another use is a consumer that was not moved into shape space",
         );
     }

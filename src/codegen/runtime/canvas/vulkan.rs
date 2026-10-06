@@ -42,7 +42,9 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT, HEADER_DASH_PHASE, HEADER_JOIN_COUNT, VULKAN_DASH_BASE_WORDS,
+    HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_PICTURE_TRANSPARENCY,
+    ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE, ITEM_CLIP_PATH_PICTURE_T,
+    ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH, HEADER_DASH_COUNT, HEADER_DASH_PHASE, HEADER_JOIN_COUNT, VULKAN_DASH_BASE_WORDS,
     VULKAN_MAX_FRAME_DASH_WORDS, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
     ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
 };
@@ -4167,7 +4169,7 @@ fn emit_edge_upload(
 
     // bug-688: the polygon's edges are in the region; index them by band.
     builder.emit(abi::label(&band));
-    emit_band_index(builder, bands);
+    emit_band_index(builder, bands, ITEM_BANDS);
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&empty));
@@ -4193,6 +4195,127 @@ fn emit_edge_upload(
 /// record count; both are 0 for an item with none, and so are the dash words. The
 /// records sit right before the gradient stops, so they are found from the record's end:
 /// `header + (slot1 - stops * 5 - records * 8) * 8`. Metal's `emit_join_buffer` twin.
+/// plan-163-C: the clip's item-block words -- `clipPath` = (first clip edge, clip edge
+/// count, mode | rule << 2, a picture's transparency step T) and `clipBand`'s band count
+/// 0 (the shader walks every clip edge) -- and a path clip's edges, copied from the
+/// record's tail (`slot1 − stops·5 − edges·5`, right before the stops) into the frame's
+/// edge region after the item's own edges and join records, as 16.16 words with their
+/// residuals, exactly as a polygon's edges are (`emit_edge_upload`). The frame-sum edge cap
+/// counts them, so the over-cap arm is unreachable; it leaves the edge count 0, which the
+/// shader reads as a clip enclosing nothing -- hidden, never drawn unclipped.
+fn emit_clip_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_edge_cursor: usize,
+    bands: &BandSlots,
+) {
+    let head = builder.label("vk_clip_head");
+    let done = builder.label("vk_clip_done");
+    let copy = builder.label("vk_clip_copy");
+    let banded = builder.label("vk_clip_banded");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[6];
+    let residual_target = abi::SCRATCH[1];
+    let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
+    let clip = off_item + ITEM_OFFSET_CLIP_PATH;
+    let band = off_item + ITEM_OFFSET_CLIP_BAND;
+
+    builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    for word in [0usize, 4, 8, 12] {
+        builder.emit(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), band + word));
+        builder.emit(abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), clip + word));
+    }
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    // mode | rule << 2, and T.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_MODE * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_RULE * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::shift_left_immediate(abi::SCRATCH[7], abi::SCRATCH[7], 2));
+    builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[5]));
+    builder.emit(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_MODE));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_PICTURE_TRANSPARENCY * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::store_u32(abi::SCRATCH[7], abi::stack_pointer(), clip + ITEM_CLIP_PATH_PICTURE_T));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[5], "2"));
+    builder.emit(abi::branch_ne(&done));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
+    builder.emit(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    builder.emit(abi::compare_immediate(count, "0"));
+    builder.emit(abi::branch_le(&done));
+    builder.emit(abi::load_u64(abi::SCRATCH[5], abi::stack_pointer(), off_edge_cursor));
+    builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[5], count));
+    builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", &VULKAN_MAX_FRAME_EDGES.to_string()));
+    builder.emit(abi::compare_registers(abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::branch_le(&copy));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&copy));
+    builder.emit(abi::store_u64(abi::SCRATCH[7], abi::stack_pointer(), off_edge_cursor));
+    builder.emit(abi::store_u32(abi::SCRATCH[5], abi::stack_pointer(), clip + ITEM_CLIP_PATH_BASE));
+    builder.emit(abi::store_u32(count, abi::stack_pointer(), clip + ITEM_CLIP_PATH_COUNT));
+    // target = mapped + base * 16; the residuals a fixed distance past it.
+    builder.emit(abi::shift_left_immediate(abi::SCRATCH[7], abi::SCRATCH[5], 4));
+    emit_state_load(builder, off_state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, target);
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[7]));
+    builder.emit(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
+    ));
+    builder.emit(abi::add_registers(residual_target, residual_target, target));
+    builder.emit(abi::move_immediate(abi::SCRATCH[5], "Integer", EDGE_RESIDUAL_SCALE));
+    builder.emit(abi::signed_convert_to_float_d(residual_scale, abi::SCRATCH[5]));
+    builder.emit(abi::move_immediate(abi::SCRATCH[5], "Integer", FIXED_POINT_SCALE));
+    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
+    // source = header + (slot1 - stops * 5 - count * 5) * 8.
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, 8));
+    builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_GRADIENT_COUNT * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], count));
+    builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
+    builder.emit(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    builder.emit(abi::shift_left_immediate(source, source, 3));
+    builder.emit(abi::add_registers(source, header, source));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&banded));
+    for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
+        if let Some(delta) = delta {
+            builder.emit(abi::load_double(abi::FP_SCRATCH[2], source, delta * 8));
+            builder.emit(abi::float_add_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+        }
+        builder.emit(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], scale));
+        builder.emit(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        builder.emit(abi::store_u32(abi::SCRATCH[5], target, 0));
+        builder.emit(abi::add_immediate(target, target, 4));
+        builder.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[5]));
+        builder.emit(abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]));
+        builder.emit(abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], residual_scale));
+        builder.emit(abi::float_round_to_signed_x(abi::SCRATCH[5], abi::FP_SCRATCH[1]));
+        builder.emit(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
+        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
+    }
+    builder.emit(abi::add_immediate(source, source, EDGE_SLOTS * 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+    // The clip's edges are in the region; index them by band.
+    builder.emit(abi::label(&banded));
+    emit_band_index(builder, bands, CLIP_BANDS);
+    builder.emit(abi::label(&done));
+}
+
 /// plan-163-B: copy this item's dash words into the frame buffer's dash region, and name
 /// the slice in its item block — `strokeStyle.z` the first word, `strokeStyle.w` the word
 /// count (`emit_join_upload` zeroed both, which the shader reads as a solid stroke).
@@ -4508,8 +4631,34 @@ impl BandSlots {
     }
 }
 
+/// Which edge set a band index is built for: the item's own edges, its header in
+/// `arcCaps`, or (plan-163-C) a path clip's, its header in `clipBand` -- Metal's
+/// `BandSet`, with offsets into the block rather than into Metal's frame.
+#[derive(Clone, Copy)]
+struct BandSet {
+    count: usize,
+    base: usize,
+    header: usize,
+    clip: bool,
+}
+
+const ITEM_BANDS: BandSet = BandSet {
+    count: ITEM_OFFSET_MISC + 12,
+    base: ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    header: ITEM_OFFSET_ARC_CAPS,
+    clip: false,
+};
+
+const CLIP_BANDS: BandSet = BandSet {
+    count: ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_COUNT,
+    base: ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_BASE,
+    header: ITEM_OFFSET_CLIP_BAND,
+    clip: true,
+};
+
 /// Build this polygon's band index in the shared buffer's band region and write its
-/// header into the item block's `arcCaps` (bug-688; layout at `VULKAN_BAND_BASE_WORDS`).
+/// header into the item block's `arcCaps` (bug-688; layout at `VULKAN_BAND_BASE_WORDS`)
+/// -- or a path clip's into `clipBand` (`set`).
 ///
 /// The Vulkan port of Metal's `emit_band_index` (bug-686 section G), the same algorithm
 /// step for step, so a polygon's bands — and therefore its pixels — are the same on both
@@ -4558,16 +4707,16 @@ impl BandSlots {
 ///   `cvtsd2si` returns `i64::MIN` for anything out of range, which that bound does not.
 /// * No calls; `SCRATCH[0..=8]` only, and no `compare_immediate` against a constant wider
 ///   than 12 bits (on AArch64 its encoding borrows x16/x17, which are `SCRATCH[7]`/`[8]`).
-fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
+fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: BandSet) {
     let none = builder.label("vk_band_none");
     let done = builder.label("vk_band_done");
     let s = abi::SCRATCH;
     let f = abi::FP_SCRATCH;
-    let block = |field: usize| at.item + ITEM_OFFSET_ARC_CAPS + field;
+    let block = |field: usize| at.item + set.header + field;
     let sp = abi::stack_pointer;
 
     // --- which polygons: E >= BAND_MIN_EDGES --------------------------------------
-    builder.emit(abi::load_u32(s[2], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::load_u32(s[2], sp(), at.item + set.count));
     builder.emit(abi::move_immediate(
         s[3],
         "Integer",
@@ -4580,7 +4729,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     builder.emit(abi::load_u32(
         s[0],
         sp(),
-        at.item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+        at.item + set.base,
     ));
     builder.emit(abi::shift_left_immediate(s[0], s[0], 4));
     emit_state_load(builder, at.state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, s[1]);
@@ -4623,6 +4772,14 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     // --- the reach r (f1) and the minimum band height (f4), in shape units --------
     builder.emit(abi::load_u64(s[0], sp(), at.header));
     builder.emit(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    // plan-163-C: a clip's coverage clamps at `|d| >= 0.5` -- no stroke reaches past it --
+    // so its half-width is 0 (and its own cap and join reach do not apply).
+    let stroke_reach_done = builder.label("vk_band_stroke_reach_done");
+    if set.clip {
+        builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+        builder.emit(abi::signed_convert_to_float_d(f[1], s[4]));
+        builder.emit(abi::branch(&stroke_reach_done));
+    }
     // plan-154-C: a PolyLine keeps its half-width in the RADIUS slot (it is
     // stroke-as-fill, slot 7 is -1); a polygon never writes that slot, so its reach is
     // unchanged. Metal's `emit_band_index` takes the same maximum.
@@ -4641,6 +4798,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     // point in a row's band is reached through the edge it sits at the start of.
     builder.emit(abi::load_double(f[2], s[0], HEADER_JOIN_REACH * 8));
     builder.emit(abi::float_max_d(f[1], f[1], f[2]));
+    builder.emit(abi::label(&stroke_reach_done));
     builder.emit(abi::move_immediate(s[4], "Integer", "3"));
     builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
     builder.emit(abi::move_immediate(s[4], "Integer", "2"));
@@ -4750,7 +4908,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     // --- height = max(minimum, ceil(span / (min(E, BAND_MAX) - 1))) -----------------
     // At most `min(E, BAND_MAX)` bands: span / height <= that - 1.
     let bands_capped = builder.label("vk_band_bands_capped");
-    builder.emit(abi::load_u32(s[6], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::load_u32(s[6], sp(), at.item + set.count));
     builder.emit(abi::move_immediate(s[7], "Integer", &BAND_MAX.to_string()));
     builder.emit(abi::compare_registers(s[6], s[7]));
     builder.emit(abi::branch_le(&bands_capped));
@@ -4792,7 +4950,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     builder.emit(abi::add_immediate(s[0], s[0], 16));
     builder.emit(abi::branch(&size_head));
     builder.emit(abi::label(&size_done));
-    builder.emit(abi::load_u32(s[4], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::load_u32(s[4], sp(), at.item + set.count));
     builder.emit(abi::move_immediate(
         s[5],
         "Integer",
@@ -7217,6 +7375,8 @@ pub(crate) fn emit_vulkan_draw_scene(
     // dash words, after the join upload has zeroed their block words.
     emit_join_upload(builder, off_state, off_item, off_header, off_edge_cursor);
     emit_dash_upload(builder, off_state, off_item, off_header, off_dash_cursor);
+    // plan-163-C: the clip's words and a path clip's edges, after the join records.
+    emit_clip_upload(builder, off_state, off_item, off_header, off_edge_cursor, &bands);
     emit_gradient_upload(builder, off_state, off_item, off_header, off_grad_cursor);
     // bug-484: after the edge upload (which zeroes the slice fields for non-polygons)
     // and before the split, so both records of a split picture name its texels.

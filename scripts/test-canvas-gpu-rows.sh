@@ -115,6 +115,7 @@ fillrules|fill_rules_on_black|render
 squarecaps|square_caps_on_black|render
 joins|joins_on_black|render
 dashes|dashes_on_black|render
+pathclips|path_clips_on_black|render
 polygonsblack|large_polygons_on_black|render
 smallpolysblack|small_polygons_on_black|render
 rectsblack|rectangles_on_black|render

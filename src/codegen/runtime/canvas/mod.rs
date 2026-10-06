@@ -445,11 +445,11 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize =
 /// 16 bytes (`glslangValidator -V -q mfb_canvas.vert`; 208 with members at
 /// 0/16/.../192 when plan-116-F added the gradient axis `ivec4`, 272 with the four
 /// residual `ivec4`s at 208/224/240/256 since bug-735, 288 with plan-163-B's
-/// `strokeStyle` at 272), matching the
+/// `strokeStyle` at 272; plan-163-C's `clipBand` at 288 and `clipPath` at 304), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 288;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 320;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -615,6 +615,18 @@ pub(crate) const ITEM_STROKE_JOIN_BASE: usize = 0;
 pub(crate) const ITEM_STROKE_JOIN_COUNT: usize = 4;
 pub(crate) const ITEM_STROKE_DASH_BASE: usize = 8;
 pub(crate) const ITEM_STROKE_DASH_COUNT: usize = 12;
+/// plan-163-C: a path clip's band header -- top, height, band count, table offset, the
+/// shape of `arcCaps`'s polygon band header -- for the clip's own edges; band count 0
+/// walks every clip edge.
+pub(crate) const ITEM_OFFSET_CLIP_BAND: usize = 288;
+/// plan-163-C: the clip's words -- its first edge in the frame's edge region and its edge
+/// count (a path clip), its mode (0 none, 1 rectangle, 2 path) with its FillRule ordinal
+/// shifted left 2, and a picture's transparency step T.
+pub(crate) const ITEM_OFFSET_CLIP_PATH: usize = 304;
+pub(crate) const ITEM_CLIP_PATH_BASE: usize = 0;
+pub(crate) const ITEM_CLIP_PATH_COUNT: usize = 4;
+pub(crate) const ITEM_CLIP_PATH_MODE: usize = 8;
+pub(crate) const ITEM_CLIP_PATH_PICTURE_T: usize = 12;
 /// The word inside `ITEM_OFFSET_ARC` holding an arc's `reflex` flag, 0 or 1 (bug-735):
 /// `endAngle - startAngle > PI`, decided by the emitter in the oracle's own f64
 /// (`__canvas_drawGeometry`), so the sweep test's union-or-intersection choice cannot
@@ -1116,6 +1128,11 @@ pub(crate) const HEADER_DASH_PHASE: usize = 50;
 /// plan-163-C: `__CANVAS_GEO_CLIP_EDGE_COUNT` -- a path clip's edges, five floats each,
 /// which sit between the dash tail and the gradient stops.
 pub(crate) const HEADER_CLIP_EDGE_COUNT: usize = 52;
+/// plan-163-C: `__CANVAS_GEO_CLIP_MODE`, `__CANVAS_GEO_CLIP_RULE` and
+/// `__CANVAS_GEO_PICTURE_TRANSPARENCY`, copied into the item block's `clipPath`.
+pub(crate) const HEADER_CLIP_MODE: usize = 51;
+pub(crate) const HEADER_CLIP_RULE: usize = 53;
+pub(crate) const HEADER_PICTURE_TRANSPARENCY: usize = 54;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one **frame** may carry on the Vulkan path.

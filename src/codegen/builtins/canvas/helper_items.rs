@@ -165,11 +165,11 @@ FUNC __canvas_clipPathSurface(offset AS Integer, px AS Float, py AS Float, qx AS
 END FUNC
 
 ' plan-163-C: a glyph's clip coverage -- a path clip at the glyph's shape-space point
-' (`qx`, `qy`; a glyph is a bitmap, so there is no distance gradient to divide by), a
-' rectangle at its group-relative one (`px`, `py`).
+' (`qx`, `qy`) divided by the clip's own gradient (`__canvas_clipPathSurface`), as a
+' shape's is; a rectangle at its group-relative point (`px`, `py`).
 FUNC __canvas_glyphClip(offset AS Integer, qx AS Float, qy AS Float, px AS Float, py AS Float) AS Integer
   IF __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0 THEN
-    RETURN __canvas_coverage(__canvas_clipPathDistance(offset, qx, qy))
+    RETURN __canvas_coverage(__canvas_clipPathSurface(offset, px, py, qx, qy, __canvas_hasTransform(offset)))
   END IF
   RETURN __canvas_clipCoverage(offset, px, py)
 END FUNC
