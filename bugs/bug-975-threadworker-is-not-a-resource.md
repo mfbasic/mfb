@@ -43,16 +43,18 @@ reached it. plan-156-F's migration and its rejection fixture
 (`tests/syntax/threads/let_thread_binding_invalid/`) cover only `= thread::start` (parent)
 bindings. Its census regex was `^(\s*)(LET|MUT)\s+(\w+)(\s+AS\s+Thread OF[^=]*)?\s*=\s*thread::start`.
 
-**Root-cause fix direction:** separate "is a resource" from "has a user/scope close op".
-The worker view is a resource whose close is runtime-owned. Resource predicates and the
-`RES`-binding rule must include `ThreadHandle { worker: true }`, while scope cleanup of a
-worker-view alias still emits no close (the runtime closes it at return).
+**Owner rule (2026-10-05): no special cases.** `Thread` and `ThreadWorker` are 100% normal
+resources. The only new thing is that the `ThreadWorker` resource has no close. So the fix
+is not a `ThreadHandle { worker: true }` arm. It removes the coupling: "is a resource" must
+not be decided by "has a close op". A resource type with no close is still a resource for
+every predicate (`is_resource_or_resource_union`, `is_resource_type`, the `RES`-binding rule,
+moves, aliasing, storage), and its scope cleanup simply emits no close. Any
+`ThreadHandle`-specific branches that only exist to compensate (e.g. plan-156-E's
+`thread_view` STATE carve-out in `parse_params`) are removed rather than extended.
 
-**Parameter spelling (settled by plan-156-E, no owner question):** a resource *parameter*
-needs no `RES` keyword ("A resource parameter needs no `RES` (verified 2026-09-24)",
-`plan-156-E-thread-view-state.md` §3). So `worker AS ThreadWorker OF … [STATE W]` stays valid
-as the entry's first parameter, exactly like any other resource parameter. Only `LET`/`MUT`
-*bindings* of a worker view become `TYPE_RESOURCE_REQUIRES_RES`.
+**Parameter spelling:** parameters no longer take `RES` at all. A parameter is a resource
+because its type is one (owner decision, **bug-976**). So the worker entry is
+`worker AS ThreadWorker OF … [STATE W]` with no keyword, like every other resource parameter.
 
 ## Verified today (HEAD 846aa55fd, `/tmp/hardening/mfb-165`, `/tmp/hardening/coord/tw`)
 
@@ -85,8 +87,8 @@ Contrast: a parent `Thread` is a resource. `LET`/`MUT` binding is
 - `ThreadWorker` is classified as a resource everywhere `Thread` is (`is_resource_type`,
   `is_builtin_resource_type` in `src/codegen/resource/mod.rs`, the shape checker's
   `is_resource_type`). `LET`/`MUT` bindings of it are `TYPE_RESOURCE_REQUIRES_RES`.
-- The worker entry's first parameter keeps today's spelling (a resource parameter needs no
-  `RES`, plan-156-E). Only `LET`/`MUT` bindings change.
+- The worker entry's first parameter is a resource parameter by its type, with no `RES`
+  keyword (bug-976). Only `LET`/`MUT` *bindings* of a worker view change.
 - It has no user or scope close. The runtime closes the worker view at worker return (plan-156-A). Scope cleanup of a `RES` alias never tears down the running worker. A
   `RES t2 = t` alias follows the same Resource/alias rules the owner set for bug-843
   (one Resource, `RES` bindings are aliases, scope raised, never closed twice).
