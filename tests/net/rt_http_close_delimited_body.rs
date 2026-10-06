@@ -315,10 +315,8 @@ fn status_204_completes_without_waiting_for_the_peer_to_close() {
 
 #[test]
 fn status_304_completes_without_waiting_for_the_peer_to_close() {
-    let (elapsed, stdout, status) = run_against_held_open_peer(
-        b"HTTP/1.1 304 Not Modified\r\n\r\n",
-        Duration::from_secs(6),
-    );
+    let (elapsed, stdout, status) =
+        run_against_held_open_peer(b"HTTP/1.1 304 Not Modified\r\n\r\n", Duration::from_secs(6));
     assert!(status.success(), "client failed:\n{stdout}");
     assert!(stdout.contains("status=304"), "got:\n{stdout}");
     assert!(stdout.contains("bodylen=0"), "got:\n{stdout}");
