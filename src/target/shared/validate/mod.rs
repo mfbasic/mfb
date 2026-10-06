@@ -178,6 +178,9 @@ fn type_owns_resource(type_: &ParameterType) -> bool {
 /// an arena. The union half is unchanged — a `{tag, record-ptr}` block really
 /// does make drop dispatch tag-dependent.
 fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
+    // bug-851: a `RESOURCE`-declared variant is a resource variant too.
+    let declared_resources =
+        crate::codegen::engine::validation::validation::module_resource_names(module);
     for type_ in &module.types {
         match type_.kind.as_str() {
             "union" => {
@@ -187,9 +190,10 @@ fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
                 let mut has_resource = false;
                 let mut has_data = false;
                 for variant in &type_.variants {
-                    let is_resource = crate::codegen::builtins::is_resource_type(
-                        &crate::types::ParameterType::declared(&variant.name),
-                    ) || variant
+                    let variant_type = crate::types::ParameterType::declared(&variant.name);
+                    let is_resource = crate::codegen::builtins::is_resource_type(&variant_type)
+                        || declared_resources.contains(&variant_type)
+                        || variant
                         .fields
                         .iter()
                         .any(|field| type_owns_resource(&field.type_));

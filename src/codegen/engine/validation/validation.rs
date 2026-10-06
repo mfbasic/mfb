@@ -243,6 +243,32 @@ impl CodeFunction {
 /// `check_union_variant_tag` rejection).
 /// plan-140-B: codegen's built-in resolver oracle — `TypeModel` knows every
 /// enum the module declares or imports.
+/// The project-declared resource nominals of `module` (`RESOURCE R CLOSE BY …`
+/// and imported native resources), keyed by the bare declared type: the
+/// `TypeModel::resource_names` set, for a module-level pass that has no
+/// `TypeModel` (bug-851: the plan's union close imports and the NIR union
+/// backstop asked the built-in table alone, so a union over a declared resource
+/// was "data").
+///
+/// A project that declares its own `RESOURCE R CLOSE BY …` alongside a `LINK`
+/// block carries the resource only on the link functions that produce it —
+/// `module.types` has no entry for it — so the names are derived from there as
+/// well as from the `"resource"` type kind.
+pub(crate) fn module_resource_names(module: &NirModule) -> HashSet<ParameterType> {
+    let mut names: HashSet<ParameterType> = module
+        .types
+        .iter()
+        .filter(|type_| type_.kind == "resource")
+        .map(|type_| ParameterType::declared(&type_.name))
+        .collect();
+    for function in &module.link_functions {
+        if function.return_resource {
+            names.insert(function.return_type.without_state());
+        }
+    }
+    names
+}
+
 impl crate::codegen::builtins::TypeKinds for TypeModel {
     fn is_enum(&self, t: &ParameterType) -> bool {
         self.is_enum_type(t)
@@ -369,9 +395,8 @@ impl TypeModel {
                         );
                     }
                 }
-                "resource" => {
-                    resource_names.insert(ParameterType::declared(&type_.name));
-                }
+                // Collected once, below, by `module_resource_names`.
+                "resource" => {}
                 other => {
                     return Err(format!(
                         "native code plan does not know type kind '{other}'"
@@ -379,15 +404,7 @@ impl TypeModel {
                 }
             }
         }
-        // A project that declares its own `RESOURCE R CLOSE BY …` alongside a
-        // `LINK` block carries the resource only on the link functions that
-        // produce it — `module.types` has no entry for it — so the names are
-        // derived from there as well as from the `"resource"` kind above.
-        for function in &module.link_functions {
-            if function.return_resource {
-                resource_names.insert(function.return_type.without_state());
-            }
-        }
+        resource_names.extend(module_resource_names(module));
         // bug-546: the sendable subset, which only the `RESOURCE` declaration
         // knows. `resource_names` above is derived from `module.types` and the
         // `LINK` functions that produce a resource, neither of which carries the

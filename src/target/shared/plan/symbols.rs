@@ -62,14 +62,19 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     for function in &module.functions {
         collect_bind_type_names(&function.body, &mut bind_types);
     }
+    // bug-851: a `RESOURCE`-declared variant counts toward an all-resource union;
+    // its own close is a LINK thunk the module already emits, so only the
+    // built-in variants' close helpers are added below.
+    let declared_resources =
+        crate::codegen::engine::validation::validation::module_resource_names(module);
     for type_ in &module.types {
         if type_.kind != "union"
             || !bind_types.contains(&type_.name)
             || type_.variants.is_empty()
             || !type_.variants.iter().all(|variant| {
-                crate::codegen::builtins::is_resource_type(&crate::types::ParameterType::declared(
-                    &variant.name,
-                ))
+                let variant = crate::types::ParameterType::declared(&variant.name);
+                crate::codegen::builtins::is_resource_type(&variant)
+                    || declared_resources.contains(&variant)
             })
         {
             continue;
@@ -184,14 +189,19 @@ pub(super) fn platform_imports(
     for function in &module.functions {
         collect_bind_type_names(&function.body, &mut bind_types);
     }
+    // bug-851: a `RESOURCE`-declared variant counts toward an all-resource union;
+    // its own close is a LINK thunk the module already emits, so only the
+    // built-in variants' close helpers are added below.
+    let declared_resources =
+        crate::codegen::engine::validation::validation::module_resource_names(module);
     for type_ in &module.types {
         if type_.kind != "union"
             || !bind_types.contains(&type_.name)
             || type_.variants.is_empty()
             || !type_.variants.iter().all(|variant| {
-                crate::codegen::builtins::is_resource_type(&crate::types::ParameterType::declared(
-                    &variant.name,
-                ))
+                let variant = crate::types::ParameterType::declared(&variant.name);
+                crate::codegen::builtins::is_resource_type(&variant)
+                    || declared_resources.contains(&variant)
             })
         {
             continue;

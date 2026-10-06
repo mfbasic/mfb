@@ -1,12 +1,12 @@
 # bug-851: a `RESOURCE`-declared (LINK) resource type is treated as plain data by the comparability and union-classification checks
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/native/<new> + verifier unit tests (proposed)
+Status: Fixed
+Regression Test: tests/syntax/native/native-declared-resource-not-comparable-invalid; tests/rt-behavior/native/native-declared-resource-union-rt
 
 Two verifier predicates decide "is this a resource?" with
 `src/ir/verify/mod.rs:is_resource_name`, which consults only the **built-in** close
@@ -158,3 +158,69 @@ Immune: built-in resources (in that table); paths that use
 
 One builtin-only predicate; the fix is mechanical, the audit of remaining
 `is_resource_name` callers is where the risk is.
+
+## Resolution
+
+**Verifier.** `is_comparable_seen` and the union classifier in `types.rs` now ask
+`TypeEnv::is_resource_base` (a declared/imported resource or a built-in one, the
+predicate every other resource rule uses since bug-975). Neither asks the built-in
+close table any more. `is_resource_name` had only those two callers
+(`grep -rn is_resource_name src`) and is deleted.
+
+**Codegen.** Once `{ Tr, Tr2 }` and `{ Tr, fs::File }` are resource unions, every
+resource-union site has to agree. The doc's case 4 failed in codegen even before
+the verifier change, so these sites were in scope. Each site asked the built-in
+`is_resource_type` alone and now asks the `TypeModel`'s `is_resource_nominal`,
+which includes `resource_names`:
+
+- `builder_values.rs`: `UnionWrap` (whether the variant is a bare handle, and the
+  payload word count) and `UnionExtract` (load the handle at +8).
+- `builder_collection_layout.rs`: `inline_collection_payload_size`'s union
+  sizing, `union_is_data`, and `type_contains_resource`.
+- `builder_resource_cleanup.rs:resource_union_variants`: the tag-dispatched drop
+  table. The declared close op resolves through `resource_cleanup_symbol`, which
+  already handled user resources (bug-374).
+- `builder_arena_transfer.rs`: the resource-union variant copy.
+
+The module-level passes have no `TypeModel`. They now share a new
+`validation::module_resource_names(module)`. `TypeModel`'s own `resource_names` is
+built from it too: the collection code was moved there, not copied. These passes
+are the union close-import scan in `plan/symbols.rs` (both functions),
+`module_analysis.rs:module_drops_resource_union_close`, and the NIR backstop
+`validate/mod.rs:validate_resource_rules`, which would otherwise have refused
+`{ Tr, fs::File }` as mixed.
+
+Measured (macOS AArch64, the doc's repros built with the fixed compiler):
+
+- (1) `a = b`, (2) `contains(xs, a)`, (3) `x = y` on `H { h AS RES Tr }`: each is now
+  `2-203-0061 TYPE_REQUIRES_COMPARABLE` with file and line. The messages are the
+  same as for `fs::File`, apart from the type name.
+- (5) `UNION MD { Tr, D }`: `2-203-0087 TYPE_MIXED_RESOURCE_UNION`.
+- (4) `UNION Duo { Tr, Tr2 }` builds and runs. Two bindings close B2 then A1
+  (reverse declaration order), once each. `UNION Mixed { Tr, fs::File }` builds; its
+  `Tr` variant closes through `c::release` and its `fs::File` variant reads
+  `hello` and closes.
+- Before (base): (1)/(2) printed `FALSE`/`TRUE`; (3) gave
+  `error: native comparable comparison does not support type 'RES Tr'`; (4) gave
+  `union wrap member 'Tr' is not a record`; (5) printed `bound`; `{ Tr, fs::File }`
+  gave `TYPE_MIXED_RESOURCE_UNION`.
+
+Checks: `cargo test --bin mfb verify` (516 passed), `cargo test --test
+no_type_strings` (7 passed; the moved `ParameterType::declared` stays within the
+ratchet). `scripts/test-accept.sh` over the 193 native/resources/union fixtures gave
+53 mismatches, all bug-976's predicted class: `.ast` plus the 10 `build.log` whose
+sources dropped a parameter `RES`. None of them gained or lost a
+`TYPE_REQUIRES_COMPARABLE`/`TYPE_MIXED_RESOURCE_UNION` line (`diff … | grep -c` = 0).
+
+## Pre-existing, not changed here
+
+A LINK-declared resource's record is never freed at drop (`--debug`: 2 blocks, 128 B
+per bind/drop of a plain `RES t AS Tr`, the same with main at 468ff0f94).
+`resource_record_freed_at_drop` deliberately keeps native `LINK` records as
+tombstones ("producers … this analysis has not audited"). The new union fixture
+inherits the same per-variant bytes.
+
+## Golden impact
+
+None beyond the two new fixtures. `scripts/artifact-gate.sh … all` gave 62 diffs, exactly bug-976's base set
+(61 `.ast` + `app-mouse-surface` `.nir`), with no `.ncode`/`.ncodesum`/`.nplan` diff.

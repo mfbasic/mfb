@@ -45,7 +45,8 @@ impl CodeBuilder<'_> {
                 .type_model
                 .variants_for_union(type_)
                 .map(|variant| {
-                    if crate::codegen::builtins::is_resource_type(&variant) {
+                    // bug-851: a `RESOURCE`-declared variant is one handle word too.
+                    if self.is_resource_nominal(variant) {
                         1
                     } else {
                         self.type_model
@@ -3357,7 +3358,8 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &ParameterType) -> bool {
     let mut saw_variant = false;
     for variant in model.variants_for_union(&type_) {
         saw_variant = true;
-        if crate::codegen::builtins::is_resource_type(&variant) {
+        // bug-851: a `RESOURCE`-declared variant makes it a resource union too.
+        if is_resource_nominal(model, variant) {
             return false;
         }
     }
@@ -3462,10 +3464,11 @@ pub(crate) fn type_contains_resource(model: &TypeModel, type_: &ParameterType) -
         if !visited.insert(current.clone()) {
             continue;
         }
+        // bug-851: a `RESOURCE`-declared nominal (a resource-union variant) too.
         if matches!(
             current,
             ParameterType::Res(_) | ParameterType::ThreadHandle { .. }
-        ) || crate::codegen::builtins::is_resource_type(&current)
+        ) || is_resource_nominal(model, &current)
         {
             return true;
         }

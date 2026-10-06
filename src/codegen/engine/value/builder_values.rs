@@ -2861,7 +2861,8 @@ impl CodeBuilder<'_> {
                 // A resource-union variant is a bare resource whose payload is
                 // the resource pointer itself (one word at offset 8), not record
                 // fields.
-                let is_resource_variant = crate::codegen::builtins::is_resource_type(&member_type);
+                // bug-851: a `RESOURCE`-declared variant is a bare handle as well.
+                let is_resource_variant = self.is_resource_nominal(member_type);
                 let fields = if is_resource_variant {
                     Vec::new()
                 } else {
@@ -2903,7 +2904,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .variants_for_union(union_type)
                     .map(|variant| {
-                        if crate::codegen::builtins::is_resource_type(&variant) {
+                        if self.is_resource_nominal(variant) {
                             1
                         } else {
                             self.type_model
@@ -2963,7 +2964,7 @@ impl CodeBuilder<'_> {
             NirValue::UnionExtract { type_, value } => {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
-                if crate::codegen::builtins::is_resource_type(&type_) {
+                if self.is_resource_nominal(type_) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register();
                     self.emit(abi::load_u64(&register, &source.location, 8));

@@ -140,7 +140,10 @@ impl TypeEnv {
                     let resource_variants = ty
                         .variants
                         .iter()
-                        .filter(|v| is_resource_name(&v.name))
+                        // bug-851: a declared `RESOURCE` is a resource here too, so
+                        // `{ Tr, Tr2 }` and `{ Tr, fs::File }` are resource unions
+                        // and `{ Tr, D }` is mixed.
+                        .filter(|v| self.is_resource_base(&ParameterType::declared(&v.name)))
                         .count();
                     if resource_variants > 0 && resource_variants < ty.variants.len() {
                         self.emit(

@@ -259,7 +259,9 @@ impl CodeBuilder<'_> {
         }
         let mut out = Vec::new();
         for variant in variants {
-            if !crate::codegen::builtins::is_resource_type(&variant) {
+            // bug-851: a `RESOURCE`-declared variant closes through its declared
+            // op, which `resource_cleanup_symbol` already resolves.
+            if !self.is_resource_nominal(&variant) {
                 return None;
             }
             let tag = *self.type_model.union_variant_tags.get(&variant)?;
