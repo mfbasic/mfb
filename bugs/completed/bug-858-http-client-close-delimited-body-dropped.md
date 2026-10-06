@@ -171,3 +171,60 @@ Checks run (all under the shared build lock):
 Spec updated in the same change: `src/docs/spec/stdlib/05_http.md` §Body
 Decoding now states the Content-Length truncation and the close-delimited
 read-to-EOF case explicitly.
+
+### Regression found in review, fixed in the same bug
+
+Coordinator review measured that the `-2` sentinel above made EVERY response
+with no `Content-Length` and no chunked framing wait for EOF, which wrongly
+included `1xx`/`204`/`304` (both `204` and `304` commonly carry no
+`Content-Length`). RFC 9112 §6.3 rules 1-2 make those statuses categorically
+bodyless regardless of any framing header present — matching
+`__http_decodeBody`, which already discards the body for `204`/`304` on that
+basis.
+
+Fix: a new helper, `__http_statusOfHead` (duplicates
+`__http_parseStatusLine`'s status-line walk but never raises, returning `-1`
+for anything it cannot parse — a malformed status line still surfaces from
+`finish`'s parse, not from `done`'s completion check, so `done`'s declared
+Errors table is unchanged). `__http_frameComplete` now checks the status via
+this helper and returns `TRUE` immediately for `100..199`, `204`, or `304`,
+before the Content-Length/chunked/close-delimited arms.
+
+Measured against the coordinator's probe (`/tmp/bs16-rev/b858`, a server that
+replies then holds the socket open 6s):
+
+| case | before this fix | after this fix |
+|---|---|---|
+| `204 No Content` | 6s | 0s |
+| `304 Not Modified` | 6s | 0s |
+| `200 OK` + `Content-Length: 2` | 0s | 0s (unchanged) |
+
+New RED-then-green cases in `tests/net/rt_http_close_delimited_body.rs`:
+`status_204_completes_without_waiting_for_the_peer_to_close` and
+`status_304_completes_without_waiting_for_the_peer_to_close`, both against a
+peer that holds the connection open 6s after replying and assert the client
+finishes in under 3s. RED on the first fix (6.16s / 6.31s measured); green
+after this one. The other 3 cases in the same file (close-delimited split
+reads, the non-blocking drive, Content-Length truncation) stay green —
+re-ran after this change, no regression.
+
+**Known limitation, documented rather than fixed.** A `HEAD` response is also
+categorically bodyless (RFC 9112 §6.3 rule 1), but `PendingState` (the
+`EXPORT RECORD` a `Stream`'s STATE carries) has no `method` field — only
+`sentAll`/`closed`/`raw`/`err` — and `__http_startExchange` discards the
+`method` it was given after building the request. `__http_frameComplete`
+therefore cannot distinguish a `HEAD` response from a `GET` response carrying
+the same headers, so a `HEAD` reply whose head declares `Content-Length` (the
+length the body *would* have been for `GET`) still falls through to the
+Content-Length arm and waits for however many bytes never arrive — exiting
+only via the peer's close (`state.closed`), not immediately at the head.
+Measured: a `HEAD` request against a server that answers
+`HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n` (correctly sending zero body
+bytes) and then holds the socket open 6s before closing — the client reports
+the correct `status=200 bodylen=0`, but takes 6s instead of 0s. This is not a
+regression from either fix above (the Content-Length arm's `have >= framing`
+behavior for a nonzero `framing` is unchanged by this bug); it is a
+pre-existing gap this bug doc does not close, because closing it needs
+`method` threaded into `PendingState` — a new field on an `EXPORT` record,
+which is an observable API surface change beyond what this bug doc settles
+and so is left for a follow-up bug/plan rather than folded in here.
