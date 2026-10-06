@@ -45,6 +45,7 @@ r#"FUNC __encoding_codepageEncode(codepage AS Codepage, text AS String) AS List 
     RETURN __encoding_utf8Encode(text)
   END IF
   LET table AS String = __encoding_codepageTable(codepage)
+  LET tablePoints AS List OF Integer = __encoding_codepoints(table)
   MUT out AS List OF Byte = []
   ' bug-861: a codepage maps SCALARS, not graphemes. Walking `strings::graphemes`
   ' and rejecting anything wider than one scalar rejected "\r\n" (one grapheme,
@@ -62,11 +63,26 @@ r#"FUNC __encoding_codepageEncode(codepage AS Codepage, text AS String) AS List 
       IF point = 65533 THEN
         FAIL error(77050003, "character not representable in this codepage")
       END IF
-      LET ch AS String = __encoding_fromCodepoint(point)
-      IF NOT strings::contains(table, ch) THEN
+      ' bug-861 review: compare the code point directly against the table's own
+      ' code points -- never convert `point` back to a one-character String.
+      ' `__encoding_fromCodepoint` + `strings::find`/`contains` used to build
+      ' that String, but `fromCodepoint` builds it via `toString(List OF Byte)`,
+      ' whose declared errors include ErrEncoding for an arbitrary byte list; a
+      ' code-point comparison can never need that, and FOR EACH (a language
+      ' construct, not a `collections::get(` call) keeps the index search out of
+      ' the declared-errors sweep too.
+      MUT idx AS Integer = -1
+      MUT scan AS Integer = 0
+      FOR EACH tablePoint IN tablePoints
+        IF tablePoint = point THEN
+          idx = scan
+        END IF
+        scan = scan + 1
+      NEXT
+      IF idx < 0 THEN
         FAIL error(77050003, "character not representable in this codepage")
       END IF
-      out = collections::append(out, toByte(strings::find(table, ch) + 128))
+      out = collections::append(out, toByte(idx + 128))
     END IF
   NEXT
   RETURN out
