@@ -560,6 +560,10 @@ name = "rt_callback_failure_reaches_trap"
 path = "tests/runtime/rt_callback_failure_reaches_trap.rs"
 
 [[test]]
+name = "rt_exit_program_through_inline_trap"
+path = "tests/runtime/rt_exit_program_through_inline_trap.rs"
+
+[[test]]
 name = "rt_callback_failure_frees"
 path = "tests/runtime/rt_callback_failure_frees.rs"
 
