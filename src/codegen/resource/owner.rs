@@ -457,9 +457,7 @@ impl CodeBuilder<'_> {
         let closed = self.label("discarded_close_ok");
         self.emit(abi::move_register(abi::return_register(), &value));
         self.emit_symbol_call(&close);
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&closed));
-        self.record_secondary_cleanup_failure();
+        self.emit_drop_close_outcome(&closed);
         self.emit(abi::label(&closed));
         self.emit_resource_block_reclaim(
             slot,

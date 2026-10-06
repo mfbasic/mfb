@@ -515,9 +515,7 @@ impl CodeBuilder<'_> {
                 )?;
                 self.emit(abi::move_register(abi::return_register(), &record));
                 self.emit_symbol_call(&close);
-                self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-                self.emit(abi::branch_eq(&close_ok));
-                self.record_secondary_cleanup_failure();
+                self.emit_drop_close_outcome(&close_ok);
                 self.emit(abi::label(&close_ok));
                 if cleanup.owns_elements {
                     // Ordered after the close, exactly as `emit_resource_cleanup_call`

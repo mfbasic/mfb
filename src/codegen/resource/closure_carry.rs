@@ -477,8 +477,8 @@ impl CodeBuilder<'_> {
 
     /// Close the record in `record_slot` by `leaf`'s close op — for a resource-union
     /// leaf, the close op of the variant whose tag is in `tag_slot` — then branch to
-    /// `next`. A close of an already-closed handle is the defined no-op; any other
-    /// failure is recorded like every drop-close failure. With `reclaim`, the
+    /// `next`. A close of an already-closed or moved handle is the defined no-op;
+    /// any other failure is recorded like every drop-close failure. With `reclaim`, the
     /// record's buffers and `STATE` are reclaimed behind the close, never the record
     /// itself. The caller has already decided this record is to be closed.
     pub(crate) fn emit_listed_record_close(
@@ -517,19 +517,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
             self.emit(abi::move_register(abi::return_register(), &record));
             self.emit_symbol_call(&close);
-            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-            self.emit(abi::branch_eq(&closed));
-            let closed_code = self.temporary_vreg();
-            self.emit(abi::move_immediate(
-                &closed_code,
-                "Integer",
-                crate::codegen::registry::runtime_error("ErrResourceClosed")
-                    .expect("errorCode name")
-                    .0,
-            ));
-            self.emit(abi::compare_registers(RESULT_VALUE_REGISTER, &closed_code));
-            self.emit(abi::branch_eq(&closed));
-            self.record_secondary_cleanup_failure();
+            self.emit_drop_close_outcome(&closed);
             self.emit(abi::label(&closed));
             if reclaim {
                 if union {
