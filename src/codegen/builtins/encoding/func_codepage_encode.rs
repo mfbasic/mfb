@@ -24,9 +24,17 @@ selected codepage has no byte for — `世` in `windows-1252`, or a non-Greek le
 above `U+007F` in `ISO-8859-7` — is rejected with `ErrInvalidFormat` (`77050003`)
 rather than replaced by `?` or an HTML numeric reference. Substituting is a policy
 decision this call does not make for you: catch the error and substitute yourself if
-that is what your format wants. The same holds for a combining sequence such as
-`e` followed by `U+0301`, which no single-byte codepage has one byte for, and for
-`U+FFFD` itself.
+that is what your format wants. `U+FFFD` itself is always rejected, even for a
+codepage whose table happens to hold a byte at that slot's index.
+
+A codepage maps Unicode **scalars**, not graphemes: `text` is encoded one scalar
+at a time, so a multi-scalar grapheme — `"\r\n"` (one grapheme, two scalars in
+this runtime), or a base letter followed by a combining mark some codepages spell
+as their own byte (Windows-1258's combining acute, Windows-1255's Hebrew points,
+ISO-8859-6's Arabic harakat) — encodes successfully whenever every one of its
+scalars is in the table, as however many bytes it has scalars. Only a scalar the
+table has no slot for (or `U+FFFD`) raises; it does not matter whether that
+scalar is standalone or part of a larger grapheme.
 
 Use `encoding::utf8Encode` when the target really is UTF-8 and no codepage
 dispatch is needed. `ErrOutOfMemory` means the program ran out of memory."#;
@@ -38,20 +46,23 @@ r#"FUNC __encoding_codepageEncode(codepage AS Codepage, text AS String) AS List 
   END IF
   LET table AS String = __encoding_codepageTable(codepage)
   MUT out AS List OF Byte = []
-  FOR EACH ch IN strings::graphemes(text)
-    ' A grapheme wider than one scalar has no single-byte form at all.
-    IF len(ch) <> 1 THEN
-      FAIL error(77050003, "character not representable in this codepage")
-    END IF
-    LET point AS Integer = collections::get(__encoding_codepoints(ch), 0)
+  ' bug-861: a codepage maps SCALARS, not graphemes. Walking `strings::graphemes`
+  ' and rejecting anything wider than one scalar rejected "\r\n" (one grapheme,
+  ' two scalars, in this runtime) and a base letter plus a combining mark the
+  ' codepage spells as its own byte (Windows-1258's combining acute, Windows-1255's
+  ' Hebrew points, ISO-8859-6's Arabic harakat) -- breaking the decode/encode round
+  ' trip for exactly the content those codepages carry. Walking scalars instead
+  ' encodes each one independently, which is what the table actually indexes.
+  FOR EACH point IN __encoding_codepoints(text)
     IF point < 128 THEN
       out = collections::append(out, toByte(point))
     ELSE
       ' Reject the hole sentinel BEFORE searching, or it matches an unmapped slot
-      ' and this would emit that slot's byte.
-      IF ch = "\u{FFFD}" THEN
+      ' and this would emit that slot's byte. U+FFFD = 65533.
+      IF point = 65533 THEN
         FAIL error(77050003, "character not representable in this codepage")
       END IF
+      LET ch AS String = __encoding_fromCodepoint(point)
       IF NOT strings::contains(table, ch) THEN
         FAIL error(77050003, "character not representable in this codepage")
       END IF

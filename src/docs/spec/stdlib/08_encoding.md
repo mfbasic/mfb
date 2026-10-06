@@ -163,11 +163,15 @@ byte↔code-point mapping.
   input or fails — the standard's replacement-character error mode is a caller
   policy, not this package's.
 - **Encoding** is the same table read backwards, and is exact: within any one index
-  no code point appears twice, so a character maps to at most one byte. A scalar
-  below `U+0080` emits its own byte; anything else is searched for in the table. A
-  character the codepage cannot spell — including a grapheme wider than one scalar,
-  and including `U+FFFD` itself, which must be rejected before the search or it
-  would match a table hole — raises `ErrInvalidFormat`.
+  no code point appears twice, so a character maps to at most one byte. Encoding
+  walks `text` one Unicode **scalar** at a time, not one grapheme: a scalar below
+  `U+0080` emits its own byte, anything else is searched for in the table, and a
+  multi-scalar grapheme (`"\r\n"`, or a base letter followed by a combining mark a
+  codepage spells as its own byte) encodes to one byte per scalar whenever every
+  scalar is in the table. A scalar the codepage cannot spell — including `U+FFFD`
+  itself, which must be rejected before the search or it would match a table hole —
+  raises `ErrInvalidFormat`, regardless of whether it stood alone or inside a larger
+  grapheme.
 - **Round-trip.** For every single-byte `Codepage`, every byte sequence that decodes
   without raising re-encodes to exactly those bytes.
 - **`Codepage.Utf8`** is not a single-byte codepage: both directions delegate to

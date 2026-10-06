@@ -114,3 +114,67 @@ the existing per-scalar `U+FFFD` sentinel check and table search.
 
 - `__encoding_codepageEncode`: fixed by this bug. The spec sentence "including a grapheme wider than one scalar" must be corrected in the same change.
 - `__encoding_codepageDecode`: unaffected (byte-wise, verified).
+
+## Golden impact
+
+- Every fixture under `tests/rt-behavior/encoding/**`, `tests/rt-error/encoding/**`
+  and `tests/byte-identity/encoding/**` that embeds the assembled `encoding`
+  package source has its `.ir` golden move, because `Body::mfb` injects
+  `__encoding_codepageEncode`'s source verbatim into every program that imports
+  `encoding`, and every *other* function's line numbers in that assembled file
+  shift along with it (`.ai/compiler.md`: editing one member's description/body
+  shifts line numbers in every `.ir` golden of that package). Measured:
+  `scripts/test-accept.sh target/release/mfb '*' 'func_encoding_codepage*'` →
+  4 `.ir` mismatches (`func_encoding_codepageEncode_rt`,
+  `func_encoding_codepageDecode_rt`, `func_encoding_codepageEncode_unrepresentable`,
+  `func_encoding_codepageDecode_unmapped`), all pure content/line-number diffs
+  in the injected helper body — their `.ast`/`.run` goldens (observable output)
+  are byte-identical, and the two `syntax/encoding/*_invalid` fixtures have no
+  mismatch at all.
+  `scripts/artifact-gate.sh target/release/mfb encoding` → 6/7 mismatches, all
+  `encoding_codegen_cover_rt` (`.ir` + 5 `.ncode` sums); no other diff.
+- `tests/rt-error/encoding/func_encoding_codepageEncode_unrepresentable`'s `.run`
+  golden is unaffected even though its one borderline case
+  (`"e\u{0301}"` on `Windows1252`) is exactly a multi-scalar grapheme: it still
+  raises, because Windows-1252's table has no entry for `U+0301` either way —
+  only the *reason* changed (grapheme-width check → per-scalar table miss on the
+  combining mark), not the observable "raised" output.
+
+## STATUS: FIXED
+
+`__encoding_codepageEncode` now walks `__encoding_codepoints(text)` (Unicode
+scalars) instead of `strings::graphemes(text)`, converting each scalar `>= 128`
+back to its one-character form with `__encoding_fromCodepoint` before the
+`U+FFFD` check and table search. `U+FFFD` (`65533`) is still rejected before
+the search; an unmappable scalar (standalone or inside a larger grapheme) still
+raises `ErrInvalidFormat`; decode is untouched.
+
+Regression test: `tests/runtime/rt_codepage_encode_multiscalar.rs` — covers the
+one `codepageEncode` overload across all 28 single-byte `Codepage` members
+(CRLF round-trip, universal since `\r`/`\n` are both below `U+0080`), the bug
+doc's three named combining-mark cases (Windows-1258 a+acute → `61ec`,
+Windows-1255 bet+qamats → `e1c8`, ISO-8859-6 alef+fatha → `c7ee`), a `Utf8`
+control, and the non-goals (`U+FFFD`, an unmappable scalar, the empty string).
+RED on current main (all CRLF cases and all three combining-mark cases raise
+`77050003` instead of round-tripping); green after the fix.
+
+Checks run (all under the shared build lock):
+- `cargo test --test rt_codepage_encode_multiscalar` → 4 passed (RED before,
+  green after).
+- `cargo test --bin mfb encoding::` → 16 passed, 0 failed, including
+  `codepage_roundtrip_counts_match_the_vendored_index_files`,
+  `codepage_tables_match_the_vendored_index_files` and
+  `codepage_digests_match_the_vendored_index_files` (the vendored-index
+  differential checks).
+- `scripts/spec-census.sh --render stdlib` → 0 leaks; `--citations stdlib` →
+  0 miss-path/miss-line/miss-symbol.
+- `scripts/test-accept.sh target/release/mfb '*' 'func_encoding_codepage*'` →
+  see Golden impact above (4 `.ir`-only mismatches, no `.ast`/`.run` diff).
+- `scripts/artifact-gate.sh target/release/mfb encoding` → 6/7 mismatches, all
+  `encoding_codegen_cover_rt` (expected codegen drift from the body rewrite).
+
+Spec updated in the same change: `src/docs/spec/stdlib/08_encoding.md`
+§Legacy single-byte codepages' "Encoding" bullet no longer claims a
+multi-scalar grapheme is categorically unrepresentable, and
+`encoding::codepageEncode`'s own descriptor prose (`DESC` in
+`func_codepage_encode.rs`) is corrected the same way.
