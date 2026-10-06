@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/resources/closure-capture-resource-return-order-invalid
+  19 |   RES f AS fs::File = fs::createTempFile()
+  20 |   LET h AS H = H[f]
+  21 |   RETURN LAMBDA() -> fs::size(h.f)
+     | ^
+tests/syntax/resources/closure-capture-resource-return-order-invalid/src/main.mfb:21 error[2-203-0131 TYPE_RESOURCE_RETURN_ORDER]: a container that carries a returned resource must be declared before that resource
+               resource `f` is returned inside `h`, but `h` is declared after it, so it cannot take ownership; declare `h` before `f`
+  26 |   RES f AS fs::File = fs::createTempFile()
+  27 |   LET g AS FUNC() AS Integer = LAMBDA() -> fs::size(f)
+  28 |   RETURN g
+     | ^
+tests/syntax/resources/closure-capture-resource-return-order-invalid/src/main.mfb:28 error[2-203-0131 TYPE_RESOURCE_RETURN_ORDER]: a container that carries a returned resource must be declared before that resource
+               resource `f` is returned inside `g`, but `g` is declared after it, so it cannot take ownership; declare `g` before `f`
+[exit 1]

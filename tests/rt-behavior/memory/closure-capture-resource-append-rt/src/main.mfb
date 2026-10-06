@@ -1,0 +1,163 @@
+' bug-843: a closure's capture works exactly like `collections::append` of a
+' resource into a `List`. Capturing a resource -- directly, or through a value that
+' reaches one -- copies a reference into the closure; when the closure is held in a
+' longer-lived scope the resource's cleanup scope rises to it, and the resource is
+' closed exactly once at the end of that scope. Every case runs beside its `List`
+' twin, and the two must report the same thing.
+'
+' How a close is observed: every file is written with buffering on, so its bytes
+' reach the disk only when it is closed. `[]` reads "still open", `[x]` reads
+' "closed, and the write landed". `churn` opens and closes another file between
+' creating a closure and calling it, so a closure left holding a reclaimed record
+' would write to the wrong file (the original bug read `fs::size` of an unrelated
+' file).
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+TYPE H
+  f AS RES fs::File
+END TYPE
+
+MUT saved AS FUNC(String) AS Integer = LAMBDA(s AS String) -> 0
+
+FUNC path(n AS String) AS String
+  RETURN fs::pathJoin([fs::tempDirectory(), "mfb-bug843-" & n & ".txt"])
+END FUNC
+
+FUNC seen(n AS String) AS String
+  RETURN "[" & fs::readText(path(n)) & "]"
+END FUNC
+
+FUNC put(f AS fs::File, s AS String) AS Integer
+  fs::writeAll(f, s)
+  RETURN len(s)
+END FUNC
+
+FUNC churn() AS Nothing
+  RES other AS fs::File = fs::openFile(path("churn"), "w")
+  fs::writeAll(other, "0123456789")
+END FUNC
+
+FUNC openBuffered(n AS String, seed AS String) AS RES fs::File
+  RES f AS fs::File = fs::openFile(path(n), "w")
+  fs::setBuffered(f, TRUE)
+  fs::writeAll(f, seed)
+  RETURN f
+END FUNC
+
+FUNC mkList(n AS String, seed AS String) AS List OF RES fs::File
+  RES f AS fs::File = openBuffered(n, seed)
+  RETURN [f]
+END FUNC
+
+FUNC mkDirect(n AS String, seed AS String) AS FUNC(String) AS Integer
+  RES f AS fs::File = openBuffered(n, seed)
+  RETURN LAMBDA(s AS String) -> put(f, s)
+END FUNC
+
+FUNC mkRec(h AS H) AS FUNC(String) AS Integer
+  RETURN LAMBDA(s AS String) -> put(h.f, s)
+END FUNC
+
+FUNC wrapRec(h AS H) AS List OF H
+  RETURN [h]
+END FUNC
+
+' A returned closure carries its resource out, as a returned list does.
+FUNC caseReturned() AS Nothing
+  LET xs = mkList("list-returned", "")
+  LET g = mkDirect("returned", "")
+  churn()
+  LET a = put(collections::get(xs, 0), "L")
+  LET b = g("R")
+  io::print("returned list " & seen("list-returned") & " closure " & seen("returned"))
+END FUNC
+
+' A closure built by a callee over a caller's resource, stored in a binding that
+' outlives the resource's own block.
+FUNC caseParam() AS Nothing
+  MUT xs AS List OF H = []
+  MUT g AS FUNC(String) AS Integer = LAMBDA(s AS String) -> 0
+  IF len("x") = 1 THEN
+    RES lf AS fs::File = openBuffered("list-param", "")
+    xs = wrapRec(H[lf])
+    RES f AS fs::File = openBuffered("param", "")
+    g = mkRec(H[f])
+  END IF
+  churn()
+  LET a = put(collections::get(xs, 0).f, "L")
+  LET b = g("P")
+  io::print("param list " & seen("list-param") & " closure " & seen("param"))
+END FUNC
+
+' A closure created in an inner block and stored in an outer binding.
+FUNC caseInner() AS Nothing
+  MUT xs AS List OF RES fs::File = []
+  MUT g AS FUNC(String) AS Integer = LAMBDA(s AS String) -> 0
+  IF len("x") = 1 THEN
+    RES lf AS fs::File = openBuffered("list-inner", "")
+    xs = collections::append(xs, lf)
+    RES f AS fs::File = openBuffered("inner", "")
+    g = LAMBDA(s AS String) -> put(f, s)
+  END IF
+  churn()
+  LET a = put(collections::get(xs, 0), "L")
+  LET b = g("I")
+  io::print("inner list " & seen("list-inner") & " closure " & seen("inner"))
+END FUNC
+
+' A closure appended to an outer list of closures.
+FUNC caseStored() AS Nothing
+  MUT gs AS List OF FUNC(String) AS Integer = []
+  IF len("x") = 1 THEN
+    RES f AS fs::File = openBuffered("stored", "")
+    gs = collections::append(gs, LAMBDA(s AS String) -> put(f, s))
+  END IF
+  churn()
+  LET g = collections::get(gs, 0)
+  LET b = g("S")
+  io::print("stored closure " & seen("stored"))
+END FUNC
+
+' Two holders of one closure refer to one resource, closed once.
+FUNC caseCopy() AS Nothing
+  LET g = mkDirect("copy", "")
+  LET g2 = g
+  LET a = g("C")
+  LET b = g2("2")
+  io::print("copy closure " & seen("copy"))
+END FUNC
+
+' A discarded result closes what nobody took, at the statement.
+FUNC caseDiscarded() AS Nothing
+  mkList("list-discarded", "x")
+  mkDirect("discarded", "x")
+  io::print("discarded list " & seen("list-discarded") & " closure " & seen("discarded"))
+END FUNC
+
+' A closure stored into a module-level binding: the module instance owns the
+' resource until teardown.
+FUNC keep() AS Nothing
+  RES f AS fs::File = openBuffered("global", "")
+  saved = LAMBDA(s AS String) -> put(f, s)
+END FUNC
+
+FUNC main() AS Integer
+  caseReturned()
+  io::print("after returned list " & seen("list-returned") & " closure " & seen("returned"))
+  caseParam()
+  io::print("after param list " & seen("list-param") & " closure " & seen("param"))
+  caseInner()
+  io::print("after inner list " & seen("list-inner") & " closure " & seen("inner"))
+  caseStored()
+  io::print("after stored closure " & seen("stored"))
+  caseCopy()
+  io::print("after copy closure " & seen("copy"))
+  caseDiscarded()
+  keep()
+  churn()
+  LET n = saved("G")
+  io::print("global closure " & seen("global") & " wrote " & toString(n))
+  RETURN 0
+END FUNC

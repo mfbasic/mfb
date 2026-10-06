@@ -1,0 +1,36 @@
+IMPORT io
+IMPORT fs
+
+' bug-843: a closure's capture works exactly like appending to a List, so a
+' returned closure is held to the List rule. Each function below is the closure
+' twin of a List shape that is refused with TYPE_RESOURCE_RETURN_ORDER: the
+' container that leaves the function is declared after the resource it carries,
+' so it cannot take the resource's ownership.
+'
+' Before bug-843 the first shape compiled, and the closure it returned read a
+' record its creator had already closed and reclaimed -- the next file opened
+' reused the block and the closure reported THAT file's size.
+TYPE H
+  f AS RES fs::File
+END TYPE
+
+' The twin of `LET h = H[f]; RETURN [h]`.
+FUNC throughRecord() AS FUNC() AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  LET h AS H = H[f]
+  RETURN LAMBDA() -> fs::size(h.f)
+END FUNC
+
+' The twin of `LET xs AS List OF RES fs::File = [f]; RETURN xs`.
+FUNC throughBinding() AS FUNC() AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  LET g AS FUNC() AS Integer = LAMBDA() -> fs::size(f)
+  RETURN g
+END FUNC
+
+FUNC main() AS Integer
+  LET a = throughRecord()
+  LET b = throughBinding()
+  io::print(toString(a() + b()))
+  RETURN 0
+END FUNC
