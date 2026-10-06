@@ -1945,6 +1945,65 @@ mod tests {
         assert!(X86_64.app().require_gtk());
     }
 
+    /// bug-957: the thread trampoline is a pthread start routine — a C-ABI callee
+    /// that RETURNS to libc. glibc's `start_thread` keeps its `struct pthread *` in
+    /// `s0` across `pd->start_routine(pd->arg)` and dereferences it right after the
+    /// call, so every lp64d callee-saved register (`s0`–`s11`) the trampoline names
+    /// must be saved in its prologue and restored, from the same slot, before its
+    /// `ret`. Missing `s0` (the riscv64 home of `abi::SCRATCH[4]`) SIGSEGVed every
+    /// `thread::start` on riscv64 glibc.
+    #[test]
+    fn riscv64_thread_trampoline_preserves_every_callee_saved_register_it_uses() {
+        use crate::codegen::engine::mir::lower_to_mir_owned;
+        let trampoline = riscv64()
+            .emit_thread_trampoline(
+                &HashMap::new(),
+                true,
+                crate::codegen::engine::types::ArenaInitSymbols::default(),
+            )
+            .expect("emit thread trampoline");
+        let selected = crate::arch::riscv64::select::select_riscv64(lower_to_mir_owned(
+            trampoline.instructions,
+        ));
+        let callee_saved: Vec<String> = (0..=11).map(|n| format!("s{n}")).collect();
+        let is_call = |m: &str| matches!(m, "bl" | "blr");
+        let first_call = selected
+            .iter()
+            .position(|i| is_call(i.op.mnemonic()))
+            .expect("the trampoline calls the worker");
+        let last_call = selected
+            .iter()
+            .rposition(|i| is_call(i.op.mnemonic()))
+            .expect("the trampoline calls the finish helper");
+        let slot = |range: &[CodeInstruction], mnemonic: &str, role: &str, reg: &str| {
+            range
+                .iter()
+                .filter(|i| {
+                    i.op.mnemonic() == mnemonic
+                        && i.get(role).as_deref() == Some(reg)
+                        && i.get("base").as_deref() == Some("sp")
+                })
+                .find_map(|i| i.get("offset"))
+        };
+        for reg in &callee_saved {
+            let used = selected
+                .iter()
+                .any(|i| i.fields.iter().any(|(_, value)| value.to_string() == *reg));
+            if !used {
+                continue;
+            }
+            let saved = slot(&selected[..first_call], "str_u64", "src", reg);
+            let restored = slot(&selected[last_call..], "ldr_u64", "dst", reg);
+            assert!(
+                saved.is_some() && saved == restored,
+                "riscv64 thread trampoline writes callee-saved `{reg}` but does not \
+                 save it in the prologue and restore it from the same slot before \
+                 returning to libc (saved at {saved:?}, restored from {restored:?}) — \
+                 bug-957"
+            );
+        }
+    }
+
     /// bug-408: EVERY x86-64 thread library (glibc `start_thread`, musl's pthread
     /// dispatch, Windows `BaseThreadInitThunk`) `call`s the start-routine, so the
     /// trampoline is entered at `sp%16==8` and needs exactly ONE +8 realign — an
