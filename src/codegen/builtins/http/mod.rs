@@ -47,6 +47,7 @@ mod helper_build_response;
 mod helper_byte_slice;
 mod helper_bytes_match_at;
 mod helper_bytes_to_text;
+mod helper_char_at;
 mod helper_check_response;
 mod helper_chunked_complete;
 mod helper_chunked_scan;
@@ -526,6 +527,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_normalize_method::register(&mut pkg);
     helper_host_header::register(&mut pkg);
     helper_is_hex_digit_char::register(&mut pkg);
+    helper_char_at::register(&mut pkg);
     helper_percent_byte_encode::register(&mut pkg);
     helper_percent_encode_target::register(&mut pkg);
     helper_request_target::register(&mut pkg);

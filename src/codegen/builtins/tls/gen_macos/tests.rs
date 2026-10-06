@@ -233,7 +233,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<CodeInstruction>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_map") }
     fn emit_arena_unmap(&self, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_unmap") }
-    fn addrinfo_addr_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::addrinfo_addr_offset") }
+    fn addrinfo_addr_offset(&self) -> usize { 32 } // Darwin `struct addrinfo`: `ai_addr` at offset 32 (bug-885)
     fn sol_socket(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::sol_socket") }
     fn so_reuseaddr(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_reuseaddr") }
     fn so_rcvtimeo(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_rcvtimeo") }

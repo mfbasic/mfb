@@ -24,14 +24,20 @@ r#"' bug-981: `__http_requestTarget` used to copy the URL's path+query verbatim
 ' not the start of a valid escape is itself encoded to `%25` so the result
 ' always re-parses as a validly escaped target. Control bytes (below 0x20) are
 ' left alone here; they are rejected separately by `__http_hasControlBytes`.
+' Declared-errors review: reads `s` with `__http_charAt` (clamping on
+' `strings::left`/`right`), never `strings::mid` (raises
+' `ErrIndexOutOfRange`) -- the lookahead at `i + 1`/`i + 2` is always within
+' bounds here (guarded by the short-circuited `i + 2 < n` first), but a
+' bounds-safe READ must not cost every caller that reaches this helper a new
+' declared error it has nothing to do with.
 FUNC __http_percentEncodeTarget(s AS String) AS String
   MUT out AS String = ""
   LET n AS Integer = len(s)
   MUT i AS Integer = 0
   WHILE i < n
-    LET c AS String = strings::mid(s, i, 1)
-    IF c = "%" AND i + 2 < n AND __http_isHexDigitChar(strings::mid(s, i + 1, 1)) AND __http_isHexDigitChar(strings::mid(s, i + 2, 1)) THEN
-      out = out & "%" & strings::mid(s, i + 1, 2)
+    LET c AS String = __http_charAt(s, i)
+    IF c = "%" AND i + 2 < n AND __http_isHexDigitChar(__http_charAt(s, i + 1)) AND __http_isHexDigitChar(__http_charAt(s, i + 2)) THEN
+      out = out & "%" & strings::left(strings::right(s, n - (i + 1)), 2)
       i = i + 3
     ELSEIF c = "%" THEN
       out = out & "%25"

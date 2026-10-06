@@ -495,6 +495,7 @@ pub(crate) fn lower_tls_listen_macos(
     let host_ready = format!("{symbol}_host_ready");
     let addr_invalid_fail = format!("{symbol}_addr_invalid_fail");
     let inet_ntop_fail = format!("{symbol}_inet_ntop_fail");
+    let inet_ntop_fail_buf_freed = format!("{symbol}_inet_ntop_fail_buf_freed");
     let resolved_buf_freed = format!("{symbol}_resolved_buf_freed");
     let host_is_numeric = format!("{symbol}_host_is_numeric");
     let wait_loop = format!("{symbol}_wait");
@@ -1513,12 +1514,20 @@ pub(crate) fn lower_tls_listen_macos(
     // `inet_ntop_fail` falls through into this label after freeing the
     // `getaddrinfo` result and the (unused) resolved-host buffer; a bare
     // `getaddrinfo` failure reaches this label directly, with neither to free.
+    // The buffer free is guarded on non-NULL for defence in depth even though
+    // reaching `inet_ntop_fail` already implies the `emit_alloc` above ran
+    // (the branch here is only taken after a successful `getaddrinfo`, which
+    // is the one and only thing that precedes the allocation).
     ins.push(abi::label(&inet_ntop_fail));
     ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), RESOLVEDCSTR),
+        abi::load_u64(v9, abi::stack_pointer(), RESOLVEDCSTR),
+        abi::compare_immediate(v9, "0"),
+        abi::branch_eq(&inet_ntop_fail_buf_freed),
+        abi::move_register(abi::return_register(), v9),
         abi::move_immediate(abi::c_arg(1), "Integer", "64"),
     ]);
     emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.push(abi::label(&inet_ntop_fail_buf_freed));
     ins.extend([abi::load_u64(
         abi::return_register(),
         abi::stack_pointer(),
