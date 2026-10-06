@@ -71,11 +71,16 @@ r#"FUNC __encoding_codepageEncode(codepage AS Codepage, text AS String) AS List 
       ' code-point comparison can never need that, and FOR EACH (a language
       ' construct, not a `collections::get(` call) keeps the index search out of
       ' the declared-errors sweep too.
+      ' `EXIT FOR` on the first match: `strings::find` (what this replaces)
+      ' returns the FIRST occurrence, and a codepage table that holds the same
+      ' scalar twice must still emit the lower byte, not whichever one a scan
+      ' to the end happens to land on last.
       MUT idx AS Integer = -1
       MUT scan AS Integer = 0
       FOR EACH tablePoint IN tablePoints
         IF tablePoint = point THEN
           idx = scan
+          EXIT FOR
         END IF
         scan = scan + 1
       NEXT
