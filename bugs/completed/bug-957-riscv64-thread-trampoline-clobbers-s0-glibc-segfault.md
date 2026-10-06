@@ -5,14 +5,14 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
+Status: Fixed (bs16-agent-c)
 Coordinator re-run (HEAD 846aa55fd, podman `--platform linux/riscv64`, qemu-user): the musl
 build prints `thread=42` (rc 0). A thread-free hello-world glibc build runs fine. The thread
 repro's glibc build never prints anything: the process sits in state `S` for more than 5
 minutes until killed. The failure reproduces (glibc fails, musl passes), but here it shows
 as a hang where the agent saw SIGSEGV. The qemu-user signal delivery for a faulting worker
 thread differs between setups. Real riscv64 hardware was not available to either run.
-Regression Test: tests/rt-behavior/thread/<new riscv64-glibc thread fixture> (must run on a glibc riscv64 box, e.g. 2232)
+Regression Test: `target::linux_common::code::tests::riscv64_thread_trampoline_preserves_every_callee_saved_register_it_uses` (unit; selects the riscv64 trampoline and checks every `s0`–`s11` it names is saved before the first call and restored from the same slot after the last). Runtime proof: the existing `tests/rt-behavior/thread{,s}/*` fixtures, run as glibc binaries on riscv64 (below).
 
 On `linux-riscv64` **glibc** builds, any program that calls `thread::start` dies with
 SIGSEGV as soon as the worker finishes. The musl flavor of the same build, and the
@@ -121,3 +121,53 @@ routine that is itself called by C code and returns to it.
   needs an audit (`grep -rn "SCRATCH\[4\]\|SCRATCH\[5\]" src/codegen`).
 - Test gap: riscv64 runtime goldens run only on 2229 (musl); 2232 (Debian riscv64 glibc) was
   unreachable during this review, so no glibc riscv64 thread run exists.
+
+## Resolution
+
+`lower_thread_trampoline` (`src/codegen/runtime/thread/runtime_helpers.rs`) now parks
+`abi::SCRATCH[4]` in the frame's last free slot (offset 72 of the 80-byte frame) on
+riscv64, where it realizes as callee-saved `s0`, and reloads it before `ret`. The frame's
+`callee_saved` metadata lists it there too. The gate is `platform.arch() == "riscv64"`
+because only there is that scratch callee-saved (AArch64 `x13`, x86-64 `r9` are
+caller-saved), so the aarch64/x86-64 trampoline bytes and the bug-408 88/80-byte frames
+are unchanged. Spec: `mfb spec threading os-integration` (Linux section) now states the
+C-callee contract and the riscv64 `s0` slot.
+
+Audit of the other C-entered hand-written routines (`grep -n SCRATCH` in each body):
+`_mfb_rt_process_reaper` saves `s1`, the one callee-saved register it uses (doc, above);
+`_mfb_rt_canvas_graphics_entry` names no `SCRATCH` register (`emit_graphics_trampoline`),
+and riscv64 has no app/canvas mode; `_mfb_rt_signal_handler` never returns.
+
+### Proof
+
+Box 2232 (Debian riscv64 glibc) was DOWN for this whole run (`ssh -p 2232` → connection
+refused; only 2226 and 2229 listen). The glibc runs below are therefore on **2229**
+(Alpine riscv64, a real riscv64 kernel) under Debian trixie's own glibc 2.41 loader and
+libc (`libc6_2.41-12+deb13u4_riscv64.deb`, extracted to `~/bs16c/glibc`), run as
+`./glibc/ld-linux-riscv64-lp64d.so.1 --library-path ./glibc ./prog-glibc.out`.
+A native 2232 run is still owed.
+
+- Repro at base (`/tmp/main-dbg-target/release/mfb build --target linux-riscv64 thr`),
+  5 runs: glibc `Segmentation fault`, rc 139, nothing printed; musl `thread=42`, rc 0.
+- Fixed compiler, same program, 5 runs: glibc `thread=42` rc 0; musl `thread=42` rc 0.
+- All 58 fixtures under `tests/rt-behavior/thread{,s}/`, cross-built for linux-riscv64 and
+  run on 2229: fixed glibc output+rc == musl output+rc for 58/58; the branch-base glibc
+  build differs from musl for 50/58 (SIGSEGV, rc 139). The other 8 match musl at base too
+  (7 rc 255, `func_thread_openStdIn_valid` rc 0). Why they escape was not investigated.
+- RED: the unit test failed at base with "writes callee-saved `s0` but does not save it …
+  (saved at None, restored from None)", and passes with the fix. Mutation check: deleting
+  the `CLOSURE_ENV` restore makes it fail on `s10`, so it checks every register, not just `s0`.
+
+## Golden impact
+
+The fix changes riscv64 bytes only: in every linux-riscv64 `.ncode`/`.ncodesum` that
+contains a thread trampoline, `_mfb_rt_thread_trampoline` gains
+`str_u64 s0,[sp,72]` after the prologue saves, `ldr_u64 s0,[sp,72]` before the epilogue
+reloads, and `"%scratch4"` in its `calleeSaved` list. Measured on
+`tests/byte-identity/thread` (`mfb build -ncode --target <t>`, branch base vs fix): riscv64
+8 diff lines (exactly those three changes), linux-aarch64 / linux-x86_64 / macos-aarch64 /
+windows-x86_64 0 diff lines. `scripts/artifact-gate.sh <mfb> all` shows the same 59-diff set
+with the branch-base compiler and with the fix (byte-identity `*_codegen_cover_rt` on all
+five targets plus `syntax/app/app-mouse-surface`); those come from the branch's earlier
+commits (bug-898/841/967 thread-finish and term changes). Of them, the
+`*.linux-riscv64.ncodesum` goldens of fixtures that start a thread also carry this change.

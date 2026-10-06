@@ -100,6 +100,13 @@ error, not as an empty or sentinel result, once no input is left: a final line
 with no terminator is still returned, and only the next read reports end of
 input.
 
+A program started with one of its standard streams closed, as `prog <&-` or
+`prog >&-` does in a shell, finds the null device in its place: reading a closed
+standard input reports end of input straight away, and writing to a closed
+standard output or standard error succeeds and the text goes nowhere. A file the
+program opens never stands in for a standard stream, so console text never lands
+in it.
+
 The terminal predicates `io::isInputTerminal`, `io::isOutputTerminal`, and
 `io::isErrorTerminal` return a `Boolean` reporting whether the corresponding
 standard stream is connected to an interactive terminal; they never block,

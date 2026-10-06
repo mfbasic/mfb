@@ -120,6 +120,11 @@ impl LinuxPlan<'_> {
         // registers no console signal handlers, but owns sockets just the same, so
         // the import is now unconditional.
         imports.push(self.libc_import("signal", "_main"));
+        // bug-902: reserve each closed standard descriptor with `/dev/null` at
+        // startup (`emit_reserve_standard_fds`), aborting if even that fails.
+        for base in ["fcntl", "open", "abort"] {
+            imports.push(self.libc_import(base, "_main"));
+        }
         imports
     }
 

@@ -123,6 +123,33 @@ which is unavailable on a signal frame. The publication uses a scratch role; nee
 been preserved. Only the main arena is tracked here — worker
 arenas are never freed by the entry. [[src/codegen/error/constants/error_constants.rs:MAIN_ARENA_GLOBAL_SYMBOL]]
 
+## Reserving the Standard Descriptors
+
+Before anything in the program can open a descriptor, a POSIX console entry makes
+sure fds 0, 1 and 2 are open. It runs after the arena address is published and the
+thread's stack limit is set, and before any `--debug` feature's entry work. For each
+of 0, 1, 2 in order, `fcntl(fd, F_GETFD)` is called with the C `int` result
+sign-extended. A negative result means the process was started with that descriptor
+closed (`prog <&-`, `>&-`, `2>&-`). In that case `open("/dev/null", O_RDONLY)` reserves
+fd 0, and `open("/dev/null", O_WRONLY)` reserves fd 1 or 2. Every lower number is open
+by then, so POSIX's lowest-free-number rule makes the `open` return exactly that
+descriptor. If even `/dev/null` cannot be opened, the entry calls `abort()` rather than
+run with the hazard. This is what Rust std and Go do. The path is the read-only C string
+`_mfb_rt_dev_null_path` (`DEV_NULL_PATH_SYMBOL`), emitted for every POSIX module with an
+entry. [[src/codegen/engine/function/entry.rs:emit_reserve_standard_fds]]
+
+Without this, the kernel handed the lowest free number to the program's first
+`fs::open`. `io::readLine` then read that file as standard input, and
+`io::print`/`io::printError` and the error banners wrote into a file the program had
+opened (bug-902). With the numbers reserved, a closed stdin reads as end of input
+(`io::readLine` raises `ErrEndOfFile`), and a closed stdout or stderr swallows writes.
+
+An app-mode entry is called on the toolkit's worker thread after the bootstrap has
+opened its display connection and window pipe, so it skips this step. The macOS and GTK
+`_main` bootstraps run the same reservation as their first act instead
+(`./mfb spec app macos-runtime`, `./mfb spec app linux-runtime`). Windows allocates no
+standard handle by lowest free number and emits none of it.
+
 ## Signal Dispositions
 
 On non-Windows console entries, the shim

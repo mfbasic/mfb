@@ -1139,6 +1139,10 @@ pub(crate) fn app_mode_imports(
         // makes the key handler's write() return EAGAIN instead of blocking the
         // GTK main thread (bug-114).
         (libc, "fcntl"),
+        // bug-902: `_main` reserves each closed standard descriptor with
+        // `/dev/null` (`emit_reserve_standard_fds`), aborting if even that fails.
+        (libc, "open"),
+        (libc, "abort"),
         // Output marshaling to the GTK main thread + the worker park-on-finish.
         (libc, "malloc"),
         (libc, "free"),
@@ -1938,6 +1942,51 @@ mod canvas_reconcile_tests {
         let console = bootstrap::emit_activate_handler(PresentationMode::Console, false, false)
             .expect("activate");
         assert_eq!(externals(&console, "pipe"), 1);
+    }
+
+    /// bug-962: a `None`-default program (one that calls `app::setMode`) must own the
+    /// same `term::` surface a `Console`-default one does. The window is built later
+    /// by the reconcile, but `term::on` swaps `ST_TERM_AREA` in and the redraw idles
+    /// `queue_draw` it — with no area they hand GTK a NULL widget, and the first
+    /// `io::print` in TUI mode SIGSEGVed on linux-aarch64. The area and its grid
+    /// geometry are built at activate, before the worker spawns, exactly as the
+    /// Console path does: `term_init` blanks the grid the worker writes, so running it
+    /// any later would race the worker's first `term::` write.
+    #[test]
+    fn a_none_default_program_builds_the_term_surface_before_the_worker_spawns() {
+        for mode in [PresentationMode::None, PresentationMode::Console] {
+            let activate = bootstrap::emit_activate_handler(mode, false, false).expect("activate");
+            let order: Vec<&str> = activate
+                .relocations
+                .iter()
+                .map(|r| r.to.as_str())
+                .filter(|name| {
+                    matches!(
+                        *name,
+                        "gtk_drawing_area_new"
+                            | "gtk_drawing_area_set_draw_func"
+                            | TERM_INIT_SYMBOL
+                            | "pthread_create"
+                    )
+                })
+                .collect();
+            assert_eq!(
+                order,
+                vec![
+                    "gtk_drawing_area_new",
+                    "gtk_drawing_area_set_draw_func",
+                    TERM_INIT_SYMBOL,
+                    "pthread_create"
+                ],
+                "{mode:?}: the term:: drawing area, its draw func and the grid geometry \
+                 must exist before the worker can call term::on"
+            );
+            assert_eq!(
+                externals(&activate, TERM_RESIZE_SYMBOL),
+                2,
+                "{mode:?}: the term area must follow window resizes (one adrp/add pair)"
+            );
+        }
     }
     /// plan-155-A: the canvas reconcile publishes the display rate right after it reads
     /// the window's surface — and only for a program that draws, since the helper names

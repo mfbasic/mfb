@@ -60,6 +60,12 @@ GLib/GObject type system GTK requires — then calls `main`. It never returns
 
 `_mfb_gtkapp_main` then:
 
+0. Reserves every standard descriptor the process was started without, by opening
+   `/dev/null` onto it. GTK's display connection and the `activate` window pipe open
+   descriptors of their own, and without this one of them would be numbered 0, 1 or
+   2 and receive the program's console I/O (bug-902). The program entry the worker
+   later calls skips that step (`./mfb spec memory program-startup`).
+   [[src/codegen/engine/function/entry.rs:emit_reserve_standard_fds]]
 1. `setenv("GTK_A11Y","none",1)` and `setenv("GTK_IM_MODULE","none",1)` — disables
    the a11y + input-method layers before GTK initializes; their
    `g_variant_new_string` path crashes when the worker inserts transcript text.
@@ -104,7 +110,15 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
   not destroy it).
 - `term_area = gtk_drawing_area_new()` + `g_object_ref_sink` → `ST_TERM_AREA`,
   draw func set to `_mfb_gtkapp_term_draw`; then `call_internal(TERM_INIT_SYMBOL)`
-  derives the grid geometry on the main thread before the worker can use it.
+  derives the grid geometry on the main thread before the worker can use it, and
+  `resize` → `_mfb_gtkapp_term_resize`. This step runs in **both** start modes. A
+  `None`-default program (one that calls `app::setMode`) takes
+  `g_application_hold` instead of building the window, text view and controllers,
+  which the reconcile builds later. It still wires the pipe, spawns the worker, and
+  builds the off-window term area here, before the worker spawns. The reconcile has no ordering with the worker's first `term::` write, so
+  building the area there would leave `term::on` swapping in a NULL child and
+  `term_init` blanking a grid the worker had already written (bug-962).
+  [[src/target/linux_gtk/bootstrap.rs:emit_term_area_setup]]
 - `text_view = gtk_text_view_new()`, editable=FALSE, monospace=TRUE; the view is
   deliberately left **non-focusable** (focusing a `GtkTextView` activates the
   IM/a11y machinery that crashes on worker inserts). `buffer =

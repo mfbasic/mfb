@@ -1056,6 +1056,17 @@ pub(crate) fn lower_thread_trampoline(
     const VALUE_OFFSET: usize = 48;
     const ERROR_OFFSET: usize = 56;
     const SOURCE_OFFSET: usize = 64;
+    // bug-957: the last free slot of the 80-byte frame. RISC-V realizes
+    // `SCRATCH[4]` (AArch64 `x13`) as `s0` (`map_scratch_register` in
+    // `arch/riscv64/select.rs`), which is CALLEE-saved under lp64d — and this
+    // routine's caller is libc. glibc's `start_thread` keeps its `struct pthread *`
+    // in `s0` across `pd->start_routine(pd->arg)` and stores the result through it
+    // the moment this returns, so a clobbered `s0` SIGSEGVed every `thread::start`
+    // on riscv64 glibc (musl's start path happens not to read `s0` afterwards).
+    // On AArch64 (`x13`) and x86-64 (`r9`) the register is caller-saved, so only
+    // riscv64 parks it: their trampoline bytes and frames are unchanged.
+    const SCRATCH_OFFSET: usize = 72;
+    let scratch_is_callee_saved = platform.arch() == "riscv64";
     let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
     // Stack-alignment fixup, mirroring the program entry's
@@ -1099,6 +1110,15 @@ pub(crate) fn lower_thread_trampoline(
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::store_u64(abi::CURRENT_THREAD, abi::stack_pointer(), X20_OFFSET),
         abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
+    ];
+    if scratch_is_callee_saved {
+        instructions.push(abi::store_u64(
+            abi::SCRATCH[4],
+            abi::stack_pointer(),
+            SCRATCH_OFFSET,
+        ));
+    }
+    instructions.extend([
         abi::move_register(abi::CURRENT_THREAD, abi::c_arg(0)),
         abi::store_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(
@@ -1116,7 +1136,7 @@ pub(crate) fn lower_thread_trampoline(
             ARENA_STATE_REGISTER,
             ARENA_WORKER_THREAD_OFFSET,
         ),
-    ];
+    ]);
     let mut relocations = Vec::new();
     // bug-789: the worker's stack limit, before the worker runs. `thread::start`
     // gave it a `THREAD_STACK_BYTES` stack. The calls preserve the callee-saved
@@ -1233,6 +1253,13 @@ pub(crate) fn lower_thread_trampoline(
         THREAD_TRAMPOLINE_SYMBOL,
         THREAD_FINISH_SYMBOL,
     ));
+    if scratch_is_callee_saved {
+        instructions.push(abi::load_u64(
+            abi::SCRATCH[4],
+            abi::stack_pointer(),
+            SCRATCH_OFFSET,
+        ));
+    }
     instructions.extend([
         abi::move_immediate(abi::c_return(0), "Integer", "0"),
         abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
@@ -1262,10 +1289,11 @@ pub(crate) fn lower_thread_trampoline(
         returns: "Nothing".to_string(),
         frame: CodeFrame {
             stack_size: frame,
-            callee_saved: vec![
-                abi::link_register().to_string(),
-                abi::CURRENT_THREAD.to_string(),
-            ],
+            callee_saved: [abi::link_register(), abi::CURRENT_THREAD]
+                .into_iter()
+                .chain(scratch_is_callee_saved.then_some(abi::SCRATCH[4]))
+                .map(|register| register.to_string())
+                .collect(),
         },
         stack_slots: Vec::new(),
         instructions,

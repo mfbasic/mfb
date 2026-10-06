@@ -18,8 +18,13 @@ force-loads AppKit/Foundation. No private API is used.
 
 `_main` runs on the process main thread (AppKit's required home). It reserves a
 32-byte frame and stashes `argc`/`argv` (passed in `x0`/`x1` by the kernel)
-before any external call clobbers them. Persistent objects are held in
-callee-saved registers across the `objc_msgSend` sequence.
+before any external call clobbers them. Its first calls reserve every standard
+descriptor the process was started without, opening `/dev/null` onto it. AppKit and
+the window pipe open descriptors of their own, and without this one of them would be
+numbered 0, 1 or 2 and receive the program's console I/O (bug-902). The program entry
+the worker later calls skips that step (`./mfb spec memory program-startup`).
+[[src/codegen/engine/function/entry.rs:emit_reserve_standard_fds]] Persistent objects
+are held in callee-saved registers across the `objc_msgSend` sequence.
 
 | Register | Holds |
 |----------|-------|
@@ -93,7 +98,16 @@ The GUI path constructs, in order:
    synthesized with two methods and set as `[app setDelegate:]`:
    - `applicationShouldTerminateAfterLastWindowClosed:` (type `"c@:@"`,
      `STR_DELEGATE_TYPES`), IMP `_mfb_macapp_should_terminate` — returns YES so
-     closing the window quits the app.
+     closing the window quits the app. AppKit also asks this when the PROGRAM
+     hides its last visible window: `setMode(None)` sends `orderOut:`, and a YES
+     then runs `terminate:`, which would end the process with status 0 in the middle
+     of the program (bug-963). So in a program that references `app::setMode`, the
+     reconcile records each switch on NSApp under `_mfb_macapp_program_hidden_key`.
+     `None` sets it (to NSApp, `OBJC_ASSOCIATION_ASSIGN`); `Console` and `Canvas`
+     clear it. While it is set the IMP returns NO. A user who closes a shown window
+     still finds it clear and quits. A Console-default program cannot hide its window
+     and keeps the constant YES.
+     [[src/target/macos_aarch64/app/bootstrap.rs:emit_reconcile_helper]]
    - `applicationDidFinishLaunching:` (type `"v@:@"`, `STR_INPUT_TYPES`), IMP
      `_mfb_macapp_did_finish_launching` — spawns the worker thread (below).
 
