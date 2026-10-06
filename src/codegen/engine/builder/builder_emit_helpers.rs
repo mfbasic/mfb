@@ -774,7 +774,9 @@ impl CodeBuilder<'_> {
         // current arena) for the trap to inspect. Owned handles/resources passed
         // to a consuming helper are consumed regardless of success or failure.
         if raw {
-            self.deactivate_moved_resource_arguments(target, args);
+            // bug-899: reached on the failure path too, so a thread move is left to
+            // the scope drop's run-time moved test.
+            self.deactivate_closed_resource_arguments(target, args);
             let _ = arg_values;
             // plan-158-A: a parked helper error has no source yet. The trap below
             // ADOPTS a parked block as it stands, so stamp this call site into it

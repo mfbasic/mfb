@@ -727,6 +727,27 @@ impl CodeBuilder<'_> {
     }
 
     pub(crate) fn deactivate_moved_resource_arguments(&mut self, target: &str, args: &[NirValue]) {
+        self.deactivate_resource_arguments_with(target, args, true);
+    }
+
+    /// bug-899: [`Self::deactivate_moved_resource_arguments`] for an inline-`TRAP`
+    /// (raw) call, which reaches this point on its failure path too. A close is
+    /// still retired (a close invalidates the handle whatever it reports), but a
+    /// thread move is NOT: a failed transfer leaves the resource the sender's, and
+    /// a successful one leaves the record flagged `moved|closed`, which the scope
+    /// drop recognizes at run time (`emit_resource_cleanup_call`, bug-854).
+    /// Retiring it here took the close away from the failure path, and the handle
+    /// leaked.
+    pub(crate) fn deactivate_closed_resource_arguments(&mut self, target: &str, args: &[NirValue]) {
+        self.deactivate_resource_arguments_with(target, args, false);
+    }
+
+    fn deactivate_resource_arguments_with(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+        retire_thread_moves: bool,
+    ) {
         for (index, arg) in args.iter().enumerate() {
             let NirValue::Local(name) = arg else {
                 continue;
@@ -769,6 +790,9 @@ impl CodeBuilder<'_> {
                 false
             };
             if consumed && moved_to_thread {
+                if !retire_thread_moves {
+                    continue;
+                }
                 // The cleanup to retire is the OWNER's. A non-owning alias (bug-375:
                 // `RES f = …` over a live resource — which is exactly how an inline
                 // `TRAP` bind lands, `f` aliasing the desugar's `$trap_val`) has no
