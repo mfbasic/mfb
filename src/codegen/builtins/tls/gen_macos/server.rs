@@ -1,5 +1,6 @@
 // --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::emit_arena_free;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 // ===========================================================================
@@ -413,7 +414,7 @@ pub(crate) fn lower_tls_listen_macos(
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
-    const FRAME_SIZE: usize = 528;
+    const FRAME_SIZE: usize = 544;
     const HOST: usize = 8;
     const PORT: usize = 16;
     const CERT: usize = 24;
@@ -470,11 +471,19 @@ pub(crate) fn lower_tls_listen_macos(
     const RESOLVE_SOCKADDR: usize = 504; // resolved res->ai_addr, stashed across the inet_ntop alloc
     const RESOLVEDCSTR: usize = 512; // inet_ntop's dotted-decimal output buffer
     const BINDHOSTCSTR: usize = 520; // the host string actually handed to nw_endpoint_create_host
+                                     // inet_pton's scratch output (a 4-byte in_addr; stack-only, never allocated):
+                                     // when `host` is already a numeric IPv4 literal, getaddrinfo/inet_ntop add
+                                     // nothing a caller can observe (the string round-trips to itself) but DO
+                                     // cost an arena alloc+free pair every call, which showed up as extra
+                                     // `arena.0.alloc_calls` against a plain "127.0.0.1" loop that never needed
+                                     // resolving in the first place. Checking this first skips that pair
+                                     // entirely for the common numeric-host case.
+    const PTON_BUF: usize = 528;
 
     // bug-477: the shared configure block must not run into the next literal.
     const _: () = assert!(CFGBLOCK + CFG_BLOCK_SIZE <= SBLOCK);
     const _: () = assert!(WAITFN + 8 <= FRAME_SIZE);
-    const _: () = assert!(BINDHOSTCSTR + 8 <= FRAME_SIZE);
+    const _: () = assert!(PTON_BUF + 8 <= FRAME_SIZE);
 
     let cert_fail = format!("{symbol}_cert_fail");
     let read_fail_fd = format!("{symbol}_read_fail_fd");
@@ -485,6 +494,9 @@ pub(crate) fn lower_tls_listen_macos(
     let null_host = format!("{symbol}_null_host");
     let host_ready = format!("{symbol}_host_ready");
     let addr_invalid_fail = format!("{symbol}_addr_invalid_fail");
+    let inet_ntop_fail = format!("{symbol}_inet_ntop_fail");
+    let resolved_buf_freed = format!("{symbol}_resolved_buf_freed");
+    let host_is_numeric = format!("{symbol}_host_is_numeric");
     let wait_loop = format!("{symbol}_wait");
     let ready = format!("{symbol}_ready");
     let done = format!("{symbol}_done");
@@ -532,8 +544,15 @@ pub(crate) fn lower_tls_listen_macos(
     // are set (an unreadable cert, a malformed PEM, an encrypted key, a mismatched
     // pair) went through it, so a misconfigured server did not raise
     // `ErrTlsFailed`: it `CFRelease`d stack garbage and trapped in `CF_IS_OBJC`.
+    //
+    // bug-885 (review): `RESOLVEDCSTR` is zeroed here too, for the same reason --
+    // the `null_host` branch never allocates it, and the free guard after
+    // `nw_endpoint_create_host` reads this slot to decide whether there is
+    // anything to free. Without this zero, that guard reads stack garbage on
+    // the bind-all path and either frees a non-pointer or skips freeing a
+    // real one depending on what the caller's frame happened to leave behind.
     ins.extend(
-        [DATA, ITEMS, CERTREF, KEYREF]
+        [DATA, ITEMS, CERTREF, KEYREF, RESOLVEDCSTR]
             .map(|slot| abi::store_u64(abi::ZERO, abi::stack_pointer(), slot)),
     );
     // Read the PEM pair into arena buffers before touching any framework.
@@ -922,6 +941,23 @@ pub(crate) fn lower_tls_listen_macos(
     // reports, bug-465) keeps the ORIGINAL `HOSTCSTR` the caller passed, not
     // the resolved form — only `BINDHOSTCSTR`, fed to
     // `nw_endpoint_create_host` below, changes.
+    //
+    // A numeric IPv4 literal needs none of this -- it round-trips to itself
+    // through getaddrinfo+inet_ntop at the cost of an arena alloc+free pair
+    // every call, which a `tls::listen("127.0.0.1", ...)` loop can observe
+    // (measured: `arena.0.alloc_calls` 20 higher than a build that never
+    // resolves a literal). Check it with `inet_pton` first and skip the
+    // resolve path entirely when it is already a bind-ready address.
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "2"), // AF_INET
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), HOSTCSTR),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), PTON_BUF),
+    ]);
+    platform.emit_external_call("inet_pton", symbol, platform_imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_eq(&host_is_numeric),
+    ]);
     for offset in (0..48).step_by(8) {
         ins.push(abi::store_u64(
             abi::ZERO,
@@ -967,12 +1003,18 @@ pub(crate) fn lower_tls_listen_macos(
     platform.emit_external_call("inet_ntop", symbol, platform_imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(&addr_invalid_fail),
+        abi::branch_eq(&inet_ntop_fail),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RESOLVE_RES),
     ]);
     platform.emit_external_call("freeaddrinfo", symbol, platform_imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::load_u64(v9, abi::stack_pointer(), RESOLVEDCSTR),
+        abi::store_u64(v9, abi::stack_pointer(), BINDHOSTCSTR),
+    ]);
+    ins.push(abi::branch(&host_ready));
+    ins.push(abi::label(&host_is_numeric));
+    ins.extend([
+        abi::load_u64(v9, abi::stack_pointer(), HOSTCSTR),
         abi::store_u64(v9, abi::stack_pointer(), BINDHOSTCSTR),
     ]);
     ins.push(abi::branch(&host_ready));
@@ -1004,9 +1046,36 @@ pub(crate) fn lower_tls_listen_macos(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), PORTCSTR),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
+        // Stash the result (NULL or a real endpoint) before anything else
+        // clobbers x0 -- the free below calls into the arena allocator.
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
+    ]);
+    // bug-885 (review): `nw_endpoint_create_host` has read `BINDHOSTCSTR` by
+    // now on every outcome (it returns a new, independent endpoint object, or
+    // NULL), so the resolved-host buffer this call allocated can be freed
+    // unconditionally here rather than carried any further. Every non-empty
+    // `host` (numeric literal or resolved name alike) allocates it; only the
+    // empty-host `null_host` branch does not, which is why it was zeroed at
+    // entry -- that zero is what lets this be a plain non-NULL check instead
+    // of a separate flag.
+    ins.extend([
+        abi::load_u64(v9, abi::stack_pointer(), RESOLVEDCSTR),
+        abi::compare_immediate(v9, "0"),
+        abi::branch_eq(&resolved_buf_freed),
+        abi::move_register(abi::return_register(), v9),
+        abi::move_immediate(abi::c_arg(1), "Integer", "64"),
+    ]);
+    emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.push(abi::store_u64(
+        abi::ZERO,
+        abi::stack_pointer(),
+        RESOLVEDCSTR,
+    ));
+    ins.extend([
+        abi::label(&resolved_buf_freed),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&net_fail),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
     ]);
     // nw_parameters_set_local_endpoint(params, endpoint)
     dlsym(
@@ -1437,12 +1506,25 @@ pub(crate) fn lower_tls_listen_macos(
         )?;
     }
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
-    // bug-885: `host` is non-empty, non-numeric, and does not resolve to an
-    // IPv4 address (or `inet_ntop` could not format the one `getaddrinfo`
-    // returned) — the cert/key CF objects are already released (the loop
-    // above, by this point in the function, past line ~675's release on the
-    // success path) and no listener exists yet, so nothing but the standard
-    // `done` scratch release is needed.
+    // bug-885: `host` is non-empty and does not resolve to an IPv4 address —
+    // the cert/key CF objects are already released (on the earlier success
+    // path, before `host` is ever touched) and no listener exists yet, so
+    // nothing but the standard `done` scratch release is needed here.
+    // `inet_ntop_fail` falls through into this label after freeing the
+    // `getaddrinfo` result and the (unused) resolved-host buffer; a bare
+    // `getaddrinfo` failure reaches this label directly, with neither to free.
+    ins.push(abi::label(&inet_ntop_fail));
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), RESOLVEDCSTR),
+        abi::move_immediate(abi::c_arg(1), "Integer", "64"),
+    ]);
+    emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.extend([abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RESOLVE_RES,
+    )]);
+    platform.emit_external_call("freeaddrinfo", symbol, platform_imports, &mut ins, &mut rel)?;
     ins.push(abi::label(&addr_invalid_fail));
     emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));

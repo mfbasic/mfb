@@ -37,6 +37,48 @@ exact requested port) and `lsof -nP -a -p <pid> -iTCP` shows
 `"999.1.1.1"`, `"garbage::zz"` all raise `77070001` instantly (0 s) — matching
 `tcp::listen`'s behavior on the same inputs byte-for-byte.
 
+### Follow-up: the 64-byte `inet_ntop` buffer leaked, plus two missing `freeaddrinfo`s
+
+Coordinator review caught a leak the above runtime checks didn't exercise: the
+64-byte `RESOLVEDCSTR` scratch buffer was never freed, and the `alloc_fail`/
+inet_ntop-fail exits skipped `freeaddrinfo` after a successful `getaddrinfo`.
+Measured with `mfb build --debug -O0` on a 20-iteration
+`tls::listen("127.0.0.1", 0, cert, key)` + `tls::close` loop: `main` (no
+resolve path touches a numeric host) reported `alloc_calls 120, free_calls 60,
+live_bytes 56960`; this fix's first cut reported `alloc_calls 140` (same
+`free_calls`/`live_bytes`) — the 20 extra allocations were the leaked buffers,
+one per call.
+
+Two changes:
+1. `RESOLVEDCSTR` is freed on every path once `nw_endpoint_create_host` has
+   read it (success or failure), and also on the `inet_ntop`-failure exit
+   (new `inet_ntop_fail` label, which also now calls `freeaddrinfo` — a
+   `getaddrinfo` success was never otherwise balanced on that exit).
+2. Added an `inet_pton` check before the resolve path: when `host` is
+   already a numeric IPv4 literal (the common case — `"127.0.0.1"`, not
+   `"localhost"`), skip `getaddrinfo`/`inet_ntop` and the allocation entirely.
+   This isn't just freeing the leak — it removes the extra alloc+free pair
+   altogether for the case that never needed resolving, matching `main`'s
+   allocation COUNT exactly, not just its leak-freedom.
+   `src/target/macos_aarch64/plan.rs` gained `_inet_pton` alongside the
+   existing `_getaddrinfo`/`_freeaddrinfo`/`_inet_ntop` imports for
+   `tls.listen`.
+
+Re-measured after both changes, same 20-iteration loop: `alloc_calls 120,
+free_calls 60, live_bytes 56960` — exact parity with `main`. (The pre-existing
+2848 B/iteration — `live_bytes` not reaching 0 even on `main` — predates this
+bug and is out of scope here; the coordinator is filing it separately.)
+
+New regression test: `numeric_host_listen_adds_no_per_call_resolve_allocation`
+in `tests/net/rt_tls_listen_host_validation.rs`, in the `--debug`-report
+alloc/free-counting style of `tests/runtime/rt_closure_single_owner.rs` —
+builds the same loop at N and 2N iterations and asserts `alloc_calls`/
+`free_calls` scale exactly linearly (no fixed per-call overhead) and stay at
+the measured 6-allocs/3-frees-per-iteration baseline. Confirmed RED against
+the pre-this-fix build (70 vs the expected 60 for N=10) before confirming
+GREEN against the final build.
+
+
 
 On macOS, `tls::listen(host, port, cert, key)` hands `host` straight to
 `nw_endpoint_create_host` with no check that it is an IPv4 literal (or the empty
