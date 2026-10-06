@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: tests/rt-error/control-flow/exit-program-through-inline-trap-rt (proposed)
+Status: FIXED (bs16-agent-a; see Resolution)
+Regression Test: tests/runtime/rt_exit_program_through_inline_trap.rs
 
 When a function runs `EXIT PROGRAM n` and its caller invoked it under an inline
 `TRAP` (`LET v = bye() TRAP ... END TRAP`, a bare `bye() TRAP ... END TRAP`, or an
@@ -108,3 +108,39 @@ exit (same shape as `route_current_result_to_trap`).
 
 Silent-safety bug: a documented "uncatchable" exit crashes the process when an
 inline TRAP is on the stack.
+
+## Resolution
+
+Hypothesis confirmed: none of the three inline-`TRAP` lowerings (direct callee and
+`FUNC`-value callee in `builder_values.rs`, `materialize_current_result` for
+runtime helpers / builtin HOFs) checked the program-exit tag before building the
+trapped `Error`. Fix: `CodeBuilder::emit_inline_trap_program_exit_passthrough`
+(`src/codegen/engine/control/builder_exits.rs`), called at all four places the
+raw result registers are parked (both forms of `materialize_current_result`, the
+direct and the indirect callee) — before the unboxed (bug-778) split and before
+the worker-error tag remap. On tag 2 it reloads `x0 = 2`, `x1 = code`,
+`x2 = x3 = 0` and leaves through `emit_call_error_exit` (statement temporaries,
+frame cleanups, return; under a function-level `TRAP` the trap route, which
+already returns on tag 2). `trapped_error_tag_class` keeps its total partition
+(the unit test pins it); its doc now says tag 2 never reaches the assembly.
+
+Regression test: `tests/runtime/rt_exit_program_through_inline_trap.rs` — eight
+shapes (direct `LET`, `Nothing` statement, handler that reads `e.message`,
+`String` result, one frame up, inline `TRAP` inside a function-level `TRAP`,
+`FUNC`-value call, `collections::transform` callback) at `-O0` and `-O3`, each
+must exit 7 with no output. RED against the base compiler: 16/16 SIGSEGV.
+Cleanup proof: a `--debug` build of a caller holding a `List OF String` and a
+`String` local reports `arena.0.alloc_calls 4`, `free_calls 4`,
+`live_bytes 0` and exits 7 (`-O0` and `-O3`).
+
+Spec: `mfb spec memory fallible-call-abi` states that a program exit carries
+nothing in `x2`/`x3` and that an inline-`TRAP` site re-propagates it. Man:
+`mfb man flow` says no `TRAP` catches `EXIT PROGRAM`.
+
+## Golden impact
+
+Every fixture with an inline `TRAP` on a call, an indirect call, or a raw runtime
+helper / builtin HOF gains a tag compare and a cold exit branch per site, so their
+native-code goldens (`.ncode`/`.ncodesum`/byte-identity covers) are expected to
+change. AST/IR goldens and run outputs do not change (the behavior change only
+affects programs that `EXIT PROGRAM` under an inline `TRAP`, which crashed before).

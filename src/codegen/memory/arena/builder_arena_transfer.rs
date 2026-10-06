@@ -64,8 +64,11 @@ pub(crate) enum TrappedErrorTagClass {
     /// (design "b"). Rebuilding here orphans it, which is half of bug-565.
     ParkedBlock,
     /// `RESULT_ERR_TAG` (a legacy/OOM-degraded loose error) and
-    /// `RESULT_PROGRAM_EXIT_TAG` (`os::exit` unwinding through a fallible call).
-    /// No block is parked; the flat `Error` must be rebuilt from the registers.
+    /// `RESULT_PROGRAM_EXIT_TAG`. No block is parked; the flat `Error` must be
+    /// rebuilt from the registers. A program exit never actually reaches the
+    /// assembly: every inline-`TRAP` lowering re-propagates it first
+    /// (`emit_inline_trap_program_exit_passthrough`, bug-841) — its message
+    /// register is zero, so a rebuild would dereference null.
     LooseRegisters,
 }
 
@@ -258,6 +261,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_raw_slot,
         ));
+        // bug-841: `EXIT PROGRAM` (a HOF callback's, a worker's) is not the
+        // handler's to catch.
+        self.emit_inline_trap_program_exit_passthrough(tag_slot, value_slot)?;
         // `OwnedByThisFrame`: the producer handed back the only pointer to a block
         // in this arena — the temporary takes it, where the heap form copied it
         // and freed the original. `OwnedElsewhere`: another owner frees it (a
@@ -319,6 +325,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_raw_slot,
         ));
+        // bug-841: `EXIT PROGRAM` (a HOF callback's, a worker's) is not the
+        // handler's to catch — checked before the worker remap below folds every
+        // non-`Ok` tag into `RESULT_ERR_TAG`.
+        self.emit_inline_trap_program_exit_passthrough(tag_slot, value_slot)?;
         if worker_error_source {
             // A worker's error reaches `waitFor` with the WORKER's tag: `3` when the
             // worker parked an `Error` block — in its own arena, not in this

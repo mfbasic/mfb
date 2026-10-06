@@ -140,6 +140,54 @@ impl CodeBuilder<'_> {
         self.emit_current_result_exit(destination)
     }
 
+    /// bug-841: an inline `TRAP` must not catch `EXIT PROGRAM`.
+    ///
+    /// Called by every inline-`TRAP` lowering right after it parks the trapped
+    /// call's raw result registers in `tag_slot` / `value_slot`, before it splits
+    /// on success vs. error. A program-exit result (tag `2`, the exit code in the
+    /// value slot, no message) leaves this frame exactly as an untrapped failing
+    /// call does ([`Self::emit_call_error_exit`]: the statement's temporaries, then
+    /// the frame's cleanups, then a return — or, under a function-level `TRAP`,
+    /// [`Self::route_current_result_to_trap`], which returns on this tag too).
+    /// `mfb spec language control-flow`: "`EXIT PROGRAM` is not catchable by
+    /// `TRAP`: at each returning frame it bypasses any handler". Before this, the
+    /// tag reached the trapped-`Error` rebuild, which read the zeroed message
+    /// register as a `String` pointer (SIGSEGV).
+    pub(crate) fn emit_inline_trap_program_exit_passthrough(
+        &mut self,
+        tag_slot: usize,
+        value_slot: usize,
+    ) -> Result<(), String> {
+        let not_exit = self.label("inline_trap_not_program_exit");
+        let tag = self.temporary_vreg();
+        self.emit(abi::load_u64(&tag, abi::stack_pointer(), tag_slot));
+        self.emit(abi::compare_immediate(&tag, RESULT_PROGRAM_EXIT_TAG));
+        self.emit(abi::branch_ne(&not_exit));
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_PROGRAM_EXIT_TAG,
+        ));
+        self.emit(abi::load_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        self.emit(abi::move_immediate(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            "Integer",
+            "0",
+        ));
+        self.emit(abi::move_immediate(
+            RESULT_ERROR_SOURCE_REGISTER,
+            "Integer",
+            "0",
+        ));
+        self.emit_call_error_exit()?;
+        self.emit(abi::label(&not_exit));
+        Ok(())
+    }
+
     /// bug-695: the error exit of an inline raise (a failing conversion, a division by
     /// zero, an overflow, a bounds check — everything `emit_error_register_return`
     /// ends) that is not captured by an inline `TRAP`. It frees exactly what a failing

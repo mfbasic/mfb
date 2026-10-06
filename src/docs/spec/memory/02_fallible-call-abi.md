@@ -20,7 +20,12 @@ the four registers are `RESULT_TAG_REGISTER`
 `RESULT_ERROR_MESSAGE_REGISTER` (`x2`), and `RESULT_ERROR_SOURCE_REGISTER` (`x3`). [[src/codegen/error/constants/error_constants.rs:RESULT_OK_TAG]]
 The program-exit tag is checked before the success/error split: at the program
 entry it routes `x1` (the exit code) to the process return register and jumps to
-exit, so it is distinct from both a normal success and an error.
+exit, so it is distinct from both a normal success and an error. A program exit
+carries nothing in `x2`/`x3`, so no consumer may treat it as an error. An inline
+`TRAP` site checks it before it builds the trapped `Result`: it leaves the frame
+the way an untrapped failing call does (the statement's temporaries and the
+frame's cleanups, then a return with the same four registers), so the handler
+never runs. [[src/codegen/engine/control/builder_exits.rs:emit_inline_trap_program_exit_passthrough]]
 
 On success only `x0`/`x1` are meaningful. A `Nothing` success leaves `x1` unspecified: a `Nothing` return writes no value register. [[src/codegen/engine/control/builder_exits.rs:emit_return_exit_inner]] A caller that uses the call's value produces `NOTHING` (`0`) itself — for the call, and for the payload of a trapped call's `Result OF Nothing` — and never reads `x1`. [[src/codegen/engine/value/builder_values.rs:lower_value]] On error all of `x1` (code), `x2`
 (message), and `x3` (source) are set. A fresh error stamps `x3` with an
