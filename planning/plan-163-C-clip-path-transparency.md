@@ -556,7 +556,7 @@ Commit: 283177028
       stroke, cap and join terms and keeps the guard and `2F`. Proof the clip bands are
       read: with Metal's `clipBandAt` forced to an empty band, `cargo test --test
       rt_canvas_metal path_clips` fails, 25970 of 576000 pixels differing; restored, it
-      passes. `RENDER_CAPS` counts clip edges against the edge cap.)
+      passes. `__canvas_metalRenderable` and `__canvas_vulkanRenderable` count clip edges against the edge cap.)
 - [x] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line): `clipCoverage`
       on the shape-space point per §5, and the picture tint per §6. Regenerate both
       `.spv` on box 2228. (`shapeCoverage` returns the clip in `.w` from samples 5–9 at
@@ -593,17 +593,26 @@ Commit: —
 
 ### Phase 4 — Docs and spec
 
-- [ ] `06_canvas.md`:
+- [x] `06_canvas.md`:
       - the clip: rings, `clipRule`, and the clip in the item's space moved by the
         transform and the group offset (rewrite the plan-116-B/G5 text);
       - the fast path and its equality with the general path;
       - `transparency` and the fold formula;
       - the Picture rule (:431–434 rewritten with the tint formula);
       - the header and item-block growth where the layout is cited.
-- [ ] `.ai/canvas-threading.md`: the `clipBand`/`clipPath` block words, the clip edges
+      (*`Paint.clip` restricts an item to the area its rings enclose*, its two paths
+      and the GPU block words; *`Paint.transparency` fades the whole item*; the Picture
+      tint; the group section's "two things travel"; the tail order with clip edges;
+      `strokeStyle` "at byte 272 of its 320"; the zero-value list.)
+- [x] `.ai/canvas-threading.md`: the `clipBand`/`clipPath` block words, the clip edges
       sharing the edge region, and the tail order edges | joins | dashes | clip edges | stops.
-- [ ] Man prose on `Paint` (`clip`, `clipRule`, `transparency`), `Picture` and
-      `FillRule` (`.ai/man-content.md` bans apply).
+      (The block-growth history to 320; the tail section, now a 55-float header; the
+      clip-edge paragraph — edge region, edge cap, `BandSet`; the group section's clip
+      paragraph rewritten for the shape-space clip.)
+- [x] Man prose on `Paint` (`clip`, `clipRule`, `transparency`), `Picture` and
+      `FillRule` (`.ai/man-content.md` bans apply). (`Paint` and `Picture` from Phase 1;
+      `FillRule`'s two variants now say they decide a clip's area as well as a
+      polygon's fill.)
 
 Acceptance: man and spec render and cite.
   Check: `mfb man canvas types` shows no `Bounds` and the new fields;
@@ -611,6 +620,16 @@ Acceptance: man and spec render and cite.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min, guess).
+  Result: `mfb man canvas types` → 0 `Bounds`, `clip`/`clipRule`/`transparency` rows
+  present; `man-census.sh --memory-scope` → "unclassified memory-vocabulary hits: 0";
+  `man-run-examples.sh canvas --run` → "examples: 32 built: 32 ran: 32 not run: 0
+  failed: 0"; `spec-census.sh --citations` → MISS-PATH 0, MISS-LINE 0, MISS-SYMBOL 0;
+  `--links` → unresolved=0; `cargo test --bin mfb spec` → 46 passed, `man` → 343 passed.
+  Runtime proof (Validation Plan): `/tmp/p163/democ`, built `--app --debug` and run with
+  `MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_DUMP=…` → stats `metal=TRUE
+  gpuFrames=120 frames=120`; frame 120 shows the star clip turned with its rotated
+  rectangle, an EvenOdd "O" clip, a picture tinted half-way to red ((240,240,240) →
+  (240,120,120)) and one faded at 0.74.
 Commit: —
 
 ## Validation Plan

@@ -490,9 +490,13 @@ shape, and a glyph reads the wrong texel of its bitmap. A scene of flat-filled r
 cannot see any of it — which is why the acceptance scenes carry a gradient-filled item, a
 `Text` item and a clipped item inside translated groups.
 
-**The clip is the exception and stays in surface space.** `Paint.clip` is a window on the
-surface, not on the shape, so it is evaluated at the *un-shifted* point on both backends.
-Moving it with the group is the mistake that looks like a fix.
+**The clip is no exception (since plan-163-C).** `Paint.clip` is in the item's own
+coordinates, so it is evaluated at the same shape-space point as the distance, on every
+backend: it comes out of `shapeCoverage` (`.w`) beside the shape's coverage. Until
+plan-163-C it was a surface window evaluated at the un-shifted point, and
+`the_metal_fragment_clips_and_samples_in_shape_space` now pins that no consumer but `p`'s
+own definition reads `in.pos.xy` — evaluating the clip there again leaves it behind when
+the group moves.
 
 Where the offset is bound differs per backend and per stage, so it is three numbers, not
 one: Vulkan uses a single push-constant range both stages declare; Metal uses
@@ -1016,8 +1020,11 @@ capped at 64.
 Widening the per-item block is the single most repeated change in plan-116 — A grew it
 for the item buffer, C for the transform, D for the arc caps, E for the ellipse, and F
 twice (the ellipse `ivec4`, then the gradient one, reaching 208) — bug-735 added four
-residual `ivec4`s (272), and plan-163-B the `strokeStyle` `ivec4` (288: first join slot,
-join record count, first dash word, dash word count); each time it moved the same set. Three of them are unrelated by any type, and none of the three
+residual `ivec4`s (272), plan-163-B the `strokeStyle` `ivec4` (288: first join slot,
+join record count, first dash word, dash word count), and plan-163-C the `clipBand` and
+`clipPath` `ivec4`s (320: a path clip's band header at 288, the same shape as `arcCaps`'s
+polygon one; then first clip edge, clip edge count, mode | rule << 2, a picture's
+transparency step T at 304); each time it moved the same set. Three of them are unrelated by any type, and none of the three
 fails loudly.
 
 It was five until plan-116-F added a **third** buffer region; the sixth is item 5.
@@ -1064,15 +1071,26 @@ and found it that way.
 
 ### A geometry record's tail is read back from its END
 
-A record is the 51-float header, then its tail in a fixed order: **edges | join records |
-dash tail | gradient stops** (plan-163-B). Only the edge count is known from the front;
-every other part is found by counting back from slot 1 (the record's length) — the stops
-are `slot1 - stops * 5`, the dash tail sits `__CANVAS_GEO_DASH_COUNT` (slot 49) floats
-before them, the join records `__CANVAS_GEO_JOIN_COUNT * 8` (slot 47) before that. Every
-reader calls `__canvas_gradientStopBase` / `__canvas_dashBase` / `__canvas_joinBase`
-rather than recomputing (the 2026-09-01 polygon-cache lesson), and the two GPU emitters
-that copy a part out (`emit_join_buffer`/`emit_join_upload`, `emit_dash_buffer`/
-`emit_dash_upload`) subtract the parts after it the same way. A new tail part goes BEFORE
+A record is the 55-float header, then its tail in a fixed order: **edges | join records |
+dash tail | clip edges | gradient stops** (plan-163-B, plan-163-C). Only the edge count is
+known from the front; every other part is found by counting back from slot 1 (the
+record's length) — the stops are `slot1 - stops * 5`, a path clip's edges
+`__CANVAS_GEO_CLIP_EDGE_COUNT * 5` (slot 52) before them, the dash tail
+`__CANVAS_GEO_DASH_COUNT` (slot 49) floats before that, the join records
+`__CANVAS_GEO_JOIN_COUNT * 8` (slot 47) before that. Every reader calls
+`__canvas_gradientStopBase` / `__canvas_clipEdgeBase` / `__canvas_dashBase` /
+`__canvas_joinBase` rather than recomputing (the 2026-09-01 polygon-cache lesson), and the
+GPU emitters that copy a part out (`emit_join_buffer`/`emit_join_upload`,
+`emit_dash_buffer`/`emit_dash_upload`, `emit_clip_buffer`/`emit_clip_upload`) subtract the
+parts after it the same way.
+
+A path clip's edges share the frame's EDGE region with the polygons' — copied after the
+item's own edges and join records, 16.16 words plus residuals like any edge, and counted
+against the same per-frame edge cap by `__canvas_metalRenderable` and `__canvas_vulkanRenderable` — and are banded by the same
+`emit_band_index`, parameterised by a `BandSet` (which count, base and header words; a
+clip's reach has no stroke, cap or join term). A clip that would pass the cap is left at
+edge count 0, which the shader reads as a clip enclosing nothing: hidden, never drawn
+unclipped. A new tail part goes BEFORE
 the stops and every emitter that locates an earlier part must subtract it too — a missed
 one copies the wrong floats as corners or dashes, a plausible wrong picture.
 

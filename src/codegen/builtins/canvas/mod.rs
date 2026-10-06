@@ -654,16 +654,17 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![
             EnumVariant {
                 name: "EvenOdd",
-                description: "A point is inside when a line from it out to infinity \
-                              crosses the rings an odd number of times. A ring \
-                              inside another is a hole, whichever way either runs. \
-                              The zero value.",
+                description: "A point is inside — filled by a `canvas::Polygon`, \
+                              kept by a `canvas::Paint.clip` — when a line from it \
+                              out to infinity crosses the rings an odd number of \
+                              times. A ring inside another is a hole, whichever way \
+                              either runs. The zero value.",
                 advisory: None,
             },
             EnumVariant {
                 name: "NonZero",
-                description: "A point is inside when the rings wind around it a \
-                              non-zero number of times. A ring inside another is \
+                description: "A point is inside — filled, or kept by a clip — when \
+                              the rings wind around it a non-zero number of times. A ring inside another is \
                               more of the fill when both run the same way, and a \
                               hole when they run opposite ways. SVG paths and \
                               TrueType outlines are drawn this way.",

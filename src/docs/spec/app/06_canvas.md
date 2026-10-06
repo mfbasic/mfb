@@ -76,7 +76,7 @@ each item makes an item's appearance a property of the item.
 
 `Paint` is designed so that **each field's zero value is that field's no-op** —
 transparent fill and stroke, zero stroke width, `Normal` blend, the identity
-transform, and a zero-area (absent) clip. One consequence is worth stating
+transform, an empty clip and no transparency. One consequence is worth stating
 explicitly, because the natural reading is the opposite: **the all-zero
 `Transform` means the identity**, not the degenerate matrix that collapses every
 point to the origin. Defining it the other way would make an unset transform erase
@@ -170,7 +170,7 @@ moves a distance by up to ~1.5e-5 px, so every value a distance reads travels as
 * in the item block's four residual `ivec4`s: the shape parameters (centres,
   half-extents, radii, line endpoints, ellipse axes), the radius and the stroke
   half-width, an arc's two sweep endpoints, an ellipse's rotation cosine and sine, and
-  the clip rectangle;
+  the clip rectangle (a path clip's edges ride the edge region with the shape's);
 * the group offset of each draw, as words 5 and 6 of its draw-list entry and the last
   two of the four 32-bit words bound to both shader stages.
 
@@ -179,7 +179,7 @@ and evaluates the oracle's distance for every kind in it, operation for operatio
 rectangle, circle, segment (round, or butt with its two end planes), arc, ellipse,
 polygon and polyline distances, the polygon's signed crossing test (multiplied out, no
 division) summed under its fill rule, the inverse transform, the central-difference gradient, the stroke's
-half-width and the coverage rounding; the clip's rectangle distance too. The
+half-width and the coverage rounding; the clip's rectangle or path distance too. The
 quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep test takes
 its direction vectors from its cap endpoints less its centre, a positive multiple of the
 oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
@@ -457,14 +457,15 @@ perimeter data — three floats per edge (`s0`, `s1` and its ring's length, nega
 an open path), an ellipse's table, an arc's start angle and sweep, nothing for a circle
 or rounded rectangle. Header slot 49 is the tail's length and slot 50 the offset wrapped
 into one period at build. The record's tail order is therefore edges, join records,
-dashes, gradient stops; the stops stay last, so every reader finds the others counting
-back from the record's end. The native builder writes the same tail bit for bit.
+dashes, a path clip's edges (see *`Paint.clip`*), gradient stops; the stops stay last,
+so every reader finds the others counting back from the record's end. The native
+builder writes the same tail bit for bit.
 [[src/codegen/builtins/canvas/helper_dashes.rs:DASH_BUILD]]
 [[src/codegen/builtins/canvas/helper_dashes.rs:DASH_DRAW]]
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_dash_tail]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_DASH_COUNT]]
 
-**On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 288) are the
+**On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 320) are the
 first join slot, the record count, the first dash word and the dash word count. Each
 dashed item's words — the phase, then its dash tail — ride a frame-wide dash region as
 float32 bit patterns, and each shader evaluates the oracle's dash functions in fp32 at
@@ -585,13 +586,22 @@ is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so
 backend picks the same texel; a bilinear filter would change edge bytes between
 renderers unless all three shared identical fixed-point weights.
 
-The texel is then **tinted** by `Paint.fill`, each channel multiplied as
-`(texel * fill) / 255`, alpha included. The white fill every example uses therefore
-draws the image unchanged, and the fill's alpha is the picture's opacity; the zero
-`Paint` draws nothing, as it does for every other variant. `Paint.fillGradient` is
-ignored — the image, not a ramp, fills a picture. An item whose image has been closed
-draws nothing (see *Images are named, not embedded*).
+The texel is then **tinted** by `Paint.fill`, whose alpha is the tint's strength, not
+the picture's opacity. Each colour channel moves from the texel towards the product
+`tint = (texel * fill) / 255` (integer, truncating) by `fill.alpha / 255`:
+
+`out = texel + round((tint - texel) * fill.alpha / 255)`
+
+in integers, the rounding half away from zero. An opaque fill is therefore exactly the
+product (the multiply an opaque tint always was), a half-transparent red fill goes
+halfway to the red-only image, and a white fill or the zero `Paint` — alpha 0 — draws
+the image unchanged. The picture's alpha is the texel's, faded by `Paint.transparency`
+alone: `(texel.alpha * (255 - T) + 127) / 255`, `T` the transparency step below. The
+fill's alpha never fades it. `Paint.fillGradient` is ignored — the image, not a ramp,
+fills a picture. An item whose image has been closed draws nothing (see *Images are
+named, not embedded*).
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
 
 On the GPU a picture's texels travel in the same per-frame buffer region as glyph
@@ -606,16 +616,73 @@ texels.
 [[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
-**`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
-in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a
-transformed rectangle. A zero-area or negative-extent `Bounds` means no clipping,
-which is what the zero value gives.
+**`Paint.clip` restricts an item to the area its rings enclose.** `clip` is a
+`List OF List OF Point`, each inner list a closed ring exactly as a `Polygon`'s
+`contours` are, and `Paint.clipRule` decides which points the rings enclose as a
+polygon's `rule` decides its fill (`EvenOdd`, the zero value, or `NonZero`). The empty
+list, the zero value, is no clip. A clip that is not empty but encloses nothing — every
+ring under two points, or a rectangle of no area — **hides the item**: a clip the
+program wrote and that covers nothing is shown as such, never quietly dropped.
 
-Its edges need not fall on pixel boundaries. A clipped pixel's coverage is the
-clip's own `clamp(0.5 - d, 0, 1)` on the signed distance to that rectangle,
-multiplied into the shape's coverage as `(coverage * clipCoverage) / 255`. A clip
-edge is therefore antialiased exactly as a shape edge is, and clipping a shape to a
-rectangle larger than it changes nothing.
+**The clip is in the item's own coordinates.** `Paint.transform` maps it with the item,
+and a group's translation moves it with the item, so a clipped item and its clip move,
+turn and scale together. (Until plan-163-C the clip was a surface rectangle that a
+transform and a group left where it was; a clip that should stay on the surface is now
+written in coordinates that undo the item's transform.)
+
+Its edges need not fall on pixel boundaries. A clipped pixel's coverage is the clip's
+own `clamp(0.5 - d, 0, 1)` on its signed distance `d`, multiplied into the shape's
+coverage as `(coverage * clipCoverage) / 255`. A clip edge is therefore antialiased
+exactly as a shape edge is, and clipping a shape to an area larger than it changes
+nothing. The builder takes one of two paths, in header slot 51:
+
+* **Rectangle (1).** A clip of one ring of four points whose sides alternate horizontal
+  and vertical, on an item with no transform, is kept as that rectangle in slots 22–25,
+  and `d` is the rectangle's distance at the item's own point (the pixel centre less the
+  group offset). This is a fast path, not a different rule: the same rectangle given as
+  a path draws the same pixels, which the rasteriser tests pin by comparing whole
+  frames.
+* **Path (2).** Any other clip is a path. Its rings become edges exactly as a
+  `Polygon`'s do and ride the record's tail after the dashes and before the gradient
+  stops; slot 52 counts them and slot 53 is the rule (0 `EvenOdd`, 1 `NonZero`). `d`
+  is the polygon distance of those edges under that rule at the item's own point. Under
+  a transform it is divided by the **clip's own** gradient, by central differences at the
+  same four inverse-mapped neighbours the shape uses — not the shape's gradient, which
+  near the clip's edge belongs to whichever shape edge is nearest, so a sheared clip
+  would be antialiased by the wrong slope. Slots 22–25 hold the clip's surface bounds,
+  its ring points mapped by the transform and widened by a pixel each way, which narrow
+  the pixels drawn.
+
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_clip_edges]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
+
+**On the GPUs** the item block grows to 320 bytes for two `ivec4`s: `clipBand` at byte
+288 is a path clip's band header, the same shape as a polygon's in `arcCaps`, and
+`clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
+`T`). The clip's edges go into the frame's edge region after the item's own and count
+against the same per-frame edge cap, and they are banded by the same index builder
+with no stroke in the reach — a clip's coverage clamps at `|d| ≥ 0.5`. Each shader
+takes the clip's five samples at the same shape-space points as the shape's and divides
+by the clip's own gradient, as the oracle does.
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
+[[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_clip_upload]]
+
+**`Paint.transparency` fades the whole item.** It is clamped to `0.0`..`1.0` — a NaN
+counts as `1.0` — and becomes the step `T = int(clamp(transparency, 0, 1) * 255 + 0.5)`.
+At build time every alpha the item draws with becomes `(alpha * (255 - T) + 127) / 255`:
+the fill, the stroke, each gradient stop and each `PolyLine` per-point colour; a `Text`
+item's fill fades the same way. `T = 0` leaves every alpha as it was, so the zero value
+changes nothing, and `0.5` is `T = 128`, an opaque colour's alpha `127`. The fill and
+the stroke fade separately, so where they overlap the fill shows through a faded
+stroke. A `Picture`'s fill alpha is its tint's strength and is not faded; its texels'
+alpha is, at draw time, by `T` in header slot 54.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_PICTURE_TRANSPARENCY]]
 
 **`Paint.fillGradient` replaces an item's fill colour with a ramp.** It replaces the
 *colour* and nothing else: the shape's distance, its coverage, its stroke and its blend
@@ -774,12 +841,11 @@ built, and removing a group does not invalidate any scene that names it.
 **A group is translated, not transformed.** The node carries two offsets and no matrix.
 `Paint.transform` on the group's own items covers reshaping, and the two compose in the
 order you would expect: the item is transformed in its own coordinates, then the group's
-translation places it. Two things are deliberately *not* carried along by that
-translation, and both follow from what they are:
+translation places it. Two things travel with that translation because of what they are:
 
-* **`Paint.clip` does not move** — it is a surface rectangle by definition, so a group
-  translates the shape *through* the clip.
-* **`Paint.fillGradient` does move**, which is the one place the surface-anchored rule is
+* **`Paint.clip` moves** — it is in the item's own coordinates, so a group places the
+  clipped item and its clip together.
+* **`Paint.fillGradient` moves too**, which is the one place the surface-anchored rule is
   set aside. A group exists to be drawn somewhere else, and an item whose colours depend
   on where its group was placed would not be reusable.
 
