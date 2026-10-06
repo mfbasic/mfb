@@ -1443,6 +1443,126 @@ fn transparency_fades_fill_stroke_and_gradient_alphas() {
     assert_eq!(pixel(&high, 300, 300), (0, 0, 0, 255), "transparency 2 clamps to 1: nothing drawn");
 }
 
+/// A clip ring from points, as MFBASIC source.
+fn clip_ring(points: &[(f64, f64)]) -> String {
+    let pts: Vec<String> = points
+        .iter()
+        .map(|(x, y)| format!("canvas::Point[x := {x:?}, y := {y:?}]"))
+        .collect();
+    format!("[{}]", pts.join(", "))
+}
+
+/// plan-163-C: a path clip — any clip but one untransformed axis-aligned rectangle — in
+/// software, every expectation a whole pixel inside or outside each edge.
+///
+/// * A white 900x640 ground clipped to the triangle (100, 100), (300, 100), (100, 300):
+///   (150, 150) is inside, (250, 250) beyond the hypotenuse.
+/// * A ring with a hole — (400, 50)-(600, 250) around (450, 100)-(550, 200), both
+///   clockwise: under `EvenOdd` the hole (500, 150) is clipped away and the band
+///   (420, 150) drawn; under `NonZero` the same-direction inner ring is more of the clip,
+///   so (500, 150) is drawn.
+/// * A 100x100 square centred on its own origin, rotated 30° and moved to (700, 450),
+///   clipped to its own left half (x < 0): its point (-25, 0) lands at
+///   (700 - 21.65, 450 - 12.5) and is drawn, (25, 0) at (721.65, 462.5) is not.
+/// * A path clip inside a group translated by (300, 400): a 100x100 square at the origin
+///   clipped to the triangle (0, 0), (100, 0), (0, 100) draws (320, 420) and not (380, 480).
+#[test]
+fn a_path_clip_draws_only_inside_its_rings() {
+    let tri = clip_ring(&[(100.0, 100.0), (300.0, 100.0), (100.0, 300.0)]);
+    let outer = clip_ring(&[(400.0, 50.0), (600.0, 50.0), (600.0, 250.0), (400.0, 250.0)]);
+    let inner = clip_ring(&[(450.0, 100.0), (550.0, 100.0), (550.0, 200.0), (450.0, 200.0)]);
+    let half = clip_ring(&[(-50.0, -50.0), (0.0, -50.0), (0.0, 50.0), (-50.0, 50.0), (-50.0, 0.0)]);
+    let corner = clip_ring(&[(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)]);
+    let body = |rule: &str| {
+        scene(&format!(
+            "  LET w AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 380.0, h := 340.0, paint := WITH w {{ clip := [{tri}] }}]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 380.0, y := 0.0, w := 260.0, h := 300.0, paint := WITH w {{ clip := [{outer}, {inner}], clipRule := canvas::FillRule.{rule} }}]\n  \
+             LET spin AS canvas::Transform = canvas::Transform[a := 0.8660254037844387, b := 0.5, c := 0.0 - 0.5, d := 0.8660254037844387, tx := 700.0, ty := 450.0]\n  \
+             LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH w {{ transform := spin, clip := [{half}] }}]\n  \
+             LET d AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{corner}] }}]\n  \
+             canvas::setGroup(\"g\", [d])\n  \
+             canvas::present([a, b, c, canvas::Group[dx := 300.0, dy := 400.0, name := \"g\"]])\n"
+        ))
+    };
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    let (even, _) = render("canvas_path_clip", &body("EvenOdd"));
+    assert_eq!(pixel(&even, 150, 150), white, "inside the triangle");
+    assert_eq!(pixel(&even, 250, 250), black, "beyond the triangle's hypotenuse");
+    assert_eq!(pixel(&even, 420, 150), white, "the band between the rings");
+    assert_eq!(pixel(&even, 500, 150), black, "the hole under EvenOdd");
+    assert_eq!(pixel(&even, 678, 437), white, "the rotated square's clipped-in half");
+    assert_eq!(pixel(&even, 721, 462), black, "its clipped-out half");
+    assert_eq!(pixel(&even, 320, 420), white, "the group's clip moved with it");
+    assert_eq!(pixel(&even, 380, 480), black, "beyond the moved triangle");
+    let (non_zero, _) = render("canvas_path_clip_nz", &body("NonZero"));
+    assert_eq!(pixel(&non_zero, 500, 150), white, "the same-direction inner ring is clip under NonZero");
+}
+
+/// plan-163-C: a transformed clip's edge is antialiased exactly as a transformed shape's
+/// edge — the clip distance is divided by the same direction-aware divisor.
+///
+/// Under the X shear `x' = x + 0.5y` (moved to (200, 450)), a 100x100 square clipped to its
+/// own left half draws, along the clip's slanted edge, the very pixels the 50x100 square
+/// of that half draws unclipped: the same geometry, one edge a clip and one a shape.
+#[test]
+fn a_sheared_clip_edge_matches_a_sheared_shape_edge() {
+    let half = clip_ring(&[(0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (0.0, 100.0)]);
+    let body = |item: &str| {
+        scene(&format!(
+            "  LET shear AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5, d := 1.0, tx := 200.0, ty := 450.0]\n  \
+             LET w AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ transform := shear }}\n  \
+             {item}\n  \
+             canvas::present([s])\n"
+        ))
+    };
+    let (clipped, _) = render(
+        "canvas_shear_clip",
+        &body(&format!("LET s AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{half}] }}]")),
+    );
+    let (shape, _) = render(
+        "canvas_shear_shape",
+        &body("LET s AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 50.0, h := 100.0, paint := w]"),
+    );
+    // Only around the clip's own edge, item x = 50, which lands at surface x =
+    // 250 + 0.5 * (y + 0.5 - 450): the clip's left edge coincides with the shape's, where
+    // the two coverages multiply and the shapes legitimately differ.
+    for y in [460usize, 480, 500, 520, 540] {
+        let edge = 250.0 + 0.5 * (y as f64 + 0.5 - 450.0);
+        for x in (edge as usize - 6)..(edge as usize + 6) {
+            assert_eq!(
+                pixel(&clipped, x, y),
+                pixel(&shape, x, y),
+                "the clip's sheared edge differs from the shape's at ({x}, {y})"
+            );
+        }
+    }
+    assert_eq!(pixel(&clipped, 250, 500), (255, 255, 255, 255), "the half inside the clip draws");
+}
+
+/// plan-163-C: an untransformed axis-aligned rectangle clip takes the rectangle path
+/// (mode 1), and the same rectangle as a five-point ring — the corner repeated, so not a
+/// four-point rectangle — takes the path clip (mode 2). They draw the same pixels, which
+/// pins the fast path to the general one. A non-empty clip whose rings are all shorter
+/// than two points encloses nothing and hides the item.
+#[test]
+fn a_rectangle_clip_draws_the_same_through_either_path() {
+    let four = clip_ring(&[(100.25, 80.5), (300.75, 80.5), (300.75, 240.25), (100.25, 240.25)]);
+    let five = clip_ring(&[(100.25, 80.5), (300.75, 80.5), (300.75, 240.25), (100.25, 240.25), (100.25, 240.25)]);
+    let body = |clip: &str| {
+        scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 160.0, radius := 120.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) {{ clip := [{clip}] }}]\n  \
+             canvas::present([a])\n"
+        ))
+    };
+    let (rect, _) = render("canvas_clip_mode1", &body(&four));
+    let (path, _) = render("canvas_clip_mode2", &body(&five));
+    assert!(rect == path, "the rectangle clip and the same rectangle as a path differ");
+    let (none, _) = render("canvas_clip_degenerate", &body("[canvas::Point[x := 200.0, y := 160.0]]"));
+    assert_eq!(pixel(&none, 200, 160), (0, 0, 0, 255), "a clip of one point encloses nothing");
+}
+
 /// A clip entirely outside the item draws nothing.
 ///
 /// The negative case for the loop bounds: `firstX` ends up past `lastX`, so the loop

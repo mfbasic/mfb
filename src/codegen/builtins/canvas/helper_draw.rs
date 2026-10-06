@@ -162,7 +162,12 @@ END FUNC"#;
 #[rustfmt::skip]
 const EDGE_DISTANCE: &str =
 r#"FUNC __canvas_edgeDistance(tail AS Integer, edges AS Integer, px AS Float, py AS Float) AS Float
-  LET nonZero AS Boolean = collections::getOr(__CANVAS_GEO_DATA, tail - __CANVAS_GEO_HEADER + __CANVAS_GEO_POLYGON_RULE, 0.0) <> 0.0
+  RETURN __canvas_edgeDistanceRule(tail, edges, px, py, collections::getOr(__CANVAS_GEO_DATA, tail - __CANVAS_GEO_HEADER + __CANVAS_GEO_POLYGON_RULE, 0.0) <> 0.0)
+END FUNC
+
+' plan-163-C: the same walk over any edge set under an explicit rule -- a path clip's
+' edges under its `clipRule` (`__canvas_clipPathDistance`).
+FUNC __canvas_edgeDistanceRule(tail AS Integer, edges AS Integer, px AS Float, py AS Float, nonZero AS Boolean) AS Float
   MUT best AS Float = 1000000.0
   MUT inside AS Boolean = FALSE
   MUT winding AS Integer = 0

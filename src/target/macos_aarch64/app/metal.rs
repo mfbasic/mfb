@@ -52,7 +52,7 @@ use crate::codegen::error::constants::error_constants::{
 };
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_DASH_COUNT, HEADER_DASH_PHASE, METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
+    HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT, HEADER_DASH_PHASE, METAL_DASH_BASE_WORDS, METAL_MAX_FRAME_DASH_WORDS,
     HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
     ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
 };
@@ -5279,6 +5279,11 @@ fn emit_dash_buffer(asm: &mut Asm) {
     asm.push(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
     asm.push(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
     asm.push(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    // plan-163-C: the path clip's edges sit between the dashes and the stops.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    asm.push(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    asm.push(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     asm.push(abi::subtract_registers(source, source, count));
     asm.push(abi::shift_left_immediate(source, source, 3));
     asm.push(abi::add_registers(source, header, source));
@@ -5756,6 +5761,12 @@ fn emit_join_buffer(asm: &mut Asm) {
     asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     asm.push(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_DASH_COUNT * 8));
     asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    // plan-163-C: and the path clip's edges, five floats each, after the dashes.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_CLIP_EDGE_COUNT * 8));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    asm.push(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
+    asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
     asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     asm.push(abi::shift_left_immediate(index, index, 3));
     asm.push(abi::add_registers(source, source, index));

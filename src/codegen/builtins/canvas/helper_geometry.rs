@@ -438,28 +438,138 @@ END FUNC
 ' plan-163-C: the clip's header slots. The empty ring list is no clip (mode 0, every slot
 ' left zero). One axis-aligned rectangular ring on an item with no transform is mode 1,
 ' the rectangle in slots 22-25 in the item's own coordinates -- a zero-area one hides
-' the item. Every other clip is the path clip of plan-163-C Phase 2.
+' the item. Every other clip is mode 2, the PATH clip: its edges ride the record's tail
+' (`__canvas_withClipEdges`), slot 52 counts them, and slots 22-25 hold the SURFACE
+' bounds of its rings mapped by the item's transform, a pixel wider each way, which
+' narrow the pixels drawn. A path clip whose rings contribute no edge encloses nothing:
+' it keeps zero bounds and hides the item.
 FUNC __canvas_clipHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   IF len(paint.clip) = 0 THEN
     RETURN h
   END IF
-  IF collections::getOr(h, 33, 0.0) > 0.5 THEN
-    RETURN h
-  END IF
-  LET r AS List OF Float = __canvas_clipRect(paint.clip)
-  IF len(r) = 0 THEN
-    RETURN h
-  END IF
   MUT out AS List OF Float = h
-  out = collections::set(out, 22, collections::getOr(r, 0, 0.0))
-  out = collections::set(out, 23, collections::getOr(r, 1, 0.0))
-  out = collections::set(out, 24, collections::getOr(r, 2, 0.0))
-  out = collections::set(out, 25, collections::getOr(r, 3, 0.0))
-  out = collections::set(out, __CANVAS_GEO_CLIP_MODE, 1.0)
   IF paint.clipRule = FillRule.NonZero THEN
     out = collections::set(out, __CANVAS_GEO_CLIP_RULE, 1.0)
   END IF
-  RETURN out
+  LET mapped AS Boolean = collections::getOr(h, 33, 0.0) > 0.5
+  IF NOT mapped THEN
+    LET r AS List OF Float = __canvas_clipRect(paint.clip)
+    IF len(r) > 0 THEN
+      out = collections::set(out, 22, collections::getOr(r, 0, 0.0))
+      out = collections::set(out, 23, collections::getOr(r, 1, 0.0))
+      out = collections::set(out, 24, collections::getOr(r, 2, 0.0))
+      out = collections::set(out, 25, collections::getOr(r, 3, 0.0))
+      RETURN collections::set(out, __CANVAS_GEO_CLIP_MODE, 1.0)
+    END IF
+  END IF
+  out = collections::set(out, __CANVAS_GEO_CLIP_MODE, 2.0)
+  MUT fa AS Float = 1.0
+  MUT fb AS Float = 0.0
+  MUT fc AS Float = 0.0
+  MUT fd AS Float = 1.0
+  MUT ftx AS Float = 0.0
+  MUT fty AS Float = 0.0
+  IF mapped THEN
+    LET fwd AS List OF Float = __canvas_forwardOf(__canvas_f32FromBits(collections::getOr(h, 27, 0.0)), __canvas_f32FromBits(collections::getOr(h, 28, 0.0)), __canvas_f32FromBits(collections::getOr(h, 29, 0.0)), __canvas_f32FromBits(collections::getOr(h, 30, 0.0)), __canvas_f32FromBits(collections::getOr(h, 31, 0.0)), __canvas_f32FromBits(collections::getOr(h, 32, 0.0)))
+    fa = collections::getOr(fwd, 0, 1.0)
+    fb = collections::getOr(fwd, 1, 0.0)
+    fc = collections::getOr(fwd, 2, 0.0)
+    fd = collections::getOr(fwd, 3, 1.0)
+    ftx = collections::getOr(fwd, 4, 0.0)
+    fty = collections::getOr(fwd, 5, 0.0)
+  END IF
+  MUT count AS Integer = 0
+  MUT minX AS Float = 0.0
+  MUT minY AS Float = 0.0
+  MUT maxX AS Float = 0.0
+  MUT maxY AS Float = 0.0
+  FOR EACH ring IN paint.clip
+    IF len(ring) >= 2 THEN
+      FOR EACH q IN ring
+        MUT x AS Float = q.x
+        MUT y AS Float = q.y
+        IF mapped THEN
+          x = fa * q.x + fc * q.y + ftx
+          y = fb * q.x + fd * q.y + fty
+        END IF
+        IF count = 0 THEN
+          minX = x
+          maxX = x
+          minY = y
+          maxY = y
+        ELSE
+          minX = __canvas_minF(minX, x)
+          maxX = __canvas_maxF(maxX, x)
+          minY = __canvas_minF(minY, y)
+          maxY = __canvas_maxF(maxY, y)
+        END IF
+        count = count + 1
+      NEXT
+    END IF
+  NEXT
+  IF count = 0 THEN
+    RETURN out
+  END IF
+  out = collections::set(out, __CANVAS_GEO_CLIP_EDGE_COUNT, toFloat(count))
+  out = collections::set(out, 22, minX - 1.0)
+  out = collections::set(out, 23, minY - 1.0)
+  out = collections::set(out, 24, maxX + 1.0)
+  RETURN collections::set(out, 25, maxY + 1.0)
+END FUNC
+
+' plan-163-C: an item's clip rings, whatever its kind; none for a group.
+FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF Point
+  MATCH item
+    CASE Rectangle(r)
+      RETURN r.paint.clip
+    CASE RoundedRect(rr)
+      RETURN rr.paint.clip
+    CASE Circle(c)
+      RETURN c.paint.clip
+    CASE Line(l)
+      RETURN l.paint.clip
+    CASE Arc(a)
+      RETURN a.paint.clip
+    CASE Polygon(p)
+      RETURN p.paint.clip
+    CASE Picture(pic)
+      RETURN pic.paint.clip
+    CASE Ellipse(e)
+      RETURN e.paint.clip
+    CASE Text(t)
+      RETURN t.paint.clip
+    CASE PolyLine(pl)
+      RETURN pl.paint.clip
+    CASE Group(g)
+      RETURN []
+  END MATCH
+  RETURN []
+END FUNC
+
+' plan-163-C: a path clip's edges into a record's tail, right before its gradient stops
+' (which stay last): edges | joins | dashes | clip edges | stops. The header has counted
+' them (slot 52); this also grows slot 1 by their floats. Every other record is returned
+' untouched.
+FUNC __canvas_withClipEdges(header AS List OF Float, tail AS List OF Float, item AS DrawItem) AS List OF List OF Float
+  LET count AS Integer = toInt(collections::getOr(header, __CANVAS_GEO_CLIP_EDGE_COUNT, 0.0))
+  IF count = 0 THEN
+    RETURN [header, tail]
+  END IF
+  LET stops AS Integer = toInt(collections::getOr(header, __CANVAS_GEO_GRADIENT_COUNT, 0.0)) * 5
+  LET keep AS Integer = len(tail) - stops
+  LET edges AS List OF Float = __canvas_polygonEdges(__canvas_clipOf(item))
+  MUT out AS List OF Float = []
+  MUT i AS Integer = 0
+  WHILE i < keep
+    out = collections::append(out, collections::getOr(tail, i, 0.0))
+    i = i + 1
+  END WHILE
+  out = collections::append(out, edges)
+  WHILE i < len(tail)
+    out = collections::append(out, collections::getOr(tail, i, 0.0))
+    i = i + 1
+  END WHILE
+  RETURN [collections::set(header, 1, collections::getOr(header, 1, 0.0) + toFloat(len(edges))), out]
 END FUNC
 
 FUNC __canvas_strokeAsFill(h AS List OF Float) AS List OF Float
@@ -1306,6 +1416,10 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
         header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint)), __canvas_polylineDashes(pl), pl.paint)
       END IF
   END MATCH
+  ' plan-163-C: a path clip's edges, right before the stops.
+  LET clipped AS List OF List OF Float = __canvas_withClipEdges(header, tail, item)
+  header = collections::getOr(clipped, 0, header)
+  tail = collections::getOr(clipped, 1, tail)
   ' The header is always exactly `__CANVAS_GEO_HEADER` floats -- every builder starts
   ' from `__canvas_blankHeader` -- and slot 1 declares the record's length on that
   ' assumption. The padded copy below is the guard for a builder that ever breaks it.
@@ -1693,8 +1807,9 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
         header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint)), __canvas_polylineDashes(pl), pl.paint)
       END IF
   END MATCH
-  MUT out AS List OF Float = header
-  out = collections::append(out, tail)
+  LET clipped AS List OF List OF Float = __canvas_withClipEdges(header, tail, item)
+  MUT out AS List OF Float = collections::getOr(clipped, 0, header)
+  out = collections::append(out, collections::getOr(clipped, 1, tail))
   RETURN out
 END FUNC
 

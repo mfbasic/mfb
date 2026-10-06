@@ -307,9 +307,16 @@ MUT __CANVAS_DASH_HAS_B AS Boolean = FALSE
 MUT __CANVAS_DASH_END_B AS Float = 0.0
 MUT __CANVAS_DASH_Y AS Float = 0.0
 
-' Where a record's dash tail starts: right before its gradient stops, which stay last.
+' Where a record's dash tail starts: right before its clip edges (plan-163-C), which are
+' right before its gradient stops, which stay last.
 FUNC __canvas_dashBase(offset AS Integer) AS Integer
-  RETURN __canvas_gradientStopBase(offset) - toInt(__canvas_geoAt(offset, __CANVAS_GEO_DASH_COUNT))
+  RETURN __canvas_clipEdgeBase(offset) - toInt(__canvas_geoAt(offset, __CANVAS_GEO_DASH_COUNT))
+END FUNC
+
+' plan-163-C: where a record's path-clip edges start -- right before its gradient stops,
+' counted back from the end of the record as `__canvas_gradientStopBase` counts them.
+FUNC __canvas_clipEdgeBase(offset AS Integer) AS Integer
+  RETURN __canvas_gradientStopBase(offset) - toInt(__canvas_geoAt(offset, __CANVAS_GEO_CLIP_EDGE_COUNT)) * 5
 END FUNC
 
 ' Whether pattern position `x` (the phase already added) is in a dash: entry j covers

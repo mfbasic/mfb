@@ -54,6 +54,17 @@ FUNC paints() AS List OF canvas::Paint
   out = collections::append(out, WITH inked { dashes := [2.0, 0.0 - 1.0] })
   out = collections::append(out, WITH inked { dashes := [2.0, 1.0], strokeWidth := 0.0 })
   out = collections::append(out, WITH inked { dashes := [2.0, 1.0], stroke := color::rgba(1, 2, 3, 0) })
+  ' plan-163-C. Path clips, built natively: a triangle, a ring with a hole under NonZero, a
+  ' rectangle as five points (not the rectangle fast path), a clip of rings too short to
+  ' enclose anything, and a clip on a faded paint whose polyline colours fade too.
+  LET tri AS List OF canvas::Point = [canvas::Point[x := 3.5, y := 1.25], canvas::Point[x := 60.0, y := 0.0 - 4.0], canvas::Point[x := 20.75, y := 70.0]]
+  LET hole AS List OF canvas::Point = [canvas::Point[x := 10.0, y := 10.0], canvas::Point[x := 30.0, y := 10.0], canvas::Point[x := 30.0, y := 30.0], canvas::Point[x := 10.0, y := 30.0]]
+  LET box AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 50.0, y := 0.0], canvas::Point[x := 50.0, y := 40.0], canvas::Point[x := 0.0, y := 40.0], canvas::Point[x := 0.0, y := 40.0]]
+  out = collections::append(out, WITH inked { clip := [tri] })
+  out = collections::append(out, WITH inked { clip := [box, hole], clipRule := canvas::FillRule.NonZero })
+  out = collections::append(out, WITH inked { clip := [box] })
+  out = collections::append(out, WITH inked { clip := [[canvas::Point[x := 1.0, y := 2.0]], []] })
+  out = collections::append(out, WITH inked { clip := [tri], transparency := 0.3, dashes := [5.0, 2.5] })
   RETURN out
 END FUNC
 

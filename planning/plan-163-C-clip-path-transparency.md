@@ -489,11 +489,13 @@ Acceptance: the new rules hold in software, and unaffected items are byte-identi
   tests/golden/canvas` must list only PNGs whose scenes are in the Phase 1 measured
   lists (est. 12 min, guess; these four binaries cover clip, alpha, picture and both
   builders).
-Commit: —
+  Result: rasteriser 74, golden 22, picture 11, font 33, geo_native 4 passed; the one
+  golden changed is `groups.png`, whose `band` is in the measured list.
+Commit: 7b017576b
 
 ### Phase 2 — Path clip in software (the design's uncertain part, tested first)
 
-- [ ] Premise tests first (hand-computed, `rt_canvas_rasteriser.rs`):
+- [x] Premise tests first (hand-computed, `rt_canvas_rasteriser.rs`):
       - a triangle clip on a rectangle;
       - a ring-with-hole clip under EvenOdd and under NonZero with a same-direction
         inner ring;
@@ -502,21 +504,38 @@ Commit: —
       - a path clip inside a translated group.
       If the sheared clip's edge coverage disagrees with a sheared shape edge of the
       same geometry, fix the divisor use and record it in Corrections.
-- [ ] Both builders: mode 2, the clip edge tail per §5, and
+      (`a_path_clip_draws_only_inside_its_rings` — triangle, hole under both rules, 30°
+      rotation, translated group — and `a_sheared_clip_edge_matches_a_sheared_shape_edge`,
+      which disagreed (137 vs 143 at (255, 460)) until the divisor was fixed —
+      Corrections 4.)
+- [x] Both builders: mode 2, the clip edge tail per §5, and
       `__canvas_clipEdgeBase`. `emit_paint_supported` accepts mode 2 once native emits
       it. `MFB_CANVAS_GEO_VERIFY=1` under `--debug` reports no mismatch on the premise
-      scenes.
-- [ ] Software mode-2 coverage per §5.
-- [ ] Test: an axis-aligned rectangle clip with no transform gives exactly the same
+      scenes. (`__canvas_clipHeader` mode 2, `__canvas_withClipEdges` in both
+      `__canvas_geometryFor` and `__canvas_geoReference`, `__canvas_clipEdgeBase` under
+      `__canvas_dashBase`; native `emit_clip_shape`, `emit_clip_edges`, `emit_clip_size`
+      — every clip is native now. Five path-clip paints in the native matrix: `cargo test
+      --test rt_canvas_geo_native` → 4 passed, every record native, 0 mismatches. Both GPU
+      emitters' join and dash copies also skip the clip edges (`HEADER_CLIP_EDGE_COUNT`,
+      pinned).)
+- [x] Software mode-2 coverage per §5. (`__canvas_clipPathDistance` over
+      `__canvas_edgeDistanceRule`, `__canvas_clipPathSurface`, `__canvas_glyphClip`.)
+- [x] Test: an axis-aligned rectangle clip with no transform gives exactly the same
       pixels through mode 1 and forced through mode 2. This pins the fast path to the
-      general path.
-- [ ] Test: a non-empty clip whose rings are all shorter than 2 points draws nothing.
-      `clip := []` draws unclipped.
+      general path. (`a_rectangle_clip_draws_the_same_through_either_path`: the four-point
+      ring against the same rectangle as five points, whole frames equal.)
+- [x] Test: a non-empty clip whose rings are all shorter than 2 points draws nothing.
+      `clip := []` draws unclipped. (The same test, and Phase 1's
+      `an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item`.)
 
 Acceptance: path clips draw per §5 in software, and modes 0 and 1 are unchanged from
 Phase 1.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass, goldens unmodified since Phase 1 (est. 10 min, guess).
+  Result: rasteriser 77, geo_native 4, picture 11, font 33 passed; golden 21 of 22 —
+  `the_gpu_draws_the_group_scene_the_reference_shows` fails because the GPUs still
+  evaluate the clip at the surface point, which Phase 3 changes (the software golden
+  tests pass); no golden file modified since Phase 1.
 Commit: —
 
 ### Phase 3 — Item block growth, and the path clip and tint on the GPU (largest blast radius)
@@ -611,6 +630,21 @@ Commit: —
    phases changed the canvas helpers the fixture's `.ir`/native dumps embed and did not
    re-sync them (B's acceptance gate runs once, at the end of plan-163). Phase 1's
    regeneration covers both letters' changes.
+4. **A path clip is divided by its own gradient, not the shape's.** §5 said the clip
+   distance is "scaled by the shape's direction-aware divisor". The premise test showed
+   that is wrong under a shear: near the clip's edge the SHAPE's gradient is that of
+   whichever shape edge is nearest, so a sheared clip edge drew 137 where the same edge as
+   a shape drew 143, at (255, 460). The clip is now divided by its own gradient, from
+   central differences of the clip distance at the same four inverse-mapped neighbours
+   the shape uses (`__canvas_clipPathSurface`); the test passes and the GPUs take the
+   same five clip samples (Phase 3).
+5. **A full-suite run is void if anything is built while it runs.** Phase 1's first
+   full-suite run was contaminated: a `cargo test --bin mfb` issued mid-run rebuilt
+   the binary under test with half-written Phase 2 code (`NIR call target
+   '#collections_take' does not resolve` in 100+ canvas tests). It was stopped and does
+   not count; the full suite runs again with nothing built alongside it. The same run
+   found `collections::take`/`drop` unresolvable from a builtin helper; the clip-edge
+   splice uses loops.
 
 ## Summary
 

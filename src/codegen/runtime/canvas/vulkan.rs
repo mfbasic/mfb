@@ -42,7 +42,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_DASH_COUNT, HEADER_DASH_PHASE, HEADER_JOIN_COUNT, VULKAN_DASH_BASE_WORDS,
+    HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT, HEADER_DASH_PHASE, HEADER_JOIN_COUNT, VULKAN_DASH_BASE_WORDS,
     VULKAN_MAX_FRAME_DASH_WORDS, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
     ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
 };
@@ -4269,6 +4269,11 @@ fn emit_dash_upload(
     builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
     builder.emit(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
     builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    // plan-163-C: the path clip's edges sit between the dashes and the stops.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, HEADER_CLIP_EDGE_COUNT * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[7], abi::FP_SCRATCH[1]));
+    builder.emit(abi::multiply_registers(abi::SCRATCH[7], abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
     builder.emit(abi::subtract_registers(source, source, count));
     builder.emit(abi::shift_left_immediate(source, source, 3));
     builder.emit(abi::add_registers(source, header, source));
@@ -4406,6 +4411,12 @@ fn emit_join_upload(
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_DASH_COUNT * 8));
     builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    // plan-163-C: and the path clip's edges, five floats each, after the dashes.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_CLIP_EDGE_COUNT * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
+    builder.emit(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     builder.emit(abi::shift_left_immediate(index, index, 3));
     builder.emit(abi::add_registers(source, source, index));

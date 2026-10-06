@@ -140,6 +140,47 @@ END FUNC
 ' for an axis-aligned edge: a clip starting at x = 10.6 leaves pixel 10 (centre 10.5)
 ' at d = +0.1, hence coverage 0.4 -- which is the 40% of that pixel actually inside.
 '
+' plan-163-C: a path clip's SURFACE distance at the pixel (`px`, `py`, the group offset
+' taken off; `qx`, `qy` its shape-space point): under a transform, its shape-space
+' distance divided by the clip's own gradient there, by central differences at the same
+' inverse-mapped neighbours the shape uses -- not by the SHAPE's gradient, which near the
+' clip's edge belongs to whichever shape edge is nearest, so a sheared clip would
+' antialias by the wrong slope (measured, plan-163-C Corrections 4).
+FUNC __canvas_clipPathSurface(offset AS Integer, px AS Float, py AS Float, qx AS Float, qy AS Float, transformed AS Boolean) AS Float
+  LET d AS Float = __canvas_clipPathDistance(offset, qx, qy)
+  IF NOT transformed THEN
+    RETURN d
+  END IF
+  LET dxp AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py))
+  LET dxm AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py))
+  LET dyp AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5))
+  LET dym AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5))
+  LET gx AS Float = dxp - dxm
+  LET gy AS Float = dyp - dym
+  LET g AS Float = math::sqrt(gx * gx + gy * gy)
+  IF g > 0.000001 THEN
+    RETURN d / g
+  END IF
+  RETURN d
+END FUNC
+
+' plan-163-C: a glyph's clip coverage -- a path clip at the glyph's shape-space point
+' (`qx`, `qy`; a glyph is a bitmap, so there is no distance gradient to divide by), a
+' rectangle at its group-relative one (`px`, `py`).
+FUNC __canvas_glyphClip(offset AS Integer, qx AS Float, qy AS Float, px AS Float, py AS Float) AS Integer
+  IF __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0 THEN
+    RETURN __canvas_coverage(__canvas_clipPathDistance(offset, qx, qy))
+  END IF
+  RETURN __canvas_clipCoverage(offset, px, py)
+END FUNC
+
+' plan-163-C: a path clip's signed distance at the item's own point (`x`, `y`, the
+' shape-space point): its edges under its rule, negative inside.
+FUNC __canvas_clipPathDistance(offset AS Integer, x AS Float, y AS Float) AS Float
+  LET edges AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_CLIP_EDGE_COUNT))
+  RETURN __canvas_edgeDistanceRule(__canvas_clipEdgeBase(offset), edges, x, y, __canvas_geoAt(offset, __CANVAS_GEO_CLIP_RULE) <> 0.0)
+END FUNC
+
 ' plan-163-C: a picture's texel channel tinted by its fill: towards `texel * fill / 255`
 ' by `alpha / 255`, the difference rounded half away from zero -- so an alpha of 255 is
 ' that product exactly (today's multiply) and 0 the texel unchanged.
@@ -315,7 +356,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
             IF ux >= 0 AND uy >= 0 AND ux < gw AND uy < gh THEN
               MUT tcov AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + uy * gw + ux, toByte(0)))
               IF tClipped THEN
-                tcov = (tcov * __canvas_clipCoverage(offset, fpx, fpy)) / 255
+                tcov = (tcov * __canvas_glyphClip(offset, __canvas_invX(offset, fpx, fpy), __canvas_invY(offset, fpx, fpy), fpx, fpy)) / 255
               END IF
               IF tcov > 0 THEN
                 LET tAlpha AS Integer = (tA * tcov) / 255
@@ -349,7 +390,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
             IF sx >= 0 AND sx < width THEN
               MUT cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
               IF tClipped THEN
-                cover = (cover * __canvas_clipCoverage(offset, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy)) / 255
+                cover = (cover * __canvas_glyphClip(offset, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy)) / 255
               END IF
               IF cover > 0 THEN
                 LET gAlpha AS Integer = (tA * cover) / 255
@@ -490,6 +531,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   MUT lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19) + gdy), height - 1)
   MUT y AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 17) + gdy), 0)
   LET clipped AS Boolean = __canvas_hasClip(offset)
+  LET clipPath AS Boolean = __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0
   LET transformed AS Boolean = __canvas_hasTransform(offset)
   ' plan-116-B: the item's BlendMode, read ONCE per item rather than per pixel.
   '
@@ -578,7 +620,14 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' bounds, so this is the boundary's cost and nothing else's.
       MUT clipCov AS Integer = 255
       IF clipped THEN
-        clipCov = __canvas_clipCoverage(offset, px, py)
+        ' plan-163-C: a path clip is evaluated at the shape-space point and divided by
+        ' ITS OWN scale there (`__canvas_clipPathSurface`), so a transformed clip's edge
+        ' is antialiased as a transformed shape's edge of the same geometry is.
+        IF clipPath THEN
+          clipCov = __canvas_coverage(__canvas_clipPathSurface(offset, px, py, qx, qy, transformed))
+        ELSE
+          clipCov = __canvas_clipCoverage(offset, px, py)
+        END IF
       END IF
 
       ' plan-116-F: the gradient replaces the fill COLOUR and nothing else -- the

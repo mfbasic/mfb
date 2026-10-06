@@ -2,7 +2,7 @@ use super::*;
 use crate::codegen::runtime::canvas::{
     GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
     HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
-    HEADER_DASH_COUNT, HEADER_JOIN_COUNT, HEADER_JOIN_REACH, HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST,
+    HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT, HEADER_JOIN_COUNT, HEADER_JOIN_REACH, HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST,
     HEADER_POLYLINE_LAST, HEADER_SLOTS,
     PICTURE_SHADOW_SPLIT_BITS,
 };
@@ -95,6 +95,8 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
     assert_eq!(declared("__CANVAS_GEO_JOIN_REACH"), HEADER_JOIN_REACH);
     // plan-163-B: both emitters find the join records past this many dash floats.
     assert_eq!(declared("__CANVAS_GEO_DASH_COUNT"), HEADER_DASH_COUNT);
+    // plan-163-C: and past this many clip edges, five floats each.
+    assert_eq!(declared("__CANVAS_GEO_CLIP_EDGE_COUNT"), HEADER_CLIP_EDGE_COUNT);
 }
 
 /// bug-484: a picture's pixel-block slots and split equal what the emitters rebuild

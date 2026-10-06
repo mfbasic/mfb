@@ -1113,6 +1113,9 @@ pub(crate) const HEADER_JOIN_REACH: usize = 48;
 /// offset wrapped into one period, which the emitters upload as the first dash word.
 pub(crate) const HEADER_DASH_COUNT: usize = 49;
 pub(crate) const HEADER_DASH_PHASE: usize = 50;
+/// plan-163-C: `__CANVAS_GEO_CLIP_EDGE_COUNT` -- a path clip's edges, five floats each,
+/// which sit between the dash tail and the gradient stops.
+pub(crate) const HEADER_CLIP_EDGE_COUNT: usize = 52;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one **frame** may carry on the Vulkan path.
