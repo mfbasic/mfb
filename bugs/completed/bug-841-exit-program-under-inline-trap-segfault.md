@@ -144,3 +144,16 @@ helper / builtin HOF gains a tag compare and a cold exit branch per site, so the
 native-code goldens (`.ncode`/`.ncodesum`/byte-identity covers) are expected to
 change. AST/IR goldens and run outputs do not change (the behavior change only
 affects programs that `EXIT PROGRAM` under an inline `TRAP`, which crashed before).
+
+### Measured
+
+Measured with `scripts/artifact-gate.sh <mfb> all` (all five bs16-agent-a fixes built in; 59 diffs in total, attributed per function by comparing base and fixed `--ncode` for macos-aarch64): this fix explains the `.ncodesum` diffs (all five targets) of
+`tests/byte-identity/{audio,http,json,net,regex,tcp,tls,udp}/*_codegen_cover_rt`
+and the four `.app.ncode` diffs of `tests/syntax/app/app-mouse-surface`. Every
+changed function is a builtin package's `.mfb` function with an inline `TRAP`
+(`_mfb_ifn_audio_5FmmlParseUint`, `_mfb_ifn_http_5F*`, `_mfb_ifn_json_5FparseHexQuad`,
+`_mfb_ifn_net_5FparsePort`/`decodeQueryComponent`, `_mfb_ifn_regex_5FparseHexEscape`,
+`_mfb_ifn_canvas_5FfaceName`/`pngDecode`/`readDisplayOverride`); the instruction
+diff of `mmlParseUint` is exactly the passthrough (compare, `b.ne`, four moves, the
+frame epilogue and `ret`) plus label renumbering. `scripts/test-accept.sh` on the
+`*trap*`/`*exit-program*` fixtures passes.
