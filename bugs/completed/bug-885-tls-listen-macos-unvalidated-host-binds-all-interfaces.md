@@ -69,7 +69,7 @@ free_calls 60, live_bytes 56960` — exact parity with `main`. (The pre-existing
 2848 B/iteration — `live_bytes` not reaching 0 even on `main` — predates this
 bug and is out of scope here; the coordinator is filing it separately.)
 
-New regression test: `numeric_host_listen_adds_no_per_call_resolve_allocation`
+New regression test (first cut): `numeric_host_listen_adds_no_per_call_resolve_allocation`
 in `tests/net/rt_tls_listen_host_validation.rs`, in the `--debug`-report
 alloc/free-counting style of `tests/runtime/rt_closure_single_owner.rs` —
 builds the same loop at N and 2N iterations and asserts `alloc_calls`/
@@ -77,6 +77,34 @@ builds the same loop at N and 2N iterations and asserts `alloc_calls`/
 the measured 6-allocs/3-frees-per-iteration baseline. Confirmed RED against
 the pre-this-fix build (70 vs the expected 60 for N=10) before confirming
 GREEN against the final build.
+
+#### Second review round: the test pinned a pre-existing, unrelated leak
+
+Coordinator review of that first-cut test: `alloc_n == free_n * 2` and
+`per_iter_free <= 3` both asserted bug-984 (filed separately) — `main` itself
+already frees only 3 of 6 blocks per NUMERIC-host `tls::listen`+`close` call,
+and fixing bug-984 (free_calls becomes 6/iteration) would fail those
+assertions for the right fix. Worse, the `inet_pton` short-circuit means a
+NUMERIC host no longer reaches `getaddrinfo`/`inet_ntop`/`RESOLVEDCSTR` at
+all, so a numeric-only loop cannot exercise the code that leaked in the first
+place — only a NAME host (`"localhost"`) does.
+
+Renamed to `resolve_path_leaks_nothing_beyond_the_numeric_path` and reworked:
+build the loop with both `"localhost"` and `"127.0.0.1"` at N and 2N, and
+assert the per-iteration `(allocs - frees)` gap is IDENTICAL for both hosts.
+Measured: `127.0.0.1` gap is 3 (bug-984, unaffected by this bug); the
+assertion is that `"localhost"`'s gap is ALSO 3 — i.e. the resolve path adds
+no leak beyond what bug-984 already costs a numeric host, independent of
+bug-984 ever being fixed. Kept the linear-scaling asserts (hold regardless of
+bug-984) and the numeric-host `alloc_calls <= 6` bound (unaffected by
+bug-984, which is about frees, not allocs).
+
+RED (commit `029fe5589`): disabled only the `RESOLVEDCSTR` free that runs
+after `nw_endpoint_create_host` (not the `inet_pton` skip, not the
+`inet_ntop_fail` exit's free) and reran — `localhost`'s gap went to 4 while
+`127.0.0.1`'s stayed at 3, failing `4 == 3` with the leaked buffer's exact
+size (one extra unfreed 64 B block per iteration, name-host only). Reverted
+to the real fix: GREEN, 3/3 passed.
 
 
 
