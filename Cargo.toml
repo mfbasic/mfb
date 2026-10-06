@@ -572,6 +572,10 @@ name = "rt_thread_drop_running_finish_race"
 path = "tests/runtime/rt_thread_drop_running_finish_race.rs"
 
 [[test]]
+name = "rt_field_grow_item_reads_owner"
+path = "tests/runtime/rt_field_grow_item_reads_owner.rs"
+
+[[test]]
 name = "rt_callback_failure_frees"
 path = "tests/runtime/rt_callback_failure_frees.rs"
 
