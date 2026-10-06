@@ -1231,6 +1231,20 @@ fn square_caps_match_the_software_oracle_on_metal() {
     );
 }
 
+/// plan-163-B: Miter and Bevel joins on polygons (a pentagram at both miter limits, a
+/// concave arrow, two rings), polylines (sharp turns, a repeated point, per-point colours),
+/// rectangles, a rotated polygon and a translucent stroke over a fill.
+const JOINS: &str = include_str!("scenes/joins_on_black.mfb");
+
+#[test]
+fn joins_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_joins",
+        JOINS,
+        "the mitered and beveled polygons, polylines and rectangles over black",
+    );
+}
+
 /// `LARGE_POLYGONS` without its grey ground: filled, translucent, stroked, transformed
 /// and self-intersecting polygons of 300-4,000 edges, every rim over black. bug-688
 /// measured max delta 4 on Vulkan (lavapipe) at (736, 52), the rotated ring's rim.

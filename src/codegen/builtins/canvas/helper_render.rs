@@ -793,6 +793,8 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
+    ' plan-163-B: a stroke's join records ride the same region, two edge slots each.
+    total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
   NEXT
   IF quads > __CANVAS_METAL_MAX_FRAME_ITEMS THEN
     RETURN FALSE
@@ -936,6 +938,8 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
+    ' plan-163-B: a stroke's join records ride the same region, two edge slots each.
+    total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
   NEXT
   IF quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS THEN
     RETURN FALSE

@@ -1,7 +1,7 @@
 //! Geometry generation and the geometry cache.
 //!
 //! A `DrawItem` is what the *program* wrote; **geometry** is what the *renderer*
-//! draws. Generation turns one into the other: a fixed 50-float header carrying the
+//! draws. Generation turns one into the other: a fixed 51-float header carrying the
 //! shape's kind, its distance-function parameters, its two colours and its bounds,
 //! followed by a per-kind tail (a polygon's precomputed edge array).
 //!
@@ -33,10 +33,10 @@
 //!
 //! ## Why a hash *and* a comparison
 //!
-//! The probe is by hash, but a hit is confirmed by comparing the 50-float header
+//! The probe is by hash, but a hit is confirmed by comparing the 51-float header
 //! exactly before the tail is reused. A hash alone would let a collision reuse
 //! another item's geometry and silently draw the wrong picture — a rare wrong answer
-//! is worse than a common slow one, and the confirmation costs 50 float compares
+//! is worse than a common slow one, and the confirmation costs 51 float compares
 //! against a tail that can be thousands.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
@@ -50,11 +50,13 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 50
+r#"LET __CANVAS_GEO_HEADER AS Integer = 51
 ' plan-163-B: the stroke-style slots, appended after every older slot so none of them
-' moved. 47 is the number of join records in the tail (`__canvas_joinBase`); 48 and 49
-' are the dash pattern's float count and offset.
+' moved. 47 is the number of join records in the tail (`__canvas_joinBase`), 48 how far
+' a record reaches from its vertex (the band index widens to it); 49 and 50 are the dash
+' pattern's float count and offset.
 LET __CANVAS_GEO_JOIN_COUNT AS Integer = 47
+LET __CANVAS_GEO_JOIN_REACH AS Integer = 48
 LET __CANVAS_GEO_GRADIENT_COUNT AS Integer = 41
 LET __CANVAS_GEO_GRADIENT_KIND AS Integer = 42
 LET __CANVAS_GEO_GRADIENT_FROMX AS Integer = 43
@@ -205,13 +207,13 @@ END FUNC"#;
 
 /// The fixed header builders, one per kind.
 ///
-/// Every builder writes the same 50 slots, so the rasteriser and the emitters can be
+/// Every builder writes the same 51 slots, so the rasteriser and the emitters can be
 /// written once against the layout instead of per kind. `__canvas_geometryFor` picks the
 /// builder in one `MATCH` that is exhaustive over the frozen `DrawItem` set, so a new
 /// variant fails to compile there rather than silently generating nothing.
 #[rustfmt::skip]
 const GEO_HEADER: &str =
-r#"' bug-686: a copy of one prebuilt all-zero header rather than 50 appends -- one small
+r#"' bug-686: a copy of one prebuilt all-zero header rather than 51 appends -- one small
 ' block copy against ~0.9 us per item, on every geometry build.
 FUNC __canvas_blankHeader() AS List OF Float
   IF len(__CANVAS_GEO_BLANK) <> __CANVAS_GEO_HEADER THEN
@@ -832,7 +834,7 @@ FUNC __canvas_polylineTail(p AS PolyLine) AS List OF Float
   RETURN collections::append(collections::append(segments, joins), __canvas_polylineStops(p))
 END FUNC
 
-' The number of join records a polyline's tail holds (`__canvas_polylineTail`).
+' The join records a polyline's tail holds (`__canvas_polylineTail`), one per segment.
 FUNC __canvas_polylineJoins(p AS PolyLine) AS List OF Float
   RETURN __canvas_joinTail(__canvas_polylineSegments(p), [0], FALSE, __canvas_polylineHalf(p), p.paint)
 END FUNC
@@ -1154,12 +1156,12 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
       tail = __canvas_appendGradientTail(joins, r.paint)
-      header = __canvas_withJoins(header, joins)
+      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint))
     CASE RoundedRect(rr)
       header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
       tail = __canvas_appendGradientTail(joins, rr.paint)
-      header = __canvas_withJoins(header, joins)
+      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint))
     CASE Circle(c)
       tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
@@ -1173,11 +1175,11 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       IF len(edges) > 0 THEN
         tail = __canvas_appendGradientTail(collections::append(edges, joins), p.paint)
       END IF
-      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins)
+      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint))
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
       tail = __canvas_rectJoins(header, pic.paint)
-      header = __canvas_withJoins(header, tail)
+      header = __canvas_withJoins(header, tail, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint))
     CASE Ellipse(e)
       tail = __canvas_appendGradientTail([], e.paint)
       header = __canvas_ellipseHeader(e)
@@ -1188,7 +1190,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
         LET edges AS List OF Float = __canvas_textEdges(t)
         LET joins AS List OF Float = __canvas_joinTail(edges, __CANVAS_RING_MARKS, TRUE, __canvas_strokeHalf(t.paint), t.paint)
         tail = collections::append(edges, joins)
-        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins)
+        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins, __canvas_joinReach(__canvas_strokeHalf(t.paint), t.paint))
       ELSE
         tail = __canvas_textGlyphRun(t)
         header = __canvas_textHeader(t, tail)
@@ -1199,13 +1201,13 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     CASE Group(g)
       header = __canvas_emptyHeader()
     ' plan-154-A. The tail only when the header is a real polyline: an empty header
-    ' declares a 50-float record, and a tail appended behind it would be floats the
+    ' declares a 51-float record, and a tail appended behind it would be floats the
     ' record does not own.
     CASE PolyLine(pl)
       header = __canvas_polylineHeader(pl)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
         tail = __canvas_polylineTail(pl)
-        header = __canvas_withJoins(header, __canvas_polylineJoins(pl))
+        header = __canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint))
       END IF
   END MATCH
   ' The header is always exactly `__CANVAS_GEO_HEADER` floats -- every builder starts
@@ -1263,7 +1265,7 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
 END FUNC
 
 ' bug-686: every item's hash is folded from its own FIELDS, kind by kind. It used to be
-' a hash of the item's built geometry header -- 50 floats, the transform inverted, the
+' a hash of the item's built geometry header -- 51 floats, the transform inverted, the
 ' bounds computed -- which made `canvas::present` build every item's header on the
 ' worker only to hash it, and was most of the 3-4 us per item a present cost. The
 ' fields determine the header, so hashing them keys the cache exactly as well; what the
@@ -1521,12 +1523,12 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
       tail = __canvas_appendGradientTail(joins, r.paint)
-      header = __canvas_withJoins(header, joins)
+      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint))
     CASE RoundedRect(rr)
       header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
       tail = __canvas_appendGradientTail(joins, rr.paint)
-      header = __canvas_withJoins(header, joins)
+      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint))
     CASE Circle(c)
       tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
@@ -1538,13 +1540,13 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       IF len(edges) > 0 THEN
         tail = __canvas_appendGradientTail(collections::append(edges, joins), p.paint)
       END IF
-      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins)
+      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint))
     CASE Arc(a)
       header = __canvas_arcHeader(a)
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
       tail = __canvas_rectJoins(header, pic.paint)
-      header = __canvas_withJoins(header, tail)
+      header = __canvas_withJoins(header, tail, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint))
     CASE Ellipse(e)
       tail = __canvas_appendGradientTail([], e.paint)
       header = __canvas_ellipseHeader(e)
@@ -1553,7 +1555,7 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
         LET edges AS List OF Float = __canvas_textEdges(t)
         LET joins AS List OF Float = __canvas_joinTail(edges, __CANVAS_RING_MARKS, TRUE, __canvas_strokeHalf(t.paint), t.paint)
         tail = collections::append(edges, joins)
-        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins)
+        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins, __canvas_joinReach(__canvas_strokeHalf(t.paint), t.paint))
       ELSE
         tail = __canvas_geoRunReference(t, offset)
         header = __canvas_textHeader(t, tail)
@@ -1564,7 +1566,7 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       header = __canvas_polylineHeader(pl)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
         tail = __canvas_polylineTail(pl)
-        header = __canvas_withJoins(header, __canvas_polylineJoins(pl))
+        header = __canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint))
       END IF
   END MATCH
   MUT out AS List OF Float = header

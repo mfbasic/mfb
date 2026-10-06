@@ -2,7 +2,8 @@ use super::*;
 use crate::codegen::runtime::canvas::{
     GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
     HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
-    HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_SLOTS,
+    HEADER_JOIN_COUNT, HEADER_JOIN_REACH, HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST,
+    HEADER_POLYLINE_LAST, HEADER_SLOTS,
     PICTURE_SHADOW_SPLIT_BITS,
 };
 
@@ -88,6 +89,10 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
     // plan-163-A: both emitters copy a polygon's fill rule out of this slot into the
     // item block; a mismatch draws every NonZero polygon even-odd, or the reverse.
     assert_eq!(declared("__CANVAS_GEO_POLYGON_RULE"), HEADER_POLYGON_RULE);
+    // plan-163-B: both emitters upload the join records by this count and widen the band
+    // index by this reach.
+    assert_eq!(declared("__CANVAS_GEO_JOIN_COUNT"), HEADER_JOIN_COUNT);
+    assert_eq!(declared("__CANVAS_GEO_JOIN_REACH"), HEADER_JOIN_REACH);
 }
 
 /// bug-484: a picture's pixel-block slots and split equal what the emitters rebuild

@@ -37,6 +37,9 @@ struct ItemBlock {
     ivec4 capsLo;   // of arcCaps.xyzw
     ivec4 clipLo;   // of clip.xyzw
     ivec4 miscLo;   // of misc.y (radius), misc.z (strokeHalf), ellipse.x, ellipse.y
+    // plan-163-B: the stroke's join records -- first edge slot, record count -- then
+    // its dash pattern's first entry and entry count.
+    ivec4 strokeStyle;
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -395,6 +398,194 @@ vec2 edgeDistance(int base, int count, int list, vec2 x, vec2 y, float reach, in
     return inside ? -best : best;
 }
 
+// plan-163-B: join records (`helper_joins.rs`). A Miter or Bevel stroke's corners ride the
+// edge region after the item's own edges, one record per outline edge -- the corner at
+// that edge's START -- as two edge slots: its four points V, A, P, B as eight 16.16 words,
+// with their residuals at the residual region's same offsets (`strokeStyle.x` is the
+// first slot, `strokeStyle.y` the record count). Its corner PIECE, read from exact
+// equalities as the oracle reads it: none when A = V, the disc of radius |A - V| about V
+// when A = B, that disc cut by the chord A-B on V's side when P = V (a bevel), and the
+// disc with the polygon V, A, P, B otherwise (a miter, P its point). The pieces overlap
+// the butt bands they join, so their `min` has no seam. Metal's twins, line for line.
+int joinWord(int r, int w) { return (item.strokeStyle.x + r * 2) * 4 + w; }
+bool joinSame(int r, int a, int b) {
+    int i = joinWord(r, a * 2);
+    int j = joinWord(r, b * 2);
+    return edges.values[i] == edges.values[j] && edges.values[i + 1] == edges.values[j + 1]
+        && edges.values[i + EDGE_RESIDUAL_BASE] == edges.values[j + EDGE_RESIDUAL_BASE]
+        && edges.values[i + 1 + EDGE_RESIDUAL_BASE] == edges.values[j + 1 + EDGE_RESIDUAL_BASE];
+}
+// 0 no piece, 1 the disc, 2 a bevel, 3 a miter.
+int joinKind(int r) {
+    if (joinSame(r, 1, 0)) { return 0; }
+    if (joinSame(r, 1, 3)) { return 1; }
+    return joinSame(r, 2, 0) ? 2 : 3;
+}
+vec2 joinPoint32(int r, int k) {
+    int i = joinWord(r, k * 2);
+    return vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
+}
+vec2 joinCoord(int r, int w) {
+    int i = joinWord(r, w);
+    return edgeCoord(i, i + EDGE_RESIDUAL_BASE);
+}
+// A record's piece distance in fp32 as the pair (least, most) the double-float one can
+// be, widened by `edgeSlack`'s bound: the disc, cut by the chord, or with the polygon --
+// its nearest edge, signed by the crossing parity, both signs when a crossing is too
+// close to call.
+vec2 joinBounds32(int r, int kind, vec2 p) {
+    vec2 v = joinPoint32(r, 0);
+    vec2 a = joinPoint32(r, 1);
+    float ds = 2.0 * edgeSlack(p, v, a);
+    float disc = length(p - v) - length(a - v);
+    vec2 piece = vec2(disc - ds, disc + ds);
+    if (kind == 1) { return piece; }
+    vec2 b = joinPoint32(r, 3);
+    if (kind == 2) {
+        vec2 c = b - a;
+        float cs = 2.0 * edgeSlack(p, a, b);
+        float o = (c.x * (p.y - a.y) - c.y * (p.x - a.x)) / length(c);
+        if (c.x * (v.y - a.y) - c.y * (v.x - a.x) > 0.0) { o = -o; }
+        return vec2(max(piece.x, o - cs), max(piece.y, o + cs));
+    }
+    float d = 1.0e6;
+    float slack = 0.0;
+    bool unsure = false;
+    int winding = 0;
+    for (int k = 0; k < 4; ++k) {
+        vec2 s0 = joinPoint32(r, k);
+        vec2 s1 = joinPoint32(r, (k + 1) & 3);
+        float sl = edgeSlack(p, s0, s1);
+        slack = max(slack, sl);
+        d = min(d, segmentDistance(p, s0, s1));
+        if (edgeUnsure(p, s0, s1, sl)) { unsure = true; } else { winding += edgeCrossing32(p, s0, s1); }
+    }
+    vec2 quad = unsure ? vec2(-d - slack, d + slack)
+        : ((winding & 1) != 0 ? vec2(-d - slack, -d + slack) : vec2(d - slack, d + slack));
+    return vec2(min(piece.x, quad.x), min(piece.y, quad.y));
+}
+// The piece in double-float, for the disc and the chord; the polygon's distance `quad`
+// (negative inside) is measured by the caller's shared `dfSegment` loop.
+vec2 dfJoinPiece(int r, int kind, vec2 x, vec2 y, vec2 quad) {
+    vec2 vx = joinCoord(r, 0);
+    vec2 vy = joinCoord(r, 1);
+    vec2 ax = joinCoord(r, 2);
+    vec2 ay = joinCoord(r, 3);
+    vec2 disc = dfSub(dfLength(dfSub(x, vx), dfSub(y, vy)), dfLength(dfSub(ax, vx), dfSub(ay, vy)));
+    if (kind == 1) { return disc; }
+    if (kind == 3) { return dfMin(disc, quad); }
+    vec2 cx = dfSub(joinCoord(r, 6), ax);
+    vec2 cy = dfSub(joinCoord(r, 7), ay);
+    vec2 o = dfDiv(dfSub(dfMul(cx, dfSub(y, ay)), dfMul(cy, dfSub(x, ax))), dfLength(cx, cy));
+    vec2 ov = dfSub(dfMul(cx, dfSub(vy, ay)), dfMul(cy, dfSub(vx, ax)));
+    if (dfLess(vec2(0.0), ov)) { o = -o; }
+    return dfMax(disc, o);
+}
+// One outline edge of a joined stroke, in fp32: a polygon's band edge `e`, or a
+// rectangle's side `e` from its centre and half-extents (`__canvas_rectSides`).
+void joinedEdge32(bool poly, int e, out vec2 a, out vec2 b) {
+    if (poly) {
+        int i = (item.arc.z + e) * 4;
+        a = vec2(fx(edges.values[i]), fx(edges.values[i + 1]));
+        b = vec2(fx(edges.values[i + 2]), fx(edges.values[i + 3]));
+        return;
+    }
+    vec2 c = vec2(fx(item.shape.x), fx(item.shape.y));
+    vec2 h = vec2(fx(item.shape.z), fx(item.shape.w));
+    vec2 corner[4] = vec2[4](c - h, vec2(c.x + h.x, c.y - h.y), c + h, vec2(c.x - h.x, c.y + h.y));
+    a = corner[e];
+    b = corner[(e + 1) & 3];
+}
+// The stroke distance of a polygon (its band's edges) or a rectangle or picture (its four
+// sides) with join records -- `__canvas_joinedStroke`: the min of each outline edge's BUTT
+// band and the record at its start. bug-687's two passes: fp32 bounds over every edge and
+// record, then double-float for the ones that can be the nearest. `reach` is where the
+// coverage is decided by the sign. Every double-float segment goes through ONE `dfSegment`
+// call, `k` 0 the outline edge and 1..4 the record's edges, for lavapipe's compile time.
+vec2 joinedStroke(ivec2 band, vec2 x, vec2 y, vec2 half2, float reach) {
+    bool poly = item.misc.x == 4;
+    int count = poly ? band.y : 4;
+    vec2 p = vec2(x.x, y.x);
+    float halfW = half2.x;
+    float bound = 1.0e6;
+    float low = 1.0e6;
+    for (int j = 0; j < count; ++j) {
+        int e = poly ? (band.x < 0 ? j : edges.values[band.x + j]) : j;
+        vec2 a;
+        vec2 b;
+        joinedEdge32(poly, e, a, b);
+        float slack = edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0);
+        float d32 = segmentDistanceButt(p, a, b, halfW);
+        bound = min(bound, d32 + slack);
+        low = min(low, d32 - slack);
+        int kind = joinKind(e);
+        if (kind != 0) {
+            vec2 jb = joinBounds32(e, kind, p);
+            bound = min(bound, jb.y);
+            low = min(low, jb.x);
+        }
+    }
+    if (low > reach) { return vec2(low, 0.0); }
+    vec2 cx = dfFixed(item.shape.x, item.shapeLo.x);
+    vec2 cy = dfFixed(item.shape.y, item.shapeLo.y);
+    vec2 hx = dfFixed(item.shape.z, item.shapeLo.z);
+    vec2 hy = dfFixed(item.shape.w, item.shapeLo.w);
+    vec2 best = vec2(1.0e6, 0.0);
+    for (int j = 0; j < count; ++j) {
+        int e = poly ? (band.x < 0 ? j : edges.values[band.x + j]) : j;
+        vec2 a;
+        vec2 b;
+        joinedEdge32(poly, e, a, b);
+        float slack = edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0);
+        bool edgeNear = segmentDistanceButt(p, a, b, halfW) - slack <= bound;
+        int kind = joinKind(e);
+        bool joinNear = kind != 0 && joinBounds32(e, kind, p).x <= bound;
+        if (!edgeNear && !joinNear) { continue; }
+        vec2 jd = vec2(1.0e6, 0.0);
+        int winding = 0;
+        for (int k = edgeNear ? 0 : 1; k < (joinNear && kind == 3 ? 5 : 1); ++k) {
+            DfEdge g;
+            if (k == 0 && poly) {
+                g = dfEdge(item.arc.z, e);
+            } else if (k == 0) {
+                int s0 = e;
+                int s1 = (e + 1) & 3;
+                vec2 ax = (s0 == 0 || s0 == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);
+                vec2 ay = (s0 < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);
+                vec2 bx = (s1 == 0 || s1 == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);
+                vec2 by = (s1 < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);
+                g.ax = ax;
+                g.ay = ay;
+                g.vx = dfSub(bx, ax);
+                g.vy = dfSub(by, ay);
+            } else {
+                g.ax = joinCoord(e, (k - 1) * 2);
+                g.ay = joinCoord(e, (k - 1) * 2 + 1);
+                g.vx = dfSub(joinCoord(e, (k & 3) * 2), g.ax);
+                g.vy = dfSub(joinCoord(e, (k & 3) * 2 + 1), g.ay);
+            }
+            DfSegment s = dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy);
+            if (k == 0) {
+                if (s.len2.x > 0.0) {
+                    vec2 len_ = dfSqrt(s.len2);
+                    vec2 d = dfMax(dfSub(s.d, half2), -dfMul(s.t, len_));
+                    d = dfMax(d, dfMul(dfSub(s.t, vec2(1.0, 0.0)), len_));
+                    if (dfLess(d, best)) { best = d; }
+                }
+            } else {
+                if (dfLess(s.d, jd)) { jd = s.d; }
+                winding += dfCrossing(g, x, y);
+            }
+        }
+        if (joinNear) {
+            if ((winding & 1) != 0) { jd = -jd; }
+            vec2 piece = dfJoinPiece(e, kind, x, y, jd);
+            if (dfLess(piece, best)) { best = piece; }
+        }
+    }
+    return best;
+}
+
 // plan-116-C: the inverse transform, decoded from the float32 bits the item block
 // carries. `intBitsToFloat` is a reinterpret, not a conversion — the CPU already did
 // the narrowing (`__canvas_float32Bits`), because this compiler's assemblers have no
@@ -661,12 +852,20 @@ float polylineSegment32(int e, vec2 p, float halfW, out float slack) {
             d = max(abs(w.x), abs(w.y)) - halfW;
         }
     }
+    // plan-163-B: with join records the inner ends are cut butt; the corners are the
+    // records.
+    if (item.strokeStyle.y > 0 && len2 > 0.0) {
+        float len_ = sqrt(len2);
+        if (e != first) { d = max(d, -t * len_); }
+        if (e != last) { d = max(d, (t - 1.0) * len_); }
+    }
     slack = len2 > 0.0 ? edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0) : 1.0e30;
     return d;
 }
 vec2 polylineDistance(ivec2 band, vec2 x, vec2 y, float reach) {
     int first = item.gradient.x;
     int last = item.gradient.y;
+    bool joined = item.strokeStyle.y > 0;
     float halfW = fx(item.misc.y);
     vec2 p = vec2(x.x, y.x);
     float bound = 1.0e6;
@@ -676,6 +875,12 @@ vec2 polylineDistance(ivec2 band, vec2 x, vec2 y, float reach) {
         if (e < first || e > last) { continue; }
         float slack;
         float d32 = polylineSegment32(e, p, halfW, slack);
+        int kind = joined ? joinKind(e) : 0;
+        if (kind != 0) {
+            vec2 jb = joinBounds32(e, kind, p);
+            bound = min(bound, jb.y);
+            low = min(low, jb.x);
+        }
         if (slack < 0.0) { continue; }
         bound = min(bound, d32 + slack);
         low = min(low, d32 - slack);
@@ -688,11 +893,32 @@ vec2 polylineDistance(ivec2 band, vec2 x, vec2 y, float reach) {
         if (e < first || e > last) { continue; }
         float slack;
         float d32 = polylineSegment32(e, p, halfW, slack);
-        if (slack < 0.0 || d32 - slack > bound) { continue; }
-        DfEdge g = dfEdge(item.arc.z, e);
+        bool segNear = slack >= 0.0 && d32 - slack <= bound;
+        int kind = joined ? joinKind(e) : 0;
+        bool joinNear = kind != 0 && joinBounds32(e, kind, p).x <= bound;
+        if (!segNear && !joinNear) { continue; }
+        // plan-163-B: `k` 0 the segment, 1..4 the edges of the join record at its start,
+        // through one `dfSegment` call.
+        vec2 jd = vec2(1.0e6, 0.0);
+        int winding = 0;
+        for (int k = segNear ? 0 : 1; k < (joinNear && kind == 3 ? 5 : 1); ++k) {
+        DfEdge g;
+        if (k == 0) {
+            g = dfEdge(item.arc.z, e);
+        } else {
+            g.ax = joinCoord(e, (k - 1) * 2);
+            g.ay = joinCoord(e, (k - 1) * 2 + 1);
+            g.vx = dfSub(joinCoord(e, (k & 3) * 2), g.ax);
+            g.vy = dfSub(joinCoord(e, (k & 3) * 2 + 1), g.ay);
+        }
         vec2 wx = dfSub(x, g.ax);
         vec2 wy = dfSub(y, g.ay);
         DfSegment s = dfSegment(wx, wy, g.vx, g.vy);
+        if (k > 0) {
+            if (dfLess(s.d, jd)) { jd = s.d; }
+            winding += dfCrossing(g, x, y);
+            continue;
+        }
         vec2 d = dfSub(s.d, half2);
         if (item.arc.w == 0 && s.len2.x > 0.0) {
             vec2 len_ = dfSqrt(s.len2);
@@ -715,7 +941,18 @@ vec2 polylineDistance(ivec2 band, vec2 x, vec2 y, float reach) {
                 d = dfSub(dfMax(dfAbs(wx), dfAbs(wy)), half2);
             }
         }
+        if (joined && s.len2.x > 0.0) {
+            vec2 len_ = dfSqrt(s.len2);
+            if (e != first) { d = dfMax(d, -dfMul(s.t, len_)); }
+            if (e != last) { d = dfMax(d, dfMul(dfSub(s.t, vec2(1.0, 0.0)), len_)); }
+        }
         if (dfLess(d, best)) { best = d; }
+        }
+        if (joinNear) {
+            if ((winding & 1) != 0) { jd = -jd; }
+            vec2 piece = dfJoinPiece(e, kind, x, y, jd);
+            if (dfLess(piece, best)) { best = piece; }
+        }
     }
     return best;
 }
@@ -968,14 +1205,22 @@ ivec3 shapeCoverage(vec2 x, vec2 y) {
         float frob = sqrt(dot(c0, c0) + dot(c1, c1)) * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;
         reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);
     }
+    // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
+    // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
+    // so the centre's shape distance cannot decide the neighbours there.
+    bool joined = item.strokeStyle.y > 0 && item.misc.x != 10;
+    float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;
     vec2 d[5];
+    vec2 cqx = x;
+    vec2 cqy = y;
     for (int k = 0; k < (mapped ? 5 : 1); ++k) {
         vec2 sx = dfAdd(x, vec2(k == 1 ? 0.5 : (k == 2 ? -0.5 : 0.0), 0.0));
         vec2 sy = dfAdd(y, vec2(k == 3 ? 0.5 : (k == 4 ? -0.5 : 0.0), 0.0));
         vec2 qx = mapped ? dfMapX(sx, sy) : sx;
         vec2 qy = mapped ? dfMapY(sx, sy) : sy;
+        if (k == 0) { cqx = qx; cqy = qy; }
         d[k] = sampleDistance(band, qx, qy, k == 0 ? reach : 1.0e30);
-        if (k == 0 && abs(d[0].x) > reach) { mapped = false; }
+        if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }
     }
     vec2 dRaw = d[0];
     vec2 g = vec2(1.0, 0.0);
@@ -988,7 +1233,7 @@ ivec3 shapeCoverage(vec2 x, vec2 y) {
     int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);
     int stroke = 0;
     if (stroked) {
-        vec2 s = dfSub(dfAbs(dRaw), half2);
+        vec2 s = joined ? joinedStroke(band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2);
         stroke = dfCoverage(mapped ? dfDiv(s, g) : s);
     }
     return ivec3(fill, stroke, stroked ? 1 : 0);

@@ -572,24 +572,54 @@ Commit: 854746e15
 Acceptance: joins draw per SVG in software, and Round is byte-identical.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass, goldens unmodified (est. 10 min, guess).
-Commit: —
+  Result: 66 + 22 + 4 passed (2 ignored), goldens unmodified; `cargo test --bin mfb
+  canvas` → 110 passed.
+Commit: d09be9f0d (the record format was then reworked in Phase 4 — Corrections 6, 7)
 
 ### Phase 4 — Layout growth and joins on the GPU (largest blast radius)
 
-- [ ] Header 47 → 50 slots and item block 272 → 288, per §7, with every guard test
-      named there passing. Fix the stale `.vert` `surface.w` comment.
-- [ ] A join frame region and emitters (Metal `emit_*_buffer`, Vulkan `emit_*_upload`,
+- [x] Header 47 → 50 slots and item block 272 → 288, per §7, with every guard test
+      named there passing. Fix the stale `.vert` `surface.w` comment. (The header grew
+      in Phase 3 and grows once more here, to 51 — Corrections 7. Item block: the
+      `strokeStyle` `ivec4` at 272 in `ITEM_BLOCK_SIZE`, both GLSL structs and Metal's
+      `MfbItem`; Metal's frame and both backends' region bases move by construction.
+      `cargo test --bin mfb canvas` → 110 passed (the four guards among them); glslang
+      reflection of `mfb_canvas.vert` on 2226 → `topLevelArrayStride 288`, `strokeStyle`
+      at offset 272.)
+- [x] A join frame region and emitters (Metal `emit_*_buffer`, Vulkan `emit_*_upload`,
       mirroring the gradient-stop code). The frame-sum predicate in
-      `helper_render.rs` counts joins against the edge budget.
-- [ ] Shader stroke path per §6 in `METAL_SHADER_BODY` and `mfb_canvas.frag`. Regenerate
-      both `.spv`, since the `.vert` struct changed too.
-- [ ] Tests: the Phase 3 scenes as `rt_canvas_metal.rs` rows.
+      `helper_render.rs` counts joins against the edge budget. (Corrections 6: the
+      records ride the EDGE region as two edge slots each, after the item's edges —
+      `emit_join_buffer` / `emit_join_upload`, mirroring the edge upload, words plus
+      residuals — so there is no separate region; both predicates count `2 *
+      JOIN_COUNT`. Both `emit_band_index`es widen the reach to `JOIN_REACH`.)
+- [x] Shader stroke path per §6 in `METAL_SHADER_BODY` and `mfb_canvas.frag`. Regenerate
+      both `.spv`, since the `.vert` struct changed too. (`joinedStroke` for polygons,
+      rectangles and pictures; the polyline's distance cuts inner ends butt and takes
+      the records; fp32 bounds then double-float, one `dfSegment` call site per
+      function. `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` → `.vert.spv` 5,488,
+      `.frag.spv` 172,588 bytes; `cargo test --bin mfb vulkan` → 9 passed.)
+- [x] Tests: the Phase 3 scenes as `rt_canvas_metal.rs` rows.
+      (`joins_match_the_software_oracle_on_metal` over the new shared scene
+      `tests/canvas/scenes/joins_on_black.mfb` — pentagrams at both limits and beveled,
+      a concave arrow, two rings, polylines with a repeated point and with colours,
+      rectangles, a rotated polygon, a translucent stroke over a fill — also gpu-rows row
+      `joins`. The arrow's fill is opaque: a translucent `rgba(40, 90, 200, 160)` fill
+      drifts one sRGB level on Metal whatever its join (measured identical under
+      `Round`), the hardware blend's rounding, and over that area it alone spent the 2%
+      budget.)
 
 Acceptance: both GPUs draw joins within tolerance, and the layout guards pass.
   Check: `cargo test --bin mfb canvas` (layout guards) → pass (est. 3 min, guess);
   `cargo test --test rt_canvas_metal` → pass with `gpuFrames≠0` on the join rows (est.
   5 min, guess); `scripts/test-canvas-vulkan.sh <join scene>` on 2228 → within
   `GPU_DEFAULT` (est. 10 min, guess).
+  Result: `cargo test --bin mfb canvas` → 110 passed; `cargo test --test rt_canvas_metal`
+  → 42 passed (`gpuFrames≠0` asserted on the joins row); rasteriser 66, golden 22,
+  geo_native 4, goldens unmodified. Vulkan on 2226: `--rows joins,squarecaps,fillrules,
+  star301x2nz,polygonsblack,polylinesblack,strokedpolysblack,rectsblack,strokedblack,
+  xformblack,matrix,framepass` → all ok (joins worst=2 0.6816%); box 206 `--rows
+  joins,squarecaps,polygonsblack` → ok (joins worst=2 0.8590%).
 Commit: —
 
 ### Phase 5 — Dashes in software (the design's riskiest premise, tested first)
@@ -722,6 +752,29 @@ Commit: —
    contour's first edge in `__CANVAS_RING_MARKS` (graphics-thread state, set only while
    it walks, so the glyph-bitmap walks that share the contour readers never grow it),
    and the Text arm builds the joins from it.
+6. **One join record per edge, in the edge region.** Phase 3's records (one per live
+   corner, in walk order) leave a GPU no way to find a pixel's corners but to walk every
+   record per pixel — 1,000 per pixel for a 1,000-vertex mitered SVG path. Records are
+   now one per outline edge (the corner at its start; the no-piece record where there is
+   none), so a polygon's or polyline's band index reaches them through the edges it
+   already lists, and the native size pass needs only the edge count (superseding
+   Corrections 4). They travel as two edge slots each after the item's edges, the
+   frame-sum edge cap counting `2 * JOIN_COUNT`, rather than in a new region: the
+   precision scheme (16.16 words plus residuals) is the edges' own, and `GPU_DEFAULT`'s
+   channel delta of 2 needs it.
+7. **The pieces overlap; the header is 51 slots.** §6's union of BUTT bands and join
+   polygons draws a seam: where two pieces merely abut (a band's end and the polygon's
+   side, or two collinear bands), both distances are 0 on the shared line, so a pixel
+   centred on it draws half-covered — measured on the first GPU joins scene as a column of
+   half-coverage pixels down the top-right corner of a mitered rectangle, in the oracle as
+   much as on Metal (they agreed, so the comparison could not see it). Each corner's
+   piece is now built on V's disc of radius `half` (the module comment of
+   `helper_joins.rs`): straight on, the disc; Bevel, the disc cut by the chord A-B;
+   Miter, the disc and the polygon V, A, M, B; a U-turn, nothing. Every shared line then
+   lies inside another piece with the depth the stroke has there. The record stays 4
+   points (`V, A, P, B`), its kind read from exact equalities. Header slot 48
+   `__CANVAS_GEO_JOIN_REACH` (`half * miterLimit` for a Miter, else `half`) tells the
+   band index how far a record reaches; the dash slots become 49 and 50.
 
 ## Summary
 

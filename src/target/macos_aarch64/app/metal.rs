@@ -50,6 +50,11 @@ use super::*;
 use crate::codegen::error::constants::error_constants::{
     COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
 };
+// plan-163-B: the stroke-style words and the join-record header slots.
+use crate::codegen::runtime::canvas::{
+    HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
+    ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
+};
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
     emit_item_arc_flags, emit_item_polygon_rule, emit_square_cap_reach, emit_item_residual_field, emit_item_stroke_sign,
@@ -182,6 +187,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 capsLo;\n",  // of arcCaps.xyzw
     "  int4 clipLo;\n",  // of clip.xyzw
     "  int4 miscLo;\n",  // of misc.y (radius), misc.z (strokeHalf), ellipse.x, ellipse.y
+    // plan-163-B: join records' first edge slot and count, dash pattern's first entry
+    // and count.
+    "  int4 strokeStyle;\n",
     "};\n",
     // plan-116-A: the index travels to the fragment stage as a flat varying, because
     // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
@@ -509,6 +517,188 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool inside = nonZero != 0 ? winding != 0 : (winding & 1) != 0;\n",
     "  return inside ? -best : best;\n",
     "}\n",
+    // plan-163-B: join records (`helper_joins.rs`), riding the edge region after the item's
+    // own edges -- one record per outline edge, the corner at its START, as two edge slots
+    // (`strokeStyle.x` the first, `strokeStyle.y` the count): four points V, A, P, B as
+    // eight 16.16 words with their residuals. Its corner PIECE, from exact equalities:
+    // none when A = V, the disc of radius |A - V| about V when A = B, that disc cut by the
+    // chord A-B on V's side when P = V (a bevel), the disc with the polygon V, A, P, B
+    // otherwise (a miter). The twins of `mfb_canvas.frag`'s, line for line.
+    "static int joinWord(constant MfbItem &item, int r, int w) { return (item.strokeStyle.x + r * 2) * 4 + w; }\n",
+    "static bool joinSame(constant MfbItem &item, constant int *edges, int r, int a, int b) {\n",
+    "  int i = joinWord(item, r, a * 2) + METAL_EDGE_BASE;\n",
+    "  int j = joinWord(item, r, b * 2) + METAL_EDGE_BASE;\n",
+    "  int ri = joinWord(item, r, a * 2) + METAL_EDGE_RESIDUAL_BASE;\n",
+    "  int rj = joinWord(item, r, b * 2) + METAL_EDGE_RESIDUAL_BASE;\n",
+    "  return edges[i] == edges[j] && edges[i + 1] == edges[j + 1]\n",
+    "      && edges[ri] == edges[rj] && edges[ri + 1] == edges[rj + 1];\n",
+    "}\n",
+    "static int joinKind(constant MfbItem &item, constant int *edges, int r) {\n",
+    "  if (joinSame(item, edges, r, 1, 0)) { return 0; }\n",
+    "  if (joinSame(item, edges, r, 1, 3)) { return 1; }\n",
+    "  return joinSame(item, edges, r, 2, 0) ? 2 : 3;\n",
+    "}\n",
+    "static float2 joinPoint32(constant MfbItem &item, constant int *edges, int r, int k) {\n",
+    "  int i = joinWord(item, r, k * 2) + METAL_EDGE_BASE;\n",
+    "  return float2(fx(edges[i]), fx(edges[i + 1]));\n",
+    "}\n",
+    "static float2 joinCoord(constant MfbItem &item, constant int *edges, int r, int w) {\n",
+    "  int i = joinWord(item, r, w);\n",
+    "  return edgeCoord(edges, i + METAL_EDGE_BASE, i + METAL_EDGE_RESIDUAL_BASE);\n",
+    "}\n",
+    // A record's piece distance in fp32 as (least, most) the double-float one can be,
+    // widened by `edgeSlack`'s bound.
+    "static float2 joinBounds32(constant MfbItem &item, constant int *edges, int r, int kind, float2 p) {\n",
+    "  float2 v = joinPoint32(item, edges, r, 0);\n",
+    "  float2 a = joinPoint32(item, edges, r, 1);\n",
+    "  float ds = 2.0 * edgeSlack(p, v, a);\n",
+    "  float disc = length(p - v) - length(a - v);\n",
+    "  float2 piece = float2(disc - ds, disc + ds);\n",
+    "  if (kind == 1) { return piece; }\n",
+    "  float2 b = joinPoint32(item, edges, r, 3);\n",
+    "  if (kind == 2) {\n",
+    "    float2 c = b - a;\n",
+    "    float cs = 2.0 * edgeSlack(p, a, b);\n",
+    "    float o = (c.x * (p.y - a.y) - c.y * (p.x - a.x)) / length(c);\n",
+    "    if (c.x * (v.y - a.y) - c.y * (v.x - a.x) > 0.0) { o = -o; }\n",
+    "    return float2(max(piece.x, o - cs), max(piece.y, o + cs));\n",
+    "  }\n",
+    "  float d = 1.0e6;\n",
+    "  float slack = 0.0;\n",
+    "  bool unsure = false;\n",
+    "  int winding = 0;\n",
+    "  for (int k = 0; k < 4; ++k) {\n",
+    "    float2 s0 = joinPoint32(item, edges, r, k);\n",
+    "    float2 s1 = joinPoint32(item, edges, r, (k + 1) & 3);\n",
+    "    float sl = edgeSlack(p, s0, s1);\n",
+    "    slack = max(slack, sl);\n",
+    "    d = min(d, segmentDistance(p, s0, s1));\n",
+    "    if (edgeUnsure(p, s0, s1, sl)) { unsure = true; } else { winding += edgeCrossing32(p, s0, s1); }\n",
+    "  }\n",
+    "  float2 quad = unsure ? float2(-d - slack, d + slack)\n",
+    "      : ((winding & 1) != 0 ? float2(-d - slack, -d + slack) : float2(d - slack, d + slack));\n",
+    "  return float2(min(piece.x, quad.x), min(piece.y, quad.y));\n",
+    "}\n",
+    // The piece in double-float, for the disc and the chord; the polygon's distance `quad`
+    // (negative inside) comes from the caller's shared `dfSegment` loop.
+    "static float2 dfJoinPiece(constant MfbItem &item, constant int *edges, int r, int kind, float2 x, float2 y, float2 quad) {\n",
+    "  float2 vx = joinCoord(item, edges, r, 0);\n",
+    "  float2 vy = joinCoord(item, edges, r, 1);\n",
+    "  float2 ax = joinCoord(item, edges, r, 2);\n",
+    "  float2 ay = joinCoord(item, edges, r, 3);\n",
+    "  float2 disc = dfSub(dfLength(dfSub(x, vx), dfSub(y, vy)), dfLength(dfSub(ax, vx), dfSub(ay, vy)));\n",
+    "  if (kind == 1) { return disc; }\n",
+    "  if (kind == 3) { return dfMin(disc, quad); }\n",
+    "  float2 cx = dfSub(joinCoord(item, edges, r, 6), ax);\n",
+    "  float2 cy = dfSub(joinCoord(item, edges, r, 7), ay);\n",
+    "  float2 o = dfDiv(dfSub(dfMul(cx, dfSub(y, ay)), dfMul(cy, dfSub(x, ax))), dfLength(cx, cy));\n",
+    "  float2 ov = dfSub(dfMul(cx, dfSub(vy, ay)), dfMul(cy, dfSub(vx, ax)));\n",
+    "  if (dfLess(float2(0.0, 0.0), ov)) { o = -o; }\n",
+    "  return dfMax(disc, o);\n",
+    "}\n",
+    // One outline edge of a joined stroke, in fp32: a polygon's band edge `e`, or a
+    // rectangle's side `e` from its centre and half-extents (`__canvas_rectSides`).
+    "static void joinedEdge32(constant MfbItem &item, constant int *edges, bool poly, int e, thread float2 &a, thread float2 &b) {\n",
+    "  if (poly) {\n",
+    "    int i = (item.arc.z + e) * 4 + METAL_EDGE_BASE;\n",
+    "    a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
+    "    b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
+    "    return;\n",
+    "  }\n",
+    "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
+    "  float2 h = float2(fx(item.shape.z), fx(item.shape.w));\n",
+    "  float2 corner[4] = { c - h, float2(c.x + h.x, c.y - h.y), c + h, float2(c.x - h.x, c.y + h.y) };\n",
+    "  a = corner[e];\n",
+    "  b = corner[(e + 1) & 3];\n",
+    "}\n",
+    // The stroke distance of a polygon (its band's edges) or a rectangle or picture (its
+    // four sides) with join records -- `__canvas_joinedStroke`: the min of each outline
+    // edge's BUTT band and the record at its start, with bug-687's two passes. Every
+    // double-float segment goes through ONE `dfSegment` call, `k` 0 the outline edge and
+    // 1..4 the record's edges.
+    "static float2 joinedStroke(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float2 half2, float reach) {\n",
+    "  bool poly = item.misc.x == 4;\n",
+    "  int count = poly ? band.y : 4;\n",
+    "  float2 p = float2(x.x, y.x);\n",
+    "  float halfW = half2.x;\n",
+    "  float bound = 1.0e6;\n",
+    "  float low = 1.0e6;\n",
+    "  for (int j = 0; j < count; ++j) {\n",
+    "    int e = poly ? (band.x < 0 ? j : edges[band.x + j]) : j;\n",
+    "    float2 a;\n",
+    "    float2 b;\n",
+    "    joinedEdge32(item, edges, poly, e, a, b);\n",
+    "    float slack = edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0);\n",
+    "    float d32 = segmentDistanceButt(p, a, b, halfW);\n",
+    "    bound = min(bound, d32 + slack);\n",
+    "    low = min(low, d32 - slack);\n",
+    "    int kind = joinKind(item, edges, e);\n",
+    "    if (kind != 0) {\n",
+    "      float2 jb = joinBounds32(item, edges, e, kind, p);\n",
+    "      bound = min(bound, jb.y);\n",
+    "      low = min(low, jb.x);\n",
+    "    }\n",
+    "  }\n",
+    "  if (low > reach) { return float2(low, 0.0); }\n",
+    "  float2 cx = dfFixed(item.shape.x, item.shapeLo.x);\n",
+    "  float2 cy = dfFixed(item.shape.y, item.shapeLo.y);\n",
+    "  float2 hx = dfFixed(item.shape.z, item.shapeLo.z);\n",
+    "  float2 hy = dfFixed(item.shape.w, item.shapeLo.w);\n",
+    "  float2 best = float2(1.0e6, 0.0);\n",
+    "  for (int j = 0; j < count; ++j) {\n",
+    "    int e = poly ? (band.x < 0 ? j : edges[band.x + j]) : j;\n",
+    "    float2 a;\n",
+    "    float2 b;\n",
+    "    joinedEdge32(item, edges, poly, e, a, b);\n",
+    "    float slack = edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0);\n",
+    "    bool edgeNear = segmentDistanceButt(p, a, b, halfW) - slack <= bound;\n",
+    "    int kind = joinKind(item, edges, e);\n",
+    "    bool joinNear = kind != 0 && joinBounds32(item, edges, e, kind, p).x <= bound;\n",
+    "    if (!edgeNear && !joinNear) { continue; }\n",
+    "    float2 jd = float2(1.0e6, 0.0);\n",
+    "    int winding = 0;\n",
+    "    for (int k = edgeNear ? 0 : 1; k < (joinNear && kind == 3 ? 5 : 1); ++k) {\n",
+    "      DfEdge g;\n",
+    "      if (k == 0 && poly) {\n",
+    "        g = dfEdge(edges, item.arc.z, e);\n",
+    "      } else if (k == 0) {\n",
+    "        int s0 = e;\n",
+    "        int s1 = (e + 1) & 3;\n",
+    "        float2 ax = (s0 == 0 || s0 == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
+    "        float2 ay = (s0 < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
+    "        float2 bx = (s1 == 0 || s1 == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
+    "        float2 by = (s1 < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
+    "        g.ax = ax;\n",
+    "        g.ay = ay;\n",
+    "        g.vx = dfSub(bx, ax);\n",
+    "        g.vy = dfSub(by, ay);\n",
+    "      } else {\n",
+    "        g.ax = joinCoord(item, edges, e, (k - 1) * 2);\n",
+    "        g.ay = joinCoord(item, edges, e, (k - 1) * 2 + 1);\n",
+    "        g.vx = dfSub(joinCoord(item, edges, e, (k & 3) * 2), g.ax);\n",
+    "        g.vy = dfSub(joinCoord(item, edges, e, (k & 3) * 2 + 1), g.ay);\n",
+    "      }\n",
+    "      DfSegment s = dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy);\n",
+    "      if (k == 0) {\n",
+    "        if (s.len2.x > 0.0) {\n",
+    "          float2 len = dfSqrt(s.len2);\n",
+    "          float2 d = dfMax(dfSub(s.d, half2), -dfMul(s.t, len));\n",
+    "          d = dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len));\n",
+    "          if (dfLess(d, best)) { best = d; }\n",
+    "        }\n",
+    "      } else {\n",
+    "        if (dfLess(s.d, jd)) { jd = s.d; }\n",
+    "        winding += dfCrossing(g, x, y);\n",
+    "      }\n",
+    "    }\n",
+    "    if (joinNear) {\n",
+    "      if ((winding & 1) != 0) { jd = -jd; }\n",
+    "      float2 piece = dfJoinPiece(item, edges, e, kind, x, y, jd);\n",
+    "      if (dfLess(piece, best)) { best = piece; }\n",
+    "    }\n",
+    "  }\n",
+    "  return best;\n",
+    "}\n",
     // plan-116-C: the inverse transform, decoded from the float32 bits the item block
     // carries. `as_type<float>` is a reinterpret, not a conversion -- the CPU already
     // did the narrowing (`__canvas_float32Bits`), because this compiler's assemblers
@@ -792,12 +982,20 @@ const METAL_SHADER_BODY: &str = concat!(
     "      d = max(abs(w.x), abs(w.y)) - halfW;\n",
     "    }\n",
     "  }\n",
+    // plan-163-B: with join records the inner ends are cut butt; the corners are the
+    // records.
+    "  if (item.strokeStyle.y > 0 && len2 > 0.0) {\n",
+    "    float len = sqrt(len2);\n",
+    "    if (e != first) { d = max(d, -t * len); }\n",
+    "    if (e != last) { d = max(d, (t - 1.0) * len); }\n",
+    "  }\n",
     "  slack = len2 > 0.0 ? edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0) : 1.0e30;\n",
     "  return d;\n",
     "}\n",
     "static float2 polylineDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach) {\n",
     "  int first = item.gradient.x;\n",
     "  int last = item.gradient.y;\n",
+    "  bool joined = item.strokeStyle.y > 0;\n",
     "  float halfW = fx(item.misc.y);\n",
     "  float2 p = float2(x.x, y.x);\n",
     "  float bound = 1.0e6;\n",
@@ -807,6 +1005,12 @@ const METAL_SHADER_BODY: &str = concat!(
     "    if (e < first || e > last) { continue; }\n",
     "    float slack;\n",
     "    float d32 = polylineSegment32(item, edges, e, p, halfW, slack);\n",
+    "    int kind = joined ? joinKind(item, edges, e) : 0;\n",
+    "    if (kind != 0) {\n",
+    "      float2 jb = joinBounds32(item, edges, e, kind, p);\n",
+    "      bound = min(bound, jb.y);\n",
+    "      low = min(low, jb.x);\n",
+    "    }\n",
     "    if (slack < 0.0) { continue; }\n",
     "    bound = min(bound, d32 + slack);\n",
     "    low = min(low, d32 - slack);\n",
@@ -819,11 +1023,32 @@ const METAL_SHADER_BODY: &str = concat!(
     "    if (e < first || e > last) { continue; }\n",
     "    float slack;\n",
     "    float d32 = polylineSegment32(item, edges, e, p, halfW, slack);\n",
-    "    if (slack < 0.0 || d32 - slack > bound) { continue; }\n",
-    "    DfEdge g = dfEdge(edges, item.arc.z, e);\n",
+    "    bool segNear = slack >= 0.0 && d32 - slack <= bound;\n",
+    "    int kind = joined ? joinKind(item, edges, e) : 0;\n",
+    "    bool joinNear = kind != 0 && joinBounds32(item, edges, e, kind, p).x <= bound;\n",
+    "    if (!segNear && !joinNear) { continue; }\n",
+    // plan-163-B: `k` 0 the segment, 1..4 the edges of the join record at its start,
+    // through one `dfSegment` call.
+    "    float2 jd = float2(1.0e6, 0.0);\n",
+    "    int winding = 0;\n",
+    "    for (int k = segNear ? 0 : 1; k < (joinNear && kind == 3 ? 5 : 1); ++k) {\n",
+    "    DfEdge g;\n",
+    "    if (k == 0) {\n",
+    "      g = dfEdge(edges, item.arc.z, e);\n",
+    "    } else {\n",
+    "      g.ax = joinCoord(item, edges, e, (k - 1) * 2);\n",
+    "      g.ay = joinCoord(item, edges, e, (k - 1) * 2 + 1);\n",
+    "      g.vx = dfSub(joinCoord(item, edges, e, (k & 3) * 2), g.ax);\n",
+    "      g.vy = dfSub(joinCoord(item, edges, e, (k & 3) * 2 + 1), g.ay);\n",
+    "    }\n",
     "    float2 wx = dfSub(x, g.ax);\n",
     "    float2 wy = dfSub(y, g.ay);\n",
     "    DfSegment s = dfSegment(wx, wy, g.vx, g.vy);\n",
+    "    if (k > 0) {\n",
+    "      if (dfLess(s.d, jd)) { jd = s.d; }\n",
+    "      winding += dfCrossing(g, x, y);\n",
+    "      continue;\n",
+    "    }\n",
     "    float2 d = dfSub(s.d, half2);\n",
     "    if (item.arc.w == 0 && s.len2.x > 0.0) {\n",
     "      float2 len = dfSqrt(s.len2);\n",
@@ -846,7 +1071,18 @@ const METAL_SHADER_BODY: &str = concat!(
     "        d = dfSub(dfMax(dfAbs(wx), dfAbs(wy)), half2);\n",
     "      }\n",
     "    }\n",
+    "    if (joined && s.len2.x > 0.0) {\n",
+    "      float2 len = dfSqrt(s.len2);\n",
+    "      if (e != first) { d = dfMax(d, -dfMul(s.t, len)); }\n",
+    "      if (e != last) { d = dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len)); }\n",
+    "    }\n",
     "    if (dfLess(d, best)) { best = d; }\n",
+    "    }\n",
+    "    if (joinNear) {\n",
+    "      if ((winding & 1) != 0) { jd = -jd; }\n",
+    "      float2 piece = dfJoinPiece(item, edges, e, kind, x, y, jd);\n",
+    "      if (dfLess(piece, best)) { best = piece; }\n",
+    "    }\n",
     "  }\n",
     "  return best;\n",
     "}\n",
@@ -907,14 +1143,22 @@ const METAL_SHADER_BODY: &str = concat!(
     "    float frob = sqrt(dot(c0, c0) + dot(c1, c1)) * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
     "    reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
     "  }\n",
+    // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
+    // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
+    // so the centre's shape distance cannot decide the neighbours there.
+    "  bool joined = item.strokeStyle.y > 0 && item.misc.x != 10;\n",
+    "  float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;\n",
     "  float2 d[5];\n",
+    "  float2 cqx = x;\n",
+    "  float2 cqy = y;\n",
     "  for (int k = 0; k < (mapped ? 5 : 1); ++k) {\n",
     "    float2 sx = dfAdd(x, float2(k == 1 ? 0.5 : (k == 2 ? -0.5 : 0.0), 0.0));\n",
     "    float2 sy = dfAdd(y, float2(k == 3 ? 0.5 : (k == 4 ? -0.5 : 0.0), 0.0));\n",
     "    float2 qx = mapped ? dfMapX(item, sx, sy) : sx;\n",
     "    float2 qy = mapped ? dfMapY(item, sx, sy) : sy;\n",
+    "    if (k == 0) { cqx = qx; cqy = qy; }\n",
     "    d[k] = sampleDistance(item, edges, band, qx, qy, k == 0 ? reach : 1.0e30);\n",
-    "    if (k == 0 && abs(d[0].x) > reach) { mapped = false; }\n",
+    "    if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }\n",
     "  }\n",
     "  float2 dRaw = d[0];\n",
     "  float2 g = float2(1.0, 0.0);\n",
@@ -927,7 +1171,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);\n",
     "  int stroke = 0;\n",
     "  if (stroked) {\n",
-    "    float2 s = dfSub(dfAbs(dRaw), half2);\n",
+    "    float2 s = joined ? joinedStroke(item, edges, band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2);\n",
     "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
     "  }\n",
     "  return int3(fill, stroke, stroked ? 1 : 0);\n",
@@ -2625,6 +2869,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // ordering as the Vulkan emitter.
     emit_item_block(&mut asm, "shape");
     emit_edge_buffer(&mut asm);
+    // plan-163-B: after the item's own edges, so its join records follow them.
+    emit_join_buffer(&mut asm);
     emit_gradient_buffer(&mut asm);
     // bug-484: after the edge buffer, which zeroes `arc.z` for every non-polygon, and
     // before the split, so both records of a blended stroked picture name its texels.
@@ -4878,6 +5124,175 @@ fn emit_picture_record(asm: &mut Asm) {
     asm.push(abi::label(&full));
 }
 
+/// plan-163-B: the item's join records into the frame buffer's edge region after its own
+/// edges, two edge slots per record -- `emit_join_upload` in `runtime/canvas/vulkan.rs`,
+/// line for line: the records' points as 16.16 words with their residuals, found from
+/// the record's end (`header + (slot1 - stops * 5 - records * 8) * 8`), their first slot
+/// and count in `strokeStyle`, and 0 there (and in the dash words) for an item with none.
+fn emit_join_buffer(asm: &mut Asm) {
+    let head = format!("{METAL_DRAW_SYMBOL}_join_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_join_done");
+    let none = format!("{METAL_DRAW_SYMBOL}_join_none");
+    let copy = format!("{METAL_DRAW_SYMBOL}_join_copy");
+    let records = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[5];
+    let slots = abi::SCRATCH[6];
+    let residual_target = abi::SCRATCH[1];
+    let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
+    let style = OFF_ITEM + ITEM_OFFSET_STROKE_STYLE;
+
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for word in [ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT] {
+        asm.push(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+    }
+    asm.push(abi::load_u64(source, abi::stack_pointer(), OFF_GLYPH_HEADER));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_JOIN_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(records, abi::FP_SCRATCH[1]));
+    asm.push(abi::compare_immediate(records, "0"));
+    asm.push(abi::branch_le(&none));
+    asm.push(abi::shift_left_immediate(slots, records, 1));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_EDGE_CURSOR,
+    ));
+    asm.push(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[0], slots));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[1],
+        &METAL_MAX_FRAME_EDGES.to_string(),
+    ));
+    asm.push(abi::branch_le(&copy));
+    // Unreachable: `__canvas_metalRenderable` counts two edges per record and declines
+    // a frame whose total does not fit. Kept because the alternative is a write past the
+    // buffer; dropping the records draws the corners round, not a wrong shape.
+    asm.push(abi::branch(&none));
+
+    asm.push(abi::label(&copy));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        style + ITEM_STROKE_JOIN_BASE,
+    ));
+    asm.push(abi::store_u32(
+        records,
+        abi::stack_pointer(),
+        style + ITEM_STROKE_JOIN_COUNT,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_EDGE_CURSOR,
+    ));
+    // target = contents + METAL_EDGE_BASE_WORDS * 4 + base * 16, through registers for
+    // `emit_edge_buffer`'s reason (the offset is past an `add`'s immediate).
+    asm.push(abi::shift_left_immediate(target, abi::SCRATCH[0], 4));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_CONTENTS,
+    ));
+    asm.push(abi::add_registers(target, target, abi::SCRATCH[0]));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        &(METAL_EDGE_BASE_WORDS * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(target, target, abi::SCRATCH[0]));
+    asm.push(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
+    ));
+    asm.push(abi::add_registers(residual_target, residual_target, target));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
+    // source = header + (slot1 - stops * 5 - records * 8) * 8.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 8));
+    asm.push(abi::float_convert_to_signed_x(index, abi::FP_SCRATCH[1]));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    asm.push(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
+    asm.push(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
+    asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    asm.push(abi::shift_left_immediate(abi::SCRATCH[0], records, 3));
+    asm.push(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    asm.push(abi::shift_left_immediate(index, index, 3));
+    asm.push(abi::add_registers(source, source, index));
+    asm.push(abi::move_immediate(index, "Integer", "0"));
+
+    asm.push(abi::label(&head));
+    asm.push(abi::compare_registers(index, slots));
+    asm.push(abi::branch_ge(&done));
+    for word in 0..4usize {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], source, word * 8));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(abi::SCRATCH[0], target, 0));
+        asm.push(abi::add_immediate(target, target, 4));
+        asm.push(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[0],
+        ));
+        asm.push(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
+        asm.push(abi::add_immediate(residual_target, residual_target, 4));
+    }
+    asm.push(abi::add_immediate(source, source, 32));
+    asm.push(abi::add_immediate(index, index, 1));
+    asm.push(abi::branch(&head));
+
+    asm.push(abi::label(&none));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for word in [ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT] {
+        asm.push(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+    }
+    asm.push(abi::label(&done));
+}
+
 fn emit_edge_buffer(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_edge_head");
     let done = format!("{METAL_DRAW_SYMBOL}_edge_done");
@@ -5239,6 +5654,10 @@ fn emit_band_index(asm: &mut Asm) {
     for instruction in emit_square_cap_reach(s[0], f[1], s[4], f[2], &square_reach) {
         asm.push(instruction);
     }
+    // plan-163-B: and to a join record's reach (0 for an item with none), so a miter's
+    // point in a row's band is reached through the edge it sits at the start of.
+    asm.push(abi::load_double(f[2], s[0], HEADER_JOIN_REACH * 8));
+    asm.push(abi::float_max_d(f[1], f[1], f[2]));
     asm.push(abi::move_immediate(s[4], "Integer", "3"));
     asm.push(abi::signed_convert_to_float_d(f[2], s[4]));
     asm.push(abi::move_immediate(s[4], "Integer", "2"));

@@ -444,11 +444,12 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize =
 /// `ItemBlock` must report `topLevelArrayStride` equal to this size with one member per
 /// 16 bytes (`glslangValidator -V -q mfb_canvas.vert`; 208 with members at
 /// 0/16/.../192 when plan-116-F added the gradient axis `ivec4`, 272 with the four
-/// residual `ivec4`s at 208/224/240/256 since bug-735), matching the
+/// residual `ivec4`s at 208/224/240/256 since bug-735, 288 with plan-163-B's
+/// `strokeStyle` at 272), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 272;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 288;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -605,6 +606,15 @@ pub(crate) const ITEM_OFFSET_SHAPE_LO: usize = 208;
 pub(crate) const ITEM_OFFSET_CAPS_LO: usize = 224;
 pub(crate) const ITEM_OFFSET_CLIP_LO: usize = 240;
 pub(crate) const ITEM_OFFSET_MISC_LO: usize = 256;
+/// plan-163-B: the stroke's style words -- the first edge slot of the item's join
+/// records in the frame's edge region and how many records there are (each takes two
+/// slots), then the first entry of its dash pattern in the frame's dash region and how
+/// many entries. All four are 0 for an item that draws no join record and no dash.
+pub(crate) const ITEM_OFFSET_STROKE_STYLE: usize = 272;
+pub(crate) const ITEM_STROKE_JOIN_BASE: usize = 0;
+pub(crate) const ITEM_STROKE_JOIN_COUNT: usize = 4;
+pub(crate) const ITEM_STROKE_DASH_BASE: usize = 8;
+pub(crate) const ITEM_STROKE_DASH_COUNT: usize = 12;
 /// The word inside `ITEM_OFFSET_ARC` holding an arc's `reflex` flag, 0 or 1 (bug-735):
 /// `endAngle - startAngle > PI`, decided by the emitter in the oracle's own f64
 /// (`__canvas_drawGeometry`), so the sweep test's union-or-intersection choice cannot
@@ -994,7 +1004,7 @@ pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 /// subtracts and a round, the only float operations every assembler has.
 pub(crate) const EDGE_RESIDUAL_SCALE: &str = "2147483648";
 
-/// Slots of `__canvas_headerFor`'s fixed 50-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 51-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -1092,7 +1102,12 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 50;
+pub(crate) const HEADER_SLOTS: usize = 51;
+/// plan-163-B: `__CANVAS_GEO_JOIN_COUNT` -- a stroke's join records in the tail, one
+/// per outline edge -- and `__CANVAS_GEO_JOIN_REACH`, how far a record reaches from its
+/// vertex, which a polygon's or polyline's band index widens to.
+pub(crate) const HEADER_JOIN_COUNT: usize = 47;
+pub(crate) const HEADER_JOIN_REACH: usize = 48;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one **frame** may carry on the Vulkan path.

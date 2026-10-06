@@ -40,6 +40,11 @@ use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
+// plan-163-B: the stroke-style words and the join-record header slots.
+use crate::codegen::runtime::canvas::{
+    HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
+    ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
+};
 use crate::codegen::runtime::canvas::{
     emit_item_arc_flags, emit_item_polygon_rule, emit_square_cap_reach, emit_item_residual_field, emit_item_stroke_sign,
     push_symbol_address,
@@ -4180,6 +4185,182 @@ fn emit_edge_upload(
     builder.emit(abi::label(&done));
 }
 
+/// plan-163-B: the item's join records (`helper_joins.rs`) into the frame's edge region
+/// after its own edges, two edge slots per record -- each record's four points as eight
+/// 16.16 words, with their residuals at the residual region's same offsets, exactly as an
+/// edge's endpoints travel. `strokeStyle.x` is the first slot and `strokeStyle.y` the
+/// record count; both are 0 for an item with none, and so are the dash words. The
+/// records sit right before the gradient stops, so they are found from the record's end:
+/// `header + (slot1 - stops * 5 - records * 8) * 8`. Metal's `emit_join_buffer` twin.
+fn emit_join_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_edge_cursor: usize,
+) {
+    let head = builder.label("vk_join_head");
+    let done = builder.label("vk_join_done");
+    let none = builder.label("vk_join_none");
+    let copy = builder.label("vk_join_copy");
+    let records = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[5];
+    let slots = abi::SCRATCH[6];
+    let residual_target = abi::SCRATCH[1];
+    let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
+    let style = off_item + ITEM_OFFSET_STROKE_STYLE;
+
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for word in [ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT] {
+        builder.emit(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+    }
+    builder.emit(abi::load_u64(source, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_JOIN_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(records, abi::FP_SCRATCH[1]));
+    builder.emit(abi::compare_immediate(records, "0"));
+    builder.emit(abi::branch_le(&none));
+    builder.emit(abi::shift_left_immediate(slots, records, 1));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[0], slots));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        &VULKAN_MAX_FRAME_EDGES.to_string(),
+    ));
+    builder.emit(abi::branch_le(&copy));
+    // Unreachable: `__canvas_vulkanRenderable` counts two edges per record and declines
+    // a frame whose total does not fit. Kept because the alternative is a write past the
+    // buffer; dropping the records draws the corners round, not a wrong shape.
+    builder.emit(abi::branch(&none));
+
+    builder.emit(abi::label(&copy));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        style + ITEM_STROKE_JOIN_BASE,
+    ));
+    builder.emit(abi::store_u32(
+        records,
+        abi::stack_pointer(),
+        style + ITEM_STROKE_JOIN_COUNT,
+    ));
+    // target = mapped + cursor * 16; the cursor moves past the records' slots.
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        4,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
+    builder.emit(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], slots));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
+    ));
+    builder.emit(abi::add_registers(residual_target, residual_target, target));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[0],
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
+    // source = header + (slot1 - stops * 5 - records * 8) * 8.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 8));
+    builder.emit(abi::float_convert_to_signed_x(index, abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
+    builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
+    builder.emit(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    builder.emit(abi::shift_left_immediate(abi::SCRATCH[0], records, 3));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    builder.emit(abi::shift_left_immediate(index, index, 3));
+    builder.emit(abi::add_registers(source, source, index));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, slots));
+    builder.emit(abi::branch_ge(&done));
+    for word in 0..4usize {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, word * 8));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+        builder.emit(abi::add_immediate(target, target, 4));
+        builder.emit(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[0],
+        ));
+        builder.emit(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
+        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
+    }
+    builder.emit(abi::add_immediate(source, source, 32));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+
+    builder.emit(abi::label(&none));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for word in [ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT] {
+        builder.emit(abi::store_u32(abi::SCRATCH[0], abi::stack_pointer(), style + word));
+    }
+    builder.emit(abi::label(&done));
+}
+
 /// The stack slots `emit_band_index` works in (bug-688): the frame's band-region cursor
 /// and one polygon's working state — its first and past-the-last 16.16 edge in the
 /// shared buffer, its lowest edge y (16.16), the band reach `2r` (16.16), the band
@@ -4346,6 +4527,10 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     for instruction in emit_square_cap_reach(s[0], f[1], s[4], f[2], &square_reach) {
         builder.emit(instruction);
     }
+    // plan-163-B: and to a join record's reach (0 for an item with none), so a miter's
+    // point in a row's band is reached through the edge it sits at the start of.
+    builder.emit(abi::load_double(f[2], s[0], HEADER_JOIN_REACH * 8));
+    builder.emit(abi::float_max_d(f[1], f[1], f[2]));
     builder.emit(abi::move_immediate(s[4], "Integer", "3"));
     builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
     builder.emit(abi::move_immediate(s[4], "Integer", "2"));
@@ -6911,6 +7096,8 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_edge_cursor,
         &bands,
     );
+    // plan-163-B: after the item's own edges, so its join records follow them.
+    emit_join_upload(builder, off_state, off_item, off_header, off_edge_cursor);
     emit_gradient_upload(builder, off_state, off_item, off_header, off_grad_cursor);
     // bug-484: after the edge upload (which zeroes the slice fields for non-polygons)
     // and before the split, so both records of a split picture name its texels.
