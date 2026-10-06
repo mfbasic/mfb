@@ -1,17 +1,25 @@
-# bug-988: `STATE` on a non-resource parameter is not rejected where it is declared; the user sees unrelated `TYPE_UNKNOWN_VALUE` / `TYPE_STATE_MISMATCH` errors instead
+# bug-998: `STATE` on a non-resource parameter is not rejected where it is declared; the user sees unrelated `TYPE_UNKNOWN_VALUE` / `TYPE_STATE_MISMATCH` errors instead
 
 Last updated: 2026-10-06
 Effort: small (<1h)
 Severity: LOW
 Class: Other (misleading diagnostic)
 
-Status: Open (needs an owner decision: which diagnostic)
+Status: Open
 Regression Test: (proposed) tests/syntax/resources/param-state-on-non-resource-invalid
 
 A `STATE` clause is only meaningful on a resource (`mfb man types`: a resource carries "its own
 state with a trailing STATE S"). On a parameter whose type is not a resource, nothing rejects
 the clause at the declaration. Instead the parameter gets a type no expression can use, and
 the user sees errors that do not name the cause.
+
+**Owner decision (2026-10-06): add a dedicated rule**, `TYPE_STATE_REQUIRES_RESOURCE` (an error,
+code assigned in the registry), reported once, located at the parameter's `STATE` clause:
+"STATE can only be attached to a resource". Register it in the diagnostics spec (rule-codes and the
+error-codes Constant Registry) in the same change, per `.ai/compiler.md`. Do not reuse
+`TYPE_STATE_INVALID`: that code means "STATE must be a copyable, defaultable data type".
+
+The question as filed:
 
 **Correct behavior (proposed):** one located error at the parameter, saying that `STATE` needs
 a resource type. The recommendation is to reuse `TYPE_STATE_INVALID`, the existing code for an
