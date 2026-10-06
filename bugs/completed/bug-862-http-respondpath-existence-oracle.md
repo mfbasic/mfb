@@ -5,8 +5,26 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/http/func_http_respondPath_valid (extend: escape to a missing file must be 403)
+Status: Resolved (2026-10-05)
+Regression Test: tests/rt-behavior/http/func_http_respondPath_valid (extended: escape to a missing file is 403)
+
+## Resolution
+
+Fixed in `__http_respondPath` (`func_respond_path.rs`): a new lexical
+`..`-escape check (`__http_pathEscapesRoot`) runs before `fs::fileExists`,
+independent of what exists on disk, so a traversal attempt is 403 whether or
+not its target exists. The existing `fs::isWithin` (realpath-based,
+symlink-aware) check still runs after `fs::fileExists`, unchanged — it must,
+since `isWithin` requires every path component including the file to exist,
+and reordering it naively would have turned every in-root-missing-file 404
+into a 403 (the Root Cause section's own caveat).
+
+RED: `bug-862 RED: pin the respondPath existence oracle` (commit
+`2a9523de7`) — both new cases failed `expected 403, got 404` against the
+unfixed `fileExists`-first order.
+GREEN: `bug-862: check confinement before existence in http::respondPath`
+(commit `929d56a53`) — all 6 cases pass.
+
 
 `respondPath` checks `fs::fileExists(candidate)` *before* it checks
 `fs::isWithin(root, candidate)`. A traversal request to a path outside `root` therefore gets
