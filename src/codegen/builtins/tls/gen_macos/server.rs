@@ -413,7 +413,7 @@ pub(crate) fn lower_tls_listen_macos(
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
-    const FRAME_SIZE: usize = 480;
+    const FRAME_SIZE: usize = 528;
     const HOST: usize = 8;
     const PORT: usize = 16;
     const CERT: usize = 24;
@@ -457,10 +457,24 @@ pub(crate) fn lower_tls_listen_macos(
     const SBLOCK: usize = 352; // 352..392: state-changed block literal
     const CBLOCK: usize = 392; // 392..432: new-connection block literal
     const WAITFN: usize = 432;
+    // bug-885: a non-numeric, non-empty `host` must be resolved to an IPv4
+    // literal (exactly as `tcp::listen` resolves it) before it reaches
+    // `nw_endpoint_create_host`. Network.framework silently binds the
+    // wildcard address on an ephemeral port when the "host" endpoint it is
+    // given is not itself a usable local bind address, so handing it a raw,
+    // unvalidated hostname (`"localhost"`, a typo, an IPv6 literal) used to
+    // listen on every interface on a random port instead of failing.
+    const RESOLVE_HINTS: usize = 440; // 440..488: addrinfo hints (AF_INET, SOCK_STREAM)
+    const RESOLVE_RES: usize = 488; // addrinfo* out-param
+    const RESOLVE_SERVICE: usize = 496; // getaddrinfo service (always NULL here: host is non-NULL)
+    const RESOLVE_SOCKADDR: usize = 504; // resolved res->ai_addr, stashed across the inet_ntop alloc
+    const RESOLVEDCSTR: usize = 512; // inet_ntop's dotted-decimal output buffer
+    const BINDHOSTCSTR: usize = 520; // the host string actually handed to nw_endpoint_create_host
 
     // bug-477: the shared configure block must not run into the next literal.
     const _: () = assert!(CFGBLOCK + CFG_BLOCK_SIZE <= SBLOCK);
     const _: () = assert!(WAITFN + 8 <= FRAME_SIZE);
+    const _: () = assert!(BINDHOSTCSTR + 8 <= FRAME_SIZE);
 
     let cert_fail = format!("{symbol}_cert_fail");
     let read_fail_fd = format!("{symbol}_read_fail_fd");
@@ -470,6 +484,7 @@ pub(crate) fn lower_tls_listen_macos(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let null_host = format!("{symbol}_null_host");
     let host_ready = format!("{symbol}_host_ready");
+    let addr_invalid_fail = format!("{symbol}_addr_invalid_fail");
     let wait_loop = format!("{symbol}_wait");
     let ready = format!("{symbol}_ready");
     let done = format!("{symbol}_done");
@@ -891,11 +906,81 @@ pub(crate) fn lower_tls_listen_macos(
         &mut rel,
         &mut vregs,
     );
+    // bug-885: `host` is non-empty and not already known-good ("0.0.0.0"
+    // took the `null_host` branch below). `nw_endpoint_create_host` cannot be
+    // trusted to validate or resolve it: Network.framework treats anything
+    // that is not already a usable local-bind endpoint — a hostname like
+    // "localhost", a typo, an IPv6 literal, a link-local address with no
+    // scope id — as unusable for a LOCAL bind, and silently listens on the
+    // wildcard address on an OS-chosen port instead of failing. So resolve
+    // `host` with `getaddrinfo` under an AF_INET hint, exactly as
+    // `tcp::listen` does: a numeric IPv4 literal round-trips to itself, a
+    // resolvable name (`"localhost"` -> 127.0.0.1) becomes its IPv4 address,
+    // and anything else — including every IPv6-only literal, since the
+    // AF_INET hint makes those unresolvable — raises `ErrAddressInvalid`
+    // instead of binding anywhere. `REC_LHOST` (what `tls::localAddress`
+    // reports, bug-465) keeps the ORIGINAL `HOSTCSTR` the caller passed, not
+    // the resolved form — only `BINDHOSTCSTR`, fed to
+    // `nw_endpoint_create_host` below, changes.
+    for offset in (0..48).step_by(8) {
+        ins.push(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            RESOLVE_HINTS + offset,
+        ));
+    }
+    ins.extend([
+        abi::move_immediate(v9, "Integer", HINTS_FAMILY_WORD),
+        abi::store_u64(v9, abi::stack_pointer(), RESOLVE_HINTS),
+        abi::move_immediate(v9, "Integer", SOCK_STREAM),
+        abi::store_u64(v9, abi::stack_pointer(), RESOLVE_HINTS + 8),
+        // service = NULL (host is non-NULL here, so getaddrinfo accepts it).
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), RESOLVE_SERVICE),
+        // getaddrinfo(host, NULL, &hints, &res)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), RESOLVE_SERVICE),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), RESOLVE_HINTS),
+        abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RESOLVE_RES),
+    ]);
+    platform.emit_external_call("getaddrinfo", symbol, platform_imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&addr_invalid_fail),
+        // Stash the resolved sockaddr (ai_addr) before the inet_ntop buffer's
+        // allocation, which clobbers x0/x1.
+        abi::load_u64(v9, abi::stack_pointer(), RESOLVE_RES),
+        abi::load_u64(v9, v9, platform.addrinfo_addr_offset()),
+        abi::store_u64(v9, abi::stack_pointer(), RESOLVE_SOCKADDR),
+        abi::move_immediate(abi::return_register(), "Integer", "64"),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    ins.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESOLVEDCSTR),
+        // inet_ntop(AF_INET, sockaddr + 4, dst, 64)
+        abi::move_immediate(abi::return_register(), "Integer", "2"),
+        abi::load_u64(v9, abi::stack_pointer(), RESOLVE_SOCKADDR),
+        abi::add_immediate(abi::c_arg(1), v9, 4),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), RESOLVEDCSTR),
+        abi::move_immediate(abi::c_arg(3), "Integer", "64"),
+    ]);
+    platform.emit_external_call("inet_ntop", symbol, platform_imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&addr_invalid_fail),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), RESOLVE_RES),
+    ]);
+    platform.emit_external_call("freeaddrinfo", symbol, platform_imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::load_u64(v9, abi::stack_pointer(), RESOLVEDCSTR),
+        abi::store_u64(v9, abi::stack_pointer(), BINDHOSTCSTR),
+    ]);
     ins.push(abi::branch(&host_ready));
     ins.push(abi::label(&null_host));
-    emit_data_address(symbol, &v9, ANYHOST_SYMBOL, &mut ins, &mut rel);
+    emit_data_address(symbol, v9, ANYHOST_SYMBOL, &mut ins, &mut rel);
     ins.extend([
-        abi::store_u64(&v9, abi::stack_pointer(), HOSTCSTR),
+        abi::store_u64(v9, abi::stack_pointer(), HOSTCSTR),
+        abi::store_u64(v9, abi::stack_pointer(), BINDHOSTCSTR),
         abi::label(&host_ready),
     ]);
     // itoa(port) -> NUL-terminated decimal at PORTBUF, pointer in PORTCSTR.
@@ -915,7 +1000,7 @@ pub(crate) fn lower_tls_listen_macos(
         &load_fail,
     )?;
     ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), BINDHOSTCSTR),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), PORTCSTR),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR),
         abi::branch_link_register(&v9),
@@ -1352,6 +1437,14 @@ pub(crate) fn lower_tls_listen_macos(
         )?;
     }
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
+    // bug-885: `host` is non-empty, non-numeric, and does not resolve to an
+    // IPv4 address (or `inet_ntop` could not format the one `getaddrinfo`
+    // returned) — the cert/key CF objects are already released (the loop
+    // above, by this point in the function, past line ~675's release on the
+    // success path) and no listener exists yet, so nothing but the standard
+    // `done` scratch release is needed.
+    ins.push(abi::label(&addr_invalid_fail));
+    emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));

@@ -1322,6 +1322,14 @@ impl plan::NativePlanPlatform for Platform {
                 let mut symbols = vec!["_dlopen", "_dlsym", "___error", "_calloc", "_free"];
                 if call == "tls.listen" {
                     symbols.extend(["_open", "_read", "_lseek", "_close"]);
+                    // bug-885: a non-empty, non-numeric `host` is resolved with
+                    // `getaddrinfo` under an AF_INET hint (so it binds exactly
+                    // what `tcp::listen` would, instead of Network.framework
+                    // silently falling back to the wildcard address on an
+                    // ephemeral port), and the resolved address is formatted
+                    // back to a dotted-decimal string with `inet_ntop` for
+                    // `nw_endpoint_create_host`.
+                    symbols.extend(["_getaddrinfo", "_freeaddrinfo", "_inet_ntop"]);
                 }
                 // plan-110-D: the endpoint queries render the peer/local sockaddr
                 // through the shared `net` Address builder, which formats the

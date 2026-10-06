@@ -131,3 +131,18 @@ substitution.
 - `http::serverSSL` (pass-through to `tls::listen`) — same exposure, fixed by the same change.
 - `tls::connect` macOS with `::1` raises `ErrTlsFailed` (77070008), measured (`/tmp/hardening/B06/ip6`). This is a separate wrong code; add it to bug-872's `tls::connect` row.
 - `tcp::listen` / `udp::bind` — unaffected (validated; measured).
+
+## Golden impact
+
+Pure native-codegen change in `src/codegen/builtins/tls/gen_macos/server.rs`
+(`lower_tls_listen_macos`): `FRAME_SIZE` grew (480 → 528) and new instructions
+(`getaddrinfo`/`inet_ntop`/`freeaddrinfo` calls plus a new `addr_invalid_fail` exit) were
+inserted into the non-empty-host path, before `nw_endpoint_create_host`. Expect every
+fixture with a `macos-aarch64.ncodesum` golden that imports `tls` or `http` and reaches a
+`tls::listen`/`http::serverSSL` call to change ONLY on that target — e.g.
+`tests/byte-identity/tls/`, `tests/byte-identity/http/`, `tests/syntax/tls/listen_valid`,
+and any `rt-behavior`/`rt-error` fixture under `tls`/`http` with a macOS golden. Linux
+(`gen_openssl.rs`) and Windows (`gen_schannel_server.rs`) backends are untouched, so their
+`.ncodesum` goldens for the same fixtures are NOT expected to move, nor is any
+`.ast`/`.ir` (those are target-independent and this is a codegen-only change, no MFBASIC
+source text changed).
