@@ -462,9 +462,13 @@ pub(crate) fn join_texts(values: &[ValueResult]) -> String {
         .join(", ")
 }
 
-/// Whether a type SPELLING denotes a PARENT-side thread handle.
+/// Whether `type_` is a PARENT-side thread handle. The view's own `STATE` clause
+/// does not change the side, so it is peeled first (bug-844).
 pub(crate) fn is_parent_thread_type(type_: &ParameterType) -> bool {
-    matches!(type_, ParameterType::ThreadHandle { worker: false, .. })
+    matches!(
+        type_.without_state(),
+        ParameterType::ThreadHandle { worker: false, .. }
+    )
 }
 
 // --- Typed structural twins (plan-104-C) -----------------------------------

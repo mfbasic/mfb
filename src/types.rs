@@ -1333,8 +1333,16 @@ fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
 /// plan-106-E: the typed twin of [`is_worker_thread_type`], for the codegen sites
 /// that pick the worker vs parent runtime helper off a value's static type. It is
 /// the `worker` flag of the variant — no spelling involved.
+///
+/// A view's own `STATE` clause (`ThreadWorker OF … STATE W`, plan-156-E) wraps the
+/// handle in `Stateful` and never changes which side it is, so it is peeled first
+/// (bug-844: a stateful worker's `send`/`receive`/`transfer`/`accept` were lowered
+/// as the parent's and every message went to the wrong queue).
 pub(crate) fn is_worker_thread_handle(type_: &ParameterType) -> bool {
-    matches!(type_, ParameterType::ThreadHandle { worker: true, .. })
+    matches!(
+        type_.without_state(),
+        ParameterType::ThreadHandle { worker: true, .. }
+    )
 }
 
 pub(crate) fn strip_type_group(type_: &str) -> &str {
@@ -1550,6 +1558,20 @@ fn thread_body_len(rest: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// bug-844: a view's own `STATE` clause never changes which side the view is.
+    /// A stateful worker answered "parent", so its `send`/`receive`/`transfer`/
+    /// `accept` were routed to the parent's queues and every message was lost.
+    #[test]
+    fn a_stateful_thread_view_keeps_its_side() {
+        let worker = ParameterType::parse("ThreadWorker OF String TO Integer STATE W");
+        let parent = ParameterType::parse("Thread OF String TO Integer STATE P");
+        assert!(matches!(worker, ParameterType::Stateful { .. }));
+        assert!(is_worker_thread_handle(&worker));
+        assert!(!is_worker_thread_handle(&parent));
+        assert!(crate::codegen::engine::types::is_parent_thread_type(&parent));
+        assert!(!crate::codegen::engine::types::is_parent_thread_type(&worker));
+    }
 
     /// plan-113: every C ABI spelling round-trips `parse` → `name` byte-exact,
     /// as a `ParameterType::C`. This is what keeps the `.ast`/`.ir` goldens and

@@ -1,12 +1,12 @@
 # bug-844: on a `ThreadWorker … STATE W` handle, `thread::send`/`receive` (and the resource-plane `transfer`/`accept`) are lowered as the PARENT-side operations, so worker messages are silently lost
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: small (<1h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/threads/thread-worker-state-send-rt (new) — name suggested
+Status: Fixed
+Regression Test: tests/rt-behavior/threads/thread-worker-state-send-rt; `types::tests::a_stateful_thread_view_keeps_its_side`
 
 When a worker entry declares a view STATE on its handle
 (`worker AS ThreadWorker OF Msg TO Out STATE W`), `thread::send(worker, x)` succeeds but the
@@ -100,12 +100,12 @@ Make `is_worker_thread_handle` (and `is_parent_thread_type`) match on `type_.wit
 ## Phases
 
 ### Phase 1 — failing test + audit
-- [ ] rt fixture: STATE worker send→parent receive, parent send→worker receive, and resource
+- [x] rt fixture: STATE worker send→parent receive, parent send→worker receive, and resource
       plane transfer/accept from a STATE worker.
 Commit: —
 
 ### Phase 2 — the fix
-- [ ] `without_state()` in both predicates.
+- [x] `without_state()` in both predicates.
 Commit: —
 
 ### Phase 3 — full validation
@@ -123,3 +123,50 @@ Commit: —
 
 One-line predicate fix; silent message loss today for every program that combines worker STATE
 with messaging.
+
+## Resolution
+
+`types::is_worker_thread_handle` and `codegen::engine::types::is_parent_thread_type`
+now match on `type_.without_state()`. The four routing sites in
+`builder_values.rs` (`thread.send` → `emit`, `thread.receive`,
+`transferResource` → `emitResource`, `acceptResource`) take the worker
+branch for a stateful `ThreadWorker`.
+
+Phase 1 audit of every `ThreadHandle { worker: … }` match in `src/`:
+
+- `is_parent_thread_type` (`plan/symbols.rs:is_thread_type`, which decides
+  whether `thread.drop` is linked) is peeled too. It was not observed to fail:
+  a stateful parent's program still linked `_mfb_rt_thread_thread_drop`
+  (59 references with `STATE P`, 57 without, `grep -o` over the `--ncode`
+  dump), because the symbol is also pulled in by another route.
+- `thread_handle_arg_type` (the `waitFor`/`receive` result types) already
+  peels the state.
+- `resource_record_freed_at_drop` and `codegen::resource` already peel it.
+- The `member == "result"` arms in `builder_value_semantics.rs`,
+  `data_objects.rs`, `type_utils.rs` and `builder_values.rs` do not peel. They
+  are unreachable from source: `ir::verify` rejects `.result` on any thread
+  handle (`tests/syntax/threads/thread-result-field-removed-invalid`).
+- `ir/verify/mod.rs:is_thread_worker_type` falls back to the name, which still
+  starts with `ThreadWorker OF ` for a stateful view.
+
+Measured (`mfb build` of the fixture, macOS AArch64):
+
+- Before (main at 468ff0f94): `Error: 7-705-0004`, exit 255. The
+  doc's repro gives the same error.
+- After: `hi seed / TRUE / echo ping / 12 / 110 / 9`, exit 0. It was
+  identical on 200 sequential runs and on 320 runs as 8 parallel loops of 40
+  (`sort | uniq -c` over the outputs).
+- A `RES b AS ThreadWorker … STATE W = t` alias and a helper taking the stateful
+  worker view also route correctly (probe `/tmp/g844e`: `via alias`,
+  `helper x`, `7`).
+
+## Golden impact
+
+None expected. `.ast`/`.ir` cannot move because the change is codegen-only. Only a
+program that uses a stateful `ThreadWorker` with messaging changes its native
+code, and no existing fixture does that. `thread-view-state-independent`,
+`bug693-worker-state` and `threadworker-res-binding-rt` hold a stateful worker view but
+never send, receive, transfer or accept on it (`grep thread::` over their
+sources). The other `ThreadWorker … STATE` spellings in the tree (`p121d-state-reach-rt`,
+`rt_debug_soak`'s `b650_state_transfer`) put the STATE on the resource plane, not on
+the view, so their handle is not `Stateful`.
