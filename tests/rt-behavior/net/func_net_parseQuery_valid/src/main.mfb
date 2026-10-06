@@ -33,5 +33,12 @@ TESTING
       LET q = net::parseQuery("k=%2")
       expectString(collections::getOr(q, "k", "?"), "%2")
     END TCASE
+    TCASE "tolerates a signed escape by keeping raw text (bug-868)"
+      ' "%+5" used to decode to byte 0x05 (a signed hex parse accepting the
+      ' "+"), bypassing a filter looking for the literal escape and handing
+      ' the request handler a byte the client never wrote as a valid escape.
+      LET q = net::parseQuery("k=%+5")
+      expectString(collections::getOr(q, "k", "?"), "%+5")
+    END TCASE
   END TGROUP
 END TESTING
