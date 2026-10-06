@@ -69,7 +69,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-163-B (stroke styling) complete and archived | `ls planning/completed/plan-163-B-*` → match | NOT MET (2026-09-28: B not started) |
+| plan-163-B (stroke styling) complete and archived | `ls planning/completed/plan-163-B-*` → match | MET (2026-10-05: `planning/completed/plan-163-B-stroke-styling.md`) |
 
 plan-163-A is complete by transitivity, because B requires it. Everything below is
 written against the world where A and B have landed:
