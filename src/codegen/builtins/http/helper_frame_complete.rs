@@ -32,6 +32,12 @@ FUNC __http_frameComplete(raw AS List OF Byte) AS Boolean
     END TRAP
     RETURN chunkedDone
   END IF
+  ' bug-858: no Content-Length, no chunked — close-delimited (RFC 9112 §6.3
+  ' rule 8). There is no frame to satisfy; the only exit is the peer's EOF,
+  ' which `__http_done` already checks via `state.closed`.
+  IF framing = -2 THEN
+    RETURN FALSE
+  END IF
   RETURN have >= framing
 END FUNC"#;
 

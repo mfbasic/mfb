@@ -115,3 +115,59 @@ it to the framing length, while `frameComplete` stops reading once `have >= Cont
 
 - `__http_read`, `__http_write`, `http::done` (and so `startRead`-driven programs): all fixed by this bug.
 - `src/codegen/builtins/http/helper_framing_length.rs:__http_framingLength` is client-only (the server uses `__http_requestFraming`). The server is unaffected: a request with no framing has no body (RFC 9112 §6.3 rule 7).
+
+## Golden impact
+
+- `tests/byte-identity/http/golden/http_codegen_cover_rt.ir` and its five
+  per-target `.ncode` sums move: `__http_framingLength`'s body (sentinel `0` →
+  `-2`, plus a comment), `__http_frameComplete`'s body (a new `IF framing = -2`
+  arm) and `__http_decodeBody`'s body (new Content-Length truncation) are all
+  `Body::mfb` source injected verbatim into every program that imports `http`,
+  so their instruction/line content changes everywhere, not just at the call
+  site. Measured: `scripts/artifact-gate.sh target/release/mfb http` → 6/7
+  mismatches, all `http_codegen_cover_rt` (`.ir` + 5 `.ncode` sums); no other
+  http fixture's goldens move.
+- No `tests/rt-behavior/http/**` or `tests/syntax/http/**` `.ast`/`.ir`/`.run`
+  golden changes: none of those fixtures embed the raw helper source in a way
+  `test-accept.sh` diffs (confirmed by running the existing `rt_http_*`
+  cargo-test suites below — all green, unchanged).
+
+## STATUS: FIXED
+
+`__http_framingLength` now returns `-2` (not `0`) for "neither Content-Length
+nor chunked", and `__http_frameComplete` treats `-2` as its own case (`RETURN
+FALSE` — never complete on content; only `state.closed` ends the read).
+`__http_decodeBody` now truncates a Content-Length body to exactly that many
+bytes before returning it.
+
+Regression test: `tests/net/rt_http_close_delimited_body.rs` — three cases
+against a real `std::net::TcpListener` peer (bound once per test, never
+bind-then-release): a close-delimited body split across reads (blocking
+`http::read`), the same for the non-blocking `startRead`/`pump`/`done`/`finish`
+drive, and a Content-Length response with extra bytes sharing the head's read.
+RED on current main (`bodylen=0`/`bodylen=6` instead of `21`/`2`); green after
+the fix.
+
+Checks run (all under the shared build lock):
+- `cargo test --test rt_http_close_delimited_body` → 3 passed (RED before,
+  green after).
+- `cargo test --test rt_http_chunked_frame_completion --test
+  rt_http_finish_state_err_validation --test rt_http_header_framing_injection
+  --test rt_http_async_stream --test rt_http_handle_request_serves --test
+  rt_http_server_dos` → 19 passed, 0 failed (no regression in the sibling http
+  suites).
+- `scripts/spec-census.sh --render stdlib` → 0 leaks; `--citations stdlib` →
+  0 miss-path/miss-line/miss-symbol (the `[[...]]` provenance markers into the
+  touched helpers still resolve).
+- `scripts/man-run-examples.sh http --run` → every client-side example
+  (`http::read`, `http::startRead`, …) still runs; the 8 failures reported are
+  exactly the pre-registered blocking-server examples in
+  `scripts/man-examples-not-run.txt` (`http::handleRequest#1/#2`,
+  `http::respondPath#1-3`, `http::server#1`, `http::serverSSL#1/#2`),
+  unrelated to this change.
+- `scripts/artifact-gate.sh target/release/mfb http` → 6/7 mismatches, all
+  `http_codegen_cover_rt` (see Golden impact above); no other diff.
+
+Spec updated in the same change: `src/docs/spec/stdlib/05_http.md` §Body
+Decoding now states the Content-Length truncation and the close-delimited
+read-to-EOF case explicitly.

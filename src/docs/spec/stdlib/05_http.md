@@ -123,12 +123,22 @@ in base 10; any non-digit fails (`77050003`).
 body =
   ""                              if status is 204 or 304
   dechunk(body-section)           if Transfer-Encoding contains "chunked"
-  body-section                    otherwise
+  body-section[0 .. Content-Length)  if Content-Length is present and parses
+  body-section                    otherwise (close-delimited: read to EOF)
 ```
 
 `204 No Content` and `304 Not Modified` always yield an empty body regardless of
 what was read. The `transfer-encoding` header (already lowercased) is matched
 case-insensitively for the substring `chunked`.
+
+A response with neither `Transfer-Encoding: chunked` nor `Content-Length` is
+**close-delimited** (RFC 9112 §6.3 rule 8): there is no frame to detect, so the
+read loop (`done`/`frameComplete`) keeps going until the peer closes the
+connection, and the whole accumulated `body-section` is the body. A
+`Content-Length: N` response is truncated to exactly the first `N` bytes of
+`body-section`: bytes beyond it — for instance if a pipelined reply or trailing
+junk shares the same read as the head — are discarded, never appended to
+`body`.
 
 [[src/codegen/builtins/http/helper_decode_body.rs:__http_decodeBody]]
 
