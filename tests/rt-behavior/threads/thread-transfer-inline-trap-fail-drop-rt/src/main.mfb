@@ -1,0 +1,30 @@
+' bug-899: a `thread::transfer` that FAILS under an inline `TRAP` leaves the resource
+' the sender's, and so its scope drop closes it. The worker has finished, so the
+' transfer fails with `ErrInterrupted`; the handler leaves by `RETURN`. The file was
+' written with buffering on, so its byte reaches the disk only when it is closed:
+' before the fix it never was, and the file read back empty.
+IMPORT io
+IMPORT fs
+IMPORT thread
+ISOLATED FUNC ignorer(w AS ThreadWorker OF Nothing RES fs::File TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+FUNC path() AS String
+  RETURN fs::pathJoin([fs::tempDirectory(), "mfb-bug899-fail-drop.txt"])
+END FUNC
+FUNC once() AS Integer
+  RES f AS fs::File = fs::openFile(path(), "w")
+  fs::setBuffered(f, TRUE)
+  fs::writeAll(f, "P")
+  RES t AS Thread OF Nothing RES fs::File TO Integer = thread::start(ignorer, 1)
+  LET r AS Integer = thread::waitFor(t)
+  thread::transfer(t, f) TRAP(e)
+    RETURN 1
+  END TRAP
+  RETURN 0
+END FUNC
+FUNC main() AS Integer
+  LET x = once()
+  io::print("failed=" & toString(x) & " file=[" & fs::readText(path()) & "]")
+  RETURN 0
+END FUNC
