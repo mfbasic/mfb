@@ -11,7 +11,10 @@
 ' Polygon.rule, the element's transform becomes Paint.transform, and a
 ' gradient becomes a canvas::Gradient in the element's own user space - its
 ' gradientTransform its transform, spreadMethod its spread, fx/fy its focal
-' offset. Curves are flattened to points; nothing else is approximated.
+' offset. Curves are flattened to points; nothing else is approximated. The
+' one thing left out is a stroke painted with a gradient: canvas paints an
+' item's outline with its gradient only together with its interior, so an
+' SVG outline-only gradient has no canvas equivalent and is not drawn.
 '
 ' The text is read as a list of character codes and walked by index, so the
 ' reader never re-scans a string.
@@ -727,10 +730,11 @@ FUNC parseSvg(text AS String) AS SvgImage
   ' The open groups: each one's paint and transform, innermost last.
   MUT paints AS List OF SvgPaintSpec = [defaultPaint()]
   MUT transforms AS List OF canvas::Transform = [unit()]
-  MUT vx AS Float = 0.0
-  MUT vy AS Float = 0.0
-  MUT vw AS Float = 100.0
-  MUT vh AS Float = 100.0
+  ' The viewBox is held as a list rather than as four Float locals: on
+  ' windows-x86_64 a Float kept in a register across a call to a function
+  ' that uses math::sin, math::cos or math::pow can be overwritten (bug-994),
+  ' and this one lives across every element the loop reads.
+  MUT viewBox AS List OF Float = [0.0, 0.0, 100.0, 100.0]
   MUT points AS Integer = 0
   MUT i AS Integer = 0
   DO WHILE i < n
@@ -766,12 +770,7 @@ FUNC parseSvg(text AS String) AS SvgImage
         END IF
       ELSEIF tag.name = "svg" THEN
         LET vb AS List OF Float = numbers(attr(tag, "viewBox"))
-        IF len(vb) = 4 THEN
-          vx = collections::get(vb, 0)
-          vy = collections::get(vb, 1)
-          vw = collections::get(vb, 2)
-          vh = collections::get(vb, 3)
-        END IF
+        IF len(vb) = 4 THEN viewBox = vb
         paints = [elementPaint(defaultPaint(), tag.attrs)]
       ELSEIF tag.name = "g" THEN
         IF NOT tag.selfClosing THEN
@@ -798,7 +797,7 @@ FUNC parseSvg(text AS String) AS SvgImage
       END IF
     END IF
   LOOP
-  LET img AS SvgImage = SvgImage[vx := vx, vy := vy, vw := vw, vh := vh, shapes := shapes, gradients := grads, points := points]
+  LET img AS SvgImage = SvgImage[vx := collections::get(viewBox, 0), vy := collections::get(viewBox, 1), vw := collections::get(viewBox, 2), vh := collections::get(viewBox, 3), shapes := shapes, gradients := grads, points := points]
   RETURN WITH img { shapes := collections::transform(shapes, LAMBDA(sh AS SvgShape) -> resolve(img, sh)) }
 END FUNC
 

@@ -3,9 +3,10 @@
 Ten scenes drawn with the MFBASIC `canvas` package: a title screen offers a
 card for each, a short panel before each scene says what it shows (first on the
 canvas, then in the language), and **Esc** returns to the title screen from
-anywhere. Eight of the ten are interactive. Everything is vector-drawn by the
-program except the pixel-art sprites of scene VI and the SVG artwork of scene
-VIII, which is read and drawn by an SVG reader written in MFBASIC.
+anywhere. Nine of the ten are interactive, and the tenth can be scrubbed
+through its day. Everything is vector-drawn by the program except the
+pixel-art sprites of scene VI and the SVG artwork of scene VIII, which is read
+and drawn by an SVG reader written in MFBASIC.
 
 | | Scene | Shows off | You can |
 |---|---|---|---|
