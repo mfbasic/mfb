@@ -60,10 +60,7 @@ const SINGLE_BYTE_CODEPAGES: &[&str] = &[
 ];
 
 fn run(source: &str) -> String {
-    let project = common::temp_project(
-        &format!("b861_{}", common::unique_nonce()),
-        source,
-    );
+    let project = common::temp_project(&format!("b861_{}", common::unique_nonce()), source);
     let exe = common::build_project(&project);
     let out = common::run_bounded(&exe, std::time::Duration::from_secs(20), "bug-861 fixture");
     let _ = std::fs::remove_dir_all(&project);
@@ -218,18 +215,9 @@ FUNC main AS Integer
 END FUNC
 "#;
     let stdout = run(source);
-    assert!(
-        stdout.contains("fffd_windows874 raised"),
-        "got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("fffd_windows1252 raised"),
-        "got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("unmappable_1252 raised"),
-        "got:\n{stdout}"
-    );
+    assert!(stdout.contains("fffd_windows874 raised"), "got:\n{stdout}");
+    assert!(stdout.contains("fffd_windows1252 raised"), "got:\n{stdout}");
+    assert!(stdout.contains("unmappable_1252 raised"), "got:\n{stdout}");
     assert!(stdout.contains("empty []"), "got:\n{stdout}");
     assert!(stdout.contains("ascii 63616665"), "got:\n{stdout}");
 }
