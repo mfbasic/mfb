@@ -1,0 +1,19 @@
+IMPORT io
+IMPORT thread
+
+' bug-975: a ThreadWorker is a resource, like the parent Thread. A LET binding
+' of one is refused, whether the type is written or inferred, exactly as a LET
+' of a Thread is (let_thread_binding_invalid). The worker entry's first
+' parameter is a resource parameter by its type; `RES` is the only binding.
+
+ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  LET inferred = t
+  LET typed AS ThreadWorker OF String TO Integer = t
+  RETURN n * 2
+END FUNC
+
+FUNC main AS Integer
+  RES t = thread::start(spin, 21)
+  io::print("thread=" & toString(thread::waitFor(t)))
+  RETURN 0
+END FUNC
