@@ -482,7 +482,7 @@ Acceptance: man and spec render and cite.
   frames=90`; frame 90 shows the elliptical radial ramp turned with its rotating item, a
   sphere's off-centre focal highlight, Repeat stripes, and a ramp-painted stroke tinted
   half-way to red.
-Commit: —
+Commit: 8d083c8c3
 
 ## Validation Plan
 
