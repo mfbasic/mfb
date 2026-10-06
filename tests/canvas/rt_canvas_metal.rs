@@ -120,7 +120,7 @@ FUNC main() AS Nothing
   LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
   LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
   LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 460.0, radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
-  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 400.0, w := 200.5, h := 60.0] }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 460.25, y := 400.0], canvas::Point[x := 660.75, y := 400.0], canvas::Point[x := 660.75, y := 460.0], canvas::Point[x := 460.25, y := 460.0]]] }]
 
   ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
   ' A rotation exercises the gradient correction on a curved edge; the non-uniform
@@ -184,7 +184,7 @@ FUNC main() AS Nothing
 
   ' 5. a CLIPPED item inside a translated group -- the clip is evaluated in SURFACE
   '    space while the shape is evaluated in shape space (section 4.2)
-  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 200.5, h := 60.0] }]]
+  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 40.25, y := 0.0], canvas::Point[x := 240.75, y := 0.0], canvas::Point[x := 240.75, y := 60.0], canvas::Point[x := 40.25, y := 60.0]]] }]]
   canvas::setGroup("clipped", clipped)
 
   ' 6. a GRADIENT-filled item inside a translated group -- the ramp is sampled from
@@ -860,7 +860,7 @@ FUNC main() AS Nothing
   LET translucent AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 10.0, w := 90.0, h := 30.0, image := thin, paint := white]
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 10.0]
   LET rotated AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 60.0, image := img, paint := WITH white { transform := t }]
-  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := canvas::Bounds[x := 420.0, y := 10.0, w := 40.0, h := 80.0] }]
+  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := [[canvas::Point[x := 420.0, y := 10.0], canvas::Point[x := 460.0, y := 10.0], canvas::Point[x := 460.0, y := 90.0], canvas::Point[x := 420.0, y := 90.0]]] }]
   LET blended AS canvas::DrawItem = canvas::Picture[x := 520.0, y := 10.0, w := 60.0, h := 60.0, image := img, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
   LET fractional AS canvas::DrawItem = canvas::Picture[x := 700.5, y := 10.25, w := 50.5, h := 33.3, image := thin, paint := white]
   LET inner AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 40.0, h := 40.0, image := grouped, paint := white]

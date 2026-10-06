@@ -1102,7 +1102,7 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 51;
+pub(crate) const HEADER_SLOTS: usize = 55;
 /// plan-163-B: `__CANVAS_GEO_JOIN_COUNT` -- a stroke's join records in the tail, one
 /// per outline edge -- and `__CANVAS_GEO_JOIN_REACH`, how far a record reaches from its
 /// vertex, which a polygon's or polyline's band index widens to.

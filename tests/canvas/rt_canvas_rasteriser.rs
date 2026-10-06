@@ -1293,7 +1293,7 @@ fn a_clip_cuts_a_circle_in_half() {
         "canvas_clip_half",
         &scene(
             "  LET c AS color::Color = color::rgb(255, 0, 0)\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := canvas::Bounds[x := 0.0, y := 0.0, w := 200.0, h := 640.0] }\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 200.0, y := 0.0], canvas::Point[x := 200.0, y := 640.0], canvas::Point[x := 0.0, y := 640.0]]] }\n  \
              LET dot AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 100.0, paint := p]\n  \
              canvas::present([dot])\n",
         ),
@@ -1331,7 +1331,7 @@ fn a_fractional_clip_edge_is_antialiased() {
         "canvas_clip_frac",
         &scene(
             "  LET c AS color::Color = color::rgb(255, 255, 255)\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := canvas::Bounds[x := 100.25, y := 0.0, w := 300.0, h := 640.0] }\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := [[canvas::Point[x := 100.25, y := 0.0], canvas::Point[x := 400.25, y := 0.0], canvas::Point[x := 400.25, y := 640.0], canvas::Point[x := 100.25, y := 640.0]]] }\n  \
              LET box AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 500.0, h := 200.0, paint := p]\n  \
              canvas::present([box])\n",
         ),
@@ -1360,14 +1360,17 @@ fn a_fractional_clip_edge_is_antialiased() {
     );
 }
 
-/// A zero-area clip means "no clip", and renders identically to an unset one.
+/// The empty ring list means "no clip" and renders identically to an unset one, while a
+/// clip that encloses nothing — here a rectangle of zero area — hides the item.
 ///
-/// This is the compatibility case, and it is asserted as whole-frame byte equality
-/// rather than by sampling: `canvas::Bounds`'s own description promises a zero-area
-/// rectangle reads as unclipped, and every `Paint` built before plan-116-B carries
-/// exactly that value. A single wrong pixel here is every existing scene changing.
+/// The first half is the compatibility case, asserted as whole-frame byte equality
+/// rather than by sampling: every `Paint` built without a clip carries `[]`, so a single
+/// wrong pixel is every existing scene changing. The second is plan-163-C's decision
+/// (2026-09-28, §4): only the empty list is the inert zero value, and a clip the program
+/// wrote that encloses nothing is visible as such — it replaced plan-116-B's "a zero-area
+/// `Bounds` is unclipped", which had no other way to spell "no clip".
 #[test]
-fn a_zero_area_clip_is_identical_to_no_clip() {
+fn an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item() {
     let body = |clip: &str| {
         scene(&format!(
             "  LET c AS color::Color = color::rgb(0, 200, 255)\n  \
@@ -1377,16 +1380,67 @@ fn a_zero_area_clip_is_identical_to_no_clip() {
         ))
     };
     let (unset, _) = render("canvas_clip_unset", &body("canvas::fill(c)"));
+    let (empty, _) = render("canvas_clip_empty", &body("WITH canvas::fill(c) { clip := [] }"));
+    assert_eq!(
+        unset, empty,
+        "an empty clip must render byte-identically to no clip at all"
+    );
     let (zero, _) = render(
         "canvas_clip_zero",
         &body(
-            "WITH canvas::fill(c) { clip := canvas::Bounds[x := 50.0, y := 50.0, w := 0.0, h := 0.0] }",
+            "WITH canvas::fill(c) { clip := [[canvas::Point[x := 300.0, y := 300.0], canvas::Point[x := 300.0, y := 300.0], canvas::Point[x := 300.0, y := 300.0], canvas::Point[x := 300.0, y := 300.0]]] }",
         ),
     );
-    assert_eq!(
-        unset, zero,
-        "a zero-area clip must render byte-identically to no clip at all"
-    );
+    for (x, y) in [(300usize, 300usize), (299, 299), (250, 300)] {
+        assert_eq!(
+            pixel(&zero, x, y),
+            (0, 0, 0, 255),
+            "a zero-area clip encloses nothing, so the circle at ({x}, {y}) is hidden"
+        );
+    }
+}
+
+/// plan-163-C: `Paint.transparency` fades an item's alphas at geometry build.
+///
+/// `T = round(clamp(t, 0, 1) * 255)` and each alpha becomes `(a * (255 - T) + 127) / 255`,
+/// so an item at transparency `t` draws exactly as the same item with those alphas
+/// spelled out. Hand-computed: `t = 0.5` gives `T = round(127.5) = 128`, so an opaque
+/// fill, stroke and gradient stop become `(255 * 127 + 127) / 255 = 127`, and a stop of
+/// alpha 200 becomes `(200 * 127 + 127) / 255 = 100`. `t = -1` clamps to 0 (opaque, the
+/// identity) and `t = 2` to 1 (`T = 255`: every alpha `127 / 255 = 0`, nothing drawn).
+#[test]
+fn transparency_fades_fill_stroke_and_gradient_alphas() {
+    let body = |faded: bool| {
+        let (fill, stroke, s0, s1, t) = if faded {
+            ("color::rgb(255, 0, 0)", "color::rgb(0, 255, 0)", "color::rgb(0, 0, 255)", "color::rgba(255, 255, 0, 200)", " transparency := 0.5,")
+        } else {
+            ("color::rgba(255, 0, 0, 127)", "color::rgba(0, 255, 0, 127)", "color::rgba(0, 0, 255, 127)", "color::rgba(255, 255, 0, 100)", "")
+        };
+        scene(&format!(
+            "  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 400.0, y := 0.0], endPoint := canvas::Point[x := 600.0, y := 0.0], \
+             stops := [canvas::GradientStop[offset := 0.0, color := {s0}], canvas::GradientStop[offset := 1.0, color := {s1}]]]\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fillStroke({fill}, {stroke}, 12.0) {{{t} blend := canvas::BlendMode.Normal }}]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fill(color::rgb(9, 9, 9)) {{{t} fillGradient := ramp }}]\n  \
+             canvas::present([a, b])\n"
+        ))
+    };
+    let (faded, _) = render("canvas_transparency", &body(true));
+    let (spelled, _) = render("canvas_transparency_spelled", &body(false));
+    assert!(faded == spelled, "transparency 0.5 must draw exactly as alpha 127 (and a 200 stop as 100)");
+    assert_ne!(pixel(&faded, 150, 120), (0, 0, 0, 255), "the faded fill still draws");
+
+    let item = |t: &str| {
+        scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) {{ transparency := {t} }}]\n  \
+             canvas::present([a])\n"
+        ))
+    };
+    let (opaque, _) = render("canvas_transparency_zero", &item("0.0"));
+    let (low, _) = render("canvas_transparency_low", &item("0.0 - 1.0"));
+    let (high, _) = render("canvas_transparency_high", &item("2.0"));
+    assert!(low == opaque, "transparency -1 clamps to 0, the opaque identity");
+    assert_eq!(pixel(&opaque, 300, 300), (255, 0, 0, 255), "transparency 0 is opaque");
+    assert_eq!(pixel(&high, 300, 300), (0, 0, 0, 255), "transparency 2 clamps to 1: nothing drawn");
 }
 
 /// A clip entirely outside the item draws nothing.
@@ -1401,7 +1455,7 @@ fn a_clip_outside_the_item_draws_nothing() {
         &scene(
             "  LET red AS color::Color = color::rgb(255, 0, 0)\n  \
              LET green AS color::Color = color::rgb(0, 255, 0)\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(red) { clip := canvas::Bounds[x := 600.0, y := 400.0, w := 100.0, h := 100.0] }\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(red) { clip := [[canvas::Point[x := 600.0, y := 400.0], canvas::Point[x := 700.0, y := 400.0], canvas::Point[x := 700.0, y := 500.0], canvas::Point[x := 600.0, y := 500.0]]] }\n  \
              LET hidden AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 100.0, h := 100.0, paint := p]\n  \
              LET shown AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(green)]\n  \
              canvas::present([hidden, shown])\n",
@@ -1440,7 +1494,7 @@ fn a_clip_larger_than_the_item_changes_nothing() {
     let (big, _) = render(
         "canvas_clip_big",
         &body(
-            "WITH canvas::fill(c) { clip := canvas::Bounds[x := 0.0, y := 0.0, w := 900.0, h := 640.0] }",
+            "WITH canvas::fill(c) { clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 900.0, y := 0.0], canvas::Point[x := 900.0, y := 640.0], canvas::Point[x := 0.0, y := 640.0]]] }",
         ),
     );
     assert_eq!(
@@ -3540,42 +3594,35 @@ fn a_gradient_inside_a_group_moves_with_the_group() {
     );
 }
 
-/// A clipped item inside a translated group keeps its clip **where the surface
-/// rectangle is** — the group moves the shape through the clip, not the clip with it
-/// (plan-116-G §4.5, **G5**).
+/// A clipped item inside a translated group carries its clip with it: the clip is in the
+/// item's own coordinates, so the group's translation moves both (plan-163-C §3, which
+/// reverses plan-116-G's G5 on purpose — a surface-rectangle clip was right for
+/// `Bounds`, and wrong for an SVG `clip-path`, which moves with its element).
 ///
-/// `Paint.clip` is defined as a surface rectangle that `Paint.transform` does not move
-/// (plan-116-B), and a group offset is treated the same way. This is the asymmetry G5
-/// flags: "evaluate the distance at `p - offset`" moves everything it reaches, and the
-/// clip must be one of the two things it deliberately does not.
-///
-/// The scene is arranged so the two answers are visibly different rather than subtly:
-/// a 200x200 square in a group translated by (300,0), clipped to the left half of where
-/// it lands. If the clip moved with the group it would land 300px further right and the
-/// square would be fully painted; if it stayed, the square's right half is cut.
+/// A 200x200 square in a group translated by (300, 100), clipped to its own left half,
+/// (0, 0)-(100, 200). The square lands at (300, 100)-(500, 300) and the clip with it at
+/// (300, 100)-(400, 300): the left half is painted and the right half is not. Had the
+/// clip stayed on the surface it would cut (0, 0)-(100, 200), which the square never
+/// reaches, and nothing would be painted.
 #[test]
-fn a_clip_inside_a_translated_group_stays_on_the_surface() {
+fn a_clip_inside_a_translated_group_moves_with_it() {
     let (frame, _) = render(
         "canvas_group_clip",
         &scene(
-            "  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) { clip := canvas::Bounds[x := 300.0, y := 100.0, w := 100.0, h := 200.0] }]\n  \
+            "  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) { clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 100.0, y := 0.0], canvas::Point[x := 100.0, y := 200.0], canvas::Point[x := 0.0, y := 200.0]]] }]\n  \
              canvas::setGroup(\"g\", [clipped])\n  \
              canvas::present([canvas::Group[dx := 300.0, dy := 100.0, name := \"g\"]])\n",
         ),
     );
-
-    // The square lands at (300,100)-(500,300). The clip covers (300,100)-(400,300).
     assert_eq!(
         pixel(&frame, 350, 200),
         (0, 200, 255, 255),
-        "the left half of the square — inside both the shape and the clip — is not painted",
+        "the square's left half, inside its moved clip, is painted",
     );
     assert_eq!(
         pixel(&frame, 450, 200),
         (0, 0, 0, 255),
-        "the right half of the square is painted, so the clip moved with the group. A \
-         clip is a SURFACE rectangle: the group translates the shape through it, and \
-         following the group would put this clip at (600,100) where it cuts nothing.",
+        "the square's right half is outside its clip, which moved with the group",
     );
 }
 

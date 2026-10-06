@@ -491,6 +491,44 @@ END FUNC
     );
 }
 
+/// plan-163-C: `Paint.transparency` fades a glyph run's and a stroked run's alphas at
+/// build, as it fades a shape's: `t = 0.5` is `T = 128`, and an opaque alpha becomes
+/// `(255 * 127 + 127) / 255 = 127`. So a run filled yellow and one stroked white at
+/// transparency 0.5 draw byte-identically to the same runs at alpha 127.
+#[test]
+fn transparency_fades_text_and_stroked_text() {
+    let source = |faded: bool| {
+        let (fill, stroke, t) = if faded {
+            ("color::rgb(255, 255, 0)", "color::rgb(255, 255, 255)", " { transparency := 0.5 }")
+        } else {
+            ("color::rgba(255, 255, 0, 127)", "color::rgba(255, 255, 255, 127)", " { transparency := 0.0 }")
+        };
+        format!(
+            r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("font failed")
+    RETURN
+  END TRAP
+  LET filled AS canvas::DrawItem = canvas::Text[x := 40.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::fill({fill}){t}]
+  LET outlined AS canvas::DrawItem = canvas::Text[x := 400.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::stroke({stroke}, 6.0){t}]
+  canvas::present([filled, outlined])
+  io::print("done")
+END FUNC
+"#
+        )
+    };
+    let faded = run_with_font_frame("canvas_text_faded", &source(true));
+    let spelled = run_with_font_frame("canvas_text_spelled", &source(false));
+    assert!(faded == spelled, "transparency 0.5 must draw text exactly as alpha 127");
+    assert!(faded.chunks(4).any(|p| p[0] > 0 && p[1] > 0 && p[2] == 0), "the faded filled run drew");
+}
+
 const MEASURE: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT io

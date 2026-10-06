@@ -2722,7 +2722,6 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("canvas.Point", FieldKindRow::Arm('F')),
     ("canvas.MouseEvent", FieldKindRow::Arm('F')),
     ("canvas.Size", FieldKindRow::Arm('F')),
-    ("canvas.Bounds", FieldKindRow::Arm('F')),
     ("canvas.TextMetrics", FieldKindRow::Arm('F')),
     ("canvas.FrameStats", FieldKindRow::Arm('F')),
     ("canvas.Transform", FieldKindRow::Arm('F')),

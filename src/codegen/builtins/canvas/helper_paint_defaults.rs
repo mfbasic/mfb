@@ -160,18 +160,18 @@ r#"FUNC __canvas_forwardOf(ia AS Float, ib AS Float, ic AS Float, id AS Float, i
   RETURN [fa, fb, fc, fd, 0.0 - (fa * itx + fc * ity), 0.0 - (fb * itx + fd * ity)]
 END FUNC"#;
 
-/// A zero-area `Bounds`, which means "no clip".
+/// No clip rings, which means "no clip" (plan-163-C).
 #[rustfmt::skip]
 const NO_CLIP: &str =
-r#"FUNC __canvas_noClip() AS Bounds
-  RETURN Bounds[x := 0.0, y := 0.0, w := 0.0, h := 0.0]
+r#"FUNC __canvas_noClip() AS List OF List OF Point
+  RETURN []
 END FUNC"#;
 
 /// The all-zero `Gradient`: no stops, so no gradient (plan-116-F).
 ///
 /// The empty stop list is the no-op, and it is the *only* one that matters — the kind
 /// and the two points mean nothing without stops to interpolate between. That is the
-/// shape `__canvas_noClip`'s zero-area rectangle already has: a value the renderer
+/// shape `__canvas_noClip`'s empty ring list already has: a value the renderer
 /// tests in one comparison, rather than a sentinel it has to know about.
 #[rustfmt::skip]
 const NO_GRADIENT: &str =

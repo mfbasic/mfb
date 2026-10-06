@@ -169,7 +169,7 @@ FUNC main() AS Nothing
   LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
   LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
   LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 300.0, radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
-  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 240.0, w := 200.5, h := 60.0] }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 460.25, y := 240.0], canvas::Point[x := 660.75, y := 240.0], canvas::Point[x := 660.75, y := 300.0], canvas::Point[x := 460.25, y := 300.0]]] }]
   ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
   ' Without these the frame never sets hasTransform and the whole of this letter's
   ' shader work would go unexercised while the suite still reported success.
@@ -237,7 +237,7 @@ FUNC main() AS Nothing
   LET picStrip AS canvas::DrawItem = canvas::Picture[x := 775.0, y := 510.0, w := 90.0, h := 30.0, image := stripImg, paint := canvas::fill(color::rgb(255, 255, 255))]
   LET picHalf AS canvas::Transform = canvas::Transform[a := 0.5, b := 0.0, c := 0.0, d := 0.5, tx := 840.0, ty := 548.0]
   LET picScaled AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 128, 0)) { transform := picHalf }]
-  LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 705.0, y := 578.0, w := 36.0, h := 60.0] }]
+  LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 705.0, y := 578.0], canvas::Point[x := 741.0, y := 578.0], canvas::Point[x := 741.0, y := 638.0], canvas::Point[x := 705.0, y := 638.0]]] }]
   ' bug-484: a text run with a SPACE in it, early in the scene. A space has an empty
   ' bitmap and draws nothing, but `__canvas_blockInstances` counts it as one instance
   ' like every glyph -- so an emitter that skipped publishing its block shifted every

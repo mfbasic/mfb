@@ -590,7 +590,7 @@ FUNC main AS Integer
     MUT rasterItems AS List OF canvas::DrawItem = []
     IF layer <> Layer.Wind THEN
       canvas::setBytes(layerImage, rasterPixels(layer, earlierWinds, laterWinds, mix, view))
-      rasterItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := canvas::fill(color::rgba(255, 255, 255, rasterOpacity(layer)))]]
+      rasterItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 1.0 - toFloat(rasterOpacity(layer)) / 255.0 }]]
     END IF
     MUT scene AS List OF canvas::DrawItem = frameScene(world, view, rasterItems, layer, face, size, captions)
     FOR EACH item IN timelineItems(track, playback, days, face)

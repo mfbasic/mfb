@@ -70,16 +70,15 @@ END FUNC
 
 ' plan-116-B: does this item clip at all?
 '
-' Slots 22-25 hold the clip RESOLVED to x0,y0,x1,y1, and a zero-area rectangle means
-' unclipped -- which is what an unset `Paint.clip` is. Testing both extents rather than
-' comparing against zero also rejects a negative extent, which `Bounds` cannot forbid:
-' `w := -5.0` gives x1 < x0 and must mean "draws nothing", not "draws everything".
+' plan-163-C: the clip's mode, slot `__CANVAS_GEO_CLIP_MODE` -- 0 for the empty ring list,
+' which is what an unset `Paint.clip` is. Mode 1 holds an axis-aligned rectangle
+' x0,y0,x1,y1 in slots 22-25, in the item's own coordinates.
 '
 ' The per-pixel clip coverage is gated on this, so an unclipped item -- every item in
 ' every scene written before this letter -- pays one compare per ITEM and nothing per
 ' pixel.
 FUNC __canvas_hasClip(offset AS Integer) AS Boolean
-  RETURN __canvas_geoAt(offset, 22) < __canvas_geoAt(offset, 24) AND __canvas_geoAt(offset, 23) < __canvas_geoAt(offset, 25)
+  RETURN __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) <> 0.0
 END FUNC
 
 ' plan-116-C: does this item carry a transform that is not the identity?
@@ -140,11 +139,31 @@ END FUNC
 ' Evaluating the rectangle SDF at the pixel CENTRE gives the covered fraction directly
 ' for an axis-aligned edge: a clip starting at x = 10.6 leaves pixel 10 (centre 10.5)
 ' at d = +0.1, hence coverage 0.4 -- which is the 40% of that pixel actually inside.
+'
+' plan-163-C: a picture's texel channel tinted by its fill: towards `texel * fill / 255`
+' by `alpha / 255`, the difference rounded half away from zero -- so an alpha of 255 is
+' that product exactly (today's multiply) and 0 the texel unchanged.
+FUNC __canvas_tintChannel(texel AS Integer, fill AS Integer, alpha AS Integer) AS Byte
+  LET tint AS Integer = (texel * fill) / 255
+  LET d AS Integer = (tint - texel) * alpha
+  IF d >= 0 THEN
+    RETURN toByte(texel + (d + 127) / 255)
+  END IF
+  RETURN toByte(texel - (127 - d) / 255)
+END FUNC
+
+' plan-163-C: at the item's own point (the shape-space point, the group offset already
+' taken off), because the clip is in the item's coordinates. A rectangle with no area
+' encloses nothing and hides the item -- measured as a distance it would leave a
+' half-covered line along a pixel centre on it.
 FUNC __canvas_clipCoverage(offset AS Integer, px AS Float, py AS Float) AS Integer
   LET x0 AS Float = __canvas_geoAt(offset, 22)
   LET y0 AS Float = __canvas_geoAt(offset, 23)
   LET x1 AS Float = __canvas_geoAt(offset, 24)
   LET y1 AS Float = __canvas_geoAt(offset, 25)
+  IF NOT (x0 < x1 AND y0 < y1) THEN
+    RETURN 0
+  END IF
   RETURN __canvas_coverage(__canvas_rectDistance(px, py, (x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0))
 END FUNC"#;
 
@@ -296,7 +315,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
             IF ux >= 0 AND uy >= 0 AND ux < gw AND uy < gh THEN
               MUT tcov AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + uy * gw + ux, toByte(0)))
               IF tClipped THEN
-                tcov = (tcov * __canvas_clipCoverage(offset, sfpx, sfpy)) / 255
+                tcov = (tcov * __canvas_clipCoverage(offset, fpx, fpy)) / 255
               END IF
               IF tcov > 0 THEN
                 LET tAlpha AS Integer = (tA * tcov) / 255
@@ -330,7 +349,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
             IF sx >= 0 AND sx < width THEN
               MUT cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
               IF tClipped THEN
-                cover = (cover * __canvas_clipCoverage(offset, toFloat(sx) + 0.5, toFloat(sy) + 0.5)) / 255
+                cover = (cover * __canvas_clipCoverage(offset, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy)) / 255
               END IF
               IF cover > 0 THEN
                 LET gAlpha AS Integer = (tA * cover) / 255
@@ -421,11 +440,13 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   MUT picShadow AS Integer = 0
   MUT picW AS Integer = 0
   MUT picH AS Integer = 0
+  MUT picStep AS Integer = 0
   IF isPicture THEN
     distKind = __CANVAS_KIND_RECT
     picShadow = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
     picW = toInt(__canvas_geoAt(offset, 20))
     picH = toInt(__canvas_geoAt(offset, 21))
+    picStep = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_TRANSPARENCY))
   END IF
   ' The destination's left/top edge and extent, from the rectangle slots.
   LET picX0 AS Float = p0 - p2
@@ -477,15 +498,15 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' 0 keeps the existing full-coverage fast path below, so an unblended item's inner
   ' loop is exactly the one it had.
   LET blendMode AS Integer = toInt(__canvas_geoAt(offset, 26))
-  ' plan-116-G / G5: the clip is NOT offset. `Paint.clip` is a surface rectangle by
-  ' definition (plan-116-B), so a group's translation moves the shape through the clip
-  ' rather than carrying the clip with it. These four narrow the already-offset bounds,
-  ' so a clipped item inside a translated group is clipped where the clip actually is.
+  ' plan-163-C: the clip is in the item's own coordinates, so a group's translation moves
+  ' it with the item -- reversing plan-116-G's G5, where it was a surface rectangle the
+  ' group moved the shape through. These four narrow the already-offset bounds by the
+  ' offset clip.
   IF clipped THEN
-    firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22)))
-    y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23)))
-    lastX = __canvas_minI(lastX, toInt(__canvas_geoAt(offset, 24)))
-    lastY = __canvas_minI(lastY, toInt(__canvas_geoAt(offset, 25)))
+    firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22) + gdx))
+    y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23) + gdy))
+    lastX = __canvas_minI(lastX, toInt(__canvas_geoAt(offset, 24) + gdx))
+    lastY = __canvas_minI(lastY, toInt(__canvas_geoAt(offset, 25) + gdy))
   END IF
   WHILE y <= lastY
     LET rowBase AS Integer = y * width * 4
@@ -557,7 +578,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' bounds, so this is the boundary's cost and nothing else's.
       MUT clipCov AS Integer = 255
       IF clipped THEN
-        clipCov = __canvas_clipCoverage(offset, spx, spy)
+        clipCov = __canvas_clipCoverage(offset, px, py)
       END IF
 
       ' plan-116-F: the gradient replaces the fill COLOUR and nothing else -- the
@@ -596,8 +617,9 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' bug-484: a picture's fill colour is its image, sampled NEAREST -- the plan-116-C
       ' section 4.5 rule glyphs follow, for the same reason: `floor` and `+ - * /` only,
       ' so all three renderers pick the same texel. The texel is then TINTED by
-      ' `Paint.fill`, channel by channel, so the white fill of every man example draws
-      ' the image unchanged and the fill's alpha is the picture's opacity.
+      ' `Paint.fill` (`__canvas_tintChannel`, plan-163-C): the fill's alpha is the tint's
+      ' strength, so the zero paint and a white fill draw the image unchanged, and the
+      ' picture's own alpha is faded by `transparency` alone.
       '
       ' The index is clamped, not rejected: the antialiased edge pixels just outside the
       ' destination (centre within half a pixel of it) still take coverage, and they
@@ -606,10 +628,10 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         LET tu AS Integer = __canvas_maxI(__canvas_minI(math::floor((qx - picX0) * toFloat(picW) / picDW), picW - 1), 0)
         LET tv AS Integer = __canvas_maxI(__canvas_minI(math::floor((qy - picY0) * toFloat(picH) / picDH), picH - 1), 0)
         LET texel AS Integer = canvas::shadowTexel(picShadow, tv * picW + tu)
-        gR = toByte(((texel MOD 256) * toInt(fillR)) / 255)
-        gG = toByte((((texel / 256) MOD 256) * toInt(fillG)) / 255)
-        gB = toByte((((texel / 65536) MOD 256) * toInt(fillB)) / 255)
-        gA = ((texel / 16777216) * fillA) / 255
+        gR = __canvas_tintChannel(texel MOD 256, toInt(fillR), fillA)
+        gG = __canvas_tintChannel((texel / 256) MOD 256, toInt(fillG), fillA)
+        gB = __canvas_tintChannel((texel / 65536) MOD 256, toInt(fillB), fillA)
+        gA = __canvas_fadeAlpha(texel / 16777216, picStep)
       END IF
       IF gA > 0 THEN
         MUT coverage AS Integer = __canvas_coverage(distance)

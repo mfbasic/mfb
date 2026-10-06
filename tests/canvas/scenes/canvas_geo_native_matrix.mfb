@@ -10,7 +10,7 @@ FUNC paints() AS List OF canvas::Paint
   LET strokes AS List OF color::Color = [color::rgba(200, 100, 50, 255), color::rgba(1, 2, 3, 0)]
   LET widths AS List OF Float = [0.0, 1.0, 2.75, 0.0 - 1.5]
   LET modes AS List OF canvas::BlendMode = [canvas::BlendMode.Normal, canvas::BlendMode.Multiply, canvas::BlendMode.Screen, canvas::BlendMode.Add]
-  LET clips AS List OF canvas::Bounds = [canvas::Bounds[x := 0.0, y := 0.0, w := 0.0, h := 0.0], canvas::Bounds[x := 5.5, y := 0.0 - 3.25, w := 100.125, h := 50.0], canvas::Bounds[x := 10.0, y := 10.0, w := 0.0 - 5.0, h := 3.0]]
+  LET clips AS List OF List OF List OF canvas::Point = [[], [[canvas::Point[x := 5.5, y := 0.0 - 3.25], canvas::Point[x := 105.625, y := 0.0 - 3.25], canvas::Point[x := 105.625, y := 46.75], canvas::Point[x := 5.5, y := 46.75]]], [[canvas::Point[x := 10.0, y := 10.0], canvas::Point[x := 5.0, y := 10.0], canvas::Point[x := 5.0, y := 13.0], canvas::Point[x := 10.0, y := 13.0]]]]
   FOR EACH f IN fills
     FOR EACH s IN strokes
       FOR EACH w IN widths

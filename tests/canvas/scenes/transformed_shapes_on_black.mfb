@@ -40,9 +40,9 @@ FUNC main() AS Nothing
     LET tc AS Float = 0.0 - 0.28 + toFloat(k MOD 4) * 0.05
     LET td AS Float = 1.07 - toFloat(k MOD 7) * 0.029
     LET tf AS canvas::Transform = canvas::Transform[a := ta, b := tb, c := tc, d := td, tx := x - (ta * x + tc * y), ty := y - (tb * x + td * y)]
-    MUT cl AS canvas::Bounds = canvas::Bounds[x := 0.0, y := 0.0, w := 0.0, h := 0.0]
+    MUT cl AS List OF List OF canvas::Point = []
     IF k MOD 2 = 1 THEN
-      cl = canvas::Bounds[x := x - 17.3, y := y - 21.7, w := 31.1, h := 38.9]
+      cl = [[canvas::Point[x := x - 17.3, y := y - 21.7], canvas::Point[x := x - 17.3 + 31.1, y := y - 21.7], canvas::Point[x := x - 17.3 + 31.1, y := y - 21.7 + 38.9], canvas::Point[x := x - 17.3, y := y - 21.7 + 38.9]]]
     END IF
     MUT d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Butt }]
     IF k MOD 6 = 1 THEN

@@ -12,7 +12,7 @@ const DESC: &str = r#"`stroke` is the outline-only case — an unfilled shape, a
 `canvas::Paint` for the three items that have no interior at all, `canvas::Line`,
 `canvas::Arc` and `canvas::PolyLine`. Every
 other field is left at its no-op value: a transparent fill, `Normal` blend, the
-identity transform, no clip, no gradient, `Butt` ends, `Round` corners and no dashes —
+identity transform, no clip, no gradient, `Butt` ends, `Round` corners, no dashes and opaque —
 with a `miterLimit` of `4.0`. A `canvas::Line` that should end round says so with
 `WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round }`.
 
@@ -23,7 +23,7 @@ set blend, transform or clip, update the result with `WITH`.
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[stroke := c]` is a constructor-arity error, not a partial record —
-so without them every item would have to spell out all twelve `canvas::Paint` fields."#;
+so without them every item would have to spell out all fourteen `canvas::Paint` fields."#;
 
 const EX: &str = r#"A smile — the lower half of a circle, stroked. Angles are radians clockwise from
 +X, and Y increases downward, so `0.0`..`PI` sweeps *below* the centre:

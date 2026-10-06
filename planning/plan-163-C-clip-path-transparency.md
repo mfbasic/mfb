@@ -190,8 +190,8 @@ Glyph runs are drawn with `item.fill` (`mfb_canvas.frag:928`).
 | `clip :=` sites | 23 | same with `"clip :="` |
 | files holding either | 11 (`scenes/transformed_shapes_on_black.mfb` 8, `rt_canvas_rasteriser.rs` 7, `rt_canvas_metal.rs` 3, `scenes/canvas_geo_native_matrix.mfb` 2, `rt_canvas_golden.rs` 2, `mod.rs` 2, `scripts/test-canvas-vulkan.sh` 2, and 1 each in `field_kinds.tsv`, `scenes/clips_at_a_step_on_black.mfb`, `rt_canvas_picture.rs`, `func_fill_stroke.rs`) | same, `\| cut -d: -f1 \| sort \| uniq -c` |
 | `canvas::Picture[` sites | 54 (top: `rt_canvas_picture.rs` 14, `rt_canvas_metal.rs` 8, `rt_canvas_group_ownership.rs` 5, `test-canvas-vulkan.sh` 4) | `grep -rn "canvas::Picture\[" --exclude-dir=target --exclude-dir=.git --exclude-dir=planning --exclude-dir=bugs . \| wc -l` |
-| Picture sites whose fill alpha is below 255 (the ones whose pixels change) | UNMEASURED | Phase 1's first task |
-| Clip sites that also set a transform or sit in a translated group (the ones whose pixels change) | UNMEASURED | Phase 1's first task |
+| Picture sites whose fill alpha is below 255 (the ones whose pixels change) | 2 (`rt_canvas_picture.rs:201` the opacity test, `examples/weather/src/main.mfb:593`) | each of the 55 `canvas::Picture[` sites' `paint` read (`grep -rn "canvas::Picture\[" … \| grep -o "paint := [^]]*" \| sort \| uniq -c`); `rt_canvas_rasteriser.rs:310`'s `rgba(…, 128)` is a Rectangle |
+| Clip sites that also set a transform or sit in a translated group (the ones whose pixels change) | 8: `scenes/transformed_shapes_on_black.mfb` (6 items, `transform := tf, clip := cl`), `rt_canvas_rasteriser.rs` G5 test, `rt_canvas_golden.rs:1147` (`band` in the group panel) | the 23 `clip :=` sites read for a `transform` or a `Group` around them |
 
 ### Verified properties
 
@@ -405,21 +405,23 @@ This phase delivers the new surface and the two alpha rules in software. The cli
 still rectangle-only here (the fast path), so nothing about the path clip is
 half-built.
 
-- [ ] Measure the two UNMEASURED rows of §2:
+- [x] Measure the two UNMEASURED rows of §2:
       - Picture sites whose fill alpha is below 255 (read each of the 54 sites'
         `paint`);
       - clip sites that also set a transform or sit in a translated group.
       Record both counts and file lists here. They are the tests whose expectations
-      change.
-- [ ] `mod.rs`: remove the `Bounds` record and its `:1791` list entry. `Paint.clip` →
+      change. (2 and 8, in §2's table.)
+- [x] `mod.rs`: remove the `Bounds` record and its `:1791` list entry. `Paint.clip` →
       `list_of(list_of(named("Point")))`. Add `clipRule` and `transparency` per §4, with
       descriptions. The `clip` description states that **`paint.transform` and a group's
       translation apply to the clip path as well as to the item**. The Picture
-      description states the tint and `transparency` rule.
-- [ ] `helper_paint_defaults.rs:__canvas_noClip` → `[]`. Update the constructor
+      description states the tint and `transparency` rule. (Also the `transform`
+      description, which said the clip was not transformed.)
+- [x] `helper_paint_defaults.rs:__canvas_noClip` → `[]`. Update the constructor
       literal in `func_fill_stroke.rs` and the "all N fields" sentences
-      (`func_fill.rs:24`, `func_stroke.rs:24`, `func_fill_stroke.rs:24`).
-- [ ] Both builders:
+      (`func_fill.rs:24`, `func_stroke.rs:24`, `func_fill_stroke.rs:24`). (Twelve →
+      fourteen.)
+- [x] Both builders:
       - clip mode 0/1 per §5, where mode 1 is only an axis-aligned 4-point ring with no
         transform. Anything else is refused by `emit_paint_supported` until Phase 2
         (it falls back to MFBASIC, which in Phase 1 also only accepts modes 0/1: any
@@ -427,10 +429,20 @@ half-built.
       - the alpha fold per §6;
       - `PICTURE_TRANSPARENCY`;
       - the header slots added per §5/§6, with both pin tests extended.
-- [ ] `__canvas_hashPaint`: fold `clip` (rings), `clipRule` and `transparency`.
-- [ ] Software picture tint per §6 (`helper_items.rs` near :593). Software mode-1 clip
-      offset by the group (replacing the :475–478 G5 behavior).
-- [ ] Migrate the 23 `clip :=` / 22 `canvas::Bounds` sites to rings (a rectangle
+      (Slots 51 `CLIP_MODE`, 52 `CLIP_EDGE_COUNT`, 53 `CLIP_RULE`, 54
+      `PICTURE_TRANSPARENCY`; `__CANVAS_GEO_HEADER` = `GEO_HEADER` = `HEADER_SLOTS` = 55.
+      `__canvas_clipHeader`/`__canvas_clipRect`, `__canvas_transparencyStep`,
+      `__canvas_fadeAlpha`; native `emit_clip_ring`, `emit_transparency_step`,
+      `emit_fade_alpha`, and the polyline's per-point colours fade too. The native pin
+      test pins `CLIP_MODE`/`CLIP_RULE`; the emitter-side pins land with Phase 3's
+      readers. `cargo test --bin mfb canvas` → 110 passed; `cargo test --test
+      rt_canvas_geo_native` → 4 passed, 0 mismatches.)
+- [x] `__canvas_hashPaint`: fold `clip` (rings), `clipRule` and `transparency`. (The
+      native item hash walks the type model's fields, so it folds them already.)
+- [x] Software picture tint per §6 (`helper_items.rs` near :593). Software mode-1 clip
+      offset by the group (replacing the :475–478 G5 behavior). (`__canvas_tintChannel`;
+      Corrections 2.)
+- [x] Migrate the 23 `clip :=` / 22 `canvas::Bounds` sites to rings (a rectangle
       `Bounds[x, y, w, h]` becomes a 4-point ring). Migrate the Picture sites whose
       fill alpha was below 255 to `transparency`.
       For each test whose expected pixels change, re-derive the expectation by hand and
@@ -438,7 +450,17 @@ half-built.
       group-and-clip test, whose premise the user's decision replaces.
       Check: `grep -rn "canvas::Bounds" --exclude-dir=target --exclude-dir=.git
       --exclude-dir=planning --exclude-dir=bugs .` → 0.
-- [ ] Tests (`rt_canvas_rasteriser.rs`, `rt_canvas_picture.rs`, hand-computed):
+      (20 literals converted to 4-point rings; the two all-zero ones — the old
+      "unclipped" — became `[]`; the `field_kinds.tsv` `canvas::Bounds` row removed with
+      the type. The grep → 0 outside the `.ir` golden, which this phase regenerates.
+      Rewritten by hand: `a_zero_area_clip_is_identical_to_no_clip` →
+      `an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item`, and G5's
+      `a_clip_inside_a_translated_group_stays_on_the_surface` →
+      `…_moves_with_it`, each citing §3/§4's decision. `tests/golden/canvas/groups.png`
+      re-baselined: 5,460 pixels differ, `python3 /tmp/p163/pngdiff.py` → 0 outside the
+      `band`'s two moved rectangles (340 + 40.25 … 130.75, 210 + 80 … 110 and the nested
+      620/70 one), which is exactly the clip moving with the group.)
+- [x] Tests (`rt_canvas_rasteriser.rs`, `rt_canvas_picture.rs`, hand-computed):
       - `transparency := 0.5` on a red fill gives alpha 128 (`(255×128+127)/255 = 128`);
       - on a gradient, each stop's alpha is folded;
       - on stroked text, the glyph alpha is folded;
@@ -449,9 +471,17 @@ half-built.
       - Picture with red fill at alpha 128: the half blend;
       - Picture with `transparency := 0.5`: the texel alpha halved;
       - a mode-1 clip inside a translated group is clipped at the group's offset.
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*`
+      (`transparency_fades_fill_stroke_and_gradient_alphas`,
+      `the_fill_is_a_tint_and_transparency_is_the_opacity`,
+      `transparency_fades_text_and_stroked_text` in `rt_canvas_font.rs` (the font
+      fixture), and the rewritten group-clip test. Alpha 127, not 128 — Corrections 1.)
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*`
       (`scripts/regen-native-goldens.sh`, expected). Inspect the `.ir` diff: it should
-      be the type surface only.
+      be the type surface only. (`regen-native-goldens.sh target/release/mfb
+      tests/syntax/app/app-mouse-surface` → 6 rewritten; `sync-goldens.sh … app-mouse-surface`
+      → 5. The `.ir` embeds the canvas helpers, so it is the type surface plus every
+      helper — Corrections 3; every changed name is a canvas one or a renumbered
+      `$match`/`$trap` temporary.)
 
 Acceptance: the new rules hold in software, and unaffected items are byte-identical.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
@@ -567,7 +597,20 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **`transparency := 0.5` is alpha 127, not 128.** §6's `T = round(clamp(t) × 255)` gives
+   `round(127.5) = 128` (half up, as `toInt(x + 0.5)` rounds), so `(255 × (255 − 128) +
+   127) / 255 = 127`; Phase 1's "(255×128+127)/255 = 128" took `T = 127`. The tests
+   expect 127.
+2. **The tint is truncated, so an opaque tint is today's multiply exactly.** §6 wrote
+   `tint_c = (texel_c × fill_c + 127) / 255`; that rounds where today's
+   `(texel × fill) / 255` truncates, and would move pictures with an opaque non-white,
+   non-pure tint (two `rgb(255, 128, 0)` sites) by a level. `tint_c = (texel_c × fill_c)
+   / 255` keeps every opaque-fill picture byte-identical — at `fill_a = 255` the blend
+   adds exactly `tint − texel` — and §6 left the rounding to Phase 1.
+3. **The `app-mouse-surface` goldens were stale from plan-163-B Phases 5–7.** Those
+   phases changed the canvas helpers the fixture's `.ir`/native dumps embed and did not
+   re-sync them (B's acceptance gate runs once, at the end of plan-163). Phase 1's
+   regeneration covers both letters' changes.
 
 ## Summary
 

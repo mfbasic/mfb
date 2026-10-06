@@ -50,7 +50,15 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 51
+r#"LET __CANVAS_GEO_HEADER AS Integer = 55
+' plan-163-C: the clip and transparency slots, after plan-163-B's. 51 is the clip's mode
+' (0 none, 1 an axis-aligned rectangle in slots 22-25, 2 a path of clip edges), 52 the
+' clip edge count, 53 the clip's FillRule ordinal, 54 a picture's transparency step T
+' (0..255) -- every other kind's fill and stroke alphas are faded at build instead.
+LET __CANVAS_GEO_CLIP_MODE AS Integer = 51
+LET __CANVAS_GEO_CLIP_EDGE_COUNT AS Integer = 52
+LET __CANVAS_GEO_CLIP_RULE AS Integer = 53
+LET __CANVAS_GEO_PICTURE_TRANSPARENCY AS Integer = 54
 ' plan-163-B: the stroke-style slots, appended after every older slot so none of them
 ' moved. 47 is the number of join records in the tail (`__canvas_joinBase`), 48 how far
 ' a record reaches from its vertex (the band index widens to it); 49 is the dash tail's
@@ -286,23 +294,14 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   out = collections::set(out, 8, toFloat(toInt(paint.fill.red)))
   out = collections::set(out, 9, toFloat(toInt(paint.fill.green)))
   out = collections::set(out, 10, toFloat(toInt(paint.fill.blue)))
-  out = collections::set(out, 11, toFloat(toInt(paint.fill.alpha)))
+  ' plan-163-C: both alphas faded by `transparency` here, once, so no renderer reads it
+  ' (`__canvas_fadeAlpha`; the identity at the zero value).
+  LET fade AS Integer = __canvas_transparencyStep(paint)
+  out = collections::set(out, 11, toFloat(__canvas_fadeAlpha(toInt(paint.fill.alpha), fade)))
   out = collections::set(out, 12, toFloat(toInt(paint.stroke.red)))
   out = collections::set(out, 13, toFloat(toInt(paint.stroke.green)))
   out = collections::set(out, 14, toFloat(toInt(paint.stroke.blue)))
-  out = collections::set(out, 15, toFloat(toInt(paint.stroke.alpha)))
-  ' plan-116-B: the clip, RESOLVED to x0,y0,x1,y1 rather than kept as x,y,w,h, so
-  ' neither the rasteriser nor either shader repeats the addition per pixel.
-  '
-  ' Written unconditionally, with no zero-area special case, because none is needed:
-  ' w = 0 gives x1 = x + 0 = x, so the `x0 >= x1` test that means "unclipped" already
-  ' holds, and an all-zero Bounds -- what an unset Paint.clip is -- resolves to four
-  ' zeros and satisfies it too. A branch here would only be a second way to say the
-  ' same thing.
-  out = collections::set(out, 22, paint.clip.x)
-  out = collections::set(out, 23, paint.clip.y)
-  out = collections::set(out, 24, paint.clip.x + paint.clip.w)
-  out = collections::set(out, 25, paint.clip.y + paint.clip.h)
+  out = collections::set(out, 15, toFloat(__canvas_fadeAlpha(toInt(paint.stroke.alpha), fade)))
   ' The blend mode as its tag. Compared variant by variant rather than converted,
   ' because Normal must land as 0 -- the zero value being the no-op is the rule the
   ' whole of Paint follows, and it is what keeps every pre-plan-116-B scene rendering
@@ -387,7 +386,7 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   IF t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0 THEN
     out = collections::set(out, 27, 1065353216.0)
     out = collections::set(out, 30, 1065353216.0)
-    RETURN out
+    RETURN __canvas_clipHeader(out, paint)
   END IF
   LET inv AS List OF Float = __canvas_invertTransform(t)
   MUT ti AS Integer = 0
@@ -395,6 +394,71 @@ FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint) AS List OF Float
     out = collections::set(out, 27 + ti, collections::getOr(inv, ti, 0.0))
     ti = ti + 1
   END WHILE
+  RETURN __canvas_clipHeader(out, paint)
+END FUNC
+
+' plan-163-C: the transparency step T, `round(clamp(transparency, 0, 1) * 255)` -- a NaN
+' clamps to 1.0 (`__canvas_minF` answers its second argument), so it hides the item.
+FUNC __canvas_transparencyStep(paint AS Paint) AS Integer
+  LET t AS Float = __canvas_maxF(__canvas_minF(paint.transparency, 1.0), 0.0)
+  RETURN toInt(t * 255.0 + 0.5)
+END FUNC
+
+' An alpha faded by the transparency step T: `(alpha * (255 - T) + 127) / 255` in
+' integers, which is `alpha` itself at T = 0.
+FUNC __canvas_fadeAlpha(alpha AS Integer, fade AS Integer) AS Integer
+  RETURN (alpha * (255 - fade) + 127) / 255
+END FUNC
+
+' A clip of one ring of four points that is an axis-aligned rectangle (its sides
+' alternate horizontal and vertical, from either), as [x0, y0, x1, y1]; [] for any other
+' clip.
+FUNC __canvas_clipRect(rings AS List OF List OF Point) AS List OF Float
+  IF len(rings) <> 1 THEN
+    RETURN []
+  END IF
+  LET origin AS Point = Point[x := 0.0, y := 0.0]
+  LET none AS List OF Point = []
+  LET ring AS List OF Point = collections::getOr(rings, 0, none)
+  IF len(ring) <> 4 THEN
+    RETURN []
+  END IF
+  LET a AS Point = collections::getOr(ring, 0, origin)
+  LET b AS Point = collections::getOr(ring, 1, origin)
+  LET c AS Point = collections::getOr(ring, 2, origin)
+  LET d AS Point = collections::getOr(ring, 3, origin)
+  LET across AS Boolean = a.y = b.y AND b.x = c.x AND c.y = d.y AND d.x = a.x
+  LET down AS Boolean = a.x = b.x AND b.y = c.y AND c.x = d.x AND d.y = a.y
+  IF NOT across AND NOT down THEN
+    RETURN []
+  END IF
+  RETURN [__canvas_minF(a.x, c.x), __canvas_minF(a.y, c.y), __canvas_maxF(a.x, c.x), __canvas_maxF(a.y, c.y)]
+END FUNC
+
+' plan-163-C: the clip's header slots. The empty ring list is no clip (mode 0, every slot
+' left zero). One axis-aligned rectangular ring on an item with no transform is mode 1,
+' the rectangle in slots 22-25 in the item's own coordinates -- a zero-area one hides
+' the item. Every other clip is the path clip of plan-163-C Phase 2.
+FUNC __canvas_clipHeader(h AS List OF Float, paint AS Paint) AS List OF Float
+  IF len(paint.clip) = 0 THEN
+    RETURN h
+  END IF
+  IF collections::getOr(h, 33, 0.0) > 0.5 THEN
+    RETURN h
+  END IF
+  LET r AS List OF Float = __canvas_clipRect(paint.clip)
+  IF len(r) = 0 THEN
+    RETURN h
+  END IF
+  MUT out AS List OF Float = h
+  out = collections::set(out, 22, collections::getOr(r, 0, 0.0))
+  out = collections::set(out, 23, collections::getOr(r, 1, 0.0))
+  out = collections::set(out, 24, collections::getOr(r, 2, 0.0))
+  out = collections::set(out, 25, collections::getOr(r, 3, 0.0))
+  out = collections::set(out, __CANVAS_GEO_CLIP_MODE, 1.0)
+  IF paint.clipRule = FillRule.NonZero THEN
+    out = collections::set(out, __CANVAS_GEO_CLIP_RULE, 1.0)
+  END IF
   RETURN out
 END FUNC
 
@@ -512,6 +576,10 @@ FUNC __canvas_pictureHeader(pic AS Picture) AS List OF Float
   ' holds.
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
   out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, 0.0)
+  ' plan-163-C: a picture's fill is a TINT, whose alpha is the tint's strength, so it is
+  ' not faded; the picture's own alpha is faded at draw time by T.
+  out = collections::set(out, 11, toFloat(toInt(pic.paint.fill.alpha)))
+  out = collections::set(out, __CANVAS_GEO_PICTURE_TRANSPARENCY, toFloat(__canvas_transparencyStep(pic.paint)))
   out = collections::set(out, 20, toFloat(iw))
   out = collections::set(out, 21, toFloat(ih))
   out = collections::set(out, __CANVAS_GEO_PICTURE_SHADOW_HI, toFloat(shadow / __CANVAS_GEO_PICTURE_SPLIT))
@@ -883,6 +951,8 @@ FUNC __canvas_polylineStops(p AS PolyLine) AS List OF Float
     RETURN out
   END IF
   LET segs AS Float = toFloat(count - 1)
+  ' plan-163-C: each colour's alpha faded as the stroke's is.
+  LET fade AS Integer = __canvas_transparencyStep(p.paint)
   MUT k AS Integer = 0
   WHILE k < count
     MUT c AS color::Color = p.paint.stroke
@@ -893,7 +963,7 @@ FUNC __canvas_polylineStops(p AS PolyLine) AS List OF Float
     out = collections::append(out, toFloat(toInt(c.red)))
     out = collections::append(out, toFloat(toInt(c.green)))
     out = collections::append(out, toFloat(toInt(c.blue)))
-    out = collections::append(out, toFloat(toInt(c.alpha)))
+    out = collections::append(out, toFloat(__canvas_fadeAlpha(toInt(c.alpha), fade)))
     k = k + 1
   END WHILE
   RETURN out
@@ -906,6 +976,8 @@ FUNC __canvas_gradientTail(paint AS Paint) AS List OF Float
   IF count < 2 THEN
     RETURN out
   END IF
+  ' plan-163-C: each stop's alpha faded as the fill's is.
+  LET fade AS Integer = __canvas_transparencyStep(paint)
   ' Offsets are clamped to 0..1 AND to the previous stop's, so the walk is monotonic
   ' without sorting -- sorting would silently redraw something other than what the
   ' program asked for (plan-116-F section 4.1). Clamping is visible and predictable.
@@ -928,7 +1000,7 @@ FUNC __canvas_gradientTail(paint AS Paint) AS List OF Float
     out = collections::append(out, toFloat(toInt(st.color.red)))
     out = collections::append(out, toFloat(toInt(st.color.green)))
     out = collections::append(out, toFloat(toInt(st.color.blue)))
-    out = collections::append(out, toFloat(toInt(st.color.alpha)))
+    out = collections::append(out, toFloat(__canvas_fadeAlpha(toInt(st.color.alpha), fade)))
     i = i + 1
   END WHILE
   RETURN out
@@ -1328,12 +1400,11 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
   END IF
   ' The clip, the transform and the gradient are folded in only when present, after
   ' ONE step carrying which of them are (with the blend mode). Their zero values are
-  ' the no-ops -- an all-zero Bounds is "unclipped", an all-zero Transform the
+  ' the no-ops -- an empty clip ring list is "unclipped", an all-zero Transform the
   ' identity, fewer than two stops no gradient -- and most paints set none of them, so
   ' this is what keeps a plain item's hash to a handful of steps.
-  LET c AS Bounds = paint.clip
   LET t AS Transform = paint.transform
-  LET hasClip AS Boolean = NOT (c.x = 0.0 AND c.y = 0.0 AND c.w = 0.0 AND c.h = 0.0)
+  LET hasClip AS Boolean = len(paint.clip) > 0
   LET hasTransform AS Boolean = NOT (t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0)
   LET stopCount AS Integer = len(paint.fillGradient.stops)
   MUT flags AS Integer = 0
@@ -1347,8 +1418,19 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
     flags = flags + 4
   END IF
   h = __canvas_hashStep(h, blend * 8 + flags)
+  ' plan-163-C: the clip's rule, then each ring's count and points.
   IF hasClip THEN
-    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, c.x), c.y), c.w), c.h)
+    MUT rule AS Integer = 0
+    IF paint.clipRule = FillRule.NonZero THEN
+      rule = 1
+    END IF
+    h = __canvas_hashStep(__canvas_hashStep(h, rule), len(paint.clip))
+    FOR EACH ring IN paint.clip
+      h = __canvas_hashStep(h, len(ring))
+      FOR EACH q IN ring
+        h = __canvas_hashPoint(h, q)
+      NEXT
+    NEXT
   END IF
   IF hasTransform THEN
     h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.a), t.b), t.c)
@@ -1391,7 +1473,9 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint) AS Integer
   FOR EACH dash IN paint.dashes
     h = __canvas_hashFloat(h, dash)
   NEXT
-  RETURN __canvas_hashFloat(h, paint.dashOffset)
+  h = __canvas_hashFloat(h, paint.dashOffset)
+  ' plan-163-C.
+  RETURN __canvas_hashFloat(h, paint.transparency)
 END FUNC
 
 ' A String folds in a codepoint at a time -- a String is not otherwise hashable here --

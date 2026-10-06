@@ -39,7 +39,7 @@
 //! **Layout comes from the type model, never from reading source.** A data union is
 //! `{tag@0, size@8, variant record@16}`; a record field is one 8-byte word; a field the
 //! model inlines (`record_field_is_inlined`: a nested record such as `Paint`, `Color`,
-//! `Bounds`, or a flat list such as `Polygon.contours`) holds an OFFSET from the record's
+//! `Transform`, or a flat list such as `Polygon.contours`) holds an OFFSET from the record's
 //! own base to its sub-block. A nested list's data region starts past `capacity` lookup
 //! entries (`.ai/collections.md`), never `count`. Variant tags come from
 //! `union_variant_tags` and enum ordinals from `enum_members`.
@@ -55,7 +55,7 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 
 /// `__CANVAS_GEO_HEADER`: the fixed header's length in floats.
-pub(super) const GEO_HEADER: usize = 51;
+pub(super) const GEO_HEADER: usize = 55;
 /// `__CANVAS_KIND_RECT`, `__CANVAS_KIND_CIRCLE`, `__CANVAS_KIND_SEGMENT`,
 /// `__CANVAS_GEO_POLYGON`, `__CANVAS_GEO_NONE` — the slot-0 kind tags.
 pub(super) const KIND_RECT: f64 = 0.0;
@@ -80,6 +80,10 @@ const SLOT_JOIN_REACH: usize = 48;
 /// length in floats, and the dash offset wrapped into one period.
 const SLOT_DASH_COUNT: usize = 49;
 const SLOT_DASH_PHASE: usize = 50;
+/// `__CANVAS_GEO_CLIP_MODE` and `__CANVAS_GEO_CLIP_RULE` (plan-163-C): the clip's mode (0
+/// none, 1 an axis-aligned rectangle in slots 22-25) and its FillRule ordinal.
+const SLOT_CLIP_MODE: usize = 51;
+const SLOT_CLIP_RULE: usize = 53;
 /// `__CANVAS_GEO_POLYLINE_FIRST` / `_LAST`: a polyline's first and last segments with
 /// length, in the gradient axis slots it does not otherwise use.
 const SLOT_POLYLINE_FIRST: usize = 43;
@@ -487,13 +491,15 @@ fn emit_stroke_half(
     Ok(half)
 }
 
-/// Write a colour's four channels, `toFloat(toInt(channel))`, into four slots.
+/// Write a colour's four channels, `toFloat(toInt(channel))`, into four slots, the alpha
+/// faded by the transparency step `step` (`__canvas_fadeAlpha`).
 fn put_color(
     builder: &mut CodeBuilder,
     out: &VirtualRegister,
     first_slot: usize,
     view: &PaintView,
     which: &str,
+    step: &VirtualRegister,
 ) -> Result<(), String> {
     let color = builder.temporary_vreg();
     let color_type = emit_field_block(builder, &color, &view.paint, &view.paint_type, which)?;
@@ -501,11 +507,112 @@ fn put_color(
         let off = scalar_offset(builder, &color_type, channel)?;
         let byte = builder.temporary_vreg();
         builder.emit(abi::load_u8(&byte, &color, off));
+        if k == 3 {
+            emit_fade_alpha(builder, &byte, step);
+        }
         let f = builder.temporary_fp_vreg();
         builder.emit(abi::signed_convert_to_float_d(&f, &byte));
         put(builder, out, first_slot + k, &f);
     }
     Ok(())
+}
+
+/// `__canvas_transparencyStep(paint)`: `toInt(maxF(minF(t, 1.0), 0.0) * 255.0 + 0.5)`,
+/// the product and the add one `fmadd`.
+fn emit_transparency_step(builder: &mut CodeBuilder, view: &PaintView) -> Result<VirtualRegister, String> {
+    let t = fload(
+        builder,
+        &view.paint,
+        scalar_offset(builder, &view.paint_type, "transparency")?,
+    );
+    let one = fconst(builder, 1.0);
+    let zero = fconst(builder, 0.0);
+    let m = fmin(builder, &t, &one);
+    let c = fmax(builder, &m, &zero);
+    let half = fconst(builder, 0.5);
+    let scale = fconst(builder, 255.0);
+    let x = fmadd(builder, &half, &c, &scale);
+    let step = builder.temporary_vreg();
+    builder.emit(abi::float_convert_to_signed_x(&step, &x));
+    Ok(step)
+}
+
+/// `alpha = __canvas_fadeAlpha(alpha, step)`: `(alpha * (255 - step) + 127) / 255`.
+fn emit_fade_alpha(builder: &mut CodeBuilder, alpha: &VirtualRegister, step: &VirtualRegister) {
+    let keep = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&keep, "Integer", "255"));
+    builder.emit(abi::subtract_registers(&keep, &keep, step));
+    builder.emit(abi::multiply_registers(alpha, alpha, &keep));
+    builder.emit(abi::add_immediate(alpha, alpha, 127));
+    let d = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&d, "Integer", "255"));
+    builder.emit(abi::signed_divide_registers(alpha, alpha, &d));
+}
+
+/// The clip's ring list and, for a non-empty one, its one ring's four points' x and y,
+/// as `__canvas_clipRect` reads them.
+struct ClipRing {
+    count: VirtualRegister,
+    xs: Vec<VirtualRegister>,
+    ys: Vec<VirtualRegister>,
+}
+
+/// Branch to `unsupported` unless the paint's clip is the empty list or one axis-aligned
+/// rectangular ring of four points (`__canvas_clipRect`'s test: its sides alternate
+/// horizontal and vertical, from either); every other clip is the MFBASIC builders'.
+/// Answers the ring's points (meaningless when `count` is 0).
+fn emit_clip_ring(builder: &mut CodeBuilder, view: &PaintView, unsupported: &str) -> Result<ClipRing, String> {
+    let rings = builder.temporary_vreg();
+    let rings_type = emit_field_block(builder, &rings, &view.paint, &view.paint_type, "clip")?;
+    let count = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&count, &rings, COLLECTION_OFFSET_COUNT));
+    let xs: Vec<VirtualRegister> = (0..4).map(|_| builder.temporary_fp_vreg()).collect();
+    let ys: Vec<VirtualRegister> = (0..4).map(|_| builder.temporary_fp_vreg()).collect();
+    let zero = fconst(builder, 0.0);
+    for v in xs.iter().chain(ys.iter()) {
+        builder.emit(abi::float_move_d_from_d(v, &zero));
+    }
+    let done = builder.label("canvas_geo_clip_ring_done");
+    builder.emit(abi::compare_immediate(&count, "0"));
+    builder.emit(abi::branch_eq(&done));
+    builder.emit(abi::compare_immediate(&count, "1"));
+    builder.emit(abi::branch_ne(unsupported));
+    let outer = emit_list_view(builder, &rings, &rings_type)?;
+    let ring_type = outer.element.clone();
+    let (xo, yo) = ring_point_offsets(builder, &ring_type)?;
+    let ring = builder.temporary_vreg();
+    let first = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&first, "Integer", "0"));
+    emit_list_element(builder, &ring, &outer, &first);
+    let n = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, &ring, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::compare_immediate(&n, "4"));
+    builder.emit(abi::branch_ne(unsupported));
+    let list = emit_list_view(builder, &ring, &ring_type)?;
+    for k in 0..4usize {
+        let idx = builder.temporary_vreg();
+        builder.emit(abi::move_immediate(&idx, "Integer", &k.to_string()));
+        let q = builder.temporary_vreg();
+        emit_list_element(builder, &q, &list, &idx);
+        let x = fload(builder, &q, xo);
+        let y = fload(builder, &q, yo);
+        builder.emit(abi::float_move_d_from_d(&xs[k], &x));
+        builder.emit(abi::float_move_d_from_d(&ys[k], &y));
+    }
+    // across: a.y = b.y, b.x = c.x, c.y = d.y, d.x = a.x; down: the other axis first.
+    let down = builder.label("canvas_geo_clip_down");
+    for (l, r) in [(&ys[0], &ys[1]), (&xs[1], &xs[2]), (&ys[2], &ys[3]), (&xs[3], &xs[0])] {
+        builder.emit(abi::float_compare_d(l, r));
+        builder.emit(abi::branch_ne(&down));
+    }
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&down));
+    for (l, r) in [(&xs[0], &xs[1]), (&ys[1], &ys[2]), (&xs[2], &xs[3]), (&ys[3], &ys[0])] {
+        builder.emit(abi::float_compare_d(l, r));
+        builder.emit(abi::branch_ne(unsupported));
+    }
+    builder.emit(abi::label(&done));
+    Ok(ClipRing { count, xs, ys })
 }
 
 /// `__canvas_paintHeader` for a paint with the identity transform and no gradient
@@ -518,21 +625,35 @@ fn emit_paint_header(
     stroke_half: &VirtualRegister,
 ) -> Result<(), String> {
     put(builder, out, 7, stroke_half);
-    put_color(builder, out, 8, view, "fill")?;
-    put_color(builder, out, 12, view, "stroke")?;
+    // plan-163-C: both alphas faded by `transparency` (`__canvas_fadeAlpha`).
+    let step = emit_transparency_step(builder, view)?;
+    put_color(builder, out, 8, view, "fill", &step)?;
+    put_color(builder, out, 12, view, "stroke", &step)?;
 
-    let clip = builder.temporary_vreg();
-    let clip_type = emit_field_block(builder, &clip, &view.paint, &view.paint_type, "clip")?;
-    let cx = fload(builder, &clip, scalar_offset(builder, &clip_type, "x")?);
-    let cy = fload(builder, &clip, scalar_offset(builder, &clip_type, "y")?);
-    let cw = fload(builder, &clip, scalar_offset(builder, &clip_type, "w")?);
-    let ch = fload(builder, &clip, scalar_offset(builder, &clip_type, "h")?);
-    put(builder, out, 22, &cx);
-    put(builder, out, 23, &cy);
-    let x1 = fadd(builder, &cx, &cw);
+    // plan-163-C: `__canvas_clipHeader` -- nothing for the empty ring list, else (the
+    // only other clip `emit_paint_supported` lets through) the rectangle in slots 22-25,
+    // mode 1 and the rule.
+    let unclipped = builder.label("canvas_geo_unclipped");
+    let ring = emit_clip_ring(builder, view, &unclipped)?;
+    builder.emit(abi::compare_immediate(&ring.count, "0"));
+    builder.emit(abi::branch_eq(&unclipped));
+    let x0 = fmin(builder, &ring.xs[0], &ring.xs[2]);
+    let y0 = fmin(builder, &ring.ys[0], &ring.ys[2]);
+    let x1 = fmax(builder, &ring.xs[0], &ring.xs[2]);
+    let y1 = fmax(builder, &ring.ys[0], &ring.ys[2]);
+    put(builder, out, 22, &x0);
+    put(builder, out, 23, &y0);
     put(builder, out, 24, &x1);
-    let y1 = fadd(builder, &cy, &ch);
     put(builder, out, 25, &y1);
+    put_const(builder, out, SLOT_CLIP_MODE, 1.0);
+    let (rule_index, rule_type) = field(builder, &view.paint_type, "clipRule")?;
+    let non_zero = enum_ordinal(builder, &rule_type, "NonZero")?;
+    let rule = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&rule, &view.paint, 8 * rule_index));
+    builder.emit(abi::compare_immediate(&rule, &non_zero.to_string()));
+    builder.emit(abi::branch_ne(&unclipped));
+    put_const(builder, out, SLOT_CLIP_RULE, 1.0);
+    builder.emit(abi::label(&unclipped));
 
     // The blend mode's tag: Normal 0, Multiply 1, Screen 2, Add 3.
     let (blend_index, blend_type) = field(builder, &view.paint_type, "blend")?;
@@ -764,6 +885,9 @@ fn emit_paint_supported(
     builder.emit(abi::load_u64(&count, &stops, COLLECTION_OFFSET_COUNT));
     builder.emit(abi::compare_immediate(&count, "2"));
     builder.emit(abi::branch_ge(unsupported));
+    // plan-163-C: a clip other than none or one axis-aligned rectangle is the MFBASIC
+    // builders' (the path clip).
+    emit_clip_ring(builder, view, unsupported)?;
     Ok(())
 }
 
@@ -2468,6 +2592,7 @@ fn fill_polyline(
         }
         channels.push(off);
     }
+    let step = emit_transparency_step(builder, view)?;
     let k = builder.temporary_vreg();
     let c = builder.temporary_vreg();
     let stop_head = builder.label("canvas_geo_pl_stop");
@@ -2491,6 +2616,10 @@ fn fill_polyline(
     for (n, off) in channels.iter().enumerate() {
         let byte = builder.temporary_vreg();
         builder.emit(abi::load_u8(&byte, &c, *off));
+        // plan-163-C: the alpha faded as the stroke's is.
+        if n == 3 {
+            emit_fade_alpha(builder, &byte, &step);
+        }
         let f = builder.temporary_fp_vreg();
         builder.emit(abi::signed_convert_to_float_d(&f, &byte));
         builder.emit(abi::store_double(&f, &cursor, 8 * (n + 1)));
@@ -2991,5 +3120,7 @@ mod tests {
         assert_eq!(value("__CANVAS_GEO_JOIN_REACH"), SLOT_JOIN_REACH as f64);
         assert_eq!(value("__CANVAS_GEO_DASH_COUNT"), SLOT_DASH_COUNT as f64);
         assert_eq!(value("__CANVAS_GEO_DASH_PHASE"), SLOT_DASH_PHASE as f64);
+        assert_eq!(value("__CANVAS_GEO_CLIP_MODE"), SLOT_CLIP_MODE as f64);
+        assert_eq!(value("__CANVAS_GEO_CLIP_RULE"), SLOT_CLIP_RULE as f64);
     }
 }

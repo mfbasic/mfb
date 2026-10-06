@@ -432,36 +432,6 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_record(RegistryRecord {
-        name: "Bounds",
-        export: true,
-        description: "An axis-aligned rectangle in canvas pixels. A zero-area \
-                      `canvas::Bounds` (either extent `0.0`) means \"no rectangle\", which \
-                      is how an unset `canvas::Paint.clip` reads as unclipped.",
-        props: vec![
-            RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The left edge in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The top edge in pixels.",
-            },
-            RecordProp {
-                name: "w",
-                ty: ParameterType::Float,
-                description: "The width in pixels. `0.0` makes the rectangle empty.",
-            },
-            RecordProp {
-                name: "h",
-                ty: ParameterType::Float,
-                description: "The height in pixels. `0.0` makes the rectangle empty.",
-            },
-        ],
-    });
-
-    pkg.add_record(RegistryRecord {
         name: "TextMetrics",
         export: true,
         description: "The measured extent of a string in a given font and size, as \
@@ -899,19 +869,34 @@ pub(crate) fn register(r: &mut Registry) {
                               is smaller than 1e-12 — is treated as the identity \
                               instead, because there is no sensible picture of a \
                               shape with no area and silently drawing nothing is the \
-                              worse answer. `canvas::Paint.clip` is not transformed; \
-                              see its own description.",
+                              worse answer. It applies to `canvas::Paint.clip` as \
+                              well as to the item.",
             },
             RecordProp {
                 name: "clip",
-                ty: ParameterType::named("Bounds"),
-                description: "Restricts drawing to this rectangle. A zero-area \
-                              `canvas::Bounds` — the zero value — means no clipping, \
-                              and so does a negative width or height. The rectangle is \
-                              axis-aligned and given in surface pixels; \
-                              `canvas::Paint.transform` does not move it. Its edges \
-                              may fall between pixels, and a partly-covered pixel is \
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
+                    "Point",
+                ))),
+                description: "Restricts drawing to the area these rings enclose, \
+                              under `clipRule` — each ring a closed path of points, \
+                              as a `canvas::Polygon`'s `contours` are. The empty list, \
+                              the zero value, means no clipping. A clip that encloses \
+                              nothing, such as rings of fewer than two points, hides \
+                              the whole item. The rings are in the item's own \
+                              coordinates: `canvas::Paint.transform` and a group's \
+                              translation apply to the clip as well as to the item, \
+                              so a clipped item moves with its clip. Its edges may \
+                              fall between pixels, and a partly-covered pixel is \
                               drawn partly, exactly as a shape's own edge is.",
+            },
+            RecordProp {
+                name: "clipRule",
+                ty: ParameterType::named("FillRule"),
+                description: "Which points the `clip` rings enclose, as a \
+                              `canvas::Polygon`'s `rule` decides its fill: \
+                              `EvenOdd`, the zero value, makes a ring inside another \
+                              a hole; `NonZero` makes it a hole only when the two \
+                              run opposite ways.",
             },
             RecordProp {
                 name: "fillGradient",
@@ -986,6 +971,17 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "How far into the `dashes` pattern the outline starts, in \
                               pixels. It may be negative or longer than the pattern; \
                               the pattern repeats in both directions.",
+            },
+            RecordProp {
+                name: "transparency",
+                ty: ParameterType::Float,
+                description: "How see-through the whole item is: `0.0`, the zero \
+                              value, is opaque and `1.0` invisible, with values \
+                              outside that range treated as the nearer end. It fades \
+                              the fill, the stroke, a fill gradient, text and a \
+                              picture alike. The fill and the stroke fade \
+                              separately, so where they overlap the fill shows \
+                              through a faded stroke.",
             },
         ],
     });
@@ -1188,10 +1184,14 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "An image drawn into a rectangle, scaled to fit it. Scaling picks \
                       the nearest image pixel, with no smoothing, so a small image drawn \
-                      large shows crisp blocks. The paint's fill colour tints the image — \
-                      each channel is multiplied by the fill's — so a white fill draws it \
-                      unchanged and the fill's alpha is how opaque it is; a fill gradient \
-                      is ignored. Stroke, clip, blend and transform work as they do on a \
+                      large shows crisp blocks. The paint's fill colour tints the image: \
+                      each channel moves towards the image's channel multiplied by the \
+                      fill's, by the fill's alpha — so the zero paint and a white fill \
+                      draw it unchanged, an opaque red fill keeps only its red, and a \
+                      half-transparent red fill goes halfway. How opaque the picture is \
+                      comes from `canvas::Paint.transparency`, never from the fill; a \
+                      fill gradient is ignored. Stroke, clip, blend and transform work \
+                      as they do on a \
                       `canvas::Rectangle`. Named `canvas::Picture` rather than `Image` \
                       because `Image` is the resource type this variant *names* — the two \
                       would collide.",
@@ -1898,7 +1898,6 @@ mod tests {
             "Paint",
             "Point",
             "Size",
-            "Bounds",
             "FillRule",
             "JoinStyle",
             "TextMetrics",
