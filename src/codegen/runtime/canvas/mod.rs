@@ -444,11 +444,13 @@ pub(crate) const GRAPHICS_STATE_SIZE: usize =
 /// `ItemBlock` must report `topLevelArrayStride` equal to this size with one member per
 /// 16 bytes (`glslangValidator -V -q mfb_canvas.vert`; 208 with members at
 /// 0/16/.../192 when plan-116-F added the gradient axis `ivec4`, 272 with the four
-/// residual `ivec4`s at 208/224/240/256 since bug-735), matching the
+/// residual `ivec4`s at 208/224/240/256 since bug-735, 288 with plan-163-B's
+/// `strokeStyle` at 272; plan-163-C's `clipBand` at 288 and `clipPath` at 304; plan-163-D's
+/// `gradInv0`/`gradInv1` at 320/336 and `gradFocal` at 352), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 272;
+pub(crate) const ITEM_BLOCK_SIZE: usize = 368;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
 /// The shape parameters `p0..p3`, 16.16.
@@ -465,7 +467,8 @@ pub(crate) const ITEM_OFFSET_MISC: usize = 64;
 ///
 /// The words are per-kind the same way `HEADER_AUX0` is: an arc never reads the
 /// edge base and a polygon never reads the flag, so one `ivec4` carries both rather
-/// than each taking its own. Both backends carry the edge base since plan-116-A: each
+/// than each taking its own. plan-163-A gives a polygon's copy of the flag word its
+/// fill rule instead ([`emit_item_polygon_rule`]). Both backends carry the edge base since plan-116-A: each
 /// polygon takes a slice of one buffer that serves the whole frame, and this is where
 /// the offset travels.
 pub(crate) const ITEM_OFFSET_ARC: usize = 80;
@@ -604,6 +607,34 @@ pub(crate) const ITEM_OFFSET_SHAPE_LO: usize = 208;
 pub(crate) const ITEM_OFFSET_CAPS_LO: usize = 224;
 pub(crate) const ITEM_OFFSET_CLIP_LO: usize = 240;
 pub(crate) const ITEM_OFFSET_MISC_LO: usize = 256;
+/// plan-163-B: the stroke's style words -- the first edge slot of the item's join
+/// records in the frame's edge region and how many records there are (each takes two
+/// slots), then the first entry of its dash pattern in the frame's dash region and how
+/// many entries. All four are 0 for an item that draws no join record and no dash.
+pub(crate) const ITEM_OFFSET_STROKE_STYLE: usize = 272;
+pub(crate) const ITEM_STROKE_JOIN_BASE: usize = 0;
+pub(crate) const ITEM_STROKE_JOIN_COUNT: usize = 4;
+pub(crate) const ITEM_STROKE_DASH_BASE: usize = 8;
+pub(crate) const ITEM_STROKE_DASH_COUNT: usize = 12;
+/// plan-163-C: a path clip's band header -- top, height, band count, table offset, the
+/// shape of `arcCaps`'s polygon band header -- for the clip's own edges; band count 0
+/// walks every clip edge.
+pub(crate) const ITEM_OFFSET_CLIP_BAND: usize = 288;
+/// plan-163-C: the clip's words -- its first edge in the frame's edge region and its edge
+/// count (a path clip), its mode (0 none, 1 rectangle, 2 path) with its FillRule ordinal
+/// shifted left 2, and a picture's transparency step T.
+pub(crate) const ITEM_OFFSET_CLIP_PATH: usize = 304;
+pub(crate) const ITEM_CLIP_PATH_BASE: usize = 0;
+pub(crate) const ITEM_CLIP_PATH_COUNT: usize = 4;
+pub(crate) const ITEM_CLIP_PATH_MODE: usize = 8;
+pub(crate) const ITEM_CLIP_PATH_PICTURE_T: usize = 12;
+/// plan-163-D: a radial gradient's own inverse transform -- `ia, ib, ic, id` then `itx,
+/// ity` as float32 BIT PATTERNS and its flag (0 or 1), the `xform0`/`xform1` layout --
+/// copied word for word from header slots 57-63 into `gradInv0` and `gradInv1`.
+pub(crate) const ITEM_OFFSET_GRADIENT_INV: usize = 320;
+/// plan-163-D: a radial gradient's focal offset from its centre and focal radius, 16.16
+/// (`gradFocal`), already clamped by the builder.
+pub(crate) const ITEM_OFFSET_GRADIENT_FOCAL: usize = 352;
 /// The word inside `ITEM_OFFSET_ARC` holding an arc's `reflex` flag, 0 or 1 (bug-735):
 /// `endAngle - startAngle > PI`, decided by the emitter in the oracle's own f64
 /// (`__canvas_drawGeometry`), so the sweep test's union-or-intersection choice cannot
@@ -613,6 +644,9 @@ pub(crate) const ITEM_OFFSET_MISC_LO: usize = 256;
 /// endpoints (`arcCaps` minus the centre, a positive multiple of `(cos, sin)`), so no
 /// angle reaches either shader and `arc.x` is written 0 for every kind but a glyph or
 /// picture, which put their bitmap height there.
+///
+/// For a polygon (kind 4) the same word is its `FillRule` ordinal, 0 EvenOdd or 1
+/// NonZero (plan-163-A, [`emit_item_polygon_rule`]): only an arc reads it as the flag.
 pub(crate) const ITEM_ARC_REFLEX: usize = 4;
 
 /// bug-735: every item-block field a distance reads, as `(header slot, word offset,
@@ -795,9 +829,73 @@ pub(crate) fn emit_item_arc_flags(
         abi::label(done),
     ]
 }
+/// `std::f64::consts::SQRT_2` as its IEEE-754 bit pattern, for `float_move_d_from_x`.
+const SQRT_2_F64_BITS: u64 = 0x3FF6_A09E_667F_3BCD;
+
+/// plan-163-B: widen a band reach's half-width in `half` to `half * sqrt(2)` when the
+/// item's cap tag (`HEADER_CAP`) is Square (2): a square end's corners lie a diagonal
+/// half-width from its endpoint, so an edge that far from a row can still cover a pixel
+/// on it. Any other tag leaves `half` unchanged, so every other item's band index is
+/// what it was. `skip` is a fresh label; clobbers `int_scratch` and `fp_scratch`.
+pub(crate) fn emit_square_cap_reach(
+    header: abi::Reg,
+    half: abi::Reg,
+    int_scratch: abi::Reg,
+    fp_scratch: abi::Reg,
+    skip: &str,
+) -> Vec<CodeInstruction> {
+    vec![
+        abi::load_double(fp_scratch, header, HEADER_CAP * 8),
+        abi::float_convert_to_signed_x(int_scratch, fp_scratch),
+        abi::compare_immediate(int_scratch, "2"),
+        abi::branch_ne(skip),
+        abi::move_immediate(int_scratch, "Integer", &SQRT_2_F64_BITS.to_string()),
+        abi::float_move_d_from_x(fp_scratch, int_scratch),
+        abi::float_multiply_d(half, half, fp_scratch),
+        abi::label(skip),
+    ]
+}
+
+/// plan-163-A: a polygon's `FillRule` ordinal (`HEADER_POLYGON_RULE`, 0 EvenOdd, 1
+/// NonZero) into `arc.y` (`ITEM_ARC_REFLEX`) of the item block at `block_at` from the
+/// stack pointer. Only an arc reads `arc.y` as its reflex flag, so a polygon's copy of
+/// the word is free; call this AFTER [`emit_item_arc_flags`], which writes the flag for
+/// every kind. Any other kind is skipped and keeps the flag. Stroked text is a polygon
+/// with slot 21 at 0, so it reads EvenOdd. `skip` is a fresh label. Clobbers
+/// `FP_SCRATCH[1]` and `SCRATCH[1]`.
+pub(crate) fn emit_item_polygon_rule(
+    header: abi::Reg,
+    block_at: usize,
+    skip: &str,
+) -> Vec<CodeInstruction> {
+    vec![
+        abi::load_double(abi::FP_SCRATCH[1], header, HEADER_KIND * 8),
+        abi::float_convert_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
+        abi::compare_immediate(abi::SCRATCH[1], GEO_KIND_POLYGON),
+        abi::branch_ne(skip),
+        abi::load_double(abi::FP_SCRATCH[1], header, HEADER_POLYGON_RULE * 8),
+        abi::float_convert_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
+        abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            block_at + ITEM_OFFSET_ARC + ITEM_ARC_REFLEX,
+        ),
+        abi::label(skip),
+    ]
+}
 /// The gradient's kind (0 linear, 1 radial) in `surface.w`, which was the block's last
-/// spare word.
+/// spare word -- since plan-163-D packed with the spread and the stroke apply as `kind |
+/// spread << 1 | apply << 3` (spread 0 Pad, 1 Reflect, 2 Repeat), which the shaders
+/// unpack with `& 1`, `>> 1 & 3` and `& 8`.
 pub(crate) const ITEM_SURFACE_GRADIENT_KIND: usize = 12;
+/// plan-163-D: `__CANVAS_GEO_GRADIENT_SPREAD`, `_APPLY`, the radial inverse's first word
+/// (`_INV`, six float32 bit patterns) and its flag (`_HAS_INV`), and the focal offset's x
+/// (`_FOCALX`, then y and the focal radius).
+pub(crate) const HEADER_GRADIENT_SPREAD: usize = 55;
+pub(crate) const HEADER_GRADIENT_APPLY: usize = 56;
+pub(crate) const HEADER_GRADIENT_INV: usize = 57;
+pub(crate) const HEADER_GRADIENT_HAS_INV: usize = 63;
+pub(crate) const HEADER_GRADIENT_FOCAL_X: usize = 64;
 /// The gradient's axis in the geometry header — `startPoint.x` at 43, running to
 /// `endPoint.y` at 46 — and its kind at 42.
 pub(crate) const HEADER_GRADIENT_KIND: usize = 42;
@@ -936,7 +1034,7 @@ pub(crate) const FIXED_POINT_SCALE: &str = "65536";
 /// subtracts and a round, the only float operations every assembler has.
 pub(crate) const EDGE_RESIDUAL_SCALE: &str = "2147483648";
 
-/// Slots of `__canvas_headerFor`'s fixed 47-float geometry header that the GPU
+/// Slots of `__canvas_headerFor`'s fixed 51-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
 pub(crate) const HEADER_KIND: usize = 0;
 pub(crate) const HEADER_SHAPE: usize = 2;
@@ -951,6 +1049,10 @@ pub(crate) const HEADER_BOUNDS: usize = 16;
 /// `kind` selects.
 pub(crate) const HEADER_AUX0: usize = 20;
 pub(crate) const HEADER_AUX1: usize = 21;
+/// A polygon's `canvas::FillRule` ordinal (0 EvenOdd, 1 NonZero) — `HEADER_AUX1`
+/// under its polygon meaning (plan-163-A, `__CANVAS_GEO_POLYGON_RULE`). Stroked text
+/// is a polygon too and leaves it 0.
+pub(crate) const HEADER_POLYGON_RULE: usize = HEADER_AUX1;
 /// The item's clip rectangle, **resolved** to `x0, y0, x1, y1` in surface pixels
 /// (plan-116-B).
 ///
@@ -1030,7 +1132,25 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 47;
+pub(crate) const HEADER_SLOTS: usize = 67;
+/// plan-163-B: `__CANVAS_GEO_JOIN_COUNT` -- a stroke's join records in the tail, one
+/// per outline edge -- and `__CANVAS_GEO_JOIN_REACH`, how far a record reaches from its
+/// vertex, which a polygon's or polyline's band index widens to.
+pub(crate) const HEADER_JOIN_COUNT: usize = 47;
+pub(crate) const HEADER_JOIN_REACH: usize = 48;
+/// plan-163-B: `__CANVAS_GEO_DASH_COUNT` -- the dash tail's floats, which sit between
+/// the join records and the gradient stops -- and `__CANVAS_GEO_DASH_PHASE`, the dash
+/// offset wrapped into one period, which the emitters upload as the first dash word.
+pub(crate) const HEADER_DASH_COUNT: usize = 49;
+pub(crate) const HEADER_DASH_PHASE: usize = 50;
+/// plan-163-C: `__CANVAS_GEO_CLIP_EDGE_COUNT` -- a path clip's edges, five floats each,
+/// which sit between the dash tail and the gradient stops.
+pub(crate) const HEADER_CLIP_EDGE_COUNT: usize = 52;
+/// plan-163-C: `__CANVAS_GEO_CLIP_MODE`, `__CANVAS_GEO_CLIP_RULE` and
+/// `__CANVAS_GEO_PICTURE_TRANSPARENCY`, copied into the item block's `clipPath`.
+pub(crate) const HEADER_CLIP_MODE: usize = 51;
+pub(crate) const HEADER_CLIP_RULE: usize = 53;
+pub(crate) const HEADER_PICTURE_TRANSPARENCY: usize = 54;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one **frame** may carry on the Vulkan path.
@@ -1230,12 +1350,22 @@ pub(crate) const METAL_GRADIENT_BASE_WORDS: usize =
 /// million words. Eight million is a 2560×1440 background with room left for tiles and
 /// text, and 32 MiB of region.
 pub(crate) const METAL_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
-/// Where Metal's glyph region starts, in 32-bit words — after the gradient stops.
-pub(crate) const METAL_GLYPH_BASE_WORDS: usize =
+/// The most dash words one **Metal** frame may carry (plan-163-B), summed over its
+/// dashed items: each takes its dash tail (`__CANVAS_GEO_DASH_COUNT` floats) plus the
+/// phase, as float32 bit patterns. A frame-wide region like the gradient stops', its
+/// slice named in the item block's `strokeStyle.z`/`.w`. `1 << 20` holds three words for
+/// every edge of `METAL_MAX_FRAME_EDGES` with room for patterns and ellipse tables
+/// (257 words each); 4 MiB of region.
+pub(crate) const METAL_MAX_FRAME_DASH_WORDS: usize = 1 << 20;
+/// Where Metal's dash region starts, in 32-bit words — after the gradient stops.
+pub(crate) const METAL_DASH_BASE_WORDS: usize =
     METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
+/// Where Metal's glyph region starts, in 32-bit words — after the dash words.
+pub(crate) const METAL_GLYPH_BASE_WORDS: usize = METAL_DASH_BASE_WORDS + METAL_MAX_FRAME_DASH_WORDS;
 /// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// their residuals (four words each, bug-687), then the band index (bug-686), then gradient stops (five each), then glyph coverage (one
-/// sample a word), then the picture table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
+/// their residuals (four words each, bug-687), then the band index (bug-686), then gradient stops (five each), then dash words (one
+/// float32 each, plan-163-B), then glyph coverage (one sample a word), then the picture
+/// table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
@@ -1245,6 +1375,7 @@ pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_EDGES * 16
     + METAL_MAX_FRAME_BAND_WORDS * 4
     + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + METAL_MAX_FRAME_DASH_WORDS * 4
     + METAL_MAX_FRAME_GLYPH_SAMPLES * 4
     + METAL_PICTURE_TABLE_BYTES;
 
@@ -1339,10 +1470,16 @@ pub(crate) const VULKAN_BAND_BASE_WORDS: usize =
 /// Where the gradient region starts, in 32-bit words — after the band index.
 pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
     VULKAN_BAND_BASE_WORDS + VULKAN_MAX_FRAME_BAND_WORDS;
-/// Where the glyph (and picture texel) region starts, in 32-bit words — after the
-/// gradient stops.
-pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize =
+/// The most dash words one **Vulkan** frame may carry (plan-163-B) — Metal's
+/// `METAL_MAX_FRAME_DASH_WORDS`, the same layout.
+pub(crate) const VULKAN_MAX_FRAME_DASH_WORDS: usize = 1 << 20;
+/// Where the dash region starts, in 32-bit words — after the gradient stops.
+pub(crate) const VULKAN_DASH_BASE_WORDS: usize =
     VULKAN_GRADIENT_BASE_WORDS + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
+/// Where the glyph (and picture texel) region starts, in 32-bit words — after the
+/// dash words.
+pub(crate) const VULKAN_GLYPH_BASE_WORDS: usize =
+    VULKAN_DASH_BASE_WORDS + VULKAN_MAX_FRAME_DASH_WORDS;
 /// Vulkan's per-frame picture table (bug-688) — Metal's (`METAL_PICTURE_TABLE_BYTES`)
 /// with the same record and index layout, one record per quad of
 /// `VULKAN_MAX_FRAME_ITEMS`. The last region of the shared buffer, read only by the
@@ -1363,8 +1500,8 @@ pub(crate) const VULKAN_PICTURE_INDEX_OFFSET: usize =
 /// The picture table's whole size: records, then index slots.
 pub(crate) const VULKAN_PICTURE_TABLE_BYTES: usize =
     VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES + VULKAN_PICTURE_INDEX_SLOTS * 4;
-/// The whole shared buffer: edges, edge residuals (bug-687), band index, gradient stops, glyph/picture texels,
-/// picture table.
+/// The whole shared buffer: edges, edge residuals (bug-687), band index, gradient stops,
+/// dash words (plan-163-B), glyph/picture texels, picture table.
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_shared_buffer_holds_every_region` compares two independent computations and a
@@ -1373,17 +1510,19 @@ pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
     + VULKAN_EDGE_RESIDUAL_BYTES
     + VULKAN_MAX_FRAME_BAND_WORDS * 4
     + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
+    + VULKAN_MAX_FRAME_DASH_WORDS * 4
     + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
     + VULKAN_PICTURE_TABLE_BYTES;
 /// The fragment shader's specialization constants, as `(constant_id, value)`: the
 /// region bases it reads, in words. The ids are the `layout(constant_id = N)` numbers in
 /// `shaders/mfb_canvas.frag`; `the_fragment_shader_declares_every_spec_constant` pins
 /// the two lists to each other.
-pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 4] = [
+pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 5] = [
     (0, VULKAN_GLYPH_BASE_WORDS),
     (1, VULKAN_GRADIENT_BASE_WORDS),
     (2, VULKAN_BAND_BASE_WORDS),
     (3, VULKAN_EDGE_RESIDUAL_BASE_WORDS),
+    (4, VULKAN_DASH_BASE_WORDS),
 ];
 
 /// The Win64 shadow space this trampoline owes its callees: 32 bytes on Windows, none

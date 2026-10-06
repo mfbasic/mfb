@@ -48,7 +48,11 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const STROKE_HALF: &str =
 r#"FUNC __canvas_strokeHalf(paint AS Paint) AS Float
-  IF toInt(paint.stroke.alpha) <= 0 THEN
+  ' plan-163-D: a stroke the gradient paints (`FillAndStroke`) is the ramp tinted by the
+  ' stroke colour, whose alpha is only the tint's strength -- so a zero-alpha stroke
+  ' still strokes, in the plain ramp.
+  LET ramped AS Boolean = len(paint.gradient.stops) >= 2 AND paint.gradient.strokeApply = GradientApply.FillAndStroke
+  IF toInt(paint.stroke.alpha) <= 0 AND NOT ramped THEN
     RETURN 0.0 - 1.0
   END IF
   IF paint.strokeWidth <= 0.0 THEN
@@ -70,16 +74,15 @@ END FUNC
 
 ' plan-116-B: does this item clip at all?
 '
-' Slots 22-25 hold the clip RESOLVED to x0,y0,x1,y1, and a zero-area rectangle means
-' unclipped -- which is what an unset `Paint.clip` is. Testing both extents rather than
-' comparing against zero also rejects a negative extent, which `Bounds` cannot forbid:
-' `w := -5.0` gives x1 < x0 and must mean "draws nothing", not "draws everything".
+' plan-163-C: the clip's mode, slot `__CANVAS_GEO_CLIP_MODE` -- 0 for the empty ring list,
+' which is what an unset `Paint.clip` is. Mode 1 holds an axis-aligned rectangle
+' x0,y0,x1,y1 in slots 22-25, in the item's own coordinates.
 '
 ' The per-pixel clip coverage is gated on this, so an unclipped item -- every item in
 ' every scene written before this letter -- pays one compare per ITEM and nothing per
 ' pixel.
 FUNC __canvas_hasClip(offset AS Integer) AS Boolean
-  RETURN __canvas_geoAt(offset, 22) < __canvas_geoAt(offset, 24) AND __canvas_geoAt(offset, 23) < __canvas_geoAt(offset, 25)
+  RETURN __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) <> 0.0
 END FUNC
 
 ' plan-116-C: does this item carry a transform that is not the identity?
@@ -140,11 +143,98 @@ END FUNC
 ' Evaluating the rectangle SDF at the pixel CENTRE gives the covered fraction directly
 ' for an axis-aligned edge: a clip starting at x = 10.6 leaves pixel 10 (centre 10.5)
 ' at d = +0.1, hence coverage 0.4 -- which is the 40% of that pixel actually inside.
+'
+' plan-163-C: a path clip's SURFACE distance at the pixel (`px`, `py`, the group offset
+' taken off; `qx`, `qy` its shape-space point): under a transform, its shape-space
+' distance divided by the clip's own gradient there, by central differences at the same
+' inverse-mapped neighbours the shape uses -- not by the SHAPE's gradient, which near the
+' clip's edge belongs to whichever shape edge is nearest, so a sheared clip would
+' antialias by the wrong slope (measured, plan-163-C Corrections 4).
+FUNC __canvas_clipPathSurface(offset AS Integer, px AS Float, py AS Float, qx AS Float, qy AS Float, transformed AS Boolean) AS Float
+  LET d AS Float = __canvas_clipPathDistance(offset, qx, qy)
+  IF NOT transformed THEN
+    RETURN d
+  END IF
+  LET dxp AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py))
+  LET dxm AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py))
+  LET dyp AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5))
+  LET dym AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5))
+  LET gx AS Float = dxp - dxm
+  LET gy AS Float = dyp - dym
+  LET g AS Float = math::sqrt(gx * gx + gy * gy)
+  IF g > 0.000001 THEN
+    RETURN d / g
+  END IF
+  RETURN d
+END FUNC
+
+' plan-163-C: a glyph's clip coverage -- a path clip at the glyph's shape-space point
+' (`qx`, `qy`) divided by the clip's own gradient (`__canvas_clipPathSurface`), as a
+' shape's is; a rectangle at its group-relative point (`px`, `py`).
+FUNC __canvas_glyphClip(offset AS Integer, qx AS Float, qy AS Float, px AS Float, py AS Float) AS Integer
+  IF __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0 THEN
+    RETURN __canvas_coverage(__canvas_clipPathSurface(offset, px, py, qx, qy, __canvas_hasTransform(offset)))
+  END IF
+  RETURN __canvas_clipCoverage(offset, px, py)
+END FUNC
+
+' plan-163-C: a path clip's signed distance at the item's own point (`x`, `y`, the
+' shape-space point): its edges under its rule, negative inside.
+FUNC __canvas_clipPathDistance(offset AS Integer, x AS Float, y AS Float) AS Float
+  LET edges AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_CLIP_EDGE_COUNT))
+  RETURN __canvas_edgeDistanceRule(__canvas_clipEdgeBase(offset), edges, x, y, __canvas_geoAt(offset, __CANVAS_GEO_CLIP_RULE) <> 0.0)
+END FUNC
+
+' plan-163-D: a radial ramp's position at the gradient-space point (`px`, `py`) with a
+' focal circle: centre (`cx`, `cy`) and radius `r` the end circle's, the focus at the
+' clamped offset (`ox`, `oy`) from the centre with radius `fr`. `t` is the largest root of
+' `|p - f - t (c - f)|^2 = (fr + t (r - fr))^2`, the circle through `p` of the family that
+' runs from the focal circle at t = 0 to the end circle at t = 1. The builder's clamps
+' keep the leading coefficient `a = |c - f|^2 - (r - fr)^2` below zero, so the larger root
+' is `(b - sqrt(b^2 - a c)) / a`, and it always has `fr + t (r - fr) >= 0`. A zero
+' radius leaves `t` at 0, as a radial ramp's does.
+FUNC __canvas_focalT(px AS Float, py AS Float, cx AS Float, cy AS Float, r AS Float, ox AS Float, oy AS Float, fr AS Float) AS Float
+  IF NOT (r > 0.0) THEN
+    RETURN 0.0
+  END IF
+  LET fx AS Float = cx + ox
+  LET fy AS Float = cy + oy
+  LET ex AS Float = px - fx
+  LET ey AS Float = py - fy
+  LET wx AS Float = cx - fx
+  LET wy AS Float = cy - fy
+  LET dr AS Float = r - fr
+  LET a AS Float = wx * wx + wy * wy - dr * dr
+  LET b AS Float = ex * wx + ey * wy + fr * dr
+  LET c AS Float = ex * ex + ey * ey - fr * fr
+  LET disc AS Float = __canvas_maxF(b * b - a * c, 0.0)
+  RETURN (b - math::sqrt(disc)) / a
+END FUNC
+
+' plan-163-C: a picture's texel channel tinted by its fill: towards `texel * fill / 255`
+' by `alpha / 255`, the difference rounded half away from zero -- so an alpha of 255 is
+' that product exactly (today's multiply) and 0 the texel unchanged.
+FUNC __canvas_tintChannel(texel AS Integer, fill AS Integer, alpha AS Integer) AS Byte
+  LET tint AS Integer = (texel * fill) / 255
+  LET d AS Integer = (tint - texel) * alpha
+  IF d >= 0 THEN
+    RETURN toByte(texel + (d + 127) / 255)
+  END IF
+  RETURN toByte(texel - (127 - d) / 255)
+END FUNC
+
+' plan-163-C: at the item's own point (the shape-space point, the group offset already
+' taken off), because the clip is in the item's coordinates. A rectangle with no area
+' encloses nothing and hides the item -- measured as a distance it would leave a
+' half-covered line along a pixel centre on it.
 FUNC __canvas_clipCoverage(offset AS Integer, px AS Float, py AS Float) AS Integer
   LET x0 AS Float = __canvas_geoAt(offset, 22)
   LET y0 AS Float = __canvas_geoAt(offset, 23)
   LET x1 AS Float = __canvas_geoAt(offset, 24)
   LET y1 AS Float = __canvas_geoAt(offset, 25)
+  IF NOT (x0 < x1 AND y0 < y1) THEN
+    RETURN 0
+  END IF
   RETURN __canvas_coverage(__canvas_rectDistance(px, py, (x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0))
 END FUNC"#;
 
@@ -296,7 +386,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
             IF ux >= 0 AND uy >= 0 AND ux < gw AND uy < gh THEN
               MUT tcov AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + uy * gw + ux, toByte(0)))
               IF tClipped THEN
-                tcov = (tcov * __canvas_clipCoverage(offset, sfpx, sfpy)) / 255
+                tcov = (tcov * __canvas_glyphClip(offset, __canvas_invX(offset, fpx, fpy), __canvas_invY(offset, fpx, fpy), fpx, fpy)) / 255
               END IF
               IF tcov > 0 THEN
                 LET tAlpha AS Integer = (tA * tcov) / 255
@@ -330,7 +420,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
             IF sx >= 0 AND sx < width THEN
               MUT cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
               IF tClipped THEN
-                cover = (cover * __canvas_clipCoverage(offset, toFloat(sx) + 0.5, toFloat(sy) + 0.5)) / 255
+                cover = (cover * __canvas_glyphClip(offset, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy)) / 255
               END IF
               IF cover > 0 THEN
                 LET gAlpha AS Integer = (tA * cover) / 255
@@ -382,6 +472,23 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' rather than a divide by zero: `t` stays 0, so the first stop fills.
   LET gradLen2 AS Float = gradAX * gradAX + gradAY * gradAY
   LET gradLen AS Float = math::sqrt(gradLen2)
+  LET gradSpread AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_SPREAD))
+  ' plan-163-D: a radial ramp's inverse transform (float32 bit patterns, decoded once) and
+  ' its focal circle, and whether the ramp paints the stroke -- for a Line or Arc, whose
+  ' stroke is drawn as a fill, the FILL tinted by the stroke colour in the fill slots.
+  LET gradHasInv AS Boolean = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_HAS_INV) > 0.5
+  LET gradIA AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV))
+  LET gradIB AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 1))
+  LET gradIC AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 2))
+  LET gradID AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 3))
+  LET gradITX AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 4))
+  LET gradITY AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_INV + 5))
+  LET gradOX AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FOCALX)
+  LET gradOY AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FOCALY)
+  LET gradFR AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FOCALR)
+  LET gradFocal AS Boolean = gradOX <> 0.0 OR gradOY <> 0.0 OR gradFR <> 0.0
+  LET gradApply AS Boolean = gradCount >= 2 AND __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_APPLY) > 0.5
+  LET gradTintFill AS Boolean = gradApply AND (kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC)
   LET fillR AS Byte = __canvas_geoByte(offset, 8)
   LET fillG AS Byte = __canvas_geoByte(offset, 9)
   LET fillB AS Byte = __canvas_geoByte(offset, 10)
@@ -392,6 +499,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   LET strokeA AS Integer = toInt(__canvas_geoAt(offset, 15))
   LET edges AS Integer = toInt(__canvas_geoAt(offset, 20))
   LET tail AS Integer = offset + __CANVAS_GEO_HEADER
+  ' plan-163-B: a Miter or Bevel stroke's join records (`helper_joins.rs`); zero for
+  ' every Round stroke, which keeps the band `|d| - half` it always had.
+  LET joinCount AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_JOIN_COUNT))
+  ' plan-163-B: a dashed stroke (`helper_dashes.rs`); false for every undashed item.
+  LET dashed AS Boolean = toInt(__canvas_geoAt(offset, __CANVAS_GEO_DASH_COUNT)) > 0
   ' plan-116-D. Read once per item, not per pixel: it is a per-shape constant like the
   ' arc's sweep vectors below. Only Line and Arc ever write it; every other kind leaves
   ' it at the blank header's zero and never reaches a cap branch.
@@ -416,11 +528,13 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   MUT picShadow AS Integer = 0
   MUT picW AS Integer = 0
   MUT picH AS Integer = 0
+  MUT picStep AS Integer = 0
   IF isPicture THEN
     distKind = __CANVAS_KIND_RECT
     picShadow = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
     picW = toInt(__canvas_geoAt(offset, 20))
     picH = toInt(__canvas_geoAt(offset, 21))
+    picStep = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_TRANSPARENCY))
   END IF
   ' The destination's left/top edge and extent, from the rectangle slots.
   LET picX0 AS Float = p0 - p2
@@ -464,6 +578,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   MUT lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19) + gdy), height - 1)
   MUT y AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 17) + gdy), 0)
   LET clipped AS Boolean = __canvas_hasClip(offset)
+  LET clipPath AS Boolean = __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0
   LET transformed AS Boolean = __canvas_hasTransform(offset)
   ' plan-116-B: the item's BlendMode, read ONCE per item rather than per pixel.
   '
@@ -472,15 +587,15 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' 0 keeps the existing full-coverage fast path below, so an unblended item's inner
   ' loop is exactly the one it had.
   LET blendMode AS Integer = toInt(__canvas_geoAt(offset, 26))
-  ' plan-116-G / G5: the clip is NOT offset. `Paint.clip` is a surface rectangle by
-  ' definition (plan-116-B), so a group's translation moves the shape through the clip
-  ' rather than carrying the clip with it. These four narrow the already-offset bounds,
-  ' so a clipped item inside a translated group is clipped where the clip actually is.
+  ' plan-163-C: the clip is in the item's own coordinates, so a group's translation moves
+  ' it with the item -- reversing plan-116-G's G5, where it was a surface rectangle the
+  ' group moved the shape through. These four narrow the already-offset bounds by the
+  ' offset clip.
   IF clipped THEN
-    firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22)))
-    y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23)))
-    lastX = __canvas_minI(lastX, toInt(__canvas_geoAt(offset, 24)))
-    lastY = __canvas_minI(lastY, toInt(__canvas_geoAt(offset, 25)))
+    firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22) + gdx))
+    y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23) + gdy))
+    lastX = __canvas_minI(lastX, toInt(__canvas_geoAt(offset, 24) + gdx))
+    lastY = __canvas_minI(lastY, toInt(__canvas_geoAt(offset, 25) + gdy))
   END IF
   WHILE y <= lastY
     LET rowBase AS Integer = y * width * 4
@@ -528,11 +643,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         LET ty AS Float = __canvas_invY(offset, px, py)
         qx = tx
         qy = ty
-        LET d0 AS Float = __canvas_geoDistance(distKind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dxp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dxm AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dyp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
-        LET dym AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        LET d0 AS Float = __canvas_geoDistance(distKind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dxp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dxm AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dyp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dym AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
         LET gx AS Float = dxp - dxm
         LET gy AS Float = dyp - dym
         LET g AS Float = math::sqrt(gx * gx + gy * gy)
@@ -542,7 +657,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         END IF
         distance = dRaw / dScale
       ELSE
-        dRaw = __canvas_geoDistance(distKind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin)
+        dRaw = __canvas_geoDistance(distKind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
         distance = dRaw
       END IF
       LET idx AS Integer = rowBase + x * 4
@@ -552,18 +667,30 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' bounds, so this is the boundary's cost and nothing else's.
       MUT clipCov AS Integer = 255
       IF clipped THEN
-        clipCov = __canvas_clipCoverage(offset, spx, spy)
+        ' plan-163-C: a path clip is evaluated at the shape-space point and divided by
+        ' ITS OWN scale there (`__canvas_clipPathSurface`), so a transformed clip's edge
+        ' is antialiased as a transformed shape's edge of the same geometry is.
+        IF clipPath THEN
+          clipCov = __canvas_coverage(__canvas_clipPathSurface(offset, px, py, qx, qy, transformed))
+        ELSE
+          clipCov = __canvas_clipCoverage(offset, px, py)
+        END IF
       END IF
 
       ' plan-116-F: the gradient replaces the fill COLOUR and nothing else -- the
       ' shape's distance, its coverage and its stroke are untouched, which is what
-      ' keeps a gradient-filled shape's edge identical to a flat-filled one's. `t` is
-      ' computed in surface pixels, so the ramp composes with `Paint.transform` the
-      ' same way the shape does.
+      ' keeps a gradient-filled shape's edge identical to a flat-filled one's.
+      ' plan-163-D: `t` is computed at the SHAPE-space point `q`, so `Paint.transform`
+      ' and the group offset carry the ramp with the item (a linear gradient's own
+      ' transform is already folded into its points), and the spread is applied before
+      ' the stop lookup.
       MUT gR AS Byte = fillR
       MUT gG AS Byte = fillG
       MUT gB AS Byte = fillB
       MUT gA AS Integer = fillA
+      MUT rampR AS Byte = fillR
+      MUT rampG AS Byte = fillG
+      MUT rampB AS Byte = fillB
       IF gradCount >= 2 THEN
         MUT t AS Float = 0.0
         ' plan-154-A: a PolyLine's stops are its per-point colours, and its ramp runs
@@ -572,14 +699,23 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         IF kind = __CANVAS_GEO_POLYLINE THEN
           t = __canvas_polylineScan(tail, edges, qx, qy, radius, cap, TRUE)
         ELSEIF gradRadial THEN
-          IF gradLen > 0.0 THEN
-            LET rdx AS Float = px - gradFX
-            LET rdy AS Float = py - gradFY
-            t = math::sqrt(rdx * rdx + rdy * rdy) / gradLen
+          ' plan-163-D: the gradient-space point, through the radial ramp's own inverse.
+          MUT gx AS Float = qx
+          MUT gy AS Float = qy
+          IF gradHasInv THEN
+            gx = gradIA * qx + gradIC * qy + gradITX
+            gy = gradIB * qx + gradID * qy + gradITY
+          END IF
+          IF gradFocal THEN
+            t = __canvas_gradientSpread(__canvas_focalT(gx, gy, gradFX, gradFY, gradLen, gradOX, gradOY, gradFR), gradSpread)
+          ELSEIF gradLen > 0.0 THEN
+            LET rdx AS Float = gx - gradFX
+            LET rdy AS Float = gy - gradFY
+            t = __canvas_gradientSpread(math::sqrt(rdx * rdx + rdy * rdy) / gradLen, gradSpread)
           END IF
         ELSE
           IF gradLen2 > 0.0 THEN
-            t = ((px - gradFX) * gradAX + (py - gradFY) * gradAY) / gradLen2
+            t = __canvas_gradientSpread(((qx - gradFX) * gradAX + (qy - gradFY) * gradAY) / gradLen2, gradSpread)
           END IF
         END IF
         LET gc AS color::Color = __canvas_gradientColor(gradBase, gradCount, t)
@@ -587,12 +723,24 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         gG = gc.green
         gB = gc.blue
         gA = toInt(gc.alpha)
+        rampR = gc.red
+        rampG = gc.green
+        rampB = gc.blue
+        ' plan-163-D: a Line's or Arc's stroke IS its fill: the ramp tinted by the stroke
+        ' colour the fill slots carry, whose alpha is the tint's strength (the picture
+        ' tint, `__canvas_tintChannel`); the ramp's alpha is what draws.
+        IF gradTintFill THEN
+          gR = __canvas_tintChannel(toInt(gc.red), toInt(fillR), fillA)
+          gG = __canvas_tintChannel(toInt(gc.green), toInt(fillG), fillA)
+          gB = __canvas_tintChannel(toInt(gc.blue), toInt(fillB), fillA)
+        END IF
       END IF
       ' bug-484: a picture's fill colour is its image, sampled NEAREST -- the plan-116-C
       ' section 4.5 rule glyphs follow, for the same reason: `floor` and `+ - * /` only,
       ' so all three renderers pick the same texel. The texel is then TINTED by
-      ' `Paint.fill`, channel by channel, so the white fill of every man example draws
-      ' the image unchanged and the fill's alpha is the picture's opacity.
+      ' `Paint.fill` (`__canvas_tintChannel`, plan-163-C): the fill's alpha is the tint's
+      ' strength, so the zero paint and a white fill draw the image unchanged, and the
+      ' picture's own alpha is faded by `transparency` alone.
       '
       ' The index is clamped, not rejected: the antialiased edge pixels just outside the
       ' destination (centre within half a pixel of it) still take coverage, and they
@@ -601,10 +749,10 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         LET tu AS Integer = __canvas_maxI(__canvas_minI(math::floor((qx - picX0) * toFloat(picW) / picDW), picW - 1), 0)
         LET tv AS Integer = __canvas_maxI(__canvas_minI(math::floor((qy - picY0) * toFloat(picH) / picDH), picH - 1), 0)
         LET texel AS Integer = canvas::shadowTexel(picShadow, tv * picW + tu)
-        gR = toByte(((texel MOD 256) * toInt(fillR)) / 255)
-        gG = toByte((((texel / 256) MOD 256) * toInt(fillG)) / 255)
-        gB = toByte((((texel / 65536) MOD 256) * toInt(fillB)) / 255)
-        gA = ((texel / 16777216) * fillA) / 255
+        gR = __canvas_tintChannel(texel MOD 256, toInt(fillR), fillA)
+        gG = __canvas_tintChannel((texel / 256) MOD 256, toInt(fillG), fillA)
+        gB = __canvas_tintChannel((texel / 65536) MOD 256, toInt(fillB), fillA)
+        gA = __canvas_fadeAlpha(texel / 16777216, picStep)
       END IF
       IF gA > 0 THEN
         MUT coverage AS Integer = __canvas_coverage(distance)
@@ -629,21 +777,39 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       END IF
 
       IF half > 0.0 THEN
-        IF strokeA > 0 THEN
-          MUT band AS Integer = __canvas_coverage((__canvas_absF(dRaw) - half) / dScale)
+        ' plan-163-D: a stroke the ramp paints is the ramp tinted by the stroke colour,
+        ' at the ramp's alpha -- drawn even when the stroke colour's alpha is 0.
+        MUT sR AS Byte = strokeR
+        MUT sG AS Byte = strokeG
+        MUT sB AS Byte = strokeB
+        MUT sA AS Integer = strokeA
+        IF gradApply THEN
+          sR = __canvas_tintChannel(toInt(rampR), toInt(strokeR), strokeA)
+          sG = __canvas_tintChannel(toInt(rampG), toInt(strokeG), strokeA)
+          sB = __canvas_tintChannel(toInt(rampB), toInt(strokeB), strokeA)
+          sA = gA
+        END IF
+        IF sA > 0 THEN
+          MUT strokeD AS Float = __canvas_absF(dRaw) - half
+          IF dashed THEN
+            strokeD = __canvas_dashedStroke(distKind, offset, qx, qy, half)
+          ELSEIF joinCount > 0 THEN
+            strokeD = __canvas_joinedStroke(kind, offset, tail, edges, qx, qy, p0, p1, p2, p3, half)
+          END IF
+          MUT band AS Integer = __canvas_coverage(strokeD / dScale)
           IF clipped THEN
             band = (band * clipCov) / 255
           END IF
-          LET salpha AS Integer = (strokeA * band) / 255
+          LET salpha AS Integer = (sA * band) / 255
           IF salpha >= 255 AND blendMode = 0 THEN
-            out = collections::set(out, idx, strokeR)
-            out = collections::set(out, idx + 1, strokeG)
-            out = collections::set(out, idx + 2, strokeB)
+            out = collections::set(out, idx, sR)
+            out = collections::set(out, idx + 1, sG)
+            out = collections::set(out, idx + 2, sB)
             out = collections::set(out, idx + 3, toByte(255))
           ELSEIF salpha > 0 THEN
-            out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), strokeR, salpha, blendMode))
-            out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), strokeG, salpha, blendMode))
-            out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), strokeB, salpha, blendMode))
+            out = collections::set(out, idx, __canvas_blendChannelMode(collections::getOr(out, idx, toByte(0)), sR, salpha, blendMode))
+            out = collections::set(out, idx + 1, __canvas_blendChannelMode(collections::getOr(out, idx + 1, toByte(0)), sG, salpha, blendMode))
+            out = collections::set(out, idx + 2, __canvas_blendChannelMode(collections::getOr(out, idx + 2, toByte(0)), sB, salpha, blendMode))
             out = collections::set(out, idx + 3, toByte(255))
           END IF
         END IF

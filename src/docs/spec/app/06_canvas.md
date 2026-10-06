@@ -49,7 +49,7 @@ therefore one set of guarantees; they differ only in what they copy.
 ## A published scene points at nothing caller-owned
 
 `present` **deep-copies the scene transitively** into runtime-owned storage:
-item fields, a `Polygon`'s point list, a `Text`'s string, the `Paint` values.
+item fields, a `Polygon`'s rings, a `Text`'s string, the `Paint` values.
 After it returns, nothing in the installed scene references anything the caller
 owns.
 
@@ -76,7 +76,7 @@ each item makes an item's appearance a property of the item.
 
 `Paint` is designed so that **each field's zero value is that field's no-op** —
 transparent fill and stroke, zero stroke width, `Normal` blend, the identity
-transform, and a zero-area (absent) clip. One consequence is worth stating
+transform, an empty clip and no transparency. One consequence is worth stating
 explicitly, because the natural reading is the opposite: **the all-zero
 `Transform` means the identity**, not the degenerate matrix that collapses every
 point to the origin. Defining it the other way would make an unset transform erase
@@ -126,9 +126,10 @@ shape.** Every per-frame payload travels in buffers whose regions are fixed in s
 each backend's predicate declines a frame that would overflow one of them. Metal and
 Vulkan have the same caps: more than 65,536
 item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
-the frame, more than 131,072 gradient stops summed over the frame, or more than 8M
+the frame, more than 131,072 gradient stops summed over the frame, more than 1,048,576
+dash words summed over the frame (a dashed item's dash tail plus one), or more than 8M
 picture-and-glyph texels (each distinct image counted once). A `PolyLine`'s segments
-count against the edge cap, one edge each. There is no per-polygon
+count against the edge cap, one edge each, and a stroke's join records two each. There is no per-polygon
 edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
 so a pixel tests only the edges that can reach it, and the result is identical to
 testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
@@ -169,20 +170,22 @@ moves a distance by up to ~1.5e-5 px, so every value a distance reads travels as
 * in the item block's four residual `ivec4`s: the shape parameters (centres,
   half-extents, radii, line endpoints, ellipse axes), the radius and the stroke
   half-width, an arc's two sweep endpoints, an ellipse's rotation cosine and sine, and
-  the clip rectangle;
+  the clip rectangle (a path clip's edges ride the edge region with the shape's);
 * the group offset of each draw, as words 5 and 6 of its draw-list entry and the last
   two of the four 32-bit words bound to both shader stages.
 
 The shader rebuilds each value as a double-float, a pair of floats with about 48 bits,
 and evaluates the oracle's distance for every kind in it, operation for operation: the
 rectangle, circle, segment (round, or butt with its two end planes), arc, ellipse,
-polygon and polyline distances, the even-odd crossing test (multiplied out, no
-division), the inverse transform, the central-difference gradient, the stroke's
-half-width and the coverage rounding; the clip's rectangle distance too. The
+polygon and polyline distances, the polygon's signed crossing test (multiplied out, no
+division) summed under its fill rule, the inverse transform, the central-difference gradient, the stroke's
+half-width and the coverage rounding; the clip's rectangle or path distance too. The
 quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep test takes
 its direction vectors from its cap endpoints less its centre, a positive multiple of the
 oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
-reflex is decided by the emitter in f64 and carried as a flag. An ellipse runs the
+reflex is decided by the emitter in f64 and carried as a flag, in the item-block word a
+polygon uses for its fill rule instead (`arc.y`; only an arc reads it as the flag). An
+ellipse runs the
 oracle's 24-step bisection with every step in double-float: in fp32 a step whose test
 value lies within fp32's error of zero takes the other branch. The double-float helpers
 need their operations kept in written order: Metal's fast math reassociates them away,
@@ -217,6 +220,7 @@ otherwise narrow to zero, is given a residual of 1.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_SHAPE_LO]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_RESIDUAL_FIELDS]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_ARC_REFLEX]]
+[[src/codegen/runtime/canvas/mod.rs:emit_item_polygon_rule]]
 [[src/codegen/runtime/canvas/mod.rs:emit_item_stroke_sign]]
 [[src/codegen/builtins/canvas/helper_render.rs:__canvas_pushOneDraw]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
@@ -324,38 +328,192 @@ The destination is opaque (above), so no mode has to define what happens to a
 partly-transparent destination. Alpha itself is not blended by the mode: it is
 written back as `255` under every one.
 
-**`Line.cap`, `Arc.cap` and `PolyLine.cap` shape the two ends of a stroke.** They are the
-only three `DrawItem` variants with ends, and none has an interior, so the field is on
-those records rather than on `Paint`, and a shape with no ends cannot carry one.
+**A stroke is styled by five `Paint` fields: `cap`, `join`, `miterLimit`, `dashes` and
+`dashOffset`.** `canvas::fill`, `canvas::stroke` and `canvas::fillStroke` set `Butt`,
+`Round`, `4.0`, `[]` and `0.0`. The cap is on `Paint` rather than on the three variants
+with ends, because a dash has ends on every kind.
+[[src/codegen/builtins/canvas/mod.rs:JoinStyle]]
+[[src/codegen/builtins/canvas/func_fill_stroke.rs:BODY]]
 
-`CapStyle.Butt` cuts the stroke square at the endpoint. `CapStyle.Round` extends it by a
-half-disc of `Paint.strokeWidth / 2` centred there. Both are defined on the same signed
-distance the coverage rule already uses, so a cap edge is antialiased exactly as any
-other edge is:
+**`cap` shapes a stroke's ends**: the two ends of a `Line`, an `Arc` or a `PolyLine`, and
+both ends of every dash. An undashed closed shape has no ends, so its cap has no effect.
+Each cap is defined on the signed distance the coverage rule already uses, so a cap edge
+is antialiased exactly as any other edge is:
 
-* A **butt line** is the round band intersected with the slab between the two planes through its endpoints, perpendicular to the segment — as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the unclamped projection. The half-width is subtracted *before* the intersection, because the planes bound the band and not the centre line.
-* A **round arc** is the band unioned with a disc of `half` at each sweep endpoint, i.e. the `min` of the three distances. A **butt arc** is the band alone: the sweep already ends it along a radius.
+* `Butt` cuts the stroke square at the endpoint. A **butt line** is the round band
+  intersected with the slab between the two planes through its endpoints, perpendicular
+  to the segment: as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the
+  unclamped projection. The half-width is subtracted *before* the intersection, because
+  the planes bound the band and not the centre line. A **butt arc** is the band alone:
+  the sweep already ends it along a radius.
+* `Round` adds a half-disc of `half = strokeWidth / 2` centred on the endpoint. A **round
+  arc** is the band unioned with a disc of `half` at each sweep endpoint, the `min` of
+  the three distances.
+* `Square` extends the stroke `half` past the endpoint and cuts it square there:
+  `max(|perp| − half, −t·|v| − half, (t−1)·|v| − half)` against the original segment's
+  `t` and `|v|`. It is not the butt planes moved out over the round band, which would
+  round the square's corners. An arc's square end is a `half × half` box past each sweep
+  endpoint along the tangent there. A `PolyLine` takes it on the outer ends of its first
+  and last segments with length only.
+  [[src/codegen/builtins/canvas/helper_shapes.rs:SEGMENT_DISTANCE_SQUARE]]
 
-**A zero-length butt-capped line draws nothing**, and a zero-length round-capped one is a
-dot of `half`. There is no direction for a butt cap's planes to be perpendicular to, and
-an empty result is the honest answer rather than an arbitrary orientation.
+**A zero-length line** draws nothing under `Butt`, a dot of `half` under `Round` and an
+axis-aligned square of side `2·half` under `Square` (SVG 2 §13.5.2). There is no
+direction for a butt cap's planes to be perpendicular to, and an empty result is the
+honest answer rather than an arbitrary orientation. A square end reaches `half·√2` from
+its endpoint, so a Square-capped item's bounds and the GPU band index are widened by that.
+The cap travels as header slot 34 (0 `Butt`, 1 `Round`, 2 `Square`), written by a `Line`,
+`Arc` or `PolyLine` and by every dashed item.
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_capTag]]
+[[src/codegen/runtime/canvas/mod.rs:emit_square_cap_reach]]
 
-**Note the asymmetry with what each variant did before this field existed**, because it
-decides which value is the compatible one: a `Line` was round and an `Arc` was butt.
-`Butt` is nonetheless the enum's zero value. That is not a contradiction — MFBASIC named
-construction requires every field, so no item can have a defaulted `cap`, and the zero is
-only a tag number.
+**`join` shapes the corners**: every vertex where two edges of a `Polygon` ring or a
+`PolyLine` meet, and a `Rectangle`'s or `Picture`'s four corners. A `RoundedRect` has
+none.
 
-`Polygon` has no cap and no **join** style; its corners are whatever the crossing-count
-fill rule produces. `PolyLine`'s joins are always round, and no variant exposes a join
-style.
+* `Round` is the distance field's own corner: the stroke is `|d| − half` of the outline's
+  distance, and the distance to a corner is round. An undashed `Round` stroke builds no
+  join records, so it is exactly what a stroke was before joins existed.
+* `Miter` and `Bevel` make the stroke the union of every edge's **butt** band and one
+  **corner piece** per vertex. With `θ` the interior angle, a `Miter` corner is kept when
+  `1 / sin(θ/2) ≤ miterLimit` — computed without a root as `(1 + u1·u2)·limit² ≥ 2` —
+  and draws as `Bevel` otherwise; a `miterLimit` below 1.0 is 1.0, so every miter
+  bevels.
+
+The pieces **overlap**, and that is load-bearing. A union taken as a `min` of signed
+distances is right only where some piece covers each point at least as deeply as the
+union does; two pieces that merely abut both measure 0 on their shared line and draw a
+half-covered seam. So each piece is built on the vertex's disc of radius `half`: straight
+on, the disc; `Bevel`, the disc cut by the chord between the two bands' outer corners,
+on the vertex's side; `Miter`, the disc and the polygon of the vertex, the two outer
+corners and the miter point; straight back (a U-turn), nothing. Where an edge next to the
+vertex is shorter than `half` the disc can reach past that edge's far end — the one place
+this departs from the SVG outline, and it is the round join's own shape there.
+
+The pieces are computed once, at geometry build, as a **join tail**: one 8-float record
+per outline edge, the corner at that edge's start, as the four points `V, A, P, B`, its
+kind read from exact equalities — no piece when `A = V` (an open path's first edge, a
+zero-length edge, a U-turn), the disc when `A = B`, a bevel when `P = V`, a miter
+otherwise. One record per edge lets the GPUs reach a pixel's corners through the band
+index its edges already have. Header slot 47 counts the records and slot 48 is how far
+one reaches from its vertex (`half·miterLimit` for a Miter, else `half`), which widens
+the bounds and the band index. The GPUs carry the records in the edge region as two edge
+slots each, after the item's own edges, and count them twice against the frame's edge
+cap.
+[[src/codegen/builtins/canvas/helper_joins.rs:JOIN_BUILD]]
+[[src/codegen/builtins/canvas/helper_joins.rs:JOIN_DISTANCE]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_join_record]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_COUNT]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_REACH]]
+
+**`dashes` cuts the stroke into dashes along its outline.** It alternates on and off
+lengths in pixels, before the transform; `dashOffset` is how far into the pattern the
+outline starts, taken modulo the pattern's length (and may be negative).
+
+* **Normalization.** An odd number of lengths is repeated once to make it even (SVG). An
+  empty list, a list whose sum is not positive, a list holding a negative (or NaN)
+  length, and a stroke that draws nothing all draw solid — SVG treats a negative entry as
+  an error and draws solid, and so does this, on purpose.
+* **Where `s = 0` is.** Every point of the outline has a perimeter position `s`: a `Line`
+  from `(x1, y1)`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
+  `Polygon` ring from its own first point (each ring restarts the pattern, as SVG
+  restarts it per subpath); a `Rectangle` or `Picture` from its top-left corner,
+  clockwise (towards +X under Y-down); a `RoundedRect` from the left end of its top
+  straight side, clockwise; a `Circle` or `Ellipse` from angle 0 (+X in its own frame),
+  the way angles increase.
+* **An outline of edges is cut edge by edge.** A pixel's position on an edge is its
+  projection onto the edge's line, `u = s0 + (p − a)·d / |d|` (unclamped), and the edge's
+  piece of the stroke is `max(|perp| − half, along)`, `along` being the signed distance
+  along the edge from `u` to the dashes clipped to the edge's own `[s0, s1]`, negative
+  inside one. The stroke is the `min` over edges, unioned with the corner piece at every
+  vertex a dash runs **through** (on just before it and at it). A dashed `Round` paint
+  therefore carries join records too — discs — because the round corner the distance
+  field draws for free must vanish where the pattern is off. Taking `s` from the pixel's
+  *nearest* outline point instead would be discontinuous on a corner's inner side, where
+  the nearest edge is the second one while the first edge's band, still inside its dash,
+  is what covers the pixel in SVG.
+* **A curve is cut at its nearest point.** A `Circle`, `Arc`, `Ellipse` or `RoundedRect`
+  has no corner: its `s` is the perimeter position of the pixel's nearest outline point,
+  and `along` is measured in outline length there, so a dash end is cut along the
+  outline's normal to within the band's curvature (`half / radius` of the antialiasing
+  ramp). Angles come from a `+ − × ÷ sqrt` arctangent series (error under 1e-16) and
+  points from the deterministic sine and cosine. An ellipse's arc length is a table of
+  `N + 1` cumulative lengths at evenly spaced parametric angles, `N = 256`, each step
+  Simpson's rule over 8 sub-steps; a pixel's `s` is interpolated linearly at its nearest
+  point's parametric angle. Measured: the worst along-path error is 0.030 px over
+  ellipses up to 800 px across and 80:1 (0.119 px at 128 steps).
+* **Dash ends take the cap.** A **true** end — where a dash stops, not where it runs on
+  past an edge's end into the next edge — is cut `Butt`, extended `half` for `Square`, or
+  unioned with a disc of `half` about the end point for `Round`. An open path's own two
+  ends always end a dash. A closed outline's seam is no end: a dash on at both sides of
+  `s = 0` is one dash, and one on at one side only ends there.
+* **Degenerate.** A dashed `Line` or `PolyLine` with no length draws the dot its cap
+  draws when the pattern is on at its start; a dashed closed outline with no length
+  draws nothing.
+
+The dashes are a **dash tail** between the join records and the gradient stops:
+`[n, period, c1 … cn]`, each `c` an entry's end along the period, then the kind's
+perimeter data — three floats per edge (`s0`, `s1` and its ring's length, negative for
+an open path), an ellipse's table, an arc's start angle and sweep, nothing for a circle
+or rounded rectangle. Header slot 49 is the tail's length and slot 50 the offset wrapped
+into one period at build. The record's tail order is therefore edges, join records,
+dashes, a path clip's edges (see *`Paint.clip`*), gradient stops; the stops stay last,
+so every reader finds the others counting back from the record's end. The native
+builder writes the same tail bit for bit.
+[[src/codegen/builtins/canvas/helper_dashes.rs:DASH_BUILD]]
+[[src/codegen/builtins/canvas/helper_dashes.rs:DASH_DRAW]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_dash_tail]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_DASH_COUNT]]
+
+**On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 368) are the
+first join slot, the record count, the first dash word and the dash word count. Each
+dashed item's words — the phase, then its dash tail — ride a frame-wide dash region as
+float32 bit patterns, and each shader evaluates the oracle's dash functions in fp32 at
+offsets from the item's own outline taken in double-float, so the precision is the
+outline's position rather than its coordinates'.
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_STROKE_STYLE]]
+[[src/target/macos_aarch64/app/metal.rs:emit_dash_buffer]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_dash_upload]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dashedStroke]]
+
+**A `Polygon` is one or more closed rings filled under its `rule`.** `contours` is a
+`List OF List OF Point`; each ring closes from its own last point back to its own first.
+A ring of fewer than 2 points contributes no edge and no bounds; a 2-point ring
+contributes its two coincident edges, so it has no area and draws only its stroke; an
+item none of whose rings contributes builds the empty header and draws nothing. Every
+contributing ring's edges are one concatenated edge list, ring after ring, with no
+separator and no ring count: the fill sums crossings over all of them and the stroke is a
+minimum over all of them, so neither needs to know where a ring ends. The rule's ordinal
+(0 `EvenOdd`, 1 `NonZero`) is header slot 21, the per-kind aux slot no other polygon
+reader uses. A single-ring `EvenOdd` polygon builds the header and edge tail it built
+before rings existed, slot 21 included (it was always 0).
+
+The sign of a polygon's distance comes from a ray from the pixel centre towards −x. An
+edge **crosses** when it straddles the pixel's row (`(ay > py) ≠ (by > py)`) and passes
+left of the pixel. Under `EvenOdd` each crossing flips inside/outside. Under `NonZero` a
+crossing edge running down the screen (`by > ay`) adds +1 and one running up adds −1,
+and the pixel is inside when the sum is not zero — so a ring inside another is a hole
+when the two run in opposite directions and more fill when they run the same way. The
+sign convention is not observable (only zero-or-not is), but all three renderers use the
+same one; both shaders sum the signed crossings as a winding number and take `EvenOdd`
+as its parity. Stroked `Text` is lowered to a polygon whose header leaves slot 21 at 0,
+so glyph outlines are always filled even-odd.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_TAIL]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
+[[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYGON_RULE]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
+[[src/target/macos_aarch64/app/metal.rs:edgeCrossing32]]
 
 **A `PolyLine` is the union of its segments' round-capped bands.** For `n` points it
 strokes the `n − 1` segments `P[i] → P[i+1]`, and its distance is the minimum of the
 segments' distances. A minimum of round-capped bands is what makes every interior corner
 round, so the round join needs no code of its own. Each segment is measured with
 `Line`'s own arithmetic, so a two-point `PolyLine` draws exactly the pixels of the `Line`
-between the same points with the same cap.
+between the same points with the same cap. Under a `Miter` or `Bevel` join the inner
+ends are cut butt and the corners are the join records (above); the colour parameter
+still comes from the round walk, so it stays continuous round a corner.
 [[src/codegen/builtins/canvas/helper_draw.rs:POLYLINE_SCAN]]
 
 * **Ends.** The butt planes cut only the **first and last segments with length**, each
@@ -366,14 +524,14 @@ between the same points with the same cap.
   test the walk uses.
 * **Degenerate paths.** Fewer than two points draw nothing. A path whose points all
   coincide draws what a zero-length `Line` with its cap draws: a dot of `half` for
-  `Round`, nothing for `Butt`.
+  `Round`, the axis-aligned square for `Square`, nothing for `Butt`.
   [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHeader]]
 * **Colour.** An empty `colors` strokes the whole path in `Paint.stroke`. Otherwise
   point `k` has colour `colors[k]`, or `Paint.stroke` past the end of the list. The
   colours are stored as the record's gradient stops, one per point at offset
   `k / (n − 1)`, after its segments. A pixel whose nearest segment is `i`, at clamped
   parameter `t` along it, is drawn in the gradient colour at `(i + t) / (n − 1)`. That
-  mixes the colours of the segment's two points exactly as `Paint.fillGradient` mixes
+  mixes the colours of the segment's two points exactly as `Paint.gradient` mixes
   two stops, in linear light with straight alpha. The segment that picks the colour is the
   one that sets the distance, because a single walk answers both. The parameter is
   continuous at a corner, so a tie between two segments picks the same colour either
@@ -382,7 +540,7 @@ between the same points with the same cap.
   [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineTail]]
   [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHalf]]
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
-  is negative. So `Paint.fill` and `Paint.fillGradient` never reach a polyline.
+  is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
 **`Paint.transform` maps the item's coordinates onto the surface.** The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
@@ -428,13 +586,22 @@ is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so
 backend picks the same texel; a bilinear filter would change edge bytes between
 renderers unless all three shared identical fixed-point weights.
 
-The texel is then **tinted** by `Paint.fill`, each channel multiplied as
-`(texel * fill) / 255`, alpha included. The white fill every example uses therefore
-draws the image unchanged, and the fill's alpha is the picture's opacity; the zero
-`Paint` draws nothing, as it does for every other variant. `Paint.fillGradient` is
-ignored — the image, not a ramp, fills a picture. An item whose image has been closed
-draws nothing (see *Images are named, not embedded*).
+The texel is then **tinted** by `Paint.fill`, whose alpha is the tint's strength, not
+the picture's opacity. Each colour channel moves from the texel towards the product
+`tint = (texel * fill) / 255` (integer, truncating) by `fill.alpha / 255`:
+
+`out = texel + round((tint - texel) * fill.alpha / 255)`
+
+in integers, the rounding half away from zero. An opaque fill is therefore exactly the
+product (the multiply an opaque tint always was), a half-transparent red fill goes
+halfway to the red-only image, and a white fill or the zero `Paint` — alpha 0 — draws
+the image unchanged. The picture's alpha is the texel's, faded by `Paint.transparency`
+alone: `(texel.alpha * (255 - T) + 127) / 255`, `T` the transparency step below. The
+fill's alpha never fades it. `Paint.gradient` is ignored — the image, not a ramp,
+fills a picture. An item whose image has been closed draws nothing (see *Images are
+named, not embedded*).
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
 
 On the GPU a picture's texels travel in the same per-frame buffer region as glyph
@@ -449,49 +616,150 @@ texels.
 [[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
-**`Paint.clip` restricts an item to a rectangle.** The rectangle is axis-aligned,
-in surface pixels, and unaffected by `Paint.transform` — `Bounds` cannot express a
-transformed rectangle. A zero-area or negative-extent `Bounds` means no clipping,
-which is what the zero value gives.
+**`Paint.clip` restricts an item to the area its rings enclose.** `clip` is a
+`List OF List OF Point`, each inner list a closed ring exactly as a `Polygon`'s
+`contours` are, and `Paint.clipRule` decides which points the rings enclose as a
+polygon's `rule` decides its fill (`EvenOdd`, the zero value, or `NonZero`). The empty
+list, the zero value, is no clip. A clip that is not empty but encloses nothing — every
+ring under two points, or a rectangle of no area — **hides the item**: a clip the
+program wrote and that covers nothing is shown as such, never quietly dropped.
 
-Its edges need not fall on pixel boundaries. A clipped pixel's coverage is the
-clip's own `clamp(0.5 - d, 0, 1)` on the signed distance to that rectangle,
-multiplied into the shape's coverage as `(coverage * clipCoverage) / 255`. A clip
-edge is therefore antialiased exactly as a shape edge is, and clipping a shape to a
-rectangle larger than it changes nothing.
+**The clip is in the item's own coordinates.** `Paint.transform` maps it with the item,
+and a group's translation moves it with the item, so a clipped item and its clip move,
+turn and scale together. (Until plan-163-C the clip was a surface rectangle that a
+transform and a group left where it was; a clip that should stay on the surface is now
+written in coordinates that undo the item's transform.)
 
-**`Paint.fillGradient` replaces an item's fill colour with a ramp.** It replaces the
-*colour* and nothing else: the shape's distance, its coverage, its stroke and its blend
-mode are exactly what they would be with a flat `Paint.fill`. A stroke is never a
-gradient — an outline is one colour.
+Its edges need not fall on pixel boundaries. A clipped pixel's coverage is the clip's
+own `clamp(0.5 - d, 0, 1)` on its signed distance `d`, multiplied into the shape's
+coverage as `(coverage * clipCoverage) / 255`. A clip edge is therefore antialiased
+exactly as a shape edge is, and clipping a shape to an area larger than it changes
+nothing. The builder takes one of two paths, in header slot 51:
+
+* **Rectangle (1).** A clip of one ring of four points whose sides alternate horizontal
+  and vertical, on an item with no transform, is kept as that rectangle in slots 22–25,
+  and `d` is the rectangle's distance at the item's own point (the pixel centre less the
+  group offset). This is a fast path, not a different rule: the same rectangle given as
+  a path draws the same pixels, which the rasteriser tests pin by comparing whole
+  frames.
+* **Path (2).** Any other clip is a path. Its rings become edges exactly as a
+  `Polygon`'s do and ride the record's tail after the dashes and before the gradient
+  stops; slot 52 counts them and slot 53 is the rule (0 `EvenOdd`, 1 `NonZero`). `d`
+  is the polygon distance of those edges under that rule at the item's own point. Under
+  a transform it is divided by the **clip's own** gradient, by central differences at the
+  same four inverse-mapped neighbours the shape uses — not the shape's gradient, which
+  near the clip's edge belongs to whichever shape edge is nearest, so a sheared clip
+  would be antialiased by the wrong slope. Slots 22–25 hold the clip's surface bounds,
+  its ring points mapped by the transform and widened by a pixel each way, which narrow
+  the pixels drawn.
+
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_clip_edges]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
+
+**On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
+288 is a path clip's band header, the same shape as a polygon's in `arcCaps`, and
+`clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
+`T`). The clip's edges go into the frame's edge region after the item's own and count
+against the same per-frame edge cap, and they are banded by the same index builder
+with no stroke in the reach — a clip's coverage clamps at `|d| ≥ 0.5`. Each shader
+takes the clip's five samples at the same shape-space points as the shape's and divides
+by the clip's own gradient, as the oracle does.
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
+[[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_clip_upload]]
+
+**`Paint.transparency` fades the whole item.** It is clamped to `0.0`..`1.0` — a NaN
+counts as `1.0` — and becomes the step `T = int(clamp(transparency, 0, 1) * 255 + 0.5)`.
+At build time every alpha the item draws with becomes `(alpha * (255 - T) + 127) / 255`:
+the fill, the stroke, each gradient stop and each `PolyLine` per-point colour; a `Text`
+item's fill fades the same way. `T = 0` leaves every alpha as it was, so the zero value
+changes nothing, and `0.5` is `T = 128`, an opaque colour's alpha `127`. The fill and
+the stroke fade separately, so where they overlap the fill shows through a faded
+stroke. A `Picture`'s fill alpha is its tint's strength and is not faded; its texels'
+alpha is, at draw time, by `T` in header slot 54.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_PICTURE_TRANSPARENCY]]
+
+**`Paint.gradient` replaces an item's fill colour with a ramp**, and with
+`Gradient.strokeApply := FillAndStroke` its stroke colour too. It replaces *colours* and
+nothing else: the shape's distance, its coverage, its stroke band and its blend mode are
+exactly what they would be with flat colours.
 
 A gradient with **fewer than two stops is not a gradient** and `Paint.fill` is used
 instead, which is what makes the all-zero `Gradient` inert like every other `Paint`
 field. A `Text` item ignores the field: a glyph is drawn from a cached coverage bitmap,
 and the cache is keyed by glyph and size, so a gradient would either be baked into the
-cache or key it per colour.
+cache or key it per colour. A `PolyLine` takes its colours from `colors` and a `Picture`
+from its image.
 
-The ramp position `t` at a surface point `p` is measured in **surface pixels**, from the
-gradient's own `startPoint` and `endPoint` and never from the shape's bounds:
+**The ramp is in the item's own coordinates** (plan-163-D, reversing plan-116-F's
+surface-anchored ramp by the user's 2026-09-28 decision). `t` is measured at the
+shape-space point `q`, the point the shape's distance is evaluated at: the pixel centre
+less the group's accumulated offset, mapped through the inverse of `Paint.transform`.
+The gradient's own `transform` `G` maps gradient space into item space first, so the
+order is SVG's — `Gradient.transform`, then `Paint.transform`, then the group's
+translation — and a rotated or moved item carries its ramp with it. `G⁻¹` is the
+inverse; the all-zero `G` and one with `|det| < 1e-12` are the identity, the
+`Paint.transform` rule. With `s = startPoint`, `e = endPoint` and `r = |e − s|`:
 
 | `GradientKind` | `t` |
 |---|---|
-| `Linear` | `dot(p - startPoint, endPoint - startPoint) / dot(endPoint - startPoint, endPoint - startPoint)` |
-| `Radial` | `length(p - startPoint) / length(endPoint - startPoint)` |
+| `Linear` | `dot(G⁻¹q − s, e − s) / dot(e − s, e − s)` |
+| `Radial` | `length(G⁻¹q − s) / r`, or the focal root below |
 
-`t` is then clamped to `0.0`..`1.0`. A zero-length axis leaves `t` at `0`, so the first
-stop's colour fills the shape — defined, rather than a division by zero.
+A zero-length axis or a zero radius leaves `t` at `0`, so the first stop's colour
+fills the shape — defined, rather than a division by zero.
 
-Measuring in surface pixels has two consequences worth stating outright, because both
-are the opposite of what a reader coming from a drawing API that defines gradients in
-user space would expect:
+* **A linear ramp's transform is folded at build.** Its `t` is affine in `q`, `t = u·q +
+  c`, which is the plain linear ramp from `−c·u/|u|²` along `u/|u|²`; the builder writes
+  those two points into header slots 43–46 in f64, so every renderer evaluates an
+  ordinary linear ramp. The identity is not folded — the fold would round `s` onto the
+  axis line — so an untransformed gradient's record is the one it always was.
+* **A radial ramp's cannot fold** (a transformed circle is an ellipse): `G⁻¹` rides header
+  slots 57–62 as float32 bit patterns, the slots 27–32 convention, with its flag in 63,
+  and each renderer maps `q` through it per pixel. A radial ramp scaled by different
+  amounts in x and y is elliptical; without a transform it stays circular inside an
+  `Ellipse`.
+* **The focal circle.** With the centre `c = s`, the focus `f = c + focalOffset` and the
+  focal radius `fr`, `t` is the larger root of `|p − f − t·(c − f)|² = (fr + t·(r −
+  fr))²` at `p = G⁻¹q`: `(b − sqrt(b² − a·k)) / a` with `a = |c − f|² − (r − fr)²`,
+  `b = (p − f)·(c − f) + fr·(r − fr)` and `k = |p − f|² − fr²`, a negative discriminant
+  from rounding taken as 0. The builder clamps `fr` into `[0, r·(1 − 2⁻¹⁰)]` and the
+  offset to `|focalOffset| ≤ (r − fr)·(1 − 2⁻¹⁰)`, scaling it toward the centre, so
+  `a < 0` and the root always has `fr + t·(r − fr) ≥ 0`; the clamped offset and radius
+  are header slots 64–66. With no offset and no focal radius it is the plain
+  `length(p − c) / r`, bit for bit. SVG 2's cone for a focus outside the end circle is
+  not drawn: the focus is pulled just inside it.
+* **The spread** is applied to `t` before the stops, header slot 55: `Pad` leaves it for
+  the clamp to `0.0`..`1.0`; `Repeat` is `t − floor(t)`; `Reflect` is `u = t −
+  2·floor(t / 2)`, then `2 − u` when `u > 1`. `t` is held to ±1e9 first, where `floor`
+  still fits an `Integer`.
+* **The stroke.** With `FillAndStroke` (header slot 56) a stroke pixel takes the ramp
+  colour `g` at `q` tinted by `Paint.stroke` — the `Picture` tint, the stroke colour in
+  the fill's place: `tint = g.rgb · stroke.rgb / 255` truncating, `rgb = g + round((tint −
+  g) · stroke.a / 255)` rounded half away from zero, and alpha `g.a`. So a white stroke,
+  or any stroke colour at alpha 0, shows the plain ramp, and a zero-alpha stroke still
+  strokes (`__canvas_strokeHalf`); the header's stroke alpha keeps the raw alpha, since
+  the ramp's stops carry `transparency`'s fade. A `Line` or `Arc`, which has no
+  interior, is drawn in the tinted ramp; under `FillOnly` it and every outline stay the
+  flat stroke colour.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_GRADIENT_SPREAD]]
 
-* A **radial** gradient stays circular inside an `Ellipse` rather than becoming
-  elliptical — the ramp does not take the shape's proportions.
-* **`Paint.transform` does not carry the ramp.** A rotated item spins its shape through
-  a gradient that stays where the two points put it, so a rotating square appears to
-  sweep through the colours rather than to carry them round with it. To rotate a
-  gradient, rotate `startPoint` and `endPoint`.
+**On the GPUs** `surface.w` packs the kind with the spread and the stroke apply, `kind |
+spread << 1 | apply << 3`, and three `ivec4`s grow the item block to 368 bytes:
+`gradInv0`/`gradInv1` at 320/336 carry `G⁻¹` and its flag word for word, and
+`gradFocal` at 352 the focal offset and radius in 16.16. The shaders take `t` in fp32 at
+the fp32 inverse-mapped `q`, the same operations in the same order.
+[[src/codegen/runtime/canvas/mod.rs:ITEM_SURFACE_GRADIENT_KIND]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_GRADIENT_INV]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_GRADIENT_FOCAL]]
 
 **Stops are used in the order given.** They are not sorted. An `offset` outside
 `0.0`..`1.0`, or one that goes backwards, is clamped to the previous stop's offset
@@ -500,15 +768,10 @@ diagnosable, where sorting would silently draw a picture the program did not des
 Before the first stop and after the last, that end stop's colour holds; neither end
 extrapolates.
 
-**A gradient inside a `canvas::Group` moves with the group.** This is the one place
-the surface-anchored rule above is set aside, and deliberately: a group exists to be
-drawn somewhere else, and an item whose colours depend on where its group was placed is
-not reusable. `Paint.transform` still does not drag a gradient — that reshapes one item
-in place, which is a different thing from relocating a whole sub-picture.
-
-Concretely: the group's accumulated translation is subtracted from the point before `t`
-is computed, so the same group referenced at two offsets shows the same colours at
-corresponding points within it.
+**A gradient inside a `canvas::Group` moves with the group**, as everything in the
+item's own coordinates does: the group's accumulated translation is subtracted from the
+point before `t` is computed, so the same group referenced at two offsets shows the same
+colours at corresponding points within it.
 
 **A gradient interpolates in linear light**, the same space compositing uses, through
 the same 256-entry table. Between the two stops bracketing `t`, each channel is decoded
@@ -617,14 +880,13 @@ built, and removing a group does not invalidate any scene that names it.
 **A group is translated, not transformed.** The node carries two offsets and no matrix.
 `Paint.transform` on the group's own items covers reshaping, and the two compose in the
 order you would expect: the item is transformed in its own coordinates, then the group's
-translation places it. Two things are deliberately *not* carried along by that
-translation, and both follow from what they are:
+translation places it. Two things travel with that translation because of what they are:
 
-* **`Paint.clip` does not move** — it is a surface rectangle by definition, so a group
-  translates the shape *through* the clip.
-* **`Paint.fillGradient` does move**, which is the one place the surface-anchored rule is
-  set aside. A group exists to be drawn somewhere else, and an item whose colours depend
-  on where its group was placed would not be reusable.
+* **`Paint.clip` moves** — it is in the item's own coordinates, so a group places the
+  clipped item and its clip together.
+* **`Paint.gradient` moves too** — the ramp is in the item's own coordinates as well. A
+  group exists to be drawn somewhere else, and an item whose colours depend on where its
+  group was placed would not be reusable.
 
 **Groups may nest, to a depth of 64.** A nested `canvas::Group` stays a reference: it is
 resolved when the scene is presented, so replacing the inner group changes what the outer

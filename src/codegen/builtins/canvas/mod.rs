@@ -86,6 +86,7 @@ mod gen_system_fonts_windows;
 mod helper_clamp_byte;
 mod helper_color;
 mod helper_damage;
+mod helper_dashes;
 mod helper_draw;
 mod helper_font;
 mod helper_font_name;
@@ -93,6 +94,7 @@ mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
 mod helper_items;
+mod helper_joins;
 mod helper_paint_defaults;
 mod helper_png;
 mod helper_render;
@@ -167,7 +169,7 @@ DO WHILE running
 LOOP
 ```
 
-`present` **copies the whole scene** — item fields, polygon point lists, text
+`present` **copies the whole scene** — item fields, polygon rings, text
 strings, the `canvas::Paint` values. After it returns, the published scene is entirely
 its own, so you are free to change or discard whatever you built the list
 from.
@@ -430,36 +432,6 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_record(RegistryRecord {
-        name: "Bounds",
-        export: true,
-        description: "An axis-aligned rectangle in canvas pixels. A zero-area \
-                      `canvas::Bounds` (either extent `0.0`) means \"no rectangle\", which \
-                      is how an unset `canvas::Paint.clip` reads as unclipped.",
-        props: vec![
-            RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The left edge in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The top edge in pixels.",
-            },
-            RecordProp {
-                name: "w",
-                ty: ParameterType::Float,
-                description: "The width in pixels. `0.0` makes the rectangle empty.",
-            },
-            RecordProp {
-                name: "h",
-                ty: ParameterType::Float,
-                description: "The height in pixels. `0.0` makes the rectangle empty.",
-            },
-        ],
-    });
-
-    pkg.add_record(RegistryRecord {
         name: "TextMetrics",
         export: true,
         description: "The measured extent of a string in a given font and size, as \
@@ -543,7 +515,62 @@ pub(crate) fn register(r: &mut Registry) {
                               position on the ramp is its distance FROM the centre \
                               over that radius, so the ramp is circular whatever shape \
                               it fills — an ellipse's radial gradient does not become \
-                              elliptical.",
+                              elliptical unless the gradient's own `transform` \
+                              stretches it. `focalOffset` and `focalRadius` move where \
+                              the ramp starts off the centre.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
+        name: "GradientSpread",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Pad",
+                description: "Past either end of the ramp, keep that end's colour: the \
+                              first stop before the start and the last stop after the \
+                              end. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Reflect",
+                description: "Past the end, run the ramp backwards to the start, then \
+                              forwards again, and so on, so the colours mirror at each \
+                              end with no seam.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Repeat",
+                description: "Past the end, start the ramp again from the first stop, \
+                              so it repeats as stripes or rings with a hard edge where \
+                              the last stop meets the first.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
+        name: "GradientApply",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "FillOnly",
+                description: "The ramp colours the item's interior and its outline \
+                              stays the flat `canvas::Paint.stroke` colour. A \
+                              `canvas::Line` or `canvas::Arc`, which has no interior, \
+                              stays flat. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "FillAndStroke",
+                description: "The ramp colours the outline too, tinted by \
+                              `canvas::Paint.stroke` as a `canvas::Picture` is tinted \
+                              by its fill: the stroke colour's alpha is how strongly it \
+                              tints, so a white stroke, or any stroke colour with alpha \
+                              0, shows the plain ramp. A `canvas::Line` or \
+                              `canvas::Arc` is drawn in the tinted ramp.",
                 advisory: None,
             },
         ],
@@ -646,6 +673,58 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "Extend past the endpoint by a half-disc of the stroke's half-width, so a thick line ends in a dome rather than a corner.",
                 advisory: None,
             },
+            EnumVariant {
+                name: "Square",
+                description: "Extend past the endpoint by half the stroke's width and cut square there, so the stroke ends in a corner a little beyond the point.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
+        name: "JoinStyle",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Round",
+                description: "Round the outside of the corner with an arc of the stroke's half-width. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Miter",
+                description: "Extend the two edges' outlines until they meet in a point. A corner sharp enough that the point would reach past `canvas::Paint.miterLimit` is drawn as `Bevel` instead.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Bevel",
+                description: "Cut the corner off straight across, joining the two edges' outer outlines with one line.",
+                advisory: None,
+            },
+        ],
+    });
+
+    pkg.add_enum(RegistryEnum {
+        name: "FillRule",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "EvenOdd",
+                description: "A point is inside — filled by a `canvas::Polygon`, \
+                              kept by a `canvas::Paint.clip` — when a line from it \
+                              out to infinity crosses the rings an odd number of \
+                              times. A ring inside another is a hole, whichever way \
+                              either runs. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "NonZero",
+                description: "A point is inside — filled, or kept by a clip — when \
+                              the rings wind around it a non-zero number of times. A ring inside another is \
+                              more of the fill when both run the same way, and a \
+                              hole when they run opposite ways. SVG paths and \
+                              TrueType outlines are drawn this way.",
+                advisory: None,
+            },
         ],
     });
 
@@ -742,20 +821,20 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Gradient",
         export: true,
         description: "A colour ramp used as an item's interior instead of a flat \
-                      `canvas::Paint.fill`. **Fewer than two stops is not a \
-                      gradient** — the item falls back to `fill`, so the all-zero \
-                      value is inert like every other `canvas::Paint` field. One stop \
-                      is a flat colour you should write as `canvas::fill`, and zero \
-                      stops name no colour at all. The ramp is measured in surface \
-                      pixels — from its own two points, never from the shape's bounds \
-                      — so `canvas::Paint.transform` does **not** carry it: rotating an \
-                      item spins the shape through a ramp that stays where you put it. \
-                      That is also what keeps a radial gradient circular inside an \
-                      ellipse. Colours between two stops are mixed in \
-                      **linear light**, the same space everything else on the surface \
-                      is blended in, so a black-to-white ramp is evenly bright across \
-                      its width rather than dark for most of it — see \
-                      `mfb spec app canvas`.",
+                      `canvas::Paint.fill`, and with `strokeApply` its outline too. \
+                      **Fewer than two stops is not a gradient** — the item falls \
+                      back to `fill`, so the all-zero value is inert like every other \
+                      `canvas::Paint` field. One stop is a flat colour you should \
+                      write as `canvas::fill`, and zero stops name no colour at all. \
+                      The ramp is placed in the item's own coordinates, from its own \
+                      two points and never from the shape's bounds: the gradient's \
+                      `transform` maps it first, then the item's \
+                      `canvas::Paint.transform` and a group's translation, so a \
+                      rotated or moved item carries its ramp with it. Colours between \
+                      two stops are mixed in **linear light**, the same space \
+                      everything else on the surface is blended in, so a \
+                      black-to-white ramp is evenly bright across its width rather \
+                      than dark for most of it — see `mfb spec app canvas`.",
         props: vec![
             RecordProp {
                 name: "kind",
@@ -780,6 +859,50 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::list_of(ParameterType::named("GradientStop")),
                 description: "The colours along the ramp, in the order given.",
             },
+            RecordProp {
+                name: "spread",
+                ty: ParameterType::named("GradientSpread"),
+                description: "What the ramp does past its ends. `Pad`, the zero value, \
+                              keeps the end colours; `Reflect` mirrors the ramp and \
+                              `Repeat` starts it again.",
+            },
+            RecordProp {
+                name: "transform",
+                ty: ParameterType::named("Transform"),
+                description: "Maps the ramp before the item's own \
+                              `canvas::Paint.transform` does: scale, turn or shear the \
+                              gradient without touching the shape. Scaling a radial \
+                              gradient by different amounts in x and y makes it \
+                              elliptical. The all-zero value is the identity, and a \
+                              transform that flattens the ramp to a line is treated as \
+                              the identity, as for `canvas::Paint.transform`.",
+            },
+            RecordProp {
+                name: "focalOffset",
+                ty: ParameterType::named("Point"),
+                description: "Radial only: where the ramp starts, as an offset from \
+                              `startPoint` — an off-centre highlight on a sphere. The \
+                              zero value starts it at the centre. An offset that would \
+                              put the focus on or outside the outer circle is pulled \
+                              just inside it.",
+            },
+            RecordProp {
+                name: "focalRadius",
+                ty: ParameterType::Float,
+                description: "Radial only: the radius of the circle at the focus that \
+                              the ramp starts from, so the first stop's colour fills a \
+                              disc rather than a point. The zero value is a point. It \
+                              is held between `0.0` and just under the outer radius.",
+            },
+            RecordProp {
+                name: "strokeApply",
+                ty: ParameterType::named("GradientApply"),
+                description: "Whether the ramp colours the outline as well as the \
+                              interior. `FillOnly`, the zero value, leaves the outline \
+                              the flat `canvas::Paint.stroke`; `FillAndStroke` paints \
+                              it with the ramp tinted by the stroke colour, as a \
+                              `canvas::Picture` is tinted by its fill.",
+            },
         ],
     });
 
@@ -789,11 +912,13 @@ pub(crate) fn register(r: &mut Registry) {
         description: "How an item is filled, stroked, blended, transformed and \
                       clipped. A flat value threaded through each item — there is no \
                       ambient drawing state. Every field's zero value is that \
-                      field's no-op, and `canvas::fill`, `canvas::stroke` and \
+                      field's no-op — `miterLimit` aside, which only a `Miter` join \
+                      reads — and `canvas::fill`, `canvas::stroke` and \
                       `canvas::fillStroke` leave every field they do not name at that \
-                      zero — so `canvas::fill(c)` is a plain filled shape. Building a \
-                      `canvas::Paint` by name must list every field, so start from one \
-                      of those three and refine it with `WITH`.",
+                      zero, apart from a `miterLimit` of `4.0`, so `canvas::fill(c)` is \
+                      a plain filled shape. Building a `canvas::Paint` by name must \
+                      list every field, so start from one of those three and refine it \
+                      with `WITH`.",
         props: vec![
             RecordProp {
                 name: "fill",
@@ -844,35 +969,117 @@ pub(crate) fn register(r: &mut Registry) {
                               is smaller than 1e-12 — is treated as the identity \
                               instead, because there is no sensible picture of a \
                               shape with no area and silently drawing nothing is the \
-                              worse answer. `canvas::Paint.clip` is not transformed; \
-                              see its own description.",
+                              worse answer. It applies to `canvas::Paint.clip` and \
+                              `canvas::Paint.gradient` as well as to the item.",
             },
             RecordProp {
                 name: "clip",
-                ty: ParameterType::named("Bounds"),
-                description: "Restricts drawing to this rectangle. A zero-area \
-                              `canvas::Bounds` — the zero value — means no clipping, \
-                              and so does a negative width or height. The rectangle is \
-                              axis-aligned and given in surface pixels; \
-                              `canvas::Paint.transform` does not move it. Its edges \
-                              may fall between pixels, and a partly-covered pixel is \
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
+                description: "Restricts drawing to the area these rings enclose, \
+                              under `clipRule` — each ring a closed path of points, \
+                              as a `canvas::Polygon`'s `contours` are. The empty list, \
+                              the zero value, means no clipping. A clip that encloses \
+                              nothing, such as rings of fewer than two points, hides \
+                              the whole item. The rings are in the item's own \
+                              coordinates: `canvas::Paint.transform` and a group's \
+                              translation apply to the clip as well as to the item, \
+                              so a clipped item moves with its clip. Its edges may \
+                              fall between pixels, and a partly-covered pixel is \
                               drawn partly, exactly as a shape's own edge is.",
             },
             RecordProp {
-                name: "fillGradient",
+                name: "clipRule",
+                ty: ParameterType::named("FillRule"),
+                description: "Which points the `clip` rings enclose, as a \
+                              `canvas::Polygon`'s `rule` decides its fill: \
+                              `EvenOdd`, the zero value, makes a ring inside another \
+                              a hole; `NonZero` makes it a hole only when the two \
+                              run opposite ways.",
+            },
+            RecordProp {
+                name: "gradient",
                 ty: ParameterType::named("Gradient"),
                 description: "Fill the item with a colour ramp instead of the flat \
                               `fill`. A gradient with **fewer than two stops is \
                               ignored** and `fill` is used, which is what makes the \
                               zero value inert like every other field here. The ramp \
-                              is measured in surface pixels, from the gradient's own \
-                              two points — so `transform` does **not** carry it: \
-                              rotating an item spins the shape through a ramp that \
-                              stays where you put it. `stroke` is \
-                              unaffected — an outline is always a flat colour — and a \
-                              `canvas::Text` item ignores this field, because a glyph \
-                              is drawn from a cached coverage bitmap rather than from \
-                              a distance field.",
+                              is in the item's own coordinates, so `transform` carries \
+                              it: rotating an item turns its ramp with it. The outline \
+                              stays the flat `stroke` colour unless the gradient's \
+                              `strokeApply` is `FillAndStroke`. A `canvas::Text` item \
+                              ignores this field, because a glyph is drawn from a \
+                              cached coverage bitmap rather than from a distance \
+                              field; a `canvas::PolyLine` takes its colours from \
+                              `colors` and a `canvas::Picture` from its image.",
+            },
+            RecordProp {
+                name: "cap",
+                ty: ParameterType::named("CapStyle"),
+                description: "How each open end of the stroke is shaped: the two ends \
+                              of a `canvas::Line`, `canvas::Arc` or `canvas::PolyLine`, \
+                              and both ends of every dash. `Butt`, the zero value, \
+                              stops the stroke at the end; `Round` adds a half-disc \
+                              and `Square` half a square. A closed outline with no \
+                              dashes has no ends, so it ignores this.",
+            },
+            RecordProp {
+                name: "join",
+                ty: ParameterType::named("JoinStyle"),
+                description: "How the stroke turns a corner: where two edges of a \
+                              `canvas::Polygon` ring or a `canvas::PolyLine` meet, and \
+                              at the four corners of a `canvas::Rectangle` or \
+                              `canvas::Picture`. `Round`, the zero value, rounds the \
+                              outside of the corner. Circles, ellipses, arcs and \
+                              rounded rectangles have no corners and ignore it.",
+            },
+            RecordProp {
+                name: "miterLimit",
+                ty: ParameterType::Float,
+                description: "How sharp a `Miter` corner may be before it is drawn as \
+                              `Bevel` instead, as the longest the corner's point may \
+                              reach measured in stroke widths: a corner of interior \
+                              angle θ reaches `1 / sin(θ / 2)`. `canvas::fill`, \
+                              `canvas::stroke` and `canvas::fillStroke` set `4.0`, \
+                              which bevels corners sharper than about 29°. A value \
+                              below `1.0`, the zero value included, bevels every \
+                              corner.",
+            },
+            RecordProp {
+                name: "dashes",
+                ty: ParameterType::list_of(ParameterType::Float),
+                description: "Alternating dash and gap lengths along the outline, in \
+                              pixels before `transform`, starting with a dash. An odd \
+                              number of lengths is repeated once to make it even. An \
+                              empty list — the zero value — draws a solid stroke, and \
+                              so does a list whose lengths add up to `0.0` or that \
+                              holds a negative length. `cap` shapes both ends of \
+                              every dash. The pattern runs along the outline from its \
+                              start: a `canvas::Line`'s first point, a \
+                              `canvas::PolyLine`'s first point, an `canvas::Arc`'s \
+                              `startAngle`, each `canvas::Polygon` ring's own first \
+                              point, a `canvas::Rectangle`'s top-left corner, a \
+                              `canvas::RoundedRect`'s top edge where it leaves the \
+                              corner, and a `canvas::Circle`'s or `canvas::Ellipse`'s \
+                              rightmost point (before `angle`) — going clockwise \
+                              round every closed shape.",
+            },
+            RecordProp {
+                name: "dashOffset",
+                ty: ParameterType::Float,
+                description: "How far into the `dashes` pattern the outline starts, in \
+                              pixels. It may be negative or longer than the pattern; \
+                              the pattern repeats in both directions.",
+            },
+            RecordProp {
+                name: "transparency",
+                ty: ParameterType::Float,
+                description: "How see-through the whole item is: `0.0`, the zero \
+                              value, is opaque and `1.0` invisible, with values \
+                              outside that range treated as the nearer end. It fades \
+                              the fill, the stroke, a fill gradient, text and a \
+                              picture alike. The fill and the stroke fade \
+                              separately, so where they overlap the fill shows \
+                              through a faded stroke.",
             },
         ],
     });
@@ -910,7 +1117,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "A straight segment from one point to another. A line has no \
                       interior, so it is drawn from `paint.stroke`/`paint.strokeWidth` \
-                      and ignores `paint.fill`.",
+                      and ignores `paint.fill`; `paint.cap` shapes its two ends.",
         props: vec![
             RecordProp {
                 name: "x1",
@@ -932,13 +1139,6 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::Float,
                 description: "The ending point's Y coordinate in pixels.",
             },
-            RecordProp {
-                name: "cap",
-                ty: ParameterType::named("CapStyle"),
-                description: "How the two ends are shaped. `Round` extends the \
-                              stroke past each endpoint by a half-disc; `Butt` cuts \
-                              it square there.",
-            },
             paint_prop(),
         ],
     });
@@ -946,14 +1146,28 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Polygon",
         export: true,
-        description: "A closed polygon through the given points, in order. Fewer \
-                      than three points has no area and draws only its stroke.",
+        description: "A filled shape bounded by one or more closed rings of \
+                      points. Several rings make one shape: a ring inside another \
+                      can be a hole (an \"O\", a donut) or more of the fill, as \
+                      `rule` decides. The stroke outlines every ring. A ring of \
+                      fewer than three points has no area and adds only its \
+                      stroke; a ring of fewer than two adds nothing.",
         props: vec![
             RecordProp {
-                name: "points",
-                ty: ParameterType::list_of(ParameterType::named("Point")),
-                description: "The vertices in order. The polygon closes from the \
-                              last point back to the first automatically.",
+                name: "contours",
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
+                description: "The rings, each a list of vertices in order. Every \
+                              ring closes from its own last point back to its own \
+                              first point automatically. The direction a ring runs \
+                              in matters only under `FillRule.NonZero`.",
+            },
+            RecordProp {
+                name: "rule",
+                ty: ParameterType::named("FillRule"),
+                description: "Which points the rings enclose: `EvenOdd` makes a ring \
+                              inside another a hole whichever way it runs, and \
+                              `NonZero` makes it a hole only when it runs the \
+                              opposite way to the ring around it.",
             },
             paint_prop(),
         ],
@@ -990,7 +1204,8 @@ pub(crate) fn register(r: &mut Registry) {
                       angles. Angles are in **radians, measured clockwise from +X**; \
                       because Y increases downward, a `0.0`..`PI` arc sweeps below \
                       its centre (so that is the smile, not the frown). An arc has \
-                      no interior, so it is drawn from `paint.stroke`.",
+                      no interior, so it is drawn from `paint.stroke`; `paint.cap` \
+                      shapes its two ends.",
         props: vec![
             RecordProp {
                 name: "x",
@@ -1016,13 +1231,6 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "endAngle",
                 ty: ParameterType::Float,
                 description: "Where the arc ends, in radians clockwise from +X.",
-            },
-            RecordProp {
-                name: "cap",
-                ty: ParameterType::named("CapStyle"),
-                description: "How the two ends are shaped. `Butt` cuts the stroke \
-                              along the radius at each end; `Round` caps it with a \
-                              half-disc there.",
             },
             paint_prop(),
         ],
@@ -1072,10 +1280,14 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "An image drawn into a rectangle, scaled to fit it. Scaling picks \
                       the nearest image pixel, with no smoothing, so a small image drawn \
-                      large shows crisp blocks. The paint's fill colour tints the image — \
-                      each channel is multiplied by the fill's — so a white fill draws it \
-                      unchanged and the fill's alpha is how opaque it is; a fill gradient \
-                      is ignored. Stroke, clip, blend and transform work as they do on a \
+                      large shows crisp blocks. The paint's fill colour tints the image: \
+                      each channel moves towards the image's channel multiplied by the \
+                      fill's, by the fill's alpha — so the zero paint and a white fill \
+                      draw it unchanged, an opaque red fill keeps only its red, and a \
+                      half-transparent red fill goes halfway. How opaque the picture is \
+                      comes from `canvas::Paint.transparency`, never from the fill; a \
+                      fill gradient is ignored. Stroke, clip, blend and transform work \
+                      as they do on a \
                       `canvas::Rectangle`. Named `canvas::Picture` rather than `Image` \
                       because `Image` is the resource type this variant *names* — the two \
                       would collide.",
@@ -1231,15 +1443,15 @@ pub(crate) fn register(r: &mut Registry) {
         name: "PolyLine",
         export: true,
         description: "An open path through a list of points, stroked as one item. \
-                      Every corner where two segments meet is rounded, and `cap` \
-                      shapes the two ends. Give `colors` a colour per point and the \
+                      `paint.join` shapes every corner where two segments meet, and \
+                      `paint.cap` the two ends. Give `colors` a colour per point and the \
                       stroke blends from each point's colour to the next along the \
                       segment between them, so a trail that fades out is one item \
                       whose colours' alpha falls to zero, not one `canvas::Line` per \
                       segment. Colours mix in linear light, as a `canvas::Gradient`'s \
                       do. A path has no interior, so it is drawn from \
                       `paint.strokeWidth` and ignores `paint.fill` and \
-                      `paint.fillGradient`. Fewer than two points draws nothing.",
+                      `paint.gradient`. Fewer than two points draws nothing.",
         props: vec![
             RecordProp {
                 name: "points",
@@ -1248,7 +1460,7 @@ pub(crate) fn register(r: &mut Registry) {
                               `canvas::Polygon` for a closed shape. A point repeated \
                               in place adds nothing; if every point is the same one, \
                               the path draws what a zero-length `canvas::Line` with \
-                              the same `cap` draws.",
+                              the same `paint.cap` draws.",
             },
             RecordProp {
                 name: "colors",
@@ -1262,14 +1474,6 @@ pub(crate) fn register(r: &mut Registry) {
                               this list takes `paint.stroke`, and colours past the \
                               last point are ignored. With any colours given, the path \
                               draws even when `paint.stroke` is transparent.",
-            },
-            RecordProp {
-                name: "cap",
-                ty: ParameterType::named("CapStyle"),
-                description: "How the two ends are shaped. `Round` extends the \
-                              stroke past the first and last point by a half-disc; \
-                              `Butt` cuts it square there. The corners between \
-                              segments are always round.",
             },
             paint_prop(),
         ],
@@ -1402,6 +1606,8 @@ pub(crate) fn register(r: &mut Registry) {
     helper_glyph_cache::register(&mut pkg);
     helper_png::register(&mut pkg);
     helper_geometry::register(&mut pkg);
+    helper_dashes::register(&mut pkg);
+    helper_joins::register(&mut pkg);
     helper_items::register(&mut pkg);
     helper_surface::register(&mut pkg);
     helper_render::register(&mut pkg);
@@ -1788,7 +1994,8 @@ mod tests {
             "Paint",
             "Point",
             "Size",
-            "Bounds",
+            "FillRule",
+            "JoinStyle",
             "TextMetrics",
             "Transform",
             "BlendMode",

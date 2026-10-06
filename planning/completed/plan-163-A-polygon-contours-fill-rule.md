@@ -62,7 +62,7 @@ None. plan-163-A depends on no other plan or bug.
 
 | Must be true | Command | Status |
 |---|---|---|
-| No other plan-163 file claims the number | `ls planning/plan-163-* planning/completed/plan-163-*` → only this file | MET (2026-09-27) |
+| No other plan-163 file claims the number | `ls planning/plan-163-* planning/completed/plan-163-*` → only plan-163 letters | MET (2026-10-05: A, B, C, D — all letters of this plan, no foreign plan-163; see Corrections 1) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > every command before you continue, and again before you decide to stop.
@@ -409,56 +409,77 @@ This phase delivers the new record, rings and hashing. Every existing picture st
 byte-identical. It can land alone: after it, EvenOdd is the only rule that draws
 differently from HEAD, and it draws the same.
 
-- [ ] `mod.rs`: add the `FillRule` enum (mirror `CapStyle`'s descriptor, with a
+- [x] `mod.rs`: add the `FillRule` enum (mirror `CapStyle`'s descriptor, with a
       description per variant per §4). Replace Polygon's `points` prop with
       `contours: list_of(list_of(named("Point")))` and add `rule: named("FillRule")`
       before `paint_prop()`. Rewrite the record `description` for rings and rules
       (developer-facing, `.ai/man-content.md` bans apply).
-- [ ] `helper_geometry.rs:GEO_LAYOUT`: add `__CANVAS_GEO_POLYGON_RULE = 21`.
+- [x] `helper_geometry.rs:GEO_LAYOUT`: add `__CANVAS_GEO_POLYGON_RULE = 21`.
       `src/codegen/runtime/canvas/mod.rs`: add `HEADER_POLYGON_RULE`. Extend the two
       pin tests (`helper_geometry/tests/mod.rs:33–87`,
       `func_geo_build.rs:1690–1732`) to pin the new pair.
-- [ ] `helper_geometry.rs`: `__canvas_polygonHeader` and `__canvas_polygonEdges`
+      (`cargo test --bin mfb canvas` → 110 passed, both pins included.)
+- [x] `helper_geometry.rs`: `__canvas_polygonHeader` and `__canvas_polygonEdges`
       take the rings (and the rule, for the header) per §5. Update the three
       `CASE Polygon` arms (:1082, :1296, :1407). The hash arm folds
       `len(p.contours)`, then per ring `len` and its points, then `rule`, then paint.
-- [ ] `func_geo_build.rs`: `fill_polygon` iterates the outer list and each ring,
+- [x] `func_geo_build.rs`: `fill_polygon` iterates the outer list and each ring,
       wrapping within the ring. `emit_record_size`'s Polygon arm sums the contributing
       ring lengths. The rule ordinal is written to slot 21 (via `enum_ordinal`).
       Keep every per-edge instruction sequence unchanged (bit-identity with the
       MFBASIC builder).
-- [ ] `func_item_hash.rs:fold_list`: add an arm for an element that is itself a list
+      (`cargo test --test rt_canvas_geo_native` → 4 passed, `geoVerifyMismatches=0` over
+      the matrix with the six ring items g8–g13 added.)
+- [x] `func_item_hash.rs:fold_list`: add an arm for an element that is itself a list
       (recurse into `fold_list` per element). Keep the error for anything else.
-- [ ] Resolve the UNVERIFIED hash-parity item: `grep -rn "hashItem"
+- [x] Resolve the UNVERIFIED hash-parity item: `grep -rn "hashItem"
       tests src/codegen/builtins/canvas` for a native-vs-MFBASIC hash comparison. If
       one exists, it must pass for a two-ring polygon. If none exists, record that
-      here.
-- [ ] `src/codegen/collection/assign/self_update.rs:2502` (`("canvas.Polygon",
+      here. **None exists** (the grep finds only doc comments and the `.ir` golden), and
+      none can: `func_item_hash.rs` hashes every kind but Text/Group, and "a kind is
+      hashed by exactly one of the two paths, so their keys never have to agree". What
+      the cache needs instead — that the rings and the rule are in the key — is pinned
+      by the new `a_polygon_hash_covers_its_rings_and_rule` (`generations=1,2,3` → ok).
+- [x] `src/codegen/collection/assign/self_update.rs:2502` (`("canvas.Polygon",
       SIZE_VARIES)`), `tests/runtime/inplace_self_update/field_kinds.tsv:35`, and
       `field_kinds_gen.py:164` (`len(before.points)` → `len(before.contours)`).
       Regenerate the `.tsv` with the generator the file names rather than by hand.
-- [ ] Migrate every construction site in §2's table (59 = 65 minus 6 historical docs):
+      (Corrections 3: only the Polygon row is taken from the generator; the
+      `self_update.rs` row needed no change. `MFB_SELF_UPDATE_FILTER=canvas::Polygon
+      cargo test --release --test rt_inplace_self_update every_field_kind_meets_its_expectation
+      -- --ignored` → ok.)
+- [x] Migrate every construction site in §2's table (59 = 65 minus 6 historical docs):
       `points := X` → `contours := [X], rule := canvas::FillRule.EvenOdd`. This covers
       `tests/canvas/scenes/*.mfb`, the five Rust test files, the scripts and tools,
       and the `examples/`.
       Check: `grep -rnE "canvas::Polygon\[points" --exclude-dir=target
       --exclude-dir=.git --exclude-dir=planning --exclude-dir=bugs .` → 0.
-- [ ] Tests (new, in `tests/canvas/rt_canvas_rasteriser.rs`, hand-computed pixels
+      (57 sites rewritten by script + the generator line + the `.tsv` row = 59; the
+      check grep → 0.)
+- [x] Tests (new, in `tests/canvas/rt_canvas_rasteriser.rs`, hand-computed pixels
       from `MFB_CANVAS_DUMP`):
       - a square ring with a concentric square hole, EvenOdd: the hole's centre pixel
         is the background, and the band between the rings is the fill;
       - two disjoint rings in one item both fill;
       - a ring with 1 point next to a normal ring draws only the normal ring;
       - `contours := []` draws nothing and does not trap.
-- [ ] Test: a two-ring polygon published through `canvas::presentLayers` and
+      (`a_polygon_draws_each_of_its_rings` → ok; it also covers the 2-point ring.)
+- [x] Test: a two-ring polygon published through `canvas::presentLayers` and
       `canvas::setGroup`, then mutated after publish, still draws the published
       rings. This extends `rt_canvas_present_deep_copy.rs` (the first `List OF List`
       field through `copy_flat_block`).
-- [ ] Test: the same two-ring scene under `--debug` with `MFB_CANVAS_GEO_VERIFY=1`
+      (`published_polygon_rings_are_copied_not_aliased` → ok; Corrections 4.)
+- [x] Test: the same two-ring scene under `--debug` with `MFB_CANVAS_GEO_VERIFY=1`
       reports no `geoSame` mismatch (native builder == MFBASIC builder).
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` with
+      (Corrections 5: the ring items g8–g13 joined the GEO_VERIFY matrix, crossed with
+      every paint → `geoVerifyMismatches=0`.)
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` with
       `scripts/regen-native-goldens.sh` (expected to diff, §3). Before committing,
       inspect the `.ir` diff and confirm it is only the Polygon/FillRule type surface.
+      (`regen-native-goldens: 4 build(s), 6 golden(s) rewritten, 0 failure(s)`; the
+      `.ir` by `mfb build -ast -ir`, `.ast` unchanged. The `.ir` diff is the new
+      `canvas.FillRule` enum, the Polygon record, and the rewritten polygon helper
+      bodies — the helpers are in the IR, so their change is the predicted surface.)
 
 Acceptance: every existing polygon picture is unchanged and the new ring tests pass.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
@@ -468,19 +489,21 @@ Acceptance: every existing polygon picture is unchanged and the new ring tests p
   that build polygon geometry; nothing smaller covers both builders and the deep copy.
   Also `cargo test --bin mfb canvas` → pass (the pin tests and the frozen-variant test)
   (est. 3 min, guess).
-Commit: —
+  Result: the four binaries → 4 + 22 + 9 + 62 passed (2 ignored), `git status
+  tests/golden/canvas` clean; `cargo test --bin mfb canvas` → 110 passed.
+Commit: 33670189d
 
 ### Phase 2 — Software NonZero (the oracle)
 
 This phase delivers the rule in the software renderer, proven by hand-computed
 pixels. That proof has to exist before the GPUs are compared against it.
 
-- [ ] `helper_draw.rs:__canvas_edgeDistance`: read the rule slot and count windings
+- [x] `helper_draw.rs:__canvas_edgeDistance`: read the rule slot and count windings
       per §6. The EvenOdd statement sequence stays textually unchanged.
-- [ ] Update the doc comment on `__canvas_edgeDistance` and on
+- [x] Update the doc comment on `__canvas_edgeDistance` and on
       `helper_glyph.rs:12–18`. Glyphs still use even-odd, and the sentence must no
       longer say the rasteriser *only* counts even-odd.
-- [ ] Tests (`rt_canvas_rasteriser.rs`, hand-computed pixels):
+- [x] Tests (`rt_canvas_rasteriser.rs`, hand-computed pixels):
       - square with a same-direction inner square, NonZero: the centre is filled;
         under EvenOdd it is a hole;
       - square with an opposite-direction inner square, NonZero: the centre is a hole;
@@ -488,37 +511,55 @@ pixels. That proof has to exist before the GPUs are compared against it.
         under NonZero (winding 2) and a hole under EvenOdd;
       - a NonZero single-ring convex polygon gives the same pixels as EvenOdd
         (a symmetry check that does not rely on the oracle agreeing with itself).
-- [ ] New scene `tests/canvas/scenes/star_301_2_nonzero_on_black.mfb`: a copy of
+      (`non_zero_fills_by_winding_and_even_odd_by_parity` and
+      `a_convex_ring_draws_the_same_under_both_rules` → ok. The first fails on the
+      Phase 1 build, where the "same direction, NonZero" centre is a hole.)
+- [x] New scene `tests/canvas/scenes/star_301_2_nonzero_on_black.mfb`: a copy of
       `star_301_2_on_black.mfb` with `rule := canvas::FillRule.NonZero`, for the GPU
-      rows in Phase 3.
+      rows in Phase 3. Also added to `scripts/test-canvas-gpu-rows.sh` as row
+      `star301x2nz`, beside `star301x2`.
 
 Acceptance: NonZero fills by winding in the software renderer, and EvenOdd output is
 unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden` → pass, with
   goldens exact and unmodified (est. 6 min, guess).
-Commit: —
+  Result: 22 + 64 passed (2 ignored); `git status tests/golden/canvas` clean.
+Commit: befde7bb2
 
 ### Phase 3 — GPU NonZero (Metal and Vulkan; largest blast radius)
 
 This phase delivers the rule in both shaders. It is last because it edits two
 hand-kept shader twins and a checked-in binary that no test fully checks.
 
-- [ ] `src/codegen/runtime/canvas/mod.rs`: add `emit_item_polygon_rule` (§6). Call it
+- [x] `src/codegen/runtime/canvas/mod.rs`: add `emit_item_polygon_rule` (§6). Call it
       after `emit_item_arc_flags` in `metal.rs:emit_item_block` and
       `vulkan.rs:emit_item_block`.
-- [ ] `metal.rs:METAL_SHADER_BODY`: add signed-crossing variants of
+- [x] `metal.rs:METAL_SHADER_BODY`: add signed-crossing variants of
       `edgeToggles32`/`dfToggles`, change `edgeDistance` to a winding count with the
       `nonZero` argument, and pass `item.arc.y` at the `kind == 4` dispatch. Update the
       `arc.y` comment (:561, and the struct comment) to "arc reflex / polygon fill
-      rule".
-- [ ] `mfb_canvas.frag`: the same change, line for line with the MSL. Update the
-      `ItemBlock` `arc` comment.
-- [ ] Baseline first: `scripts/test-canvas-vulkan.sh tests/canvas/scenes/star_301_2_on_black.mfb`
+      rule". (Corrections 7: the boolean `edgeToggles32`/`dfToggles` had no other
+      caller, so they became the signed `edgeCrossing32`/`dfCrossing` rather than
+      gaining twins.)
+- [x] `mfb_canvas.frag`: the same change, line for line with the MSL. Update the
+      `ItemBlock` `arc` comment. (The `.vert` struct comment too; its SPIR-V is
+      unchanged.)
+- [x] Baseline first: `scripts/test-canvas-vulkan.sh tests/canvas/scenes/star_301_2_on_black.mfb`
       on box 2228 at HEAD, and record the result here. Then regenerate the SPIR-V with
       `scripts/regen-spirv.sh` (box 2228). Commit only the `.frag.spv` unless the
-      `.vert` changed.
-- [ ] Tests: add the Phase 2 NonZero scenes (ring-with-hole both directions, pentagram,
+      `.vert` changed. (Corrections 8: 2228 was down, so 2226 ran both. Baseline,
+      with the checked-in pre-change `.frag.spv`: `scripts/test-canvas-gpu-rows.sh
+      target/debug/mfb --target linux-aarch64 --rows star301x2` → `ok worst=1
+      differing=0.0319%`. Regenerated with `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`
+      (glslang 11:12.0.0): `.frag.spv` 115,916 → 117,384 bytes, `.vert.spv`
+      byte-identical (`cmp` → equal). `cargo test --bin mfb vulkan` → 9 passed.)
+- [x] Tests: add the Phase 2 NonZero scenes (ring-with-hole both directions, pentagram,
       `star_301_2_nonzero_on_black`) to `rt_canvas_metal.rs`'s scene rows.
+      (`a_short_edge_star_filled_non_zero_matches_the_software_oracle` and
+      `both_fill_rules_match_the_software_oracle_on_metal`, the latter over the new
+      shared scene `tests/canvas/scenes/fill_rules_on_black.mfb` — both ring directions
+      under both rules, both pentagrams, a stroked translucent three-ring item and a
+      transformed one — also row `fillrules` in `scripts/test-canvas-gpu-rows.sh`.)
 
 Acceptance: both GPUs draw both rules within tolerance of the software renderer.
   Check (Metal, local Mac): `cargo test --test rt_canvas_metal` → pass with
@@ -529,21 +570,39 @@ Acceptance: both GPUs draw both rules within tolerance of the software renderer.
   `star_301_2_on_black.mfb` → both within `GPU_DEFAULT` (est. 10 min, guess). Also
   `scripts/test-canvas-gpu-rows.sh tests/canvas/scenes/star_301_2_nonzero_on_black.mfb
   --target windows-x86_64` on box 206, the only real GPU (est. 10 min, guess).
-Commit: —
+  Result (Corrections 8 for the command form and the box):
+  * `cargo test --test rt_canvas_metal` → 40 passed; the two new rows assert
+    `gpuFrames≠0` through `assert_metal_draws_like_software`.
+  * Vulkan, box 2226 (lavapipe): `scripts/test-canvas-gpu-rows.sh target/debug/mfb
+    --target linux-aarch64 --rows star301x2,star301x2nz,fillrules,polygonsblack,matrix`
+    → all ok: star301x2 worst=1 0.0319%, star301x2nz worst=1 0.0299%, fillrules
+    worst=2 0.5753%, polygonsblack worst=1 0.1915%, matrix geoVerifyMismatches=0.
+  * Vulkan, box 206 (Intel UHD 630): `--target windows-x86_64 --rows
+    star301x2nz,fillrules` → star301x2nz worst=1 0.0344%, fillrules worst=2 0.5917%,
+    both `gpuFrames=1`.
+Commit: a04d0db67
 
 ### Phase 4 — Docs and spec
 
-- [ ] `src/docs/spec/app/06_canvas.md`: at :52, "a `Polygon`'s point list" → its
+- [x] `src/docs/spec/app/06_canvas.md`: at :52, "a `Polygon`'s point list" → its
       rings. At :179/:193–197, describe the crossing count under both rules and the
       signed-crossing test, citing `[[…:edgeDistance]]` and the new
       `[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYGON_RULE]]` and
       `[[…:emit_item_polygon_rule]]`. At :324–326, keep "no cap and no join style" and
       reword "the crossing-count fill rule" to name `Polygon.rule`. Add the item-block
       `arc.y` dual use where `ITEM_ARC_REFLEX` is cited (:219).
-- [ ] `func_present.rs:23` (the deep-copy paragraph): "a Polygon's point list" → its
-      rings.
-- [ ] `.ai/canvas-threading.md`: if it documents the item-block words or the header
-      slots, add the `arc.y`/slot-21 polygon use there.
+      (The rings-and-rule contract is a new paragraph after the cap/join one, citing
+      `GEO_LAYOUT`, `GEO_TAIL`, `fill_polygon`, `EDGE_DISTANCE` — the Rust const that
+      holds `__canvas_edgeDistance` — `HEADER_POLYGON_RULE` and both shaders'
+      `edgeCrossing32`.)
+- [x] `func_present.rs:23` (the deep-copy paragraph): "a Polygon's point list" → its
+      rings. (Also the same phrase in the package overview prose, `mod.rs:170`.)
+- [x] ~~`.ai/canvas-threading.md`: if it documents the item-block words or the header
+      slots, add the `arc.y`/slot-21 polygon use there.~~ — moot: it documents neither
+      (`grep -n "arc.y\|ITEM_ARC_REFLEX\|HEADER_AUX1\|slot 21\|reflex"
+      .ai/canvas-threading.md` → no hits); the per-word layout lives in
+      `runtime/canvas/mod.rs`, whose `ITEM_OFFSET_ARC`/`ITEM_ARC_REFLEX` docs now name the
+      polygon use.
 
 Acceptance: the man page and the spec render and cite correctly.
   Check: `mfb man canvas types` shows `FillRule` and the new Polygon fields;
@@ -551,7 +610,12 @@ Acceptance: the man page and the spec render and cite correctly.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min total, guess).
-Commit: —
+  Result: `mfb man canvas types` lists `canvas::FillRule` (EvenOdd, NonZero) and
+  Polygon's `contours`/`rule`; `man-census.sh --memory-scope` → `unclassified
+  memory-vocabulary hits: 0`; `man-run-examples.sh canvas --run` → `examples: 32 built:
+  32 ran: 32 … failed: 0`; `spec-census.sh --citations` → MISS-PATH/LINE/SYMBOL 0,
+  `--links` → `unresolved=0`; `cargo test --bin mfb spec` → 46 passed.
+Commit: 88caaa0b4
 
 ## Validation Plan
 
@@ -567,12 +631,17 @@ Commit: —
 - Runtime proof: an `--app` program that draws an "O" (outer ring clockwise, inner
   ring counter-clockwise) under both rules and a same-direction ring under both,
   screenshotted on macOS with `MFB_CANVAS_GPU=1`. The hole is visible in 3 of the 4
-  cases.
+  cases. **Done:** a `--debug` build run headless with `MFB_CANVAS_GPU=1
+  MFB_CANVAS_DUMP=…` (stats `metalReady=TRUE gpuFrames=1`), the Metal frame converted
+  to PNG and viewed: both "O"s and the same-direction pair under EvenOdd show the
+  hole; the same-direction pair under NonZero is filled.
 - Doc sync: Phase 4.
 - Final gate (run ONCE, after Phase 4): `cargo test --no-fail-fast` (est. 40 min,
   from plan-159-D's recorded run) and `bash scripts/artifact-gate.sh
   target/release/mfb all` → 0 diffs outside the predicted
   `tests/syntax/app/app-mouse-surface` set (est. 20 min). Any other diff is a bug hunt.
+  (Corrections 9: run once for the whole of plan-163, after its last letter, with this
+  letter's predictions included.)
 
 ## Open Decisions
 
@@ -585,7 +654,48 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **Prerequisites row.** Written when A was the only file; B, C and D are now letters
+   of the same plan, so "only this file" is read as "no foreign plan-163". Re-measured
+   2026-10-05: `ls planning/plan-163-*` → A, B, C, D.
+2. **Line numbers moved** between `8cbd0206a` and the execution base `f858ff14b`: the
+   self-update row is `self_update.rs:2735` (`("canvas.Polygon", SIZE_VARIES)`,
+   unchanged by this plan — a ring list is still size-varying), and the generator line is
+   `field_kinds_gen.py:166`.
+3. **`field_kinds.tsv` is not regenerated wholesale.** Running the generator
+   (`python3 tests/runtime/inplace_self_update/field_kinds_gen.py target/debug/mfb`)
+   rewrites 144 expectation tokens that bug-766 D flipped by hand (`b309807ec`; the
+   file's own header: "a letter that lands a kind flips its sites by hand"), so a
+   wholesale regeneration would re-baseline unrelated rows. Only the Polygon row's
+   setup and check columns were taken from the generator; its expectations are
+   unchanged and pass (filtered `--ignored` run → ok).
+4. **The deep-copy test is a runtime test.** `rt_canvas_present_deep_copy.rs` held only
+   build-only `-ncode` checks; the new test renders (its own small `MFB_CANVAS_DUMP`
+   harness) because "still draws the published rings" is a pixel claim. MFBASIC has no
+   record field assignment, so the in-place rewrite is `p = WITH p { contours := … }`.
+5. **GEO_VERIFY coverage** went into the existing matrix
+   (`tests/canvas/scenes/canvas_geo_native_matrix.mfb`, items g8–g13) rather than a
+   separate scene, so every ring case is crossed with every paint the matrix has.
+6. `HEADER_POLYGON_RULE` is referenced only by its pin test until Phase 3's
+   `emit_item_polygon_rule` reads it (a `dead_code` warning in the Phase 1–2 commits).
+7. **Signed crossings replace the boolean toggles** rather than sitting beside them:
+   `grep -n "edgeToggles32\|dfToggles"` over both shaders found `edgeDistance` as the
+   only caller, so keeping the boolean pair would have been dead code. The shaders sum a
+   winding number and take EvenOdd as `(winding & 1) != 0`, the same parity.
+8. **Vulkan commands and box.** `scripts/test-canvas-vulkan.sh` takes an mfb executable,
+   not a scene; the per-scene runner is `scripts/test-canvas-gpu-rows.sh <mfb>
+   --rows <name>`, so the two scenes are rows `star301x2nz` and `fillrules` there. Box
+   2228 refused connections for this run (`nc -z 127.0.0.1 2228` → refused) and
+   `utmctl` cannot start it from this session (OSStatus -1743), so the Linux Vulkan
+   rows and the SPIR-V compile ran on 2226 (Debian aarch64, lavapipe), which
+   `.ai/remote_systems.md` names as the fast Vulkan box and a SPIR-V compiler. The
+   baseline needed no detached build: an EvenOdd polygon's item block is unchanged by
+   this letter (slot 21 is 0, so the reflex word stays 0), so the pre-regeneration
+   binary with the old `.frag.spv` renders exactly what HEAD did.
+9. **The final gate runs once for plan-163, not per letter.** B, C and D each predict
+   their own final gate over the same two commands, and every letter of this plan is
+   executed in one integration worktree, so the tree-wide `cargo test --no-fail-fast` and
+   `artifact-gate.sh … all` run once after D, against every letter's predictions. A's
+   own acceptance checks above are all run and recorded.
 
 ## Summary
 

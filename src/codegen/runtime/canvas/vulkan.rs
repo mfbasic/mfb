@@ -40,13 +40,15 @@ use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
+// plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_residual_field, emit_item_stroke_sign, push_symbol_address,
-    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT,
-    CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
-    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
-    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
+    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
+    emit_square_cap_reach, push_symbol_address, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES,
+    BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE,
+    CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_PICTURE,
+    GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
+    GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
     GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
     GRAPHICS_OFFSET_VULKAN_DESC_SET, GRAPHICS_OFFSET_VULKAN_DEVICE,
     GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
@@ -80,6 +82,16 @@ use crate::codegen::runtime::canvas::{
     VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS, VULKAN_PICTURE_INDEX_OFFSET,
     VULKAN_PICTURE_INDEX_SLOTS, VULKAN_PICTURE_RECORDS, VULKAN_PICTURE_RECORDS_OFFSET,
     VULKAN_SPEC_CONSTANTS,
+};
+use crate::codegen::runtime::canvas::{
+    HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_DASH_COUNT,
+    HEADER_DASH_PHASE, HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV,
+    HEADER_GRADIENT_INV, HEADER_GRADIENT_SPREAD, HEADER_JOIN_COUNT, HEADER_JOIN_REACH,
+    HEADER_PICTURE_TRANSPARENCY, ITEM_CLIP_PATH_BASE, ITEM_CLIP_PATH_COUNT, ITEM_CLIP_PATH_MODE,
+    ITEM_CLIP_PATH_PICTURE_T, ITEM_OFFSET_CLIP_BAND, ITEM_OFFSET_CLIP_PATH,
+    ITEM_OFFSET_GRADIENT_FOCAL, ITEM_OFFSET_GRADIENT_INV, ITEM_OFFSET_STROKE_STYLE,
+    ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
+    VULKAN_DASH_BASE_WORDS, VULKAN_MAX_FRAME_DASH_WORDS,
 };
 use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
@@ -3621,6 +3633,11 @@ fn emit_item_block(
     for instruction in emit_item_arc_flags(header, off_item, &set, &done) {
         builder.emit(instruction);
     }
+    // plan-163-A: a polygon's fill rule over that word, which only an arc reads.
+    let rule_done = builder.label("vk_item_rule_done");
+    for instruction in emit_item_polygon_rule(header, off_item, &rule_done) {
+        builder.emit(instruction);
+    }
 
     // Both colours, as whole numbers.
     for (item_offset, first) in [
@@ -3697,6 +3714,57 @@ fn emit_item_block(
         ));
     }
 
+    // plan-163-D: a radial gradient's own inverse -- six float32 bit patterns and the
+    // flag, header slots 57-63 -- word for word into `gradInv0`/`gradInv1`, the
+    // transform's layout; and its focal offset and radius narrowed to 16.16 (`gradFocal`).
+    for index in 0..7 {
+        builder.emit(abi::load_double(
+            abi::FP_SCRATCH[1],
+            header,
+            (HEADER_GRADIENT_INV + index) * 8,
+        ));
+        builder.emit(abi::float_convert_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_GRADIENT_INV + index * 4,
+        ));
+    }
+    debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[2],
+        abi::SCRATCH[1],
+    ));
+    for index in 0..3 {
+        builder.emit(abi::load_double(
+            abi::FP_SCRATCH[1],
+            header,
+            (HEADER_GRADIENT_FOCAL_X + index) * 8,
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + ITEM_OFFSET_GRADIENT_FOCAL + index * 4,
+        ));
+    }
+
     // The blend tag, a whole 0..3 beside the surface size (plan-116-B). `Normal` is 0,
     // so an item that never set `Paint.blend` writes the value the pipeline it selects
     // has always had.
@@ -3720,10 +3788,44 @@ fn emit_item_block(
     // and the branch would cost more than it saves while giving the word two meanings
     // depending on how the item got here.
     // plan-116-F: the gradient's kind, a whole 0 or 1 in the block's last spare word.
+    // plan-163-D: packed with the spread and the stroke apply, `kind + 2 * spread + 8 *
+    // apply` (`ITEM_SURFACE_GRADIENT_KIND`), every term a small whole number.
     builder.emit(abi::load_double(
         abi::FP_SCRATCH[1],
         header,
         HEADER_GRADIENT_KIND * 8,
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[2],
+        header,
+        HEADER_GRADIENT_SPREAD * 8,
+    ));
+    builder.emit(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
+    builder.emit(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[2],
+        header,
+        HEADER_GRADIENT_APPLY * 8,
+    ));
+    for _ in 0..3 {
+        builder.emit(abi::float_add_d(
+            abi::FP_SCRATCH[2],
+            abi::FP_SCRATCH[2],
+            abi::FP_SCRATCH[2],
+        ));
+    }
+    builder.emit(abi::float_add_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[2],
     ));
     builder.emit(abi::float_convert_to_signed_x(
         abi::SCRATCH[1],
@@ -4155,7 +4257,7 @@ fn emit_edge_upload(
 
     // bug-688: the polygon's edges are in the region; index them by band.
     builder.emit(abi::label(&band));
-    emit_band_index(builder, bands);
+    emit_band_index(builder, bands, ITEM_BANDS);
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&empty));
@@ -4171,6 +4273,633 @@ fn emit_edge_upload(
         off_item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
     ));
 
+    builder.emit(abi::label(&done));
+}
+
+/// plan-163-B: the item's join records (`helper_joins.rs`) into the frame's edge region
+/// after its own edges, two edge slots per record -- each record's four points as eight
+/// 16.16 words, with their residuals at the residual region's same offsets, exactly as an
+/// edge's endpoints travel. `strokeStyle.x` is the first slot and `strokeStyle.y` the
+/// record count; both are 0 for an item with none, and so are the dash words. The
+/// records sit right before the gradient stops, so they are found from the record's end:
+/// `header + (slot1 - stops * 5 - records * 8) * 8`. Metal's `emit_join_buffer` twin.
+/// plan-163-C: the clip's item-block words -- `clipPath` = (first clip edge, clip edge
+/// count, mode | rule << 2, a picture's transparency step T) and `clipBand`'s band count
+/// 0 (the shader walks every clip edge) -- and a path clip's edges, copied from the
+/// record's tail (`slot1 − stops·5 − edges·5`, right before the stops) into the frame's
+/// edge region after the item's own edges and join records, as 16.16 words with their
+/// residuals, exactly as a polygon's edges are (`emit_edge_upload`). The frame-sum edge cap
+/// counts them, so the over-cap arm is unreachable; it leaves the edge count 0, which the
+/// shader reads as a clip enclosing nothing -- hidden, never drawn unclipped.
+fn emit_clip_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_edge_cursor: usize,
+    bands: &BandSlots,
+) {
+    let head = builder.label("vk_clip_head");
+    let done = builder.label("vk_clip_done");
+    let copy = builder.label("vk_clip_copy");
+    let banded = builder.label("vk_clip_banded");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[6];
+    let residual_target = abi::SCRATCH[1];
+    let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
+    let clip = off_item + ITEM_OFFSET_CLIP_PATH;
+    let band = off_item + ITEM_OFFSET_CLIP_BAND;
+
+    builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    for word in [0usize, 4, 8, 12] {
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            band + word,
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            clip + word,
+        ));
+    }
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    // mode | rule << 2, and T.
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_MODE * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[5],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_RULE * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        2,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[5],
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_MODE,
+    ));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_PICTURE_TRANSPARENCY * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_PICTURE_T,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[5], "2"));
+    builder.emit(abi::branch_ne(&done));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    builder.emit(abi::compare_immediate(count, "0"));
+    builder.emit(abi::branch_le(&done));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[5], count));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[8],
+        "Integer",
+        &VULKAN_MAX_FRAME_EDGES.to_string(),
+    ));
+    builder.emit(abi::compare_registers(abi::SCRATCH[7], abi::SCRATCH[8]));
+    builder.emit(abi::branch_le(&copy));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&copy));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_BASE,
+    ));
+    builder.emit(abi::store_u32(
+        count,
+        abi::stack_pointer(),
+        clip + ITEM_CLIP_PATH_COUNT,
+    ));
+    // target = mapped + base * 16; the residuals a fixed distance past it.
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[7],
+        abi::SCRATCH[5],
+        4,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[7]));
+    builder.emit(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
+    ));
+    builder.emit(abi::add_registers(residual_target, residual_target, target));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[5],
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[5],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
+    // source = header + (slot1 - stops * 5 - count * 5) * 8.
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, 8));
+    builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::add_registers(abi::SCRATCH[7], abi::SCRATCH[7], count));
+    builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
+    builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    builder.emit(abi::shift_left_immediate(source, source, 3));
+    builder.emit(abi::add_registers(source, header, source));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&banded));
+    for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
+        if let Some(delta) = delta {
+            builder.emit(abi::load_double(abi::FP_SCRATCH[2], source, delta * 8));
+            builder.emit(abi::float_add_d(
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[1],
+                abi::FP_SCRATCH[2],
+            ));
+        }
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[5], target, 0));
+        builder.emit(abi::add_immediate(target, target, 4));
+        builder.emit(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[5],
+        ));
+        builder.emit(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
+        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
+    }
+    builder.emit(abi::add_immediate(source, source, EDGE_SLOTS * 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+    // The clip's edges are in the region; index them by band.
+    builder.emit(abi::label(&banded));
+    emit_band_index(builder, bands, CLIP_BANDS);
+    builder.emit(abi::label(&done));
+}
+
+/// plan-163-B: copy this item's dash words into the frame buffer's dash region, and name
+/// the slice in its item block — `strokeStyle.z` the first word, `strokeStyle.w` the word
+/// count (`emit_join_upload` zeroed both, which the shader reads as a solid stroke).
+///
+/// The words are float32 bit patterns: the phase (header slot `HEADER_DASH_PHASE`), then
+/// the record's dash tail — the entry count, the period, each entry's end, and the kind's
+/// perimeter data (`helper_dashes.rs`) — found at `slot1 − stops·5 − dashes`, right before
+/// the gradient stops. Floats rather than 16.16: the pattern's lengths and an outline's
+/// perimeter positions are compared, never added to a coordinate, and fp32 holds a
+/// thousand-pixel perimeter to 6e-5 px. A frame whose words would pass the region's cap
+/// is declined by the predicate, so the over-cap arm is unreachable and leaves the stroke
+/// solid rather than write past the region.
+fn emit_dash_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_dash_cursor: usize,
+) {
+    let head = builder.label("vk_dash_head");
+    let done = builder.label("vk_dash_done");
+    let copy = builder.label("vk_dash_copy");
+    let header = abi::SCRATCH[0];
+    let count = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let cursor = abi::SCRATCH[5];
+    let target = abi::SCRATCH[6];
+    let style = off_item + ITEM_OFFSET_STROKE_STYLE;
+
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_DASH_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    builder.emit(abi::compare_immediate(count, "0"));
+    builder.emit(abi::branch_le(&done));
+    builder.emit(abi::load_u64(cursor, abi::stack_pointer(), off_dash_cursor));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], cursor, count));
+    builder.emit(abi::add_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[7],
+        "Integer",
+        &VULKAN_MAX_FRAME_DASH_WORDS.to_string(),
+    ));
+    builder.emit(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[7]));
+    builder.emit(abi::branch_le(&copy));
+    builder.emit(abi::branch(&done));
+
+    builder.emit(abi::label(&copy));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_dash_cursor,
+    ));
+    builder.emit(abi::store_u32(
+        cursor,
+        abi::stack_pointer(),
+        style + ITEM_STROKE_DASH_BASE,
+    ));
+    builder.emit(abi::add_immediate(abi::SCRATCH[7], count, 1));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[7],
+        abi::stack_pointer(),
+        style + ITEM_STROKE_DASH_COUNT,
+    ));
+    // target = mapped + (VULKAN_DASH_BASE_WORDS + cursor) * 4.
+    builder.emit(abi::add_immediate(
+        abi::SCRATCH[1],
+        cursor,
+        VULKAN_DASH_BASE_WORDS,
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        2,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
+    // The header again: the state load may have used the scratch bank.
+    builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_DASH_PHASE * 8,
+    ));
+    builder.emit(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::float_move_x_from_d(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(abi::SCRATCH[7], target, 0));
+    builder.emit(abi::add_immediate(target, target, 4));
+    // source = header + (slot1 - stops * 5 - count) * 8.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, 8));
+    builder.emit(abi::float_convert_to_signed_x(source, abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[8], "Integer", "5"));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
+    builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    // plan-163-C: the path clip's edges sit between the dashes and the stops.
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[7],
+        abi::SCRATCH[7],
+        abi::SCRATCH[8],
+    ));
+    builder.emit(abi::subtract_registers(source, source, abi::SCRATCH[7]));
+    builder.emit(abi::subtract_registers(source, source, count));
+    builder.emit(abi::shift_left_immediate(source, source, 3));
+    builder.emit(abi::add_registers(source, header, source));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 0));
+    builder.emit(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::float_move_x_from_d(
+        abi::SCRATCH[7],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(abi::SCRATCH[7], target, 0));
+    builder.emit(abi::add_immediate(target, target, 4));
+    builder.emit(abi::add_immediate(source, source, 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+    builder.emit(abi::label(&done));
+}
+
+fn emit_join_upload(
+    builder: &mut CodeBuilder,
+    off_state: usize,
+    off_item: usize,
+    off_header: usize,
+    off_edge_cursor: usize,
+) {
+    let head = builder.label("vk_join_head");
+    let done = builder.label("vk_join_done");
+    let none = builder.label("vk_join_none");
+    let copy = builder.label("vk_join_copy");
+    let records = abi::SCRATCH[2];
+    let index = abi::SCRATCH[3];
+    let source = abi::SCRATCH[4];
+    let target = abi::SCRATCH[5];
+    let slots = abi::SCRATCH[6];
+    let residual_target = abi::SCRATCH[1];
+    let scale = abi::FP_SCRATCH[0];
+    let residual_scale = abi::FP_SCRATCH[3];
+    let style = off_item + ITEM_OFFSET_STROKE_STYLE;
+
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for word in [ITEM_STROKE_DASH_BASE, ITEM_STROKE_DASH_COUNT] {
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            style + word,
+        ));
+    }
+    builder.emit(abi::load_u64(source, abi::stack_pointer(), off_header));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_JOIN_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(records, abi::FP_SCRATCH[1]));
+    builder.emit(abi::compare_immediate(records, "0"));
+    builder.emit(abi::branch_le(&none));
+    builder.emit(abi::shift_left_immediate(slots, records, 1));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[0], slots));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        &VULKAN_MAX_FRAME_EDGES.to_string(),
+    ));
+    builder.emit(abi::branch_le(&copy));
+    // Unreachable: `__canvas_vulkanRenderable` counts two edges per record and declines
+    // a frame whose total does not fit. Kept because the alternative is a write past the
+    // buffer; dropping the records draws the corners round, not a wrong shape.
+    builder.emit(abi::branch(&none));
+
+    builder.emit(abi::label(&copy));
+    builder.emit(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        style + ITEM_STROKE_JOIN_BASE,
+    ));
+    builder.emit(abi::store_u32(
+        records,
+        abi::stack_pointer(),
+        style + ITEM_STROKE_JOIN_COUNT,
+    ));
+    // target = mapped + cursor * 16; the cursor moves past the records' slots.
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        4,
+    ));
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
+        target,
+    );
+    builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
+    builder.emit(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], slots));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::move_immediate(
+        residual_target,
+        "Integer",
+        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
+    ));
+    builder.emit(abi::add_registers(residual_target, residual_target, target));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        EDGE_RESIDUAL_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(
+        residual_scale,
+        abi::SCRATCH[0],
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        FIXED_POINT_SCALE,
+    ));
+    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
+    // source = header + (slot1 - stops * 5 - dashes - records * 8) * 8: the dash tail
+    // (plan-163-B) sits between the records and the stops.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 8));
+    builder.emit(abi::float_convert_to_signed_x(index, abi::FP_SCRATCH[1]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_GRADIENT_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    builder.emit(abi::shift_left_immediate(abi::SCRATCH[0], records, 3));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_DASH_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    // plan-163-C: and the path clip's edges, five floats each, after the dashes.
+    builder.emit(abi::load_double(
+        abi::FP_SCRATCH[1],
+        source,
+        HEADER_CLIP_EDGE_COUNT * 8,
+    ));
+    builder.emit(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[7], "Integer", "5"));
+    builder.emit(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[7],
+    ));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    builder.emit(abi::shift_left_immediate(index, index, 3));
+    builder.emit(abi::add_registers(source, source, index));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(index, slots));
+    builder.emit(abi::branch_ge(&done));
+    for word in 0..4usize {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, word * 8));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+        builder.emit(abi::add_immediate(target, target, 4));
+        builder.emit(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[0],
+        ));
+        builder.emit(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
+        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
+    }
+    builder.emit(abi::add_immediate(source, source, 32));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&head));
+
+    builder.emit(abi::label(&none));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    for word in [ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT] {
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            style + word,
+        ));
+    }
     builder.emit(abi::label(&done));
 }
 
@@ -4211,8 +4940,34 @@ impl BandSlots {
     }
 }
 
+/// Which edge set a band index is built for: the item's own edges, its header in
+/// `arcCaps`, or (plan-163-C) a path clip's, its header in `clipBand` -- Metal's
+/// `BandSet`, with offsets into the block rather than into Metal's frame.
+#[derive(Clone, Copy)]
+struct BandSet {
+    count: usize,
+    base: usize,
+    header: usize,
+    clip: bool,
+}
+
+const ITEM_BANDS: BandSet = BandSet {
+    count: ITEM_OFFSET_MISC + 12,
+    base: ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
+    header: ITEM_OFFSET_ARC_CAPS,
+    clip: false,
+};
+
+const CLIP_BANDS: BandSet = BandSet {
+    count: ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_COUNT,
+    base: ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_BASE,
+    header: ITEM_OFFSET_CLIP_BAND,
+    clip: true,
+};
+
 /// Build this polygon's band index in the shared buffer's band region and write its
-/// header into the item block's `arcCaps` (bug-688; layout at `VULKAN_BAND_BASE_WORDS`).
+/// header into the item block's `arcCaps` (bug-688; layout at `VULKAN_BAND_BASE_WORDS`)
+/// -- or a path clip's into `clipBand` (`set`).
 ///
 /// The Vulkan port of Metal's `emit_band_index` (bug-686 section G), the same algorithm
 /// step for step, so a polygon's bands — and therefore its pixels — are the same on both
@@ -4261,16 +5016,16 @@ impl BandSlots {
 ///   `cvtsd2si` returns `i64::MIN` for anything out of range, which that bound does not.
 /// * No calls; `SCRATCH[0..=8]` only, and no `compare_immediate` against a constant wider
 ///   than 12 bits (on AArch64 its encoding borrows x16/x17, which are `SCRATCH[7]`/`[8]`).
-fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
+fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: BandSet) {
     let none = builder.label("vk_band_none");
     let done = builder.label("vk_band_done");
     let s = abi::SCRATCH;
     let f = abi::FP_SCRATCH;
-    let block = |field: usize| at.item + ITEM_OFFSET_ARC_CAPS + field;
+    let block = |field: usize| at.item + set.header + field;
     let sp = abi::stack_pointer;
 
     // --- which polygons: E >= BAND_MIN_EDGES --------------------------------------
-    builder.emit(abi::load_u32(s[2], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::load_u32(s[2], sp(), at.item + set.count));
     builder.emit(abi::move_immediate(
         s[3],
         "Integer",
@@ -4280,11 +5035,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     builder.emit(abi::branch_lt(&none));
 
     // --- the edges: P = mapped + base*16, END = P + E*16 ------------------------------
-    builder.emit(abi::load_u32(
-        s[0],
-        sp(),
-        at.item + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
-    ));
+    builder.emit(abi::load_u32(s[0], sp(), at.item + set.base));
     builder.emit(abi::shift_left_immediate(s[0], s[0], 4));
     emit_state_load(builder, at.state, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, s[1]);
     builder.emit(abi::add_registers(s[0], s[0], s[1]));
@@ -4326,6 +5077,14 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     // --- the reach r (f1) and the minimum band height (f4), in shape units --------
     builder.emit(abi::load_u64(s[0], sp(), at.header));
     builder.emit(abi::load_double(f[1], s[0], HEADER_STROKE_HALF * 8));
+    // plan-163-C: a clip's coverage clamps at `|d| >= 0.5` -- no stroke reaches past it --
+    // so its half-width is 0 (and its own cap and join reach do not apply).
+    let stroke_reach_done = builder.label("vk_band_stroke_reach_done");
+    if set.clip {
+        builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+        builder.emit(abi::signed_convert_to_float_d(f[1], s[4]));
+        builder.emit(abi::branch(&stroke_reach_done));
+    }
     // plan-154-C: a PolyLine keeps its half-width in the RADIUS slot (it is
     // stroke-as-fill, slot 7 is -1); a polygon never writes that slot, so its reach is
     // unchanged. Metal's `emit_band_index` takes the same maximum.
@@ -4335,6 +5094,16 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
     // `fmaxnm`: a NaN half-width reads as 0 rather than poisoning the reach.
     builder.emit(abi::float_max_d(f[1], f[1], f[2]));
+    // plan-163-B: a Square cap reaches `half * sqrt(2)` past its endpoint.
+    let square_reach = builder.label("vk_band_square_reach");
+    for instruction in emit_square_cap_reach(s[0], f[1], s[4], f[2], &square_reach) {
+        builder.emit(instruction);
+    }
+    // plan-163-B: and to a join record's reach (0 for an item with none), so a miter's
+    // point in a row's band is reached through the edge it sits at the start of.
+    builder.emit(abi::load_double(f[2], s[0], HEADER_JOIN_REACH * 8));
+    builder.emit(abi::float_max_d(f[1], f[1], f[2]));
+    builder.emit(abi::label(&stroke_reach_done));
     builder.emit(abi::move_immediate(s[4], "Integer", "3"));
     builder.emit(abi::signed_convert_to_float_d(f[2], s[4]));
     builder.emit(abi::move_immediate(s[4], "Integer", "2"));
@@ -4444,7 +5213,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     // --- height = max(minimum, ceil(span / (min(E, BAND_MAX) - 1))) -----------------
     // At most `min(E, BAND_MAX)` bands: span / height <= that - 1.
     let bands_capped = builder.label("vk_band_bands_capped");
-    builder.emit(abi::load_u32(s[6], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::load_u32(s[6], sp(), at.item + set.count));
     builder.emit(abi::move_immediate(s[7], "Integer", &BAND_MAX.to_string()));
     builder.emit(abi::compare_registers(s[6], s[7]));
     builder.emit(abi::branch_le(&bands_capped));
@@ -4486,7 +5255,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots) {
     builder.emit(abi::add_immediate(s[0], s[0], 16));
     builder.emit(abi::branch(&size_head));
     builder.emit(abi::label(&size_done));
-    builder.emit(abi::load_u32(s[4], sp(), at.item + ITEM_OFFSET_MISC + 12));
+    builder.emit(abi::load_u32(s[4], sp(), at.item + set.count));
     builder.emit(abi::move_immediate(
         s[5],
         "Integer",
@@ -5263,13 +6032,38 @@ fn emit_split_or_publish(
     // ...and actually fills (fill alpha > 0). A `Line` or an `Arc` reaches here with
     // its stroke colour already moved into the fill slots and `strokeHalf` negative
     // (`__canvas_strokeAsFill`), so it is fill-only and takes the single path.
+    //
+    // plan-163-D: "fills" is a visible fill alpha, OR a gradient (its ramp is the fill
+    // colour whatever the fill alpha), OR a picture (its image is, and since plan-163-C
+    // its fill alpha is only the tint's strength). Testing the fill alpha alone sent a
+    // blended stroked gradient or picture with a transparent fill down the single path,
+    // composing stroke over fill in the shader under a mode where that is wrong.
+    let fills = builder.label("vk_publish_fills");
     builder.emit(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_item + ITEM_OFFSET_FILL + 12,
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    builder.emit(abi::branch_le(&single));
+    builder.emit(abi::branch_gt(&fills));
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_ELLIPSE + ITEM_ELLIPSE_GRADIENT_COUNT,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "2"));
+    builder.emit(abi::branch_ge(&fills));
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC,
+    ));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[0],
+        &GEO_KIND_PICTURE.to_string(),
+    ));
+    builder.emit(abi::branch_ne(&single));
+    builder.emit(abi::label(&fills));
 
     // Record one: the fill, with the stroke switched off.
     //
@@ -5320,7 +6114,16 @@ fn emit_split_or_publish(
     ));
 
     // Record two: the stroke, with the fill made fully transparent.
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    // plan-163-D: marked OFF -- alpha -1, which every shader reads as "no fill in this
+    // record" -- rather than made transparent: a gradient's or a picture's colour does
+    // not come from the fill alpha, so a zero there left record two drawing the ramp or
+    // the image a second time under the blend. The stroke still reads the ramp
+    // (`FillAndStroke`). Spelled unsigned; the store keeps the low 32 bits.
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        "4294967295",
+    ));
     builder.emit(abi::store_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -6178,6 +6981,8 @@ pub(crate) fn emit_vulkan_draw_scene(
     // The frame's gradient-stop cursor — the third region's twin of the edge one,
     // counted in STOPS rather than words so the arithmetic below matches the shader's.
     let off_grad_cursor = builder.allocate_stack_object("vk_grad_cursor", 8);
+    // plan-163-B: the frame's dash-region cursor, in words.
+    let off_dash_cursor = builder.allocate_stack_object("vk_dash_cursor", 8);
     // The frame's item-buffer cursor, and the base of the instanced run currently being
     // accumulated. `run_count` is scratch for the flush, which has to compute
     // `cursor - run_start` somewhere the argument staging cannot clobber.
@@ -6687,6 +7492,11 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_grad_cursor,
     ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_dash_cursor,
+    ));
     // bug-688: an empty picture table. Nothing in the table itself is cleared -- a slot
     // is live only below this count (`emit_picture_lookup`).
     builder.emit(abi::store_u64(
@@ -6893,6 +7703,19 @@ pub(crate) fn emit_vulkan_draw_scene(
 
     emit_item_block(builder, off_item, off_width, off_height);
     emit_edge_upload(
+        builder,
+        off_state,
+        off_item,
+        off_header,
+        off_edge_cursor,
+        &bands,
+    );
+    // plan-163-B: after the item's own edges, so its join records follow them; then the
+    // dash words, after the join upload has zeroed their block words.
+    emit_join_upload(builder, off_state, off_item, off_header, off_edge_cursor);
+    emit_dash_upload(builder, off_state, off_item, off_header, off_dash_cursor);
+    // plan-163-C: the clip's words and a path clip's edges, after the join records.
+    emit_clip_upload(
         builder,
         off_state,
         off_item,
@@ -8260,6 +9083,8 @@ mod tests {
             ("BAND_BASE", VULKAN_BAND_BASE_WORDS),
             // bug-687: the polygon vertices' residual words.
             ("EDGE_RESIDUAL_BASE", VULKAN_EDGE_RESIDUAL_BASE_WORDS),
+            // plan-163-B: the dash words.
+            ("DASH_BASE", VULKAN_DASH_BASE_WORDS),
         ];
         assert_eq!(
             VULKAN_SPEC_CONSTANTS.len(),
@@ -8341,10 +9166,17 @@ mod tests {
             "the gradient region must start where the band region ends",
         );
         end += VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4;
+        // plan-163-B put the dash words between the gradient stops and the glyphs.
+        assert_eq!(
+            VULKAN_DASH_BASE_WORDS * 4,
+            end,
+            "the dash region must start where the gradient region ends",
+        );
+        end += VULKAN_MAX_FRAME_DASH_WORDS * 4;
         assert_eq!(
             VULKAN_GLYPH_BASE_WORDS * 4,
             end,
-            "the glyph region must start where the gradient region ends",
+            "the glyph region must start where the dash region ends",
         );
         end += VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4;
         assert_eq!(

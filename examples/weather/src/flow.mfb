@@ -561,7 +561,7 @@ FUNC windKey(face AS canvas::Font, size AS Float, left AS Float, top AS Float) A
 
   MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
   LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
-  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, cap := canvas::CapStyle.Butt, paint := canvas::stroke(KEY_EDGE, 1.0)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }]
   items = collections::append(items, [heading, divider])
 
   LET numberX AS Float = left + pad
@@ -575,9 +575,9 @@ FUNC windKey(face AS canvas::Font, size AS Float, left AS Float, top AS Float) A
     IF NOT isShown(h) THEN alpha = 70
     LET slow AS color::Color = color::withAlpha(speedColor(0.0, h), alpha)
     LET fast AS color::Color = color::withAlpha(speedColor(FAST_JET, h), alpha)
-    LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := blockX, y := 0.0], endPoint := canvas::Point[x := blockX + blockWidth, y := 0.0], stops := [canvas::GradientStop[offset := 0.0, color := slow], canvas::GradientStop[offset := 1.0, color := fast]]]
+    LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := blockX, y := 0.0], endPoint := canvas::Point[x := blockX + blockWidth, y := 0.0], stops := [canvas::GradientStop[offset := 0.0, color := slow], canvas::GradientStop[offset := 1.0, color := fast]], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
     LET number AS canvas::DrawItem = canvas::Text[x := numberX, y := textY, text := toString(heightIndex(h) + 1), font := face, size := labelSize, paint := canvas::fill(color::withAlpha(KEY_TITLE_COLOR, alpha))]
-    LET block AS canvas::DrawItem = canvas::RoundedRect[x := blockX, y := middle - blockHeight / 2.0, w := blockWidth, h := blockHeight, cornerRadius := blockHeight / 2.0, paint := WITH canvas::fill(slow) { fillGradient := ramp }]
+    LET block AS canvas::DrawItem = canvas::RoundedRect[x := blockX, y := middle - blockHeight / 2.0, w := blockWidth, h := blockHeight, cornerRadius := blockHeight / 2.0, paint := WITH canvas::fill(slow) { gradient := ramp }]
     LET name AS canvas::DrawItem = canvas::Text[x := nameX, y := textY, text := heightName(h), font := face, size := labelSize, paint := canvas::fill(color::withAlpha(KEY_LABEL_COLOR, alpha))]
     items = collections::append(items, [number, block, name])
   NEXT
@@ -599,7 +599,7 @@ END FUNC
 ' It builds the item and nothing else; the caller appends it to the frame's
 ' items.
 FUNC trailPath(run AS List OF canvas::Point, colors AS List OF color::Color, tint AS color::Color) AS canvas::DrawItem
-  RETURN canvas::PolyLine[points := run, colors := colors, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 1.35)]
+  RETURN canvas::PolyLine[points := run, colors := colors, paint := WITH canvas::stroke(tint, 1.35) { cap := canvas::CapStyle.Round }]
 END FUNC
 
 ' Every particle's trail, in window coordinates, as one PolyLine per unbroken

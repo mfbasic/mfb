@@ -58,7 +58,7 @@ END FUNC"#;
 /// coverage path as its curved sides. Branching would have left them hard.
 #[rustfmt::skip]
 const GEO_DISTANCE: &str =
-r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float, ca AS Float, sa AS Float) AS Float
+r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float, ca AS Float, sa AS Float, dashed AS Boolean) AS Float
   IF kind = __CANVAS_KIND_RECT THEN
     RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3) - radius
   END IF
@@ -66,6 +66,13 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     LET cdx AS Float = px - p0
     LET cdy AS Float = py - p1
     RETURN math::sqrt(cdx * cdx + cdy * cdy) - p2 - radius
+  END IF
+  ' plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke (`helper_dashes.rs`);
+  ' `dashed` is read once per item, so an undashed one pays one test.
+  IF dashed THEN
+    IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYLINE THEN
+      RETURN __canvas_dashedStroke(kind, tail - __CANVAS_GEO_HEADER, px, py, radius)
+    END IF
   END IF
   IF kind = __CANVAS_KIND_SEGMENT THEN
     ' plan-116-D. Round is 1 and is what a Line did before this letter, so the branch
@@ -79,6 +86,11 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     ' of subtracting afterwards instead.
     IF cap = 1 THEN
       RETURN __canvas_segmentDistance(px, py, p0, p1, p2, p3) - radius
+    END IF
+    ' plan-163-B: Square (2) is the butt cut moved out by the half-width, measured as a
+    ' rectangle so its corners stay square (`__canvas_segmentDistanceSquare`).
+    IF cap = 2 THEN
+      RETURN __canvas_segmentDistanceSquare(px, py, p0, p1, p2, p3, radius)
     END IF
     RETURN __canvas_segmentDistanceButt(px, py, p0, p1, p2, p3, radius)
   END IF
@@ -94,6 +106,12 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     ' one that returns here, and a butt arc is byte-for-byte what it was.
     IF cap = 0 THEN
       RETURN arcD
+    END IF
+    ' plan-163-B: Square unions a half-width box past each sweep endpoint, along the
+    ' tangent there (`__canvas_arcSquareCap`).
+    IF cap = 2 THEN
+      arcD = __canvas_minF(arcD, __canvas_arcSquareCap(px, py, capSX, capSY, p0, p1, radius, FALSE))
+      RETURN __canvas_minF(arcD, __canvas_arcSquareCap(px, py, capEX, capEY, p0, p1, radius, TRUE))
     END IF
     ' Round unions a disc of the stroke's half-width at each sweep endpoint. A union of
     ' SDFs is their `min`, and the endpoints are per-shape constants the header carries
@@ -131,11 +149,28 @@ END FUNC"#;
 ///
 /// The cost is `O(edges)` per pixel instead of `O(1)`, which is the right trade for a
 /// primitive whose scenes have a handful of vertices.
+///
+/// **The sign follows the polygon's `FillRule`** (plan-163-A), read once from header
+/// slot `__CANVAS_GEO_POLYGON_RULE` at `tail - __CANVAS_GEO_HEADER` (the
+/// `__canvas_polylineScan` precedent). Both rules use the same crossing test — an edge
+/// crosses when it straddles the pixel's row and passes left of the pixel. `EvenOdd`
+/// flips `inside` per crossing, the statement sequence it has always had; `NonZero`
+/// instead adds +1 for a crossing edge running down the screen (`by > ay`) and -1 for
+/// one running up, and the pixel is inside when the sum is not zero. The sign convention
+/// is invisible (only zero-or-not is observed) but both shaders use the same one. Stroked
+/// text is a polygon whose slot 21 is 0, so glyphs stay even-odd.
 #[rustfmt::skip]
 const EDGE_DISTANCE: &str =
 r#"FUNC __canvas_edgeDistance(tail AS Integer, edges AS Integer, px AS Float, py AS Float) AS Float
+  RETURN __canvas_edgeDistanceRule(tail, edges, px, py, collections::getOr(__CANVAS_GEO_DATA, tail - __CANVAS_GEO_HEADER + __CANVAS_GEO_POLYGON_RULE, 0.0) <> 0.0)
+END FUNC
+
+' plan-163-C: the same walk over any edge set under an explicit rule -- a path clip's
+' edges under its `clipRule` (`__canvas_clipPathDistance`).
+FUNC __canvas_edgeDistanceRule(tail AS Integer, edges AS Integer, px AS Float, py AS Float, nonZero AS Boolean) AS Float
   MUT best AS Float = 1000000.0
   MUT inside AS Boolean = FALSE
+  MUT winding AS Integer = 0
   MUT e AS Integer = 0
   WHILE e < edges
     LET base AS Integer = tail + e * 5
@@ -154,11 +189,22 @@ r#"FUNC __canvas_edgeDistance(tail AS Integer, edges AS Integer, px AS Float, py
     IF (ay > py) <> (by > py) THEN
       LET u AS Float = (py - ay) / dy
       IF px < ax + u * dx THEN
-        inside = NOT inside
+        IF nonZero THEN
+          IF by > ay THEN
+            winding = winding + 1
+          ELSE
+            winding = winding - 1
+          END IF
+        ELSE
+          inside = NOT inside
+        END IF
       END IF
     END IF
     e = e + 1
   END WHILE
+  IF nonZero THEN
+    inside = winding <> 0
+  END IF
   IF inside THEN
     RETURN 0.0 - best
   END IF
@@ -197,6 +243,11 @@ r#"FUNC __canvas_polylineScan(tail AS Integer, edges AS Integer, px AS Float, py
   LET offset AS Integer = tail - __CANVAS_GEO_HEADER
   LET first AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_POLYLINE_FIRST, 0.0))
   LET last AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_POLYLINE_LAST, 0.0))
+  ' plan-163-B: with join records the inner ends are cut butt and the corners are the
+  ' records; the colour parameter still comes from the round walk, so it stays
+  ' continuous round a corner.
+  LET joins AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
+  MUT joined AS Float = 1000000.0
   MUT best AS Float = 1000000.0
   MUT bestParam AS Float = 0.0
   MUT e AS Integer = first
@@ -215,9 +266,34 @@ r#"FUNC __canvas_polylineScan(tail AS Integer, edges AS Integer, px AS Float, py
         t = (wx * vx + wy * vy) / len2
       END IF
       LET clamped AS Float = __canvas_minF(__canvas_maxF(t, 0.0), 1.0)
-      LET dx AS Float = wx - vx * clamped
-      LET dy AS Float = wy - vy * clamped
+      ' plan-163-B: a square OUTER end measures past its endpoint to the segment's line
+      ' (an unclamped `t` there), so its corners are not rounded; an inner end stays
+      ' round, which is the corner's join.
+      MUT at AS Float = clamped
+      IF cap = 2 THEN
+        IF e = first AND t < 0.0 THEN
+          at = t
+        END IF
+        IF e = last AND t > 1.0 THEN
+          at = t
+        END IF
+      END IF
+      LET dx AS Float = wx - vx * at
+      LET dy AS Float = wy - vy * at
       MUT d AS Float = math::sqrt(dx * dx + dy * dy) - half
+      IF cap = 2 THEN
+        IF len2 > 0.0 THEN
+          LET length AS Float = math::sqrt(len2)
+          IF e = first THEN
+            d = __canvas_maxF(d, 0.0 - t * length - half)
+          END IF
+          IF e = last THEN
+            d = __canvas_maxF(d, (t - 1.0) * length - half)
+          END IF
+        ELSE
+          d = __canvas_maxF(__canvas_absF(wx), __canvas_absF(wy)) - half
+        END IF
+      END IF
       IF cap = 0 THEN
         LET length AS Float = math::sqrt(len2)
         IF e = first THEN
@@ -231,11 +307,27 @@ r#"FUNC __canvas_polylineScan(tail AS Integer, edges AS Integer, px AS Float, py
         best = d
         bestParam = (toFloat(e) + clamped) / toFloat(edges)
       END IF
+      IF joins > 0 THEN
+        MUT dj AS Float = d
+        IF len2 > 0.0 THEN
+          LET inner AS Float = math::sqrt(len2)
+          IF e <> first THEN
+            dj = __canvas_maxF(dj, 0.0 - t * inner)
+          END IF
+          IF e <> last THEN
+            dj = __canvas_maxF(dj, (t - 1.0) * inner)
+          END IF
+        END IF
+        joined = __canvas_minF(joined, dj)
+      END IF
     END IF
     e = e + 1
   END WHILE
   IF wantParam THEN
     RETURN bestParam
+  END IF
+  IF joins > 0 THEN
+    RETURN __canvas_minF(joined, __canvas_joinsDistance(offset, px, py))
   END IF
   RETURN best
 END FUNC"#;

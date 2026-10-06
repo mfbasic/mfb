@@ -38,7 +38,7 @@ FUNC main() AS Nothing
     LET top AS Float = toFloat((k / 14) * 60 + 12) + 0.5 + e + eps2
     LET right AS Float = toFloat((k MOD 14) * 60 + 40 + k MOD 5) + 0.5 - e - eps2
     LET bottom AS Float = toFloat((k / 14) * 60 + 40 + k MOD 3) + 0.5 - e - eps
-    LET d AS canvas::DrawItem = canvas::Rectangle[x := left - 5.0, y := top - 5.0, w := right - left + 10.0, h := bottom - top + 10.0, paint := WITH canvas::fill(c) { clip := canvas::Bounds[x := left, y := top, w := right - left, h := bottom - top] }]
+    LET d AS canvas::DrawItem = canvas::Rectangle[x := left - 5.0, y := top - 5.0, w := right - left + 10.0, h := bottom - top + 10.0, paint := WITH canvas::fill(c) { clip := [[canvas::Point[x := left, y := top], canvas::Point[x := left + (right - left), y := top], canvas::Point[x := left + (right - left), y := top + (bottom - top)], canvas::Point[x := left, y := top + (bottom - top)]]] }]
     scene = collections::append(scene, d)
     k = k + 1
   END WHILE

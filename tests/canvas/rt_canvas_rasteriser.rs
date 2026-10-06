@@ -177,7 +177,7 @@ fn an_arc_swept_to_pi_reaches_its_end_cap() {
         &scene(
             "  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(0, 160, 0), 14.0)]\n  \
+             paint := WITH canvas::stroke(color::rgb(0, 160, 0), 14.0) { cap := canvas::CapStyle.Butt }]\n  \
              canvas::present([smile])\n",
         ),
     );
@@ -267,7 +267,7 @@ fn arc_sweeps_clockwise_from_positive_x() {
         &scene(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, \
              startAngle := 0.0, endAngle := 3.14159, \
-             cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(0, 160, 0), 8.0)]\n  canvas::present([a])\n",
+             paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }]\n  canvas::present([a])\n",
         ),
     );
 
@@ -345,7 +345,7 @@ fn polygon_fills_its_interior() {
              pts = collections::append(pts, canvas::Point[x := 100.0, y := 100.0])\n  \
              pts = collections::append(pts, canvas::Point[x := 300.0, y := 100.0])\n  \
              pts = collections::append(pts, canvas::Point[x := 200.0, y := 300.0])\n  \
-             LET tri AS canvas::DrawItem = canvas::Polygon[points := pts, \
+             LET tri AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, \
              paint := canvas::fill(color::rgb(0, 0, 255))]\n  canvas::present([tri])\n",
         ),
     );
@@ -417,7 +417,7 @@ fn rendering_is_byte_reproducible() {
         "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
          paint := canvas::fill(color::rgb(255, 255, 0))]\n  \
          LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
-         endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(0, 160, 0), 8.0)]\n  \
+         endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }]\n  \
          canvas::present([disc, a])\n",
     );
     let (first, _) = render("canvas_determinism_a", &source);
@@ -454,7 +454,7 @@ fn cache_hit_skips_geometry_generation() {
              pts = collections::append(pts, canvas::Point[x := x, y := 20.0])\n  \
              pts = collections::append(pts, canvas::Point[x := x + 60.0, y := 20.0])\n  \
              pts = collections::append(pts, canvas::Point[x := x + 30.0, y := 90.0])\n  \
-             RETURN canvas::Polygon[points := pts, paint := canvas::fill(color::rgb(200, 30, 30))]\n\
+             RETURN canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 30, 30))]\n\
              END FUNC\n"),
     );
 
@@ -497,9 +497,9 @@ fn polygons_sharing_a_header_keep_their_own_points() {
              up = collections::append(up, canvas::Point[x := 100.0, y := 300.0])\n  \
              up = collections::append(up, canvas::Point[x := 300.0, y := 300.0])\n  \
              up = collections::append(up, canvas::Point[x := 200.0, y := 100.0])\n  \
-             LET a AS canvas::DrawItem = canvas::Polygon[points := down, \
+             LET a AS canvas::DrawItem = canvas::Polygon[contours := [down], rule := canvas::FillRule.EvenOdd, \
              paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
-             LET b AS canvas::DrawItem = canvas::Polygon[points := up, \
+             LET b AS canvas::DrawItem = canvas::Polygon[contours := [up], rule := canvas::FillRule.EvenOdd, \
              paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
              canvas::present([a, b])\n",
         ),
@@ -531,6 +531,1006 @@ fn polygons_sharing_a_header_keep_their_own_points() {
     assert_eq!(entries, "2", "one cache entry per distinct polygon");
 }
 
+/// `sq(x, y, s)`: the `s`-sided square at `(x, y)`, its corners clockwise under Y-down
+/// (top-left, top-right, bottom-right, bottom-left). `sqCcw` is the same square run the
+/// other way. Shared by the plan-163-A ring tests below.
+const RING_HELPERS: &str =
+    "\nFUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n  \
+     RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x + s, y := y], \
+     canvas::Point[x := x + s, y := y + s], canvas::Point[x := x, y := y + s]]\n\
+     END FUNC\n\
+     FUNC sqCcw(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n  \
+     RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x, y := y + s], \
+     canvas::Point[x := x + s, y := y + s], canvas::Point[x := x + s, y := y]]\n\
+     END FUNC\n";
+
+/// plan-163-A: one `Polygon` holds several rings, and each ring closes on itself.
+///
+/// Every sampled pixel is a whole pixel inside or outside every ring — each ring's
+/// edges are on integer coordinates and every sample is at least 20 px from one — so
+/// each expectation is the plain fill colour or the black background:
+///
+/// * a 200 px square with a concentric 100 px square inside it, under `EvenOdd`: the
+///   inner ring is a hole, so its centre (200, 200) is background and the band between
+///   the rings (125, 200), (275, 200), (200, 125) is the fill;
+/// * two disjoint rings in one item both fill, and the gap between them does not;
+/// * a 1-point ring beside a real ring adds nothing. The item is `fillStroke`d, so a
+///   1-point ring turned into a zero-length edge would stroke a dot at (700, 500);
+/// * a 2-point ring has no area and draws only its stroke: the stroke straddles the
+///   segment y = 560 by 2 px each side, so rows 559 and 560 (centres 0.5 px from it,
+///   distance −1.5 to the stroke's edge) are fully covered white, row 570 is not, and
+///   the yellow fill is nowhere;
+/// * `contours := []` draws nothing and does not trap (the program reaches its
+///   `rendered` marker, which `render` requires).
+#[test]
+fn a_polygon_draws_each_of_its_rings() {
+    let (frame, _) = render(
+        "canvas_polygon_rings",
+        &(scene(
+            "  LET donut AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 100.0, 200.0), \
+             sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+             LET pair AS canvas::DrawItem = canvas::Polygon[contours := [sq(400.0, 100.0, 50.0), \
+             sq(500.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+             LET lone AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 700.0, y := 500.0]], \
+             sq(600.0, 400.0, 50.0)], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fillStroke(color::rgb(255, 0, 0), color::rgb(255, 255, 255), 4.0)]\n  \
+             LET flat AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 100.0, y := 560.0], \
+             canvas::Point[x := 300.0, y := 560.0]]], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fillStroke(color::rgb(255, 255, 0), color::rgb(255, 255, 255), 4.0)]\n  \
+             LET empty AS canvas::DrawItem = canvas::Polygon[contours := [], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fillStroke(color::rgb(255, 0, 255), color::rgb(255, 0, 255), 4.0)]\n  \
+             canvas::present([donut, pair, lone, flat, empty])\n",
+        ) + RING_HELPERS),
+    );
+
+    let blue = (0, 0, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(pixel(&frame, 200, 200), black, "the hole's centre");
+    assert_eq!(
+        pixel(&frame, 160, 200),
+        black,
+        "inside the hole, near its edge"
+    );
+    assert_eq!(pixel(&frame, 125, 200), blue, "the band left of the hole");
+    assert_eq!(pixel(&frame, 275, 200), blue, "the band right of the hole");
+    assert_eq!(pixel(&frame, 200, 125), blue, "the band above the hole");
+    assert_eq!(pixel(&frame, 200, 320), black, "outside the outer ring");
+
+    let green = (0, 255, 0, 255);
+    assert_eq!(pixel(&frame, 425, 125), green, "the first disjoint ring");
+    assert_eq!(pixel(&frame, 525, 125), green, "the second disjoint ring");
+    assert_eq!(pixel(&frame, 475, 125), black, "between the two rings");
+
+    assert_eq!(
+        pixel(&frame, 625, 425),
+        (255, 0, 0, 255),
+        "the real ring beside a 1-point one"
+    );
+    assert_eq!(
+        pixel(&frame, 700, 500),
+        black,
+        "a 1-point ring draws no dot"
+    );
+    assert_eq!(pixel(&frame, 699, 499), black, "nor next to it");
+
+    let white = (255, 255, 255, 255);
+    assert_eq!(
+        pixel(&frame, 200, 559),
+        white,
+        "a 2-point ring's stroke, above the line"
+    );
+    assert_eq!(
+        pixel(&frame, 200, 560),
+        white,
+        "a 2-point ring's stroke, below the line"
+    );
+    assert_eq!(pixel(&frame, 200, 570), black, "a 2-point ring has no fill");
+    assert_eq!(pixel(&frame, 200, 550), black, "nor above it");
+}
+
+/// plan-163-A: a polygon's ring structure and its fill rule are part of its cache key.
+///
+/// A geometry-cache hit is trusted on the item hash alone (`.ai/canvas-threading.md`
+/// §14), and the rule lives only in header slot 21 while the ring split lives only in
+/// where one ring's wrap edge goes — so two items that fold the same points must still
+/// hash apart when either differs, or the second is drawn with the first's record. Three
+/// presents of the same eight points: two rings under `EvenOdd`, the same two rings under
+/// `NonZero`, and all eight as one ring. Each is new geometry, so each costs exactly one
+/// generation (`generations=1,2,3`); a hash that skipped the rule or the ring counts
+/// would hit the cache and report 1 or 2 for a later frame.
+#[test]
+fn a_polygon_hash_covers_its_rings_and_rule() {
+    let (_, stats) = render(
+        "canvas_polygon_ring_hash",
+        &(scene(
+            "  LET outer AS List OF canvas::Point = sq(100.0, 100.0, 200.0)\n  \
+             LET inner AS List OF canvas::Point = sq(150.0, 150.0, 100.0)\n  \
+             canvas::present([canvas::Polygon[contours := [outer, inner], rule := canvas::FillRule.EvenOdd, \
+             paint := canvas::fill(color::rgb(0, 0, 255))]])\n  \
+             canvas::present([canvas::Polygon[contours := [outer, inner], rule := canvas::FillRule.NonZero, \
+             paint := canvas::fill(color::rgb(0, 0, 255))]])\n  \
+             canvas::present([canvas::Polygon[contours := [collections::flatten([outer, inner])], \
+             rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255))]])\n",
+        ) + RING_HELPERS),
+    );
+    let generations: Vec<i64> = stats
+        .iter()
+        .map(|line| {
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix("generations="))
+                .unwrap_or_else(|| panic!("no generations field in {line:?}"))
+                .parse()
+                .expect("generations is a number")
+        })
+        .collect();
+    assert_eq!(
+        generations,
+        vec![1, 2, 3],
+        "changing only the rule, then only the ring split, must each build new \
+         geometry: {stats:?}",
+    );
+}
+
+/// plan-163-A: the vertices of a {5/2} pentagram of radius 100 about `(cx, cy)`, in the
+/// order that traces the star (every second vertex of the regular pentagon, starting at
+/// the top). The points are the pentagon's at angles -90°, 54°, 198°, 342° and 126°,
+/// written out to four places, so no transcendental runs in the scene.
+const PENTAGRAM: &str = "\nFUNC star(cx AS Float, cy AS Float) AS List OF canvas::Point\n  \
+     RETURN [canvas::Point[x := cx, y := cy - 100.0], \
+     canvas::Point[x := cx + 58.7785, y := cy + 80.9017], \
+     canvas::Point[x := cx - 95.1057, y := cy - 30.9017], \
+     canvas::Point[x := cx + 95.1057, y := cy - 30.9017], \
+     canvas::Point[x := cx - 58.7785, y := cy + 80.9017]]\n\
+     END FUNC\n";
+
+/// plan-163-A: `NonZero` fills by winding number and `EvenOdd` by crossing parity, in the
+/// software renderer — the oracle both GPUs are compared against, so it is checked here
+/// against hand-counted windings rather than against anything else.
+///
+/// A ray from the sample point to the left crosses each ring's left edge once. Under
+/// Y-down, `sq` runs its left edge bottom-to-top (−1) and `sqCcw` top-to-bottom (+1):
+///
+/// * outer `sq` + inner `sq` (same way): the hole's centre has winding −2, so `NonZero`
+///   fills it and `EvenOdd` (two crossings) leaves it a hole;
+/// * outer `sq` + inner `sqCcw` (opposite ways): winding −1 + 1 = 0, a hole under
+///   `NonZero` too;
+/// * the band between the rings has winding −1 and one crossing, so it is filled under
+///   every rule and direction;
+/// * a {5/2} pentagram's inner pentagon is wound twice (winding ±2, two crossings), so
+///   its centre is filled under `NonZero` and a hole under `EvenOdd`; a point's tip is
+///   wound once and filled under both.
+///
+/// Every sample is at least 5 px from every edge, so each is the plain fill or the black
+/// background.
+#[test]
+fn non_zero_fills_by_winding_and_even_odd_by_parity() {
+    let (frame, _) = render(
+        "canvas_polygon_nonzero",
+        &(scene(
+            "  LET blue AS canvas::Paint = canvas::fill(color::rgb(0, 0, 255))\n  \
+             LET same AS canvas::DrawItem = canvas::Polygon[contours := [sq(50.0, 50.0, 150.0), sq(100.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.NonZero, paint := blue]\n  \
+             LET sameEo AS canvas::DrawItem = canvas::Polygon[contours := [sq(250.0, 50.0, 150.0), sq(300.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
+             LET opposite AS canvas::DrawItem = canvas::Polygon[contours := [sq(450.0, 50.0, 150.0), sqCcw(500.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.NonZero, paint := blue]\n  \
+             LET oppositeEo AS canvas::DrawItem = canvas::Polygon[contours := [sq(650.0, 50.0, 150.0), sqCcw(700.0, 100.0, 50.0)], \
+             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
+             LET starNz AS canvas::DrawItem = canvas::Polygon[contours := [star(225.0, 420.0)], \
+             rule := canvas::FillRule.NonZero, paint := blue]\n  \
+             LET starEo AS canvas::DrawItem = canvas::Polygon[contours := [star(575.0, 420.0)], \
+             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
+             canvas::present([same, sameEo, opposite, oppositeEo, starNz, starEo])\n",
+        ) + RING_HELPERS
+            + PENTAGRAM),
+    );
+
+    let blue = (0, 0, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(
+        pixel(&frame, 125, 125),
+        blue,
+        "NonZero, inner ring wound the same way: filled"
+    );
+    assert_eq!(
+        pixel(&frame, 325, 125),
+        black,
+        "EvenOdd, inner ring wound the same way: a hole"
+    );
+    assert_eq!(
+        pixel(&frame, 525, 125),
+        black,
+        "NonZero, inner ring wound the other way: a hole"
+    );
+    assert_eq!(
+        pixel(&frame, 725, 125),
+        black,
+        "EvenOdd, inner ring wound the other way: a hole"
+    );
+    for (x, label) in [
+        (75, "NonZero same"),
+        (275, "EvenOdd same"),
+        (475, "NonZero opposite"),
+        (675, "EvenOdd opposite"),
+    ] {
+        assert_eq!(
+            pixel(&frame, x, 125),
+            blue,
+            "{label}: the band between the rings"
+        );
+        assert_eq!(
+            pixel(&frame, x - 40, 125),
+            black,
+            "{label}: outside the outer ring"
+        );
+    }
+    assert_eq!(
+        pixel(&frame, 225, 420),
+        blue,
+        "NonZero pentagram: the centre is wound twice, filled"
+    );
+    assert_eq!(
+        pixel(&frame, 575, 420),
+        black,
+        "EvenOdd pentagram: the centre is a hole"
+    );
+    assert_eq!(
+        pixel(&frame, 225, 335),
+        blue,
+        "NonZero pentagram: a point's tip"
+    );
+    assert_eq!(
+        pixel(&frame, 575, 335),
+        blue,
+        "EvenOdd pentagram: a point's tip"
+    );
+}
+
+/// plan-163-A: a single convex ring has winding 0 or ±1 everywhere, so `NonZero` and
+/// `EvenOdd` must draw it identically — edge pixels included. Two separate programs
+/// render the same antialiased, stroked triangle under each rule and the frames are
+/// compared byte for byte. This is a symmetry check on the renderer itself: it needs no
+/// expectation computed by the oracle it is checking.
+#[test]
+fn a_convex_ring_draws_the_same_under_both_rules() {
+    let program = |rule: &str| {
+        scene(&format!(
+            "  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 100.3, y := 120.7], \
+             canvas::Point[x := 610.9, y := 140.2], canvas::Point[x := 330.5, y := 560.1]]], \
+             rule := canvas::FillRule.{rule}, \
+             paint := canvas::fillStroke(color::rgba(30, 140, 250, 200), color::rgb(250, 250, 120), 3.5)]\n  \
+             canvas::present([tri])\n"
+        ))
+    };
+    let (even_odd, _) = render("canvas_convex_evenodd", &program("EvenOdd"));
+    let (non_zero, _) = render("canvas_convex_nonzero", &program("NonZero"));
+    let differing = even_odd
+        .chunks(4)
+        .zip(non_zero.chunks(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert_eq!(
+        differing, 0,
+        "a convex ring drew differently under NonZero than under EvenOdd in {differing} pixels",
+    );
+    assert_eq!(
+        pixel(&even_odd, 330, 250).3,
+        255,
+        "the triangle drew at all"
+    );
+    assert_ne!(
+        pixel(&even_odd, 330, 250),
+        (0, 0, 0, 255),
+        "the triangle drew at all"
+    );
+}
+
+/// plan-163-B: a `Square` cap extends the stroke `half` past each end and cuts it square,
+/// on a `Line`, an `Arc` and a `PolyLine`, and a zero-length square end is an axis-aligned
+/// square (SVG 2 §13.5.2).
+///
+/// Every stroke is white, 20 px wide (`half` = 10), over black, so a fully covered pixel is
+/// `(255, 255, 255)` and an empty one `(0, 0, 0)`. The distance of a square end is
+/// `max(perp - half, -t·len - half, (t-1)·len - half)` (`__canvas_segmentDistanceSquare`):
+///
+/// * the horizontal line (200..400, 300): the pixel centre (190.5, 300.5) is 9.5 px before
+///   the start, `9.5 - 10 = -0.5`, fully covered; (189.5, 300.5) is `+0.5`, empty. The
+///   CORNER pixel (190.5, 290.5) is `max(9.5 - 10, 9.5 - 10) = -0.5`, fully covered — a
+///   round end gives it `sqrt(9.5² + 9.5²) - 10 = +3.4` and a butt end leaves it out;
+/// * the 45° line from (300, 100) towards (400, 200): its start's square has a corner at
+///   `half·√2 = 14.14` px along −x, (285.86, 100). The pixel centre (286.5, 100.5) has
+///   `perp = 14/√2 = 9.8995` and `t·len = −13/√2`, so `d = 9.8995 - 10 = −0.1005`:
+///   coverage `int((0.5 + 0.1005)·255 + 0.5) = 153`, white at 153 over black is linear
+///   `65535·153/255`, sRGB 203. (288.5, 100.5) is fully covered and (284.5, 100.5) empty;
+/// * the zero-length line at (500, 500): its corner pixel (490.5, 490.5) is
+///   `max(9.5, 9.5) - 10 = -0.5`, covered, where a round dot leaves it empty;
+/// * the arc of radius 100 about (650, 300) swept `0..π`: its start (750, 300) runs down
+///   the screen, so the square end is the box above it, x 740..760, y 290..300. Its corner
+///   pixel (759.5, 291.5) is `max(9.5 - 10, 8.5 - 10)`, covered; (759.5, 289.5) is
+///   `10.5 - 10`, empty. The arc's end (550, ~300) runs up the screen too, so (541.5,
+///   291.5) is covered likewise;
+/// * the polyline (100, 500) → (200, 500) → (200, 600): square OUTER ends — the corners
+///   (90.5, 490.5) and (209.5, 609.5) are `-0.5`, covered — and a still-round turn: the
+///   corner's outer pixel (209.5, 491.5) is `sqrt(9.5² + 8.5²) - 10 = +2.7` from both
+///   segments, empty.
+#[test]
+fn a_square_cap_extends_the_stroke_square_past_each_end() {
+    let (frame, _) = render(
+        "canvas_square_caps",
+        &scene(
+            "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Square }\n  \
+             LET flat AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, x2 := 400.0, y2 := 300.0, paint := ink]\n  \
+             LET slant AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 100.0, x2 := 400.0, y2 := 200.0, paint := ink]\n  \
+             LET dot AS canvas::DrawItem = canvas::Line[x1 := 500.0, y1 := 500.0, x2 := 500.0, y2 := 500.0, paint := ink]\n  \
+             LET bow AS canvas::DrawItem = canvas::Arc[x := 650.0, y := 300.0, radius := 100.0, startAngle := 0.0, \
+             endAngle := 3.141592653589793, paint := ink]\n  \
+             LET bend AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 100.0, y := 500.0], \
+             canvas::Point[x := 200.0, y := 500.0], canvas::Point[x := 200.0, y := 600.0]], colors := [], paint := ink]\n  \
+             canvas::present([flat, slant, dot, bow, bend])\n",
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(
+        pixel(&frame, 190, 300),
+        white,
+        "half a stroke past the line's start"
+    );
+    assert_eq!(
+        pixel(&frame, 189, 300),
+        black,
+        "more than half a stroke past it"
+    );
+    assert_eq!(pixel(&frame, 190, 290), white, "the square end's corner");
+    assert_eq!(pixel(&frame, 409, 309), white, "the far end's corner");
+    assert_eq!(pixel(&frame, 410, 300), black, "past the far end");
+
+    assert_eq!(
+        pixel(&frame, 286, 100),
+        (203, 203, 203, 255),
+        "the 45° end's corner tip, coverage 153"
+    );
+    assert_eq!(
+        pixel(&frame, 288, 100),
+        white,
+        "inside the 45° end's square"
+    );
+    assert_eq!(pixel(&frame, 284, 100), black, "past the 45° end's corner");
+
+    assert_eq!(
+        pixel(&frame, 490, 490),
+        white,
+        "a zero-length square end is an axis-aligned square"
+    );
+    assert_eq!(pixel(&frame, 509, 509), white, "its opposite corner");
+    assert_eq!(pixel(&frame, 489, 500), black, "outside it");
+
+    assert_eq!(
+        pixel(&frame, 759, 291),
+        white,
+        "the arc start's square corner"
+    );
+    assert_eq!(
+        pixel(&frame, 759, 289),
+        black,
+        "past the arc start's square"
+    );
+    assert_eq!(
+        pixel(&frame, 541, 291),
+        white,
+        "the arc end's square corner"
+    );
+
+    assert_eq!(
+        pixel(&frame, 90, 490),
+        white,
+        "the polyline's square start corner"
+    );
+    assert_eq!(
+        pixel(&frame, 209, 609),
+        white,
+        "the polyline's square end corner"
+    );
+    assert_eq!(
+        pixel(&frame, 209, 491),
+        black,
+        "the polyline's turn stays round"
+    );
+}
+
+/// plan-163-B: `Paint.join` at a corner, in the software renderer — the oracle, so every
+/// expectation is a hand-computed fact about a white 20 px stroke (`half` = 10) over
+/// black, at pixel centres at least half a pixel inside or outside each shape.
+///
+/// * **A 90° polygon corner.** Each square's top-left vertex V has the bands' outer
+///   corners A = V − (10, 0) and B = V − (0, 10):
+///   - `Round` (today's join) is the disc of radius 10 about V: the centre (−6.5, −6.5)
+///     from V is 9.19 away, covered; (−8.5, −8.5) is 12.02 away, not;
+///   - `Miter` adds the square V, A, (V − (10, 10)), B: (−8.5, −8.5) and (−9.5, −9.5)
+///     are inside it, (−10.5, −10.5) is not;
+///   - `Bevel` adds the triangle V, A, B, the half-plane `x + y ≥ −10` from V:
+///     (−4.5, −4.5) is inside by 0.71, (−5.5, −5.5) outside by 0.71 and (−6.5, −6.5)
+///     outside by 2.12 — where the round join covers.
+/// * **A 20° spike.** The apex V = (x, 300) of a triangle whose sides leave V at ±10°
+///   from straight down: a miter would reach `10 / sin(10°) = 57.6` px above V, a ratio
+///   of 5.76. Under `miterLimit := 4.0` that bevels — (x, 290) is 7.8 px above the
+///   bevel's top edge, empty — and under `10.0` it miters — (x, 290) is inside the
+///   spike, where it is 8.5 px wide each side, and so is (x, 250).
+/// * **A PolyLine's interior corner** (100, 500) → (200, 500) → (200, 600), Butt ends:
+///   V = (200, 500), A = (200, 490), B = (210, 500): the round join covers the centre
+///   (206.5, 494.5) (8.5 from V) but not (209.5, 491.5) (12.75 from V); the bevel
+///   covers (204.5, 496.5) and not (206.5, 494.5); the miter covers (209.5, 491.5). The
+///   path's two ends are Butt and take no join: (99, 500) is empty under every join.
+/// * **Rectangles**: a mitered one's corner is square — its top-left (−8.5, −8.5) is
+///   covered — and a beveled one's is cut, as the polygon's.
+#[test]
+fn a_join_shapes_every_corner_of_a_stroke() {
+    let corners = |x: f64, y: f64| -> String {
+        format!(
+            "[[canvas::Point[x := {x:?}, y := {y:?}], canvas::Point[x := {:?}, y := {y:?}], \
+             canvas::Point[x := {:?}, y := {:?}], canvas::Point[x := {x:?}, y := {:?}]]]",
+            x + 120.0,
+            x + 120.0,
+            y + 120.0,
+            y + 120.0
+        )
+    };
+    let spike = |x: f64| -> String {
+        format!(
+            "[[canvas::Point[x := {x:?}, y := 300.0], canvas::Point[x := {:?}, y := 447.72116], \
+             canvas::Point[x := {:?}, y := 447.72116]]]",
+            x + 26.04723,
+            x - 26.04723
+        )
+    };
+    let bend = |x: f64| -> String {
+        format!(
+            "[canvas::Point[x := {:?}, y := 500.0], canvas::Point[x := {:?}, y := 500.0], \
+             canvas::Point[x := {:?}, y := 600.0]]",
+            x,
+            x + 100.0,
+            x + 100.0
+        )
+    };
+    let body = format!(
+        "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 20.0)\n  \
+         LET miter AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Miter }}\n  \
+         LET bevel AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Bevel }}\n  \
+         LET r1 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
+         LET r2 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter]\n  \
+         LET r3 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := bevel]\n  \
+         LET s4 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter]\n  \
+         LET s10 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := WITH miter {{ miterLimit := 10.0 }}]\n  \
+         LET b1 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := ink]\n  \
+         LET b2 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := miter]\n  \
+         LET b3 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := bevel]\n  \
+         LET q1 AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 100.0, w := 120.0, h := 120.0, paint := miter]\n  \
+         LET q2 AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 300.0, w := 120.0, h := 120.0, paint := bevel]\n  \
+         canvas::present([r1, r2, r3, s4, s10, b1, b2, b3, q1, q2])\n",
+        corners(100.0, 100.0),
+        corners(300.0, 100.0),
+        corners(500.0, 100.0),
+        spike(400.0),
+        spike(600.0),
+        bend(50.0),
+        bend(300.0),
+        bend(550.0),
+    );
+    let (frame, _) = render("canvas_joins", &scene(&body));
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    // Round, V = (100, 100).
+    assert_eq!(
+        pixel(&frame, 93, 93),
+        white,
+        "a round join covers 9.19 from its vertex"
+    );
+    assert_eq!(pixel(&frame, 91, 91), black, "but not 12.02");
+    // Miter, V = (300, 100).
+    assert_eq!(
+        pixel(&frame, 291, 91),
+        white,
+        "a miter fills the square corner"
+    );
+    assert_eq!(pixel(&frame, 290, 90), white, "to its point");
+    assert_eq!(pixel(&frame, 289, 89), black, "and no further");
+    // Bevel, V = (500, 100).
+    assert_eq!(
+        pixel(&frame, 495, 95),
+        white,
+        "a bevel covers inside its cut"
+    );
+    assert_eq!(pixel(&frame, 494, 94), black, "and stops at it");
+    assert_eq!(
+        pixel(&frame, 493, 93),
+        black,
+        "where a round join would cover"
+    );
+    // The 20° spike: limit 4 bevels, limit 10 miters.
+    assert_eq!(
+        pixel(&frame, 400, 290),
+        black,
+        "miterLimit 4 bevels a 20° spike"
+    );
+    assert_eq!(
+        pixel(&frame, 400, 250),
+        black,
+        "so nothing reaches up the spike"
+    );
+    assert_eq!(pixel(&frame, 600, 290), white, "miterLimit 10 miters it");
+    assert_eq!(pixel(&frame, 600, 250), white, "up to its point");
+    // PolyLine corners, V = (x + 100, 500) for x = 50, 300, 550.
+    assert_eq!(pixel(&frame, 156, 494), white, "a round polyline turn");
+    assert_eq!(pixel(&frame, 159, 491), black, "is round");
+    assert_eq!(
+        pixel(&frame, 409, 491),
+        white,
+        "a mitered polyline turn is square"
+    );
+    assert_eq!(
+        pixel(&frame, 654, 496),
+        white,
+        "a beveled polyline turn covers inside its cut"
+    );
+    assert_eq!(pixel(&frame, 656, 494), black, "and not past it");
+    for x in [49usize, 299, 549] {
+        assert_eq!(
+            pixel(&frame, x, 500),
+            black,
+            "a Butt end at x = {x} takes no join"
+        );
+    }
+    // Rectangles.
+    assert_eq!(
+        pixel(&frame, 691, 91),
+        white,
+        "a mitered rectangle's corner is square"
+    );
+    assert_eq!(pixel(&frame, 689, 89), black, "and ends at its point");
+    assert_eq!(
+        pixel(&frame, 695, 295),
+        white,
+        "a beveled rectangle covers inside its cut"
+    );
+    assert_eq!(pixel(&frame, 693, 293), black, "and not past it");
+}
+
+/// plan-163-B: a dash that crosses a corner stays one dash round it — the premise the
+/// dash design rests on (§8), for each cap.
+///
+/// Three 120 px squares (first point the top-left, so `s = 0` there, going clockwise)
+/// stroked 20 px wide (`half` = 10) with `dashes := [150.0, 30.0]`: the perimeter is
+/// 480, so the dashes are `s` ∈ [0, 150) — the top side and 30 px down the right side —
+/// [180, 330) — the right side's last 60 px and 90 px of the bottom side, from its right
+/// end — and [360, 510), which starts EXACTLY at the bottom-left corner and runs up the
+/// left side to the seam, where it meets the first dash: on at both sides of the seam,
+/// the two are one dash through the top-left corner. With the square at X:
+///
+/// * the top-right corner (X + 120, 100) is inside the first dash, so it takes its
+///   (Round) join: the centre (X + 125.5, 95.5) is 7.1 from it, covered; the inner corner
+///   (X + 112.5, 108.5) is inside both sides' bands;
+/// * the right side's gap is y ∈ [130, 160): its centre row 145.5 is empty under every
+///   cap — 15.5 and 14.5 from the two dash ends, beyond a Round disc and a Square's 10;
+/// * at the dash end y = 130: row 129.5 (`along` = −0.5) is covered under every cap; row
+///   131.5 only under Round (1.58 from the end point (X + 120, 130)) and Square (1.5 past
+///   the end, within 10); row 137.5 under Round (7.5) and Square; row 139.5 under Square
+///   alone (9.5 past, coverage exactly 255) and row 141.5 under none;
+/// * the bottom-left corner (X, 220) is where the third dash STARTS, so it takes no join:
+///   the centre (X − 4.5, 225.5) — 5.5 below the corner, beside the left side's line — is
+///   empty under Butt, inside the Round end's disc (7.1 from the corner), and inside the
+///   Square end, which runs 10 straight down the left side's line from the corner;
+/// * the bottom side's gap is x ∈ (X, X + 30]: x = X + 15.5 is empty under every cap,
+///   and X + 25.5 — 4.5 past the second dash's end at X + 30 — is covered by its Round
+///   disc and its Square extension, not by Butt;
+/// * the seam corner (X, 100) is inside the merged dash, so it takes its join:
+///   (X − 4.5, 95.5) is 6.4 from it.
+#[test]
+fn a_dash_crossing_a_corner_stays_one_dash() {
+    let (frame, _) = render(
+        "canvas_dash_corners",
+        &(scene(
+            "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { dashes := [150.0, 30.0] }\n  \
+             LET butt AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
+             LET round AS canvas::DrawItem = canvas::Polygon[contours := [sq(300.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }]\n  \
+             LET square AS canvas::DrawItem = canvas::Polygon[contours := [sq(500.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }]\n  \
+             canvas::present([butt, round, square])\n",
+        ) + RING_HELPERS),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    for (x, cap) in [(100usize, "Butt"), (300, "Round"), (500, "Square")] {
+        let on = |px: usize, py: usize, what: &str| {
+            assert_eq!(pixel(&frame, px, py), white, "{cap}: {what}");
+        };
+        let off = |px: usize, py: usize, what: &str| {
+            assert_eq!(pixel(&frame, px, py), black, "{cap}: {what}");
+        };
+        on(
+            x + 125,
+            95,
+            "the dash crossing the top-right corner takes its join",
+        );
+        on(x + 112, 108, "and the corner's inner side");
+        off(x + 120, 145, "the right side's gap");
+        on(x + 120, 129, "the dash runs to its end");
+        on(x - 5, 95, "the seam corner joins the dash through it");
+        off(x + 15, 220, "the bottom side's gap");
+        if cap == "Butt" {
+            off(x + 120, 131, "a butt dash end stops at the end");
+            off(x + 120, 137, "a butt dash end does not reach 7.5 past");
+            off(x - 5, 225, "a dash starting at a corner takes no join");
+            off(x + 25, 220, "a butt end leaves the gap");
+        }
+        if cap == "Round" {
+            on(x + 120, 131, "a round dash end's disc");
+            on(x + 120, 137, "reaches 7.5 past the end");
+            off(x + 120, 141, "not 11.5");
+            on(
+                x - 5,
+                225,
+                "the dash starting at the corner takes its round cap",
+            );
+            on(x + 25, 220, "the round end's disc reaches 4.5 into the gap");
+        }
+        if cap == "Square" {
+            on(x + 120, 131, "a square dash end");
+            on(x + 120, 139, "reaches 9.5 past the end");
+            off(x + 120, 141, "not 11.5");
+            on(
+                x - 5,
+                225,
+                "the dash starting at the corner runs its square end straight on",
+            );
+            on(x + 25, 220, "the square end reaches 4.5 into the gap");
+        }
+    }
+}
+
+/// The arc length of an ellipse from parametric angle 0 to `t`, by Simpson's rule over
+/// 200,000 steps — far finer than anything the renderer uses, so it serves as the exact
+/// value the dash table is measured against.
+fn ellipse_arc_length(rx: f64, ry: f64, t: f64) -> f64 {
+    let n = 200_000;
+    let h = t / n as f64;
+    let f = |a: f64| (rx * rx * a.sin() * a.sin() + ry * ry * a.cos() * a.cos()).sqrt();
+    let mut sum = f(0.0) + f(t);
+    for i in 1..n {
+        let w = if i % 2 == 1 { 4.0 } else { 2.0 };
+        sum += w * f(i as f64 * h);
+    }
+    sum * h / 3.0
+}
+
+/// The parametric angle at which an ellipse's arc length from angle 0 reaches `s`.
+fn ellipse_angle_at(rx: f64, ry: f64, s: f64) -> f64 {
+    let (mut lo, mut hi) = (0.0f64, std::f64::consts::TAU);
+    for _ in 0..50 {
+        let mid = (lo + hi) / 2.0;
+        if ellipse_arc_length(rx, ry, mid) < s {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) / 2.0
+}
+
+/// plan-163-B: a dashed Ellipse is cut by arc length, from angle 0 (+X) the way angles
+/// increase (towards +Y), measured against an independent arc length
+/// (`ellipse_arc_length`, not the renderer's table).
+///
+/// rx = 160, ry = 80, 8 px wide, `dashes := [30.0, 15.0]`: every dash's middle (`s` =
+/// 15 + 45k) is drawn and every gap's middle (`s` = 37.5 + 45k) is not. The pixel tested
+/// is the one holding the outline point, whose centre is within 0.71 of it: well inside
+/// the 4 px half-width, and 7.5 or more along the outline from the nearest dash end.
+#[test]
+fn a_dashed_ellipse_is_cut_by_arc_length() {
+    let (frame, _) = render(
+        "canvas_dash_ellipse",
+        &scene(
+            "  LET e AS canvas::DrawItem = canvas::Ellipse[x := 450.0, y := 320.0, radiusX := 160.0, radiusY := 80.0, angle := 0.0, \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [30.0, 15.0] }]\n  \
+             canvas::present([e])\n",
+        ),
+    );
+    let (rx, ry) = (160.0, 80.0);
+    let perimeter = ellipse_arc_length(rx, ry, std::f64::consts::TAU);
+    let at = |s: f64| {
+        let t = ellipse_angle_at(rx, ry, s);
+        let x = 450.0 + rx * t.cos();
+        let y = 320.0 + ry * t.sin();
+        pixel(&frame, x.floor() as usize, y.floor() as usize)
+    };
+    let mut k = 0;
+    while 37.5 + 45.0 * k as f64 + 7.5 < perimeter {
+        let s = 15.0 + 45.0 * k as f64;
+        assert_eq!(
+            at(s),
+            (255, 255, 255, 255),
+            "the middle of dash {k}, s = {s}"
+        );
+        let g = 37.5 + 45.0 * k as f64;
+        assert_eq!(at(g), (0, 0, 0, 255), "the middle of gap {k}, s = {g}");
+        k += 1;
+    }
+    assert!(
+        k >= 16,
+        "the ellipse's perimeter {perimeter} holds 16 periods"
+    );
+}
+
+/// plan-163-B: the ellipse dash table's resolution, `__CANVAS_DASH_ELLIPSE_STEPS`,
+/// chosen by measurement (§8 left it UNVERIFIED).
+///
+/// The table is the cumulative arc length at N + 1 evenly spaced parametric angles, each
+/// step Simpson's rule over 8 sub-steps, and a pixel's position is the linear
+/// interpolation between two entries. This reproduces that construction exactly (in f64)
+/// and measures its worst error against `ellipse_arc_length` at 16 points per step,
+/// for ellipses up to 800 px across and 80:1 eccentric.
+#[test]
+fn an_ellipse_dash_table_is_within_a_tenth_of_a_pixel() {
+    const STEPS: usize = 256;
+    let mut worst: f64 = 0.0;
+    for (rx, ry) in [
+        (400.0f64, 5.0f64),
+        (400.0, 200.0),
+        (200.0, 10.0),
+        (50.0, 40.0),
+        (8.0, 400.0),
+    ] {
+        let dt = std::f64::consts::TAU / STEPS as f64;
+        let f = |a: f64| (rx * rx * a.sin() * a.sin() + ry * ry * a.cos() * a.cos()).sqrt();
+        let mut table = vec![0.0f64];
+        for k in 0..STEPS {
+            let t0 = k as f64 * dt;
+            let mut sum = 0.0;
+            for j in 0..=8 {
+                let w = if j == 0 || j == 8 {
+                    1.0
+                } else if j % 2 == 1 {
+                    4.0
+                } else {
+                    2.0
+                };
+                sum += w * f(t0 + j as f64 * dt / 8.0);
+            }
+            table.push(table[k] + sum * dt / 24.0);
+        }
+        // Exact arc length at the probe points, by integrating step to step.
+        for k in 0..STEPS {
+            for i in 1..16 {
+                let t = (k as f64 + i as f64 / 16.0) * dt;
+                let frac = i as f64 / 16.0;
+                let interpolated = table[k] + (table[k + 1] - table[k]) * frac;
+                let exact = ellipse_arc_length(rx, ry, t);
+                worst = worst.max((interpolated - exact).abs());
+            }
+        }
+    }
+    println!("ellipse dash table, {STEPS} steps: worst along-path error {worst:.5} px");
+    assert!(worst < 0.1, "the worst along-path error is {worst} px");
+}
+
+/// plan-163-B: `Paint.dashes` on a Line, in the software renderer — the pattern, its
+/// normalization (§4) and `dashOffset`.
+///
+/// Each line runs from x = 100 to x = 300 along a row centre (y = r + 0.5), 4 px wide,
+/// Butt: a pixel at column 100 + i is drawn exactly when `s` = i + 0.5 is in a dash —
+/// every dash boundary here is a whole number, so every centre is half a pixel from one.
+///
+/// * `[10, 5]`: on for `s` mod 15 ∈ [0, 10);
+/// * `[10, 5, 5]` is odd, so it repeats once to `[10, 5, 5, 10, 5, 5]`: on for `s` mod 40
+///   ∈ [0, 10) ∪ [15, 20) ∪ [30, 35);
+/// * `[]`, `[0, 0]` (sum 0) and `[10, -5]` (a negative entry) are solid;
+/// * `dashOffset := 3` starts 3 into `[10, 5]`: on for (`s` + 3) mod 15 ∈ [0, 10);
+///   `dashOffset := -3` is 12 into it.
+#[test]
+fn a_dashed_line_draws_its_pattern() {
+    let rows: [(&str, usize); 7] = [
+        ("[10.0, 5.0]", 40),
+        ("[10.0, 5.0, 5.0]", 60),
+        ("[]", 80),
+        ("[0.0, 0.0]", 100),
+        ("[10.0, 0.0 - 5.0]", 120),
+        ("[10.0, 5.0]", 140),
+        ("[10.0, 5.0]", 160),
+    ];
+    let offsets = ["0.0", "0.0", "0.0", "0.0", "0.0", "3.0", "0.0 - 3.0"];
+    let mut body = String::from(
+        "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 4.0)\n",
+    );
+    let mut names = Vec::new();
+    for (i, ((dashes, y), offset)) in rows.iter().zip(offsets).enumerate() {
+        body.push_str(&format!(
+            "  LET l{i} AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := {y}.5, x2 := 300.0, y2 := {y}.5, \
+             paint := WITH ink {{ dashes := {dashes}, dashOffset := {offset} }}]\n"
+        ));
+        names.push(format!("l{i}"));
+    }
+    body.push_str(&format!("  canvas::present([{}])\n", names.join(", ")));
+    let (frame, _) = render("canvas_dash_line", &scene(&body));
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    let expect = |y: usize, what: &str, on: &dyn Fn(f64) -> bool| {
+        for i in 0..200usize {
+            let s = i as f64 + 0.5;
+            let want = if on(s) { white } else { black };
+            assert_eq!(
+                pixel(&frame, 100 + i, y),
+                want,
+                "{what}: column {}, s = {s}",
+                100 + i
+            );
+        }
+    };
+    expect(40, "[10, 5]", &|s| s % 15.0 < 10.0);
+    expect(60, "[10, 5, 5] repeated once", &|s| {
+        let w = s % 40.0;
+        w < 10.0 || (15.0..20.0).contains(&w) || (30.0..35.0).contains(&w)
+    });
+    expect(80, "an empty list is solid", &|_| true);
+    expect(100, "a zero-sum list is solid", &|_| true);
+    expect(120, "a negative entry is solid", &|_| true);
+    expect(140, "dashOffset 3", &|s| (s + 3.0) % 15.0 < 10.0);
+    expect(160, "dashOffset -3", &|s| (s + 12.0) % 15.0 < 10.0);
+}
+
+/// plan-163-B: a dash end takes the paint's cap, and so do a dashed path's own ends.
+///
+/// Lines from x = 100 to 300 at y = 50, 100, 150, 8 px wide (`half` = 4), `[10.0, 10.0]`:
+/// the first dash is [100, 110). The centre (113.5, 46.5) is 3.5 past that dash's end and
+/// 3.5 off the line: within a Square end (both under 4) but 4.95 from the end point,
+/// outside a Round one; Butt draws neither. (111.5, 50.5) is 1.5 past the end — inside
+/// Round and Square. The path's start x = 100 is a dash end too: (96.5, 150.5) is 3.5
+/// before it, inside a Square end, and (97.5, 100.5) is 2.55 from it, inside a Round one;
+/// Butt draws neither.
+#[test]
+fn a_dash_end_takes_the_cap() {
+    let (frame, _) = render(
+        "canvas_dash_caps",
+        &scene(
+            "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [10.0, 10.0] }\n  \
+             LET butt AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 50.0, x2 := 300.0, y2 := 50.0, paint := ink]\n  \
+             LET round AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 100.0, x2 := 300.0, y2 := 100.0, paint := WITH ink { cap := canvas::CapStyle.Round }]\n  \
+             LET square AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 150.0, x2 := 300.0, y2 := 150.0, paint := WITH ink { cap := canvas::CapStyle.Square }]\n  \
+             canvas::present([butt, round, square])\n",
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(
+        pixel(&frame, 111, 50),
+        black,
+        "a butt dash stops at its end"
+    );
+    assert_eq!(pixel(&frame, 113, 46), black, "and has no corner past it");
+    assert_eq!(pixel(&frame, 96, 50), black, "nor before the path's start");
+    assert_eq!(
+        pixel(&frame, 111, 100),
+        white,
+        "a round dash end reaches past it"
+    );
+    assert_eq!(pixel(&frame, 113, 96), black, "as a disc");
+    assert_eq!(
+        pixel(&frame, 97, 100),
+        white,
+        "and the path's start is capped round"
+    );
+    assert_eq!(
+        pixel(&frame, 111, 150),
+        white,
+        "a square dash end reaches past it"
+    );
+    assert_eq!(pixel(&frame, 113, 146), white, "with a square corner");
+    assert_eq!(
+        pixel(&frame, 96, 150),
+        white,
+        "and the path's start is capped square"
+    );
+}
+
+/// plan-163-B: each Polygon ring restarts the pattern at its own first point, and a
+/// dashed Circle's `s = 0` is its +X point, running clockwise (towards +Y).
+///
+/// * Two square rings, sides 27.5 (perimeter 110) at (100, 300) and (200, 300), 4 px
+///   wide, `[10.0, 10.0]`: each ring's top side is on for x ∈ [first.x, first.x + 10).
+///   Had the second ring continued the first's pattern, it would start at `s` = 110,
+///   mid-gap. The centre (205.5, 300.5) is 5.5 along the second ring.
+/// * A Circle at (600, 300), radius 50, 6 px wide, `[20.0, 300.0]` (one dash per
+///   perimeter of 314.16): the dash covers angles [0, 0.4) clockwise from +X. The centre
+///   (648.5, 309.5) is at angle 0.194 (`s` = 9.7) and radius 49.42; (648.5, 290.5) is at
+///   angle −0.194, `s` = 304.4, mid-gap.
+#[test]
+fn each_ring_restarts_the_pattern_and_a_circle_starts_at_plus_x() {
+    let (frame, _) = render(
+        "canvas_dash_rings",
+        &format!(
+            "{}{RING_HELPERS}",
+            scene(
+                "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 4.0) { dashes := [10.0, 10.0] }\n  \
+                 LET rings AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 300.0, 27.5), sq(200.0, 300.0, 27.5)], rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
+                 LET disc AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 300.0, radius := 50.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 6.0) { dashes := [20.0, 300.0] }]\n  \
+                 canvas::present([rings, disc])\n",
+            )
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(
+        pixel(&frame, 105, 300),
+        white,
+        "the first ring starts with a dash"
+    );
+    assert_eq!(pixel(&frame, 115, 300), black, "then a gap");
+    assert_eq!(
+        pixel(&frame, 205, 300),
+        white,
+        "the second ring restarts with a dash"
+    );
+    assert_eq!(pixel(&frame, 215, 300), black, "then a gap");
+    assert_eq!(
+        pixel(&frame, 648, 309),
+        white,
+        "the circle's dash starts at +X, going clockwise"
+    );
+    assert_eq!(pixel(&frame, 648, 290), black, "not counter-clockwise");
+    assert_eq!(pixel(&frame, 550, 300), black, "the far side is in the gap");
+}
+
+/// plan-163-B: a dashed RoundedRect's `s = 0` is the left end of its top straight side,
+/// running clockwise, and a dashed Arc's is `startAngle`, running the way the sweep does.
+///
+/// * The RoundedRect at (100, 400), 200 x 100, corner radius 20, 4 px wide, `[30.0,
+///   400.0]`: its top side runs x ∈ [120, 280) at y = 400, so the dash covers x ∈ [120,
+///   150). The centre (125.5, 400.5) is at `s` = 5.5; (155.5, 400.5) at `s` = 35.5, in
+///   the gap; (115.5, 400.5) is in the top-left corner's arc, `s` ≈ 565 of a 565.66
+///   perimeter, in the gap too — the dash starts at the corner's end, it does not run
+///   back round it.
+/// * The Arc at (600, 450), radius 50, from π/2 (straight down) to π, 4 px wide, `[20.0,
+///   200.0]`, Butt: the dash covers the first 20 px of the sweep, towards −X. The centre
+///   (590.5, 499.5) is at radius 50.40, angle 1.7602, `s` = 9.47; (553.5, 468.5) is at
+///   `s` = 59.6, in the gap; (609.5, 499.5) is 9.47 BEFORE the start, past the butt end.
+#[test]
+fn a_rounded_rect_and_an_arc_start_their_dashes_where_the_contract_says() {
+    let (frame, _) = render(
+        "canvas_dash_starts",
+        &scene(
+            "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 4.0)\n  \
+             LET box AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 400.0, w := 200.0, h := 100.0, cornerRadius := 20.0, paint := WITH ink { dashes := [30.0, 400.0] }]\n  \
+             LET bow AS canvas::DrawItem = canvas::Arc[x := 600.0, y := 450.0, radius := 50.0, startAngle := 1.5707963267948966, endAngle := 3.141592653589793, paint := WITH ink { dashes := [20.0, 200.0] }]\n  \
+             canvas::present([box, bow])\n",
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(
+        pixel(&frame, 125, 400),
+        white,
+        "the rounded rectangle's dash starts on its top side"
+    );
+    assert_eq!(pixel(&frame, 155, 400), black, "and ends 30 along it");
+    assert_eq!(
+        pixel(&frame, 115, 400),
+        black,
+        "the corner before the start is the pattern's end, in the gap"
+    );
+    assert_eq!(
+        pixel(&frame, 590, 499),
+        white,
+        "the arc's dash starts at startAngle"
+    );
+    assert_eq!(
+        pixel(&frame, 553, 468),
+        black,
+        "and ends 20 along the sweep"
+    );
+    assert_eq!(
+        pixel(&frame, 609, 499),
+        black,
+        "nothing is drawn before the start"
+    );
+}
+
 /// A clip cuts a circle in half, leaving the other half untouched.
 ///
 /// The circle is the right shape to clip with, because a clip that were secretly
@@ -543,7 +1543,7 @@ fn a_clip_cuts_a_circle_in_half() {
         "canvas_clip_half",
         &scene(
             "  LET c AS color::Color = color::rgb(255, 0, 0)\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := canvas::Bounds[x := 0.0, y := 0.0, w := 200.0, h := 640.0] }\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 200.0, y := 0.0], canvas::Point[x := 200.0, y := 640.0], canvas::Point[x := 0.0, y := 640.0]]] }\n  \
              LET dot AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 100.0, paint := p]\n  \
              canvas::present([dot])\n",
         ),
@@ -581,7 +1581,7 @@ fn a_fractional_clip_edge_is_antialiased() {
         "canvas_clip_frac",
         &scene(
             "  LET c AS color::Color = color::rgb(255, 255, 255)\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := canvas::Bounds[x := 100.25, y := 0.0, w := 300.0, h := 640.0] }\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(c) { clip := [[canvas::Point[x := 100.25, y := 0.0], canvas::Point[x := 400.25, y := 0.0], canvas::Point[x := 400.25, y := 640.0], canvas::Point[x := 100.25, y := 640.0]]] }\n  \
              LET box AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 500.0, h := 200.0, paint := p]\n  \
              canvas::present([box])\n",
         ),
@@ -610,14 +1610,17 @@ fn a_fractional_clip_edge_is_antialiased() {
     );
 }
 
-/// A zero-area clip means "no clip", and renders identically to an unset one.
+/// The empty ring list means "no clip" and renders identically to an unset one, while a
+/// clip that encloses nothing — here a rectangle of zero area — hides the item.
 ///
-/// This is the compatibility case, and it is asserted as whole-frame byte equality
-/// rather than by sampling: `canvas::Bounds`'s own description promises a zero-area
-/// rectangle reads as unclipped, and every `Paint` built before plan-116-B carries
-/// exactly that value. A single wrong pixel here is every existing scene changing.
+/// The first half is the compatibility case, asserted as whole-frame byte equality
+/// rather than by sampling: every `Paint` built without a clip carries `[]`, so a single
+/// wrong pixel is every existing scene changing. The second is plan-163-C's decision
+/// (2026-09-28, §4): only the empty list is the inert zero value, and a clip the program
+/// wrote that encloses nothing is visible as such — it replaced plan-116-B's "a zero-area
+/// `Bounds` is unclipped", which had no other way to spell "no clip".
 #[test]
-fn a_zero_area_clip_is_identical_to_no_clip() {
+fn an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item() {
     let body = |clip: &str| {
         scene(&format!(
             "  LET c AS color::Color = color::rgb(0, 200, 255)\n  \
@@ -627,15 +1630,271 @@ fn a_zero_area_clip_is_identical_to_no_clip() {
         ))
     };
     let (unset, _) = render("canvas_clip_unset", &body("canvas::fill(c)"));
+    let (empty, _) = render(
+        "canvas_clip_empty",
+        &body("WITH canvas::fill(c) { clip := [] }"),
+    );
+    assert_eq!(
+        unset, empty,
+        "an empty clip must render byte-identically to no clip at all"
+    );
     let (zero, _) = render(
         "canvas_clip_zero",
         &body(
-            "WITH canvas::fill(c) { clip := canvas::Bounds[x := 50.0, y := 50.0, w := 0.0, h := 0.0] }",
+            "WITH canvas::fill(c) { clip := [[canvas::Point[x := 300.0, y := 300.0], canvas::Point[x := 300.0, y := 300.0], canvas::Point[x := 300.0, y := 300.0], canvas::Point[x := 300.0, y := 300.0]]] }",
         ),
     );
+    for (x, y) in [(300usize, 300usize), (299, 299), (250, 300)] {
+        assert_eq!(
+            pixel(&zero, x, y),
+            (0, 0, 0, 255),
+            "a zero-area clip encloses nothing, so the circle at ({x}, {y}) is hidden"
+        );
+    }
+}
+
+/// plan-163-C: `Paint.transparency` fades an item's alphas at geometry build.
+///
+/// `T = round(clamp(t, 0, 1) * 255)` and each alpha becomes `(a * (255 - T) + 127) / 255`,
+/// so an item at transparency `t` draws exactly as the same item with those alphas
+/// spelled out. Hand-computed: `t = 0.5` gives `T = round(127.5) = 128`, so an opaque
+/// fill, stroke and gradient stop become `(255 * 127 + 127) / 255 = 127`, and a stop of
+/// alpha 200 becomes `(200 * 127 + 127) / 255 = 100`. `t = -1` clamps to 0 (opaque, the
+/// identity) and `t = 2` to 1 (`T = 255`: every alpha `127 / 255 = 0`, nothing drawn).
+#[test]
+fn transparency_fades_fill_stroke_and_gradient_alphas() {
+    let body = |faded: bool| {
+        let (fill, stroke, s0, s1, t) = if faded {
+            (
+                "color::rgb(255, 0, 0)",
+                "color::rgb(0, 255, 0)",
+                "color::rgb(0, 0, 255)",
+                "color::rgba(255, 255, 0, 200)",
+                " transparency := 0.5,",
+            )
+        } else {
+            (
+                "color::rgba(255, 0, 0, 127)",
+                "color::rgba(0, 255, 0, 127)",
+                "color::rgba(0, 0, 255, 127)",
+                "color::rgba(255, 255, 0, 100)",
+                "",
+            )
+        };
+        scene(&format!(
+            "  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 400.0, y := 0.0], endPoint := canvas::Point[x := 600.0, y := 0.0], \
+             stops := [canvas::GradientStop[offset := 0.0, color := {s0}], canvas::GradientStop[offset := 1.0, color := {s1}]], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fillStroke({fill}, {stroke}, 12.0) {{{t} blend := canvas::BlendMode.Normal }}]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fill(color::rgb(9, 9, 9)) {{{t} gradient := ramp }}]\n  \
+             canvas::present([a, b])\n"
+        ))
+    };
+    let (faded, _) = render("canvas_transparency", &body(true));
+    let (spelled, _) = render("canvas_transparency_spelled", &body(false));
+    assert!(
+        faded == spelled,
+        "transparency 0.5 must draw exactly as alpha 127 (and a 200 stop as 100)"
+    );
+    assert_ne!(
+        pixel(&faded, 150, 120),
+        (0, 0, 0, 255),
+        "the faded fill still draws"
+    );
+
+    let item = |t: &str| {
+        scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) {{ transparency := {t} }}]\n  \
+             canvas::present([a])\n"
+        ))
+    };
+    let (opaque, _) = render("canvas_transparency_zero", &item("0.0"));
+    let (low, _) = render("canvas_transparency_low", &item("0.0 - 1.0"));
+    let (high, _) = render("canvas_transparency_high", &item("2.0"));
+    assert!(
+        low == opaque,
+        "transparency -1 clamps to 0, the opaque identity"
+    );
     assert_eq!(
-        unset, zero,
-        "a zero-area clip must render byte-identically to no clip at all"
+        pixel(&opaque, 300, 300),
+        (255, 0, 0, 255),
+        "transparency 0 is opaque"
+    );
+    assert_eq!(
+        pixel(&high, 300, 300),
+        (0, 0, 0, 255),
+        "transparency 2 clamps to 1: nothing drawn"
+    );
+}
+
+/// A clip ring from points, as MFBASIC source.
+fn clip_ring(points: &[(f64, f64)]) -> String {
+    let pts: Vec<String> = points
+        .iter()
+        .map(|(x, y)| format!("canvas::Point[x := {x:?}, y := {y:?}]"))
+        .collect();
+    format!("[{}]", pts.join(", "))
+}
+
+/// plan-163-C: a path clip — any clip but one untransformed axis-aligned rectangle — in
+/// software, every expectation a whole pixel inside or outside each edge.
+///
+/// * A white 900x640 ground clipped to the triangle (100, 100), (300, 100), (100, 300):
+///   (150, 150) is inside, (250, 250) beyond the hypotenuse.
+/// * A ring with a hole — (400, 50)-(600, 250) around (450, 100)-(550, 200), both
+///   clockwise: under `EvenOdd` the hole (500, 150) is clipped away and the band
+///   (420, 150) drawn; under `NonZero` the same-direction inner ring is more of the clip,
+///   so (500, 150) is drawn.
+/// * A 100x100 square centred on its own origin, rotated 30° and moved to (700, 450),
+///   clipped to its own left half (x < 0): its point (-25, 0) lands at
+///   (700 - 21.65, 450 - 12.5) and is drawn, (25, 0) at (721.65, 462.5) is not.
+/// * A path clip inside a group translated by (300, 400): a 100x100 square at the origin
+///   clipped to the triangle (0, 0), (100, 0), (0, 100) draws (320, 420) and not (380, 480).
+#[test]
+fn a_path_clip_draws_only_inside_its_rings() {
+    let tri = clip_ring(&[(100.0, 100.0), (300.0, 100.0), (100.0, 300.0)]);
+    let outer = clip_ring(&[(400.0, 50.0), (600.0, 50.0), (600.0, 250.0), (400.0, 250.0)]);
+    let inner = clip_ring(&[
+        (450.0, 100.0),
+        (550.0, 100.0),
+        (550.0, 200.0),
+        (450.0, 200.0),
+    ]);
+    let half = clip_ring(&[
+        (-50.0, -50.0),
+        (0.0, -50.0),
+        (0.0, 50.0),
+        (-50.0, 50.0),
+        (-50.0, 0.0),
+    ]);
+    let corner = clip_ring(&[(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)]);
+    let body = |rule: &str| {
+        scene(&format!(
+            "  LET w AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 380.0, h := 340.0, paint := WITH w {{ clip := [{tri}] }}]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 380.0, y := 0.0, w := 260.0, h := 300.0, paint := WITH w {{ clip := [{outer}, {inner}], clipRule := canvas::FillRule.{rule} }}]\n  \
+             LET spin AS canvas::Transform = canvas::Transform[a := 0.8660254037844387, b := 0.5, c := 0.0 - 0.5, d := 0.8660254037844387, tx := 700.0, ty := 450.0]\n  \
+             LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH w {{ transform := spin, clip := [{half}] }}]\n  \
+             LET d AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{corner}] }}]\n  \
+             canvas::setGroup(\"g\", [d])\n  \
+             canvas::present([a, b, c, canvas::Group[dx := 300.0, dy := 400.0, name := \"g\"]])\n"
+        ))
+    };
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    let (even, _) = render("canvas_path_clip", &body("EvenOdd"));
+    assert_eq!(pixel(&even, 150, 150), white, "inside the triangle");
+    assert_eq!(
+        pixel(&even, 250, 250),
+        black,
+        "beyond the triangle's hypotenuse"
+    );
+    assert_eq!(pixel(&even, 420, 150), white, "the band between the rings");
+    assert_eq!(pixel(&even, 500, 150), black, "the hole under EvenOdd");
+    assert_eq!(
+        pixel(&even, 678, 437),
+        white,
+        "the rotated square's clipped-in half"
+    );
+    assert_eq!(pixel(&even, 721, 462), black, "its clipped-out half");
+    assert_eq!(
+        pixel(&even, 320, 420),
+        white,
+        "the group's clip moved with it"
+    );
+    assert_eq!(pixel(&even, 380, 480), black, "beyond the moved triangle");
+    let (non_zero, _) = render("canvas_path_clip_nz", &body("NonZero"));
+    assert_eq!(
+        pixel(&non_zero, 500, 150),
+        white,
+        "the same-direction inner ring is clip under NonZero"
+    );
+}
+
+/// plan-163-C: a transformed clip's edge is antialiased exactly as a transformed shape's
+/// edge — the clip distance is divided by the same direction-aware divisor.
+///
+/// Under the X shear `x' = x + 0.5y` (moved to (200, 450)), a 100x100 square clipped to its
+/// own left half draws, along the clip's slanted edge, the very pixels the 50x100 square
+/// of that half draws unclipped: the same geometry, one edge a clip and one a shape.
+#[test]
+fn a_sheared_clip_edge_matches_a_sheared_shape_edge() {
+    let half = clip_ring(&[(0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (0.0, 100.0)]);
+    let body = |item: &str| {
+        scene(&format!(
+            "  LET shear AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5, d := 1.0, tx := 200.0, ty := 450.0]\n  \
+             LET w AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ transform := shear }}\n  \
+             {item}\n  \
+             canvas::present([s])\n"
+        ))
+    };
+    let (clipped, _) = render(
+        "canvas_shear_clip",
+        &body(&format!("LET s AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{half}] }}]")),
+    );
+    let (shape, _) = render(
+        "canvas_shear_shape",
+        &body("LET s AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 50.0, h := 100.0, paint := w]"),
+    );
+    // Only around the clip's own edge, item x = 50, which lands at surface x =
+    // 250 + 0.5 * (y + 0.5 - 450): the clip's left edge coincides with the shape's, where
+    // the two coverages multiply and the shapes legitimately differ.
+    for y in [460usize, 480, 500, 520, 540] {
+        let edge = 250.0 + 0.5 * (y as f64 + 0.5 - 450.0);
+        for x in (edge as usize - 6)..(edge as usize + 6) {
+            assert_eq!(
+                pixel(&clipped, x, y),
+                pixel(&shape, x, y),
+                "the clip's sheared edge differs from the shape's at ({x}, {y})"
+            );
+        }
+    }
+    assert_eq!(
+        pixel(&clipped, 250, 500),
+        (255, 255, 255, 255),
+        "the half inside the clip draws"
+    );
+}
+
+/// plan-163-C: an untransformed axis-aligned rectangle clip takes the rectangle path
+/// (mode 1), and the same rectangle as a five-point ring — the corner repeated, so not a
+/// four-point rectangle — takes the path clip (mode 2). They draw the same pixels, which
+/// pins the fast path to the general one. A non-empty clip whose rings are all shorter
+/// than two points encloses nothing and hides the item.
+#[test]
+fn a_rectangle_clip_draws_the_same_through_either_path() {
+    let four = clip_ring(&[
+        (100.25, 80.5),
+        (300.75, 80.5),
+        (300.75, 240.25),
+        (100.25, 240.25),
+    ]);
+    let five = clip_ring(&[
+        (100.25, 80.5),
+        (300.75, 80.5),
+        (300.75, 240.25),
+        (100.25, 240.25),
+        (100.25, 240.25),
+    ]);
+    let body = |clip: &str| {
+        scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 160.0, radius := 120.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) {{ clip := [{clip}] }}]\n  \
+             canvas::present([a])\n"
+        ))
+    };
+    let (rect, _) = render("canvas_clip_mode1", &body(&four));
+    let (path, _) = render("canvas_clip_mode2", &body(&five));
+    assert!(
+        rect == path,
+        "the rectangle clip and the same rectangle as a path differ"
+    );
+    let (none, _) = render(
+        "canvas_clip_degenerate",
+        &body("[canvas::Point[x := 200.0, y := 160.0]]"),
+    );
+    assert_eq!(
+        pixel(&none, 200, 160),
+        (0, 0, 0, 255),
+        "a clip of one point encloses nothing"
     );
 }
 
@@ -651,7 +1910,7 @@ fn a_clip_outside_the_item_draws_nothing() {
         &scene(
             "  LET red AS color::Color = color::rgb(255, 0, 0)\n  \
              LET green AS color::Color = color::rgb(0, 255, 0)\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(red) { clip := canvas::Bounds[x := 600.0, y := 400.0, w := 100.0, h := 100.0] }\n  \
+             LET p AS canvas::Paint = WITH canvas::fill(red) { clip := [[canvas::Point[x := 600.0, y := 400.0], canvas::Point[x := 700.0, y := 400.0], canvas::Point[x := 700.0, y := 500.0], canvas::Point[x := 600.0, y := 500.0]]] }\n  \
              LET hidden AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 100.0, h := 100.0, paint := p]\n  \
              LET shown AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(green)]\n  \
              canvas::present([hidden, shown])\n",
@@ -690,7 +1949,7 @@ fn a_clip_larger_than_the_item_changes_nothing() {
     let (big, _) = render(
         "canvas_clip_big",
         &body(
-            "WITH canvas::fill(c) { clip := canvas::Bounds[x := 0.0, y := 0.0, w := 900.0, h := 640.0] }",
+            "WITH canvas::fill(c) { clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 900.0, y := 0.0], canvas::Point[x := 900.0, y := 640.0], canvas::Point[x := 0.0, y := 640.0]]] }",
         ),
     );
     assert_eq!(
@@ -1147,8 +2406,8 @@ fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
     let line = |cap: &str| {
         format!(
             "  LET l AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, \
-             x2 := 400.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 20.0)]\n  \
+             x2 := 400.0, y2 := 300.0, \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([l])\n"
         )
     };
@@ -1205,8 +2464,8 @@ fn a_zero_length_line_is_a_dot_only_when_round_capped() {
     let dot = |cap: &str| {
         format!(
             "  LET l AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 300.0, \
-             x2 := 300.0, y2 := 300.0, cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 20.0)]\n  \
+             x2 := 300.0, y2 := 300.0, \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([l])\n"
         )
     };
@@ -1250,8 +2509,7 @@ fn a_round_capped_arc_caps_its_sweep_ends_and_a_butt_one_does_not() {
         format!(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
              radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
-             cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 24.0)]\n  \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([a])\n"
         )
     };
@@ -1308,8 +2566,8 @@ fn a_round_arc_cap_at_the_bounds_extreme_is_not_clipped() {
         &scene(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
              radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
-             cap := canvas::CapStyle.Round, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 24.0)]\n  \
+             \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) { cap := canvas::CapStyle.Round }]\n  \
              canvas::present([a])\n",
         ),
     );
@@ -1334,8 +2592,7 @@ fn a_full_circle_arc_is_identical_with_either_cap() {
         format!(
             "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
              radius := 100.0, startAngle := 0.0, endAngle := 6.283185307179586, \
-             cap := canvas::CapStyle.{cap}, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 24.0)]\n  \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
              canvas::present([a])\n"
         )
     };
@@ -1973,14 +3230,14 @@ fn gradients_sharing_a_header_keep_their_own_stops() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET gA AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET gB AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) { fillGradient := gA }]\n  \
+             h := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) { gradient := gA }]\n  \
              LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 255)) { fillGradient := gB }]\n  \
+             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 255)) { gradient := gB }]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -2031,7 +3288,7 @@ fn a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill() {
             if extra.is_empty() {
                 "canvas::fill(color::rgb(220, 90, 40))".to_string()
             } else {
-                "WITH canvas::fill(color::rgb(220, 90, 40)) { fillGradient := g }".to_string()
+                "WITH canvas::fill(color::rgb(220, 90, 40)) { gradient := g }".to_string()
             }
         )
     };
@@ -2048,7 +3305,7 @@ fn a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill() {
             "  LET s AS List OF canvas::GradientStop = {stops}\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 300.0, y := 100.0], stops := s]\n"
+             endPoint := canvas::Point[x := 300.0, y := 100.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n"
         );
         let (got, _) = render(name, &scene(&flat(&decl)));
         assert_eq!(
@@ -2077,9 +3334,9 @@ fn a_linear_gradient_interpolates_between_its_stops() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 0.0], \
-             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
-             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) { fillGradient := g }]\n  \
+             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -2128,9 +3385,9 @@ fn a_radial_gradient_runs_outward_from_its_centre() {
              color := color::rgb(0, 0, 0)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, \
              startPoint := canvas::Point[x := 400.0, y := 300.0], \
-             endPoint := canvas::Point[x := 520.0, y := 300.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 520.0, y := 300.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET c AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, radius := 120.0, \
-             paint := WITH canvas::fill(color::rgb(0, 255, 0)) { fillGradient := g }]\n  \
+             paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }]\n  \
              canvas::present([c])\n",
         ),
     );
@@ -2186,15 +3443,15 @@ fn gradients_draw_their_own_ramps() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET gA AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := aStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET gB AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 100.0], \
-             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops]\n  \
+             endPoint := canvas::Point[x := 200.0, y := 100.0], stops := bStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET base AS canvas::Paint = canvas::fill(color::rgb(0, 255, 0))\n  \
              LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH base { fillGradient := gA }]\n  \
+             h := 100.0, paint := WITH base { gradient := gA }]\n  \
              LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH base { fillGradient := gB }]\n  \
+             h := 100.0, paint := WITH base { gradient := gB }]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -2227,9 +3484,9 @@ fn a_zero_length_gradient_axis_takes_the_first_stops_colour() {
              color := color::rgb(200, 30, 90)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 250.0, y := 250.0], \
-             endPoint := canvas::Point[x := 250.0, y := 250.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 250.0, y := 250.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 300.0, \
-             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -2263,9 +3520,9 @@ fn gradient_offsets_out_of_order_are_clamped_not_sorted() {
              canvas::GradientStop[offset := 1.0, color := color::rgb(255, 255, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 0.0], \
-             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -2292,7 +3549,7 @@ fn gradient_offsets_out_of_order_are_clamped_not_sorted() {
 
 /// A gradient fills the interior and leaves the outline a flat colour.
 ///
-/// plan-116-F **F15**. `Paint.fillGradient`'s description and `06_canvas.md` both
+/// plan-116-F **F15**. `Paint.gradient`'s description and `06_canvas.md` both
 /// promise this — *"`stroke` is unaffected — an outline is always a flat colour"* — and
 /// before this test the seven gradient cases here were all fill-only, so nothing in the
 /// tree would have noticed the ramp leaking into the stroke.
@@ -2315,10 +3572,10 @@ fn a_gradients_stroke_stays_a_flat_colour() {
              color := color::rgb(0, 0, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := canvas::Point[x := 100.0, y := 0.0], \
-             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s]\n  \
+             endPoint := canvas::Point[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
              h := 200.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), \
-             color::rgb(255, 255, 0), 24.0) { fillGradient := g }]\n  \
+             color::rgb(255, 255, 0), 24.0) { gradient := g }]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -2369,11 +3626,11 @@ fn a_gradients_stroke_stays_a_flat_colour() {
 #[test]
 fn a_gradient_on_a_stroke_only_kind_is_ignored() {
     const PLAIN: &str = "  LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
-         x2 := 360.0, y2 := 60.0, cap := canvas::CapStyle.Butt, \
-         paint := canvas::stroke(color::rgb(255, 240, 120), 9.0)]\n  \
+         x2 := 360.0, y2 := 60.0, \
+         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { cap := canvas::CapStyle.Butt }]\n  \
          LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
-         startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, \
-         paint := canvas::stroke(color::rgb(120, 255, 200), 9.0)]\n  \
+         startAngle := 0.0, endAngle := 3.14159, \
+         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { cap := canvas::CapStyle.Butt }]\n  \
          canvas::present([a, b])\n";
 
     // The same two items, each carrying a DIFFERENT gradient. Different from each other
@@ -2387,16 +3644,16 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
          color := color::rgb(255, 0, 255)]]\n  \
          LET g1 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
          startPoint := canvas::Point[x := 40.0, y := 0.0], \
-         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s1]\n  \
+         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s1, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
          LET g2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
          startPoint := canvas::Point[x := 40.0, y := 0.0], \
-         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s2]\n  \
+         endPoint := canvas::Point[x := 360.0, y := 0.0], stops := s2, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
          LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
-         x2 := 360.0, y2 := 60.0, cap := canvas::CapStyle.Butt, \
-         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { fillGradient := g1 }]\n  \
+         x2 := 360.0, y2 := 60.0, \
+         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { gradient := g1, cap := canvas::CapStyle.Butt }]\n  \
          LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
-         startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, \
-         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { fillGradient := g2 }]\n  \
+         startAngle := 0.0, endAngle := 3.14159, \
+         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { gradient := g2, cap := canvas::CapStyle.Butt }]\n  \
          canvas::present([a, b])\n";
 
     let (plain, _) = render("canvas_stroke_only_plain", &scene(PLAIN));
@@ -2415,7 +3672,7 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
     assert_eq!(
         differing, 0,
         "a gradient changed what a stroke-only item draws: `Line` and `Arc` are drawn \
-         entirely from `Paint.stroke` and have no interior, so `fillGradient` has no \
+         entirely from `Paint.stroke` and have no interior, so `gradient` has no \
          fill to replace and `__canvas_paintHeader` must skip them — {differing} \
          pixels differ"
     );
@@ -2736,7 +3993,7 @@ fn a_group_cycle_and_an_over_deep_chain_both_raise() {
 /// A gradient inside a group **moves with the group** — settling plan-116-G §4.5's open
 /// decision, and pinning it with the scene that can tell the two answers apart.
 ///
-/// The decision was genuinely open. `Paint.fillGradient` is evaluated at the surface
+/// The decision was genuinely open. `Paint.gradient` is evaluated at the surface
 /// point against an axis read straight from the record, so a gradient is
 /// surface-anchored and `Paint.transform` does **not** drag it (`06_canvas.md` says so
 /// deliberately). A group offset could consistently have gone either way.
@@ -2757,8 +4014,8 @@ fn a_gradient_inside_a_group_moves_with_the_group() {
         "canvas_group_gradient",
         &scene(
             "  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]]\n  \
-             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 200.0, y := 0.0], stops := stops]\n  \
-             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := g }]\n  \
+             LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 200.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
+             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
              canvas::setGroup(\"bar\", [bar])\n  \
              LET left AS canvas::DrawItem = canvas::Group[dx := 50.0, dy := 100.0, name := \"bar\"]\n  \
              LET right AS canvas::DrawItem = canvas::Group[dx := 400.0, dy := 300.0, name := \"bar\"]\n  \
@@ -2792,42 +4049,35 @@ fn a_gradient_inside_a_group_moves_with_the_group() {
     );
 }
 
-/// A clipped item inside a translated group keeps its clip **where the surface
-/// rectangle is** — the group moves the shape through the clip, not the clip with it
-/// (plan-116-G §4.5, **G5**).
+/// A clipped item inside a translated group carries its clip with it: the clip is in the
+/// item's own coordinates, so the group's translation moves both (plan-163-C §3, which
+/// reverses plan-116-G's G5 on purpose — a surface-rectangle clip was right for
+/// `Bounds`, and wrong for an SVG `clip-path`, which moves with its element).
 ///
-/// `Paint.clip` is defined as a surface rectangle that `Paint.transform` does not move
-/// (plan-116-B), and a group offset is treated the same way. This is the asymmetry G5
-/// flags: "evaluate the distance at `p - offset`" moves everything it reaches, and the
-/// clip must be one of the two things it deliberately does not.
-///
-/// The scene is arranged so the two answers are visibly different rather than subtly:
-/// a 200x200 square in a group translated by (300,0), clipped to the left half of where
-/// it lands. If the clip moved with the group it would land 300px further right and the
-/// square would be fully painted; if it stayed, the square's right half is cut.
+/// A 200x200 square in a group translated by (300, 100), clipped to its own left half,
+/// (0, 0)-(100, 200). The square lands at (300, 100)-(500, 300) and the clip with it at
+/// (300, 100)-(400, 300): the left half is painted and the right half is not. Had the
+/// clip stayed on the surface it would cut (0, 0)-(100, 200), which the square never
+/// reaches, and nothing would be painted.
 #[test]
-fn a_clip_inside_a_translated_group_stays_on_the_surface() {
+fn a_clip_inside_a_translated_group_moves_with_it() {
     let (frame, _) = render(
         "canvas_group_clip",
         &scene(
-            "  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) { clip := canvas::Bounds[x := 300.0, y := 100.0, w := 100.0, h := 200.0] }]\n  \
+            "  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) { clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 100.0, y := 0.0], canvas::Point[x := 100.0, y := 200.0], canvas::Point[x := 0.0, y := 200.0]]] }]\n  \
              canvas::setGroup(\"g\", [clipped])\n  \
              canvas::present([canvas::Group[dx := 300.0, dy := 100.0, name := \"g\"]])\n",
         ),
     );
-
-    // The square lands at (300,100)-(500,300). The clip covers (300,100)-(400,300).
     assert_eq!(
         pixel(&frame, 350, 200),
         (0, 200, 255, 255),
-        "the left half of the square — inside both the shape and the clip — is not painted",
+        "the square's left half, inside its moved clip, is painted",
     );
     assert_eq!(
         pixel(&frame, 450, 200),
         (0, 0, 0, 255),
-        "the right half of the square is painted, so the clip moved with the group. A \
-         clip is a SURFACE rectangle: the group translates the shape through it, and \
-         following the group would put this clip at (600,100) where it cuts nothing.",
+        "the square's right half is outside its clip, which moved with the group",
     );
 }
 
@@ -2916,11 +4166,12 @@ fn the_group_drain_does_not_depend_on_the_scene_changing() {
         .expect("groupBytes is a number");
     let groups = stat(stats.last().unwrap(), "groups=");
     assert_eq!(groups, "0", "every scratch group was removed: {stats:?}");
-    // One eight-item group is ~1 KB, so 200 undrained ones would be ~200 KB. The bound
-    // allows a single outstanding buffer: the last iteration's may legitimately still
-    // be retired, since the gate needs a frame to complete after it.
+    // One eight-item group is 4914 bytes (measured, plan-163-D: 4082 before the gradient
+    // gained five fields, 104 bytes an item), so 200 undrained ones would be ~1 MB. The
+    // bound allows a single outstanding buffer and not two: the last iteration's may
+    // legitimately still be retired, since the gate needs a frame to complete after it.
     assert!(
-        bytes < 4096,
+        bytes < 8192,
         "the table still owns {bytes} bytes after 200 install/remove cycles, so the \
          buffers were not drained. Every present in that loop showed an unchanged scene \
          and was skipped, which is exactly the case a free placed on the publish path \
@@ -3237,8 +4488,8 @@ fn a_polygon_inside_a_translated_group_draws_at_the_offset() {
     let (frame, stats) = render(
         "canvas_group_polygon",
         &scene(
-            "  LET up AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 100.0, y := 0.0], canvas::Point[x := 50.0, y := 100.0]], paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET down AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 0.0, y := 100.0], canvas::Point[x := 100.0, y := 100.0], canvas::Point[x := 50.0, y := 0.0]], paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET up AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 100.0, y := 0.0], canvas::Point[x := 50.0, y := 100.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+             LET down AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 0.0, y := 100.0], canvas::Point[x := 100.0, y := 100.0], canvas::Point[x := 50.0, y := 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
              canvas::setGroup(\"tri\", [up])\n  \
              canvas::setGroup(\"tri2\", [down])\n  \
              canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := \"tri\"], canvas::Group[dx := 500.0, dy := 200.0, name := \"tri2\"]])\n",
@@ -3588,5 +4839,448 @@ fn destroying_a_font_mid_frame_is_clean() {
     assert!(
         frame_path.exists(),
         "no frame was written, so the race never actually ran",
+    );
+}
+
+/// A red-to-blue ramp's stops and a `canvas::Gradient` over them with every plan-163-D
+/// field spelled: `kind`, the two points, the spread (`Pad`/`Reflect`/`Repeat`) and the
+/// gradient's own transform as `a, b, c, d, tx, ty`.
+fn ramp(kind: &str, from: (f64, f64), to: (f64, f64), spread: &str, t: [f64; 6]) -> String {
+    format!(
+        "canvas::Gradient[kind := canvas::GradientKind.{kind}, \
+         startPoint := canvas::Point[x := {}, y := {}], endPoint := canvas::Point[x := {}, y := {}], \
+         stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], \
+         canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]], \
+         spread := canvas::GradientSpread.{spread}, \
+         transform := canvas::Transform[a := {}, b := {}, c := {}, d := {}, tx := {}, ty := {}], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, \
+         strokeApply := canvas::GradientApply.FillOnly]",
+        lit(from.0), lit(from.1), lit(to.0), lit(to.1), lit(t[0]), lit(t[1]), lit(t[2]), lit(t[3]), lit(t[4]), lit(t[5])
+    )
+}
+
+/// A `Float` literal as MFBASIC spells it: a negative one as `(0.0 - n)`.
+fn lit(v: f64) -> String {
+    if v < 0.0 {
+        format!("(0.0 - {:?})", -v)
+    } else {
+        format!("{v:?}")
+    }
+}
+
+/// The all-zero transform: the identity.
+const NO_T: [f64; 6] = [0.0; 6];
+
+/// plan-163-D: a linear gradient turned 90° by its own `transform` runs top to bottom.
+///
+/// Hand-computed. `G` maps `(x, y)` to `(-y, x)`, so `G^-1 q = (q.y, -q.x)` and the ramp
+/// from `(0, 0)` to `(101, 0)` gives `t = q.y / 101`: constant along a row, `0.5` at the
+/// row whose centre is `y = 50.5`. The reference is the same ramp written as `(0, 0)` to
+/// `(0, 101)` with no transform, whose `t` is the same expression; the turned one goes
+/// through the build-time fold (`__canvas_gradientHeader`), so its points carry the
+/// fold's rounding and the two may differ by a step at a quantisation boundary, never
+/// more.
+#[test]
+fn a_linear_gradient_turned_by_its_transform_runs_top_to_bottom() {
+    let turned = ramp(
+        "Linear",
+        (0.0, 0.0),
+        (101.0, 0.0),
+        "Pad",
+        [0.0, 1.0, -1.0, 0.0, 0.0, 0.0],
+    );
+    let upright = ramp("Linear", (0.0, 0.0), (0.0, 101.0), "Pad", NO_T);
+    let (frame, _) = render(
+        "canvas_gradient_turned",
+        &scene(&format!(
+            "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {turned} }}]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {upright} }}]\n  \
+             canvas::present([a, b])\n"
+        )),
+    );
+    for y in [3usize, 25, 50, 75, 97] {
+        let row = pixel(&frame, 110, y);
+        for x in [150usize, 200, 290] {
+            assert_eq!(
+                pixel(&frame, x, y),
+                row,
+                "the turned ramp varies along row {y}, so it does not run top to bottom"
+            );
+        }
+        let reference = pixel(&frame, 500, y);
+        for (got, want) in [
+            (row.0, reference.0),
+            (row.1, reference.1),
+            (row.2, reference.2),
+        ] {
+            assert!(
+                got.abs_diff(want) <= 1,
+                "row {y}: the turned ramp is {row:?}, the upright reference {reference:?}"
+            );
+        }
+    }
+    let mid = pixel(&frame, 200, 50);
+    assert!(
+        mid.0.abs_diff(187) <= 1 && mid.1 == 0 && mid.2.abs_diff(188) <= 1,
+        "t = 0.5 at y = 50.5 is the red-to-blue midpoint (187, 0, 188) in linear light, got {mid:?}"
+    );
+    assert!(
+        pixel(&frame, 200, 3).0 > 240 && pixel(&frame, 200, 97).2 > 240,
+        "red at the top, blue at the bottom"
+    );
+}
+
+/// plan-163-D: a linear gradient on a rotated item rotates with it -- the ramp is in the
+/// item's own coordinates (the user's 2026-09-28 decision reversed the surface-anchored
+/// ramp).
+///
+/// The same item twice: translated to (200, 200), and turned 90° and translated to
+/// (500, 200). The turn maps the shape point (x, y) to (-y, x), so the upright copy's
+/// pixel (200 + i, 200 + j) and the turned copy's (499 - j, 200 + i) have the same
+/// shape-space centre (0.5 + i, 0.5 + j) exactly -- the matrix terms are 0 and +-1 -- and
+/// must draw the same colour. A surface-anchored ramp would run across the turned copy
+/// left to right instead and fail at every sample.
+#[test]
+fn a_linear_gradient_on_a_rotated_item_rotates_with_it() {
+    let g = ramp("Linear", (-50.0, 0.0), (50.0, 0.0), "Pad", NO_T);
+    let (frame, _) = render(
+        "canvas_gradient_item_space",
+        &scene(&format!(
+            "  LET g AS canvas::Gradient = {g}\n  \
+             LET up AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g, transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 200.0, ty := 200.0] }}]\n  \
+             LET turned AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g, transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 200.0] }}]\n  \
+             canvas::present([up, turned])\n"
+        )),
+    );
+    for (i, j) in [(-45i64, -40i64), (-20, 10), (0, 0), (17, -33), (44, 44)] {
+        let up = pixel(&frame, (200 + i) as usize, (200 + j) as usize);
+        let turned = pixel(&frame, (499 - j) as usize, (200 + i) as usize);
+        assert_eq!(
+            turned, up,
+            "shape point ({i}.5, {j}.5): the turned copy's ramp did not turn with it"
+        );
+    }
+    assert_ne!(
+        pixel(&frame, 160, 200),
+        pixel(&frame, 240, 200),
+        "the ramp is flat, so nothing above was tested"
+    );
+}
+
+/// plan-163-D: the spread past the ramp's end. The ramp runs from x = 99.5 to 199.5, so
+/// the pixel centre x + 0.5 is at `t = (x - 99) / 100` -- exactly 1.25 at x = 224, 0.75
+/// at x = 174 and 0.25 at x = 124, every one exact in binary. `Pad` there is the last
+/// stop, `(0, 0, 255)`; `Reflect` folds 1.25 to 0.75 and `Repeat` wraps it to 0.25, so
+/// each must equal its own ramp's pixel at that `t` inside the ramp.
+#[test]
+fn spread_pads_reflects_and_repeats_past_the_end() {
+    let item = |name: &str, y: f64, spread: &str| {
+        let g = ramp("Linear", (99.5, 0.0), (199.5, 0.0), spread, NO_T);
+        format!(
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := {y:?}, w := 300.0, h := 40.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}]\n"
+        )
+    };
+    let (frame, _) = render(
+        "canvas_gradient_spread",
+        &scene(&format!(
+            "{}{}{}  canvas::present([pad, reflect, again])\n",
+            item("pad", 100.0, "Pad"),
+            item("reflect", 200.0, "Reflect"),
+            item("again", 300.0, "Repeat")
+        )),
+    );
+    assert_eq!(
+        pixel(&frame, 224, 120),
+        (0, 0, 255, 255),
+        "Pad at t = 1.25 is the last stop"
+    );
+    assert_eq!(
+        pixel(&frame, 224, 220),
+        pixel(&frame, 174, 220),
+        "Reflect at t = 1.25 is t = 0.75"
+    );
+    assert_eq!(
+        pixel(&frame, 224, 320),
+        pixel(&frame, 124, 320),
+        "Repeat at t = 1.25 is t = 0.25"
+    );
+    assert_ne!(
+        pixel(&frame, 174, 220),
+        pixel(&frame, 124, 320),
+        "t = 0.75 and t = 0.25 must differ, or the two above prove nothing"
+    );
+    // Inside the ramp all three agree: the spread only acts past the ends.
+    assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 220));
+    assert_eq!(pixel(&frame, 150, 120), pixel(&frame, 150, 320));
+}
+
+/// A radial ramp with plan-163-D's focal fields: centre `c`, end circle radius `r` (the
+/// end point is `c + (r, 0)`), the focal offset and radius, and the gradient's own
+/// transform.
+fn focal(c: (f64, f64), r: f64, offset: (f64, f64), fr: f64, t: [f64; 6]) -> String {
+    format!(
+        "canvas::Gradient[kind := canvas::GradientKind.Radial, \
+         startPoint := canvas::Point[x := {}, y := {}], endPoint := canvas::Point[x := {}, y := {}], \
+         stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], \
+         canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]], \
+         spread := canvas::GradientSpread.Pad, \
+         transform := canvas::Transform[a := {}, b := {}, c := {}, d := {}, tx := {}, ty := {}], \
+         focalOffset := canvas::Point[x := {}, y := {}], focalRadius := {}, \
+         strokeApply := canvas::GradientApply.FillOnly]",
+        lit(c.0), lit(c.1), lit(c.0 + r), lit(c.1), lit(t[0]), lit(t[1]), lit(t[2]), lit(t[3]),
+        lit(t[4]), lit(t[5]), lit(offset.0), lit(offset.1), lit(fr)
+    )
+}
+
+/// One filled rectangle over the whole test area, its paint's gradient `g`.
+fn ramp_box(name: &str, g: &str) -> Vec<u8> {
+    render(
+        name,
+        &scene(&format!(
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}]\n  \
+             canvas::present([box])\n"
+        )),
+    )
+    .0
+}
+
+/// plan-163-D: a radial gradient scaled `(2, 1)` by its own transform is an ellipse twice
+/// as wide as tall.
+///
+/// Hand-computed. The ramp is a circle of radius 50 about the origin; `G` scales by
+/// `(2, 1)` and moves it to (300.5, 200.5), so `G^-1` maps the pixel centre
+/// (300.5 + 2i, 200.5) to (i, 0) and (300.5, 200.5 + i) to (0, i) -- every term exact in
+/// float32 -- and both are at `t = i / 50`. So pixel (300 + 2i, 200) is pixel
+/// (300, 200 + i), and pixel (300 + i, 200), half as far out in the gradient, is not.
+#[test]
+fn a_radial_gradient_scaled_two_to_one_is_an_ellipse() {
+    let frame = ramp_box(
+        "canvas_gradient_ellipse",
+        &focal(
+            (0.0, 0.0),
+            50.0,
+            (0.0, 0.0),
+            0.0,
+            [2.0, 0.0, 0.0, 1.0, 300.5, 200.5],
+        ),
+    );
+    for i in [10usize, 20, 30, 40] {
+        assert_eq!(
+            pixel(&frame, 300 + 2 * i, 200),
+            pixel(&frame, 300, 200 + i),
+            "{i}: twice as far along x must be the same ring as once along y"
+        );
+        assert_ne!(
+            pixel(&frame, 300 + i, 200),
+            pixel(&frame, 300, 200 + i),
+            "{i}: the ramp is still circular"
+        );
+    }
+}
+
+/// plan-163-D: an off-centre focus. Hand-computed with `c = (300.5, 200.5)`, `r = 100`
+/// and the focus `f = c + (50, 0)`: the pixel whose centre is `f` has `e = 0`, so `t = (0 -
+/// sqrt(0)) / a = 0`, the first stop exactly; the pixel at `c - (r, 0)` has `e = (-150, 0)`
+/// and `w = (-50, 0)`, so `a = -7500`, `b = 7500`, `c = 22500`, the discriminant
+/// `225000000` and `t = (7500 - 15000) / -7500 = 1`, the last stop exactly. A centred ramp
+/// would put the focus pixel at `t = 0.5`.
+#[test]
+fn a_focal_offset_moves_the_first_stop_to_the_focus() {
+    let frame = ramp_box(
+        "canvas_gradient_focal",
+        &focal((300.5, 200.5), 100.0, (50.0, 0.0), 0.0, NO_T),
+    );
+    assert_eq!(
+        pixel(&frame, 350, 200),
+        (255, 0, 0, 255),
+        "the focus is the first stop"
+    );
+    assert_eq!(
+        pixel(&frame, 200, 200),
+        (0, 0, 255, 255),
+        "c - (r, 0) is on the end circle: the last stop"
+    );
+}
+
+/// plan-163-D: a focal offset past the end circle is pulled just inside it, so the ramp
+/// is defined everywhere: every sampled pixel is a mix of the two stops (no green from the
+/// flat fill, which a NaN `t` would not reach either, but an undefined colour would), and
+/// the ramp still runs from near the clamped focus to the far side.
+#[test]
+fn a_focal_offset_beyond_the_circle_is_clamped() {
+    let frame = ramp_box(
+        "canvas_gradient_focal_clamped",
+        &focal((300.5, 200.5), 100.0, (500.0, 0.0), 0.0, NO_T),
+    );
+    for y in (60usize..340).step_by(20) {
+        for x in (110usize..540).step_by(20) {
+            let (r, g, b, a) = pixel(&frame, x, y);
+            assert!(
+                g == 0 && a == 255 && u16::from(r) + u16::from(b) > 0,
+                "({x}, {y}) is {:?}, not a ramp colour",
+                (r, g, b, a)
+            );
+        }
+    }
+    // The clamped focus is c + (99.90234375, 0) = (400.40.., 200.5): beside it the ramp is
+    // barely started, on the far side of the circle it has ended.
+    let near = pixel(&frame, 399, 200);
+    let far = pixel(&frame, 201, 200);
+    assert!(
+        near.0 > 240 && near.2 < 40,
+        "beside the clamped focus the ramp is near its first stop: {near:?}"
+    );
+    assert!(
+        far.0 < 40 && far.2 > 240,
+        "across the circle it is near its last stop: {far:?}"
+    );
+}
+
+/// plan-163-D: a focal radius of `r / 4` fills a disc of that radius with the first stop.
+/// Hand-computed with no offset, `r = 100`, `fr = 25`: a point at distance `d` from the
+/// centre has `a = -5625`, `b = 1875`, `c = d^2 - 625`, so `t <= 0` exactly when `d <=
+/// 25` (Pad: the first stop), and at `d = 30` `t = (1875 - 2250) / -5625 = 1/15`.
+#[test]
+fn a_focal_radius_fills_a_disc_with_the_first_stop() {
+    let frame = ramp_box(
+        "canvas_gradient_focal_radius",
+        &focal((300.5, 200.5), 100.0, (0.0, 0.0), 25.0, NO_T),
+    );
+    for i in [0usize, 10, 20, 24] {
+        assert_eq!(
+            pixel(&frame, 300 + i, 200),
+            (255, 0, 0, 255),
+            "distance {i}: inside the focal disc"
+        );
+        assert_eq!(
+            pixel(&frame, 300, 200 + i),
+            (255, 0, 0, 255),
+            "distance {i} down: inside the focal disc"
+        );
+    }
+    assert_ne!(
+        pixel(&frame, 330, 200),
+        (255, 0, 0, 255),
+        "distance 30 is past the disc, t = 1/15"
+    );
+}
+
+/// A linear red-to-blue ramp along x from 100 to 500, with the given stroke apply.
+fn stroke_ramp(apply: &str) -> String {
+    format!(
+        "canvas::Gradient[kind := canvas::GradientKind.Linear, \
+         startPoint := canvas::Point[x := 100.0, y := 0.0], endPoint := canvas::Point[x := 500.0, y := 0.0], \
+         stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], \
+         canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]], \
+         spread := canvas::GradientSpread.Pad, \
+         transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, \
+         strokeApply := canvas::GradientApply.{apply}]"
+    )
+}
+
+/// plan-163-D: `FillAndStroke` paints the outline with the ramp, tinted by the stroke
+/// colour at the strength of its alpha -- the picture tint (`__canvas_tintChannel`).
+///
+/// Hand-computed against the fill: the ramp runs along x only, so the outline pixel at
+/// (x, 100) -- squarely inside the 24px band on the top edge -- has the ramp colour of
+/// the fill pixel at (x, 200). A white stroke at alpha 255 tints by `ramp * 255 / 255`,
+/// the ramp itself; a stroke at alpha 0 tints by nothing; both draw the plain ramp. A red
+/// stroke at alpha 128 keeps red and moves blue by `-(B * 128 + 127) / 255` (half away
+/// from zero) and green stays 0. A `Line`, which has no interior, is drawn in the ramp
+/// too, matching the fill at the same x.
+#[test]
+fn fill_and_stroke_paints_the_outline_with_the_tinted_ramp() {
+    let item = |name: &str, y: f64, stroke: &str| {
+        format!(
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := {y:?}, w := 400.0, h := 150.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), {stroke}, 24.0) {{ gradient := {} }}]\n",
+            stroke_ramp("FillAndStroke")
+        )
+    };
+    let (frame, _) = render(
+        "canvas_gradient_stroke_apply",
+        &scene(&format!(
+            "{}{}{}  LET line AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 620.0, x2 := 500.0, y2 := 620.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ gradient := {} }}]\n  \
+             canvas::present([white, clear, red, line])\n",
+            item("white", 30.0, "color::rgb(255, 255, 255)"),
+            item("clear", 230.0, "color::rgba(255, 255, 255, 0)"),
+            item("red", 430.0, "color::rgba(255, 0, 0, 128)"),
+            stroke_ramp("FillAndStroke")
+        )),
+    );
+    // Clear of the 24px bands on the left and right edges (x 88..112 and 488..512).
+    for x in [130usize, 200, 300, 400, 470] {
+        let fill = pixel(&frame, x, 105);
+        assert_eq!(
+            fill.1, 0,
+            "x = {x}: the fill is the ramp, not the flat green"
+        );
+        assert_eq!(
+            pixel(&frame, x, 30),
+            fill,
+            "x = {x}: a white stroke at alpha 255 shows the plain ramp"
+        );
+        assert_eq!(
+            pixel(&frame, x, 230),
+            pixel(&frame, x, 305),
+            "x = {x}: a stroke at alpha 0 shows the plain ramp"
+        );
+        let (r, g, b, _) = pixel(&frame, x, 505);
+        let want_b = i32::from(b) - (i32::from(b) * 128 + 127) / 255;
+        assert_eq!(
+            pixel(&frame, x, 430),
+            (r, g, want_b as u8, 255),
+            "x = {x}: red at alpha 128 tints half way"
+        );
+        assert_eq!(
+            pixel(&frame, x, 620),
+            fill,
+            "x = {x}: a Line under FillAndStroke is drawn in the ramp"
+        );
+    }
+}
+
+/// plan-163-D's negative cases: each draws exactly as its no-op form.
+///
+/// A `gradient.transform` that flattens the ramp (a zero determinant) is the identity,
+/// the `Paint.transform` rule; a gradient with fewer than two stops is no gradient, so
+/// `FillAndStroke` leaves a flat stroke and a zero-alpha stroke draws nothing; and a
+/// `focalRadius` above the outer radius is clamped to just under it, so `2r` and the
+/// clamp value `r (1 - 2^-10)` draw the same.
+#[test]
+fn degenerate_gradient_fields_draw_as_their_no_op_forms() {
+    let pair = |name: &str, a: &str, b: &str| {
+        let body = |g: &str| {
+            scene(&format!(
+                "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), color::rgba(255, 255, 0, 0), 12.0) {{ gradient := {g} }}]\n  \
+                 canvas::present([box])\n"
+            ))
+        };
+        let (left, _) = render(&format!("{name}_a"), &body(a));
+        let (right, _) = render(&format!("{name}_b"), &body(b));
+        assert!(
+            left == right,
+            "{name}: the degenerate form does not draw as its no-op"
+        );
+    };
+    let flat = |t: [f64; 6]| ramp("Linear", (100.0, 0.0), (500.0, 0.0), "Pad", t);
+    pair(
+        "canvas_gradient_singular",
+        &flat([1.0, 2.0, 2.0, 4.0, 30.0, 0.0]),
+        &flat(NO_T),
+    );
+    let one_stop = "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 100.0, y := 0.0], \
+         endPoint := canvas::Point[x := 500.0, y := 0.0], stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)]], \
+         spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillAndStroke]";
+    let no_gradient = "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], \
+         endPoint := canvas::Point[x := 0.0, y := 0.0], stops := [], \
+         spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], \
+         focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]";
+    pair("canvas_gradient_one_stop_stroke", one_stop, no_gradient);
+    pair(
+        "canvas_gradient_focal_radius_clamped",
+        &focal((300.5, 200.5), 100.0, (0.0, 0.0), 200.0, NO_T),
+        &focal((300.5, 200.5), 100.0, (0.0, 0.0), 99.90234375, NO_T),
     );
 }

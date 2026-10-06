@@ -51,7 +51,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-163-C complete and archived | `ls planning/completed/plan-163-C-*` → match | NOT MET (2026-09-28: C not started) |
+| plan-163-C complete and archived | `ls planning/completed/plan-163-C-*` → match | MET (2026-10-05: `planning/completed/plan-163-C-clip-path-transparency.md`, archived in 81b47828a) |
 
 A and B are complete by transitivity. Everything below assumes C has landed:
 
@@ -136,11 +136,11 @@ The command for every counted row is `grep -rn "<pattern>" --exclude-dir=target 
 
 | What | Count |
 |---|---|
-| `fillGradient` references (the rename) | 101 |
-| `fillGradient :=` sites | 38 |
-| `canvas::Gradient[` constructions (each gains 5 fields) | 39 |
-| Gradient items that also have a transform or sit in a translated group (pixels change) | UNMEASURED (Phase 1's first task) |
-| Gradient on a Line or an Arc under today's `__canvas_strokeAsFill` | UNVERIFIED (Phase 1 reads the builders and records whether it draws today) |
+| `fillGradient` references (the rename) | 105 (Corrections 1) |
+| `fillGradient :=` sites | 42 (Corrections 1) |
+| `canvas::Gradient[` constructions (each gains 5 fields) | 43 (Corrections 1) |
+| Gradient items that also have a transform or sit in a translated group (pixels change) | 0 (Corrections 2) |
+| Gradient on a Line or an Arc under today's `__canvas_strokeAsFill` | draws nothing — the line is flat (Corrections 3) |
 
 ## 3. Design Overview
 
@@ -291,50 +291,81 @@ remains "no gradient", because it has fewer than two stops.
 
 ### Phase 1 — Types, rename, item-space linear gradients, spread (software)
 
-- [ ] Measure §2's UNMEASURED row and resolve the UNVERIFIED row. Record the file
-      lists here; they are the tests whose expectations change.
-- [ ] `mod.rs`: the two enums and the new `Gradient` fields per §4. Rename
+- [x] Measure §2's UNMEASURED row and resolve the UNVERIFIED row. Record the file
+      lists here; they are the tests whose expectations change. (Every file `grep -rln
+      "fillGradient"` lists was read: no gradient item has a `paint.transform`, and a
+      group offset already moved the ramp — so the list of tests whose expectations
+      change is empty, Corrections 2. A Line's or Arc's gradient draws nothing today,
+      Corrections 3.)
+- [x] `mod.rs`: the two enums and the new `Gradient` fields per §4. Rename
       `fillGradient` → `gradient`. Write the descriptions, including that
       `gradient.transform`, `paint.transform` and the group translation all apply to
       the ramp, and the `strokeApply` tint rule. Update `__canvas_noGradient`.
-- [ ] Rename all 101 `fillGradient` references. Add the five fields to the 39
+- [x] Rename all 101 `fillGradient` references. Add the five fields to the 39
       `canvas::Gradient[` sites.
       Check: `grep -rn "fillGradient" --exclude-dir=target --exclude-dir=.git
-      --exclude-dir=planning --exclude-dir=bugs .` → 0.
-- [ ] Both builders:
+      --exclude-dir=planning --exclude-dir=bugs .` → 0. (105 references, 43
+      constructions — Corrections 1; the grep → 0 outside the app-mouse-surface goldens,
+      which were then regenerated, and → 0 after.)
+- [x] Both builders:
       - the linear fold of §3 (f64);
       - the spread and apply slots;
       - the new slots with pin tests.
       `emit_paint_supported` refuses a radial gradient with a non-identity `transform`
-      or a focal field until Phase 2.
-- [ ] Software (`helper_items.rs`): take the ramp point from `q` instead of `p`, and
+      or a focal field until Phase 2. (`__canvas_gradientHeader`/`__canvas_gradientInverse`
+      in `helper_geometry.rs`, slots 55–66, header 55 → 67; the native builder already
+      refuses every paint with two or more stops, so its share is the header length —
+      Corrections 4. Pin: `the_gradient_slots_follow_the_clip_slots_and_fill_the_header`.)
+- [x] Software (`helper_items.rs`): take the ramp point from `q` instead of `p`, and
       apply spread before `__canvas_gradientColor`, via one `__canvas_gradientSpread`
-      helper.
-- [ ] `__canvas_hashPaint`: fold the new gradient fields.
-- [ ] Tests (hand-computed, `rt_canvas_rasteriser.rs`/`rt_canvas_golden.rs`):
+      helper. (`__canvas_gradientSpread` in `helper_color.rs`.)
+- [x] `__canvas_hashPaint`: fold the new gradient fields. (Spread and apply as one step,
+      the transform, the focal offset and radius; every other kind hashes structurally
+      in `func_item_hash.rs`, which takes the new fields from the type model.)
+- [x] Tests (hand-computed, `rt_canvas_rasteriser.rs`/`rt_canvas_golden.rs`):
       - a linear gradient rotated 90° by `gradient.transform` runs top to bottom;
       - a linear gradient on a rotated item rotates with it;
       - Reflect and Repeat at `t = 1.25` give the colours of `t = 0.75` and `t = 0.25`;
       - Pad at `t = 1.25` gives the last stop.
       Re-derive each changed expectation from the Phase 1 measurement by hand.
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
-      `.ir` diff: it should be the type surface only.
+      (`a_linear_gradient_turned_by_its_transform_runs_top_to_bottom`,
+      `a_linear_gradient_on_a_rotated_item_rotates_with_it`,
+      `spread_pads_reflects_and_repeats_past_the_end`. No expectation changed by the
+      measurement; one bound changed by the type growth — Corrections 6.)
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
+      `.ir` diff: it should be the type surface only. (`sync-goldens.sh` → 5 synced,
+      `regen-native-goldens.sh` → 6 rewritten, 0 failures. The `.ir` diff is not the type
+      surface only — Corrections 5.)
+- [x] Discovered: `tests/cli/cli_canvas_package.rs`'s zero-values program still read
+      `filled.clip.w`, plan-163-C's removed `Bounds` — Corrections 7.
 
 Acceptance: item-space linear gradients and spread hold in software, and §3's sub-gate
 set is byte-identical.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass. `git diff --stat tests/golden/canvas` must list only
   scenes in the Phase 1 measured list (est. 10 min, guess).
-Commit: —
+  Result: rasteriser 79 passed, 1 failed (the drain bound, Corrections 6; re-run alone
+  after it → passed), 2 ignored; golden 22, geo_native 4; `git diff --stat
+  tests/golden/canvas` → empty, the measured list being empty. Also `cargo test --bin mfb
+  canvas` → 111; `cli_canvas_package` 7, `inplace_self_update_census` 2, `rt_canvas_font`
+  33, `rt_canvas_picture` 11 passed.
+Commit: 7cedfaabd
 
 ### Phase 2 — Radial transform, focal point, stroke apply (software)
 
-- [ ] Both builders: radial `G⁻¹` and the focal fields with the §3 clamps.
+- [x] Both builders: radial `G⁻¹` and the focal fields with the §3 clamps.
       `emit_paint_supported` accepts them once native emits them.
       `MFB_CANVAS_GEO_VERIFY=1` under `--debug` reports no mismatch on the tests below.
-- [ ] Software radial per §3: `G⁻¹q`, then the focal quadratic. Stroke apply per §3 in
-      the stroke path.
-- [ ] Tests (hand-computed):
+      (`__canvas_gradientHeader`: `G⁻¹` as float32 bits in slots 57–62 with the flag in
+      63, the clamped focal offset and radius in 64–66, Corrections 8; under
+      `FillAndStroke` slot 15 keeps the raw stroke alpha, Corrections 9. The native and
+      GEO_VERIFY clauses are moot — the native builder declines every gradient paint, so
+      GEO_VERIFY never sees one, Corrections 4.)
+- [x] Software radial per §3: `G⁻¹q`, then the focal quadratic. Stroke apply per §3 in
+      the stroke path. (`__canvas_focalT` and the tint in `helper_items.rs`; a Line or
+      Arc tints its stroke-as-fill; `__canvas_strokeHalf` strokes a zero-alpha stroke
+      under `FillAndStroke`.)
+- [x] Tests (hand-computed):
       - a radial gradient scaled `(2, 1)` is an ellipse twice as wide as tall;
       - with `focalOffset := (r/2, 0)`, the pixel at the focus is stop 0 and the pixel
         at `c − (r, 0)` is the last stop;
@@ -345,17 +376,40 @@ Commit: —
       - a red stroke at alpha 128 gives a half-strength red tint;
       - a stroke colour at alpha 0 gives the plain ramp;
       - `FillOnly` leaves the stroke flat.
+      (`a_radial_gradient_scaled_two_to_one_is_an_ellipse`,
+      `a_focal_offset_moves_the_first_stop_to_the_focus`,
+      `a_focal_offset_beyond_the_circle_is_clamped`,
+      `a_focal_radius_fills_a_disc_with_the_first_stop`,
+      `fill_and_stroke_paints_the_outline_with_the_tinted_ramp` — white, alpha 0, red at
+      128 and a Line; `FillOnly` is `a_gradients_stroke_stays_a_flat_colour` and
+      `a_gradient_on_a_stroke_only_kind_is_ignored`. The Validation Plan's negative cases:
+      `degenerate_gradient_fields_draw_as_their_no_op_forms` — a singular transform, one
+      stop under `FillAndStroke`, `focalRadius` above `r`.)
+- [x] Discovered: regenerate the app-mouse-surface goldens for the Phase 2 helpers
+      (`sync-goldens.sh` → 5, `regen-native-goldens.sh` → 6 rewritten, 0 failures).
 
 Acceptance: per §3 in software, with Phase 1 results unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass, goldens unmodified since Phase 1 (est. 10 min, guess).
-Commit: —
+  Result: rasteriser 86 passed (2 ignored), golden 22, geo_native 4, picture 11, font 33;
+  `git status --short tests/golden` → nothing.
+Commit: 54e7684d7
 
 ### Phase 3 — Item block growth and the GPU (largest blast radius)
 
-- [ ] Item block +48 bytes per §5, with every guard passing.
-- [ ] Emitters (`metal.rs`, `vulkan.rs`): the new words, and `surface.w` packing.
-- [ ] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line):
+- [x] Item block +48 bytes per §5, with every guard passing. (320 → 368:
+      `ITEM_OFFSET_GRADIENT_INV` 320, `ITEM_OFFSET_GRADIENT_FOCAL` 352; `gradInv0`,
+      `gradInv1`, `gradFocal` in both GLSL structs and the MSL one; `cargo test --bin mfb
+      -- the_draw_frame_slots_do_not_overlap the_metal_shader_region_bases_match_the_buffer_layout
+      the_pipeline_specializes_every_region_base the_shared_buffer_holds_every_region
+      vulkan spirv metal` → 19 passed.)
+- [x] Emitters (`metal.rs`, `vulkan.rs`): the new words, and `surface.w` packing.
+      (`emit_item_block` in both: header 57–63 word for word, 64–66 in 16.16, `kind + 2 ·
+      spread + 8 · apply`.)
+- [x] Discovered: the blend split published a gradient's or picture's fill twice —
+      Corrections 10. (`emit_split_or_publish` in both emitters, `emit_block_instances`,
+      `__canvas_blockInstances`; record two's fill alpha −1, read by both shaders.)
+- [x] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line):
       - `gradientColour` takes `q`;
       - radial `G⁻¹` and the focal quadratic;
       - the spread helper;
@@ -363,7 +417,15 @@ Commit: —
       Replace every `surface.w == 1`: first run `grep -nE "surface\.w *== *1"
       src/codegen/runtime/canvas/shaders/mfb_canvas.frag src/target/macos_aarch64/app/metal.rs`,
       record the count here, and bring it to 0. Regenerate both `.spv` on box 2228.
-- [ ] Tests: the Phase 1 and Phase 2 scenes as `rt_canvas_metal.rs` rows.
+      (At 54e7684d7: 1 in `mfb_canvas.frag`, and Metal's twin `gradientKind == 1` 1 —
+      Metal names the word `gradientKind`; now 0 and 0, every reader unpacking `& 1`.
+      `gradientSpread`, `focalT`, `tintRamp`, `gradientColour(q)`. `.spv` regenerated on
+      2226 — vert 6208, frag 248628 bytes; Corrections 12.)
+- [x] Tests: the Phase 1 and Phase 2 scenes as `rt_canvas_metal.rs` rows.
+      (`gradients_match_the_software_oracle_on_metal` over `scenes/gradients_on_black.mfb`
+      — every Phase 1 and 2 case plus two stroked gradients under Multiply; the picture
+      row gains a blended stroked picture with a clear tint; Vulkan row `gradientsblack`
+      — Corrections 13.)
 
 Acceptance: both GPUs match the software renderer within tolerance, and the layout
 guards pass.
@@ -373,11 +435,20 @@ guards pass.
   within `GPU_DEFAULT` (est. 15 min, guess);
   `scripts/test-canvas-gpu-rows.sh <focal scene> --target windows-x86_64` on box 206
   (the only real GPU) → within tolerance (est. 10 min, guess).
-Commit: —
+  Result: `cargo test --bin mfb canvas` → 111 passed; `cargo test --test rt_canvas_metal
+  --test rt_canvas_golden` → 45 and 22 passed (`gpuFrames≠0` asserted per row; the
+  gradient and picture rows re-run after Corrections 13 → passed); `test-canvas-gpu-rows.sh
+  target/release/mfb --target linux-aarch64 --rows gradientsblack` on 2226 → passed, worst=1
+  0.9458%; the same with `--target windows-x86_64` on 206 → passed, worst=1 0.7720%;
+  pathclips, groupsblack, xformblack and matrix on both → passed;
+  `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64` →
+  passed, main scene worst=2 0.8160%. Focal and spread are both in `gradientsblack`.
+  app-mouse-surface goldens regenerated (5 synced, 6 rewritten).
+Commit: e28f90a56
 
 ### Phase 4 — Docs and spec
 
-- [ ] `06_canvas.md`:
+- [x] `06_canvas.md`:
       - the gradient is in item space, with the transform order spelled out;
       - the linear fold;
       - the radial inverse;
@@ -385,9 +456,15 @@ Commit: —
       - the spread formulas;
       - rewrite :438–442 for `strokeApply` and the tint;
       - the layout growth.
-- [ ] `.ai/canvas-threading.md`: the new block words and the `surface.w` bit packing.
-- [ ] Man prose on `Gradient`, `GradientSpread`, `GradientApply` and `Paint.gradient`
-      (`.ai/man-content.md` bans apply).
+      (*`Paint.gradient` replaces an item's fill colour with a ramp* rewritten: item space
+      and the transform order, the `t` table, the fold, the radial inverse, the focal root
+      and clamps, the spread, the stroke tint, the GPU words; the group paragraph and
+      bullet; `strokeStyle` "of its 368".)
+- [x] `.ai/canvas-threading.md`: the new block words and the `surface.w` bit packing.
+      (The block history to 368, the 67-float header, `surface.w`'s packing, and the
+      split's fill-off marker.)
+- [x] Man prose on `Gradient`, `GradientSpread`, `GradientApply` and `Paint.gradient`
+      (`.ai/man-content.md` bans apply). (Written with the types in Phase 1.)
 
 Acceptance: man and spec render and cite.
   Check: `mfb man canvas types` shows the new fields and enums and no `fillGradient`;
@@ -395,7 +472,17 @@ Acceptance: man and spec render and cite.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min, guess).
-Commit: —
+  Result: `mfb man canvas types` → 0 `fillGradient`, `GradientSpread`, `GradientApply`
+  and the five fields present; `man-census.sh --memory-scope` → "unclassified
+  memory-vocabulary hits: 0"; `man-run-examples.sh canvas --run` → "examples: 32 built:
+  32 ran: 32 not run: 0 failed: 0"; `spec-census.sh --citations` → MISS-PATH 0, MISS-LINE
+  0, MISS-SYMBOL 0; `--links` → unresolved=0; `cargo test --bin mfb spec` → 46 passed.
+  Runtime proof (Validation Plan): `/tmp/p163/demod` built `--app --debug`, run with
+  `MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_DUMP=…` → `metal=TRUE gpuFrames=90
+  frames=90`; frame 90 shows the elliptical radial ramp turned with its rotating item, a
+  sphere's off-centre focal highlight, Repeat stripes, and a ramp-painted stroke tinted
+  half-way to red.
+Commit: 8d083c8c3
 
 ## Validation Plan
 
@@ -424,7 +511,97 @@ user are recorded as decisions in §3.
 
 ## Corrections
 
-(none yet)
+1. **The populations grew with B and C.** `grep -rn "fillGradient" --exclude-dir=target
+   --exclude-dir=.git --exclude-dir=planning --exclude-dir=bugs --exclude-dir=.claude . |
+   wc -l` → 105 (not 101), `"fillGradient :="` → 42 (not 38), `"canvas::Gradient\["` →
+   43 (not 39), measured at 81b47828a. The scope is the same rename and the same five
+   fields at each site; nothing else was derived from those counts.
+2. **No test's pixels move.** Every file listing `fillGradient` was read: no gradient item
+   carries a `paint.transform`. A group offset already moved the ramp — the software
+   ramp read the group-relative point since plan-116-G §4.5
+   (`a_gradient_inside_a_group_moves_with_the_group`) — so only `paint.transform` changes
+   pixels, and no golden or hand test exercises it. `git diff --stat tests/golden/canvas`
+   is empty after Phase 1.
+3. **A gradient on a Line or Arc draws nothing today.** `__canvas_paintHeader` zeroes
+   their stop count (plan-116-F Correction F17), and
+   `a_gradient_on_a_stroke_only_kind_is_ignored` pins it. So `FillOnly` keeps that flat
+   line, and only `FillAndStroke` gives the two kinds the stops — through
+   `__canvas_strokeRampTail` in both record builders.
+4. **The native builder never builds a gradient paint.** `emit_paint_supported` declines
+   every paint with two or more stops (`func_geo_build.rs`), so a gradient record is
+   always the MFBASIC builder's and "both builders" is the MFBASIC one plus the native
+   header length (`GEO_HEADER` 67). The "refuses a radial with a transform until Phase 2"
+   clause is already true of every gradient. The linear fold is skipped for the identity
+   transform: folding the identity would project the start point onto the axis line
+   through the origin, the same `t` in exact arithmetic but rounded differently, which
+   would break §3's byte-identical sub-gate.
+5. **The app-mouse-surface `.ir` is not the type surface only.** It records every canvas
+   helper global with its source line, so any helper edit moves it (the mechanism of
+   plan-163-C's Correction 3). Its diff is the new slot globals, the shifted line
+   numbers, and the changed helpers.
+6. **`the_group_drain_does_not_depend_on_the_scene_changing`'s bound was one buffer's
+   size, and the buffer grew.** Written in plan-116-G Phase 5 (G7) as "a bound of one
+   outstanding buffer"; it guards that retired group buffers drain while the scene never
+   changes; nothing else depends on it. Proof the number is stale: one installed
+   eight-rectangle group measures `groupBytes=4082` at 81b47828a (a detached worktree,
+   `MFB_CANVAS_STATS`) and 4914 now — 104 bytes an item, the five new `Gradient` words;
+   the failure's 4923 is that one buffer with a 9-byte longer name. The bound is now
+   8192 (one buffer, not two) and its comment the measured size.
+7. **A plan-163-C leftover.** `tests/cli/cli_canvas_package.rs`'s
+   `macos_paint_zero_values_are_no_ops` still read `filled.clip.w`, a `Bounds` field C
+   removed, so the program did not build — at C's HEAD too. Its contract (the zero clip
+   is the no-op) is now `len(filled.clip) <> 0`. C's own checks did not run that suite.
+8. **`focalRadius` is clamped to `r (1 − 2^-10)`, not `r`.** §3 said `fr ∈ [0, r]` keeps
+   the leading coefficient strictly negative; at `fr = r` the focal offset is clamped to
+   0 and `a = 0 − 0 = 0`. The upper clamp `r (1 − 2^-10)` keeps `r − fr ≥ r · 2^-10`, so
+   `a < 0` whenever `r > 0`.
+9. **Under `FillAndStroke` the stroke alpha is the tint's strength, unfaded, and a
+   zero-alpha stroke still strokes.** §3 gives `a = g.a` and a tint at strength
+   `stroke.a`, and "any colour at alpha 0 draws the plain ramp" — but the header's stroke
+   alpha (slot 15) was faded by `transparency` and `__canvas_strokeHalf` reported a
+   zero-alpha stroke as no stroke. So under `FillAndStroke` slot 15 keeps the raw alpha
+   (the ramp's stops carry the fade, as a picture's texels do) and `__canvas_strokeHalf`
+   strokes a zero-alpha stroke when the paint's gradient has two or more stops. Its
+   native twin only sees paints with fewer than two stops, where nothing changed.
+10. **A pre-existing bug: the blend split drew a gradient's or picture's fill twice.**
+    `emit_split_or_publish` publishes a blended item that fills and strokes as a fill
+    record and a stroke record, and made record two stroke-only by zeroing the fill
+    alpha — but a gradient's colour (since plan-116-F) and a picture's (since plan-163-C,
+    whose fill alpha is a tint) do not come from it, so record two drew the fill again
+    under the blend; and the split test, fill alpha > 0, sent a stroke-only paint with a
+    ramp down the single path. Measured on Metal over the gradient scene before the fix:
+    the Multiply rectangle 12492 pixels off by up to 54, the stroke-only one 4390 by up
+    to 43. Fixed in both emitters, the native counter `emit_block_instances` and
+    `__canvas_blockInstances` (which must agree, or every later draw base shifts — the
+    first attempt changed only the MFBASIC counter and moved a later item's pixels by
+    160): "fills" is fill alpha > 0, two or more stops, or a picture, and record two marks
+    its fill off with alpha −1, which both shaders skip. After: both within 1.
+11. **`the_metal_fragment_clips_and_samples_in_shape_space` pinned the ramp at `p`.** It
+    guards that the fragment samples in shape space, not at `in.pos.xy` (plan-116-H); the
+    ramp now takes `q`, the inverse-mapped twin of `p` (this plan's item-space decision),
+    so the pinned call is `gradientColour(q, edges, item)` and the line defining `q` from
+    `p` is pinned beside it.
+12. **Box 2228 is down; 2226 stands in, as in plan-163-C (Correction 6).** The `.spv` were
+    regenerated with `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`; the Linux Vulkan rows
+    ran on 2226 (`--target linux-aarch64`) and the same rows on 206's real GPU.
+13. **The Vulkan row is `gradientsblack`, and its blended items are small.** A row named
+    `gradients` already ran `many_gradients.mfb`; `test-canvas-gpu-rows.sh` runs every
+    table row matching a name, so both ran under one label. Renamed. And the first scene
+    put 2·180×80 px of Multiply over grey: on 2226's lavapipe 2.27% of the frame drifted
+    one step (worst 1; 5452 and 5833 of those pixels in the two blended items), past
+    `GPU_DEFAULT`'s 2% — the blend-precision drift the script's header already records.
+    The two items exist for the split, so they are 80×56 now.
+14. **The final gate's prediction missed a fixture: `app-window-surface`'s macOS `.ncode`.**
+    The Validation Plan expected 0 diffs outside `tests/syntax/app/app-mouse-surface`. That
+    fixture imports only `app` and `io`, but every macOS app links the Metal renderer and
+    its MSL source — `strings` on the built binary finds `gradInv0`, `tintRamp` and
+    `clipBandAt` — so plans B–D's `metal.rs` moved its `.ncodesum` (only the macOS one;
+    `.ir`, `.nir`, `.nplan` and the Linux and Windows sums are byte-identical after
+    `regen-native-goldens.sh`). Regenerated. Final gate, run once on the branch with main
+    (28 bug/planning-doc commits) merged: `cargo test --no-fail-fast` → 323 test results,
+    the only failure `artifact_gate_all` on that diff; after it, `bash
+    scripts/artifact-gate.sh target/release/mfb all` → "1627 tests, 1806 build(s), 2280
+    golden(s) checked, 0 diff(s)" and `cargo test --test golden` → 1 passed.
 
 ## Summary
 

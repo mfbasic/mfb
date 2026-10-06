@@ -281,7 +281,7 @@ FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::Dr
     ' disc along its tangents so the outline has no corner.
     LET drop AS color::Color = color::rgb(96, 158, 250)
     LET body AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.18, radius := r * 0.34, paint := canvas::fill(drop)]
-    LET tip AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := cx, y := cy - r * 0.58], canvas::Point[x := cx + r * 0.304, y := cy + r * 0.028], canvas::Point[x := cx - r * 0.304, y := cy + r * 0.028]], paint := canvas::fill(drop)]
+    LET tip AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := cx, y := cy - r * 0.58], canvas::Point[x := cx + r * 0.304, y := cy + r * 0.028], canvas::Point[x := cx - r * 0.304, y := cy + r * 0.028]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(drop)]
     items = collections::append(items, [body, tip])
   ELSEIF layer = Layer.Temperature THEN
     LET stemWidth AS Float = r * 0.26
@@ -292,9 +292,9 @@ FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::Dr
     items = collections::append(items, [stem, mercury, bulb])
   ELSE
     LET tint AS color::Color = color::rgb(225, 238, 246)
-    LET north AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy - r * 0.34, x2 := cx + r * 0.42, y2 := cy - r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
-    LET middle AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.38, y1 := cy, x2 := cx + r * 0.58, y2 := cy, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
-    LET south AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy + r * 0.34, x2 := cx + r * 0.25, y2 := cy + r * 0.34, cap := canvas::CapStyle.Round, paint := canvas::stroke(tint, 2.1)]
+    LET north AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy - r * 0.34, x2 := cx + r * 0.42, y2 := cy - r * 0.34, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
+    LET middle AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.38, y1 := cy, x2 := cx + r * 0.58, y2 := cy, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
+    LET south AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy + r * 0.34, x2 := cx + r * 0.25, y2 := cy + r * 0.34, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
     items = collections::append(items, [north, middle, south])
   END IF
 
@@ -590,7 +590,7 @@ FUNC main AS Integer
     MUT rasterItems AS List OF canvas::DrawItem = []
     IF layer <> Layer.Wind THEN
       canvas::setBytes(layerImage, rasterPixels(layer, earlierWinds, laterWinds, mix, view))
-      rasterItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := canvas::fill(color::rgba(255, 255, 255, rasterOpacity(layer)))]]
+      rasterItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 1.0 - toFloat(rasterOpacity(layer)) / 255.0 }]]
     END IF
     MUT scene AS List OF canvas::DrawItem = frameScene(world, view, rasterItems, layer, face, size, captions)
     FOR EACH item IN timelineItems(track, playback, days, face)

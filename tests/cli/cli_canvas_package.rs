@@ -68,17 +68,17 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 31\n\
     \x20 END TRAP\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(yellow)]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 4.0)]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 4.0) { cap := canvas::CapStyle.Butt }]\n\
     \x20 LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 10.0, h := 10.0, paint := canvas::fill(green)]\n\
-    \x20 LET d AS canvas::DrawItem = canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(green, 1.0)]\n\
-    \x20 LET e AS canvas::DrawItem = canvas::Polygon[points := pts, paint := canvas::fill(yellow)]\n\
+    \x20 LET d AS canvas::DrawItem = canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, paint := WITH canvas::stroke(green, 1.0) { cap := canvas::CapStyle.Round }]\n\
+    \x20 LET e AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(yellow)]\n\
     \x20 LET f AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 4.0, h := 4.0, cornerRadius := 1.0, paint := canvas::fill(yellow)]\n\
     \x20 LET g AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green)]\n\
     \x20 LET h AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fillStroke(yellow, green, 1.0)]\n\
     \x20 LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := yellow], canvas::GradientStop[offset := 1.0, color := green]]\n\
-    \x20 LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 8.0, y := 0.0], stops := stops]\n\
-    \x20 LET gradPaint AS canvas::Paint = WITH canvas::fill(yellow) { fillGradient := grad }\n\
-    \x20 IF len(gradPaint.fillGradient.stops) <> 2 THEN\n\
+    \x20 LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 8.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n\
+    \x20 LET gradPaint AS canvas::Paint = WITH canvas::fill(yellow) { gradient := grad }\n\
+    \x20 IF len(gradPaint.gradient.stops) <> 2 THEN\n\
     \x20   RETURN 7\n\
     \x20 END IF\n\
     \x20 LET i AS canvas::DrawItem = canvas::Ellipse[x := 5.0, y := 5.0, radiusX := 4.0, radiusY := 2.0, angle := 0.3, paint := canvas::fill(yellow)]\n\
@@ -88,7 +88,7 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 8\n\
     \x20 END IF\n\
     \x20 LET j AS canvas::DrawItem = grp\n\
-    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[points := pts, colors := [yellow, green], cap := canvas::CapStyle.Round, paint := canvas::stroke(green, 2.0)]\n\
+    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[points := pts, colors := [yellow, green], paint := WITH canvas::stroke(green, 2.0) { cap := canvas::CapStyle.Round }]\n\
     \x20 canvas::removeGroup(\"panel\")\n\
     \x20 canvas::removeGroup(\"never-installed\")\n\
     \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i, j, k]\n\
@@ -130,7 +130,7 @@ const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
     \x20 IF filled.transform.a <> 0.0 THEN\n\
     \x20   RETURN 4\n\
     \x20 END IF\n\
-    \x20 IF filled.clip.w <> 0.0 THEN\n\
+    \x20 IF len(filled.clip) <> 0 THEN\n\
     \x20   RETURN 5\n\
     \x20 END IF\n\
     \x20 LET outlined AS canvas::Paint = canvas::stroke(red, 3.0)\n\

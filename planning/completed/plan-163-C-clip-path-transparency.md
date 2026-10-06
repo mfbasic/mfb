@@ -69,7 +69,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-163-B (stroke styling) complete and archived | `ls planning/completed/plan-163-B-*` → match | NOT MET (2026-09-28: B not started) |
+| plan-163-B (stroke styling) complete and archived | `ls planning/completed/plan-163-B-*` → match | MET (2026-10-05: `planning/completed/plan-163-B-stroke-styling.md`) |
 
 plan-163-A is complete by transitivity, because B requires it. Everything below is
 written against the world where A and B have landed:
@@ -190,8 +190,8 @@ Glyph runs are drawn with `item.fill` (`mfb_canvas.frag:928`).
 | `clip :=` sites | 23 | same with `"clip :="` |
 | files holding either | 11 (`scenes/transformed_shapes_on_black.mfb` 8, `rt_canvas_rasteriser.rs` 7, `rt_canvas_metal.rs` 3, `scenes/canvas_geo_native_matrix.mfb` 2, `rt_canvas_golden.rs` 2, `mod.rs` 2, `scripts/test-canvas-vulkan.sh` 2, and 1 each in `field_kinds.tsv`, `scenes/clips_at_a_step_on_black.mfb`, `rt_canvas_picture.rs`, `func_fill_stroke.rs`) | same, `\| cut -d: -f1 \| sort \| uniq -c` |
 | `canvas::Picture[` sites | 54 (top: `rt_canvas_picture.rs` 14, `rt_canvas_metal.rs` 8, `rt_canvas_group_ownership.rs` 5, `test-canvas-vulkan.sh` 4) | `grep -rn "canvas::Picture\[" --exclude-dir=target --exclude-dir=.git --exclude-dir=planning --exclude-dir=bugs . \| wc -l` |
-| Picture sites whose fill alpha is below 255 (the ones whose pixels change) | UNMEASURED | Phase 1's first task |
-| Clip sites that also set a transform or sit in a translated group (the ones whose pixels change) | UNMEASURED | Phase 1's first task |
+| Picture sites whose fill alpha is below 255 (the ones whose pixels change) | 2 (`rt_canvas_picture.rs:201` the opacity test, `examples/weather/src/main.mfb:593`) | each of the 55 `canvas::Picture[` sites' `paint` read (`grep -rn "canvas::Picture\[" … \| grep -o "paint := [^]]*" \| sort \| uniq -c`); `rt_canvas_rasteriser.rs:310`'s `rgba(…, 128)` is a Rectangle |
+| Clip sites that also set a transform or sit in a translated group (the ones whose pixels change) | 8: `scenes/transformed_shapes_on_black.mfb` (6 items, `transform := tf, clip := cl`), `rt_canvas_rasteriser.rs` G5 test, `rt_canvas_golden.rs:1147` (`band` in the group panel) | the 23 `clip :=` sites read for a `transform` or a `Group` around them |
 
 ### Verified properties
 
@@ -405,21 +405,23 @@ This phase delivers the new surface and the two alpha rules in software. The cli
 still rectangle-only here (the fast path), so nothing about the path clip is
 half-built.
 
-- [ ] Measure the two UNMEASURED rows of §2:
+- [x] Measure the two UNMEASURED rows of §2:
       - Picture sites whose fill alpha is below 255 (read each of the 54 sites'
         `paint`);
       - clip sites that also set a transform or sit in a translated group.
       Record both counts and file lists here. They are the tests whose expectations
-      change.
-- [ ] `mod.rs`: remove the `Bounds` record and its `:1791` list entry. `Paint.clip` →
+      change. (2 and 8, in §2's table.)
+- [x] `mod.rs`: remove the `Bounds` record and its `:1791` list entry. `Paint.clip` →
       `list_of(list_of(named("Point")))`. Add `clipRule` and `transparency` per §4, with
       descriptions. The `clip` description states that **`paint.transform` and a group's
       translation apply to the clip path as well as to the item**. The Picture
-      description states the tint and `transparency` rule.
-- [ ] `helper_paint_defaults.rs:__canvas_noClip` → `[]`. Update the constructor
+      description states the tint and `transparency` rule. (Also the `transform`
+      description, which said the clip was not transformed.)
+- [x] `helper_paint_defaults.rs:__canvas_noClip` → `[]`. Update the constructor
       literal in `func_fill_stroke.rs` and the "all N fields" sentences
-      (`func_fill.rs:24`, `func_stroke.rs:24`, `func_fill_stroke.rs:24`).
-- [ ] Both builders:
+      (`func_fill.rs:24`, `func_stroke.rs:24`, `func_fill_stroke.rs:24`). (Twelve →
+      fourteen.)
+- [x] Both builders:
       - clip mode 0/1 per §5, where mode 1 is only an axis-aligned 4-point ring with no
         transform. Anything else is refused by `emit_paint_supported` until Phase 2
         (it falls back to MFBASIC, which in Phase 1 also only accepts modes 0/1: any
@@ -427,10 +429,20 @@ half-built.
       - the alpha fold per §6;
       - `PICTURE_TRANSPARENCY`;
       - the header slots added per §5/§6, with both pin tests extended.
-- [ ] `__canvas_hashPaint`: fold `clip` (rings), `clipRule` and `transparency`.
-- [ ] Software picture tint per §6 (`helper_items.rs` near :593). Software mode-1 clip
-      offset by the group (replacing the :475–478 G5 behavior).
-- [ ] Migrate the 23 `clip :=` / 22 `canvas::Bounds` sites to rings (a rectangle
+      (Slots 51 `CLIP_MODE`, 52 `CLIP_EDGE_COUNT`, 53 `CLIP_RULE`, 54
+      `PICTURE_TRANSPARENCY`; `__CANVAS_GEO_HEADER` = `GEO_HEADER` = `HEADER_SLOTS` = 55.
+      `__canvas_clipHeader`/`__canvas_clipRect`, `__canvas_transparencyStep`,
+      `__canvas_fadeAlpha`; native `emit_clip_ring`, `emit_transparency_step`,
+      `emit_fade_alpha`, and the polyline's per-point colours fade too. The native pin
+      test pins `CLIP_MODE`/`CLIP_RULE`; the emitter-side pins land with Phase 3's
+      readers. `cargo test --bin mfb canvas` → 110 passed; `cargo test --test
+      rt_canvas_geo_native` → 4 passed, 0 mismatches.)
+- [x] `__canvas_hashPaint`: fold `clip` (rings), `clipRule` and `transparency`. (The
+      native item hash walks the type model's fields, so it folds them already.)
+- [x] Software picture tint per §6 (`helper_items.rs` near :593). Software mode-1 clip
+      offset by the group (replacing the :475–478 G5 behavior). (`__canvas_tintChannel`;
+      Corrections 2.)
+- [x] Migrate the 23 `clip :=` / 22 `canvas::Bounds` sites to rings (a rectangle
       `Bounds[x, y, w, h]` becomes a 4-point ring). Migrate the Picture sites whose
       fill alpha was below 255 to `transparency`.
       For each test whose expected pixels change, re-derive the expectation by hand and
@@ -438,7 +450,17 @@ half-built.
       group-and-clip test, whose premise the user's decision replaces.
       Check: `grep -rn "canvas::Bounds" --exclude-dir=target --exclude-dir=.git
       --exclude-dir=planning --exclude-dir=bugs .` → 0.
-- [ ] Tests (`rt_canvas_rasteriser.rs`, `rt_canvas_picture.rs`, hand-computed):
+      (20 literals converted to 4-point rings; the two all-zero ones — the old
+      "unclipped" — became `[]`; the `field_kinds.tsv` `canvas::Bounds` row removed with
+      the type. The grep → 0 outside the `.ir` golden, which this phase regenerates.
+      Rewritten by hand: `a_zero_area_clip_is_identical_to_no_clip` →
+      `an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item`, and G5's
+      `a_clip_inside_a_translated_group_stays_on_the_surface` →
+      `…_moves_with_it`, each citing §3/§4's decision. `tests/golden/canvas/groups.png`
+      re-baselined: 5,460 pixels differ, `python3 /tmp/p163/pngdiff.py` → 0 outside the
+      `band`'s two moved rectangles (340 + 40.25 … 130.75, 210 + 80 … 110 and the nested
+      620/70 one), which is exactly the clip moving with the group.)
+- [x] Tests (`rt_canvas_rasteriser.rs`, `rt_canvas_picture.rs`, hand-computed):
       - `transparency := 0.5` on a red fill gives alpha 128 (`(255×128+127)/255 = 128`);
       - on a gradient, each stop's alpha is folded;
       - on stroked text, the glyph alpha is folded;
@@ -449,9 +471,17 @@ half-built.
       - Picture with red fill at alpha 128: the half blend;
       - Picture with `transparency := 0.5`: the texel alpha halved;
       - a mode-1 clip inside a translated group is clipped at the group's offset.
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*`
+      (`transparency_fades_fill_stroke_and_gradient_alphas`,
+      `the_fill_is_a_tint_and_transparency_is_the_opacity`,
+      `transparency_fades_text_and_stroked_text` in `rt_canvas_font.rs` (the font
+      fixture), and the rewritten group-clip test. Alpha 127, not 128 — Corrections 1.)
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*`
       (`scripts/regen-native-goldens.sh`, expected). Inspect the `.ir` diff: it should
-      be the type surface only.
+      be the type surface only. (`regen-native-goldens.sh target/release/mfb
+      tests/syntax/app/app-mouse-surface` → 6 rewritten; `sync-goldens.sh … app-mouse-surface`
+      → 5. The `.ir` embeds the canvas helpers, so it is the type surface plus every
+      helper — Corrections 3; every changed name is a canvas one or a renumbered
+      `$match`/`$trap` temporary.)
 
 Acceptance: the new rules hold in software, and unaffected items are byte-identical.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
@@ -459,11 +489,13 @@ Acceptance: the new rules hold in software, and unaffected items are byte-identi
   tests/golden/canvas` must list only PNGs whose scenes are in the Phase 1 measured
   lists (est. 12 min, guess; these four binaries cover clip, alpha, picture and both
   builders).
-Commit: —
+  Result: rasteriser 74, golden 22, picture 11, font 33, geo_native 4 passed; the one
+  golden changed is `groups.png`, whose `band` is in the measured list.
+Commit: 7b017576b
 
 ### Phase 2 — Path clip in software (the design's uncertain part, tested first)
 
-- [ ] Premise tests first (hand-computed, `rt_canvas_rasteriser.rs`):
+- [x] Premise tests first (hand-computed, `rt_canvas_rasteriser.rs`):
       - a triangle clip on a rectangle;
       - a ring-with-hole clip under EvenOdd and under NonZero with a same-direction
         inner ring;
@@ -472,36 +504,73 @@ Commit: —
       - a path clip inside a translated group.
       If the sheared clip's edge coverage disagrees with a sheared shape edge of the
       same geometry, fix the divisor use and record it in Corrections.
-- [ ] Both builders: mode 2, the clip edge tail per §5, and
+      (`a_path_clip_draws_only_inside_its_rings` — triangle, hole under both rules, 30°
+      rotation, translated group — and `a_sheared_clip_edge_matches_a_sheared_shape_edge`,
+      which disagreed (137 vs 143 at (255, 460)) until the divisor was fixed —
+      Corrections 4.)
+- [x] Both builders: mode 2, the clip edge tail per §5, and
       `__canvas_clipEdgeBase`. `emit_paint_supported` accepts mode 2 once native emits
       it. `MFB_CANVAS_GEO_VERIFY=1` under `--debug` reports no mismatch on the premise
-      scenes.
-- [ ] Software mode-2 coverage per §5.
-- [ ] Test: an axis-aligned rectangle clip with no transform gives exactly the same
+      scenes. (`__canvas_clipHeader` mode 2, `__canvas_withClipEdges` in both
+      `__canvas_geometryFor` and `__canvas_geoReference`, `__canvas_clipEdgeBase` under
+      `__canvas_dashBase`; native `emit_clip_shape`, `emit_clip_edges`, `emit_clip_size`
+      — every clip is native now. Five path-clip paints in the native matrix: `cargo test
+      --test rt_canvas_geo_native` → 4 passed, every record native, 0 mismatches. Both GPU
+      emitters' join and dash copies also skip the clip edges (`HEADER_CLIP_EDGE_COUNT`,
+      pinned).)
+- [x] Software mode-2 coverage per §5. (`__canvas_clipPathDistance` over
+      `__canvas_edgeDistanceRule`, `__canvas_clipPathSurface`, `__canvas_glyphClip`.)
+- [x] Test: an axis-aligned rectangle clip with no transform gives exactly the same
       pixels through mode 1 and forced through mode 2. This pins the fast path to the
-      general path.
-- [ ] Test: a non-empty clip whose rings are all shorter than 2 points draws nothing.
-      `clip := []` draws unclipped.
+      general path. (`a_rectangle_clip_draws_the_same_through_either_path`: the four-point
+      ring against the same rectangle as five points, whole frames equal.)
+- [x] Test: a non-empty clip whose rings are all shorter than 2 points draws nothing.
+      `clip := []` draws unclipped. (The same test, and Phase 1's
+      `an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item`.)
 
 Acceptance: path clips draw per §5 in software, and modes 0 and 1 are unchanged from
 Phase 1.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
   rt_canvas_geo_native` → pass, goldens unmodified since Phase 1 (est. 10 min, guess).
-Commit: —
+  Result: rasteriser 77, geo_native 4, picture 11, font 33 passed; golden 21 of 22 —
+  `the_gpu_draws_the_group_scene_the_reference_shows` fails because the GPUs still
+  evaluate the clip at the surface point, which Phase 3 changes (the software golden
+  tests pass); no golden file modified since Phase 1.
+Commit: 283177028
 
 ### Phase 3 — Item block growth, and the path clip and tint on the GPU (largest blast radius)
 
-- [ ] Item block 288 → 320 per §7, with every guard test passing.
-- [ ] Emitters (`metal.rs`, `vulkan.rs`):
+- [x] Item block 288 → 320 per §7, with every guard test passing.
+      (`ITEM_BLOCK_SIZE` 320, `ITEM_OFFSET_CLIP_BAND` 288, `ITEM_OFFSET_CLIP_PATH` 304, both
+      shader structs and `mfb_canvas.vert`; `cargo test --bin mfb --
+      the_draw_frame_slots_do_not_overlap the_metal_shader_region_bases_match_the_buffer_layout
+      the_pipeline_specializes_every_region_base the_shared_buffer_holds_every_region
+      vulkan spirv` → 11 passed.)
+- [x] Emitters (`metal.rs`, `vulkan.rs`):
       - clip edges into the edge region, and a clip band index via a parameterised
         `emit_band_index`;
       - `clipBand`/`clipPath` words and picture `T`;
       - the frame-sum predicate in `helper_render.rs` counts clip edges.
-- [ ] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line): `clipCoverage`
+      (`emit_clip_buffer` / `emit_clip_upload` after the dash copy; `emit_band_index`
+      takes a `BandSet` — `ITEM_BANDS` or `CLIP_BANDS` — whose clip reach drops the
+      stroke, cap and join terms and keeps the guard and `2F`. Proof the clip bands are
+      read: with Metal's `clipBandAt` forced to an empty band, `cargo test --test
+      rt_canvas_metal path_clips` fails, 25970 of 576000 pixels differing; restored, it
+      passes. `__canvas_metalRenderable` and `__canvas_vulkanRenderable` count clip edges against the edge cap.)
+- [x] Shaders (`METAL_SHADER_BODY`, `mfb_canvas.frag`, line for line): `clipCoverage`
       on the shape-space point per §5, and the picture tint per §6. Regenerate both
-      `.spv` on box 2228.
-- [ ] Tests: the Phase 1 picture and group-clip scenes and the Phase 2 premise scenes as
-      `rt_canvas_metal.rs` rows.
+      `.spv` on box 2228. (`shapeCoverage` returns the clip in `.w` from samples 5–9 at
+      the shape-space point, divided by the clip's own gradient; `clipBandAt`;
+      `clipRect`; the tint and `T` in the picture path. `.spv` regenerated on 2226 —
+      Corrections 6: vert 5776, frag 240848 bytes.)
+- [x] Tests: the Phase 1 picture and group-clip scenes and the Phase 2 premise scenes as
+      `rt_canvas_metal.rs` rows. (`path_clips_match_the_software_oracle_on_metal` over
+      `scenes/path_clips_on_black.mfb` — triangle, hole under both rules, rotated,
+      sheared, grouped, a rectangle clip through either path, a dashed stroke clipped,
+      and a 40-edge star clip plain and rotated, past the 32-edge band threshold; the
+      picture row gains an untinted, a half-red and a faded picture; the group scene's
+      golden row; Vulkan row `pathclips` in `scripts/test-canvas-gpu-rows.sh`, and the
+      tint and fade in `scripts/test-canvas-vulkan.sh`'s scene.)
 
 Acceptance: both GPUs match the software renderer within tolerance, and the layout
 guards pass.
@@ -512,21 +581,38 @@ guards pass.
   Vulkan lane, `.ai/remote_systems.md:112–137`);
   `scripts/test-canvas-gpu-rows.sh <path-clip scene> --target windows-x86_64` on box 206
   (the only real GPU) → within tolerance (est. 10 min, guess).
-Commit: —
+  Result: `cargo test --bin mfb canvas` → 110 passed; `cargo test --test rt_canvas_metal
+  --test rt_canvas_golden` → 44 and 22 passed (`gpuFrames≠0` asserted per row);
+  `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64 --rows
+  pathclips,xformblack,groupsblack,dashes,joins,matrix` on 2226 → passed (pathclips
+  worst=1, 0.4217%); the same rows bar `joins` with `--target windows-x86_64` on 206 →
+  passed (pathclips worst=1, 0.3497%); `scripts/test-canvas-vulkan.sh target/release/mfb
+  --box 2226 --target linux-aarch64` (its scene now holds the tinted and faded pictures)
+  → passed, main scene worst=2, 0.8160%. Box 2228 refused connections — Corrections 6.
+Commit: 58bbb5a66
 
 ### Phase 4 — Docs and spec
 
-- [ ] `06_canvas.md`:
+- [x] `06_canvas.md`:
       - the clip: rings, `clipRule`, and the clip in the item's space moved by the
         transform and the group offset (rewrite the plan-116-B/G5 text);
       - the fast path and its equality with the general path;
       - `transparency` and the fold formula;
       - the Picture rule (:431–434 rewritten with the tint formula);
       - the header and item-block growth where the layout is cited.
-- [ ] `.ai/canvas-threading.md`: the `clipBand`/`clipPath` block words, the clip edges
+      (*`Paint.clip` restricts an item to the area its rings enclose*, its two paths
+      and the GPU block words; *`Paint.transparency` fades the whole item*; the Picture
+      tint; the group section's "two things travel"; the tail order with clip edges;
+      `strokeStyle` "at byte 272 of its 320"; the zero-value list.)
+- [x] `.ai/canvas-threading.md`: the `clipBand`/`clipPath` block words, the clip edges
       sharing the edge region, and the tail order edges | joins | dashes | clip edges | stops.
-- [ ] Man prose on `Paint` (`clip`, `clipRule`, `transparency`), `Picture` and
-      `FillRule` (`.ai/man-content.md` bans apply).
+      (The block-growth history to 320; the tail section, now a 55-float header; the
+      clip-edge paragraph — edge region, edge cap, `BandSet`; the group section's clip
+      paragraph rewritten for the shape-space clip.)
+- [x] Man prose on `Paint` (`clip`, `clipRule`, `transparency`), `Picture` and
+      `FillRule` (`.ai/man-content.md` bans apply). (`Paint` and `Picture` from Phase 1;
+      `FillRule`'s two variants now say they decide a clip's area as well as a
+      polygon's fill.)
 
 Acceptance: man and spec render and cite.
   Check: `mfb man canvas types` shows no `Bounds` and the new fields;
@@ -534,7 +620,17 @@ Acceptance: man and spec render and cite.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min, guess).
-Commit: —
+  Result: `mfb man canvas types` → 0 `Bounds`, `clip`/`clipRule`/`transparency` rows
+  present; `man-census.sh --memory-scope` → "unclassified memory-vocabulary hits: 0";
+  `man-run-examples.sh canvas --run` → "examples: 32 built: 32 ran: 32 not run: 0
+  failed: 0"; `spec-census.sh --citations` → MISS-PATH 0, MISS-LINE 0, MISS-SYMBOL 0;
+  `--links` → unresolved=0; `cargo test --bin mfb spec` → 46 passed, `man` → 343 passed.
+  Runtime proof (Validation Plan): `/tmp/p163/democ`, built `--app --debug` and run with
+  `MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_DUMP=…` → stats `metal=TRUE
+  gpuFrames=120 frames=120`; frame 120 shows the star clip turned with its rotated
+  rectangle, an EvenOdd "O" clip, a picture tinted half-way to red ((240,240,240) →
+  (240,120,120)) and one faded at 0.74.
+Commit: e23b90178
 
 ## Validation Plan
 
@@ -567,7 +663,40 @@ Commit: —
 
 ## Corrections
 
-(none yet)
+1. **`transparency := 0.5` is alpha 127, not 128.** §6's `T = round(clamp(t) × 255)` gives
+   `round(127.5) = 128` (half up, as `toInt(x + 0.5)` rounds), so `(255 × (255 − 128) +
+   127) / 255 = 127`; Phase 1's "(255×128+127)/255 = 128" took `T = 127`. The tests
+   expect 127.
+2. **The tint is truncated, so an opaque tint is today's multiply exactly.** §6 wrote
+   `tint_c = (texel_c × fill_c + 127) / 255`; that rounds where today's
+   `(texel × fill) / 255` truncates, and would move pictures with an opaque non-white,
+   non-pure tint (two `rgb(255, 128, 0)` sites) by a level. `tint_c = (texel_c × fill_c)
+   / 255` keeps every opaque-fill picture byte-identical — at `fill_a = 255` the blend
+   adds exactly `tint − texel` — and §6 left the rounding to Phase 1.
+3. **The `app-mouse-surface` goldens were stale from plan-163-B Phases 5–7.** Those
+   phases changed the canvas helpers the fixture's `.ir`/native dumps embed and did not
+   re-sync them (B's acceptance gate runs once, at the end of plan-163). Phase 1's
+   regeneration covers both letters' changes.
+4. **A path clip is divided by its own gradient, not the shape's.** §5 said the clip
+   distance is "scaled by the shape's direction-aware divisor". The premise test showed
+   that is wrong under a shear: near the clip's edge the SHAPE's gradient is that of
+   whichever shape edge is nearest, so a sheared clip edge drew 137 where the same edge as
+   a shape drew 143, at (255, 460). The clip is now divided by its own gradient, from
+   central differences of the clip distance at the same four inverse-mapped neighbours
+   the shape uses (`__canvas_clipPathSurface`); the test passes and the GPUs take the
+   same five clip samples (Phase 3).
+5. **A full-suite run is void if anything is built while it runs.** Phase 1's first
+   full-suite run was contaminated: a `cargo test --bin mfb` issued mid-run rebuilt
+   the binary under test with half-written Phase 2 code (`NIR call target
+   '#collections_take' does not resolve` in 100+ canvas tests). It was stopped and does
+   not count; the full suite runs again with nothing built alongside it. The same run
+   found `collections::take`/`drop` unresolvable from a builtin helper; the clip-edge
+   splice uses loops.
+6. **Box 2228 is down; 2226 stands in for the Linux Vulkan lane.** `ssh -p 2228
+   test@127.0.0.1 true` → `Connection refused` (re-measured at Phase 3). The `.spv` were
+   regenerated with `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` (glslang there, same
+   script), and the Linux Vulkan checks ran on 2226 (`--target linux-aarch64`), as plan-163-B
+   did; Windows 206 ran the same rows on its real GPU.
 
 ## Summary
 

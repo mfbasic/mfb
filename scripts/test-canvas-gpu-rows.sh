@@ -110,6 +110,13 @@ layers|layered|render
 star251x97|star_251_97_on_black|render
 star301x97|star_301_97_on_black|render
 star301x2|star_301_2_on_black|render
+star301x2nz|star_301_2_nonzero_on_black|render
+fillrules|fill_rules_on_black|render
+squarecaps|square_caps_on_black|render
+joins|joins_on_black|render
+dashes|dashes_on_black|render
+pathclips|path_clips_on_black|render
+gradientsblack|gradients_on_black|render
 polygonsblack|large_polygons_on_black|render
 smallpolysblack|small_polygons_on_black|render
 rectsblack|rectangles_on_black|render

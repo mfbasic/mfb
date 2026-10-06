@@ -22,8 +22,9 @@ struct ItemBlock {
     ivec4 fill;    // 32: RGBA 0..255
     ivec4 stroke;  // 48: RGBA 0..255
     ivec4 misc;    // 64: kind, radius (16.16), strokeHalf (16.16), edgeCount
-    ivec4 arc;     // 80: glyph/picture height, arc reflex flag (bug-735), edgeBase, capStyle
-    ivec4 surface; //  96: width, height, blendMode, unused
+    ivec4 arc;     // 80: glyph/picture height, arc reflex flag (bug-735) / polygon fill
+                   //   rule (plan-163-A), edgeBase, capStyle
+    ivec4 surface; //  96: width, height, blendMode, gradient kind (0 linear, 1 radial)
     ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // 128: inverse transform ia,ib,ic,id as float32 BITS
     ivec4 xform1;  // 144: itx, ity (float32 bits), hasTransform (0 or 1), unused
@@ -33,11 +34,21 @@ struct ItemBlock {
     ivec4 gradient; // 192: a gradient's axis startX,startY,endX,endY (16.16 px)
     // bug-735: the residual words (units of 2^-47 px) of every field a distance reads.
     // Declared here as well as in the fragment stage because THIS declaration sets the
-    // array stride (272); the vertex stage reads none of them.
+    // array stride (288); the vertex stage reads none of them.
     ivec4 shapeLo;  // 208: of shape.xyzw
     ivec4 capsLo;   // 224: of arcCaps.xyzw
     ivec4 clipLo;   // 240: of clip.xyzw
     ivec4 miscLo;   // 256: of misc.y, misc.z, ellipse.x, ellipse.y
+    // plan-163-B: join records' first edge slot and count, dash pattern's first entry
+    // and count. The vertex stage reads none of them either.
+    ivec4 strokeStyle; // 272
+    ivec4 clipBand;    // 288, plan-163-C
+    ivec4 clipPath;    // 304
+    // plan-163-D: a radial gradient's inverse (float32 bits) and flag, and its focal
+    // offset and radius (16.16). The vertex stage reads none of them.
+    ivec4 gradInv0;    // 320
+    ivec4 gradInv1;    // 336
+    ivec4 gradFocal;   // 352
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {

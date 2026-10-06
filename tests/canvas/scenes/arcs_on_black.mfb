@@ -31,7 +31,7 @@ FUNC main() AS Nothing
     LET y AS Float = 32.0 + toFloat((k / 14) * 60) + math::cos(fx) * 0.41
     LET r AS Float = 8.0 + toFloat(k MOD 13) * 1.513
     LET c AS color::Color = color::rgb(250, 250, 120)
-    LET d AS canvas::DrawItem = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3, endAngle := 4.1, cap := canvas::CapStyle.Butt, paint := canvas::stroke(c, 2.0)]
+    LET d AS canvas::DrawItem = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3, endAngle := 4.1, paint := WITH canvas::stroke(c, 2.0) { cap := canvas::CapStyle.Butt }]
     scene = collections::append(scene, d)
     k = k + 1
   END WHILE

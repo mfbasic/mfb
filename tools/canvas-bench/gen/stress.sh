@@ -44,7 +44,7 @@ FUNC bulk(shift AS Float) AS List OF canvas::DrawItem
   WHILE k < $ITEMS
     LET cx AS Float = toFloat((k * 37) MOD 880) + ${CX:-10.0} + shift
     LET cy AS Float = toFloat((k * 53) MOD 620) + ${CY:-10.0}
-    LET it AS canvas::DrawItem = canvas::Polygon[points := ring(cx, cy, ${R:-8.0}), paint := canvas::fill(color::rgba(0, 200, 255, 160))]
+    LET it AS canvas::DrawItem = canvas::Polygon[contours := [ring(cx, cy, ${R:-8.0})], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
     items = collections::append(items, it)
     k = k + 1
   END WHILE

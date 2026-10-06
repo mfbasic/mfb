@@ -53,7 +53,7 @@ END FUNC
 FUNC toolbarItems(width AS Float, height AS Float) AS List OF canvas::DrawItem
   LET left AS Float = playWidth(width)
   LET panel AS canvas::DrawItem = canvas::Rectangle[x := left, y := 0.0, w := TOOLBAR_WIDTH, h := height, paint := canvas::fill(color::rgb(26, 30, 38))]
-  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := 0.0, x2 := left, y2 := height, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgba(255, 255, 255, 40), 1.0)]
+  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := 0.0, x2 := left, y2 := height, paint := WITH canvas::stroke(color::rgba(255, 255, 255, 40), 1.0) { cap := canvas::CapStyle.Butt }]
   MUT items AS List OF canvas::DrawItem = [panel, divider]
 
   LET x AS Float = buttonLeft(width)

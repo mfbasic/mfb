@@ -1,8 +1,11 @@
 use super::*;
 use crate::codegen::runtime::canvas::{
     GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
-    HEADER_CAP, HEADER_HAS_TRANSFORM, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
-    HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_SLOTS, PICTURE_SHADOW_SPLIT_BITS,
+    HEADER_CAP, HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT, HEADER_GRADIENT_APPLY,
+    HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV, HEADER_GRADIENT_SPREAD,
+    HEADER_HAS_TRANSFORM, HEADER_JOIN_COUNT, HEADER_JOIN_REACH, HEADER_PICTURE_SHADOW_HI,
+    HEADER_PICTURE_SHADOW_LO, HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST,
+    HEADER_SLOTS, PICTURE_SHADOW_SPLIT_BITS,
 };
 
 /// The decimal literal `GEO_LAYOUT` binds to `name`.
@@ -84,6 +87,52 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
         HEADER_POLYLINE_FIRST
     );
     assert_eq!(declared("__CANVAS_GEO_POLYLINE_LAST"), HEADER_POLYLINE_LAST);
+    // plan-163-A: both emitters copy a polygon's fill rule out of this slot into the
+    // item block; a mismatch draws every NonZero polygon even-odd, or the reverse.
+    assert_eq!(declared("__CANVAS_GEO_POLYGON_RULE"), HEADER_POLYGON_RULE);
+    // plan-163-B: both emitters upload the join records by this count and widen the band
+    // index by this reach.
+    assert_eq!(declared("__CANVAS_GEO_JOIN_COUNT"), HEADER_JOIN_COUNT);
+    assert_eq!(declared("__CANVAS_GEO_JOIN_REACH"), HEADER_JOIN_REACH);
+    // plan-163-B: both emitters find the join records past this many dash floats.
+    assert_eq!(declared("__CANVAS_GEO_DASH_COUNT"), HEADER_DASH_COUNT);
+    // plan-163-C: and past this many clip edges, five floats each.
+    assert_eq!(
+        declared("__CANVAS_GEO_CLIP_EDGE_COUNT"),
+        HEADER_CLIP_EDGE_COUNT
+    );
+}
+
+/// plan-163-D: the gradient's per-pixel slots sit after every older slot, one each, in
+/// the order the header comment gives -- spread, apply, the six radial-inverse words, its
+/// flag, then the focal offset and radius -- and end exactly at the header's length, so
+/// none overlaps another reader's slot or the first tail float.
+#[test]
+fn the_gradient_slots_follow_the_clip_slots_and_fill_the_header() {
+    let slots = [
+        ("__CANVAS_GEO_GRADIENT_SPREAD", HEADER_GRADIENT_SPREAD),
+        ("__CANVAS_GEO_GRADIENT_APPLY", HEADER_GRADIENT_APPLY),
+        ("__CANVAS_GEO_GRADIENT_INV", HEADER_GRADIENT_INV),
+        ("__CANVAS_GEO_GRADIENT_HAS_INV", HEADER_GRADIENT_HAS_INV),
+        ("__CANVAS_GEO_GRADIENT_FOCALX", HEADER_GRADIENT_FOCAL_X),
+        ("__CANVAS_GEO_GRADIENT_FOCALY", HEADER_GRADIENT_FOCAL_X + 1),
+        ("__CANVAS_GEO_GRADIENT_FOCALR", HEADER_GRADIENT_FOCAL_X + 2),
+    ];
+    for (name, slot) in slots {
+        assert_eq!(
+            declared(name),
+            slot,
+            "{name} and the emitters' constant disagree"
+        );
+    }
+    assert_eq!(
+        HEADER_GRADIENT_SPREAD, 55,
+        "the first gradient slot follows the clip slots"
+    );
+    assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
+    assert!(declared("__CANVAS_GEO_PICTURE_TRANSPARENCY") < 55);
+    assert_eq!(declared("__CANVAS_GEO_HEADER"), 67);
+    assert_eq!(HEADER_SLOTS, 67);
 }
 
 /// bug-484: a picture's pixel-block slots and split equal what the emitters rebuild

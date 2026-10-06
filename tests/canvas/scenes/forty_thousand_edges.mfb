@@ -16,7 +16,7 @@ FUNC main() AS Nothing
       points = collections::append(points, canvas::Point[x := 450.0 + toFloat(ring) + 100.0 * math::cos(a), y := 320.0 + 100.0 * math::sin(a)])
       i = i + 1
     END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 60))]
+    LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 60))]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE

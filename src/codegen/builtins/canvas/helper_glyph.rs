@@ -9,8 +9,11 @@
 //! Fill, stroke, antialiasing and blending come along unchanged, which is also what
 //! keeps a glyph's edge pixels consistent with a circle's.
 //!
-//! The fill rule is the one seam worth naming. TrueType specifies **non-zero winding**
-//! and `__canvas_edgeDistance` counts **even-odd** crossings. They agree on every glyph
+//! The fill rule is the one seam worth naming. TrueType specifies **non-zero winding**,
+//! and glyphs are filled **even-odd**: a glyph's header leaves the polygon rule slot
+//! (`__CANVAS_GEO_POLYGON_RULE`, plan-163-A) at 0, so `__canvas_edgeDistance` flips per
+//! crossing for text, and the glyph-bitmap rasteriser `__canvas_edgeDistanceIn` counts
+//! even-odd crossings only. They agree on every glyph
 //! whose counters are wound opposite their outer contour, which is what the format
 //! requires and what every well-made font does; they differ only where two contours of
 //! one glyph *overlap*, which good fonts avoid because it renders badly everywhere.
@@ -144,6 +147,12 @@ END FUNC"#;
 #[rustfmt::skip]
 const GLYPH_EDGES: &str =
 r#"LET __CANVAS_GLYPH_STEPS AS Integer = 6
+' plan-163-B: while `__canvas_textEdges` walks a run, the edge index each contour starts
+' at, so a stroked run's joins know where one contour's ring ends and the next begins.
+' Recorded only while it is set, so the glyph-bitmap walks, which share the contour
+' readers, never grow the list.
+MUT __CANVAS_RING_MARKING AS Boolean = FALSE
+MUT __CANVAS_RING_MARKS AS List OF Integer = []
 
 FUNC __canvas_glyphEdges(b AS List OF Byte, gid AS Integer, scale AS Float, penX AS Float, penY AS Float, edges AS List OF Float) AS List OF Float
   MUT out AS List OF Float = edges
@@ -336,6 +345,9 @@ FUNC __canvas_contourEdgesMapped(flags AS List OF Integer, px AS List OF Float, 
   IF count < 2 THEN
     RETURN out
   END IF
+  IF __CANVAS_RING_MARKING THEN
+    __CANVAS_RING_MARKS = collections::append(__CANVAS_RING_MARKS, len(out) / 5)
+  END IF
   MUT startIndex AS Integer = 0 - 1
   MUT i AS Integer = 0
   WHILE i < count
@@ -420,6 +432,9 @@ FUNC __canvas_contourEdges(flags AS List OF Integer, xs AS List OF Integer, ys A
   LET count AS Integer = last - from + 1
   IF count < 2 THEN
     RETURN out
+  END IF
+  IF __CANVAS_RING_MARKING THEN
+    __CANVAS_RING_MARKS = collections::append(__CANVAS_RING_MARKS, len(out) / 5)
   END IF
   MUT startIndex AS Integer = 0 - 1
   MUT i AS Integer = 0

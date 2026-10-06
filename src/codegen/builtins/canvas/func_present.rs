@@ -20,7 +20,7 @@ animation loop at the display's pace, end each iteration with `canvas::waitFrame
 advance the animation by `canvas::getFrameStats().dt`.
 
 `present` **copies the whole scene**. Everything it reaches — the item fields, a
-`canvas::Polygon`'s point list, a `canvas::Text`'s string, the `canvas::Paint` values — is copied, so
+`canvas::Polygon`'s rings, a `canvas::Text`'s string, the `canvas::Paint` values — is copied, so
 once `present` returns the installed scene is entirely its own. You are free to
 change or discard whatever you built the list from, and the renderer can read
 the scene at any later moment without coordinating with your program.
@@ -57,7 +57,7 @@ FUNC main() AS Nothing
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := 150.0, y := 160.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Circle[x := 250.0, y := 160.0, radius := 22.0, paint := canvas::fill(green)]
   ' 0 -> PI sweeps downward under a Y-down origin, so this is a smile.
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }]
 
   canvas::present([face, eyeL, eyeR, smile])
 END FUNC
@@ -80,7 +80,7 @@ FUNC main() AS Nothing
   LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Ellipse[x := 150.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, angle := 0.0 - 0.35, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Ellipse[x := 250.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, angle := 0.35, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Round, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Round }]
 
   canvas::present([face, eyeL, eyeR, smile])
 END FUNC

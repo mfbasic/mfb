@@ -40,13 +40,13 @@ FUNC main() AS Nothing
     LET tc AS Float = 0.0 - 0.28 + toFloat(k MOD 4) * 0.05
     LET td AS Float = 1.07 - toFloat(k MOD 7) * 0.029
     LET tf AS canvas::Transform = canvas::Transform[a := ta, b := tb, c := tc, d := td, tx := x - (ta * x + tc * y), ty := y - (tb * x + td * y)]
-    MUT cl AS canvas::Bounds = canvas::Bounds[x := 0.0, y := 0.0, w := 0.0, h := 0.0]
+    MUT cl AS List OF List OF canvas::Point = []
     IF k MOD 2 = 1 THEN
-      cl = canvas::Bounds[x := x - 17.3, y := y - 21.7, w := 31.1, h := 38.9]
+      cl = [[canvas::Point[x := x - 17.3, y := y - 21.7], canvas::Point[x := x - 17.3 + 31.1, y := y - 21.7], canvas::Point[x := x - 17.3 + 31.1, y := y - 21.7 + 38.9], canvas::Point[x := x - 17.3, y := y - 21.7 + 38.9]]]
     END IF
-    MUT d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl }]
+    MUT d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Butt }]
     IF k MOD 6 = 1 THEN
-      d = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, cap := canvas::CapStyle.Round, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl }]
+      d = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Round }]
     ELSEIF k MOD 6 = 2 THEN
       d = canvas::Circle[x := x, y := y, radius := r, paint := WITH canvas::fillStroke(c, c2, w) { transform := tf, clip := cl }]
     ELSEIF k MOD 6 = 3 THEN
@@ -54,7 +54,7 @@ FUNC main() AS Nothing
     ELSEIF k MOD 6 = 4 THEN
       d = canvas::RoundedRect[x := x - r, y := y - r * 0.6, w := r * 1.9, h := r * 1.3, cornerRadius := r * 0.3, paint := WITH canvas::fillStroke(c, c2, w) { transform := tf, clip := cl }]
     ELSEIF k MOD 6 = 5 THEN
-      d = canvas::PolyLine[points := ring(40, x, y, r), colors := [], cap := canvas::CapStyle.Butt, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl }]
+      d = canvas::PolyLine[points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Butt }]
     END IF
     scene = collections::append(scene, d)
     k = k + 1

@@ -1309,7 +1309,8 @@ fn geo_int(
 }
 
 /// `n` = `__canvas_blockInstances(off)`: a text run's glyph count; 2 for a blended
-/// item that both strokes (`strokeHalf > 0.0`) and fills (alpha > 0); else 1.
+/// item that both strokes (`strokeHalf > 0.0`) and fills (alpha > 0, a gradient or a
+/// picture); else 1.
 fn emit_block_instances(
     builder: &mut CodeBuilder,
     data: &VirtualRegister,
@@ -1340,9 +1341,19 @@ fn emit_block_instances(
     builder.emit(abi::branch_gt(&strokes));
     builder.emit(abi::branch(&one));
     builder.emit(abi::label(&strokes));
+    // plan-163-D: it fills when the fill alpha is visible, OR it has a gradient (slot 41,
+    // two or more stops), OR it is a picture -- `emit_split_or_publish`'s test, whose
+    // ramp or image does not come from the fill alpha.
+    let fills = builder.label("canvas_draws_inst_fills");
     let alpha = geo_int(builder, data, off, 11);
     builder.emit(abi::compare_immediate(&alpha, "0"));
-    builder.emit(abi::branch_le(&one));
+    builder.emit(abi::branch_gt(&fills));
+    let stops = geo_int(builder, data, off, 41);
+    builder.emit(abi::compare_immediate(&stops, "2"));
+    builder.emit(abi::branch_ge(&fills));
+    builder.emit(abi::compare_immediate(&kind, "9"));
+    builder.emit(abi::branch_ne(&one));
+    builder.emit(abi::label(&fills));
     builder.emit(abi::move_immediate(n, "Integer", "2"));
     builder.emit(abi::branch(&done));
     builder.emit(abi::label(&one));

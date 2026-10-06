@@ -85,18 +85,18 @@ FUNC main() AS Nothing
   LET face AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
   LET eyeL AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
   LET eyeR AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, cap := canvas::CapStyle.Butt, paint := canvas::stroke(green, 14.0)]
+  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
-  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 128, 0), 9.0)]
+  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := WITH canvas::stroke(color::rgb(255, 128, 0), 9.0) { cap := canvas::CapStyle.Round }]
   ' plan-154-B: a PolyLine, with a colour per point.
-  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 255, 255), 10.0)]
-  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }]
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
   ' nearest-edge magnitude on a shape that is not convex -- so a wrong base here shows as
   ' a wrong FILL, not merely a shifted outline.
-  LET arrow AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]], paint := canvas::fill(color::rgba(0, 180, 180, 200))]
+  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 180, 180, 200))]
 
   ' plan-116-B: one item per non-Normal BlendMode, and one clipped item.
   '
@@ -120,7 +120,7 @@ FUNC main() AS Nothing
   LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
   LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
   LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 460.0, radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
-  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 460.25, y := 400.0, w := 200.5, h := 60.0] }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 460.25, y := 400.0], canvas::Point[x := 660.75, y := 400.0], canvas::Point[x := 660.75, y := 460.0], canvas::Point[x := 460.25, y := 460.0]]] }]
 
   ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
   ' A rotation exercises the gradient correction on a curved edge; the non-uniform
@@ -138,13 +138,13 @@ FUNC main() AS Nothing
   ' butt arm is wrong would still match the oracle everywhere the scene looks.
   ' Thick and short, because the cap is a half-width feature: at 24 px wide the two
   ' styles differ over a visibly large region rather than one antialiased pixel.
-  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
-  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(255, 240, 120), 24.0)]
+  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Butt }]
+  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Round }]
   ' And a ROUND-capped arc, for the same reason. `smile` above is butt-capped -- which
   ' is what every arc was before plan-116-D -- so without this the arc's cap-disc arm
   ' is compiled into both shaders and never taken. The sweep stops at 0.6*PI so both
   ' ends are visible rather than one running off the item's own band.
-  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgb(120, 255, 200), 20.0)]
+  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 20.0) { cap := canvas::CapStyle.Round }]
 
   canvas::present([box, rounded, line, path, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
 END FUNC
@@ -184,14 +184,14 @@ FUNC main() AS Nothing
 
   ' 5. a CLIPPED item inside a translated group -- the clip is evaluated in SURFACE
   '    space while the shape is evaluated in shape space (section 4.2)
-  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := canvas::Bounds[x := 40.25, y := 0.0, w := 200.5, h := 60.0] }]]
+  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 40.25, y := 0.0], canvas::Point[x := 240.75, y := 0.0], canvas::Point[x := 240.75, y := 60.0], canvas::Point[x := 40.25, y := 60.0]]] }]]
   canvas::setGroup("clipped", clipped)
 
   ' 6. a GRADIENT-filled item inside a translated group -- the ramp is sampled from
   '    the shape-space point, so a missing fragment offset shows as a shifted ramp
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 150.0, y := 60.0], stops := stops]
-  LET grad AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { fillGradient := ramp }]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 150.0, y := 60.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET grad AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }]]
   canvas::setGroup("grad", grad)
 
 
@@ -272,7 +272,7 @@ FUNC main() AS Nothing
     points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
     i = i + 1
   END WHILE
-  LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 200, 255))]
+  LET ring AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 200, 255))]
   LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]
   canvas::present([box, ring])
 END FUNC
@@ -314,7 +314,7 @@ FUNC main() AS Nothing
       points = collections::append(points, canvas::Point[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
       i = i + 1
     END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
+    LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE
@@ -510,9 +510,9 @@ IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET tri AS canvas::DrawItem = canvas::Polygon[points := [canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]], paint := canvas::fill(color::rgba(0, 200, 255, 180))]
-  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], cap := canvas::CapStyle.Round, paint := canvas::stroke(color::rgba(0, 0, 0, 0), 18.0)]
-  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 214, 92), 12.0)]
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 18.0) { cap := canvas::CapStyle.Round }]
+  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], paint := WITH canvas::stroke(color::rgb(255, 214, 92), 12.0) { cap := canvas::CapStyle.Butt }]
   MUT wave AS List OF canvas::Point = []
   MUT hues AS List OF color::Color = []
   MUT k AS Integer = 0
@@ -523,7 +523,7 @@ FUNC main() AS Nothing
     hues = collections::append(hues, color::rgba(40 + k * 5, 200 - k * 4, 255, 255 - k * 5))
     k = k + 1
   END WHILE
-  LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, cap := canvas::CapStyle.Butt, paint := canvas::stroke(color::rgb(255, 255, 255), 7.0)]
+  LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 7.0) { cap := canvas::CapStyle.Butt }]
   canvas::present([tri, trail, plain, long])
 END FUNC
 "#;
@@ -860,13 +860,21 @@ FUNC main() AS Nothing
   LET translucent AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 10.0, w := 90.0, h := 30.0, image := thin, paint := white]
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 10.0]
   LET rotated AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 60.0, image := img, paint := WITH white { transform := t }]
-  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := canvas::Bounds[x := 420.0, y := 10.0, w := 40.0, h := 80.0] }]
+  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := [[canvas::Point[x := 420.0, y := 10.0], canvas::Point[x := 460.0, y := 10.0], canvas::Point[x := 460.0, y := 90.0], canvas::Point[x := 420.0, y := 90.0]]] }]
   LET blended AS canvas::DrawItem = canvas::Picture[x := 520.0, y := 10.0, w := 60.0, h := 60.0, image := img, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
   LET fractional AS canvas::DrawItem = canvas::Picture[x := 700.5, y := 10.25, w := 50.5, h := 33.3, image := thin, paint := white]
   LET inner AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 40.0, h := 40.0, image := grouped, paint := white]
   canvas::setGroup("pics", [inner])
   LET node AS canvas::DrawItem = canvas::Group[name := "pics", dx := 600.0, dy := 120.0]
-  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node])
+  ' plan-163-C: the tint's strength is the fill's alpha, the opacity is transparency.
+  LET untinted AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }]
+  LET halfRed AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgba(255, 0, 0, 128))]
+  LET faded AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { transparency := 0.6 }]
+  ' plan-163-D: a blended stroked picture whose fill is transparent (the zero tint) still
+  ' fills with its image, so the GPUs publish it as two records like any blended item
+  ' that fills and strokes.
+  LET blendedClear AS canvas::DrawItem = canvas::Picture[x := 300.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH canvas::fillStroke(color::rgba(0, 0, 0, 0), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
+  canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node, untinted, halfRed, faded, blendedClear])
 END FUNC
 "#;
 
@@ -1187,6 +1195,105 @@ fn a_short_edge_star_over_black_matches_the_software_oracle() {
         "canvas_metal_star_301_2",
         STAR_301_2,
         "the {301/2} star polygon over black",
+    );
+}
+
+/// plan-163-A: the {301/2} star under `NonZero`. It winds twice round its centre, so the
+/// disc even-odd leaves empty is filled — the GPUs' signed winding count, over hundreds
+/// of short edges, against the oracle's.
+const STAR_301_2_NONZERO: &str = include_str!("scenes/star_301_2_nonzero_on_black.mfb");
+
+#[test]
+fn a_short_edge_star_filled_non_zero_matches_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_star_301_2_nonzero",
+        STAR_301_2_NONZERO,
+        "the {301/2} star polygon filled NonZero over black",
+    );
+}
+
+/// plan-163-A: both fill rules where they differ — a ring with a hole wound each way, a
+/// {5/2} pentagram, a stroked translucent three-ring item and a transformed one — at
+/// fractional coordinates, so the rims are antialiased under each rule.
+const FILL_RULES: &str = include_str!("scenes/fill_rules_on_black.mfb");
+
+#[test]
+fn both_fill_rules_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_fill_rules",
+        FILL_RULES,
+        "the NonZero and EvenOdd ring scene over black",
+    );
+}
+
+/// plan-163-B: Square caps on lines (several angles and a zero-length one), arcs and
+/// polylines, at fractional coordinates, plus a transformed line.
+const SQUARE_CAPS: &str = include_str!("scenes/square_caps_on_black.mfb");
+
+#[test]
+fn square_caps_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_square_caps",
+        SQUARE_CAPS,
+        "the Square-capped lines, arcs and polylines over black",
+    );
+}
+
+/// plan-163-B: Miter and Bevel joins on polygons (a pentagram at both miter limits, a
+/// concave arrow, two rings), polylines (sharp turns, a repeated point, per-point colours),
+/// rectangles, a rotated polygon and a translucent stroke over a fill.
+const JOINS: &str = include_str!("scenes/joins_on_black.mfb");
+
+#[test]
+fn joins_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_joins",
+        JOINS,
+        "the mitered and beveled polygons, polylines and rectangles over black",
+    );
+}
+
+/// plan-163-D: gradients in the item's own space -- turned by their own transform and by
+/// the item's, the three spreads, a 2:1 radial, a focus and a focal disc, the ramp painting
+/// strokes under three stroke colours and a Line, and two stroked gradients under
+/// Multiply.
+const GRADIENTS: &str = include_str!("scenes/gradients_on_black.mfb");
+
+#[test]
+fn gradients_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_gradients",
+        GRADIENTS,
+        "the gradients over black",
+    );
+}
+
+/// plan-163-C: path clips -- a triangle, a ring with a hole under each rule, rotated,
+/// sheared and grouped items clipped in their own coordinates, a rectangle clip by either
+/// path, and a dashed stroke clipped by a triangle.
+const PATH_CLIPS: &str = include_str!("scenes/path_clips_on_black.mfb");
+
+#[test]
+fn path_clips_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_path_clips",
+        PATH_CLIPS,
+        "the path-clipped shapes over black",
+    );
+}
+
+/// plan-163-B: dashed strokes -- polygons whose dashes cross their corners under each cap
+/// and under Miter and Bevel joins, an odd pattern with an offset, dashed polylines and
+/// lines, a circle, a rotated ellipse, a rounded rectangle, an arc, a rectangle and a
+/// rotated polygon.
+const DASHES: &str = include_str!("scenes/dashes_on_black.mfb");
+
+#[test]
+fn dashes_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_dashes",
+        DASHES,
+        "the dashed polygons, polylines, lines, curves and rectangles over black",
     );
 }
 

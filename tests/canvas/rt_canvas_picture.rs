@@ -198,7 +198,7 @@ fn the_fill_tints_the_image() {
         "canvas_picture_opacity",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := canvas::fill(color::rgba(255, 255, 255, 128))]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := WITH canvas::fill(color::rgb(255, 255, 255)) {{ transparency := 0.5 }}]\n  \
              canvas::present([a])\n",
             pixels(&[(0, 255, 0, 255)])
         )),
@@ -208,6 +208,89 @@ fn the_fill_tints_the_image() {
     assert!(
         g > 0 && g < 255,
         "half opacity lands strictly between: got {g}"
+    );
+}
+
+/// plan-163-C: a picture's fill is a TINT whose alpha is its strength, and its opacity
+/// comes from `transparency` alone.
+///
+/// One texel (200, 100, 50, 255), drawn opaque over black, so each drawn pixel is the
+/// computed texel itself. `tint = texel * fill / 255` (truncated), then the texel moves
+/// towards it by `fill.a / 255`, the difference rounded half away from zero:
+///
+/// * the zero `Paint` (fill alpha 0): the texel unchanged, opaque — (200, 100, 50);
+/// * white at alpha 255: `tint = texel`, unchanged;
+/// * red at alpha 255: the multiply, (200, 0, 0);
+/// * red at alpha 128: green `100 + round(-100 * 128 / 255) = 100 - 50 = 50`, blue
+///   `50 + round(-50 * 128 / 255) = 50 - 25 = 25`, so (200, 50, 25);
+/// * white with `transparency := 0.5`: the texel at alpha `(255 * 127 + 127) / 255 =
+///   127`, which draws exactly as a rectangle filled `rgba(200, 100, 50, 127)`.
+#[test]
+fn the_fill_is_a_tint_and_transparency_is_the_opacity() {
+    let texel = pixels(&[(200, 100, 50, 255)]);
+    let draw = |name: &str, paint: &str| {
+        render(
+            name,
+            &scene(&format!(
+                "  RES img AS canvas::Image = canvas::createImage(1, 1, {texel})\n  \
+                 LET zero AS canvas::Paint = canvas::Paint[fill := color::rgba(0, 0, 0, 0), stroke := color::rgba(0, 0, 0, 0), strokeWidth := 0.0, blend := canvas::BlendMode.Normal, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], clip := [], clipRule := canvas::FillRule.EvenOdd, gradient := canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 0.0, y := 0.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly], cap := canvas::CapStyle.Butt, join := canvas::JoinStyle.Round, miterLimit := 0.0, dashes := [], dashOffset := 0.0, transparency := 0.0]\n  \
+                 LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := {paint}]\n  \
+                 canvas::present([a])\n"
+            )),
+        )
+        .0
+    };
+    assert_eq!(
+        pixel(&draw("canvas_tint_zero", "zero"), 8, 8),
+        (200, 100, 50, 255),
+        "the zero Paint draws the image unchanged and opaque"
+    );
+    assert_eq!(
+        pixel(
+            &draw(
+                "canvas_tint_white",
+                "canvas::fill(color::rgb(255, 255, 255))"
+            ),
+            8,
+            8
+        ),
+        (200, 100, 50, 255),
+        "a white tint changes nothing"
+    );
+    assert_eq!(
+        pixel(
+            &draw("canvas_tint_red", "canvas::fill(color::rgb(255, 0, 0))"),
+            8,
+            8
+        ),
+        (200, 0, 0, 255),
+        "an opaque red tint is the multiply"
+    );
+    assert_eq!(
+        pixel(
+            &draw(
+                "canvas_tint_half",
+                "canvas::fill(color::rgba(255, 0, 0, 128))"
+            ),
+            8,
+            8
+        ),
+        (200, 50, 25, 255),
+        "a half-strength red tint goes halfway"
+    );
+    let faded = draw(
+        "canvas_tint_faded",
+        "WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 0.5 }",
+    );
+    let spelled = render(
+        "canvas_tint_spelled",
+        &scene("  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 16.0, h := 16.0, paint := canvas::fill(color::rgba(200, 100, 50, 127))]\n  canvas::present([a])\n"),
+    )
+    .0;
+    assert_eq!(
+        pixel(&faded, 8, 8),
+        pixel(&spelled, 8, 8),
+        "transparency 0.5 fades the texel to alpha 127"
     );
 }
 
@@ -225,7 +308,7 @@ fn clip_blend_and_transform_apply_to_a_picture() {
             "  RES g AS canvas::Image = canvas::createImage(1, 1, {green})\n  \
              RES y AS canvas::Image = canvas::createImage(1, 1, {yellow})\n  \
              RES rb AS canvas::Image = canvas::createImage(2, 1, {red_blue})\n  \
-             LET clipped AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ clip := canvas::Bounds[x := 0.0, y := 0.0, w := 16.0, h := 640.0] }}\n  \
+             LET clipped AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 16.0, y := 0.0], canvas::Point[x := 16.0, y := 640.0], canvas::Point[x := 0.0, y := 640.0]]] }}\n  \
              LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 32.0, h := 32.0, image := g, paint := clipped]\n  \
              LET under AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 0.0, w := 32.0, h := 32.0, paint := canvas::fill(color::rgb(0, 255, 255))]\n  \
              LET mul AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ blend := canvas::BlendMode.Multiply }}\n  \

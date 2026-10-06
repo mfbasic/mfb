@@ -11,7 +11,8 @@
 //! a list's headroom (`capacity` past `count`) and its payload padding differ with how it
 //! was built, so a hash over the block would miss the cache on every rebuilt scene. The
 //! walk folds what the item MEANS and nothing else: the variant tag, every scalar field,
-//! every nested record's fields in slot order, and a list's COUNT and then its elements —
+//! every nested record's fields in slot order, and a list's COUNT and then its elements
+//! (a nested list's the same way) —
 //! never its capacity, headroom or padding. A `Float` folds as its exact 64-bit pattern.
 //! A `Picture`'s image folds as its backend id, read through the resource with the
 //! closed flag first (`canvas::imageHandle`'s rule, `func_handle_bridge.rs`): `0` once
@@ -175,11 +176,16 @@ fn fold_list(
     builder.emit(abi::load_u64(&count, list, COLLECTION_OFFSET_COUNT));
     fold(builder, m, &count);
     let view = emit_list_view(builder, list, list_type)?;
+    // plan-163-A: a list element may itself be a list (`Polygon.contours`), folded the
+    // same way — its count, then its elements.
+    let element_is_list = matches!(view.element, ParameterType::ListOf(_));
     let element_record = match view.fixed_width {
         Some(_) => None,
+        None if element_is_list => None,
         None => Some(record_type(builder, &view.element).map_err(|_| {
             format!(
-                "canvas::itemHash: a list of '{}' is neither fixed-width nor a record",
+                "canvas::itemHash: a list of '{}' is neither fixed-width, a list nor a \
+                 record",
                 view.element
             )
         })?),
@@ -204,7 +210,10 @@ fn fold_list(
             fold(builder, m, &value);
         }
         (None, Some(record)) => fold_record(builder, m, &at, record)?,
-        (None, None) => unreachable!("resolved above"),
+        (None, None) => {
+            let element = view.element.clone();
+            fold_list(builder, m, &at, &element)?
+        }
     }
     builder.emit(abi::add_immediate(&i, &i, 1));
     builder.emit(abi::branch(&head));

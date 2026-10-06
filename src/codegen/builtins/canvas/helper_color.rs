@@ -120,6 +120,25 @@ FUNC __canvas_gradientStopColor(at AS Integer) AS color::Color
   RETURN color::Color[red := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 1, 0.0))), green := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 2, 0.0))), blue := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 3, 0.0))), alpha := toByte(toInt(collections::getOr(__CANVAS_GEO_DATA, at + 4, 0.0)))]
 END FUNC
 
+' plan-163-D: a ramp position past its ends, per the gradient's spread (slot 55): Pad (0)
+' leaves it for `__canvas_gradientColor`'s clamp, Repeat (2) is `t - floor(t)`, Reflect
+' (1) is `u = t - 2 floor(t / 2)` folded back by `u > 1 -> 2 - u`. `t` is held to
+' +-1e9 first, where `floor` still fits an Integer and a period is still resolved.
+FUNC __canvas_gradientSpread(t AS Float, spread AS Integer) AS Float
+  IF spread = 0 THEN
+    RETURN t
+  END IF
+  LET tt AS Float = __canvas_maxF(__canvas_minF(t, 1000000000.0), 0.0 - 1000000000.0)
+  IF spread = 2 THEN
+    RETURN tt - toFloat(math::floor(tt))
+  END IF
+  LET u AS Float = tt - 2.0 * toFloat(math::floor(tt / 2.0))
+  IF u > 1.0 THEN
+    RETURN 2.0 - u
+  END IF
+  RETURN u
+END FUNC
+
 FUNC __canvas_gradientColor(base AS Integer, count AS Integer, t AS Float) AS color::Color
   IF count < 2 THEN
     RETURN __canvas_transparent()

@@ -93,6 +93,18 @@ fn block_instances_keeps_the_blend_split_case() {
                  emit_split_or_publish tests all three",
         );
     }
+    // plan-163-D: a gradient or a picture fills whatever its fill alpha, and
+    // emit_split_or_publish splits on both -- missing either here shifts every later base.
+    for (read, what) in [
+        ("__CANVAS_GEO_GRADIENT_COUNT)", "the gradient stop count"),
+        ("= __CANVAS_GEO_PICTURE", "the picture kind"),
+    ] {
+        assert!(
+            rule.contains(read),
+            "the split rule no longer reads {what}; emit_split_or_publish and \
+                 emit_block_instances split on it",
+        );
+    }
     assert!(
         rule.contains(", 20)"),
         "a text run's instance count is HEADER_AUX0 = slot 20, the field \

@@ -723,7 +723,7 @@ FUNC main() AS Nothing
   io::flush()
   os::sleep(4000)
   LET green AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := w, h := h, paint := canvas::fill(color::rgb(0, 255, 0))]
-  LET ring AS canvas::DrawItem = canvas::Polygon[points := points, paint := canvas::fill(color::rgb(0, 0, 0))]
+  LET ring AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 0))]
   canvas::present([green, ring])
   io::print("SOFTWARE_PRESENTED")
   io::flush()
