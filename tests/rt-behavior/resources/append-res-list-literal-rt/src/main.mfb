@@ -1,0 +1,38 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' bug-935: the list form of `collections::append` takes an inline literal of
+' resources on a `List OF RES T` exactly as it takes a named list. The
+' literal is typed bottom-up as `List OF fs.File`, without the receiving list's
+' `RES` marker, and codegen used to tell "a whole list" from "one item" by exact
+' type equality, so the build failed with an unlocated internal error.
+FUNC lines(xs AS List OF RES fs::File) AS String
+  MUT out AS String = ""
+  FOR EACH h IN xs
+    out = out & fs::readLine(h) & ","
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  LET path AS String = "tests/rt-behavior/resources/append-res-list-literal-rt/data.txt"
+  RES f AS fs::File = fs::openFile(path)
+  LET xs AS List OF RES fs::File = []
+  LET ys AS List OF RES fs::File = collections::append(xs, [f])
+  io::print("bind len=" & toString(len(ys)) & " " & lines(ys))
+
+  MUT zs AS List OF RES fs::File = []
+  MUT i AS Integer = 0
+  WHILE i < 2
+    RES g AS fs::File = fs::openFile(path)
+    zs = collections::append(zs, [g])
+    i = i + 1
+  END WHILE
+  io::print("loop len=" & toString(len(zs)) & " " & lines(zs))
+
+  RES h AS fs::File = fs::openFile(path)
+  RES k AS fs::File = fs::openFile(path)
+  LET ws AS List OF RES fs::File = collections::append(ys, [h, k])
+  io::print("pair len=" & toString(len(ws)) & " " & lines(ws))
+END FUNC
