@@ -37,31 +37,36 @@ Regression Test: tests/rt-behavior/types/byte-literal-suffix-rt; tests/syntax/ty
 - A `b`-suffixed literal is intrinsically `Byte`. In a non-Byte slot it is a type error, as
   `2F` is in a Float slot.
 
-## Open question for the owner (not yet decided)
+## Former open question (now decided)
 
 The decision covers **call arguments**. Should untyped Integer literals also stop coercing
 into `Byte` **bindings and collection literals**? Then `LET b AS Byte = 3`, `MUT x AS Byte = 0`,
 and `LET bytes AS List OF Byte = [104, 105]` (used throughout `mfb man`, e.g. the
 `toString(List OF Byte)` example) would require `3b` / `[104b, 105b]` or `toByte`. The owner's
-own example (`LET b AS Byte = 3b`) suggests the suffix is the intended spelling. Requiring it
-everywhere is a much larger migration. Record the answer here before implementing.
+own example (`LET b AS Byte = 3b`) suggests the suffix is the intended spelling.
+
+**Owner decision (2026-10-05): require the suffix everywhere.** There is no untyped-Integer-literal
+→ `Byte` coercion anywhere: not in call arguments, bindings (`LET`/`MUT`/`RES`), record
+constructors, `WITH`, `RETURN`, or collection literals. `LET b AS Byte = 3` is a type mismatch whose
+detail suggests `3b`. `LET bytes AS List OF Byte = [104b, 105b]`. Every man example, spec example,
+fixture and package source is migrated.
 
 ## Goal (for the decided part)
 
 - The lexer, the literal typing (`src/ir/verify/values.rs:check_const_literal`), and
   inference (`mfb spec architecture type-inference` § "Literal Coercion") know the `b` suffix.
-- An untyped Integer literal passed to a `Byte` parameter (user or built-in) is
-  `TYPE_CALL_ARGUMENT_MISMATCH`, with a detail suggesting `3b`.
+- An untyped Integer literal in **any** `Byte` slot (argument, binding, field, `RETURN`, collection
+  element) is a type mismatch (`TYPE_CALL_ARGUMENT_MISMATCH` / `TYPE_BINDING_MISMATCH` / the slot's
+  rule) whose detail suggests `3b`. The `values.rs` untyped-literal→Byte path is removed.
 - Spec `02_lexical-structure.md` (suffix list), `04_types.md` (Byte literals),
   `22_type-inference.md`, the grammar, and `mfb man` describe both.
 
 ### Non-goals (must NOT change)
 
 - Byte runtime semantics, `toByte`, and checked Byte arithmetic.
-- Binding/collection-literal coercion stays unchanged until the open question is answered.
 
 ## Blast Radius
 
-- Every call passing a bare Integer literal to a Byte parameter in tests/, examples/,
-  packages/, man examples. After bug-977 removes the main one (`toString` precision),
+- Every bare Integer literal in a Byte slot in tests/, examples/, packages/, man examples and
+  spec (bindings, `List OF Byte` literals, arguments). After bug-977 removes the main one (`toString` precision),
   measure what remains with a build of the corpus.
