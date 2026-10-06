@@ -738,6 +738,10 @@ name = "rt_http_async_stream"
 path = "tests/net/rt_http_async_stream.rs"
 
 [[test]]
+name = "rt_http_close_delimited_body"
+path = "tests/net/rt_http_close_delimited_body.rs"
+
+[[test]]
 name = "rt_http_finish_state_err_validation"
 path = "tests/net/rt_http_finish_state_err_validation.rs"
 
