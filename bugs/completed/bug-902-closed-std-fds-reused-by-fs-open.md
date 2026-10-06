@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security
 
-Status: Fixed on macOS, Linux aarch64 glibc and Linux riscv64 musl/glibc (bs16-agent-c). Linux x86-64 and Windows runs still owed.
+Status: Fixed on macOS, Linux aarch64 glibc/musl, Linux x86-64 musl and Linux riscv64 musl/glibc (bs16-agent-c; 2224/2227 runs by the coordinator). Linux x86-64 glibc not run: box 2228 is down, and the owner is not bringing it up for now.
 Regression Test: `tests/runtime/rt_closed_std_fds_not_reused.rs` (`cargo test --test rt_closed_std_fds_not_reused`). It closes fd 0, 1, 2 and 1+2 in the child before exec. An rt-behavior fixture cannot start a program with a closed descriptor.
 
 **Owner decision (2026-10-05):** reserve each closed fd 0/1/2 with `/dev/null` at startup, before anything can open a
@@ -179,8 +179,18 @@ x1`, `finish`): the first stop is in `_main` with `x0 = 0`, `x1 = 1`
 a closed standard stream: run with `2>&-`, the debuggee still got an fd 2, so the reservation
 branch could not be stepped in the debugger.
 
-Owed: Linux x86-64 glibc and musl, Linux aarch64 musl, and Windows. 2228, 2227, 2224 and
-2230 were down.
+Coordinator runs, 2026-10-06 (main c6dd68acc base vs bug-staging-16), same two programs as
+`tests/runtime/rt_closed_std_fds_not_reused.rs`, cross-built with `-target linux-x86_64` /
+`-target linux-aarch64` (musl binaries):
+
+| box | base: stdin closed | base: fd 1 / fd 2 closed | fixed: stdin closed | fixed: fd 1 / fd 2 closed |
+|---|---|---|---|---|
+| 2227 Alpine x86_64 musl | `stdin gave [SECRET-LINE]` | file `file-data;this went to stdout` / `…stderr` | rc 255 `ErrEndOfFile` | file `file-data;` / `file-data;` |
+| 2224 Alpine aarch64 musl | `stdin gave [SECRET-LINE]` | file `file-data;this went to stdout` / `…stderr` | rc 255 `ErrEndOfFile` | file `file-data;` / `file-data;` |
+
+Windows: unchanged by design. Across every windows-x86_64 fixture in the batch-16 artifact-gate
+attribution, `_main` is byte-identical to main's. Linux x86-64 glibc (2228) was not run: the box is
+down and is not being brought up for now.
 
 ## Golden impact
 

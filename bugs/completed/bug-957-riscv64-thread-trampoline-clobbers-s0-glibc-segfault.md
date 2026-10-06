@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness
 
-Status: Fixed (bs16-agent-c)
+Status: Fixed (bs16-agent-c); native glibc proof on 2232 by the coordinator
 Coordinator re-run (HEAD 846aa55fd, podman `--platform linux/riscv64`, qemu-user): the musl
 build prints `thread=42` (rc 0). A thread-free hello-world glibc build runs fine. The thread
 repro's glibc build never prints anything: the process sits in state `S` for more than 5
@@ -145,7 +145,12 @@ refused; only 2226 and 2229 listen). The glibc runs below are therefore on **222
 (Alpine riscv64, a real riscv64 kernel) under Debian trixie's own glibc 2.41 loader and
 libc (`libc6_2.41-12+deb13u4_riscv64.deb`, extracted to `~/bs16c/glibc`), run as
 `./glibc/ld-linux-riscv64-lp64d.so.1 --library-path ./glibc ./prog-glibc.out`.
-A native 2232 run is still owed.
+Native glibc (coordinator, 2026-10-06, box 2232 Debian riscv64, glibc 2.41): the base binary
+(main c6dd68acc) segfaulted 5/5 (rc 139), the fixed one printed `thread=42` 5/5. All 58
+`tests/rt-behavior/thread{,s}` fixtures (the same `ship.tgz` binaries) run natively on 2232 give the
+same output and exit code as the musl build on 2229, except `bug691-res-thread-param`, whose
+`thread::isRunning` line is a timing race in the fixture itself (`FALSE` on 2232, `TRUE` on 2229,
+deterministic per box; the waited result `5` agrees).
 
 - Repro at base (`/tmp/main-dbg-target/release/mfb build --target linux-riscv64 thr`),
   5 runs: glibc `Segmentation fault`, rc 139, nothing printed; musl `thread=42`, rc 0.

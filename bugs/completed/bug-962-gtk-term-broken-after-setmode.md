@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Fixed on linux-aarch64 glibc (bs16-agent-c). Runs on x86-64 and on musl still owed.
+Status: Fixed on linux-aarch64 glibc (bs16-agent-c, re-run by the coordinator on 2226: base rc 139 3/3, fixed rc 0 3/3 with no GTK-CRITICAL). x86-64 GTK (2228) and musl GTK (2225) NOT run: both boxes are down and the owner is not bringing them up for now.
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
 Regression Test: `target::linux_gtk::canvas_reconcile_tests::a_none_default_program_builds_the_term_surface_before_the_worker_spawns` (unit, both start modes). Runtime: the probes below, on 2226.
 
