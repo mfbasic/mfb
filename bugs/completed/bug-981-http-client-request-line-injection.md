@@ -5,8 +5,25 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Security (request-line injection) — owner-confirmed
 
-Status: Open
-Regression Test: tests/rt-behavior/http/request-target-percent-encoded-rt (raw 127.0.0.1 server logs the request line)
+Status: Resolved (2026-10-05)
+Regression Test: tests/net/rt_http_client_request_target_percent_encoding.rs (raw peer logs the request line)
+
+## Resolution
+
+Fixed in `__http_requestTarget` (`helper_request_target.rs`): space, DEL and
+non-ASCII bytes in the path/query are now percent-encoded via a new
+`__http_percentEncodeTarget` helper (plus `__http_percentByteEncode`,
+`__http_isHexDigitChar`) before the target is written into the request line,
+matching Node's `new URL(...).pathname + search`. An existing `%XX` escape is
+kept verbatim; a bare `%` becomes `%25`. Control bytes stay rejected by the
+existing `__http_hasControlBytes` check.
+
+RED: `bug-981 RED: pin the request-line injection exploit` (commit
+`0697c5fa7`) — 4 of 5 cases failed with the exact exploit
+(`"GET /x HTTP/1.0 HTTP/1.1"` instead of `"GET /x%20HTTP/1.0 HTTP/1.1"`).
+GREEN: `bug-981: percent-encode the http client's request target` (commit
+`668b6d3d4`) — all 5 cases pass.
+
 
 **Owner decision (2026-10-05): percent-encode, as Node does.** Space, DEL and non-ASCII bytes in
 the path and query are percent-encoded in the request target before it is written, so the
