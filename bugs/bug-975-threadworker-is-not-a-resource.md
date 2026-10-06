@@ -1,9 +1,9 @@
-# bug-975: `ThreadWorker` is not a Resource — `LET`/`MUT`/`RES` all bind it, and copies alias one handle
+# bug-975: plan-156 left the worker view out of the resource rules — `ThreadWorker` binds with `LET`/`MUT`, because resource-ness is keyed on having a close op
 
 Last updated: 2026-10-05
 Effort: large (3h–1d)
 Severity: MEDIUM
-Class: Correctness (language surface; owner-confirmed)
+Class: Correctness (incomplete plan-156; owner-confirmed)
 
 Status: Open
 Regression Test: tests/syntax/threads/threadworker-let-binding-invalid and threadworker-mut-binding-invalid (TYPE_RESOURCE_REQUIRES_RES); tests/rt-behavior/threads/threadworker-res-binding-rt (to add)
@@ -12,6 +12,47 @@ Regression Test: tests/syntax/threads/threadworker-let-binding-invalid and threa
 It is bound only with `RES`. `LET t2 = t` and `MUT t3 AS ThreadWorker OF … = t` do not
 compile (`TYPE_RESOURCE_REQUIRES_RES`). Split out of bug-857 (§14 item 1), where the
 spec's "non-copyable values move" claim contradicted the observed aliasing.
+
+## This is a plan-156 gap, not a new language change
+
+plan-156 already settled that both views are resources on the same thread, from opposite
+sides (`planning/completed/plan-156-A-thread-table.md`, §The plan-156 feature):
+
+- "**Two views, two resources.** `Thread` (the parent view) and `ThreadWorker` (the worker
+  view) are each a standard resource record in their holder's arena … plus a pointer to the
+  control block."
+- "**No user-visible close.** Only the runtime closes the worker view, when the worker
+  function returns."
+- "**Clean break.** `LET`/`MUT` bindings of a thread become a compile error; `RES` is the
+  only spelling."
+
+plan-156-C (commit series after `9f49cf2a8`) made both views `ParameterType::ThreadHandle
+{ worker, .. }` resource records. But its Phase 2 note says "`close_op_for` answers
+`thread.drop` … for a parent view and `None` for a worker view", and every resource
+predicate answers through `close_op_for`:
+
+- `src/ir/verify/link.rs:is_resource_or_resource_union` returns true only if
+  `close_op_for(base).is_some()`.
+- `src/ir/verify/resources.rs:is_resource_type` takes the same `close_op_for` path.
+- `src/ir/verify/ops.rs` (Bind arm) emits `TYPE_RESOURCE_REQUIRES_RES` only when
+  `is_resource_or_resource_union` holds.
+
+So the worker view, which deliberately has no close op because the runtime closes it at
+worker return, is not a resource to the verifier, and the plan-156-F clean break never
+reached it. plan-156-F's migration and its rejection fixture
+(`tests/syntax/threads/let_thread_binding_invalid/`) cover only `= thread::start` (parent)
+bindings. Its census regex was `^(\s*)(LET|MUT)\s+(\w+)(\s+AS\s+Thread OF[^=]*)?\s*=\s*thread::start`.
+
+**Root-cause fix direction:** separate "is a resource" from "has a user/scope close op".
+The worker view is a resource whose close is runtime-owned. Resource predicates and the
+`RES`-binding rule must include `ThreadHandle { worker: true }`, while scope cleanup of a
+worker-view alias still emits no close (the runtime closes it at return).
+
+**Parameter spelling (settled by plan-156-E, no owner question):** a resource *parameter*
+needs no `RES` keyword ("A resource parameter needs no `RES` (verified 2026-09-24)",
+`plan-156-E-thread-view-state.md` §3). So `worker AS ThreadWorker OF … [STATE W]` stays valid
+as the entry's first parameter, exactly like any other resource parameter. Only `LET`/`MUT`
+*bindings* of a worker view become `TYPE_RESOURCE_REQUIRES_RES`.
 
 ## Verified today (HEAD 846aa55fd, `/tmp/hardening/mfb-165`, `/tmp/hardening/coord/tw`)
 
@@ -44,11 +85,9 @@ Contrast: a parent `Thread` is a resource. `LET`/`MUT` binding is
 - `ThreadWorker` is classified as a resource everywhere `Thread` is (`is_resource_type`,
   `is_builtin_resource_type` in `src/codegen/resource/mod.rs`, the shape checker's
   `is_resource_type`). `LET`/`MUT` bindings of it are `TYPE_RESOURCE_REQUIRES_RES`.
-- The worker entry's first parameter is a `RES` parameter. Decide with the owner at
-  implementation time whether the `RES` keyword becomes *required* there (today it is
-  optional; making it required changes every thread program, man example and fixture).
-- Its close op is hidden and does not end the worker, since the runtime owns the worker for
-  its whole run. Scope cleanup of a `RES` alias never tears down the running worker. A
+- The worker entry's first parameter keeps today's spelling (a resource parameter needs no
+  `RES`, plan-156-E). Only `LET`/`MUT` bindings change.
+- It has no user or scope close. The runtime closes the worker view at worker return (plan-156-A). Scope cleanup of a `RES` alias never tears down the running worker. A
   `RES t2 = t` alias follows the same Resource/alias rules the owner set for bug-843
   (one Resource, `RES` bindings are aliases, scope raised, never closed twice).
 - Existing rules stay: no collection may hold one (`TYPE_COLLECTION_OWNERSHIP_VIOLATION`),
