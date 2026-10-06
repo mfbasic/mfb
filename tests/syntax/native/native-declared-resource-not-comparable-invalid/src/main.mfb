@@ -1,0 +1,48 @@
+IMPORT io
+IMPORT collections
+
+' bug-851: a `RESOURCE`-declared (LINK) type is a resource everywhere, exactly as
+' a built-in one is. It is not comparable, alone, as a list element, or as a
+' record field, and a union may not mix it with data. Each line below is rejected
+' the way the same line with `fs::File` is.
+RESOURCE Tr CLOSE BY c::release
+
+LINK "c" AS c
+  FUNC open(name AS String) AS RES Tr
+    SYMBOL "strdup"
+    ABI (name CString) AS p CPtr
+    ERROR_ON p = NOTHING
+    RETURN p
+  END FUNC
+  FUNC release(t AS Tr) AS Nothing
+    SYMBOL "write"
+    ABI (fd CInt32, t CPtr, n CInt64) AS status CInt64
+    CONST fd = 1
+    CONST n = 1
+    SUCCESS_ON status = 1
+  END FUNC
+END LINK
+
+TYPE H
+  h AS RES Tr
+END TYPE
+
+TYPE D
+  n AS Integer
+END TYPE
+
+UNION MD
+  Tr
+  D
+END UNION
+
+FUNC main() AS Nothing
+  RES a AS Tr = c::open("a")
+  RES b AS Tr = c::open("b")
+  io::print(toString(a = b))
+  LET xs AS List OF RES Tr = [a]
+  io::print(toString(collections::contains(xs, a)))
+  LET x = H[a]
+  LET y = H[a]
+  io::print(toString(x = y))
+END FUNC

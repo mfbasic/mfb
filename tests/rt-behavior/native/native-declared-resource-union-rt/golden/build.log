@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/native/native-declared-resource-union-rt
+Wrote AST to tests/rt-behavior/native/native-declared-resource-union-rt/native_declared_resource_union_rt.ast
+Wrote IR to tests/rt-behavior/native/native-declared-resource-union-rt/native_declared_resource_union_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/native/native-declared-resource-union-rt
+Wrote executable to tests/rt-behavior/native/native-declared-resource-union-rt/build/native_declared_resource_union_rt.out
+[exit 0]
+$ tests/rt-behavior/native/native-declared-resource-union-rt/build/native_declared_resource_union_rt.out
+first=Tr second=Tr2
+B2
+A1
+after pairs
+m=Tr
+f=File hello
+M3
+after mixed
+[exit 0]

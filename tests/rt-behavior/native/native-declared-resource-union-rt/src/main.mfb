@@ -1,0 +1,98 @@
+IMPORT io
+IMPORT fs
+
+' bug-851: a union of `RESOURCE`-declared (LINK) types is a resource union exactly
+' as a union of built-in resources is, and so is a union mixing a declared resource
+' with a built-in one. A binding of either drops by dispatching on the tag to the
+' active variant's close op, once. Each close op writes the handle's text to stdout
+' (`write(1, t, 3)`), so the output shows which close ran, and when.
+RESOURCE Tr CLOSE BY c::release
+RESOURCE Tr2 CLOSE BY c::release2
+
+LINK "c" AS c
+  FUNC open(name AS String) AS RES Tr
+    SYMBOL "strdup"
+    ABI (name CString) AS p CPtr
+    ERROR_ON p = NOTHING
+    RETURN p
+  END FUNC
+  FUNC release(t AS Tr) AS Nothing
+    SYMBOL "write"
+    ABI (fd CInt32, t CPtr, n CInt64) AS status CInt64
+    CONST fd = 1
+    CONST n = 3
+    SUCCESS_ON status = 3
+  END FUNC
+  FUNC open2(name AS String) AS RES Tr2
+    SYMBOL "strdup"
+    ABI (name CString) AS p CPtr
+    ERROR_ON p = NOTHING
+    RETURN p
+  END FUNC
+  FUNC release2(t AS Tr2) AS Nothing
+    SYMBOL "write"
+    ABI (fd CInt32, t CPtr, n CInt64) AS status CInt64
+    CONST fd = 1
+    CONST n = 3
+    SUCCESS_ON status = 3
+  END FUNC
+END LINK
+
+UNION Duo
+  Tr
+  Tr2
+END UNION
+
+UNION Mixed
+  Tr
+  fs::File
+END UNION
+
+FUNC pick(k AS Integer) AS Duo
+  IF k = 1 THEN
+    RES t AS Duo = c::open("A1\n")
+    RETURN t
+  END IF
+  RES u AS Duo = c::open2("B2\n")
+  RETURN u
+END FUNC
+
+FUNC describe(p AS Duo) AS String
+  MATCH p
+    CASE Tr(t)
+      RETURN "Tr"
+    CASE Tr2(t)
+      RETURN "Tr2"
+  END MATCH
+  RETURN "none"
+END FUNC
+
+FUNC pairs() AS Nothing
+  RES first AS Duo = pick(1)
+  RES second AS Duo = pick(2)
+  io::print("first=" & describe(first) & " second=" & describe(second))
+END FUNC
+
+FUNC mixed(path AS String) AS Nothing
+  RES m AS Mixed = c::open("M3\n")
+  RES f AS Mixed = fs::openFile(path)
+  MATCH m
+    CASE Tr(t)
+      io::print("m=Tr")
+    CASE fs::File(h)
+      io::print("m=File")
+  END MATCH
+  MATCH f
+    CASE Tr(t)
+      io::print("f=Tr")
+    CASE fs::File(h)
+      io::print("f=File " & fs::readLine(h))
+  END MATCH
+END FUNC
+
+FUNC main() AS Nothing
+  pairs()
+  io::print("after pairs")
+  mixed("tests/rt-behavior/native/native-declared-resource-union-rt/data.txt")
+  io::print("after mixed")
+END FUNC

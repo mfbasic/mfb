@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/native/native-declared-resource-not-comparable-invalid
+  40 |   RES a AS Tr = c::open("a")
+  41 |   RES b AS Tr = c::open("b")
+  42 |   io::print(toString(a = b))
+     | ^
+tests/syntax/native/native-declared-resource-not-comparable-invalid/src/main.mfb:42 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Operator `=` requires compatible comparable operands, got Tr and Tr.
+  42 |   io::print(toString(a = b))
+  43 |   LET xs AS List OF RES Tr = [a]
+  44 |   io::print(toString(collections::contains(xs, a)))
+     | ^
+tests/syntax/native/native-declared-resource-not-comparable-invalid/src/main.mfb:44 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.contains` requires a comparable type, got `RES Tr`.
+  45 |   LET x = H[a]
+  46 |   LET y = H[a]
+  47 |   io::print(toString(x = y))
+     | ^
+tests/syntax/native/native-declared-resource-not-comparable-invalid/src/main.mfb:47 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Operator `=` requires compatible comparable operands, got H and H.
+  32 | END TYPE
+  33 | 
+  34 | UNION MD
+     | ^
+tests/syntax/native/native-declared-resource-not-comparable-invalid/src/main.mfb:34 error[2-203-0087 TYPE_MIXED_RESOURCE_UNION]: a union must be all-data or all-resource, never mixed
+               UNION `MD` mixes data and resource variants; a union must be all-data or all-resource.
+[exit 1]
