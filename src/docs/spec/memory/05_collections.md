@@ -853,6 +853,13 @@ lies in its owner's block; the owner is not rebuilt.
   into the owner (`get(r.xs, k)` itself) rebuilds, because the repack frees the
   old owner before the item is copied.
   [[src/codegen/collection/assign/builder_inplace_assign.rs:lower_field_set]]
+  The same holds for every growing field operation — `append` (one element or a
+  whole list), `prepend`, `insert`, a `Map` field's `set` (key and value) and a
+  `Set` field's `add`: the grow reallocates the owner and frees the old block
+  before the item is copied in, so an item that reads the owner (`r.s`, an
+  inlined record `r.p`, a forwarded copy of either) and is not a scalar and not
+  an operation that builds a new value rebuilds the statement.
+  [[src/codegen/collection/assign/inplace_dest.rs:field_item_may_view_owner]]
 - **A variable-size last field keeps the block when its granule does.** A `WITH`
   that replaces a `String` or variable-size record field — alone or beside
   scalar and fixed-size fields — that is the last inlined field of a flat,

@@ -1128,6 +1128,11 @@ impl CodeBuilder<'_> {
         if !self.field_is_last_inlined(site) {
             return Ok(false);
         }
+        // bug-895 — the grow frees the old owner before the item is copied in.
+        let item_type = if bulk { list_type } else { element_type };
+        if self.field_item_may_view_owner(site, &target.args[1], item_type) {
+            return Ok(false);
+        }
         let dest = self.open_inplace_dest(&target.dest)?;
         // A whole right-hand list is copied entry by entry (see `try_inplace_bulk_append_assign`).
         let rhs = if bulk {
@@ -1166,6 +1171,10 @@ impl CodeBuilder<'_> {
         }
         // `G17` — a grow must not shift a later sibling.
         if !self.field_is_last_inlined(site) {
+            return Ok(false);
+        }
+        // bug-895 — the grow frees the old owner before the item is copied in.
+        if self.field_item_may_view_owner(site, &target.args[1], element_type) {
             return Ok(false);
         }
         let dest = self.open_inplace_dest(&target.dest)?;
@@ -1338,6 +1347,13 @@ impl CodeBuilder<'_> {
         };
         // `G17` — a new key grows the map, which must not shift a later sibling.
         if !self.field_is_last_inlined(site) {
+            return Ok(false);
+        }
+        // bug-895 — the grow frees the old owner before the key and value are
+        // copied in.
+        if self.field_item_may_view_owner(site, &target.args[1], &key_type)
+            || self.field_item_may_view_owner(site, &target.args[2], &value_type)
+        {
             return Ok(false);
         }
         let dest = self.open_inplace_dest(&target.dest)?;
@@ -1537,6 +1553,10 @@ impl CodeBuilder<'_> {
         }
         // `G17` — a grow must not shift a later sibling.
         if !self.field_is_last_inlined(site) {
+            return Ok(false);
+        }
+        // bug-895 — the grow frees the old owner before the item is copied in.
+        if self.field_item_may_view_owner(site, &target.args[rhs_index], element_type) {
             return Ok(false);
         }
         let dest = self.open_inplace_dest(&target.dest)?;

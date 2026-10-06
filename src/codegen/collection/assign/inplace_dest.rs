@@ -536,6 +536,33 @@ impl CodeBuilder<'_> {
             || (self.field_is_last_inlined(site) && !operands.iter().any(|v| site.read_by(v)))
     }
 
+    /// bug-895: whether `operand`, an item a growing field arm copies in AFTER the
+    /// grow, may still be a view into the owner's old block.
+    ///
+    /// The arms lower their items with `lower_value_stored` (a map key with
+    /// `lower_value`), which does not copy a flat value: `r.s` — or any value read
+    /// out of the owner — is an interior pointer into the record. The grow
+    /// (`InlineGrow`) reallocates the owner and frees the old block before the item
+    /// bytes are copied in, so the element was copied from freed (entropy-scrubbed)
+    /// memory: `r = WITH r { xs := collections::append(r.xs, r.s) }` stored garbage,
+    /// and an inlined record item segfaulted. A scalar item is a register value, not
+    /// a pointer, and an item whose top node is an operator builds a new value (the
+    /// `List` arm of `lower_field_set` has admitted those since bug-759), so only a
+    /// block-typed item that reads the owner is refused — the arm declines and the
+    /// statement takes the copying form, whose result `mfb spec memory collections`
+    /// (*Self-updates*) says the in-place route must equal.
+    pub(crate) fn field_item_may_view_owner(
+        &self,
+        site: &SelfUpdateSite<'_>,
+        operand: &NirValue,
+        operand_type: &ParameterType,
+    ) -> bool {
+        site.field.is_some()
+            && site.read_by(operand)
+            && self.result_payload_is_block(operand_type)
+            && !matches!(operand, NirValue::Binary { .. } | NirValue::Unary { .. })
+    }
+
     /// plan-145-F: `offset` = the block-relative offset of field `field_index`
     /// of the record reached from the block at `base` along `path` — the sum of
     /// the offsets stored at each level (every inlined record's offsets are

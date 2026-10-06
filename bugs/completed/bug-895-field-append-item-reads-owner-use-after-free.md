@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: tests/rt-behavior/memory/field-grow-item-reads-owner-rt (proposed)
+Status: FIXED (bs16-agent-a; see Resolution)
+Regression Test: tests/runtime/rt_field_grow_item_reads_owner.rs
 
 A growing in-place field self-update whose item operand is a sibling field of the
 same owner record reads that item out of the owner's OLD block after the grow has
@@ -131,3 +131,41 @@ item bytes are copied in.
 - `lower_field_append`, `lower_field_splice`, `lower_field_set` (map arm) — fixed by this bug.
 - `lower_field_set_add` (`Set` field `add`) — same missing check, observed: with `s = strings::repeat("E", 100)`, `a = WITH a { st := collections::add(a.st, a.s) }` leaves `contains(a.st, s) = FALSE` and a 74-byte garbage element (`/tmp/hardening/B07/fld8`); with a 4-byte `s` it happened to print correctly. Fixed by this bug.
 - `STATE` fields: `f.state.xs = collections::append(f.state.xs, f.state.s)` six times with a growing `f.state.s` printed every element correctly (`/tmp/hardening/B07/st1`) — not observed to fail; why the STATE arm escapes was not investigated.
+
+## Resolution
+
+New predicate `CodeBuilder::field_item_may_view_owner`
+(`src/codegen/collection/assign/inplace_dest.rs`): a field site, an operand that
+`site.read_by` the owner, of a block type (`result_payload_is_block`: `String`,
+record, data union, collection, `Error`, `Result`), whose top node is not a
+`Binary`/`Unary` (which builds a new value — the carve-out the `List` arm of
+`lower_field_set` has used since bug-759). Every growing field arm now declines
+(the statement takes the copying form) when its item answers yes:
+`lower_field_append` (element, or the whole list for a bulk append),
+`lower_field_splice` (`insert`/`prepend`), the `Map` arm of `lower_field_set` (key
+and value) and `lower_field_set_add`. The `RETURN WITH` site
+(`try_returned_field_self_update`) reaches the same arms. A scalar item (an
+`Integer` field) and an operator item (`r.s & "!"`) stay in place. One measured
+in-place loss: `r = WITH r { xs := collections::append(r.xs, r.s & "") }` now
+rebuilds (counting distinct `inline_append_need_*` labels in `--ncode`: base 3,
+fixed 2 for a program with that site, `r.s & "!"` and an `Integer` item; equal
+without it). Guess: `& ""` is folded to plain `r.s` before codegen, so that site
+had the same hazard.
+
+Proof: `tests/runtime/rt_field_grow_item_reads_owner.rs`, twelve rows of the
+table above (append, short append, prepend, insert, forwarded alias, map set key
+and value, map set value, set add with a 100-byte string, inlined record item,
+`RETURN WITH` over a param, nested path with an inner and an outer item) at
+`-O0/-O1/-O2`: base 35/36 wrong (garbage, `get` failure exit 255, SIGSEGV), fixed
+36/36. In-place coverage tests (`codegen_inplace_*`, `rt_inplace_*`,
+`rt_self_update_cost`, `rt_record_update_forms`, `codegen_place_forward`) pass.
+The `STATE` field row from the Blast Radius was not reproduced and not changed.
+
+Spec: `mfb spec memory collections`, *Growth needs the last field*.
+
+## Golden impact
+
+Only fixtures that contain a growing field self-update whose item reads the
+owner change: their native code takes the copying form at those sites
+(`.ncode`/`.ncodesum` diffs, and `.run` only if the fixture printed the garbage
+element). No AST/IR golden changes.
