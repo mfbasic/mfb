@@ -169,3 +169,9 @@ Only fixtures that contain a growing field self-update whose item reads the
 owner change: their native code takes the copying form at those sites
 (`.ncode`/`.ncodesum` diffs, and `.run` only if the fixture printed the garbage
 element). No AST/IR golden changes.
+
+### Measured
+
+Measured with `scripts/artifact-gate.sh <mfb> all` (all five bs16-agent-a fixes built in; 59 diffs in total, attributed per function by comparing base and fixed `--ncode` for macos-aarch64): none of the 59 diffs is in a self-update site; no fixture's golden moves
+for this fix. `scripts/test-accept.sh` on `*inplace*`, `*field*`, `*self-update*`
+passes.
