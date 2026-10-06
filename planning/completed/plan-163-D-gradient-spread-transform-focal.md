@@ -591,6 +591,17 @@ user are recorded as decisions in §3.
     one step (worst 1; 5452 and 5833 of those pixels in the two blended items), past
     `GPU_DEFAULT`'s 2% — the blend-precision drift the script's header already records.
     The two items exist for the split, so they are 80×56 now.
+14. **The final gate's prediction missed a fixture: `app-window-surface`'s macOS `.ncode`.**
+    The Validation Plan expected 0 diffs outside `tests/syntax/app/app-mouse-surface`. That
+    fixture imports only `app` and `io`, but every macOS app links the Metal renderer and
+    its MSL source — `strings` on the built binary finds `gradInv0`, `tintRamp` and
+    `clipBandAt` — so plans B–D's `metal.rs` moved its `.ncodesum` (only the macOS one;
+    `.ir`, `.nir`, `.nplan` and the Linux and Windows sums are byte-identical after
+    `regen-native-goldens.sh`). Regenerated. Final gate, run once on the branch with main
+    (28 bug/planning-doc commits) merged: `cargo test --no-fail-fast` → 323 test results,
+    the only failure `artifact_gate_all` on that diff; after it, `bash
+    scripts/artifact-gate.sh target/release/mfb all` → "1627 tests, 1806 build(s), 2280
+    golden(s) checked, 0 diff(s)" and `cargo test --test golden` → 1 passed.
 
 ## Summary
 
