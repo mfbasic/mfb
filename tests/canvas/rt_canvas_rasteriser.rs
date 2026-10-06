@@ -933,6 +933,354 @@ fn a_join_shapes_every_corner_of_a_stroke() {
     assert_eq!(pixel(&frame, 693, 293), black, "and not past it");
 }
 
+/// plan-163-B: a dash that crosses a corner stays one dash round it — the premise the
+/// dash design rests on (§8), for each cap.
+///
+/// Three 120 px squares (first point the top-left, so `s = 0` there, going clockwise)
+/// stroked 20 px wide (`half` = 10) with `dashes := [150.0, 30.0]`: the perimeter is
+/// 480, so the dashes are `s` ∈ [0, 150) — the top side and 30 px down the right side —
+/// [180, 330) — the right side's last 60 px and 90 px of the bottom side, from its right
+/// end — and [360, 510), which starts EXACTLY at the bottom-left corner and runs up the
+/// left side to the seam, where it meets the first dash: on at both sides of the seam,
+/// the two are one dash through the top-left corner. With the square at X:
+///
+/// * the top-right corner (X + 120, 100) is inside the first dash, so it takes its
+///   (Round) join: the centre (X + 125.5, 95.5) is 7.1 from it, covered; the inner corner
+///   (X + 112.5, 108.5) is inside both sides' bands;
+/// * the right side's gap is y ∈ [130, 160): its centre row 145.5 is empty under every
+///   cap — 15.5 and 14.5 from the two dash ends, beyond a Round disc and a Square's 10;
+/// * at the dash end y = 130: row 129.5 (`along` = −0.5) is covered under every cap; row
+///   131.5 only under Round (1.58 from the end point (X + 120, 130)) and Square (1.5 past
+///   the end, within 10); row 137.5 under Round (7.5) and Square; row 139.5 under Square
+///   alone (9.5 past, coverage exactly 255) and row 141.5 under none;
+/// * the bottom-left corner (X, 220) is where the third dash STARTS, so it takes no join:
+///   the centre (X − 4.5, 225.5) — 5.5 below the corner, beside the left side's line — is
+///   empty under Butt, inside the Round end's disc (7.1 from the corner), and inside the
+///   Square end, which runs 10 straight down the left side's line from the corner;
+/// * the bottom side's gap is x ∈ (X, X + 30]: x = X + 15.5 is empty under every cap,
+///   and X + 25.5 — 4.5 past the second dash's end at X + 30 — is covered by its Round
+///   disc and its Square extension, not by Butt;
+/// * the seam corner (X, 100) is inside the merged dash, so it takes its join:
+///   (X − 4.5, 95.5) is 6.4 from it.
+#[test]
+fn a_dash_crossing_a_corner_stays_one_dash() {
+    let (frame, _) = render(
+        "canvas_dash_corners",
+        &(scene(
+            "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { dashes := [150.0, 30.0] }\n  \
+             LET butt AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
+             LET round AS canvas::DrawItem = canvas::Polygon[contours := [sq(300.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }]\n  \
+             LET square AS canvas::DrawItem = canvas::Polygon[contours := [sq(500.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }]\n  \
+             canvas::present([butt, round, square])\n",
+        ) + RING_HELPERS),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    for (x, cap) in [(100usize, "Butt"), (300, "Round"), (500, "Square")] {
+        let on = |px: usize, py: usize, what: &str| {
+            assert_eq!(pixel(&frame, px, py), white, "{cap}: {what}");
+        };
+        let off = |px: usize, py: usize, what: &str| {
+            assert_eq!(pixel(&frame, px, py), black, "{cap}: {what}");
+        };
+        on(x + 125, 95, "the dash crossing the top-right corner takes its join");
+        on(x + 112, 108, "and the corner's inner side");
+        off(x + 120, 145, "the right side's gap");
+        on(x + 120, 129, "the dash runs to its end");
+        on(x - 5, 95, "the seam corner joins the dash through it");
+        off(x + 15, 220, "the bottom side's gap");
+        if cap == "Butt" {
+            off(x + 120, 131, "a butt dash end stops at the end");
+            off(x + 120, 137, "a butt dash end does not reach 7.5 past");
+            off(x - 5, 225, "a dash starting at a corner takes no join");
+            off(x + 25, 220, "a butt end leaves the gap");
+        }
+        if cap == "Round" {
+            on(x + 120, 131, "a round dash end's disc");
+            on(x + 120, 137, "reaches 7.5 past the end");
+            off(x + 120, 141, "not 11.5");
+            on(x - 5, 225, "the dash starting at the corner takes its round cap");
+            on(x + 25, 220, "the round end's disc reaches 4.5 into the gap");
+        }
+        if cap == "Square" {
+            on(x + 120, 131, "a square dash end");
+            on(x + 120, 139, "reaches 9.5 past the end");
+            off(x + 120, 141, "not 11.5");
+            on(x - 5, 225, "the dash starting at the corner runs its square end straight on");
+            on(x + 25, 220, "the square end reaches 4.5 into the gap");
+        }
+    }
+}
+
+/// The arc length of an ellipse from parametric angle 0 to `t`, by Simpson's rule over
+/// 200,000 steps — far finer than anything the renderer uses, so it serves as the exact
+/// value the dash table is measured against.
+fn ellipse_arc_length(rx: f64, ry: f64, t: f64) -> f64 {
+    let n = 200_000;
+    let h = t / n as f64;
+    let f = |a: f64| (rx * rx * a.sin() * a.sin() + ry * ry * a.cos() * a.cos()).sqrt();
+    let mut sum = f(0.0) + f(t);
+    for i in 1..n {
+        let w = if i % 2 == 1 { 4.0 } else { 2.0 };
+        sum += w * f(i as f64 * h);
+    }
+    sum * h / 3.0
+}
+
+/// The parametric angle at which an ellipse's arc length from angle 0 reaches `s`.
+fn ellipse_angle_at(rx: f64, ry: f64, s: f64) -> f64 {
+    let (mut lo, mut hi) = (0.0f64, std::f64::consts::TAU);
+    for _ in 0..50 {
+        let mid = (lo + hi) / 2.0;
+        if ellipse_arc_length(rx, ry, mid) < s {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) / 2.0
+}
+
+/// plan-163-B: a dashed Ellipse is cut by arc length, from angle 0 (+X) the way angles
+/// increase (towards +Y), measured against an independent arc length
+/// (`ellipse_arc_length`, not the renderer's table).
+///
+/// rx = 160, ry = 80, 8 px wide, `dashes := [30.0, 15.0]`: every dash's middle (`s` =
+/// 15 + 45k) is drawn and every gap's middle (`s` = 37.5 + 45k) is not. The pixel tested
+/// is the one holding the outline point, whose centre is within 0.71 of it: well inside
+/// the 4 px half-width, and 7.5 or more along the outline from the nearest dash end.
+#[test]
+fn a_dashed_ellipse_is_cut_by_arc_length() {
+    let (frame, _) = render(
+        "canvas_dash_ellipse",
+        &scene(
+            "  LET e AS canvas::DrawItem = canvas::Ellipse[x := 450.0, y := 320.0, radiusX := 160.0, radiusY := 80.0, angle := 0.0, \
+             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [30.0, 15.0] }]\n  \
+             canvas::present([e])\n",
+        ),
+    );
+    let (rx, ry) = (160.0, 80.0);
+    let perimeter = ellipse_arc_length(rx, ry, std::f64::consts::TAU);
+    let at = |s: f64| {
+        let t = ellipse_angle_at(rx, ry, s);
+        let x = 450.0 + rx * t.cos();
+        let y = 320.0 + ry * t.sin();
+        pixel(&frame, x.floor() as usize, y.floor() as usize)
+    };
+    let mut k = 0;
+    while 37.5 + 45.0 * k as f64 + 7.5 < perimeter {
+        let s = 15.0 + 45.0 * k as f64;
+        assert_eq!(at(s), (255, 255, 255, 255), "the middle of dash {k}, s = {s}");
+        let g = 37.5 + 45.0 * k as f64;
+        assert_eq!(at(g), (0, 0, 0, 255), "the middle of gap {k}, s = {g}");
+        k += 1;
+    }
+    assert!(k >= 16, "the ellipse's perimeter {perimeter} holds 16 periods");
+}
+
+/// plan-163-B: the ellipse dash table's resolution, `__CANVAS_DASH_ELLIPSE_STEPS`,
+/// chosen by measurement (§8 left it UNVERIFIED).
+///
+/// The table is the cumulative arc length at N + 1 evenly spaced parametric angles, each
+/// step Simpson's rule over 8 sub-steps, and a pixel's position is the linear
+/// interpolation between two entries. This reproduces that construction exactly (in f64)
+/// and measures its worst error against `ellipse_arc_length` at 16 points per step,
+/// for ellipses up to 800 px across and 80:1 eccentric.
+#[test]
+fn an_ellipse_dash_table_is_within_a_tenth_of_a_pixel() {
+    const STEPS: usize = 256;
+    let mut worst: f64 = 0.0;
+    for (rx, ry) in [(400.0f64, 5.0f64), (400.0, 200.0), (200.0, 10.0), (50.0, 40.0), (8.0, 400.0)] {
+        let dt = std::f64::consts::TAU / STEPS as f64;
+        let f = |a: f64| (rx * rx * a.sin() * a.sin() + ry * ry * a.cos() * a.cos()).sqrt();
+        let mut table = vec![0.0f64];
+        for k in 0..STEPS {
+            let t0 = k as f64 * dt;
+            let mut sum = 0.0;
+            for j in 0..=8 {
+                let w = if j == 0 || j == 8 { 1.0 } else if j % 2 == 1 { 4.0 } else { 2.0 };
+                sum += w * f(t0 + j as f64 * dt / 8.0);
+            }
+            table.push(table[k] + sum * dt / 24.0);
+        }
+        // Exact arc length at the probe points, by integrating step to step.
+        for k in 0..STEPS {
+            for i in 1..16 {
+                let t = (k as f64 + i as f64 / 16.0) * dt;
+                let frac = i as f64 / 16.0;
+                let interpolated = table[k] + (table[k + 1] - table[k]) * frac;
+                let exact = ellipse_arc_length(rx, ry, t);
+                worst = worst.max((interpolated - exact).abs());
+            }
+        }
+    }
+    println!("ellipse dash table, {STEPS} steps: worst along-path error {worst:.5} px");
+    assert!(worst < 0.1, "the worst along-path error is {worst} px");
+}
+
+/// plan-163-B: `Paint.dashes` on a Line, in the software renderer — the pattern, its
+/// normalization (§4) and `dashOffset`.
+///
+/// Each line runs from x = 100 to x = 300 along a row centre (y = r + 0.5), 4 px wide,
+/// Butt: a pixel at column 100 + i is drawn exactly when `s` = i + 0.5 is in a dash —
+/// every dash boundary here is a whole number, so every centre is half a pixel from one.
+///
+/// * `[10, 5]`: on for `s` mod 15 ∈ [0, 10);
+/// * `[10, 5, 5]` is odd, so it repeats once to `[10, 5, 5, 10, 5, 5]`: on for `s` mod 40
+///   ∈ [0, 10) ∪ [15, 20) ∪ [30, 35);
+/// * `[]`, `[0, 0]` (sum 0) and `[10, -5]` (a negative entry) are solid;
+/// * `dashOffset := 3` starts 3 into `[10, 5]`: on for (`s` + 3) mod 15 ∈ [0, 10);
+///   `dashOffset := -3` is 12 into it.
+#[test]
+fn a_dashed_line_draws_its_pattern() {
+    let rows: [(&str, usize); 7] = [
+        ("[10.0, 5.0]", 40),
+        ("[10.0, 5.0, 5.0]", 60),
+        ("[]", 80),
+        ("[0.0, 0.0]", 100),
+        ("[10.0, 0.0 - 5.0]", 120),
+        ("[10.0, 5.0]", 140),
+        ("[10.0, 5.0]", 160),
+    ];
+    let offsets = ["0.0", "0.0", "0.0", "0.0", "0.0", "3.0", "0.0 - 3.0"];
+    let mut body = String::from(
+        "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 4.0)\n",
+    );
+    let mut names = Vec::new();
+    for (i, ((dashes, y), offset)) in rows.iter().zip(offsets).enumerate() {
+        body.push_str(&format!(
+            "  LET l{i} AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := {y}.5, x2 := 300.0, y2 := {y}.5, \
+             paint := WITH ink {{ dashes := {dashes}, dashOffset := {offset} }}]\n"
+        ));
+        names.push(format!("l{i}"));
+    }
+    body.push_str(&format!("  canvas::present([{}])\n", names.join(", ")));
+    let (frame, _) = render("canvas_dash_line", &scene(&body));
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    let expect = |y: usize, what: &str, on: &dyn Fn(f64) -> bool| {
+        for i in 0..200usize {
+            let s = i as f64 + 0.5;
+            let want = if on(s) { white } else { black };
+            assert_eq!(pixel(&frame, 100 + i, y), want, "{what}: column {}, s = {s}", 100 + i);
+        }
+    };
+    expect(40, "[10, 5]", &|s| s % 15.0 < 10.0);
+    expect(60, "[10, 5, 5] repeated once", &|s| {
+        let w = s % 40.0;
+        w < 10.0 || (15.0..20.0).contains(&w) || (30.0..35.0).contains(&w)
+    });
+    expect(80, "an empty list is solid", &|_| true);
+    expect(100, "a zero-sum list is solid", &|_| true);
+    expect(120, "a negative entry is solid", &|_| true);
+    expect(140, "dashOffset 3", &|s| (s + 3.0) % 15.0 < 10.0);
+    expect(160, "dashOffset -3", &|s| (s + 12.0) % 15.0 < 10.0);
+}
+
+/// plan-163-B: a dash end takes the paint's cap, and so do a dashed path's own ends.
+///
+/// Lines from x = 100 to 300 at y = 50, 100, 150, 8 px wide (`half` = 4), `[10.0, 10.0]`:
+/// the first dash is [100, 110). The centre (113.5, 46.5) is 3.5 past that dash's end and
+/// 3.5 off the line: within a Square end (both under 4) but 4.95 from the end point,
+/// outside a Round one; Butt draws neither. (111.5, 50.5) is 1.5 past the end — inside
+/// Round and Square. The path's start x = 100 is a dash end too: (96.5, 150.5) is 3.5
+/// before it, inside a Square end, and (97.5, 100.5) is 2.55 from it, inside a Round one;
+/// Butt draws neither.
+#[test]
+fn a_dash_end_takes_the_cap() {
+    let (frame, _) = render(
+        "canvas_dash_caps",
+        &scene(
+            "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [10.0, 10.0] }\n  \
+             LET butt AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 50.0, x2 := 300.0, y2 := 50.0, paint := ink]\n  \
+             LET round AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 100.0, x2 := 300.0, y2 := 100.0, paint := WITH ink { cap := canvas::CapStyle.Round }]\n  \
+             LET square AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 150.0, x2 := 300.0, y2 := 150.0, paint := WITH ink { cap := canvas::CapStyle.Square }]\n  \
+             canvas::present([butt, round, square])\n",
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(pixel(&frame, 111, 50), black, "a butt dash stops at its end");
+    assert_eq!(pixel(&frame, 113, 46), black, "and has no corner past it");
+    assert_eq!(pixel(&frame, 96, 50), black, "nor before the path's start");
+    assert_eq!(pixel(&frame, 111, 100), white, "a round dash end reaches past it");
+    assert_eq!(pixel(&frame, 113, 96), black, "as a disc");
+    assert_eq!(pixel(&frame, 97, 100), white, "and the path's start is capped round");
+    assert_eq!(pixel(&frame, 111, 150), white, "a square dash end reaches past it");
+    assert_eq!(pixel(&frame, 113, 146), white, "with a square corner");
+    assert_eq!(pixel(&frame, 96, 150), white, "and the path's start is capped square");
+}
+
+/// plan-163-B: each Polygon ring restarts the pattern at its own first point, and a
+/// dashed Circle's `s = 0` is its +X point, running clockwise (towards +Y).
+///
+/// * Two square rings, sides 27.5 (perimeter 110) at (100, 300) and (200, 300), 4 px
+///   wide, `[10.0, 10.0]`: each ring's top side is on for x ∈ [first.x, first.x + 10).
+///   Had the second ring continued the first's pattern, it would start at `s` = 110,
+///   mid-gap. The centre (205.5, 300.5) is 5.5 along the second ring.
+/// * A Circle at (600, 300), radius 50, 6 px wide, `[20.0, 300.0]` (one dash per
+///   perimeter of 314.16): the dash covers angles [0, 0.4) clockwise from +X. The centre
+///   (648.5, 309.5) is at angle 0.194 (`s` = 9.7) and radius 49.42; (648.5, 290.5) is at
+///   angle −0.194, `s` = 304.4, mid-gap.
+#[test]
+fn each_ring_restarts_the_pattern_and_a_circle_starts_at_plus_x() {
+    let (frame, _) = render(
+        "canvas_dash_rings",
+        &format!(
+            "{}{RING_HELPERS}",
+            scene(
+                "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 4.0) { dashes := [10.0, 10.0] }\n  \
+                 LET rings AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 300.0, 27.5), sq(200.0, 300.0, 27.5)], rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
+                 LET disc AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 300.0, radius := 50.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 6.0) { dashes := [20.0, 300.0] }]\n  \
+                 canvas::present([rings, disc])\n",
+            )
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(pixel(&frame, 105, 300), white, "the first ring starts with a dash");
+    assert_eq!(pixel(&frame, 115, 300), black, "then a gap");
+    assert_eq!(pixel(&frame, 205, 300), white, "the second ring restarts with a dash");
+    assert_eq!(pixel(&frame, 215, 300), black, "then a gap");
+    assert_eq!(pixel(&frame, 648, 309), white, "the circle's dash starts at +X, going clockwise");
+    assert_eq!(pixel(&frame, 648, 290), black, "not counter-clockwise");
+    assert_eq!(pixel(&frame, 550, 300), black, "the far side is in the gap");
+}
+
+/// plan-163-B: a dashed RoundedRect's `s = 0` is the left end of its top straight side,
+/// running clockwise, and a dashed Arc's is `startAngle`, running the way the sweep does.
+///
+/// * The RoundedRect at (100, 400), 200 x 100, corner radius 20, 4 px wide, `[30.0,
+///   400.0]`: its top side runs x ∈ [120, 280) at y = 400, so the dash covers x ∈ [120,
+///   150). The centre (125.5, 400.5) is at `s` = 5.5; (155.5, 400.5) at `s` = 35.5, in
+///   the gap; (115.5, 400.5) is in the top-left corner's arc, `s` ≈ 565 of a 565.66
+///   perimeter, in the gap too — the dash starts at the corner's end, it does not run
+///   back round it.
+/// * The Arc at (600, 450), radius 50, from π/2 (straight down) to π, 4 px wide, `[20.0,
+///   200.0]`, Butt: the dash covers the first 20 px of the sweep, towards −X. The centre
+///   (590.5, 499.5) is at radius 50.40, angle 1.7602, `s` = 9.47; (553.5, 468.5) is at
+///   `s` = 59.6, in the gap; (609.5, 499.5) is 9.47 BEFORE the start, past the butt end.
+#[test]
+fn a_rounded_rect_and_an_arc_start_their_dashes_where_the_contract_says() {
+    let (frame, _) = render(
+        "canvas_dash_starts",
+        &scene(
+            "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 4.0)\n  \
+             LET box AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 400.0, w := 200.0, h := 100.0, cornerRadius := 20.0, paint := WITH ink { dashes := [30.0, 400.0] }]\n  \
+             LET bow AS canvas::DrawItem = canvas::Arc[x := 600.0, y := 450.0, radius := 50.0, startAngle := 1.5707963267948966, endAngle := 3.141592653589793, paint := WITH ink { dashes := [20.0, 200.0] }]\n  \
+             canvas::present([box, bow])\n",
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(pixel(&frame, 125, 400), white, "the rounded rectangle's dash starts on its top side");
+    assert_eq!(pixel(&frame, 155, 400), black, "and ends 30 along it");
+    assert_eq!(pixel(&frame, 115, 400), black, "the corner before the start is the pattern's end, in the gap");
+    assert_eq!(pixel(&frame, 590, 499), white, "the arc's dash starts at startAngle");
+    assert_eq!(pixel(&frame, 553, 468), black, "and ends 20 along the sweep");
+    assert_eq!(pixel(&frame, 609, 499), black, "nothing is drawn before the start");
+}
+
 /// A clip cuts a circle in half, leaving the other half untouched.
 ///
 /// The circle is the right shape to clip with, because a clip that were secretly

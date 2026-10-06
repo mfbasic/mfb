@@ -2,8 +2,9 @@
 //! polyline's and a rectangle's corners.
 //!
 //! A round join is what the distance field has always drawn — the stroke is `|d| -
-//! half` of the outline's distance, and the distance to a corner is round — so a `Round`
-//! paint builds nothing here and every such item is what it was. A `Miter` or `Bevel`
+//! half` of the outline's distance, and the distance to a corner is round — so an
+//! undashed `Round` paint builds nothing here and every such item is what it was (a
+//! dashed one builds a disc per corner, `helper_dashes.rs`). A `Miter` or `Bevel`
 //! paint's stroke is instead the SVG construction: the union of every edge's **butt**
 //! band (the rectangle `half` either side of the edge, cut square at its ends) and one
 //! convex **join polygon** per corner, filling the wedge the two bands leave open on
@@ -85,12 +86,14 @@ END FUNC
 ' The bounds pad of a cornered kind's stroke (a polygon, a rectangle, stroked text):
 ' the half-width, or the miter reach, plus the one-pixel guard. A Round or Bevel paint
 ' pads exactly as before joins existed.
+' A dashed Square paint reaches `half * sqrt(2)` at a dash end (`__canvas_dashCapReach`).
 FUNC __canvas_strokePad(paint AS Paint) AS Float
   LET half AS Float = __canvas_maxF(__canvas_strokeHalf(paint), 0.0)
+  LET reach AS Float = __canvas_dashCapReach(half, paint)
   IF paint.join = JoinStyle.Miter THEN
-    RETURN half * __canvas_maxF(paint.miterLimit, 1.0) + 1.0
+    RETURN __canvas_maxF(reach, half * __canvas_maxF(paint.miterLimit, 1.0)) + 1.0
   END IF
-  RETURN half + 1.0
+  RETURN reach + 1.0
 END FUNC
 
 ' The no-join record at (vx, vy): its four points coincide, which every renderer reads
@@ -105,7 +108,7 @@ END FUNC
 ' positive cross product under Y-down, left otherwise. A miter is kept when
 ' `1 / sin(theta / 2) <= limit`, which is `(1 + u1.u2) * limit^2 >= 2` without a root; its
 ' point is where the two offset edges meet, `V + (n1 + n2) * half / (1 + n1.n2)`.
-FUNC __canvas_joinRecord(out AS List OF Float, vx AS Float, vy AS Float, ax AS Float, ay AS Float, bx AS Float, by AS Float, half AS Float, miter AS Boolean, limit AS Float) AS List OF Float
+FUNC __canvas_joinRecord(out AS List OF Float, vx AS Float, vy AS Float, ax AS Float, ay AS Float, bx AS Float, by AS Float, half AS Float, round AS Boolean, miter AS Boolean, limit AS Float) AS List OF Float
   LET l1 AS Float = math::sqrt(ax * ax + ay * ay)
   LET l2 AS Float = math::sqrt(bx * bx + by * by)
   LET u1x AS Float = ax / l1
@@ -126,6 +129,10 @@ FUNC __canvas_joinRecord(out AS List OF Float, vx AS Float, vy AS Float, ax AS F
   LET dot AS Float = u1x * u2x + u1y * u2y
   LET ex AS Float = vx + n1x * half
   LET ey AS Float = vy + n1y * half
+  ' A dashed Round paint's corner: the disc alone, whatever the turn.
+  IF round THEN
+    RETURN collections::append(out, [vx, vy, ex, ey, ex, ey, ex, ey])
+  END IF
   IF cross = 0.0 THEN
     IF dot > 0.0 THEN
       ' Straight on: the disc alone, written A = B.
@@ -144,14 +151,20 @@ FUNC __canvas_joinRecord(out AS List OF Float, vx AS Float, vy AS Float, ax AS F
 END FUNC
 
 ' The join records of an edge tail (`x0, y0, dx, dy, invLenSq` per edge) whose rings
-' start at the edge indices in `starts` -- one per edge -- or nothing for a Round paint
-' or a stroke that draws nothing.
+' start at the edge indices in `starts` -- one per edge -- or nothing for an undashed
+' Round paint or a stroke that draws nothing. A dashed Round paint's corners are discs:
+' the round corner the distance field draws for free must be cut where the pattern is
+' off, so it becomes a piece of its own (`helper_dashes.rs`).
 FUNC __canvas_joinTail(edges AS List OF Float, starts AS List OF Integer, closed AS Boolean, half AS Float, paint AS Paint) AS List OF Float
   MUT out AS List OF Float = []
   LET tag AS Integer = __canvas_joinTag(paint)
-  IF tag = 0 OR half <= 0.0 THEN
+  IF half <= 0.0 THEN
     RETURN out
   END IF
+  IF tag = 0 AND len(__canvas_dashPattern(paint, half)) = 0 THEN
+    RETURN out
+  END IF
+  LET round AS Boolean = tag = 0
   LET miter AS Boolean = tag = 1
   LET limit AS Float = __canvas_maxF(paint.miterLimit, 1.0)
   LET total AS Integer = len(edges) / 5
@@ -187,7 +200,7 @@ FUNC __canvas_joinTail(edges AS List OF Float, starts AS List OF Integer, closed
       LET dy AS Float = collections::getOr(edges, i * 5 + 3, 0.0)
       IF dx * dx + dy * dy > 0.0 THEN
         IF prev >= 0 THEN
-          out = __canvas_joinRecord(out, vx, vy, collections::getOr(edges, prev * 5 + 2, 0.0), collections::getOr(edges, prev * 5 + 3, 0.0), dx, dy, half, miter, limit)
+          out = __canvas_joinRecord(out, vx, vy, collections::getOr(edges, prev * 5 + 2, 0.0), collections::getOr(edges, prev * 5 + 3, 0.0), dx, dy, half, round, miter, limit)
         ELSE
           out = __canvas_noJoin(out, vx, vy)
         END IF
@@ -266,12 +279,12 @@ END FUNC"#;
 /// (`__canvas_segmentDistanceButt`) — a union of overlapping pieces (the module comment).
 #[rustfmt::skip]
 const JOIN_DISTANCE: &str =
-r#"' plan-163-B: where a record's join tail starts -- right before its gradient stops,
-' which stay last, counted back from the end of the record as
+r#"' plan-163-B: where a record's join tail starts -- right before its dash tail, which
+' is right before its gradient stops, counted back from the end of the record as
 ' `__canvas_gradientStopBase` counts them.
 FUNC __canvas_joinBase(offset AS Integer) AS Integer
   LET joins AS Integer = toInt(__canvas_geoAt(offset, __CANVAS_GEO_JOIN_COUNT))
-  RETURN __canvas_gradientStopBase(offset) - joins * 8
+  RETURN __canvas_dashBase(offset) - joins * 8
 END FUNC
 
 ' The signed distance to one record's corner piece: the disc of radius |A - V| about V,

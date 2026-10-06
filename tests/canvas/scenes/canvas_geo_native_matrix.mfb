@@ -39,6 +39,21 @@ FUNC paints() AS List OF canvas::Paint
   out = collections::append(out, WITH inked { join := canvas::JoinStyle.Miter, miterLimit := 0.5 })
   out = collections::append(out, WITH inked { join := canvas::JoinStyle.Bevel })
   out = collections::append(out, WITH inked { join := canvas::JoinStyle.Miter, strokeWidth := 0.0 })
+  ' plan-163-B. Dash tails, built natively: an even pattern, an odd one (repeated once),
+  ' Square ends with a fractional offset (the wider pad), a negative offset and one so far
+  ' out it wraps to 0, dashes with a Miter join (the corner records stay mitered) and the
+  ' Round one (disc records); then patterns that draw solid -- a zero sum, a negative
+  ' entry -- and dashes on a stroke that draws nothing.
+  out = collections::append(out, WITH inked { dashes := [5.0, 2.5] })
+  out = collections::append(out, WITH inked { dashes := [3.25], cap := canvas::CapStyle.Round })
+  out = collections::append(out, WITH inked { dashes := [4.0, 1.0, 2.0], cap := canvas::CapStyle.Square, dashOffset := 7.3 })
+  out = collections::append(out, WITH inked { dashes := [6.0, 0.5], dashOffset := 0.0 - 11.75 })
+  out = collections::append(out, WITH inked { dashes := [6.0, 0.5], dashOffset := 100000000000000000000.0 })
+  out = collections::append(out, WITH inked { dashes := [9.0, 4.0], join := canvas::JoinStyle.Miter, cap := canvas::CapStyle.Square })
+  out = collections::append(out, WITH inked { dashes := [0.0, 0.0] })
+  out = collections::append(out, WITH inked { dashes := [2.0, 0.0 - 1.0] })
+  out = collections::append(out, WITH inked { dashes := [2.0, 1.0], strokeWidth := 0.0 })
+  out = collections::append(out, WITH inked { dashes := [2.0, 1.0], stroke := color::rgba(1, 2, 3, 0) })
   RETURN out
 END FUNC
 

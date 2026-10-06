@@ -58,7 +58,7 @@ END FUNC"#;
 /// coverage path as its curved sides. Branching would have left them hard.
 #[rustfmt::skip]
 const GEO_DISTANCE: &str =
-r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float, ca AS Float, sa AS Float) AS Float
+r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float, ca AS Float, sa AS Float, dashed AS Boolean) AS Float
   IF kind = __CANVAS_KIND_RECT THEN
     RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3) - radius
   END IF
@@ -66,6 +66,13 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
     LET cdx AS Float = px - p0
     LET cdy AS Float = py - p1
     RETURN math::sqrt(cdx * cdx + cdy * cdy) - p2 - radius
+  END IF
+  ' plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke (`helper_dashes.rs`);
+  ' `dashed` is read once per item, so an undashed one pays one test.
+  IF dashed THEN
+    IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYLINE THEN
+      RETURN __canvas_dashedStroke(kind, tail - __CANVAS_GEO_HEADER, px, py, radius)
+    END IF
   END IF
   IF kind = __CANVAS_KIND_SEGMENT THEN
     ' plan-116-D. Round is 1 and is what a Line did before this letter, so the branch

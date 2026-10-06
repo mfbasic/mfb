@@ -1108,6 +1108,9 @@ pub(crate) const HEADER_SLOTS: usize = 51;
 /// vertex, which a polygon's or polyline's band index widens to.
 pub(crate) const HEADER_JOIN_COUNT: usize = 47;
 pub(crate) const HEADER_JOIN_REACH: usize = 48;
+/// plan-163-B: `__CANVAS_GEO_DASH_COUNT` -- the dash tail's floats, which sit between
+/// the join records and the gradient stops.
+pub(crate) const HEADER_DASH_COUNT: usize = 49;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
 /// The most edges one **frame** may carry on the Vulkan path.

@@ -53,10 +53,12 @@ const GEO_LAYOUT: &str =
 r#"LET __CANVAS_GEO_HEADER AS Integer = 51
 ' plan-163-B: the stroke-style slots, appended after every older slot so none of them
 ' moved. 47 is the number of join records in the tail (`__canvas_joinBase`), 48 how far
-' a record reaches from its vertex (the band index widens to it); 49 and 50 are the dash
-' pattern's float count and offset.
+' a record reaches from its vertex (the band index widens to it); 49 is the dash tail's
+' float count (`__canvas_dashBase`) and 50 the dash offset wrapped into one period.
 LET __CANVAS_GEO_JOIN_COUNT AS Integer = 47
 LET __CANVAS_GEO_JOIN_REACH AS Integer = 48
+LET __CANVAS_GEO_DASH_COUNT AS Integer = 49
+LET __CANVAS_GEO_DASH_PHASE AS Integer = 50
 LET __CANVAS_GEO_GRADIENT_COUNT AS Integer = 41
 LET __CANVAS_GEO_GRADIENT_KIND AS Integer = 42
 LET __CANVAS_GEO_GRADIENT_FROMX AS Integer = 43
@@ -528,7 +530,7 @@ FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Pai
   out = collections::set(out, 3, y)
   out = collections::set(out, 4, radius)
   out = __canvas_paintHeader(out, paint)
-  LET reach AS Float = radius + __canvas_maxF(__canvas_strokeHalf(paint), 0.0) + 1.0
+  LET reach AS Float = radius + __canvas_dashCapReach(__canvas_maxF(__canvas_strokeHalf(paint), 0.0), paint) + 1.0
   RETURN __canvas_boundsHeader(out, x - reach, y - reach, x + reach, y + reach)
 END FUNC
 
@@ -564,7 +566,7 @@ FUNC __canvas_ellipseHeader(e AS Ellipse) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_ELLIPSE_COS, ca)
   out = collections::set(out, __CANVAS_GEO_ELLIPSE_SIN, sa)
   out = __canvas_paintHeader(out, e.paint)
-  LET pad AS Float = __canvas_maxF(__canvas_strokeHalf(e.paint), 0.0) + 1.0
+  LET pad AS Float = __canvas_dashCapReach(__canvas_maxF(__canvas_strokeHalf(e.paint), 0.0), e.paint) + 1.0
   LET ex AS Float = e.radiusX * ca
   LET ey AS Float = e.radiusY * sa
   LET fx AS Float = e.radiusX * sa
@@ -831,12 +833,18 @@ FUNC __canvas_polylineTail(p AS PolyLine) AS List OF Float
   ' plan-163-B: the join records go between the segments and the colour stops, which
   ' stay last.
   LET joins AS List OF Float = __canvas_joinTail(segments, [0], FALSE, __canvas_polylineHalf(p), p.paint)
-  RETURN collections::append(collections::append(segments, joins), __canvas_polylineStops(p))
+  LET dashes AS List OF Float = __canvas_dashTail(__canvas_dashPattern(p.paint, __canvas_polylineHalf(p)), __canvas_dashEdgeData(segments, [0], FALSE))
+  RETURN collections::append(collections::append(collections::append(segments, joins), dashes), __canvas_polylineStops(p))
 END FUNC
 
 ' The join records a polyline's tail holds (`__canvas_polylineTail`), one per segment.
 FUNC __canvas_polylineJoins(p AS PolyLine) AS List OF Float
   RETURN __canvas_joinTail(__canvas_polylineSegments(p), [0], FALSE, __canvas_polylineHalf(p), p.paint)
+END FUNC
+
+' The dash tail a polyline's tail holds (`__canvas_polylineTail`).
+FUNC __canvas_polylineDashes(p AS PolyLine) AS List OF Float
+  RETURN __canvas_dashTail(__canvas_dashPattern(p.paint, __canvas_polylineHalf(p)), __canvas_dashEdgeData(__canvas_polylineSegments(p), [0], FALSE))
 END FUNC
 
 FUNC __canvas_polylineSegments(p AS PolyLine) AS List OF Float
@@ -1155,42 +1163,58 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     CASE Rectangle(r)
       header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
-      tail = __canvas_appendGradientTail(joins, r.paint)
-      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint))
+      LET dashes AS List OF Float = __canvas_rectDashes(header, r.paint)
+      tail = __canvas_appendGradientTail(collections::append(joins, dashes), r.paint)
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
     CASE RoundedRect(rr)
       header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
-      tail = __canvas_appendGradientTail(joins, rr.paint)
-      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint))
+      LET dashes AS List OF Float = __canvas_rectDashes(header, rr.paint)
+      tail = __canvas_appendGradientTail(collections::append(joins, dashes), rr.paint)
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint)), dashes, rr.paint)
     CASE Circle(c)
-      tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
+      LET dashes AS List OF Float = __canvas_roundDashes(header, c.paint)
+      tail = __canvas_appendGradientTail(dashes, c.paint)
+      header = __canvas_withDashes(header, dashes, c.paint)
     CASE Line(l)
       header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint)
+      tail = __canvas_lineDashes(header, l)
+      header = __canvas_withDashes(header, tail, l.paint)
     CASE Arc(a)
       header = __canvas_arcHeader(a)
+      tail = __canvas_roundDashes(header, a.paint)
+      header = __canvas_withDashes(header, tail, a.paint)
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
       LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
+      header = __canvas_polygonHeader(p.contours, p.rule, p.paint)
+      LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(p.contours), TRUE)
       IF len(edges) > 0 THEN
-        tail = __canvas_appendGradientTail(collections::append(edges, joins), p.paint)
+        tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), p.paint)
       END IF
-      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint))
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint)), dashes, p.paint)
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
-      tail = __canvas_rectJoins(header, pic.paint)
-      header = __canvas_withJoins(header, tail, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint))
+      LET joins AS List OF Float = __canvas_rectJoins(header, pic.paint)
+      LET dashes AS List OF Float = __canvas_rectDashes(header, pic.paint)
+      tail = collections::append(joins, dashes)
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint)), dashes, pic.paint)
     CASE Ellipse(e)
-      tail = __canvas_appendGradientTail([], e.paint)
       header = __canvas_ellipseHeader(e)
+      LET dashes AS List OF Float = __canvas_ellipseDashes(header, e)
+      tail = __canvas_appendGradientTail(dashes, e.paint)
+      header = __canvas_withDashes(header, dashes, e.paint)
     CASE Text(t)
       IF __canvas_strokeHalf(t.paint) > 0.0 THEN
         ' plan-163-B: a stroked run is a polygon of the glyph contours, so it joins
         ' like one -- each contour a ring (`__CANVAS_RING_MARKS`).
         LET edges AS List OF Float = __canvas_textEdges(t)
         LET joins AS List OF Float = __canvas_joinTail(edges, __CANVAS_RING_MARKS, TRUE, __canvas_strokeHalf(t.paint), t.paint)
-        tail = collections::append(edges, joins)
-        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins, __canvas_joinReach(__canvas_strokeHalf(t.paint), t.paint))
+        header = __canvas_textHeader(t, edges)
+        LET dashes AS List OF Float = __canvas_edgeDashes(header, t.paint, __canvas_strokeHalf(t.paint), edges, __CANVAS_RING_MARKS, TRUE)
+        tail = collections::append(collections::append(edges, joins), dashes)
+        header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(t.paint), t.paint)), dashes, t.paint)
       ELSE
         tail = __canvas_textGlyphRun(t)
         header = __canvas_textHeader(t, tail)
@@ -1207,7 +1231,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       header = __canvas_polylineHeader(pl)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
         tail = __canvas_polylineTail(pl)
-        header = __canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint))
+        header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint)), __canvas_polylineDashes(pl), pl.paint)
       END IF
   END MATCH
   ' The header is always exactly `__CANVAS_GEO_HEADER` floats -- every builder starts
@@ -1522,40 +1546,56 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
     CASE Rectangle(r)
       header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
-      tail = __canvas_appendGradientTail(joins, r.paint)
-      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint))
+      LET dashes AS List OF Float = __canvas_rectDashes(header, r.paint)
+      tail = __canvas_appendGradientTail(collections::append(joins, dashes), r.paint)
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
     CASE RoundedRect(rr)
       header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint)
       LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
-      tail = __canvas_appendGradientTail(joins, rr.paint)
-      header = __canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint))
+      LET dashes AS List OF Float = __canvas_rectDashes(header, rr.paint)
+      tail = __canvas_appendGradientTail(collections::append(joins, dashes), rr.paint)
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint)), dashes, rr.paint)
     CASE Circle(c)
-      tail = __canvas_appendGradientTail([], c.paint)
       header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint)
+      LET dashes AS List OF Float = __canvas_roundDashes(header, c.paint)
+      tail = __canvas_appendGradientTail(dashes, c.paint)
+      header = __canvas_withDashes(header, dashes, c.paint)
     CASE Line(l)
       header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint)
+      tail = __canvas_lineDashes(header, l)
+      header = __canvas_withDashes(header, tail, l.paint)
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
       LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
+      header = __canvas_polygonHeader(p.contours, p.rule, p.paint)
+      LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(p.contours), TRUE)
       IF len(edges) > 0 THEN
-        tail = __canvas_appendGradientTail(collections::append(edges, joins), p.paint)
+        tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), p.paint)
       END IF
-      header = __canvas_withJoins(__canvas_polygonHeader(p.contours, p.rule, p.paint), joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint))
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint)), dashes, p.paint)
     CASE Arc(a)
       header = __canvas_arcHeader(a)
+      tail = __canvas_roundDashes(header, a.paint)
+      header = __canvas_withDashes(header, tail, a.paint)
     CASE Picture(pic)
       header = __canvas_pictureHeader(pic)
-      tail = __canvas_rectJoins(header, pic.paint)
-      header = __canvas_withJoins(header, tail, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint))
+      LET joins AS List OF Float = __canvas_rectJoins(header, pic.paint)
+      LET dashes AS List OF Float = __canvas_rectDashes(header, pic.paint)
+      tail = collections::append(joins, dashes)
+      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint)), dashes, pic.paint)
     CASE Ellipse(e)
-      tail = __canvas_appendGradientTail([], e.paint)
       header = __canvas_ellipseHeader(e)
+      LET dashes AS List OF Float = __canvas_ellipseDashes(header, e)
+      tail = __canvas_appendGradientTail(dashes, e.paint)
+      header = __canvas_withDashes(header, dashes, e.paint)
     CASE Text(t)
       IF __canvas_strokeHalf(t.paint) > 0.0 THEN
         LET edges AS List OF Float = __canvas_textEdges(t)
         LET joins AS List OF Float = __canvas_joinTail(edges, __CANVAS_RING_MARKS, TRUE, __canvas_strokeHalf(t.paint), t.paint)
-        tail = collections::append(edges, joins)
-        header = __canvas_withJoins(__canvas_textHeader(t, edges), joins, __canvas_joinReach(__canvas_strokeHalf(t.paint), t.paint))
+        header = __canvas_textHeader(t, edges)
+        LET dashes AS List OF Float = __canvas_edgeDashes(header, t.paint, __canvas_strokeHalf(t.paint), edges, __CANVAS_RING_MARKS, TRUE)
+        tail = collections::append(collections::append(edges, joins), dashes)
+        header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(t.paint), t.paint)), dashes, t.paint)
       ELSE
         tail = __canvas_geoRunReference(t, offset)
         header = __canvas_textHeader(t, tail)
@@ -1566,7 +1606,7 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       header = __canvas_polylineHeader(pl)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
         tail = __canvas_polylineTail(pl)
-        header = __canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint))
+        header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint)), __canvas_polylineDashes(pl), pl.paint)
       END IF
   END MATCH
   MUT out AS List OF Float = header

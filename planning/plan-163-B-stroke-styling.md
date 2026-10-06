@@ -620,20 +620,34 @@ Acceptance: both GPUs draw joins within tolerance, and the layout guards pass.
   star301x2nz,polygonsblack,polylinesblack,strokedpolysblack,rectsblack,strokedblack,
   xformblack,matrix,framepass` → all ok (joins worst=2 0.6816%); box 206 `--rows
   joins,squarecaps,polygonsblack` → ok (joins worst=2 0.8590%).
-Commit: —
+Commit: a3bb3e1b4
 
 ### Phase 5 — Dashes in software (the design's riskiest premise, tested first)
 
-- [ ] Premise test first: a dashed square Polygon whose dash crosses a corner (for
+- [x] Premise test first: a dashed square Polygon whose dash crosses a corner (for
       Butt, Round and Square), and a dashed Ellipse. Hand-compute the expected on/off
       pixels along the outline. If the corner dash is discontinuous, fix the `s`
       computation in §8 and record the fix in Corrections. This is a bug to fix, not a
-      stop.
-- [ ] A dash tail and header slots 48–49 in both builders. The cumulative-length
+      stop. (`a_dash_crossing_a_corner_stays_one_dash`, `a_dashed_ellipse_is_cut_by_arc_length`
+      — the ellipse's expected pixels from an independent 200,000-step arc length — pass;
+      the `s` computation is Corrections 8.)
+- [x] A dash tail and header slots 48–49 in both builders. The cumulative-length
       element per shape kind per §8. The ellipse table's N is chosen by the measured
-      max along-path error (record the number and the command here).
-- [ ] Software dashed coverage per §8. Undashed items take the exact current path.
-- [ ] Tests (hand-computed, `rt_canvas_rasteriser.rs`):
+      max along-path error (record the number and the command here). (Slots 49 and 50 —
+      Corrections 7; tail layout Corrections 9. `helper_dashes.rs` builds it; the native
+      builder (`func_geo_build.rs`, Rectangle, RoundedRect, Circle, Line, Polygon,
+      PolyLine) writes it bit for bit: ten dashed paints added to
+      `canvas_geo_native_matrix.mfb`, `cargo test --test rt_canvas_geo_native` → 4 passed,
+      0 mismatches over 10,500 native records; a deliberate mutation of the native ring
+      length showed `geoVerifyMismatches=310`, so the check sees the tail. N = 256:
+      `cargo test --test rt_canvas_rasteriser an_ellipse_dash_table -- --nocapture` →
+      worst along-path error 0.02974 px over ellipses to 800 px across and 80:1;
+      `python3 /tmp/p163/table.py` (the same construction) → 0.476 at 64, 0.119 at 128,
+      0.0297 at 256 steps, so 128 misses a tenth of a pixel.)
+- [x] Software dashed coverage per §8. Undashed items take the exact current path.
+      (`__canvas_dashedStroke`, behind one per-item `dashed` test in
+      `__canvas_drawGeometry` and `__canvas_geoDistance`; Corrections 8.)
+- [x] Tests (hand-computed, `rt_canvas_rasteriser.rs`):
       - `dashes := [10.0, 5.0]` on a horizontal Line: on-pixels at x ∈ [0,10) and
         [15,25);
       - an odd-length list is doubled;
@@ -643,6 +657,15 @@ Commit: —
       - each Polygon ring restarts its pattern;
       - Round and Square dash ends;
       - a dashed Circle's `s = 0` is at +X.
+      (`a_dashed_line_draws_its_pattern` checks every column of seven 200 px lines;
+      `a_dash_end_takes_the_cap`; `each_ring_restarts_the_pattern_and_a_circle_starts_at_plus_x`;
+      and `a_rounded_rect_and_an_arc_start_their_dashes_where_the_contract_says` for the
+      two kinds whose perimeter is a formula.)
+- [x] The GPU join copy (`emit_join_buffer` / `emit_join_upload`) found its records at
+      `slot1 − stops·5 − joins·8`; the dash tail now sits between, so both subtract
+      `__CANVAS_GEO_DASH_COUNT` too (`HEADER_DASH_COUNT`, pinned in
+      `the_geo_layout_constants_match_their_rust_counterparts`). Found while wiring the
+      tail; without it a dashed joined item would upload the wrong floats as corners.
 
 Acceptance: dashes draw per SVG in software, and undashed pixels are unchanged.
   Check: `cargo test --test rt_canvas_rasteriser --test rt_canvas_golden --test
@@ -775,6 +798,38 @@ Commit: —
    points (`V, A, P, B`), its kind read from exact equalities. Header slot 48
    `__CANVAS_GEO_JOIN_REACH` (`half * miterLimit` for a Miter, else `half`) tells the
    band index how far a record reaches; the dash slots become 49 and 50.
+8. **A dashed outline of edges is cut edge by edge, not at its nearest point (§8).**
+   §8's pixel `s` from the NEAREST outline point is discontinuous on a corner's inner
+   side: a pixel there is nearest the second edge, while the first edge's band — still
+   inside its dash — is what covers it in SVG, so a dash ending exactly at a vertex would
+   lose the inner half of its end. Each edge is instead cut by its own position, `u =
+   s0 + (p − a)·d/|d|` (unclamped), against the dashes clipped to that edge's `[s0,
+   s1]`: `max(|perp| − half, along)`, the min over edges, with the corner piece at every
+   vertex a dash runs THROUGH (on just before and at it). That is the SVG construction
+   (each dash a sub-path with butt ends, joins and caps), and so:
+   - a dashed `Round` paint carries join records too — discs (`__canvas_joinRecord`'s
+     `round` flag, both builders), since the round corner the distance field draws for
+     free must vanish where the pattern is off;
+   - a dash end is a TRUE end (capped) only where the dash stops; where it runs on past
+     an edge's end the edge is cut butt and the corner piece joins it;
+   - the closed seam is resolved per boundary (`__canvas_dashLocate`): on at both sides
+     is one dash, on at one side ends there; an open path's ends always end a dash.
+   Curves (Circle, Arc, Ellipse, RoundedRect) have no corner, so they keep §8's
+   nearest-point `s`, with `along` in outline length there. `__canvas_atan2` (a
+   `+ − × ÷ sqrt` series, error under 1e-16) gives a circle's, arc's and corner arc's
+   angle; an ellipse's angle is its distance bisection unfolded.
+9. **The dash tail's layout and the cap slot.** The tail is `[n, period, c1..cn]` (each
+   entry's END along the period, so the per-pixel walk is compares only) and then the
+   kind's perimeter data: three floats per edge (`s0`, `s1`, ring length, negative for
+   an open path) for a polygon, polyline, line, rectangle, picture or stroked text; the
+   N + 1 = 257-entry arc-length table for an ellipse; nothing for a circle, arc or
+   rounded rectangle, whose perimeter is a formula of the header. §7's "`dashOffset`
+   as the first entry" became slot 50, the offset wrapped into one period at build. A
+   dashed item writes its cap into slot 34 on every kind (only Line/Arc/PolyLine did),
+   since every dash end takes it; an undashed one's header is unchanged. A dashed
+   Square paint pads its bounds `half·√2` (`__canvas_dashCapReach`), and
+   `__canvas_strokePad` keeps its Miter arm's fused `half * limit + 1.0` unless that
+   reach is the longer, so every undashed header stays bit-identical.
 
 ## Summary
 

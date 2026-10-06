@@ -42,7 +42,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::link::thunk::emit_data_address;
 // plan-163-B: the stroke-style words and the join-record header slots.
 use crate::codegen::runtime::canvas::{
-    HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
+    HEADER_DASH_COUNT, HEADER_JOIN_COUNT, HEADER_JOIN_REACH, ITEM_OFFSET_STROKE_STYLE, ITEM_STROKE_DASH_BASE,
     ITEM_STROKE_DASH_COUNT, ITEM_STROKE_JOIN_BASE, ITEM_STROKE_JOIN_COUNT,
 };
 use crate::codegen::runtime::canvas::{
@@ -4294,7 +4294,8 @@ fn emit_join_upload(
         FIXED_POINT_SCALE,
     ));
     builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
-    // source = header + (slot1 - stops * 5 - records * 8) * 8.
+    // source = header + (slot1 - stops * 5 - dashes - records * 8) * 8: the dash tail
+    // (plan-163-B) sits between the records and the stops.
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 8));
     builder.emit(abi::float_convert_to_signed_x(index, abi::FP_SCRATCH[1]));
     builder.emit(abi::load_double(
@@ -4307,6 +4308,9 @@ fn emit_join_upload(
     builder.emit(abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[7]));
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     builder.emit(abi::shift_left_immediate(abi::SCRATCH[0], records, 3));
+    builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, HEADER_DASH_COUNT * 8));
+    builder.emit(abi::float_convert_to_signed_x(abi::SCRATCH[0], abi::FP_SCRATCH[1]));
     builder.emit(abi::subtract_registers(index, index, abi::SCRATCH[0]));
     builder.emit(abi::shift_left_immediate(index, index, 3));
     builder.emit(abi::add_registers(source, source, index));
