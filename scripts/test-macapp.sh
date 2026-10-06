@@ -362,6 +362,52 @@ else
   fi
 fi
 
+# Case 3d2 (bug-963, GUI): hiding the window with setMode(None) must not end the
+# program. Ordering the last visible window out makes AppKit ask the delegate's
+# applicationShouldTerminateAfterLastWindowClosed: and, on YES, run terminate:,
+# which exited 0 mid-program. Both windowed modes are checked as the mode being
+# left. The program must outlive the hide by more than AppKit's deferred check,
+# print after it, and exit with its own code.
+for from_mode in Console Canvas; do
+  proj="$work/hidekeep$from_mode"
+  mkdir -p "$proj/src"
+  scaffold_project "$proj" "hidekeep$from_mode"
+  cat > "$proj/src/main.mfb" <<MFB
+IMPORT app
+IMPORT io
+IMPORT os
+FUNC main() AS Integer
+  app::setMode(app::Mode.$from_mode)
+  os::sleep(300)
+  app::setMode(app::Mode.None)
+  os::sleep(1500)
+  io::print("HIDDEN_ALIVE")
+  io::flush()
+  RETURN 7
+END FUNC
+MFB
+  if ! gui_enabled; then
+    echo "skip: setMode($from_mode -> None) keeps running GUI test (set MFB_MACAPP_GUI=1 when idle)"
+  elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+    fail "build -app hidekeep$from_mode"
+  else
+    out=$(perl -e '
+      my $pid = open(my $fh, "-|");
+      if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+      local $SIG{ALRM} = sub { kill "KILL", $pid; print "timeout|"; };
+      alarm 15;
+      local $/; my $o = <$fh>; close($fh); my $st = $?;
+      $o =~ s/\n/|/g;
+      printf "%scode=%d", $o, ($st >> 8);
+    ' "$(bundle "$proj" "hidekeep$from_mode")/Contents/MacOS/hidekeep$from_mode")
+    if [ "$out" = "HIDDEN_ALIVE|code=7" ]; then
+      pass "setMode($from_mode -> None) hid the window and the program ran on ($out)"
+    else
+      fail "setMode($from_mode -> None) ended the program early: expected 'HIDDEN_ALIVE|code=7', got '$out'"
+    fi
+  fi
+done
+
 # Case 3e (plan-98-A Phase 3, GUI): the Mode.Canvas reconcile arm builds and tears
 # down the canvas surface across a full enter -> exit -> re-enter cycle.
 #

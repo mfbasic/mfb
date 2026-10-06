@@ -1998,6 +1998,64 @@ mod canvas_reconcile_tests {
         }
     }
 
+    /// bug-963: `setMode(None)` orders the window out, and AppKit answers "no
+    /// visible window" by asking `applicationShouldTerminateAfterLastWindowClosed:`
+    /// and then running `terminate:`, which ends the process with status 0 in the
+    /// middle of the program. So for a program that can change mode, the delegate
+    /// must tell a PROGRAM hiding the window from a USER closing it. The reconcile
+    /// records the hide under `_mfb_macapp_program_hidden_key` on NSApp, and the
+    /// delegate reads that key. A Console-default program cannot hide its window, so
+    /// its delegate stays the constant YES and its bytes do not change.
+    #[test]
+    fn a_program_hiding_its_window_does_not_terminate_the_app() {
+        const HIDDEN_KEY: &str = "_mfb_macapp_program_hidden_key";
+        let spec = |initial_mode| AppEntrySpec {
+            worker_passes_args: false,
+            uses_term: false,
+            initial_mode,
+            uses_canvas: false,
+            uses_mouse: false,
+            uses_window: false,
+            debug_hooks: false,
+        };
+        fn find<'a>(functions: &'a [CodeFunction], symbol: &str) -> &'a CodeFunction {
+            functions
+                .iter()
+                .find(|f| f.symbol == symbol)
+                .unwrap_or_else(|| panic!("{symbol} must be emitted"))
+        }
+        let reads_key = |func: &CodeFunction| {
+            func.relocations
+                .iter()
+                .any(|r| r.to.as_str() == HIDDEN_KEY && r.kind == RelocIntent::DataAddrHi)
+        };
+
+        let none = emit_app_program_entry(&spec(PresentationMode::None)).expect("app entry");
+        let terminate = find(&none, SHOULD_TERMINATE_SYMBOL);
+        assert!(
+            reads_key(terminate) && calls_external(terminate, "_objc_getAssociatedObject") == 1,
+            "a None-default program's delegate must consult the program-hidden key"
+        );
+        let reconcile = find(&none, RECONCILE_SYMBOL);
+        assert!(
+            reads_key(reconcile),
+            "the reconcile must record whether the program hid the window"
+        );
+        assert!(
+            app_mode_reconcile_data_objects()
+                .iter()
+                .any(|d| d.symbol.as_str() == HIDDEN_KEY),
+            "the key must be emitted with the reconcile data"
+        );
+
+        let console = emit_app_program_entry(&spec(PresentationMode::Console)).expect("app entry");
+        let terminate = find(&console, SHOULD_TERMINATE_SYMBOL);
+        assert!(
+            terminate.relocations.is_empty(),
+            "a Console-default program's delegate stays the constant YES"
+        );
+    }
+
     /// plan-98-A Phase 4: the window input pipe must be wired for a `None`-default
     /// program too. A `None` default means the program references `app::setMode`, so
     /// it is the only kind that can ever reach `Console` or `Canvas` — and in both
