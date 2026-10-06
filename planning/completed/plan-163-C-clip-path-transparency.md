@@ -589,7 +589,7 @@ guards pass.
   passed (pathclips worst=1, 0.3497%); `scripts/test-canvas-vulkan.sh target/release/mfb
   --box 2226 --target linux-aarch64` (its scene now holds the tinted and faded pictures)
   → passed, main scene worst=2, 0.8160%. Box 2228 refused connections — Corrections 6.
-Commit: —
+Commit: 58bbb5a66
 
 ### Phase 4 — Docs and spec
 
@@ -630,7 +630,7 @@ Acceptance: man and spec render and cite.
   gpuFrames=120 frames=120`; frame 120 shows the star clip turned with its rotated
   rectangle, an EvenOdd "O" clip, a picture tinted half-way to red ((240,240,240) →
   (240,120,120)) and one faded at 0.74.
-Commit: —
+Commit: e23b90178
 
 ## Validation Plan
 
