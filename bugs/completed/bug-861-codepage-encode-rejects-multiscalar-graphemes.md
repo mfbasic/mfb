@@ -221,3 +221,33 @@ Re-verified after this change, same build lock:
   mismatches, all `encoding_codegen_cover_rt`; no new fixture affected.
 - `rustup run 1.96.0 cargo fmt --all --check` and `cargo clippy --bin mfb
   --test rt_codepage_encode_multiscalar` → clean, no new warnings.
+
+### Second follow-up: first-match semantics
+
+Review also found the table-point scan above kept going after a match, so
+`idx` became the LAST table index holding `point` instead of the FIRST —
+`strings::find` (what the scan replaced) returns the first occurrence. Added
+`EXIT FOR` on the match (also stops the 128-entry scan early instead of
+running it to completion every time).
+
+Checked every codepage for a duplicate non-`U+FFFD` scalar by parsing the
+vendored index files directly (`tools/codepage-index/index-*.txt` — the same
+source `codepage_tables_match_the_vendored_index_files` already verifies the
+generated tables against byte-for-byte): **zero duplicates across all 27
+single-byte tables** (`Iso8859_8I` shares `Iso8859_8`'s, so 28 `Codepage`
+members minus `Utf8` share 27 distinct tables). Per-file entry counts from
+the same parse matched every documented hole exactly (e.g. `iso-8859-6`: 83,
+`iso-8859-8`: 92, `iso-8859-3`: 121), confirming the parse covered every
+entry correctly. So no table currently exercises the old-vs-new behavior
+difference, and no pinned first-match test case was added (none would
+exercise anything); the fix is correct regardless and faster (early exit
+instead of a full 128-entry scan on every mapped scalar).
+
+Re-verified after this change, same build lock: the declared-errors guard
+(still clean for `codepageEncode`, same lone pre-existing `http::startRead`
+failure), `cargo test --bin mfb encoding::` (16 passed), `cargo test --test
+rt_codepage_encode_multiscalar` (4 passed), `fmt --check` and `clippy`
+(clean).
+
+Commits: `6270cf71e` — `bug-861: stop the table-point scan at the first
+match`.
