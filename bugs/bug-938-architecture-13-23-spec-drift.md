@@ -169,7 +169,9 @@ an overloaded builtin it is not: `toString(1.5, 3)`, `toString(f, 3)`, `toString
 say the small-int→Byte coercion does not apply to registry overload selection, or overload selection
 should apply it (owner decision; `toString(x, 2)` is the natural spelling every user tries first).
 
-**Owner decision (2026-10-05): apply the rule to built-ins (CODE change).** Registry overload
+**Owner decision (2026-10-05), superseded the same day: see bug-977.** `toString`'s precision
+becomes an `Integer` (0..32, range-checked), and the literal→`Byte` coercion for call arguments
+is removed (bug-978). The text below is the earlier direction, kept for history: **apply the rule to built-ins (CODE change).** Registry overload
 selection uses the same small-Integer-literal → `Byte` assignability as user calls
 (`expression_compatible`), so `toString(1.5, 3)`, `toString(f, 3)` and `toString(x, 3)` compile.
 The `mfb man general toString` advice ("an Integer literal needs toByte around it") is removed,
