@@ -192,6 +192,12 @@ removed line:
   field, now `TYPE_RESOURCE_REQUIRES_RES` (the fixtures' own NOT_SENDABLE errors
   are unchanged).
 
+These two goldens also feed the unit test
+`codegen::engine::tests::builtins_codegen::diagnostics::the_syntax_corpus_reproduces_its_goldens_in_process`,
+which fails with exactly "func_thread_send_invalid / func_thread_start_invalid:
+unrecorded [TYPE_RESOURCE_REQUIRES_RES]" until they are synced (full
+`cargo test --bin mfb`: 4849 passed, that 1 failed).
+
 `scripts/artifact-gate.sh … all`: the same 62 diffs as bug-976, no new one.
 
 `scripts/artifact-baseline.sh verify` against the base manifest
