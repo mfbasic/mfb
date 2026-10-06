@@ -444,11 +444,11 @@ guards pass.
   `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64` →
   passed, main scene worst=2 0.8160%. Focal and spread are both in `gradientsblack`.
   app-mouse-surface goldens regenerated (5 synced, 6 rewritten).
-Commit: —
+Commit: e28f90a56
 
 ### Phase 4 — Docs and spec
 
-- [ ] `06_canvas.md`:
+- [x] `06_canvas.md`:
       - the gradient is in item space, with the transform order spelled out;
       - the linear fold;
       - the radial inverse;
@@ -456,9 +456,15 @@ Commit: —
       - the spread formulas;
       - rewrite :438–442 for `strokeApply` and the tint;
       - the layout growth.
-- [ ] `.ai/canvas-threading.md`: the new block words and the `surface.w` bit packing.
-- [ ] Man prose on `Gradient`, `GradientSpread`, `GradientApply` and `Paint.gradient`
-      (`.ai/man-content.md` bans apply).
+      (*`Paint.gradient` replaces an item's fill colour with a ramp* rewritten: item space
+      and the transform order, the `t` table, the fold, the radial inverse, the focal root
+      and clamps, the spread, the stroke tint, the GPU words; the group paragraph and
+      bullet; `strokeStyle` "of its 368".)
+- [x] `.ai/canvas-threading.md`: the new block words and the `surface.w` bit packing.
+      (The block history to 368, the 67-float header, `surface.w`'s packing, and the
+      split's fill-off marker.)
+- [x] Man prose on `Gradient`, `GradientSpread`, `GradientApply` and `Paint.gradient`
+      (`.ai/man-content.md` bans apply). (Written with the types in Phase 1.)
 
 Acceptance: man and spec render and cite.
   Check: `mfb man canvas types` shows the new fields and enums and no `fillGradient`;
@@ -466,6 +472,16 @@ Acceptance: man and spec render and cite.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min, guess).
+  Result: `mfb man canvas types` → 0 `fillGradient`, `GradientSpread`, `GradientApply`
+  and the five fields present; `man-census.sh --memory-scope` → "unclassified
+  memory-vocabulary hits: 0"; `man-run-examples.sh canvas --run` → "examples: 32 built:
+  32 ran: 32 not run: 0 failed: 0"; `spec-census.sh --citations` → MISS-PATH 0, MISS-LINE
+  0, MISS-SYMBOL 0; `--links` → unresolved=0; `cargo test --bin mfb spec` → 46 passed.
+  Runtime proof (Validation Plan): `/tmp/p163/demod` built `--app --debug`, run with
+  `MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_DUMP=…` → `metal=TRUE gpuFrames=90
+  frames=90`; frame 90 shows the elliptical radial ramp turned with its rotating item, a
+  sphere's off-centre focal highlight, Repeat stripes, and a ramp-painted stroke tinted
+  half-way to red.
 Commit: —
 
 ## Validation Plan

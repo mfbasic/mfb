@@ -465,7 +465,7 @@ builder writes the same tail bit for bit.
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_dash_tail]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_DASH_COUNT]]
 
-**On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 320) are the
+**On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 368) are the
 first join slot, the record count, the first dash word and the dash word count. Each
 dashed item's words — the phase, then its dash tail — ride a frame-wide dash region as
 float32 bit patterns, and each shader evaluates the oracle's dash functions in fp32 at
@@ -659,7 +659,7 @@ nothing. The builder takes one of two paths, in header slot 51:
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_clip_edges]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
 
-**On the GPUs** the item block grows to 320 bytes for two `ivec4`s: `clipBand` at byte
+**On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
 288 is a path clip's band header, the same shape as a polygon's in `arcCaps`, and
 `clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
 `T`). The clip's edges go into the frame's edge region after the item's own and count
@@ -684,38 +684,82 @@ alpha is, at draw time, by `T` in header slot 54.
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_PICTURE_TRANSPARENCY]]
 
-**`Paint.gradient` replaces an item's fill colour with a ramp.** It replaces the
-*colour* and nothing else: the shape's distance, its coverage, its stroke and its blend
-mode are exactly what they would be with a flat `Paint.fill`. A stroke is never a
-gradient — an outline is one colour.
+**`Paint.gradient` replaces an item's fill colour with a ramp**, and with
+`Gradient.strokeApply := FillAndStroke` its stroke colour too. It replaces *colours* and
+nothing else: the shape's distance, its coverage, its stroke band and its blend mode are
+exactly what they would be with flat colours.
 
 A gradient with **fewer than two stops is not a gradient** and `Paint.fill` is used
 instead, which is what makes the all-zero `Gradient` inert like every other `Paint`
 field. A `Text` item ignores the field: a glyph is drawn from a cached coverage bitmap,
 and the cache is keyed by glyph and size, so a gradient would either be baked into the
-cache or key it per colour.
+cache or key it per colour. A `PolyLine` takes its colours from `colors` and a `Picture`
+from its image.
 
-The ramp position `t` at a surface point `p` is measured in **surface pixels**, from the
-gradient's own `startPoint` and `endPoint` and never from the shape's bounds:
+**The ramp is in the item's own coordinates** (plan-163-D, reversing plan-116-F's
+surface-anchored ramp by the user's 2026-09-28 decision). `t` is measured at the
+shape-space point `q`, the point the shape's distance is evaluated at: the pixel centre
+less the group's accumulated offset, mapped through the inverse of `Paint.transform`.
+The gradient's own `transform` `G` maps gradient space into item space first, so the
+order is SVG's — `Gradient.transform`, then `Paint.transform`, then the group's
+translation — and a rotated or moved item carries its ramp with it. `G⁻¹` is the
+inverse; the all-zero `G` and one with `|det| < 1e-12` are the identity, the
+`Paint.transform` rule. With `s = startPoint`, `e = endPoint` and `r = |e − s|`:
 
 | `GradientKind` | `t` |
 |---|---|
-| `Linear` | `dot(p - startPoint, endPoint - startPoint) / dot(endPoint - startPoint, endPoint - startPoint)` |
-| `Radial` | `length(p - startPoint) / length(endPoint - startPoint)` |
+| `Linear` | `dot(G⁻¹q − s, e − s) / dot(e − s, e − s)` |
+| `Radial` | `length(G⁻¹q − s) / r`, or the focal root below |
 
-`t` is then clamped to `0.0`..`1.0`. A zero-length axis leaves `t` at `0`, so the first
-stop's colour fills the shape — defined, rather than a division by zero.
+A zero-length axis or a zero radius leaves `t` at `0`, so the first stop's colour
+fills the shape — defined, rather than a division by zero.
 
-Measuring in surface pixels has two consequences worth stating outright, because both
-are the opposite of what a reader coming from a drawing API that defines gradients in
-user space would expect:
+* **A linear ramp's transform is folded at build.** Its `t` is affine in `q`, `t = u·q +
+  c`, which is the plain linear ramp from `−c·u/|u|²` along `u/|u|²`; the builder writes
+  those two points into header slots 43–46 in f64, so every renderer evaluates an
+  ordinary linear ramp. The identity is not folded — the fold would round `s` onto the
+  axis line — so an untransformed gradient's record is the one it always was.
+* **A radial ramp's cannot fold** (a transformed circle is an ellipse): `G⁻¹` rides header
+  slots 57–62 as float32 bit patterns, the slots 27–32 convention, with its flag in 63,
+  and each renderer maps `q` through it per pixel. A radial ramp scaled by different
+  amounts in x and y is elliptical; without a transform it stays circular inside an
+  `Ellipse`.
+* **The focal circle.** With the centre `c = s`, the focus `f = c + focalOffset` and the
+  focal radius `fr`, `t` is the larger root of `|p − f − t·(c − f)|² = (fr + t·(r −
+  fr))²` at `p = G⁻¹q`: `(b − sqrt(b² − a·k)) / a` with `a = |c − f|² − (r − fr)²`,
+  `b = (p − f)·(c − f) + fr·(r − fr)` and `k = |p − f|² − fr²`, a negative discriminant
+  from rounding taken as 0. The builder clamps `fr` into `[0, r·(1 − 2⁻¹⁰)]` and the
+  offset to `|focalOffset| ≤ (r − fr)·(1 − 2⁻¹⁰)`, scaling it toward the centre, so
+  `a < 0` and the root always has `fr + t·(r − fr) ≥ 0`; the clamped offset and radius
+  are header slots 64–66. With no offset and no focal radius it is the plain
+  `length(p − c) / r`, bit for bit. SVG 2's cone for a focus outside the end circle is
+  not drawn: the focus is pulled just inside it.
+* **The spread** is applied to `t` before the stops, header slot 55: `Pad` leaves it for
+  the clamp to `0.0`..`1.0`; `Repeat` is `t − floor(t)`; `Reflect` is `u = t −
+  2·floor(t / 2)`, then `2 − u` when `u > 1`. `t` is held to ±1e9 first, where `floor`
+  still fits an `Integer`.
+* **The stroke.** With `FillAndStroke` (header slot 56) a stroke pixel takes the ramp
+  colour `g` at `q` tinted by `Paint.stroke` — the `Picture` tint, the stroke colour in
+  the fill's place: `tint = g.rgb · stroke.rgb / 255` truncating, `rgb = g + round((tint −
+  g) · stroke.a / 255)` rounded half away from zero, and alpha `g.a`. So a white stroke,
+  or any stroke colour at alpha 0, shows the plain ramp, and a zero-alpha stroke still
+  strokes (`__canvas_strokeHalf`); the header's stroke alpha keeps the raw alpha, since
+  the ramp's stops carry `transparency`'s fade. A `Line` or `Arc`, which has no
+  interior, is drawn in the tinted ramp; under `FillOnly` it and every outline stay the
+  flat stroke colour.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
+[[src/codegen/runtime/canvas/mod.rs:HEADER_GRADIENT_SPREAD]]
 
-* A **radial** gradient stays circular inside an `Ellipse` rather than becoming
-  elliptical — the ramp does not take the shape's proportions.
-* **`Paint.transform` does not carry the ramp.** A rotated item spins its shape through
-  a gradient that stays where the two points put it, so a rotating square appears to
-  sweep through the colours rather than to carry them round with it. To rotate a
-  gradient, rotate `startPoint` and `endPoint`.
+**On the GPUs** `surface.w` packs the kind with the spread and the stroke apply, `kind |
+spread << 1 | apply << 3`, and three `ivec4`s grow the item block to 368 bytes:
+`gradInv0`/`gradInv1` at 320/336 carry `G⁻¹` and its flag word for word, and
+`gradFocal` at 352 the focal offset and radius in 16.16. The shaders take `t` in fp32 at
+the fp32 inverse-mapped `q`, the same operations in the same order.
+[[src/codegen/runtime/canvas/mod.rs:ITEM_SURFACE_GRADIENT_KIND]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_GRADIENT_INV]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_GRADIENT_FOCAL]]
 
 **Stops are used in the order given.** They are not sorted. An `offset` outside
 `0.0`..`1.0`, or one that goes backwards, is clamped to the previous stop's offset
@@ -724,15 +768,10 @@ diagnosable, where sorting would silently draw a picture the program did not des
 Before the first stop and after the last, that end stop's colour holds; neither end
 extrapolates.
 
-**A gradient inside a `canvas::Group` moves with the group.** This is the one place
-the surface-anchored rule above is set aside, and deliberately: a group exists to be
-drawn somewhere else, and an item whose colours depend on where its group was placed is
-not reusable. `Paint.transform` still does not drag a gradient — that reshapes one item
-in place, which is a different thing from relocating a whole sub-picture.
-
-Concretely: the group's accumulated translation is subtracted from the point before `t`
-is computed, so the same group referenced at two offsets shows the same colours at
-corresponding points within it.
+**A gradient inside a `canvas::Group` moves with the group**, as everything in the
+item's own coordinates does: the group's accumulated translation is subtracted from the
+point before `t` is computed, so the same group referenced at two offsets shows the same
+colours at corresponding points within it.
 
 **A gradient interpolates in linear light**, the same space compositing uses, through
 the same 256-entry table. Between the two stops bracketing `t`, each channel is decoded
@@ -845,9 +884,9 @@ translation places it. Two things travel with that translation because of what t
 
 * **`Paint.clip` moves** — it is in the item's own coordinates, so a group places the
   clipped item and its clip together.
-* **`Paint.gradient` moves too**, which is the one place the surface-anchored rule is
-  set aside. A group exists to be drawn somewhere else, and an item whose colours depend
-  on where its group was placed would not be reusable.
+* **`Paint.gradient` moves too** — the ramp is in the item's own coordinates as well. A
+  group exists to be drawn somewhere else, and an item whose colours depend on where its
+  group was placed would not be reusable.
 
 **Groups may nest, to a depth of 64.** A nested `canvas::Group` stays a reference: it is
 resolved when the scene is presented, so replacing the inner group changes what the outer

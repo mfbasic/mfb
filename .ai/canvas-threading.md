@@ -1024,7 +1024,9 @@ residual `ivec4`s (272), plan-163-B the `strokeStyle` `ivec4` (288: first join s
 join record count, first dash word, dash word count), and plan-163-C the `clipBand` and
 `clipPath` `ivec4`s (320: a path clip's band header at 288, the same shape as `arcCaps`'s
 polygon one; then first clip edge, clip edge count, mode | rule << 2, a picture's
-transparency step T at 304); each time it moved the same set. Three of them are unrelated by any type, and none of the three
+transparency step T at 304), and plan-163-D the `gradInv0`/`gradInv1`/`gradFocal`
+`ivec4`s (368: a radial gradient's own inverse as float32 bits and its flag at 320/336,
+its focal offset and radius in 16.16 at 352); each time it moved the same set. Three of them are unrelated by any type, and none of the three
 fails loudly.
 
 It was five until plan-116-F added a **third** buffer region; the sixth is item 5.
@@ -1071,7 +1073,7 @@ and found it that way.
 
 ### A geometry record's tail is read back from its END
 
-A record is the 55-float header, then its tail in a fixed order: **edges | join records |
+A record is the 67-float header, then its tail in a fixed order: **edges | join records |
 dash tail | clip edges | gradient stops** (plan-163-B, plan-163-C). Only the edge count is
 known from the front; every other part is found by counting back from slot 1 (the
 record's length) — the stops are `slot1 - stops * 5`, a path clip's edges
@@ -1090,7 +1092,22 @@ against the same per-frame edge cap by `__canvas_metalRenderable` and `__canvas_
 `emit_band_index`, parameterised by a `BandSet` (which count, base and header words; a
 clip's reach has no stroke, cap or join term). A clip that would pass the cap is left at
 edge count 0, which the shader reads as a clip enclosing nothing: hidden, never drawn
-unclipped. A new tail part goes BEFORE
+unclipped.
+
+**`surface.w` is packed, and every reader must unpack it (plan-163-D).** It was the
+gradient's kind alone, read as `surface.w == 1` (`gradientKind == 1` in the MSL); it is now
+`kind | spread << 1 | apply << 3` (spread 0 Pad, 1 Reflect, 2 Repeat; apply 1 for
+`FillAndStroke`), so the kind is `& 1`. A reader left comparing the whole word draws every
+spread or stroke-painting radial gradient as linear — a plausible wrong picture.
+
+**A split blended item's stroke record marks its fill OFF, not transparent
+(plan-163-D).** `emit_split_or_publish` publishes a blended item that fills and strokes as
+two records; record two's fill alpha is −1, which both shaders read as "no fill here".
+Zero was wrong: a gradient's ramp and a picture's image do not come from the fill alpha,
+so record two drew them a second time under the blend. "Fills" is likewise fill alpha > 0,
+two or more stops, or a picture — in `emit_split_or_publish` (both backends),
+`emit_block_instances` and `__canvas_blockInstances`, which must agree or every later draw
+base shifts. A new tail part goes BEFORE
 the stops and every emitter that locates an earlier part must subtract it too — a missed
 one copies the wrong floats as corners or dashes, a plausible wrong picture.
 
