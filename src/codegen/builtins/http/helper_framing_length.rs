@@ -8,7 +8,13 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"' Body length implied by the head: Content-Length, -1 for chunked, 0 for none.
+r#"' Body length implied by the head: Content-Length, -1 for chunked, -2 for
+' neither (close-delimited: RFC 9112 §6.3 rule 8, read to EOF). bug-858: this
+' used to return 0 for "none", which `__http_frameComplete`'s `have >= framing`
+' then read as "complete the instant the head terminator is seen", silently
+' dropping every close-delimited body. -2 is never a valid `have` comparand, so
+' `frameComplete` must treat it as its own case (never complete on content;
+' only `state.closed` ends the read).
 FUNC __http_framingLength(headStr AS String) AS Integer
   LET headers AS Map OF String TO String = __http_headerMapFromHead(headStr)
   LET te AS String = strings::lower(collections::getOr(headers, "transfer-encoding", ""))
@@ -17,7 +23,7 @@ FUNC __http_framingLength(headStr AS String) AS Integer
   END IF
   LET clText AS String = collections::getOr(headers, "content-length", "")
   IF clText = "" THEN
-    RETURN 0
+    RETURN -2
   END IF
   LET cl AS Integer = toInt(strings::trim(clText), 10) TRAP(e)
     RECOVER 0

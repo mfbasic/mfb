@@ -102,6 +102,7 @@ mod helper_segments;
 mod helper_serialize_head;
 mod helper_slice;
 mod helper_start_exchange;
+mod helper_status_of_head;
 mod helper_validate_pattern;
 mod helper_wait_readable;
 
@@ -552,6 +553,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_request_header_map::register(&mut pkg);
     helper_framing_length::register(&mut pkg);
     helper_request_framing::register(&mut pkg);
+    helper_status_of_head::register(&mut pkg);
     helper_frame_complete::register(&mut pkg);
     helper_chunked_scan::register(&mut pkg);
     helper_chunked_complete::register(&mut pkg);

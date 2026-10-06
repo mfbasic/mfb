@@ -23,6 +23,23 @@ FUNC __http_frameComplete(raw AS List OF Byte) AS Boolean
   IF headStr = "" THEN
     RETURN TRUE
   END IF
+  ' bug-858: a response whose status makes it categorically bodyless (RFC 9112
+  ' §6.3 rules 1-2: 1xx, 204, 304) is complete at the end of the head, before
+  ' ANY Content-Length/Transfer-Encoding/close-delimited arm below -- those
+  ' headers describe a body this status guarantees was never sent. This
+  ' mirrors `__http_decodeBody`, which already discards the body for 204/304
+  ' on the same basis. `__http_statusOfHead` never raises (see its own
+  ' comment), so a status line this helper cannot parse falls through to the
+  ' ordinary framing checks unresolved, and a genuinely malformed status line
+  ' still surfaces from `finish`'s parse, not from `done`'s completion check --
+  ' `done`'s declared Errors table is unaffected by this change.
+  LET status AS Integer = __http_statusOfHead(headStr)
+  IF status >= 100 AND status <= 199 THEN
+    RETURN TRUE
+  END IF
+  IF status = 204 OR status = 304 THEN
+    RETURN TRUE
+  END IF
   LET bodyStart AS Integer = he + 4
   LET have AS Integer = len(raw) - bodyStart
   LET framing AS Integer = __http_framingLength(headStr)
@@ -31,6 +48,12 @@ FUNC __http_frameComplete(raw AS List OF Byte) AS Boolean
       RECOVER TRUE
     END TRAP
     RETURN chunkedDone
+  END IF
+  ' bug-858: no Content-Length, no chunked — close-delimited (RFC 9112 §6.3
+  ' rule 8). There is no frame to satisfy; the only exit is the peer's EOF,
+  ' which `__http_done` already checks via `state.closed`.
+  IF framing = -2 THEN
+    RETURN FALSE
   END IF
   RETURN have >= framing
 END FUNC"#;
