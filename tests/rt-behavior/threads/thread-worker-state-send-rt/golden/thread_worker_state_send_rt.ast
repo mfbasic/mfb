@@ -1,0 +1,83 @@
+{
+  "project": "thread_worker_state_send_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "fs", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "W",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 11 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "P",
+      "line": 14,
+      "fields": [
+      { "visibility": null, "name": "k", "type": "Integer", "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "worker",
+      "line": 18,
+      "params": [
+      { "name": "t", "type": "ThreadWorker OF String RES fs.File TO Integer", "state": "W", "default": null, "line": 18 },
+      { "name": "seed", "type": "String", "default": null, "line": 18 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "stateAssignment", "resource": "t", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "number", "value": "4" } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hi " }, "right": { "kind": "identifier", "value": "seed" } }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "5000" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "echo " }, "right": { "kind": "identifier", "value": "got" } }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "pf", "type": "fs.File", "value": { "kind": "call", "callee": "thread.accept", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "5000" }] }, "line": 23 },
+      { "kind": "stateAssignment", "resource": "t", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "state" }, "member": "n" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "pf" }] }] } } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "pf" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "wf", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-worker-state-send-rt/data/worker.txt" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "wf" }, { "kind": "number", "value": "5000" }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "100" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "state" }, "member": "n" } }, "line": 28 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 31,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "P", "name": "t", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "worker" }, { "kind": "string", "value": "seed" }] }, "line": 32 },
+      { "kind": "stateAssignment", "resource": "t", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "state" }, "updates": [{ "field": "k", "value": { "kind": "number", "value": "9" } }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "5000" }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "ping" }, { "kind": "number", "value": "5000" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "5000" }] }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "5000" }] }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "pf", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-worker-state-send-rt/data/parent.txt" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "pf" }, { "kind": "number", "value": "5000" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "wf", "type": "fs.File", "value": { "kind": "call", "callee": "thread.accept", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "5000" }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "wf" }] }] }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "wf" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "state" }, "member": "k" }] }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 45 }
+      ]
+    }
+    ]
+  }
+  ]
+}
