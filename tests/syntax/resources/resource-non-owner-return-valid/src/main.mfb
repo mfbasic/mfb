@@ -17,7 +17,7 @@ IMPORT fs
 '
 ' Its sibling resource-invalidate-not-owner-invalid pins the close case;
 ' this one pins the escape.
-FUNC steal(RES p AS fs::File) AS RES fs::File
+FUNC steal(p AS fs::File) AS RES fs::File
   RETURN p
 END FUNC
 

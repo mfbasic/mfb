@@ -828,12 +828,12 @@ fn debug_run(case: &str, source: &str, n: u64) -> (String, (u64, u64, u64, u64))
 }
 
 /// bug-623 regression (introduced by the record free, fixed by the ownership pass): a
-/// function that returns its `RES` parameter hands the caller back the caller's own
+/// function that returns its resource parameter hands the caller back the caller's own
 /// record, and the caller's second binding must not free it again. Before the ownership
 /// pass: `free_calls` 752 against `alloc_calls` 600 and `double_free_skips` 152 at N=300.
 #[test]
 fn a_resource_passed_through_a_function_is_freed_once() {
-    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC passthru(RES u AS udp::Socket) AS RES udp::Socket\n  RETURN u\nEND FUNC\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES b AS udp::Socket = passthru(a)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT udp\n\nFUNC passthru(u AS udp::Socket) AS RES udp::Socket\n  RETURN u\nEND FUNC\n\nFUNC main() AS Nothing\n  FOR i = 1 TO {n}\n    RES a AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n    RES b AS udp::Socket = passthru(a)\n  NEXT\n  io::print(\"done\")\nEND FUNC\n";
     for n in [300u64, 600] {
         let (_, (allocs, frees, _, skips)) = debug_run("res_passthru", SOURCE, n);
         assert!(
@@ -856,7 +856,7 @@ fn a_resource_passed_through_a_function_is_freed_once() {
 /// callee's scope drop closed (and now freed) the record the union still pointed at.
 #[test]
 fn a_returned_union_wrapping_an_owned_local_stays_open_in_the_caller() {
-    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC open() AS RES Chan\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES c AS Chan = u\n  RETURN c\nEND FUNC\n\nFUNC portOf(RES c AS Chan) AS Integer\n  MUT port AS Integer = -1\n  MATCH c\n    CASE udp::Socket(s)\n      LET a AS net::Address = udp::localAddress(s)\n      port = a.port\n    CASE fs::File(f)\n      port = -2\n  END MATCH\n  RETURN port\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan = open()\n    IF portOf(c) > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
+    const SOURCE: &str = "IMPORT io\nIMPORT net\nIMPORT udp\nIMPORT fs\n\nUNION Chan\n  udp::Socket\n  fs::File\nEND UNION\n\nFUNC open() AS RES Chan\n  RES u AS udp::Socket = udp::bind(\"127.0.0.1\", 0)\n  RES c AS Chan = u\n  RETURN c\nEND FUNC\n\nFUNC portOf(c AS Chan) AS Integer\n  MUT port AS Integer = -1\n  MATCH c\n    CASE udp::Socket(s)\n      LET a AS net::Address = udp::localAddress(s)\n      port = a.port\n    CASE fs::File(f)\n      port = -2\n  END MATCH\n  RETURN port\nEND FUNC\n\nFUNC main() AS Nothing\n  MUT ok AS Integer = 0\n  FOR i = 1 TO {n}\n    RES c AS Chan = open()\n    IF portOf(c) > 0 THEN\n      ok = ok + 1\n    END IF\n  NEXT\n  io::print(\"ok=\" & toString(ok))\nEND FUNC\n";
     let (stdout_small, (_, _, at_small, skips_small)) = debug_run("ret_union_owned", SOURCE, 50);
     let (stdout_large, (_, _, at_large, skips_large)) = debug_run("ret_union_owned", SOURCE, 100);
     assert!(

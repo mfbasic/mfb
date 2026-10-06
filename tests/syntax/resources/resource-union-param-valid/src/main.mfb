@@ -8,7 +8,7 @@ UNION Stream
 END UNION
 
 ' A non-owning RES parameter that names the resource union.
-FUNC useStream(RES s AS Stream) AS Integer
+FUNC useStream(s AS Stream) AS Integer
   RETURN 0
 END FUNC
 

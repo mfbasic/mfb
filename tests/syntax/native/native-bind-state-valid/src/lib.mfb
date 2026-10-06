@@ -36,7 +36,7 @@ LINK "libsnd" AS snd
     RETURN file
   END FUNC
 
-  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+  FUNC closeFile(sndfile AS SoundFile STATE FileInfo) AS Nothing
     SYMBOL "sf_close"
     ABI (sndfile CPtr) AS status CInt32
   END FUNC

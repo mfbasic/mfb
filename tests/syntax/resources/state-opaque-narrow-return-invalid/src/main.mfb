@@ -17,7 +17,7 @@ END TYPE
 ' Distinct from resource-state-bare-return-invalid, which is the MIRROR case: a
 ' bare RETURN of a value that provably carries a state. Here the return names a
 ' state and the value's is unknown.
-FUNC launder(RES f AS fs::File) AS RES fs::File STATE Cursor
+FUNC launder(f AS fs::File) AS RES fs::File STATE Cursor
   RETURN f
 END FUNC
 

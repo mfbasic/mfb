@@ -193,7 +193,7 @@ LINK "libsnd" AS sndLink
     RETURN file
   END FUNC
 
-  FUNC closeFile(RES sndfile AS SoundFile) AS Nothing
+  FUNC closeFile(sndfile AS SoundFile) AS Nothing
     SYMBOL "sf_close"
     ABI (sndfile CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -223,7 +223,7 @@ LINK "libsnd" AS sndLink
   ' reads NOTHING and this returns an empty list — verified on a 2-channel file:
   ' 1 item -> 0 bytes, 2 -> 4, 3 -> 0, 4 -> 8. That is a property of the C API,
   ' not of this wrapper, and it is why `loadSound` passes `frames * channels`.
-  FUNC readSamples(RES sndfile AS SoundFile, items AS Integer) AS List OF Byte
+  FUNC readSamples(sndfile AS SoundFile, items AS Integer) AS List OF Byte
     SYMBOL "sf_read_short"
     ABI (sndfile CPtr, buf OUT CBuffer, items CInt64) AS got CInt64
     BUFFER buf SIZE items * 2
@@ -235,7 +235,7 @@ LINK "libsnd" AS sndLink
   ' values: 0 = SF_SEEK_SET, 1 = SF_SEEK_CUR, 2 = SF_SEEK_END. Returns the
   ' resulting position in frames from the start of the file, so a seek of 0 from
   ' SF_SEEK_CUR is a pure position query. Only -1 means failure, hence `>= 0`.
-  FUNC seekFrames(RES sndfile AS SoundFile, frames AS Integer, whence AS Integer) AS Integer
+  FUNC seekFrames(sndfile AS SoundFile, frames AS Integer, whence AS Integer) AS Integer
     SYMBOL "sf_seek"
     ABI (sndfile CPtr, frames CInt64, whence CInt32) AS position CInt64
     SUCCESS_ON position >= 0
@@ -423,7 +423,7 @@ DOC
   INFO release the file earlier than the end of the enclosing block.
   ERROR 77030008 libsndfile reported a failure closing the file.
 END DOC
-EXPORT FUNC closeSound(RES sound AS SoundFile STATE SoundInfo) AS Nothing
+EXPORT FUNC closeSound(sound AS SoundFile STATE SoundInfo) AS Nothing
   sndLink::closeFile(sound)
 END FUNC
 
@@ -609,7 +609,7 @@ DOC
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC loadSound(RES sound AS SoundFile STATE SoundInfo, sampleRate AS Integer) AS Sound
+EXPORT FUNC loadSound(sound AS SoundFile STATE SoundInfo, sampleRate AS Integer) AS Sound
   LET info AS SoundInfo = sound.state
 
   ' Items, not frames: one item is one sample in ONE channel. `info.frames` is
@@ -654,7 +654,7 @@ DOC
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC loadFrames(RES sound AS SoundFile STATE SoundInfo, frames AS Integer) AS Sound
+EXPORT FUNC loadFrames(sound AS SoundFile STATE SoundInfo, frames AS Integer) AS Sound
   LET info AS SoundInfo = sound.state
 
   ' Items, not frames: one item is one sample in ONE channel, so a stereo frame
@@ -713,7 +713,7 @@ DOC
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC loadFrames(RES sound AS SoundFile STATE SoundInfo, sampleRate AS Integer, frames AS Integer) AS Sound
+EXPORT FUNC loadFrames(sound AS SoundFile STATE SoundInfo, sampleRate AS Integer, frames AS Integer) AS Sound
   LET info AS SoundInfo = sound.state
 
   ' Items, not frames: one item is one sample in ONE channel. `sf_read_short`
@@ -749,7 +749,7 @@ DOC
   WARN format libsndfile refuses the seek and this fails.
   ERROR 77030008 libsndfile could not seek this file — typically because the format is not seekable (`.state.seekable` is 0).
 END DOC
-EXPORT FUNC seekFrame(RES sound AS SoundFile STATE SoundInfo, frame AS Integer) AS Integer
+EXPORT FUNC seekFrame(sound AS SoundFile STATE SoundInfo, frame AS Integer) AS Integer
   LET info AS SoundInfo = sound.state
   IF frame <= info.frames AND frame >= 0 THEN
      RETURN sndLink::seekFrames(sound, frame, 0)

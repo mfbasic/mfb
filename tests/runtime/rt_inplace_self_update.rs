@@ -1252,9 +1252,9 @@ enum FieldSite {
     T1,
     /// Field `b` of the same payload.
     T2,
-    /// T1 through a `RES` parameter: the body runs in `FUNC run1(RES h …) AS Nothing`.
+    /// T1 through a resource parameter: the body runs in `FUNC run1(RES h …) AS Nothing`.
     T3,
-    /// T2 through a `RES` parameter.
+    /// T2 through a resource parameter.
     T4,
     /// Two updates over the whole payload:
     /// `h.state = WITH h.state { b := f(h.state.b, …), n := … }`.
@@ -1636,7 +1636,7 @@ fn field_frame(fc: &FieldCase, site: FieldSite, body: &str) -> String {
             )
         }
         T3 | T4 => format!(
-            "FUNC run1(RES h AS fs::File STATE P) AS Nothing\n{body}END FUNC\n\n\
+            "FUNC run1(h AS fs::File STATE P) AS Nothing\n{body}END FUNC\n\n\
              FUNC main() AS Integer\n  RES h AS fs::File STATE P = {open}\n  run1(h)\n  \
              RETURN 0\nEND FUNC\n"
         ),

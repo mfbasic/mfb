@@ -14,7 +14,7 @@ TYPE Accum
   n   AS Integer
 END TYPE
 
-FUNC feed(RES f AS fs::File STATE Accum, chunk AS List OF Byte) AS Nothing
+FUNC feed(f AS fs::File STATE Accum, chunk AS List OF Byte) AS Nothing
   f.state.raw = collections::append(f.state.raw, chunk)
   f.state.n = f.state.n + 1
 END FUNC

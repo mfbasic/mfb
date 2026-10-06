@@ -186,7 +186,7 @@ fn state_field_append_of_a_user_call_result_grows_in_place() {
         \x20 END IF\n\
         \x20 RETURN v\n\
          END FUNC\n\
-         FUNC feed(RES f AS fs::File STATE Accum, v AS Integer) AS Nothing\n\
+         FUNC feed(f AS fs::File STATE Accum, v AS Integer) AS Nothing\n\
         \x20 f.state.raw = collections::append(f.state.raw, clamp(v))\n\
          END FUNC\n\
          FUNC main AS Integer\n\
@@ -224,7 +224,7 @@ fn state_field_append_of_a_call_returning_a_list_takes_the_bulk_grow() {
          FUNC chunk(v AS Integer) AS List OF Integer\n\
         \x20 RETURN [v, v + 1]\n\
          END FUNC\n\
-         FUNC feed(RES f AS fs::File STATE Accum, v AS Integer) AS Nothing\n\
+         FUNC feed(f AS fs::File STATE Accum, v AS Integer) AS Nothing\n\
         \x20 f.state.raw = collections::append(f.state.raw, chunk(v))\n\
          END FUNC\n\
          FUNC main AS Integer\n\

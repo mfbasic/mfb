@@ -75,7 +75,7 @@ FUNC nested(n AS Integer) AS String
   RETURN toString(o.tag) & " " & toString(o.inner.before) & " " & summary(o.inner.xs)
 END FUNC
 
-FUNC state(RES f AS fs::File STATE Rec, n AS Integer) AS String
+FUNC state(f AS fs::File STATE Rec, n AS Integer) AS String
   f.state = Rec[6, strs(n)]
   FOR j = 0 TO n - 1
     f.state.xs = collections::set(f.state.xs, j, "medium-length")

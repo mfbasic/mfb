@@ -21,7 +21,7 @@ LINK "sqlite3" AS sql
     RETURN db
     SUCCESS_ON status = 0
   END FUNC
-  FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
+  FUNC prepare(db AS Db, statement AS String) AS RES Stmt
     SYMBOL "sqlite3_prepare_v2"
     ABI (db CPtr, statement CString, nByte CInt32, stmt OUT CPtr, pzTail CPtr) AS status CInt32
     CONST nByte = -1
@@ -29,7 +29,7 @@ LINK "sqlite3" AS sql
     RETURN stmt
     SUCCESS_ON status = 0
   END FUNC
-  FUNC columnCount(RES stmt AS Stmt) AS Integer
+  FUNC columnCount(stmt AS Stmt) AS Integer
     SYMBOL "sqlite3_column_count"
     ABI (stmt CPtr) AS status CInt32
     ' Var=2 (10b) AND Compare=1 (01b): bitwise 2 & 1 = 0 (buggy failure);
@@ -37,12 +37,12 @@ LINK "sqlite3" AS sql
     SUCCESS_ON status AND (status <> 0)
     RETURN status
   END FUNC
-  FUNC finalize(RES stmt AS Stmt) AS Nothing
+  FUNC finalize(stmt AS Stmt) AS Nothing
     SYMBOL "sqlite3_finalize"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0

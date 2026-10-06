@@ -51,7 +51,7 @@ LINK "libsnd" AS snd
     RETURN file
   END FUNC
 
-  FUNC readSamples(RES sndfile AS SoundFile STATE FileInfo, items AS Integer) AS List OF Byte
+  FUNC readSamples(sndfile AS SoundFile STATE FileInfo, items AS Integer) AS List OF Byte
     SYMBOL "sf_read_short"
     ABI (sndfile CPtr, buf OUT CBuffer, items CInt64) AS got CInt64
     BUFFER buf SIZE items * 2
@@ -59,7 +59,7 @@ LINK "libsnd" AS snd
     RETURN buf LENGTH got * 2
   END FUNC
 
-  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+  FUNC closeFile(sndfile AS SoundFile STATE FileInfo) AS Nothing
     SYMBOL "sf_close"
     ABI (sndfile CPtr) AS status CInt32
     SUCCESS_ON status = 0

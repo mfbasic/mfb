@@ -29,7 +29,7 @@ FUNC bumpGlobals() AS Nothing
   NEXT
 END FUNC
 
-FUNC bumpState(RES h AS fs::File STATE P) AS Nothing
+FUNC bumpState(h AS fs::File STATE P) AS Nothing
   h.state.a = h.state.a - 0.25
 END FUNC
 

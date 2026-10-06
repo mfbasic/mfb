@@ -8,7 +8,7 @@ IMPORT io
 
 ' Both endpoint queries borrow the socket; neither consumes it, so the same
 ' handle is still usable afterwards and is closed by lexical drop.
-FUNC describe(RES c AS tls::Socket) AS String
+FUNC describe(c AS tls::Socket) AS String
   LET peer AS net::Address = tls::remoteAddress(c)
   LET mine AS net::Address = tls::localAddress(c)
   RETURN peer.host & ":" & toString(peer.port) & " from :" & toString(mine.port)

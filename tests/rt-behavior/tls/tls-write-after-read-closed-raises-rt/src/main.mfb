@@ -33,7 +33,7 @@ FUNC identity AS String
 END FUNC
 
 ' Read until the read itself reports the close.
-FUNC drain(RES conn AS tls::Socket) AS String
+FUNC drain(conn AS tls::Socket) AS String
   WHILE TRUE
     LET chunk AS List OF Byte = tls::read(conn, 4096)
   END WHILE
@@ -43,7 +43,7 @@ FUNC drain(RES conn AS tls::Socket) AS String
   END TRAP
 END FUNC
 
-FUNC writeOnce(RES conn AS tls::Socket, text AS String) AS String
+FUNC writeOnce(conn AS tls::Socket, text AS String) AS String
   tls::write(conn, text)
   RETURN "completed"
   TRAP(err)

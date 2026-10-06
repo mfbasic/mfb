@@ -139,7 +139,7 @@ fn a_bind_that_only_aliases_a_live_resource_still_builds() {
     // built before the fix. This program builds on both sides of it.
     let source = "IMPORT io\n\
                   IMPORT fs\n\n\
-                  FUNC take(RES f AS fs::File) AS Integer\n\
+                  FUNC take(f AS fs::File) AS Integer\n\
                  \x20 RES g AS fs::File = f\n\
                  \x20 RETURN 1\n\
                   END FUNC\n\n\
@@ -165,7 +165,7 @@ fn a_bind_that_only_aliases_a_live_resource_still_builds() {
         let source = format!(
             "IMPORT io\n\
              IMPORT {package}\n\n\
-             FUNC take(RES s AS {type_}) AS Integer\n\
+             FUNC take(s AS {type_}) AS Integer\n\
             \x20 RES b AS {type_} = s\n\
             \x20 RETURN 1\n\
              END FUNC\n\n\

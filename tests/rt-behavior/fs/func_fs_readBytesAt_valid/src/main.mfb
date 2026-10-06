@@ -9,7 +9,7 @@ IMPORT errorCode
 
 ' Closing through a callee is the case the static move rules cannot prove, so the
 ' runtime closed-flag is what refuses the later use (spec §15).
-FUNC closeHandle(RES f AS fs::File) AS Nothing
+FUNC closeHandle(f AS fs::File) AS Nothing
   fs::close(f)
 END FUNC
 
@@ -19,11 +19,11 @@ FUNC readAfterClose(path AS String) AS Integer
   RETURN len(fs::readBytesAt(f, 0, 4))
 END FUNC
 
-FUNC readNegative(RES f AS fs::File) AS Integer
+FUNC readNegative(f AS fs::File) AS Integer
   RETURN len(fs::readBytesAt(f, 0, -1))
 END FUNC
 
-FUNC readNegativeOffset(RES f AS fs::File) AS Integer
+FUNC readNegativeOffset(f AS fs::File) AS Integer
   RETURN len(fs::readBytesAt(f, -1, 4))
 END FUNC
 

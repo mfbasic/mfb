@@ -16,7 +16,7 @@ IMPORT errorCode
 
 LET PATH AS String = "/tmp/mfb_bug643_collection_helper_handles.txt"
 
-FUNC state(RES h AS fs::File) AS String
+FUNC state(h AS fs::File) AS String
   LET line = fs::readLine(h) TRAP(e)
     IF e.code = errorCode::ErrResourceClosed THEN
       RECOVER "CLOSED"
@@ -95,7 +95,7 @@ FUNC main() AS Nothing
   RES f AS fs::File = fs::open(PATH, "read")
   LET lf AS List OF RES fs::File = [f]
   IF len(lf) > 0 THEN
-    LET kept = collections::filter(lf, LAMBDA(RES x AS fs::File) -> TRUE)
+    LET kept = collections::filter(lf, LAMBDA(x AS fs::File) -> TRUE)
     io::print("inner filter len=" & toString(len(kept)))
   END IF
   io::print("filter (inner scope): " & state(f))

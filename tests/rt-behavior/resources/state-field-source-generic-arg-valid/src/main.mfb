@@ -50,7 +50,7 @@ FUNC mapText(m AS Map OF String TO Integer) AS String
   RETURN out
 END FUNC
 
-FUNC report(tag AS String, RES h AS fs::File STATE Cur) AS Nothing
+FUNC report(tag AS String, h AS fs::File STATE Cur) AS Nothing
   io::print(tag & " distinct=" & joinInts(collections::distinct(h.state.xs)))
   io::print(tag & " take=" & joinInts(collections::take(h.state.xs, 2)))
   io::print(tag & " drop=" & joinInts(collections::drop(h.state.xs, 3)))

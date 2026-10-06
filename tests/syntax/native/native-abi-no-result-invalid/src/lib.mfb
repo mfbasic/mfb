@@ -3,13 +3,13 @@
 EXPORT RESOURCE Db CLOSE BY demoLink::close
 
 LINK "demo" AS demoLink
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "demo_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC version(RES db AS Db) AS Integer
+  FUNC version(db AS Db) AS Integer
     SYMBOL "demo_version"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status >= 0

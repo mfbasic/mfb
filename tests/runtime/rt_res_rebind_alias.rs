@@ -8,7 +8,7 @@
 //! a plain reference to an existing resource matched none of them and fell
 //! through to `ActiveCleanup::Resource`. So `RES g AS Db = d` inside a callee
 //! manufactured an owner out of an alias, against §15.6: "a `RES` binding, a
-//! `RES` parameter, and a collection slot all hold a copy of the one handle
+//! resource parameter, and a collection slot all hold a copy of the one handle
 //! pointer ... none of these close the resource; the owning scope closes it
 //! exactly once on exit."
 //!
@@ -51,7 +51,7 @@ fn program(body: &str) -> String {
         \x20   RETURN db\n\
         \x20   SUCCESS_ON status = 0\n\
         \x20 END FUNC\n\
-        \x20 FUNC close(RES db AS Db) AS Nothing\n\
+        \x20 FUNC close(db AS Db) AS Nothing\n\
         \x20   SYMBOL \"sqlite3_close\"\n\
         \x20   ABI (db CPtr) AS status CInt32\n\
         \x20   SUCCESS_ON status = 0\n\
@@ -148,12 +148,12 @@ fn assert_closes(name: &str, body: &str, function: &str, expected: usize, why: &
 }
 
 /// The bug report's own reproduction, as codegen: the callee binds the caller's
-/// `RES` parameter to a new name and must emit NO close for it.
+/// resource parameter to a new name and must emit NO close for it.
 #[test]
 fn alias_of_res_parameter_emits_no_close() {
     assert_closes(
         "b375_param_alias",
-        "FUNC passThrough(RES d AS Db) AS Nothing\n\
+        "FUNC passThrough(d AS Db) AS Nothing\n\
         \x20 RES g AS Db = d\n\
          END FUNC\n\n\
          FUNC main() AS Integer\n\

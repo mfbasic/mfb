@@ -7,12 +7,12 @@ LINK "demo" AS demoLink
     RETURN db
     SUCCESS_ON status = 0
   END FUNC
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "demo_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
-  FUNC busy(RES db AS Db, ms AS Integer) AS Nothing
+  FUNC busy(db AS Db, ms AS Integer) AS Nothing
     SYMBOL "demo_busy"
     ABI (db CPtr, ms CInt32) AS status CInt32
     SUCCESS_ON status = 0

@@ -34,7 +34,7 @@ LINK "sqlite3" AS sql
     RETURN db
     SUCCESS_ON status = 0
   END FUNC
-  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+  FUNC exec(db AS Db, statement AS String) AS Nothing
     SYMBOL "sqlite3_exec"
     ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
     CONST callback = NOTHING
@@ -42,7 +42,7 @@ LINK "sqlite3" AS sql
     CONST errmsg = NOTHING
     SUCCESS_ON status = 0
   END FUNC
-  FUNC execTracked(RES db AS Tracked, statement AS String) AS Nothing
+  FUNC execTracked(db AS Tracked, statement AS String) AS Nothing
     SYMBOL "sqlite3_exec"
     ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
     CONST callback = NOTHING
@@ -50,12 +50,12 @@ LINK "sqlite3" AS sql
     CONST errmsg = NOTHING
     SUCCESS_ON status = 0
   END FUNC
-  FUNC close(RES db AS Db) AS Nothing
+  FUNC close(db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
-  FUNC closeTracked(RES db AS Tracked) AS Nothing
+  FUNC closeTracked(db AS Tracked) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -66,11 +66,11 @@ END LINK
 ' call, not a registered close op, so the caller's binding is NOT marked moved and
 ' the use afterwards is statically invisible -- which is precisely the case the
 ' runtime guard exists to catch now that the static rule is gone.
-FUNC closeVia(RES d AS Db) AS Nothing
+FUNC closeVia(d AS Db) AS Nothing
   sql::close(d)
 END FUNC
 
-FUNC closeViaTracked(RES d AS Tracked) AS Nothing
+FUNC closeViaTracked(d AS Tracked) AS Nothing
   sql::closeTracked(d)
 END FUNC
 

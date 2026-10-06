@@ -8,7 +8,7 @@ IMPORT process
 
 ' `send` after the input is closed raises; TRAP must sit at the bottom of a
 ' function, so the attempt lives in its own.
-FUNC sendAfterInputClosed(RES p AS process::Process) AS Integer
+FUNC sendAfterInputClosed(p AS process::Process) AS Integer
   process::send(p, "cherry") TRAP(e)
     RETURN e.code
   END TRAP

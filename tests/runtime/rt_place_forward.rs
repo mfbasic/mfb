@@ -410,7 +410,7 @@ END FUNC
 fn w5_passing_the_resource_keeps_the_old_value() {
     assert_same_output(
         "pf_w5",
-        "FUNC touch(RES f AS fs::File STATE R) AS Nothing
+        "FUNC touch(f AS fs::File STATE R) AS Nothing
   f.state.xs = collections::set(f.state.xs, 0, 100)
 END FUNC
 FUNC main AS Integer

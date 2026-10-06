@@ -187,7 +187,7 @@ END FUNC
 /// `fs::close` does (`mfb spec language resource-management` §15). It used to return
 /// silently.
 ///
-/// The second close goes through a `RES` parameter because a literal
+/// The second close goes through a resource parameter because a literal
 /// `destroyFont(f)` twice is refused at compile time (`TYPE_USE_AFTER_MOVE`). The
 /// scope-drop of `f` after both closes must stay silent, which the `done` line
 /// confirms.
@@ -199,7 +199,7 @@ fn a_second_destroy_font_raises_resource_closed() {
 IMPORT canvas
 IMPORT io
 
-FUNC closeIt(RES f AS canvas::Font) AS Nothing
+FUNC closeIt(f AS canvas::Font) AS Nothing
   canvas::destroyFont(f)
 END FUNC
 
@@ -1010,7 +1010,7 @@ fn measuring_a_closed_font_raises_resource_closed() {
 IMPORT canvas
 IMPORT io
 
-FUNC closeIt(RES f AS canvas::Font) AS Nothing
+FUNC closeIt(f AS canvas::Font) AS Nothing
   canvas::destroyFont(f)
 END FUNC
 

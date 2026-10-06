@@ -113,7 +113,7 @@ FUNC firstTwo(xs AS List OF RES fs::File) AS List OF RES fs::File
   RETURN collections::take(xs, 2)
 END FUNC
 
-FUNC pair(RES h AS fs::File) AS List OF RES fs::File
+FUNC pair(h AS fs::File) AS List OF RES fs::File
   RETURN [h, h]
 END FUNC
 
@@ -221,7 +221,7 @@ FUNC main() AS Nothing
   MUT i AS Integer = 0
   MUT total AS Integer = 0
   WHILE i < n
-    LET f = collections::filter(la, LAMBDA(RES x AS fs::File) -> TRUE)
+    LET f = collections::filter(la, LAMBDA(x AS fs::File) -> TRUE)
     LET ap = collections::append(la, a)
     LET pp = collections::prepend(la, a)
     LET ins = collections::insert(la, 1, a)

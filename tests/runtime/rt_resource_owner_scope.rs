@@ -26,7 +26,7 @@ FUNC dir() AS String
   RETURN os::getEnv("PROBE_DIR")
 END FUNC
 
-FUNC state(RES h AS fs::File) AS String
+FUNC state(h AS fs::File) AS String
   LET line = fs::readLine(h) TRAP(e)
     IF e.code = errorCode::ErrResourceClosed THEN
       RECOVER "CLOSED"
@@ -39,7 +39,7 @@ FUNC state(RES h AS fs::File) AS String
   RETURN "open"
 END FUNC
 
-FUNC ident(RES h AS fs::File) AS RES fs::File
+FUNC ident(h AS fs::File) AS RES fs::File
   RETURN h
 END FUNC
 
@@ -130,7 +130,7 @@ END FUNC
 fn a_mixed_single_return_closes_by_whose_handle_it_is() {
     let lines = run(
         "b755_mixed_single",
-        r#"FUNC pick(c AS Boolean, RES h AS fs::File) AS RES fs::File
+        r#"FUNC pick(c AS Boolean, h AS fs::File) AS RES fs::File
   IF c THEN
     RETURN h
   END IF
@@ -177,7 +177,7 @@ END FUNC
 fn a_handle_floated_into_an_outer_collection_closes_once_at_that_scope() {
     let lines = run(
         "b755_float",
-        r#"FUNC addTo(xs AS List OF RES fs::File, RES h AS fs::File) AS List OF RES fs::File
+        r#"FUNC addTo(xs AS List OF RES fs::File, h AS fs::File) AS List OF RES fs::File
   RETURN collections::append(xs, h)
 END FUNC
 
@@ -203,7 +203,7 @@ fn a_handed_back_record_field_outlives_an_inner_binding() {
   handle AS RES fs::File
 END TYPE
 
-FUNC wrap(RES f AS fs::File) AS Holder
+FUNC wrap(f AS fs::File) AS Holder
   LET h = Holder["made", f]
   RETURN h
 END FUNC

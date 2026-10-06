@@ -41,7 +41,7 @@ fn program(body: &str) -> String {
         \x20   RETURN db\n\
         \x20   SUCCESS_ON status = 0\n\
         \x20 END FUNC\n\
-        \x20 FUNC close(RES db AS Db) AS Nothing\n\
+        \x20 FUNC close(db AS Db) AS Nothing\n\
         \x20   SYMBOL \"sqlite3_close\"\n\
         \x20   ABI (db CPtr) AS status CInt32\n\
         \x20   SUCCESS_ON status = 0\n\

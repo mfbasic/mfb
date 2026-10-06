@@ -34,7 +34,7 @@ IMPORT state_reach_worker
 
 ' The helper alias. Grows the collection AND bumps the sibling, through a `RES`
 ' parameter -- the owner and this alias share the one STATE payload.
-FUNC feed(RES f AS fs::File STATE state_reach_worker::Accum, rounds AS Integer) AS Nothing
+FUNC feed(f AS fs::File STATE state_reach_worker::Accum, rounds AS Integer) AS Nothing
   MUT i AS Integer = 0
   WHILE i < rounds
     f.state.raw = collections::append(f.state.raw, toByte(i MOD 251))
@@ -45,7 +45,7 @@ END FUNC
 
 ' PART 4's operand. Reads the STATE of the very resource being appended to,
 ' from inside the append's own right-hand side.
-FUNC nextByte(RES f AS fs::File STATE state_reach_worker::Accum) AS Byte
+FUNC nextByte(f AS fs::File STATE state_reach_worker::Accum) AS Byte
   RETURN toByte(len(f.state.raw) MOD 251)
 END FUNC
 

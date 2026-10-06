@@ -5,12 +5,12 @@
 EXPORT RESOURCE Handle CLOSE BY demoLink::release
 
 LINK "demo" AS demoLink
-  FUNC release(RES h AS Handle) AS Nothing
+  FUNC release(h AS Handle) AS Nothing
     SYMBOL "demo_release"
     ABI (h CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
-  FUNC describe(RES h AS Handle) AS String
+  FUNC describe(h AS Handle) AS String
     SYMBOL "demo_describe"
     ABI (h CPtr) AS text CPtr
     RETURN text

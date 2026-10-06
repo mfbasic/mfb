@@ -7,7 +7,7 @@ TYPE Cursor
 END TYPE
 
 ' A non-owning callee mutates a single STATE field in place (plan §4 `seek`).
-FUNC seek(RES s AS fs::File STATE Cursor, dest AS Integer) AS Nothing
+FUNC seek(s AS fs::File STATE Cursor, dest AS Integer) AS Nothing
   s.state.pos = dest
 END FUNC
 

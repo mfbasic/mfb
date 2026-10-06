@@ -3,7 +3,7 @@
 IMPORT fs
 IMPORT io
 
-FUNC use(RES f AS fs::File STATE Nonexistent) AS Nothing
+FUNC use(f AS fs::File STATE Nonexistent) AS Nothing
   io::print("use")
 END FUNC
 

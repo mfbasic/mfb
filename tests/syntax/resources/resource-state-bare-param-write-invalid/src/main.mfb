@@ -8,7 +8,7 @@ END TYPE
 ' accessible through it, even when the caller's owner attached one. The WRITE
 ' path says so precisely (`TYPE_STATE_INVALID`); its READ twin is
 ' resource-state-bare-param-read-invalid. See §15.5.
-FUNC touch(RES p AS fs::File) AS Nothing
+FUNC touch(p AS fs::File) AS Nothing
   p.state.pos = 1
 END FUNC
 

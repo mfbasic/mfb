@@ -15,7 +15,7 @@ IMPORT collections
 IMPORT tls
 IMPORT io
 
-FUNC negativeIsRejected(RES c AS tls::Socket) AS Integer
+FUNC negativeIsRejected(c AS tls::Socket) AS Integer
   tls::setReadTimeout(c, -1)
   RETURN 0
   TRAP(e)

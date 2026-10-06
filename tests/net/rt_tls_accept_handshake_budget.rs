@@ -221,7 +221,7 @@ fn build_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
          FUNC nowMs AS Integer\n\
         \x20 RETURN datetime::monotonicNanos() / 1000000\n\
          END FUNC\n\n\
-         FUNC timedAccept(RES listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String\n\
+         FUNC timedAccept(listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String\n\
         \x20 RES conn = tls::accept(listener, timeoutMs)\n\
         \x20 LET took AS Integer = nowMs() - started\n\
         \x20 tls::write(conn, \"{PAYLOAD}\" & toString([toByte(10)]))\n\
@@ -262,7 +262,7 @@ fn build_trickle_server(root: &Path, cert: &Path, key: &Path) -> PathBuf {
          FUNC nowMs AS Integer\n\
         \x20 RETURN datetime::monotonicNanos() / 1000000\n\
          END FUNC\n\n\
-         FUNC timedAccept(RES listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String\n\
+         FUNC timedAccept(listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String\n\
         \x20 RES conn = tls::accept(listener, timeoutMs)\n\
         \x20 LET took AS Integer = nowMs() - started\n\
         \x20 tls::write(conn, \"{PAYLOAD}\" & toString([toByte(10)]))\n\

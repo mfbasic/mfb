@@ -5,14 +5,14 @@ IMPORT io
 ' fs::openData: a real File over a copy of a String or a List OF Byte, in every
 ' fs::open mode spelling. Each mode's access is enforced as for a disk file.
 
-FUNC tryWrite(RES f AS fs::File) AS String
+FUNC tryWrite(f AS fs::File) AS String
   fs::writeAll(f, "!") TRAP(e)
     RETURN "write raised " & toString(e.code)
   END TRAP
   RETURN "write ok"
 END FUNC
 
-FUNC tryRead(RES f AS fs::File) AS String
+FUNC tryRead(f AS fs::File) AS String
   fs::seek(f, 0)
   LET s AS String = fs::readAll(f) TRAP(e)
     RETURN "read raised " & toString(e.code)

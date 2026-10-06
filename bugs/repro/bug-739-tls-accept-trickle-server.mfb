@@ -10,7 +10,7 @@ FUNC nowMs AS Integer
   RETURN datetime::monotonicNanos() / 1000000
 END FUNC
 
-FUNC timedAccept(RES listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String
+FUNC timedAccept(listener AS tls::Listener, timeoutMs AS Integer, started AS Integer) AS String
   RES conn = tls::accept(listener, timeoutMs)
   LET took AS Integer = nowMs() - started
   tls::write(conn, "payload" & toString([toByte(10)]))

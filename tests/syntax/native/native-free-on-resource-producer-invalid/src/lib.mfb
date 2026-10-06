@@ -15,7 +15,7 @@ LINK "foo" AS fooLink
       ABI (ptr CPtr) AS CVoid
     END FREE
   END FUNC
-  FUNC free(RES db AS Db) AS Nothing
+  FUNC free(db AS Db) AS Nothing
     SYMBOL "foo_free"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0

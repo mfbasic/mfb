@@ -50,7 +50,7 @@ FUNC flushed(name AS String) AS String
 END FUNC
 
 ' Write one more byte through `h`: `open` when the handle was still live.
-FUNC poke(RES h AS fs::File) AS String
+FUNC poke(h AS fs::File) AS String
   fs::writeAll(h, "+")
   RETURN "open"
   TRAP(e)
@@ -144,7 +144,7 @@ fn a_nested_list_of_records_returns_a_live_handle() {
   RETURN fs::openFile(dir() & "/data.txt")
 END FUNC
 
-FUNC read(RES f AS fs::File) AS String
+FUNC read(f AS fs::File) AS String
   LET line = fs::readLine(f) TRAP(e)
     RECOVER e.message
   END TRAP
@@ -465,7 +465,7 @@ END FUNC
 fn a_passed_in_handle_returned_inside_a_nested_aggregate_keeps_its_owner() {
     let lines = run(
         "b805_passed",
-        r#"FUNC wrapAll(RES h AS fs::File) AS List OF List OF Holder
+        r#"FUNC wrapAll(h AS fs::File) AS List OF List OF Holder
   RETURN [[Holder[h]]]
 END FUNC
 
