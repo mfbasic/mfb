@@ -1885,8 +1885,9 @@ const UNREACHABLE_GENERAL_CALL: &[(&str, &str, &str)] = &[
     // `chunk = bits::band(_, 127)`, so `chunk` and `chunk + 128` fit a Byte.
     ("__encoding_leb128Emit", "toByte", "ErrOverflow"),
     ("__encoding_sleb128Encode", "toByte", "ErrOverflow"),
-    // `point` is a code point below 128 (checked), and `strings::find` in a
-    // 128-scalar codepage table returns a scalar index 0 .. 127.
+    // `point` is a code point below 128 (checked), and the table-point scan's
+    // `idx` is 0 .. 127 (the `idx < 0` FAIL above it, and `tablePoints` is
+    // always the fixed 128-scalar codepage table), so `idx + 128` is 128 .. 255.
     ("__encoding_codepageEncode", "toByte", "ErrOverflow"),
     // bug-814. Each value is `bits::band(_, 255)` bound to a name first, a
     // decoded literal symbol `0 <= sym < 256`, `endPos MOD 256` of a

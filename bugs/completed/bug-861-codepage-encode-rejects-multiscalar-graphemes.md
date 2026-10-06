@@ -178,3 +178,76 @@ Spec updated in the same change: `src/docs/spec/stdlib/08_encoding.md`
 multi-scalar grapheme is categorically unrepresentable, and
 `encoding::codepageEncode`'s own descriptor prose (`DESC` in
 `func_codepage_encode.rs`) is corrected the same way.
+
+### Follow-up found by the staging gate
+
+`cargo test --bin mfb every_body_mfb_member_declares_exactly_the_errors_its_source_can_raise`
+flagged `encoding::codepageEncode: undeclared ["ErrEncoding"]`. Cause:
+`__encoding_fromCodepoint` (used to rebuild a one-character `String` from
+`point` for the `strings::find`/`contains` table search) builds that string
+via `toString(List OF Byte)`, and the `general` package's declared errors for
+that overload include `ErrEncoding` for an arbitrary byte list — even though
+every byte `fromCodepoint` ever produces here is a valid scalar's own UTF-8
+encoding, so the raise is unreachable in practice. The guard's textual sweep
+has no way to see that, and declaring `ErrEncoding` on `codepageEncode` would
+itself be an observable contract change beyond this bug doc.
+
+Fix: the loop no longer converts a code point back into a `String` at all.
+`table`'s own code points are decoded once (`__encoding_codepoints(table)`,
+already proven raise-free), and `point` is compared against them directly in
+a `FOR EACH` scan that tracks its own index — a language construct, not a
+textual `collections::get(`/`toString(` call, so it never enters the guard's
+sweep (the same reason the `point < 128` branch never did). This is the
+restructuring the bug doc's own Root Cause section already named as the
+alternative to `fromCodepoint` ("or a scalar iterator").
+
+Re-verified after this change, same build lock:
+- `cargo test --bin mfb every_body_mfb_member_declares_exactly_the_errors_its_source_can_raise`
+  → the `encoding::codepageEncode` mismatch is gone. One unrelated pre-existing
+  failure remains (`http::startRead: undeclared ["ErrIndexOutOfRange"]`) —
+  confirmed present at the staging tip (`928bbff46`) with this bug's changes
+  reverted too, so it predates and is independent of bug-861/858; not fixed
+  here, out of scope.
+- `cargo test --bin mfb` (the whole unit-test binary) → 4841 passed, 2 failed;
+  the 2 failures are exactly the pre-existing `http::startRead` guard mismatch
+  above and an unrelated `tls::gen_macos` test
+  (`listen_zeroes_its_cleanup_slots_before_any_failure_exit`, `not implemented:
+  TlsReadTestPlatform::addrinfo_addr_offset`) — neither touches `encoding`.
+- `cargo test --test rt_codepage_encode_multiscalar` → 4 passed, unchanged.
+- `scripts/test-accept.sh target/release/mfb '*' 'func_encoding_codepage*'` →
+  same 4 `.ir`-only mismatches as before this follow-up (the body text moved
+  again, same shape); still 0 `.ast`/`.run` diffs.
+- `scripts/artifact-gate.sh target/release/mfb encoding` → still 6/7
+  mismatches, all `encoding_codegen_cover_rt`; no new fixture affected.
+- `rustup run 1.96.0 cargo fmt --all --check` and `cargo clippy --bin mfb
+  --test rt_codepage_encode_multiscalar` → clean, no new warnings.
+
+### Second follow-up: first-match semantics
+
+Review also found the table-point scan above kept going after a match, so
+`idx` became the LAST table index holding `point` instead of the FIRST —
+`strings::find` (what the scan replaced) returns the first occurrence. Added
+`EXIT FOR` on the match (also stops the 128-entry scan early instead of
+running it to completion every time).
+
+Checked every codepage for a duplicate non-`U+FFFD` scalar by parsing the
+vendored index files directly (`tools/codepage-index/index-*.txt` — the same
+source `codepage_tables_match_the_vendored_index_files` already verifies the
+generated tables against byte-for-byte): **zero duplicates across all 27
+single-byte tables** (`Iso8859_8I` shares `Iso8859_8`'s, so 28 `Codepage`
+members minus `Utf8` share 27 distinct tables). Per-file entry counts from
+the same parse matched every documented hole exactly (e.g. `iso-8859-6`: 83,
+`iso-8859-8`: 92, `iso-8859-3`: 121), confirming the parse covered every
+entry correctly. So no table currently exercises the old-vs-new behavior
+difference, and no pinned first-match test case was added (none would
+exercise anything); the fix is correct regardless and faster (early exit
+instead of a full 128-entry scan on every mapped scalar).
+
+Re-verified after this change, same build lock: the declared-errors guard
+(still clean for `codepageEncode`, same lone pre-existing `http::startRead`
+failure), `cargo test --bin mfb encoding::` (16 passed), `cargo test --test
+rt_codepage_encode_multiscalar` (4 passed), `fmt --check` and `clippy`
+(clean).
+
+Commits: `6270cf71e` — `bug-861: stop the table-point scan at the first
+match`.
