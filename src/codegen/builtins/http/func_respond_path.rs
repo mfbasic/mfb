@@ -19,28 +19,39 @@ with `fs::pathJoin`.
 
 The steps then run **in this order**, and the order is observable:
 
-1. If `fs::fileExists` reports the joined candidate is not an existing regular
+1. A purely **lexical** check (bug-862) rejects a `..` segment in the relative
+   path that would climb back above `root` — before anything touches the
+   filesystem, so it cannot act as an existence oracle. A path like
+   `../secret.txt` or `../../../../etc/hosts` is `403` whether or not the
+   named file exists; a request cannot distinguish "escaped and found" from
+   "escaped and not found" by timing or status code.
+2. If `fs::fileExists` reports the joined candidate is not an existing regular
    file, a `404` is returned. Directories are not regular files, so a request for
    a directory yields `404`; there is no directory listing and no implicit
    `index.html` inside a subdirectory.
-2. Otherwise `fs::isWithin(root, candidate)` decides containment. If it reports
+3. Otherwise `fs::isWithin(root, candidate)` decides containment. If it reports
    the candidate is not inside `root`, a `403` is returned and the file is never
    opened. An error raised by `isWithin` itself is trapped and treated as *not
    contained*, so it also yields `403`.
 
-Because existence is tested first, an escaping path that does not exist is
-answered `404`, not `403`; only an escaping path that *does* exist reaches the
-containment check. Both responses are built with `http::status`, so each carries
-a plain-text body (`"Not Found"` / `"Forbidden"`), `content-type`
+Every escaping path is `403` regardless of existence: step 1 catches a lexical
+`..` escape before the existence probe ever runs, and step 3 catches a symlink
+that points out of `root` for a candidate that happens to exist (which step 1,
+being lexical, cannot see). Only a path that is genuinely inside `root` and
+missing reaches `404`. Both responses are built with `http::status`, so each
+carries a plain-text body (`"Not Found"` / `"Forbidden"`), `content-type`
 `text/plain; charset=utf-8`, and `ok` `FALSE`.
 
-The containment check is where the traversal defense lives, and it is worth being
-precise about what it does and does not guarantee. `fs::isWithin` canonicalizes
-both paths with the host `realpath` resolution — collapsing `..`, following every
-symbolic link, and resolving relative paths against the working directory — then
-compares at a separator boundary. That defeats `..` traversal, a symlink pointing
-out of the root, and an absolute path smuggled in through `fs::pathJoin` (which
-restarts at any absolute component).
+Step 3 is where the symlink defense lives, and it is worth being precise about
+what it does and does not guarantee. `fs::isWithin` canonicalizes both paths
+with the host `realpath` resolution — collapsing `..`, following every
+symbolic link, and resolving relative paths against the working directory —
+then compares at a separator boundary. It requires every component of the
+candidate, including the file itself, to exist (`mfb man fs isWithin`), which
+is exactly why it must run AFTER the existence check: calling it on a
+genuinely missing in-root file would raise `ErrPathNotFound`, trapped here to
+*not contained*, turning a legitimate `404` into a `403`. The lexical check in
+step 1 has no such requirement, which is why it runs first and independently.
 
 However, `respondPath` **checks and then opens**, using `fs::openFile` rather
 than the atomic `fs::openWithin`. That leaves the time-of-check/time-of-use race
@@ -151,6 +162,13 @@ r#"FUNC __http_respondPath(req AS Request, root AS String) AS Response
   END IF
   IF rel = "" THEN
     rel = "index.html"
+  END IF
+  ' bug-862: reject a `..` escape lexically, before any filesystem probe, so
+  ' a traversal attempt is 403 whether or not its target exists. Without
+  ' this, fs::fileExists below decided 404-vs-403 first, letting a remote
+  ' client use the existence oracle to probe for any file on the host.
+  IF __http_pathEscapesRoot(rel) THEN
+    RETURN __http_status(403, "Forbidden")
   END IF
   LET parts AS List OF String = [root, rel]
   LET candidate AS String = fs::pathJoin(parts)

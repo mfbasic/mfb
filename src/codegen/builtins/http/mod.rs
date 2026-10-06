@@ -86,6 +86,7 @@ mod helper_parse_request;
 mod helper_parse_response;
 mod helper_parse_status_line;
 mod helper_part_header;
+mod helper_path_escapes_root;
 mod helper_percent_byte_encode;
 mod helper_percent_encode_target;
 mod helper_read_net;
@@ -580,6 +581,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_reason_phrase::register(&mut pkg);
     helper_serialize_head::register(&mut pkg);
     helper_ext_content_type::register(&mut pkg);
+    helper_path_escapes_root::register(&mut pkg);
 
     func_read::register(&mut pkg);
     func_write::register(&mut pkg);

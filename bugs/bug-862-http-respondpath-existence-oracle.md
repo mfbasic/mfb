@@ -93,3 +93,13 @@ exist to canonicalize it (it is TRAPped to FALSE today). If so, confine lexicall
 ## Blast Radius
 
 - `__http_respondPath`: fixed by this bug. `http::respondFile` takes an already-open handle and is unaffected.
+
+## Golden impact
+
+`__http_respondPath`'s body gained a new early lexical-escape check, and a new private
+helper `__http_pathEscapesRoot` was added to the `http` package's assembled source.
+Every fixture that `IMPORT http`s will show a changed `.ast`/`.ir`/`.ncode` for the same
+reason as bug-981/bug-868 below — the helper section and one existing function body
+changed text. Expect diffs under `tests/byte-identity/http/`, `tests/syntax/http/**`, and
+any `rt-behavior`/`rt-error` `http` fixture with a golden. No other package's assembled
+source changed for this bug.
