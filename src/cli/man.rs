@@ -1699,15 +1699,18 @@ mod tests {
         assert!(!md.contains("__json_StringNode"));
     }
 
-    /// `canvas::CapStyle` reaches the types page with both variants, and both records
-    /// that have ends carry the `cap` field.
+    /// `canvas::CapStyle` and `canvas::JoinStyle` reach the types page with every variant,
+    /// and the stroke's shape — `cap`, `join`, `miterLimit`, `dashes`, `dashOffset` — is
+    /// carried by `canvas::Paint`, not by the shapes with ends.
     ///
-    /// plan-116-D adds user-visible surface out of registry *data*, which no compiler
-    /// gate reads: the enum could be registered with one variant, or registered and
-    /// then referenced by neither record, and everything would still build and every
-    /// other test would stay green. Rendering it is the only check those have.
+    /// plan-116-D added user-visible surface out of registry *data*, which no compiler
+    /// gate reads: an enum registered with a variant missing, or a field on the wrong
+    /// record, would still build and leave every other test green. Rendering it is the only
+    /// check those have. plan-163-B moved `cap` from `Line`, `Arc` and `PolyLine` onto
+    /// `Paint` (a dash has ends on every kind, so the cap belongs to the stroke) — the
+    /// placement plan-116-D had rejected, and which this test pinned against until then.
     #[test]
-    fn the_cap_style_enum_and_both_cap_fields_render() {
+    fn the_stroke_style_enums_and_paint_fields_render() {
         let md = render_types_markdown(registry().resolve_package("canvas").unwrap());
 
         // One type's entry: from its `#### ` heading to the next one.
@@ -1721,29 +1724,40 @@ mod tests {
         };
 
         let cap_style = entry("#### canvas::CapStyle");
-        for variant in ["`Butt`", "`Round`"] {
+        for variant in ["`Butt`", "`Round`", "`Square`"] {
             assert!(
                 cap_style.contains(variant),
                 "canvas::CapStyle is missing {variant}:\n{cap_style}"
             );
         }
-
-        for record in ["#### canvas::Line", "#### canvas::Arc"] {
-            let table = entry(record);
+        let join_style = entry("#### canvas::JoinStyle");
+        for variant in ["`Round`", "`Miter`", "`Bevel`"] {
             assert!(
-                table.contains("| `cap` | `CapStyle` |"),
-                "{record} does not carry a `cap AS CapStyle` field:\n{table}"
+                join_style.contains(variant),
+                "canvas::JoinStyle is missing {variant}:\n{join_style}"
             );
         }
 
-        // And nowhere else. A cap on a shape with no ends is what plan-116-D's
-        // non-goals rule out, and putting it on `Paint` — the rejected alternative —
-        // would show up here as `Circle` and `Rectangle` acquiring one.
-        for record in ["#### canvas::Circle", "#### canvas::Rectangle"] {
+        let paint = entry("#### canvas::Paint");
+        for field in [
+            "| `cap` | `CapStyle` |",
+            "| `join` | `JoinStyle` |",
+            "| `miterLimit` | `Float` |",
+            "| `dashes` | `List OF Float` |",
+            "| `dashOffset` | `Float` |",
+        ] {
+            assert!(
+                paint.contains(field),
+                "canvas::Paint does not carry {field}:\n{paint}"
+            );
+        }
+
+        // And nowhere else: one source for the value.
+        for record in ["#### canvas::Line", "#### canvas::Arc", "#### canvas::PolyLine"] {
             let table = entry(record);
             assert!(
                 !table.contains("| `cap` |"),
-                "{record} has no ends, so it must not carry a cap:\n{table}"
+                "{record} still carries its own cap besides `Paint.cap`:\n{table}"
             );
         }
     }
