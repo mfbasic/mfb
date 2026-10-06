@@ -239,3 +239,93 @@ fn close_delimited_body_is_not_dropped_by_the_non_blocking_drive() {
         hex(body)
     );
 }
+
+// ---------------------------------------------------------------------------
+// A categorically bodyless status (RFC 9112 §6.3 rules 1-2: 1xx, 204, 304)
+// must complete at the end of the head, before any Content-Length/
+// Transfer-Encoding/close-delimited arm -- even when the peer holds the
+// connection open afterward. Regression found in review: the first fix for
+// this bug introduced a close-delimited (-2) sentinel that made EVERY
+// response with no Content-Length and no chunked framing wait for EOF,
+// which wrongly included 204/304 (no Content-Length is the common case for
+// both). A 204/304 from a server that then sits on the socket must still
+// return promptly.
+// ---------------------------------------------------------------------------
+
+/// Run the blocking `http::read` client against a peer that sends `head`,
+/// then holds the connection open for `hold` before closing it. Returns how
+/// long the client took, its stdout, and its exit status.
+fn run_against_held_open_peer(
+    head: &[u8],
+    hold: Duration,
+) -> (Duration, String, std::process::ExitStatus) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind peer");
+    let port = listener.local_addr().expect("peer addr").port();
+    let head = head.to_vec();
+    let peer = std::thread::spawn(move || {
+        let (mut conn, _) = listener.accept().expect("accept");
+        read_request_head(&mut conn);
+        conn.write_all(&head).expect("write head");
+        conn.flush().expect("flush head");
+        std::thread::sleep(hold);
+        // `conn` drops here, closing the socket -- the correct client must
+        // already be done long before this point.
+    });
+
+    let source = format!(
+        "IMPORT http\nIMPORT net\nIMPORT io\n\n\
+         FUNC main AS Integer\n\
+        \x20 LET u AS net::Url = net::toUrl(\"http://127.0.0.1:{port}/\")\n\
+        \x20 LET r AS http::Response = http::read(u)\n\
+        \x20 io::print(\"status=\" & toString(r.status))\n\
+        \x20 io::print(\"bodylen=\" & toString(len(r.body)))\n\
+        \x20 RETURN 0\n\
+         END FUNC\n"
+    );
+    let project = common::temp_project(&format!("b858_held_{}", nonce()), &source);
+    let exe = common::build_project(&project);
+    let start = std::time::Instant::now();
+    let out = std::process::Command::new(&exe)
+        .output()
+        .expect("run http client");
+    let elapsed = start.elapsed();
+    let _ = std::fs::remove_dir_all(&project);
+    peer.join().expect("peer thread");
+    (
+        elapsed,
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        out.status,
+    )
+}
+
+#[test]
+fn status_204_completes_without_waiting_for_the_peer_to_close() {
+    let (elapsed, stdout, status) =
+        run_against_held_open_peer(b"HTTP/1.1 204 No Content\r\n\r\n", Duration::from_secs(6));
+    assert!(status.success(), "client failed:\n{stdout}");
+    assert!(stdout.contains("status=204"), "got:\n{stdout}");
+    assert!(stdout.contains("bodylen=0"), "got:\n{stdout}");
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "a 204 is categorically bodyless (RFC 9112 §6.3 rule 2) and must \
+         complete at the end of the head, not wait for the peer's 6s-delayed \
+         close; took {elapsed:?}"
+    );
+}
+
+#[test]
+fn status_304_completes_without_waiting_for_the_peer_to_close() {
+    let (elapsed, stdout, status) = run_against_held_open_peer(
+        b"HTTP/1.1 304 Not Modified\r\n\r\n",
+        Duration::from_secs(6),
+    );
+    assert!(status.success(), "client failed:\n{stdout}");
+    assert!(stdout.contains("status=304"), "got:\n{stdout}");
+    assert!(stdout.contains("bodylen=0"), "got:\n{stdout}");
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "a 304 is categorically bodyless (RFC 9112 §6.3 rule 2) and must \
+         complete at the end of the head, not wait for the peer's 6s-delayed \
+         close; took {elapsed:?}"
+    );
+}
