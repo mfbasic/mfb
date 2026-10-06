@@ -52,6 +52,14 @@ Plus every caller that passes a string operand through the `From` impls. Those c
 the bulk of the work, especially the hand-written per-backend runtime helpers that spell
 physical registers as strings (see bug-930).
 
+## Scope note (owner, 2026-10-05)
+
+Removing `Raw` changes how operands are **represented**, not what they say. It does not
+rewrite any runtime helper. Shared `src/codegen/` helpers already use virtual registers and
+neutral ABI tokens. Target-specific code in `src/arch/` / `src/target/` (selection, encoders,
+per-ISA helpers) keeps its physical registers, now as typed `Phys` operands (and labels and
+symbols as typed variants), instead of strings. Target-specific stays target-specific.
+
 ## Goal
 
 - `Operand` has no `Raw` arm and no `From<&str>/String` conversion. Each operand kind the
