@@ -5,9 +5,9 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
+Status: Fixed on linux-aarch64 glibc (bs16-agent-c). Runs on x86-64 and on musl still owed.
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
-Regression Test: (proposed) GTK `--app` program `setMode(Console); term::on(); io::print("x"); term::off()` under Xvfb exits 0 with no `Gtk-CRITICAL` on stderr and the grid shows `x`
+Regression Test: `target::linux_gtk::canvas_reconcile_tests::a_none_default_program_builds_the_term_surface_before_the_worker_spawns` (unit, both start modes). Runtime: the probes below, on 2226.
 
 Referencing `app::setMode` anywhere makes a program start in `Mode.None`
 (presentation-mode "static initial mode"). On GTK the window for such a program is
@@ -98,3 +98,57 @@ thread per gdb `info threads`); no symbols were available to pin the exact frame
 - The term-area grid geometry (`TERM_INIT_SYMBOL`) and `resize` handler must be
   wired for the reconcile-built area too (guess, not measured: otherwise
   `term::terminalSize` would not track the window).
+
+## Resolution
+
+The `term::` area setup (`gtk_drawing_area_new` + `g_object_ref_sink` → `ST_TERM_AREA`,
+the draw func, `_mfb_gtkapp_term_init`, the `resize` handler) is factored out of the
+`Console` arm of `emit_activate_handler` into `emit_term_area_setup`
+(`src/target/linux_gtk/bootstrap.rs`). The activate handler now also calls it in the `None`
+arm, after `g_application_hold` and before the worker spawns. The emitted instructions are
+the same, so a Console-default program's startup bytes are unchanged.
+
+The doc's root cause points at `emit_reconcile_build_helper`. The area is NOT built there,
+because the reconcile is a `g_idle_add` with no ordering against the worker. `setMode`
+returns before the idle runs, so a `term::on(); io::print(...)` right after
+`setMode(Console)` would write a grid that `term_init` then blanks, with `cols`/`rows`
+still 0. Activate runs before the worker exists, which is the same guarantee the Console
+path relies on. Spec: `mfb spec app linux-runtime` "`activate`" now says the area is built
+in both start modes, and why.
+
+Not changed here (reported to the coordinator for the next batch): the reconcile-built
+window attaches no mouse controllers, so a `setMode` program gets no mouse events. Any GTK
+mouse event SIGSEGVs on linux-aarch64 (bug-982, coordinator-filed), so attaching them now
+would turn "no events" into a crash.
+
+### Proof (box 2226, Debian 12 aarch64 glibc, GTK4; Xvfb `:91`, `GSK_RENDERER=cairo GDK_BACKEND=x11`)
+
+2228 (x86_64 GTK) and 2225 (Alpine musl GTK) were DOWN for this run (connection refused),
+so **x86-64 and musl runs are still owed**. Without `GSK_RENDERER=cairo`, `xwd` of the Xvfb
+root is all black even for a Console-default control. With it, the control renders the grid.
+Runner: `rungtk.sh` (start Xvfb, run the AppImage, `xwd -root` at 1.6 s, rc).
+
+| probe (`mfb build --app --target linux-aarch64`) | base (`/tmp/main-dbg-target`) | fixed |
+| --- | --- | --- |
+| doc repro (`setMode(Console)`, sleep 500, `term::on`, `io::print`, `term::off`) | rc 139, 3/3 | rc 0, 3/3 |
+| same + `term::terminalSize` + 1.5 s hold for a screenshot | rc 139 3/3, `Gtk-CRITICAL gtk_widget_queue_draw: assertion 'GTK_IS_WIDGET (widget)' failed` | rc 0 3/3, no CRITICAL, size 69x21 (= the Console-default control), screenshot shows `in tui` |
+| `setMode(Console)` then `term::on` with no sleep (the race) | rc 139 3/3 | rc 0 3/3, `race` drawn |
+| Console → None → Console, then `term::on` | rc 139 3/3 (CRITICAL) | rc 0 3/3, `cycled` drawn |
+| Console-default control (no `setMode`) | — | rc 0, `in tui` drawn, 69x21 |
+
+RED: the unit test failed before the fix (`left: ["pthread_create"]`, `right:
+["gtk_drawing_area_new", "gtk_drawing_area_set_draw_func", "_mfb_gtkapp_term_init",
+"pthread_create"]`). It passes after, as do the 33 `linux_gtk` unit tests
+(`cargo test --bin mfb linux_gtk`).
+
+## Golden impact
+
+Only None-default (setMode-using) Linux app programs change: `_mfb_gtkapp_activate` gains
+the 26-instruction term-area block and its relocations. `scripts/artifact-gate.sh <mfb> all`
+shows two new diffs beyond the branch base's 59:
+`syntax/app/app-window-surface/app_window_surface.linux-{aarch64,x86_64}.app.ncode`. For
+aarch64 the diff is checked to be exactly that block (`mfb build -ncode --app --target
+linux-aarch64`, branch base vs fix). `syntax/app/app-mouse-surface`'s Linux goldens were
+already in the branch base's diff set. That fixture calls `app::setMode`
+(`grep -l setMode tests/syntax/app/app-mouse-surface/src/*.mfb`), so its Linux goldens
+take this block as well.

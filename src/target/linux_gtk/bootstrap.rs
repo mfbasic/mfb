@@ -312,6 +312,42 @@ fn emit_spawn_program_thread(asm: &mut Asm, tid_offset: usize, attr_offset: usiz
     asm.call_external("pthread_attr_destroy");
 }
 
+/// The `term::` drawing-area surface: created up front, kept off-window (held by a
+/// ref) until `term::on` swaps it in, with its draw func, its grid geometry and its
+/// `resize` handler. Runs in `activate` on the GTK main thread, before the worker
+/// spawns, for BOTH start modes (bug-962): `term_init` blanks the grid the worker
+/// writes, so it must run before the worker can call `term::on`. A `None`-default
+/// program builds its window later in the reconcile, which has no ordering with the
+/// worker's first `term::` write, so the area cannot be built there.
+fn emit_term_area_setup(asm: &mut Asm) {
+    // term:: drawing-area surface: created up front, kept off-window (held by a ref)
+    // until term::on swaps it in. Its draw func renders the character grid; the grid
+    // starts cleared (all spaces).
+    asm.call_external("gtk_drawing_area_new");
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("g_object_ref_sink");
+    asm.store_state(abi::c_return(0), ST_TERM_AREA);
+    asm.load_state(abi::c_arg(0), ST_TERM_AREA);
+    asm.local_address(abi::c_arg(1), TERM_DRAW_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user_data
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy
+    asm.call_external("gtk_drawing_area_set_draw_func");
+    // Derive the grid geometry from the monospace font metrics + content size and
+    // blank the grid (main thread, before the worker can use it).
+    asm.call_internal(TERM_INIT_SYMBOL);
+    // Reflow the grid when the drawing area is resized (plan-35-E): the "resize"
+    // handler recomputes the active cols/rows from the new allocation + cell metrics
+    // so term::terminalSize tracks the live window, then forces a full redraw.
+    //   g_signal_connect_data(term_area, "resize", on_resize, NULL, NULL, 0)
+    asm.load_state(abi::c_arg(0), ST_TERM_AREA);
+    asm.local_address(abi::c_arg(1), STR_RESIZE.0);
+    asm.local_address(abi::c_arg(2), TERM_RESIZE_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
+    asm.call_external("g_signal_connect_data");
+}
+
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
     uses_mouse: bool,
@@ -332,9 +368,10 @@ pub(super) fn emit_activate_handler(
 
     // plan-62-D: a `Console`-default program builds the transcript window + input
     // widgets (emitted byte-for-byte as before). A `None`-default program starts
-    // windowless: it skips the whole surface and instead takes `g_application_hold`
-    // so `GApplication` does not exit with zero windows — then still spawns the
-    // worker below. The window is created later, on demand, by `setMode(Console)`.
+    // windowless: it skips the window and instead takes `g_application_hold` so
+    // `GApplication` does not exit with zero windows — then still spawns the worker
+    // below. The window is created later, on demand, by `setMode(Console)`; the
+    // off-window `term::` area is built here in both modes (bug-962).
     if initial_mode == PresentationMode::Console {
         // window = gtk_application_window_new(app)  (app is the incoming x0)
         asm.call_external("gtk_application_window_new");
@@ -357,32 +394,7 @@ pub(super) fn emit_activate_handler(
         asm.call_external("g_object_ref_sink");
         asm.store_state(abi::c_return(0), ST_SCROLLED);
 
-        // term:: drawing-area surface: created up front, kept off-window (held by a ref)
-        // until term::on swaps it in. Its draw func renders the character grid; the grid
-        // starts cleared (all spaces).
-        asm.call_external("gtk_drawing_area_new");
-        asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
-        asm.call_external("g_object_ref_sink");
-        asm.store_state(abi::c_return(0), ST_TERM_AREA);
-        asm.load_state(abi::c_arg(0), ST_TERM_AREA);
-        asm.local_address(abi::c_arg(1), TERM_DRAW_SYMBOL);
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0")); // user_data
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // destroy
-        asm.call_external("gtk_drawing_area_set_draw_func");
-        // Derive the grid geometry from the monospace font metrics + content size and
-        // blank the grid (main thread, before the worker can use it).
-        asm.call_internal(TERM_INIT_SYMBOL);
-        // Reflow the grid when the drawing area is resized (plan-35-E): the "resize"
-        // handler recomputes the active cols/rows from the new allocation + cell metrics
-        // so term::terminalSize tracks the live window, then forces a full redraw.
-        //   g_signal_connect_data(term_area, "resize", on_resize, NULL, NULL, 0)
-        asm.load_state(abi::c_arg(0), ST_TERM_AREA);
-        asm.local_address(abi::c_arg(1), STR_RESIZE.0);
-        asm.local_address(abi::c_arg(2), TERM_RESIZE_SYMBOL);
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
-        asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
-        asm.call_external("g_signal_connect_data");
+        emit_term_area_setup(&mut asm);
 
         // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE. The view is
         // left NON-focusable (like the working build): focusing a GtkTextView activates
@@ -457,6 +469,10 @@ pub(super) fn emit_activate_handler(
         // Record that a hold is active so the reconcile balances it (Open Decision 1).
         asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
         asm.store_state(abi::SCRATCH[1], ST_HELD);
+        // bug-962: the `term::` surface, built here rather than by the reconcile so
+        // a `setMode(Console)` window has the same surface a startup-built one does,
+        // ready before the worker spawns (see `emit_term_area_setup`).
+        emit_term_area_setup(&mut asm);
         // plan-98-A Phase 4: wire the input pipe here too. A `None`-default program
         // is exactly one that references `app::setMode`, so it is the only kind that
         // can reach `Console` or `Canvas` through the reconcile — and in both the
