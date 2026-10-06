@@ -5,8 +5,26 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/http/func_http_respondPath_valid (extend: escape to a missing file must be 403)
+Status: Resolved (2026-10-05)
+Regression Test: tests/rt-behavior/http/func_http_respondPath_valid (extended: escape to a missing file is 403)
+
+## Resolution
+
+Fixed in `__http_respondPath` (`func_respond_path.rs`): a new lexical
+`..`-escape check (`__http_pathEscapesRoot`) runs before `fs::fileExists`,
+independent of what exists on disk, so a traversal attempt is 403 whether or
+not its target exists. The existing `fs::isWithin` (realpath-based,
+symlink-aware) check still runs after `fs::fileExists`, unchanged — it must,
+since `isWithin` requires every path component including the file to exist,
+and reordering it naively would have turned every in-root-missing-file 404
+into a 403 (the Root Cause section's own caveat).
+
+RED: `bug-862 RED: pin the respondPath existence oracle` (commit
+`2a9523de7`) — both new cases failed `expected 403, got 404` against the
+unfixed `fileExists`-first order.
+GREEN: `bug-862: check confinement before existence in http::respondPath`
+(commit `929d56a53`) — all 6 cases pass.
+
 
 `respondPath` checks `fs::fileExists(candidate)` *before* it checks
 `fs::isWithin(root, candidate)`. A traversal request to a path outside `root` therefore gets
@@ -93,3 +111,13 @@ exist to canonicalize it (it is TRAPped to FALSE today). If so, confine lexicall
 ## Blast Radius
 
 - `__http_respondPath`: fixed by this bug. `http::respondFile` takes an already-open handle and is unaffected.
+
+## Golden impact
+
+`__http_respondPath`'s body gained a new early lexical-escape check, and a new private
+helper `__http_pathEscapesRoot` was added to the `http` package's assembled source.
+Every fixture that `IMPORT http`s will show a changed `.ast`/`.ir`/`.ncode` for the same
+reason as bug-981/bug-868 below — the helper section and one existing function body
+changed text. Expect diffs under `tests/byte-identity/http/`, `tests/syntax/http/**`, and
+any `rt-behavior`/`rt-error` `http` fixture with a golden. No other package's assembled
+source changed for this bug.

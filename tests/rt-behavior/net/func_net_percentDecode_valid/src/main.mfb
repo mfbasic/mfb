@@ -27,5 +27,14 @@ TESTING
       expectTrap(net::percentDecode("%2"), errorCode::ErrInvalidFormat)
       expectTrap(net::percentDecode("%ZZ"), errorCode::ErrInvalidFormat)
     END TCASE
+    TCASE "rejects a signed escape (bug-868)"
+      ' toInt(text, 16)'s signed radix parse used to accept a leading
+      ' "+"/"-", so "%+5" decoded as hex 5 and "%+A" as 0x0A (a line feed)
+      ' instead of failing RFC 3986's `pct-encoded = "%" HEXDIG HEXDIG`.
+      expectTrap(net::percentDecode("%+5"), errorCode::ErrInvalidFormat)
+      expectTrap(net::percentDecode("%+A"), errorCode::ErrInvalidFormat)
+      expectTrap(net::percentDecode("%-1"), errorCode::ErrInvalidFormat)
+      expectTrap(net::percentDecode("% 5"), errorCode::ErrInvalidFormat)
+    END TCASE
   END TGROUP
 END TESTING

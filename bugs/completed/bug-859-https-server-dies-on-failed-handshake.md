@@ -5,8 +5,27 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-behavior/http/https-server-survives-bad-handshake-rt (to add)
+Status: Resolved (2026-10-05)
+Regression Test: tests/net/rt_http_tls_handshake_failure_costs_one_connection.rs
+
+## Resolution
+
+Doc-only fix, per the owner decision above: `handleRequest` already raises
+`ErrTlsFailed` for a failed handshake, `tls::accept` already closes the failed
+connection before raising, and the listener/accept loop is unaffected —
+verified at runtime (not by reading code): a server under 50 failed-handshake
+probes keeps its fd count flat (`lsof -p <pid> | wc -l`: 14 -> 14 -> 14) and
+still answers a valid HTTPS request afterward with 200. No production code
+change was needed or made.
+
+Fixed the actual bug — the spec's and the registry's prose and worked example
+claimed the accept loop was unconditionally crash-proof while showing no
+`TRAP`, which is DoS-able if followed verbatim — by rewording
+`func_handle_request.rs`'s `DESC`/`EX` and `src/docs/spec/stdlib/05_http.md`
+to carve out the handshake exception and add `TRAP` to the TLS loop example.
+
+Commits: `0720eaf8e` (test + doc fix, one commit — no RED/GREEN split applies
+since no production code changed).
 
 **Owner decision (2026-10-05):** a failed handshake still raises `ErrTlsFailed` from `http::handleRequest` so the
 caller can see and log it. It costs only that connection: the failed connection is closed,
@@ -118,3 +137,13 @@ listener is broken". If it cannot, it needs a distinct code or a lower-level acc
 - `__http_handleRequestSSL`: fixed by this bug.
 - `__http_handleRequest` (plaintext): unaffected (no peer I/O in `tcp::accept`).
 - Any user loop that calls `tls::accept` directly has the same hazard. That is caller-owned, out of scope.
+
+## Golden impact
+
+None expected. The owner decision settles this as a documentation fix: `handleRequest`
+already raises `ErrTlsFailed` for a failed handshake and already keeps the listener/accept
+loop usable for the next call (verified directly against the base compiler: a caller that
+`TRAP`s the call, as the corrected examples now show, serves request 3 normally after
+request 2's garbage probe). Only `DESC`/`EX` registry doc strings in
+`func_handle_request.rs` and prose in `src/docs/spec/stdlib/05_http.md` changed — neither
+feeds codegen, so no `.ast`/`.ir`/`.ncode`/`.run` golden is expected to move.

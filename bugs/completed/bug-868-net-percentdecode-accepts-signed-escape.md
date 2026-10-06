@@ -5,8 +5,25 @@ Effort: small (<1h)
 Severity: LOW
 Class: Security
 
-Status: Open
-Regression Test: tests/rt-error/net (add `%+5` / `%+A` percentDecode cases)
+Status: Resolved (2026-10-05)
+Regression Test: tests/rt-behavior/net/func_net_percentDecode_valid, func_net_parseQuery_valid (extended)
+
+## Resolution
+
+Fixed in `__net_percentDecodeImpl` (`helper_percent_decode_impl.rs`): both
+characters after a `%` are now validated as hex digits (new
+`__net_isHexDigitChar` helper) before `toInt(.., 16)` parses them, matching
+`encoding::percentDecode`'s existing `__encoding_hexValue`-based validation.
+`net::parseQuery`'s `__net_decodeQueryComponent` already traps any `FAIL`
+from this helper and falls back to the raw text, so it needed no change —
+once the signed escape fails, it is automatically kept raw.
+
+RED: `bug-868 RED: pin the signed percent-escape rejection` (commit
+`67429ec57`) — `percentDecode("%+5")` did not raise, and
+`parseQuery("k=%+5")` decoded to byte `0x05` instead of keeping `"%+5"` raw.
+GREEN: `bug-868: reject a signed percent-escape in net::percentDecode`
+(commit `ba8744b5a`).
+
 
 `net::percentDecode` parses the two characters after `%` with `toInt(text, 16)`, which
 accepts a leading `+`. So `"%+5"` decodes to byte 0x05 and `"%+A"` to 0x0A (line feed)
@@ -71,3 +88,13 @@ does with `__encoding_hexValue`.
 ## Blast Radius
 
 - `net::percentDecode`, `net::parseQuery` (via `__net_decodeQueryComponent`), and so `http` server `Request.path`/`Request.query`: fixed by this bug.
+
+## Golden impact
+
+`__net_percentDecodeImpl`'s body gained a hex-digit validation check, and a new private
+helper `__net_isHexDigitChar` was added to the `net` package's assembled source. Every
+fixture that `IMPORT net`s — directly, or transitively through `http`/`tls`/`tcp`/`udp`,
+all of which pull in `net` — will show a changed `.ast`/`.ir`/`.ncode`. Expect diffs
+under `tests/byte-identity/net/` (and, transitively, `tcp`/`udp`/`tls`/`http` byte-identity
+fixtures, since they import `net`), `tests/syntax/net/**`, and any `rt-behavior`/`rt-error`
+`net` fixture with a golden.

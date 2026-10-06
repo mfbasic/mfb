@@ -72,6 +72,7 @@ mod helper_index_of;
 mod helper_index_of_bytes;
 mod helper_invoke_handler;
 mod helper_is_extra_header;
+mod helper_is_hex_digit_char;
 mod helper_last_index_of;
 mod helper_limits;
 mod helper_linger_net;
@@ -85,6 +86,9 @@ mod helper_parse_request;
 mod helper_parse_response;
 mod helper_parse_status_line;
 mod helper_part_header;
+mod helper_path_escapes_root;
+mod helper_percent_byte_encode;
+mod helper_percent_encode_target;
 mod helper_read_net;
 mod helper_read_request_net;
 mod helper_read_request_tls;
@@ -520,6 +524,9 @@ pub(crate) fn register(r: &mut Registry) {
     helper_default_port::register(&mut pkg);
     helper_normalize_method::register(&mut pkg);
     helper_host_header::register(&mut pkg);
+    helper_is_hex_digit_char::register(&mut pkg);
+    helper_percent_byte_encode::register(&mut pkg);
+    helper_percent_encode_target::register(&mut pkg);
     helper_request_target::register(&mut pkg);
     helper_header_value::register(&mut pkg);
     helper_is_extra_header::register(&mut pkg);
@@ -574,6 +581,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_reason_phrase::register(&mut pkg);
     helper_serialize_head::register(&mut pkg);
     helper_ext_content_type::register(&mut pkg);
+    helper_path_escapes_root::register(&mut pkg);
 
     func_read::register(&mut pkg);
     func_write::register(&mut pkg);

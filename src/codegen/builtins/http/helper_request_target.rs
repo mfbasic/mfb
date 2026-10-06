@@ -16,7 +16,9 @@ r#"FUNC __http_requestTarget(url AS net::Url) AS String
   IF url.query <> "" THEN
     target = target & "?" & url.query
   END IF
-  RETURN target
+  ' bug-981: percent-encode SP/DEL/non-ASCII so the target is always a single
+  ' token on the request line (see __http_percentEncodeTarget).
+  RETURN __http_percentEncodeTarget(target)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

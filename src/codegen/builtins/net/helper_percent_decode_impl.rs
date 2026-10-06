@@ -25,6 +25,13 @@ FUNC __net_percentDecodeImpl(s AS String, plusSpace AS Boolean) AS String
       IF i + 2 >= n THEN
         FAIL error(77050003, "truncated percent-escape")
       END IF
+      ' bug-868: both escape characters must themselves be hex digits.
+      ' toInt(.., 16)'s signed radix parse otherwise accepts a leading
+      ' `+`/`-`, so "%+5"/"%+A" decoded as valid escapes (0x05, a line
+      ' feed) instead of failing.
+      IF __net_isHexDigitChar(strings::mid(s, i + 1, 1)) = FALSE OR __net_isHexDigitChar(strings::mid(s, i + 2, 1)) = FALSE THEN
+        FAIL error(77050003, "invalid percent-escape")
+      END IF
       out = collections::append(out, toByte(toInt(strings::mid(s, i + 1, 2), 16)))
       i = i + 3
     ELSEIF c = "+" AND plusSpace = TRUE THEN

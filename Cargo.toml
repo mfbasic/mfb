@@ -762,6 +762,14 @@ name = "rt_http_server_dos"
 path = "tests/net/rt_http_server_dos.rs"
 
 [[test]]
+name = "rt_http_client_request_target_percent_encoding"
+path = "tests/net/rt_http_client_request_target_percent_encoding.rs"
+
+[[test]]
+name = "rt_http_tls_handshake_failure_costs_one_connection"
+path = "tests/net/rt_http_tls_handshake_failure_costs_one_connection.rs"
+
+[[test]]
 name = "rt_inline_trap_borrowed_resource"
 path = "tests/net/rt_inline_trap_borrowed_resource.rs"
 
@@ -816,6 +824,10 @@ path = "tests/net/rt_tls_listener_local_address.rs"
 [[test]]
 name = "rt_tls_listener_thread_transfer"
 path = "tests/net/rt_tls_listener_thread_transfer.rs"
+
+[[test]]
+name = "rt_tls_listen_host_validation"
+path = "tests/net/rt_tls_listen_host_validation.rs"
 
 # --- tests/runtime/ ---------------------------------------------------
 [[test]]
