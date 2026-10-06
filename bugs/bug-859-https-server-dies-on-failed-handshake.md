@@ -118,3 +118,13 @@ listener is broken". If it cannot, it needs a distinct code or a lower-level acc
 - `__http_handleRequestSSL`: fixed by this bug.
 - `__http_handleRequest` (plaintext): unaffected (no peer I/O in `tcp::accept`).
 - Any user loop that calls `tls::accept` directly has the same hazard. That is caller-owned, out of scope.
+
+## Golden impact
+
+None expected. The owner decision settles this as a documentation fix: `handleRequest`
+already raises `ErrTlsFailed` for a failed handshake and already keeps the listener/accept
+loop usable for the next call (verified directly against the base compiler: a caller that
+`TRAP`s the call, as the corrected examples now show, serves request 3 normally after
+request 2's garbage probe). Only `DESC`/`EX` registry doc strings in
+`func_handle_request.rs` and prose in `src/docs/spec/stdlib/05_http.md` changed — neither
+feeds codegen, so no `.ast`/`.ir`/`.ncode`/`.run` golden is expected to move.

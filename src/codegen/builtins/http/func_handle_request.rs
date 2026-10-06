@@ -68,17 +68,28 @@ matching is segment-based on the decoded path with a single trailing `/` ignored
 and `*` binds all remaining segments joined by `/`. Bound captures are placed in
 `http::Request.params` (the wildcard under the key `"*"`) before the handler runs.
 
-**Crash-proofing.** The accept loop never dies on a bad client. A handler that
-fails for any reason is answered with a built-in `500 Internal Server Error`, as
-is a handler whose response carries a control byte (CR, LF, NUL, ...) in its
-reason phrase or in a header name or value — such a response could otherwise be
-split by a reflected value, so it is never serialized; a path matching no route
-is answered with `404 Not Found`; an unparsable request line, header block, or
+**Crash-proofing.** Once a connection is accepted, the loop never dies on a bad
+client. A handler that fails for any reason is answered with a built-in `500
+Internal Server Error`, as is a handler whose response carries a control byte
+(CR, LF, NUL, ...) in its reason phrase or in a header name or value — such a
+response could otherwise be split by a reflected value, so it is never
+serialized; a path matching no route is answered with `404 Not Found`; an
+unparsable request line, header block, or
 chunk-size line is answered with `400 Bad Request`; an over-cap request is
 answered with `413 Payload Too Large` or `431 Request Header Fields Too Large`.
 Every step after the accept is trapped, so a malformed request can only ever
 cost its own connection, never the process. A write that fails mid-response
 drops the connection and returns normally.
+
+**The accept itself is not inside that crash-proofing.** Over TLS, accepting a
+connection runs the server-side handshake (`tls::accept`), and a peer that
+sends plaintext or any non-handshake bytes fails it: `handleRequest` raises
+`ErrTlsFailed` rather than swallowing it, so the caller can see and log the
+failure. This still costs only that one connection — the failed connection is
+already closed and the listener is unaffected, so the very next
+`handleRequest` call on the same listener serves the next client normally —
+but, unlike every failure above, the caller's own loop must `TRAP` this one
+itself to keep running (see the example).
 
 **Emission.** The status line is `HTTP/1.1 <status> <reason>`; an empty
 `http::Response.reason` is filled in from a built-in table keyed by status code, falling
@@ -118,10 +129,15 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Reading a captured path parameter, and serving the same routes over TLS:
+Reading a captured path parameter, and serving the same routes over TLS. Unlike
+the plaintext loop above, a TLS accept loop must `TRAP` the call: a client that
+fails the handshake (a port scanner, a stray plaintext probe, ...) makes
+`handleRequest` raise `ErrTlsFailed` for that one connection, and an untrapped
+raise would otherwise end the loop:
 
 ```
 IMPORT http
+IMPORT io
 IMPORT tls
 IMPORT collections
 
@@ -134,7 +150,10 @@ FUNC main() AS Nothing
   routes = collections::append(routes, http::route("/user/:id", showUser))
   RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
   DO
-    http::handleRequest(s, routes)
+    http::handleRequest(s, routes) TRAP(e)
+      io::print("handshake/connection failed: " & e.message & "\n")
+      RECOVER
+    END TRAP
   LOOP UNTIL FALSE
 END FUNC
 ```"#;

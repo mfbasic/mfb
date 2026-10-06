@@ -260,14 +260,24 @@ A program binds a listener and drives its own accept loop:
 `http::serverSSL` returns a `tls::Listener` owning the bound socket and the
 loaded PEM certificate + key, and works on both Linux and macOS.
 `http::handleRequest` is overloaded by listener type — both feed one shared
-parse/match/dispatch/emit core — and accepts one connection per call. It is
-crash-proof: a failing handler becomes a `500` (as does a handler response whose
-reason phrase or a header name/value carries a control byte — it is never
-serialized, so a reflected `\r\n` cannot split the response), no matching route
-a `404`, a malformed request a `400`, an oversize request (64 MiB cap) a `413`,
-an over-cap head a `431`, a slow or idle client a `408`, and a peer I/O error
-drops the one connection without failing the loop. Every step after the accept
-is trapped: a malformed request can cost its own connection, never the process.
+parse/match/dispatch/emit core — and accepts one connection per call. Once a
+connection is accepted, it is crash-proof: a failing handler becomes a `500`
+(as does a handler response whose reason phrase or a header name/value
+carries a control byte — it is never serialized, so a reflected `\r\n` cannot
+split the response), no matching route a `404`, a malformed request a `400`,
+an oversize request (64 MiB cap) a `413`, an over-cap head a `431`, a slow or
+idle client a `408`, and a peer I/O error drops the one connection without
+failing the loop. Every step after the accept is trapped: a malformed request
+can cost its own connection, never the process.
+
+The accept itself is not covered by that: over TLS, accepting a connection
+runs the server-side handshake, and a peer that sends non-handshake bytes
+(plaintext, a port scanner, a stray `curl http://` against an HTTPS port)
+fails it. `handleRequest` raises `ErrTlsFailed` for that rather than
+swallowing it — it still costs only the one connection, and the listener
+stays open for the next call — but the caller's loop must `TRAP` it to keep
+running; the plaintext listener never raises here because `tcp::accept` does
+no peer I/O.
 
 Once a client is connected the read is bounded: a connection silent for 10 s
 between reads, or whose request is still incomplete 60 s after its first byte,
@@ -281,6 +291,17 @@ scanned incrementally, so a large request is examined once, not once per read.
 RES s AS tcp::Listener = http::server(8080)
 DO
   http::handleRequest(s, routes)
+LOOP UNTIL FALSE
+```
+
+Over TLS the same loop must trap the accept itself:
+
+```text
+RES s AS tls::Listener = http::serverSSL(8443, "cert.pem", "key.pem")
+DO
+  http::handleRequest(s, routes) TRAP(e)
+    RECOVER   ' log e and keep serving; a failed handshake costs only this connection
+  END TRAP
 LOOP UNTIL FALSE
 ```
 
