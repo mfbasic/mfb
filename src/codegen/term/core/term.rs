@@ -580,11 +580,11 @@ fn emit_on(
     let previous_grid: Reg = vregs.next().into();
     ctx.instructions.extend([
         abi::load_u64(
-            &previous_grid,
+            previous_grid,
             ARENA_STATE_REGISTER,
             term_state_offset + term_grid::TERM_STATE_GRID_OFFSET,
         ),
-        abi::store_u64(&previous_grid, abi::stack_pointer(), PREVIOUS_GRID_OFFSET),
+        abi::store_u64(previous_grid, abi::stack_pointer(), PREVIOUS_GRID_OFFSET),
     ]);
     term_grid::emit_grid_alloc(
         symbol,

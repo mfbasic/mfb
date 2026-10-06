@@ -1,10 +1,10 @@
 //! bug-967: a re-entered console `term::on` must not orphan the shadow grid.
 //!
-//! `term::on` allocates the console shadow-grid block (back + front + output buffer
-//! + EGC pool, sized from the terminal) and stores it in term-state slot 48. A
-//! second `term::on` while TUI mode was already on allocated ANOTHER block and
-//! overwrote the slot, so the previous one was unreachable; `term::off` freed only
-//! the last. `mfb spec app term-backend`, "Console shadow-grid header block":
+//! `term::on` allocates the console shadow-grid block (back and front buffers, the
+//! output buffer and the EGC pool, sized from the terminal) and stores it in
+//! term-state slot 48. A second `term::on` while TUI mode was already on allocated
+//! ANOTHER block and overwrote the slot, so the previous one was unreachable;
+//! `term::off` freed only the last. `mfb spec app term-backend`, "Console shadow-grid header block":
 //! `term::off` frees the block — so after one `off`, however many `on`s ran, the
 //! `--debug` report must show no live arena bytes.
 //!
