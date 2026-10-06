@@ -1590,9 +1590,9 @@ pub(crate) fn lower_thread_finish(
     // then reads nothing; `CLOSED` stays).
     let closed_meanwhile = format!("{symbol}_closed_meanwhile");
     ctx.instructions.extend([
-        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
-        abi::load_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
-        abi::compare_immediate(&r.v9, THREAD_STATE_CLOSED),
+        abi::load_u64(r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(r.v9, r.v8, CONTROL_OFFSET_STATE),
+        abi::compare_immediate(r.v9, THREAD_STATE_CLOSED),
         abi::branch_eq(&closed_meanwhile),
         abi::move_immediate(&r.v9, "Integer", THREAD_STATE_COMPLETED),
         abi::store_u64(&r.v9, &r.v8, CONTROL_OFFSET_STATE),
