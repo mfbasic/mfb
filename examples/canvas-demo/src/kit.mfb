@@ -1,0 +1,375 @@
+' kit - the small vocabulary every scene in the demo is drawn with.
+'
+' canvas items are plain records, so most of this file is shorthand: a point, a
+' colour with an alpha, a paint that glows, a gradient from a list of stops, a
+' ring of points around a centre. None of it holds state. The scene files build
+' their pictures out of these and out of canvas records written in full where a
+' field matters to what the scene is showing.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+LET TAU AS Float = 6.283185307179586
+
+' ---------------------------------------------------------------------------
+' Numbers
+' ---------------------------------------------------------------------------
+
+FUNC clamp01(v AS Float) AS Float
+  IF v < 0.0 THEN RETURN 0.0
+  IF v > 1.0 THEN RETURN 1.0
+  RETURN v
+END FUNC
+
+FUNC clampF(v AS Float, lo AS Float, hi AS Float) AS Float
+  IF v < lo THEN RETURN lo
+  IF v > hi THEN RETURN hi
+  RETURN v
+END FUNC
+
+FUNC lerp(a AS Float, b AS Float, t AS Float) AS Float
+  RETURN a + (b - a) * t
+END FUNC
+
+' The fractional part, always in 0..1, also for negative values.
+FUNC fract(v AS Float) AS Float
+  RETURN v - toFloat(math::floor(v))
+END FUNC
+
+FUNC smooth(t AS Float) AS Float
+  LET c AS Float = clamp01(t)
+  RETURN c * c * (3.0 - 2.0 * c)
+END FUNC
+
+FUNC easeOutCubic(t AS Float) AS Float
+  LET c AS Float = 1.0 - clamp01(t)
+  RETURN 1.0 - c * c * c
+END FUNC
+
+FUNC easeInOut(t AS Float) AS Float
+  LET c AS Float = clamp01(t)
+  IF c < 0.5 THEN RETURN 4.0 * c * c * c
+  LET f AS Float = -2.0 * c + 2.0
+  RETURN 1.0 - f * f * f / 2.0
+END FUNC
+
+' A slight overshoot past 1 and back, for panels that pop in.
+FUNC easeOutBack(t AS Float) AS Float
+  LET c AS Float = clamp01(t) - 1.0
+  RETURN 1.0 + 2.70158 * c * c * c + 1.70158 * c * c
+END FUNC
+
+' Move `current` towards `target`, covering the fraction of the gap a spring of
+' the given rate covers in `dt` seconds - frame-rate independent smoothing.
+FUNC approach(current AS Float, target AS Float, rate AS Float, dt AS Float) AS Float
+  RETURN target + (current - target) * math::exp(-rate * dt)
+END FUNC
+
+' A repeatable pseudo-random number in 0..1 for an integer seed: the scenery is
+' scattered with these, so it is the same every time a scene is opened.
+FUNC hash01(n AS Integer) AS Float
+  LET s AS Float = math::sin(toFloat(n MOD 100003) * 12.9898 + 78.233) * 43758.5453
+  RETURN fract(s)
+END FUNC
+
+FUNC hashRange(n AS Integer, lo AS Float, hi AS Float) AS Float
+  RETURN lo + (hi - lo) * hash01(n)
+END FUNC
+
+' A uniform random Float in lo..hi, from the thread's random sequence.
+FUNC randF(lo AS Float, hi AS Float) AS Float
+  RETURN lo + (hi - lo) * toFloat(math::rand(0, 1000000)) / 1000000.0
+END FUNC
+
+FUNC dist(ax AS Float, ay AS Float, bx AS Float, by AS Float) AS Float
+  LET dx AS Float = bx - ax
+  LET dy AS Float = by - ay
+  RETURN math::sqrt(dx * dx + dy * dy)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Colour
+' ---------------------------------------------------------------------------
+
+FUNC rgba(r AS Integer, g AS Integer, b AS Integer, a AS Integer) AS color::Color
+  RETURN color::rgba(r, g, b, a)
+END FUNC
+
+FUNC hex(text AS String) AS color::Color
+  RETURN color::fromHex(text)
+END FUNC
+
+' A colour with its alpha scaled by `f` (0..1).
+FUNC fade(c AS color::Color, f AS Float) AS color::Color
+  RETURN color::withAlpha(c, math::round(toFloat(toInt(c.alpha)) * clamp01(f)))
+END FUNC
+
+' A colour with alpha set to `f` of opaque.
+FUNC alpha(c AS color::Color, f AS Float) AS color::Color
+  RETURN color::withAlpha(c, math::round(255.0 * clamp01(f)))
+END FUNC
+
+' Blend two colours channel by channel in sRGB, alpha included. (color::mix
+' blends in linear light, which is right for light and wrong for a palette
+' animated by hand: sRGB steps look even to the eye.)
+FUNC mixC(a AS color::Color, b AS color::Color, t AS Float) AS color::Color
+  LET k AS Float = clamp01(t)
+  LET r AS Integer = math::round(lerp(toFloat(toInt(a.red)), toFloat(toInt(b.red)), k))
+  LET g AS Integer = math::round(lerp(toFloat(toInt(a.green)), toFloat(toInt(b.green)), k))
+  LET bl AS Integer = math::round(lerp(toFloat(toInt(a.blue)), toFloat(toInt(b.blue)), k))
+  LET al AS Integer = math::round(lerp(toFloat(toInt(a.alpha)), toFloat(toInt(b.alpha)), k))
+  RETURN color::rgba(r, g, bl, al)
+END FUNC
+
+' Sample a palette of colours spread evenly over 0..1.
+FUNC rampC(colors AS List OF color::Color, t AS Float) AS color::Color
+  LET n AS Integer = len(colors)
+  IF n = 1 THEN RETURN collections::get(colors, 0)
+  LET f AS Float = clamp01(t) * toFloat(n - 1)
+  MUT i AS Integer = math::floor(f)
+  IF i >= n - 1 THEN i = n - 2
+  RETURN mixC(collections::get(colors, i), collections::get(colors, i + 1), f - toFloat(i))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Points, transforms and paints
+' ---------------------------------------------------------------------------
+
+FUNC pt(x AS Float, y AS Float) AS canvas::Point
+  RETURN canvas::Point[x := x, y := y]
+END FUNC
+
+FUNC identity AS canvas::Transform
+  RETURN canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0]
+END FUNC
+
+FUNC translate(x AS Float, y AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := x, ty := y]
+END FUNC
+
+' Rotate by `angle` and scale by `s` about the item's own origin, then place
+' that origin at (x, y).
+FUNC place(x AS Float, y AS Float, angle AS Float, s AS Float) AS canvas::Transform
+  LET co AS Float = math::cos(angle) * s
+  LET si AS Float = math::sin(angle) * s
+  RETURN canvas::Transform[a := co, b := si, c := -si, d := co, tx := x, ty := y]
+END FUNC
+
+' Like place, with separate x and y scales (a negative sx mirrors).
+FUNC place2(x AS Float, y AS Float, angle AS Float, sx AS Float, sy AS Float) AS canvas::Transform
+  LET co AS Float = math::cos(angle)
+  LET si AS Float = math::sin(angle)
+  RETURN canvas::Transform[a := co * sx, b := si * sx, c := -si * sy, d := co * sy, tx := x, ty := y]
+END FUNC
+
+FUNC fillP(c AS color::Color) AS canvas::Paint
+  RETURN canvas::fill(c)
+END FUNC
+
+FUNC strokeP(c AS color::Color, w AS Float) AS canvas::Paint
+  RETURN WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round }
+END FUNC
+
+' Additive light: what overlapping glows, sparks and sunbeams are drawn with.
+FUNC glowP(c AS color::Color) AS canvas::Paint
+  RETURN WITH canvas::fill(c) { blend := canvas::BlendMode.Add }
+END FUNC
+
+FUNC gradP(g AS canvas::Gradient) AS canvas::Paint
+  RETURN WITH canvas::fill(color::white) { gradient := g }
+END FUNC
+
+FUNC gstop(offset AS Float, c AS color::Color) AS canvas::GradientStop
+  RETURN canvas::GradientStop[offset := offset, color := c]
+END FUNC
+
+FUNC linear(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, stops AS List OF canvas::GradientStop) AS canvas::Gradient
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := pt(x1, y1), endPoint := pt(x2, y2), stops := stops, spread := canvas::GradientSpread.Pad, transform := identity(), focalOffset := pt(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+END FUNC
+
+FUNC radial(cx AS Float, cy AS Float, r AS Float, stops AS List OF canvas::GradientStop) AS canvas::Gradient
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := pt(cx, cy), endPoint := pt(cx + r, cy), stops := stops, spread := canvas::GradientSpread.Pad, transform := identity(), focalOffset := pt(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+END FUNC
+
+' A radial ramp whose bright start sits off-centre by (fx, fy): the highlight
+' on a glass sphere or a pearl.
+FUNC focal(cx AS Float, cy AS Float, r AS Float, fx AS Float, fy AS Float, stops AS List OF canvas::GradientStop) AS canvas::Gradient
+  RETURN WITH radial(cx, cy, r, stops) { focalOffset := pt(fx, fy) }
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Items. Each returns a canvas::DrawItem so a list of mixed shapes can be built
+' with collections::append.
+' ---------------------------------------------------------------------------
+
+FUNC item(d AS canvas::DrawItem) AS canvas::DrawItem
+  RETURN d
+END FUNC
+
+FUNC rect(x AS Float, y AS Float, w AS Float, h AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Rectangle[x := x, y := y, w := w, h := h, paint := p]
+END FUNC
+
+FUNC rrect(x AS Float, y AS Float, w AS Float, h AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::RoundedRect[x := x, y := y, w := w, h := h, cornerRadius := r, paint := p]
+END FUNC
+
+FUNC circle(x AS Float, y AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Circle[x := x, y := y, radius := r, paint := p]
+END FUNC
+
+FUNC ellipse(x AS Float, y AS Float, rx AS Float, ry AS Float, angle AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Ellipse[x := x, y := y, radiusX := rx, radiusY := ry, angle := angle, paint := p]
+END FUNC
+
+FUNC line(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Line[x1 := x1, y1 := y1, x2 := x2, y2 := y2, paint := p]
+END FUNC
+
+FUNC arc(x AS Float, y AS Float, r AS Float, a0 AS Float, a1 AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Arc[x := x, y := y, radius := r, startAngle := a0, endAngle := a1, paint := p]
+END FUNC
+
+FUNC poly(points AS List OF canvas::Point, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.NonZero, paint := p]
+END FUNC
+
+FUNC shape(rings AS List OF List OF canvas::Point, rule AS canvas::FillRule, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Polygon[contours := rings, rule := rule, paint := p]
+END FUNC
+
+FUNC path(points AS List OF canvas::Point, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::PolyLine[points := points, colors := [], paint := p]
+END FUNC
+
+FUNC trail(points AS List OF canvas::Point, colors AS List OF color::Color, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::PolyLine[points := points, colors := colors, paint := p]
+END FUNC
+
+FUNC label(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Text[x := x, y := baseline, text := text, font := font, size := size, paint := canvas::fill(c)]
+END FUNC
+
+FUNC labelP(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Text[x := x, y := baseline, text := text, font := font, size := size, paint := p]
+END FUNC
+
+' A soft round glow: a disc whose radial ramp fades from `c` to nothing, added
+' onto what is beneath it.
+FUNC glow(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Circle[x := x, y := y, radius := r, paint := WITH glowP(color::white) { gradient := radial(x, y, r, [gstop(0.0, c), gstop(0.35, fade(c, 0.45)), gstop(1.0, fade(c, 0.0))]) }]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Rings of points
+' ---------------------------------------------------------------------------
+
+' `n` points around an ellipse, starting at angle `a0`, clockwise.
+FUNC ovalRing(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF canvas::Point
+  MUT out AS List OF canvas::Point = []
+  FOR i = 0 TO n - 1
+    LET a AS Float = a0 + TAU * toFloat(i) / toFloat(n)
+    out = collections::append(out, pt(cx + rx * math::cos(a), cy + ry * math::sin(a)))
+  NEXT
+  RETURN out
+END FUNC
+
+' The same, running anticlockwise: under FillRule.NonZero a ring wound against
+' the one around it cuts a hole.
+FUNC ovalRingCcw(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF canvas::Point
+  MUT out AS List OF canvas::Point = []
+  FOR i = 0 TO n - 1
+    LET a AS Float = a0 - TAU * toFloat(i) / toFloat(n)
+    out = collections::append(out, pt(cx + rx * math::cos(a), cy + ry * math::sin(a)))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC rectRing(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF canvas::Point
+  RETURN [pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]
+END FUNC
+
+' Points along a quadratic Bezier from p0 to p2 bending towards p1, excluding
+' the first point (so consecutive curves join without repeating a vertex).
+FUNC quadPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, n AS Integer) AS List OF canvas::Point
+  MUT out AS List OF canvas::Point = []
+  FOR i = 1 TO n
+    LET t AS Float = toFloat(i) / toFloat(n)
+    LET u AS Float = 1.0 - t
+    out = collections::append(out, pt(u * u * x0 + 2.0 * u * t * x1 + t * t * x2, u * u * y0 + 2.0 * u * t * y1 + t * t * y2))
+  NEXT
+  RETURN out
+END FUNC
+
+' Points along a cubic Bezier, excluding the first point.
+FUNC cubicPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float, n AS Integer) AS List OF canvas::Point
+  MUT out AS List OF canvas::Point = []
+  FOR i = 1 TO n
+    LET t AS Float = toFloat(i) / toFloat(n)
+    LET u AS Float = 1.0 - t
+    LET a AS Float = u * u * u
+    LET b AS Float = 3.0 * u * u * t
+    LET c AS Float = 3.0 * u * t * t
+    LET d AS Float = t * t * t
+    out = collections::append(out, pt(a * x0 + b * x1 + c * x2 + d * x3, a * y0 + b * y1 + c * y2 + d * y3))
+  NEXT
+  RETURN out
+END FUNC
+
+' Every point moved by (dx, dy).
+FUNC shiftPts(points AS List OF canvas::Point, dx AS Float, dy AS Float) AS List OF canvas::Point
+  RETURN collections::transform(points, LAMBDA(p AS canvas::Point) -> pt(p.x + dx, p.y + dy))
+END FUNC
+
+' A ridge line across the width `w`: a mountain range or a hill crest, as the
+' top edge of a polygon closed along `baseY`. `seed` picks the ridge; `rough`
+' is how jagged it is.
+FUNC ridge(w AS Float, baseY AS Float, topY AS Float, amp AS Float, seed AS Integer, rough AS Float, steps AS Integer) AS List OF canvas::Point
+  MUT out AS List OF canvas::Point = [pt(-20.0, baseY)]
+  FOR i = 0 TO steps
+    LET u AS Float = toFloat(i) / toFloat(steps)
+    LET s AS Float = toFloat(seed)
+    LET h AS Float = math::sin(u * 3.1 + s) * 0.45 + math::sin(u * 7.3 + s * 1.9) * 0.3 * rough + math::sin(u * 17.0 + s * 3.1) * 0.15 * rough + (hash01(seed * 131 + i) - 0.5) * 0.18 * rough
+    out = collections::append(out, pt(-20.0 + (w + 40.0) * u, topY - amp * h))
+  NEXT
+  RETURN collections::append(out, pt(w + 20.0, baseY))
+END FUNC
+
+' Darken the corners: an elliptical radial ramp, centred in the window and
+' stretched to its shape by the gradient's own transform, from clear in the
+' middle to `strength` (0..255) black at the edges.
+FUNC vignette(w AS Float, h AS Float, strength AS Integer) AS canvas::DrawItem
+  LET g AS canvas::Gradient = WITH radial(0.0, 0.0, w * 0.72, [gstop(0.0, rgba(0, 0, 0, 0)), gstop(0.6, rgba(0, 0, 0, 0)), gstop(1.0, rgba(0, 0, 0, strength))]) { transform := place2(w * 0.5, h * 0.5, 0.0, 1.0, h / w) }
+  RETURN rect(0.0, 0.0, w, h, gradP(g))
+END FUNC
+
+' A soft shaft of light from (x, y) along `angle`, `length` long and `width`
+' wide at its broadest. It is one quad filled with a radial gradient that the
+' gradient's own transform stretches into a long thin ellipse lying along the
+' shaft, so it feathers out sideways and along its length at once; the focal
+' offset pulls the brightest point back towards the source.
+FUNC beam(x AS Float, y AS Float, angle AS Float, length AS Float, width AS Float, c AS color::Color, strength AS Float) AS canvas::DrawItem
+  LET hl AS Float = length / 2.0
+  LET mx AS Float = x + math::cos(angle) * hl
+  LET my AS Float = y + math::sin(angle) * hl
+  LET g AS canvas::Gradient = WITH radial(0.0, 0.0, 1.0, [gstop(0.0, fade(c, strength)), gstop(0.4, fade(c, strength * 0.5)), gstop(1.0, fade(c, 0.0))]) { transform := place2(mx, my, angle, hl, width), focalOffset := pt(-0.6, 0.0) }
+  LET co AS Float = math::cos(angle)
+  LET si AS Float = math::sin(angle)
+  ' The ellipse's bounding box, turned to lie along the shaft.
+  RETURN poly([pt(mx - co * hl + si * width, my - si * hl - co * width), pt(mx + co * hl + si * width, my + si * hl - co * width), pt(mx + co * hl - si * width, my + si * hl + co * width), pt(mx - co * hl - si * width, my - si * hl + co * width)], WITH glowP(color::white) { gradient := g })
+END FUNC
+
+' Points carried through a transform, so a shape built in its own small
+' coordinates can be drawn in window pixels.
+'
+' Shapes drawn many at a time - a flock, a fall of leaves, the panes of a
+' window - are placed this way rather than with Paint.transform: an item's
+' antialiasing margin is currently added in its own units and so magnified by
+' its transform, which makes a polygon scaled up a hundredfold cost the GPU
+' several times what the same polygon costs given in pixels (bug-991). Single
+' showcase items still use Paint.transform.
+FUNC mapRing(ring AS List OF canvas::Point, t AS canvas::Transform) AS List OF canvas::Point
+  RETURN collections::transform(ring, LAMBDA(q AS canvas::Point) -> pt(t.a * q.x + t.c * q.y + t.tx, t.b * q.x + t.d * q.y + t.ty))
+END FUNC

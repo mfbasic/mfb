@@ -1,0 +1,387 @@
+' menu - the title screen: an aurora over a night forest, the title, and a card
+' for each scene. A card lifts and glows under the mouse; clicking one opens
+' its scene, and Quit (or Q) leaves.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+' A card's text, laid out for the window size it was measured at.
+TYPE CardText
+  title AS List OF String
+  tagline AS List OF String
+  nameSize AS Float
+  tagSize AS Float
+END TYPE
+
+TYPE MenuState
+  sigil AS SvgImage          ' the Grove's sigil, for the bestiary's card
+  forW AS Float              ' the window size the text below was laid out for
+  forH AS Float
+  cards AS List OF CardText
+  grove AS Tracked
+  badge AS Tracked
+  quit AS Tracked
+  titleW AS Float
+  t AS Float
+  hover AS List OF Float     ' per card, 0 at rest .. 1 under the mouse
+  quitHover AS Float
+  chosen AS Integer          ' -1 nothing yet, a card's index, or QUIT_CHOICE
+END TYPE
+
+LET QUIT_CHOICE AS Integer = 99
+
+TYPE Box
+  x AS Float
+  y AS Float
+  w AS Float
+  h AS Float
+END TYPE
+
+FUNC menuNew AS MenuState
+  MUT hover AS List OF Float = []
+  FOR i = 1 TO DEMO_COUNT
+    hover = collections::append(hover, 0.0)
+  NEXT
+  RETURN MenuState[sigil := loadSvg("sigil"), forW := 0.0, forH := 0.0, cards := [], grove := Tracked[glyphs := [], xs := [], width := 0.0], badge := Tracked[glyphs := [], xs := [], width := 0.0], quit := Tracked[glyphs := [], xs := [], width := 0.0], titleW := 0.0, t := 0.0, hover := hover, quitHover := 0.0, chosen := -1]
+END FUNC
+
+' Where the cards go: five across and two down, under the title, sized to the
+' window.
+FUNC cardBoxes(w AS Float, h AS Float) AS List OF Box
+  LET cols AS Integer = 5
+  LET rows AS Integer = 2
+  LET gap AS Float = math::max(12.0, w * 0.014)
+  LET top AS Float = h * 0.33
+  LET bottom AS Float = h - 92.0
+  LET gridW AS Float = math::min(w * 0.9, 1500.0)
+  LET cw AS Float = (gridW - gap * toFloat(cols - 1)) / toFloat(cols)
+  LET ch AS Float = math::min(cw * 1.28, (bottom - top - gap) / toFloat(rows))
+  LET x0 AS Float = (w - gridW) / 2.0
+  LET y0 AS Float = top + ((bottom - top) - (ch * toFloat(rows) + gap)) / 2.0
+  MUT out AS List OF Box = []
+  FOR i = 0 TO DEMO_COUNT - 1
+    LET c AS Integer = i MOD cols
+    LET r AS Integer = i / cols
+    out = collections::append(out, Box[x := x0 + toFloat(c) * (cw + gap), y := y0 + toFloat(r) * (ch + gap), w := cw, h := ch])
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC quitBox(w AS Float, h AS Float) AS Box
+  RETURN Box[x := (w - 150.0) / 2.0, y := h - 70.0, w := 150.0, h := 40.0]
+END FUNC
+
+FUNC inBox(b AS Box, x AS Float, y AS Float) AS Boolean
+  RETURN inside(x, y, b.x, b.y, b.w, b.h)
+END FUNC
+
+LET MENU_TITLE AS String = "MFBASIC  Canvas"
+
+FUNC titleSize(w AS Float) AS Float
+  RETURN math::min(70.0, w * 0.052)
+END FUNC
+
+' Measure and wrap every piece of text on the screen, for this window size.
+FUNC layoutMenu(s AS MenuState, f AS Fonts, w AS Float, h AS Float) AS MenuState
+  LET boxes AS List OF Box = cardBoxes(w, h)
+  MUT cards AS List OF CardText = []
+  FOR i = 0 TO DEMO_COUNT - 1
+    LET b AS Box = collections::get(boxes, i)
+    LET info AS DemoInfo = demoInfo(i)
+    LET nameSize AS Float = math::min(19.0, b.w * 0.082)
+    LET tagSize AS Float = math::min(13.0, b.w * 0.058)
+    cards = collections::append(cards, CardText[title := wrap(f.heading, nameSize, info.title, b.w - 20.0), tagline := wrap(f.body, tagSize, info.tagline, b.w - 26.0), nameSize := nameSize, tagSize := tagSize])
+  NEXT
+  installMenuBackdrop(w, h)
+  RETURN WITH s { forW := w, forH := h, cards := cards, grove := layoutTracked(f.bold, 12.5, "THE ENCHANTED GROVE", 4.0), badge := layoutTracked(f.bold, 9.5, "INTERACTIVE", 1.6), quit := buttonLabel(f, "Quit", quitBox(w, h).h), titleW := textWidth(f.display, titleSize(w), MENU_TITLE) }
+END FUNC
+
+FUNC menuStep(s0 AS MenuState, f AS Fonts, inp AS Input, dt AS Float) AS MenuState
+  MUT s AS MenuState = s0
+  IF s.forW <> inp.w OR s.forH <> inp.h THEN s = layoutMenu(s, f, inp.w, inp.h)
+  LET boxes AS List OF Box = cardBoxes(inp.w, inp.h)
+  MUT hover AS List OF Float = []
+  MUT chosen AS Integer = -1
+  FOR i = 0 TO DEMO_COUNT - 1
+    LET over AS Boolean = inBox(collections::get(boxes, i), inp.mx, inp.my)
+    MUT target AS Float = 0.0
+    IF over THEN target = 1.0
+    hover = collections::append(hover, approach(collections::get(s.hover, i), target, 14.0, dt))
+    IF over AND inp.pressed THEN chosen = i
+  NEXT
+  LET overQuit AS Boolean = inBox(quitBox(inp.w, inp.h), inp.mx, inp.my)
+  MUT qt AS Float = 0.0
+  IF overQuit THEN qt = 1.0
+  IF overQuit AND inp.pressed THEN chosen = QUIT_CHOICE
+  IF keyPressed(inp, "q") THEN chosen = QUIT_CHOICE
+  ' Number keys open a scene directly: 1-9, and 0 for the tenth.
+  FOR i = 0 TO DEMO_COUNT - 1
+    IF keyPressed(inp, toString((i + 1) MOD 10)) THEN chosen = i
+  NEXT
+  RETURN WITH s { t := s.t + dt, hover := hover, quitHover := approach(s.quitHover, qt, 14.0, dt), chosen := chosen }
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The backdrop
+' ---------------------------------------------------------------------------
+
+' A curtain of aurora: a wide additive PolyLine whose colour runs along it, its
+' points rippling with time.
+FUNC aurora(w AS Float, y AS Float, amp AS Float, t AS Float, seed AS Float, a AS color::Color, b AS color::Color, width AS Float) AS canvas::DrawItem
+  MUT points AS List OF canvas::Point = []
+  MUT colors AS List OF color::Color = []
+  FOR i = 0 TO 20
+    LET u AS Float = toFloat(i) / 20.0
+    LET x AS Float = -60.0 + (w + 120.0) * u
+    LET yy AS Float = y + math::sin(u * 5.0 + t * 0.23 + seed) * amp + math::sin(u * 11.0 - t * 0.31 + seed * 2.0) * amp * 0.35
+    points = collections::append(points, pt(x, yy))
+    LET pulse AS Float = 0.5 + 0.5 * math::sin(u * 9.0 + t * 0.6 + seed)
+    colors = collections::append(colors, fade(mixC(a, b, u), 0.25 + 0.75 * pulse * math::sin(u * math::pi)))
+  NEXT
+  RETURN trail(points, colors, WITH canvas::stroke(color::white, width) { blend := canvas::BlendMode.Add, cap := canvas::CapStyle.Round })
+END FUNC
+
+' The parts of the backdrop that never move - the sky, the hills, the two
+' rows of pines and the vignette - installed once per window size as named
+' groups, so a frame only names them. (The aurora goes between them.)
+FUNC installMenuBackdrop(w AS Float, h AS Float) AS Nothing
+  canvas::setGroup("menu-sky", [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h, [gstop(0.0, hex("#03050d")), gstop(0.55, hex("#0b1626")), gstop(1.0, hex("#0d1d1a"))])))])
+  MUT forest AS List OF canvas::DrawItem = [poly(ridge(w, h, h * 0.78, h * 0.08, 4, 0.9, 60), fillP(hex("#0b1a22")))]
+  forest = collections::append(forest, rect(0.0, h * 0.72, w, h * 0.14, gradP(linear(0.0, h * 0.72, 0.0, h * 0.86, [gstop(0.0, rgba(60, 120, 140, 0)), gstop(0.6, rgba(60, 120, 140, 40)), gstop(1.0, rgba(60, 120, 140, 0))]))))
+  forest = collections::append(forest, pineRow(w, h * 0.94, h * 0.18, 26, 12, fillP(hex("#08131a"))))
+  forest = collections::append(forest, pineRow(w, h * 1.04, h * 0.26, 12, 19, fillP(hex("#050c10"))))
+  canvas::setGroup("menu-forest", forest)
+  canvas::setGroup("menu-vignette", [vignette(w, h, 170)])
+END FUNC
+
+FUNC menuBackdrop(w AS Float, h AS Float, t AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = [item(canvas::Group[dx := 0.0, dy := 0.0, name := "menu-sky"])]
+  out = collections::append(out, starField(w, h * 0.7, 160, t, 1.0, 3))
+  ' Three curtains of aurora, each drawn twice: wide and faint, then narrow.
+  FOR i = 0 TO 2
+    LET fi AS Float = toFloat(i)
+    LET y AS Float = h * (0.16 + fi * 0.07)
+    LET a AS color::Color = rampC([hex("#36f2b0"), hex("#3fb8ff"), hex("#9a6cff")], fi / 2.0)
+    LET b AS color::Color = rampC([hex("#9a6cff"), hex("#36f2b0"), hex("#2fe0ff")], fi / 2.0)
+    out = collections::append(out, aurora(w, y, h * 0.05, t, fi * 2.1, fade(a, 0.12), fade(b, 0.12), h * 0.12))
+    out = collections::append(out, aurora(w, y, h * 0.05, t, fi * 2.1, fade(a, 0.20), fade(b, 0.20), h * 0.035))
+  NEXT
+  out = collections::append(out, item(canvas::Group[dx := 0.0, dy := 0.0, name := "menu-forest"]))
+  out = collections::append(out, motes(0.0, h * 0.55, w, h * 0.45, 30, t, hex("#c8ff8a"), 1.8, 5))
+  RETURN collections::append(out, item(canvas::Group[dx := 0.0, dy := 0.0, name := "menu-vignette"]))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The cards
+' ---------------------------------------------------------------------------
+
+FUNC menuDraw(s AS MenuState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET t AS Float = s.t
+  MUT out AS List OF canvas::DrawItem = menuBackdrop(w, h, t)
+
+  ' The title block.
+  IF len(s.cards) < DEMO_COUNT THEN RETURN out
+  LET ts AS Float = titleSize(w)
+  LET titleY AS Float = h * 0.17
+  LET tw AS Float = s.titleW
+  out = collections::append(out, drawTrackedCentered(f.bold, 12.5, s.grove, w / 2.0, titleY - ts * 0.95, fillP(alpha(gold(), 0.85))))
+  out = collections::append(out, glowText(f.display, ts, MENU_TITLE, (w - tw) / 2.0, titleY, hex("#ffd98a"), 3.0))
+  out = collections::append(out, label(f.display, ts, MENU_TITLE, (w - tw) / 2.0, titleY, hex("#f6e3b4")))
+  out = collections::append(out, divider(w / 2.0, titleY + 22.0, math::min(260.0, w * 0.22), 1.0))
+  out = collections::append(out, centered(f.italic, 17.0, "Ten studies in vector light, motion and play", w / 2.0, titleY + 52.0, fillP(muted())))
+
+  LET boxes AS List OF Box = cardBoxes(w, h)
+  FOR i = 0 TO DEMO_COUNT - 1
+    out = collections::append(out, card(f, demoInfo(i), collections::get(s.cards, i), s.badge, collections::get(boxes, i), collections::get(s.hover, i), t, i, s.sigil))
+  NEXT
+
+  LET q AS Box = quitBox(w, h)
+  out = collections::append(out, button(f, s.quit, q.x, q.y, q.w, q.h, s.quitHover, FALSE))
+  out = collections::append(out, centered(f.body, 12.0, "Click a scene, or press its number   ·   F  full screen   ·   Q  quit", w / 2.0, h - 14.0, fillP(alpha(muted(), 0.55))))
+  RETURN out
+END FUNC
+
+FUNC card(f AS Fonts, info AS DemoInfo, text AS CardText, badge AS Tracked, b AS Box, hover AS Float, t AS Float, index AS Integer, sigil AS SvgImage) AS List OF canvas::DrawItem
+  LET lift AS Float = -6.0 * easeOutCubic(hover)
+  LET x AS Float = b.x
+  LET y AS Float = b.y + lift
+  LET cw AS Float = b.w
+  LET ch AS Float = b.h
+  LET cx AS Float = x + cw / 2.0
+  MUT out AS List OF canvas::DrawItem = []
+  out = collections::append(out, rrect(x + 4.0, y + 10.0 - lift * 0.5, cw - 8.0, ch, 14.0, fillP(rgba(0, 0, 0, 90 + (math::round(60.0 * hover))))))
+  IF hover > 0.01 THEN out = collections::append(out, glow(cx, y + ch * 0.45, cw * 0.95, alpha(gold(), 0.16 * hover)))
+  out = collections::append(out, rrect(x, y, cw, ch, 14.0, WITH gradP(linear(x, y, x, y + ch, [gstop(0.0, rgba(30, 46, 66, 225)), gstop(1.0, rgba(10, 16, 26, 235))])) { stroke := alpha(gold(), 0.3 + 0.5 * hover), strokeWidth := 1.2 }))
+
+  ' Top to bottom: the emblem, the numeral, the name, as much of the line of
+  ' description as fits, and the badge. The emblem takes what room is left.
+  ' Room is kept for a two-line name on every card, so the emblems match.
+  LET nameH AS Float = 2.0 * (text.nameSize + 2.0)
+  LET badgeH AS Float = 28.0
+  LET er AS Float = clampF(math::min(cw * 0.3, (ch - 14.0 - 12.0 - 18.0 - nameH - 12.0 - badgeH) / 2.0), 14.0, cw * 0.3)
+  LET ey AS Float = y + 14.0 + er
+  ' The emblem: a round window onto a small picture of the scene, clipped to
+  ' its circle.
+  out = collections::append(out, circle(cx, ey, er + 5.0, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.25 + 0.5 * hover), strokeWidth := 1.0 }))
+  LET clipRing AS List OF List OF canvas::Point = [ovalRing(cx, ey, er, er, 64, 0.0)]
+  out = collections::append(out, emblem(index, cx, ey, er, t, hover, clipRing, sigil))
+  out = collections::append(out, circle(cx, ey, er, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.75), strokeWidth := 1.5 }))
+  MUT ty AS Float = ey + er + 22.0
+  out = collections::append(out, centered(f.heading, 12.0, info.numeral, cx, ty, fillP(alpha(gold(), 0.85))))
+  ty = ty + 4.0
+  FOR EACH l IN text.title
+    ty = ty + text.nameSize + 2.0
+    out = collections::append(out, centered(f.heading, text.nameSize, l, cx, ty, fillP(parchment())))
+  NEXT
+  ty = ty + 6.0
+  ' The description shows whole or not at all.
+  IF ty + toFloat(len(text.tagline)) * (text.tagSize + 4.0) < y + ch - badgeH - 8.0 THEN
+    FOR EACH l IN text.tagline
+      ty = ty + text.tagSize + 4.0
+      out = collections::append(out, centered(f.body, text.tagSize, l, cx, ty, fillP(muted())))
+    NEXT
+  END IF
+  IF info.interactive THEN
+    LET bw AS Float = badge.width + 20.0
+    out = collections::append(out, rrect(cx - bw / 2.0, y + ch - 28.0, bw, 18.0, 9.0, WITH fillP(rgba(232, 199, 122, 26 + (math::round(30.0 * hover)))) { stroke := alpha(gold(), 0.6), strokeWidth := 1.0 }))
+    out = collections::append(out, drawTrackedCentered(f.bold, 9.5, badge, cx, y + ch - 15.5, fillP(gold())))
+  END IF
+  RETURN out
+END FUNC
+
+' A small living picture of each scene for its card, clipped to the round
+' window `clip`.
+FUNC emblem(index AS Integer, cx AS Float, cy AS Float, r AS Float, t AS Float, hover AS Float, clip AS List OF List OF canvas::Point, sigil AS SvgImage) AS List OF canvas::DrawItem
+  LET c AS canvas::Paint = WITH fillP(color::white) { clip := clip }
+  LET add AS canvas::Paint = WITH c { blend := canvas::BlendMode.Add }
+  LET speed AS Float = 1.0 + hover * 1.5
+  MUT out AS List OF canvas::DrawItem = []
+  MATCH index
+    CASE 0
+      ' Dawn: a sun rising behind pines.
+      LET sy AS Float = cy + r * 0.25 - r * 0.25 * math::sin(t * 0.5 * speed)
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := linear(0.0, cy - r, 0.0, cy + r, [gstop(0.0, hex("#2a3f80")), gstop(0.6, hex("#f2a07a")), gstop(1.0, hex("#ffd9a0"))]) }))
+      out = collections::append(out, circle(cx, sy, r * 0.3, WITH c { fill := hex("#fff2c8") }))
+      out = collections::append(out, circle(cx, sy, r * 0.7, WITH add { gradient := radial(cx, sy, r * 0.7, [gstop(0.0, rgba(255, 220, 160, 140)), gstop(1.0, rgba(255, 200, 140, 0))]) }))
+      out = collections::append(out, poly(pineRing(cx - r * 0.5, cy + r, r * 1.1, r * 0.5, 3), WITH c { fill := hex("#12261c") }))
+      out = collections::append(out, poly(pineRing(cx + r * 0.55, cy + r, r * 1.3, r * 0.55, 4), WITH c { fill := hex("#0e2017") }))
+      out = collections::append(out, poly(pineRing(cx + r * 0.05, cy + r * 1.1, r * 0.8, r * 0.4, 6), WITH c { fill := hex("#183326") }))
+    CASE 1
+      ' The spring: a basin, falling water and the guardian's light.
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := linear(0.0, cy - r, 0.0, cy + r, [gstop(0.0, hex("#071628")), gstop(1.0, hex("#1c5a5e"))]) }))
+      out = collections::append(out, ellipse(cx, cy + r * 0.45, r * 0.75, r * 0.2, 0.0, WITH c { fill := hex("#7a8a84") }))
+      out = collections::append(out, ellipse(cx, cy + r * 0.42, r * 0.62, r * 0.13, 0.0, WITH c { fill := hex("#3fb4c0") }))
+      FOR k = 0 TO 7
+        LET u AS Float = fract(t * 0.8 * speed + toFloat(k) / 8.0)
+        LET side AS Float = toFloat((k MOD 2) * 2 - 1)
+        out = collections::append(out, circle(cx + side * r * (0.15 + u * 0.25), cy - r * 0.1 + u * u * r * 0.5, r * 0.035, WITH add { fill := rgba(170, 240, 255, 200) }))
+      NEXT
+      LET ox AS Float = cx + math::cos(t * speed) * r * 0.35
+      LET oy AS Float = cy - r * 0.35 + math::sin(t * 2.0 * speed) * r * 0.1
+      out = collections::append(out, circle(ox, oy, r * 0.4, WITH add { gradient := radial(ox, oy, r * 0.4, [gstop(0.0, rgba(180, 255, 240, 200)), gstop(1.0, rgba(120, 255, 230, 0))]) }))
+      out = collections::append(out, circle(ox, oy, r * 0.05, WITH c { fill := color::white }))
+    CASE 2
+      ' Twilight: a crescent moon and a wheeling flock.
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := linear(0.0, cy - r, 0.0, cy + r, [gstop(0.0, hex("#1a0e3a")), gstop(0.6, hex("#7a2f6a")), gstop(1.0, hex("#f59a62"))]) }))
+      out = collections::append(out, shape([ovalRing(cx + r * 0.35, cy - r * 0.35, r * 0.25, r * 0.25, 40, 0.0), ovalRing(cx + r * 0.45, cy - r * 0.42, r * 0.22, r * 0.22, 40, 0.0)], canvas::FillRule.EvenOdd, WITH c { fill := hex("#fff3e0") }))
+      FOR k = 0 TO 13
+        LET a AS Float = t * 0.7 * speed + toFloat(k) * 0.45
+        LET bx AS Float = cx + math::cos(a) * r * (0.35 + 0.1 * math::sin(toFloat(k)))
+        LET by AS Float = cy + r * 0.1 + math::sin(a * 2.0) * r * 0.25
+        FOR EACH it IN bird(bx, by, a + math::pi / 2.0, r * 0.12, math::sin(t * 12.0 + toFloat(k)), 1.0, hex("#1a0e20"), hex("#120a16"))
+          out = collections::append(out, clipped(it, clip))
+        NEXT
+      NEXT
+    CASE 3
+      ' The alchemist: a bubbling cauldron and its steam.
+      LET brew AS color::Color = rampC([hex("#3dff9a"), hex("#ff3b5c"), hex("#3aa8ff"), hex("#ffb52e"), hex("#3dff9a")], fract(t * 0.08 * speed))
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { fill := hex("#0d1a1e") }))
+      out = collections::append(out, circle(cx, cy + r * 0.25, r * 0.9, WITH add { gradient := radial(cx, cy + r * 0.25, r * 0.9, [gstop(0.0, fade(brew, 0.5)), gstop(1.0, fade(brew, 0.0))]) }))
+      out = collections::append(out, ellipse(cx, cy + r * 0.45, r * 0.55, r * 0.42, 0.0, WITH c { fill := hex("#2a3234") }))
+      out = collections::append(out, ellipse(cx, cy + r * 0.15, r * 0.5, r * 0.12, 0.0, WITH c { fill := brew, stroke := hex("#6a7a76"), strokeWidth := 2.0 }))
+      FOR k = 0 TO 4
+        LET u AS Float = fract(t * 0.35 * speed + toFloat(k) / 5.0)
+        out = collections::append(out, circle(cx + math::sin(u * 6.0 + toFloat(k)) * r * 0.15, cy - u * r * 0.8, r * (0.12 + u * 0.18), WITH c { blend := canvas::BlendMode.Screen, fill := fade(mixC(brew, color::white, 0.5), 0.5 * (1.0 - u)) }))
+      NEXT
+    CASE 4
+      ' The canopy: leaves tumbling across a pale sky.
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := linear(0.0, cy - r, 0.0, cy + r, [gstop(0.0, hex("#f4e3c8")), gstop(1.0, hex("#e8a77c"))]) }))
+      out = collections::append(out, circle(cx + r * 0.3, cy - r * 0.2, r * 0.3, WITH c { fill := hex("#fbf3e2") }))
+      FOR k = 0 TO 8
+        LET u AS Float = fract(t * 0.25 * speed + hash01(k + 40))
+        LET lx AS Float = cx - r + u * r * 2.2
+        LET ly AS Float = cy - r * 0.7 + hash01(k + 50) * r * 1.4 + math::sin(u * 9.0 + toFloat(k)) * r * 0.1
+        LET flip AS Float = math::cos(t * 4.0 + toFloat(k))
+        out = collections::append(out, poly(mapRing(leafRing(), place2(lx, ly, t * 2.0 + toFloat(k), r * 0.22 * (0.2 + 0.8 * math::abs(flip)), r * 0.22)), WITH c { fill := leafColor(k) }))
+      NEXT
+    CASE 5
+      ' The wanderer: pixel hills, a coin and a lantern post, drawn in blocks.
+      LET px AS Float = r * 0.12
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := linear(0.0, cy - r, 0.0, cy + r, [gstop(0.0, hex("#7ec8f0")), gstop(1.0, hex("#dff4ff"))]) }))
+      out = collections::append(out, rect(cx - r, cy + r * 0.35, r * 2.0, r, WITH c { fill := hex("#c8805a") }))
+      out = collections::append(out, rect(cx - r, cy + r * 0.35, r * 2.0, px, WITH c { fill := hex("#3fca7a") }))
+      LET bob AS Float = toFloat((math::floor(t * 4.0 * speed)) MOD 2) * px * 0.5
+      out = collections::append(out, rect(cx - px * 1.5, cy + r * 0.35 - px * 4.0 - bob, px * 3.0, px * 3.0, WITH c { fill := hex("#f2c6a0"), stroke := hex("#8a4a2a"), strokeWidth := 2.0 }))
+      out = collections::append(out, rect(cx - px, cy + r * 0.35 - px * 3.2 - bob, px * 2.0, px * 0.5, WITH c { fill := hex("#2a2a3a") }))
+      LET spin AS Float = math::abs(math::cos(t * 3.0 * speed))
+      out = collections::append(out, ellipse(cx + r * 0.5, cy - r * 0.15, px * 1.4 * spin + 1.0, px * 1.4, 0.0, WITH c { fill := hex("#ffd84a"), stroke := hex("#b07a1a"), strokeWidth := 2.0 }))
+    CASE 6
+      ' The scribe: a rune carving itself, ember-bright.
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := radial(cx, cy, r, [gstop(0.0, hex("#5a5650")), gstop(1.0, hex("#26252a"))]) }))
+      LET rune_ AS List OF canvas::Point = [pt(cx - r * 0.3, cy + r * 0.55), pt(cx - r * 0.3, cy - r * 0.55), pt(cx + r * 0.3, cy), pt(cx - r * 0.3, cy + r * 0.0)]
+      LET len_ AS Float = r * 3.0
+      LET shown AS Float = len_ * clamp01(fract(t * 0.3 * speed) * 1.4)
+      out = collections::append(out, path(rune_, WITH c { stroke := hex("#1a1a1e"), strokeWidth := r * 0.12, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashes := [shown + 0.1, len_] }))
+      out = collections::append(out, path(rune_, WITH add { stroke := hex("#ff8a3a"), strokeWidth := r * 0.06, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashes := [shown + 0.1, len_] }))
+    CASE 7
+      ' The bestiary: the Grove's sigil, an SVG drawn by the demo's SVG reader.
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := radial(cx, cy, r, [gstop(0.0, hex("#f6ead0")), gstop(1.0, hex("#c8a870"))]) }))
+      LET view AS canvas::Transform = compose(place(cx, cy, math::sin(t * 0.5) * 0.1, r * 1.7 / sigil.vw), translate(-sigil.vw / 2.0, -sigil.vh / 2.0))
+      FOR EACH it IN svgItems(sigil, view, FALSE, t)
+        out = collections::append(out, clipped(it, localRing(clip, viewOf(it))))
+      NEXT
+    CASE 8
+      ' The cathedral: a small rose window of coloured glass, glowing.
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { fill := hex("#140f12") }))
+      FOR k = 0 TO 7
+        LET a AS Float = toFloat(k) * TAU / 8.0 + t * 0.15 * speed
+        LET ring AS List OF canvas::Point = [pt(cx, cy), pt(cx + math::cos(a - 0.36) * r * 0.85, cy + math::sin(a - 0.36) * r * 0.85), pt(cx + math::cos(a) * r * 0.95, cy + math::sin(a) * r * 0.95), pt(cx + math::cos(a + 0.36) * r * 0.85, cy + math::sin(a + 0.36) * r * 0.85)]
+        out = collections::append(out, poly(ring, WITH c { fill := glassColor(k), stroke := hex("#141010"), strokeWidth := 2.5 }))
+      NEXT
+      out = collections::append(out, circle(cx, cy, r * 0.25, WITH c { fill := glassColor(2), stroke := hex("#141010"), strokeWidth := 2.5 }))
+      out = collections::append(out, circle(cx, cy, r, WITH add { gradient := radial(cx, cy, r, [gstop(0.0, rgba(255, 240, 200, 90)), gstop(1.0, rgba(255, 240, 200, 0))]) }))
+    CASE ELSE
+      ' Lanternlight: a lantern's circle in the dark, and a spirit in it.
+      out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { fill := hex("#060a14") }))
+      LET lx AS Float = cx + math::sin(t * 0.6 * speed) * r * 0.25
+      out = collections::append(out, circle(lx, cy, r * 0.7, WITH c { gradient := radial(lx, cy, r * 0.7, [gstop(0.0, rgba(60, 120, 120, 200)), gstop(1.0, rgba(20, 40, 60, 0))]) }))
+      out = collections::append(out, circle(lx, cy, r * 0.55, WITH c { fill := rgba(0, 0, 0, 0), stroke := rgba(170, 255, 230, 120), strokeWidth := 1.5, dashes := [5.0, 3.0], dashOffset := t * 10.0 }))
+      LET flap AS Float = 0.55 + 0.45 * math::sin(t * 9.0)
+      out = collections::append(out, ellipse(lx - r * 0.15 * flap, cy + r * 0.1, r * 0.15 * flap, r * 0.11, -0.5, WITH add { fill := rgba(255, 224, 138, 200) }))
+      out = collections::append(out, ellipse(lx + r * 0.15 * flap, cy + r * 0.1, r * 0.15 * flap, r * 0.11, 0.5, WITH add { fill := rgba(255, 224, 138, 200) }))
+      out = collections::append(out, circle(lx, cy - r * 0.25, r * 0.12, WITH add { fill := rgba(255, 200, 120, 220) }))
+  END MATCH
+  RETURN out
+END FUNC
+
+' An item with its paint's clip set: `clip` in the item's own coordinates.
+FUNC clipped(d AS canvas::DrawItem, clip AS List OF List OF canvas::Point) AS canvas::DrawItem
+  MATCH d
+    CASE canvas::Polygon(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }
+    CASE canvas::PolyLine(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }
+    CASE canvas::Ellipse(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }
+    CASE canvas::Circle(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }
+    CASE ELSE : RETURN d
+  END MATCH
+END FUNC
+
+' The transform an item is placed by.
+FUNC viewOf(d AS canvas::DrawItem) AS canvas::Transform
+  MATCH d
+    CASE canvas::Polygon(v) : RETURN v.paint.transform
+    CASE canvas::PolyLine(v) : RETURN v.paint.transform
+    CASE ELSE : RETURN identity()
+  END MATCH
+END FUNC

@@ -1,0 +1,224 @@
+' audio - the soundtrack: a quiet ambience for each screen, synthesised sample
+' by sample on a thread of its own.
+'
+' The worker opens the default output and writes 48 kHz stereo PCM in short
+' blocks; audio::write blocks until a block is queued, which is what paces it.
+' Between blocks it drains its message channel: a screen number switches the
+' ambience (cross-faded), SOUND_CLICK rings a soft chime, SOUND_MUTE toggles
+' the volume and SOUND_QUIT ends the thread. Every voice is plain arithmetic -
+' a few detuned sines for the pad, one-pole filtered noise for wind and water,
+' gliding sines for birds, pulsed tones for crickets - so the demo carries no
+' sound files at all.
+'
+' Sound is optional: with no audio device (or no ALSA on Linux) the worker
+' returns at once and the demo runs silently.
+
+IMPORT audio
+IMPORT collections
+IMPORT math
+IMPORT thread
+
+LET SOUND_MENU AS Integer = -1
+LET SOUND_CLICK AS Integer = 100
+LET SOUND_MUTE AS Integer = 101
+LET SOUND_QUIT AS Integer = 102
+
+LET RATE AS Integer = 48000
+LET BLOCK AS Integer = 960     ' 20 ms
+
+' What one screen sounds like: the pad's chord and level, and how much of each
+' texture plays over it.
+TYPE Ambience
+  notes AS List OF Float     ' the pad's frequencies, in hertz
+  pad AS Float
+  wind AS Float
+  water AS Float
+  birds AS Float             ' chirps per second
+  crickets AS Float
+  bubbles AS Float           ' blips per second
+  embers AS Float            ' crackles per second
+END TYPE
+
+FUNC ambienceFor(screen AS Integer) AS Ambience
+  MATCH screen
+    CASE 0 : RETURN Ambience[notes := [146.83, 220.0, 277.18, 329.63], pad := 0.05, wind := 0.04, water := 0.0, birds := 1.6, crickets := 0.0, bubbles := 0.0, embers := 0.0]
+    CASE 1 : RETURN Ambience[notes := [130.81, 196.0, 246.94, 329.63], pad := 0.05, wind := 0.0, water := 0.07, birds := 0.6, crickets := 0.3, bubbles := 0.0, embers := 0.0]
+    CASE 2 : RETURN Ambience[notes := [110.0, 164.81, 220.0, 261.63], pad := 0.06, wind := 0.05, water := 0.03, birds := 0.0, crickets := 0.5, bubbles := 0.0, embers := 0.0]
+    CASE 3 : RETURN Ambience[notes := [98.0, 146.83, 233.08, 293.66], pad := 0.05, wind := 0.0, water := 0.0, birds := 0.0, crickets := 0.2, bubbles := 5.0, embers := 0.0]
+    CASE 4 : RETURN Ambience[notes := [174.61, 220.0, 261.63, 349.23], pad := 0.04, wind := 0.12, water := 0.03, birds := 0.4, crickets := 0.0, bubbles := 0.0, embers := 0.0]
+    CASE 5 : RETURN Ambience[notes := [196.0, 246.94, 293.66, 392.0], pad := 0.05, wind := 0.03, water := 0.0, birds := 1.0, crickets := 0.0, bubbles := 0.0, embers := 0.0]
+    CASE 6 : RETURN Ambience[notes := [73.42, 110.0, 146.83, 174.61], pad := 0.06, wind := 0.02, water := 0.0, birds := 0.0, crickets := 0.0, bubbles := 0.0, embers := 3.0]
+    CASE 7 : RETURN Ambience[notes := [164.81, 207.65, 246.94, 329.63], pad := 0.04, wind := 0.0, water := 0.0, birds := 0.2, crickets := 0.0, bubbles := 0.0, embers := 1.0]
+    CASE 8 : RETURN Ambience[notes := [130.81, 164.81, 196.0, 261.63, 329.63], pad := 0.07, wind := 0.02, water := 0.0, birds := 0.0, crickets := 0.0, bubbles := 0.0, embers := 0.0]
+    CASE 9 : RETURN Ambience[notes := [116.54, 174.61, 233.08, 277.18], pad := 0.05, wind := 0.03, water := 0.02, birds := 0.0, crickets := 1.0, bubbles := 0.0, embers := 0.0]
+    CASE ELSE : RETURN Ambience[notes := [110.0, 164.81, 246.94, 329.63, 493.88], pad := 0.05, wind := 0.02, water := 0.0, birds := 0.0, crickets := 0.3, bubbles := 0.0, embers := 0.0]
+  END MATCH
+END FUNC
+
+' A short sound in flight: a chirp, a blip, a crackle or the click chime.
+TYPE Voice
+  kind AS Integer      ' 0 chirp, 1 bubble, 2 ember, 3 chime
+  age AS Integer       ' samples since it started
+  length AS Integer
+  f0 AS Float
+  f1 AS Float
+  pan AS Float         ' -1 left .. 1 right
+  gain AS Float
+  phase AS Float
+END TYPE
+
+FUNC rnd(lo AS Float, hi AS Float) AS Float
+  RETURN lo + (hi - lo) * toFloat(math::rand(0, 100000)) / 100000.0
+END FUNC
+
+FUNC newVoice(kind AS Integer) AS Voice
+  MATCH kind
+    CASE 0 : RETURN Voice[kind := 0, age := 0, length := math::rand(2400, 6000), f0 := rnd(2600.0, 3600.0), f1 := rnd(3400.0, 5200.0), pan := rnd(-0.8, 0.8), gain := rnd(0.02, 0.05), phase := 0.0]
+    CASE 1 : RETURN Voice[kind := 1, age := 0, length := math::rand(1500, 3200), f0 := rnd(180.0, 320.0), f1 := rnd(500.0, 900.0), pan := rnd(-0.4, 0.4), gain := rnd(0.04, 0.08), phase := 0.0]
+    CASE 2 : RETURN Voice[kind := 2, age := 0, length := math::rand(200, 700), f0 := 0.0, f1 := 0.0, pan := rnd(-0.6, 0.6), gain := rnd(0.05, 0.12), phase := 0.0]
+    CASE ELSE : RETURN Voice[kind := 3, age := 0, length := 36000, f0 := 880.0, f1 := 1318.5, pan := 0.0, gain := 0.07, phase := 0.0]
+  END MATCH
+END FUNC
+
+' One sample of a voice, and the voice moved on by one sample.
+TYPE VoiceSample
+  value AS Float
+  voice AS Voice
+END TYPE
+
+FUNC voiceSample(v AS Voice, noise AS Float) AS VoiceSample
+  LET u AS Float = toFloat(v.age) / toFloat(v.length)
+  MUT value AS Float = 0.0
+  MUT phase AS Float = v.phase
+  MATCH v.kind
+    CASE 0
+      ' A chirp: a sine gliding up and warbling, in a quick swell.
+      LET f AS Float = v.f0 + (v.f1 - v.f0) * u + math::sin(u * 60.0) * 300.0
+      phase = phase + f / toFloat(RATE)
+      value = math::sin(phase * TAU) * math::sin(u * math::pi) * math::pow(math::sin(u * 18.0) * 0.5 + 0.5, 2.0)
+    CASE 1
+      ' A bubble: a sine rising fast, decaying.
+      LET f AS Float = v.f0 + (v.f1 - v.f0) * u * u
+      phase = phase + f / toFloat(RATE)
+      value = math::sin(phase * TAU) * math::exp(-u * 5.0) * math::min(1.0, u * 40.0)
+    CASE 2
+      ' An ember's crackle: a burst of noise, sharply decaying.
+      value = noise * math::exp(-u * 9.0)
+    CASE ELSE
+      ' The chime: two bell partials, a long decay.
+      phase = phase + 1.0 / toFloat(RATE)
+      value = (math::sin(phase * v.f0 * TAU) + 0.6 * math::sin(phase * v.f1 * TAU) + 0.25 * math::sin(phase * v.f0 * 4.02 * TAU)) * math::exp(-u * 7.0) * math::min(1.0, u * 400.0)
+  END MATCH
+  RETURN VoiceSample[value := value * v.gain, voice := WITH v { age := v.age + 1, phase := phase }]
+END FUNC
+
+' Little-endian signed 16-bit, as two bytes.
+FUNC pcm(v AS Float) AS List OF Byte
+  LET i AS Integer = math::round(clampF(v, -1.0, 1.0) * 32000.0)
+  LET u AS Integer = (i + 65536) MOD 65536
+  RETURN [toByte(u MOD 256), toByte(u / 256)]
+END FUNC
+
+ISOLATED FUNC soundtrack(w AS ThreadWorker OF Integer TO Integer, first AS Integer) AS Integer
+  RES out AS audio::AudioOutput = audio::openOutput(RATE, 2, 2048) TRAP(e)
+    RETURN 0
+  END TRAP
+  MUT screen AS Integer = first
+  MUT current AS Ambience = ambienceFor(screen)
+  MUT previous AS Ambience = current
+  MUT blend AS Float = 1.0           ' 0 = all previous, 1 = all current
+  MUT volume AS Float = 1.0
+  MUT muted AS Boolean = FALSE
+  MUT voices AS List OF Voice = []
+  MUT t AS Integer = 0
+  ' Filter state: the wind and the water are white noise through slow and
+  ' fast one-pole low-passes.
+  MUT windL AS Float = 0.0
+  MUT windR AS Float = 0.0
+  MUT waterL AS Float = 0.0
+  MUT waterR AS Float = 0.0
+  MUT running AS Boolean = TRUE
+  DO WHILE running
+    ' Take every message waiting: a zero timeout reads without waiting and
+    ' fails with ErrTimeout once the queue is empty.
+    MUT reading AS Boolean = TRUE
+    DO WHILE reading
+      LET msg AS Integer = thread::receive(w, 0) TRAP(e)
+        reading = FALSE
+        RECOVER SOUND_MENU - 1
+      END TRAP
+      IF NOT reading THEN
+        ' Nothing waiting.
+      ELSEIF msg = SOUND_QUIT THEN
+        running = FALSE
+      ELSEIF msg = SOUND_CLICK THEN
+        voices = collections::append(voices, newVoice(3))
+      ELSEIF msg = SOUND_MUTE THEN
+        muted = NOT muted
+      ELSEIF msg <> screen THEN
+        previous = current
+        current = ambienceFor(msg)
+        screen = msg
+        blend = 0.0
+      END IF
+    LOOP
+    ' Start new short sounds, at each texture's rate.
+    LET seconds AS Float = toFloat(BLOCK) / toFloat(RATE)
+    IF rnd(0.0, 1.0) < current.birds * seconds THEN voices = collections::append(voices, newVoice(0))
+    IF rnd(0.0, 1.0) < current.bubbles * seconds THEN voices = collections::append(voices, newVoice(1))
+    IF rnd(0.0, 1.0) < current.embers * seconds THEN voices = collections::append(voices, newVoice(2))
+    ' One block of samples.
+    MUT bytes AS List OF Byte = []
+    FOR i = 0 TO BLOCK - 1
+      LET time AS Float = toFloat(t) / toFloat(RATE)
+      blend = math::min(1.0, blend + 1.0 / (toFloat(RATE) * 2.5))
+      MUT target AS Float = 1.0
+      IF muted THEN target = 0.0
+      volume = volume + (target - volume) * 0.0005
+      ' The pad: each note a sine with a slow tremolo, both chords mixed by
+      ' the cross-fade.
+      MUT pad AS Float = 0.0
+      FOR EACH f IN current.notes
+        pad = pad + math::sin(time * f * TAU) * (0.6 + 0.4 * math::sin(time * 0.31 + f)) * current.pad * blend
+      NEXT
+      IF blend < 1.0 THEN
+        FOR EACH f IN previous.notes
+          pad = pad + math::sin(time * f * TAU) * (0.6 + 0.4 * math::sin(time * 0.31 + f)) * previous.pad * (1.0 - blend)
+        NEXT
+      END IF
+      LET wind AS Float = current.wind * blend + previous.wind * (1.0 - blend)
+      LET water AS Float = current.water * blend + previous.water * (1.0 - blend)
+      LET crickets AS Float = current.crickets * blend + previous.crickets * (1.0 - blend)
+      LET nL AS Float = rnd(-1.0, 1.0)
+      LET nR AS Float = rnd(-1.0, 1.0)
+      windL = windL + (nL - windL) * 0.012
+      windR = windR + (nR - windR) * 0.012
+      waterL = waterL + (nL - waterL) * 0.25
+      waterR = waterR + (nR - waterR) * 0.25
+      LET gust AS Float = 0.5 + 0.5 * math::sin(time * 0.23) * math::sin(time * 0.071 + 1.0)
+      MUT left AS Float = pad + windL * wind * 6.0 * gust + waterL * water * (0.7 + 0.3 * math::sin(time * 3.1))
+      MUT right AS Float = pad + windR * wind * 6.0 * gust + waterR * water * (0.7 + 0.3 * math::sin(time * 2.7))
+      ' Crickets: a 4.6 kHz tone pulsed in trills.
+      IF crickets > 0.0 THEN
+        LET trill AS Float = math::max(0.0, math::sin(time * 2.0 * math::pi * 0.7)) * math::max(0.0, math::sin(time * TAU * 28.0))
+        LET c AS Float = math::sin(time * 4600.0 * TAU) * trill * crickets * 0.03
+        left = left + c * 0.7
+        right = right + c
+      END IF
+      ' The short sounds.
+      MUT keep AS List OF Voice = []
+      FOR EACH v IN voices
+        LET vs AS VoiceSample = voiceSample(v, nL)
+        left = left + vs.value * (1.0 - math::max(0.0, v.pan))
+        right = right + vs.value * (1.0 + math::min(0.0, v.pan))
+        IF vs.voice.age < vs.voice.length THEN keep = collections::append(keep, vs.voice)
+      NEXT
+      voices = keep
+      bytes = collections::append(bytes, pcm(left * volume))
+      bytes = collections::append(bytes, pcm(right * volume))
+      t = t + 1
+    NEXT
+    audio::write(out, bytes)
+  LOOP
+  RETURN 0
+END FUNC

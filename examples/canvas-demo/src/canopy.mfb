@@ -1,0 +1,319 @@
+' canopy - V. Echoes of the Canopy.
+'
+' A quiet autumn hillside, drawn flat and graphic: one great tree, a spring
+' spilling into a stone basin, and the wind. The wind is a single value - a
+' steady breeze plus slow gusts plus whatever the user adds by dragging - and
+' everything answers to it: the tree's limbs bend further the further out they
+' are, the leaves that let go tumble and drift with it, the spray from the
+' spring leans downwind, the owl rides it, and pale streamlines show it moving.
+'
+' A leaf tumbles by scaling its X by the cosine of its spin, which is how a
+' flat thing turning over looks from the side. Every leaf is one Polygon with
+' its own transform.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+TYPE Leaf
+  x AS Float
+  y AS Float
+  vx AS Float
+  vy AS Float
+  angle AS Float
+  spin AS Float
+  flip AS Float
+  flipRate AS Float
+  hue AS Integer       ' which colour of the palette
+  size AS Float
+  resting AS Boolean   ' lying on the ground
+END TYPE
+
+TYPE Spray
+  x AS Float
+  y AS Float
+  vx AS Float
+  vy AS Float
+  age AS Float
+END TYPE
+
+TYPE CanopyState
+  t AS Float
+  wind AS Float        ' the breeze the user has added, pixels per second
+  leaves AS List OF Leaf
+  spray AS List OF Spray
+  sprayClock AS Float
+  leafClock AS Float
+  dragging AS Boolean
+  lastX AS Float
+  lastY AS Float
+  owlT AS Float        ' seconds into the owl's crossing, or below 0 while it waits
+END TYPE
+
+FUNC canopyNew AS CanopyState
+  RETURN CanopyState[t := 0.0, wind := 0.0, leaves := [], spray := [], sprayClock := 0.0, leafClock := 0.0, dragging := FALSE, lastX := 0.0, lastY := 0.0, owlT := -3.0]
+END FUNC
+
+FUNC leafColor(i AS Integer) AS color::Color
+  MATCH i MOD 6
+    CASE 0 : RETURN hex("#d9572b")
+    CASE 1 : RETURN hex("#e8973a")
+    CASE 2 : RETURN hex("#c23b2a")
+    CASE 3 : RETURN hex("#f2c14e")
+    CASE 4 : RETURN hex("#9b3b2e")
+    CASE ELSE : RETURN hex("#e07a5f")
+  END MATCH
+END FUNC
+
+' The wind at time t: the user's breeze, a steady drift, and two slow gust
+' waves that never line up.
+FUNC windAt(s AS CanopyState) AS Float
+  LET gust AS Float = math::max(0.0, math::sin(s.t * 0.23)) * 90.0 + math::sin(s.t * 0.61 + 1.0) * 25.0
+  RETURN 35.0 + gust + s.wind
+END FUNC
+
+' Where the crown of the tree is: leaves let go from inside it.
+TYPE Crown
+  cx AS Float
+  cy AS Float
+  rx AS Float
+  ry AS Float
+END TYPE
+
+FUNC crownAt(w AS Float, h AS Float) AS Crown
+  RETURN Crown[cx := w * 0.36, cy := h * 0.33, rx := h * 0.36, ry := h * 0.2]
+END FUNC
+
+FUNC canopyStep(s AS CanopyState, inp AS Input, dt AS Float) AS CanopyState
+  LET w AS Float = inp.w
+  LET h AS Float = inp.h
+  LET t AS Float = s.t + dt
+  ' Dragging blows: the drag's horizontal speed becomes wind, which then dies
+  ' away by itself.
+  MUT wind AS Float = s.wind * math::exp(-dt * 0.7)
+  MUT dragging AS Boolean = s.dragging
+  MUT lastX AS Float = s.lastX
+  MUT lastY AS Float = s.lastY
+  IF inp.pressed THEN
+    dragging = TRUE
+    lastX = inp.mx
+    lastY = inp.my
+  END IF
+  IF NOT inp.down THEN dragging = FALSE
+  MUT pushX AS Float = 0.0
+  MUT pushY AS Float = 0.0
+  IF dragging AND dt > 0.0 THEN
+    pushX = (inp.mx - lastX) / dt
+    pushY = (inp.my - lastY) / dt
+    wind = clampF(wind + pushX * dt * 2.5, -500.0, 500.0)
+    lastX = inp.mx
+    lastY = inp.my
+  END IF
+  wind = clampF(wind + toFloat(inp.wheel) * 25.0, -500.0, 500.0)
+  LET here AS CanopyState = WITH s { t := t, wind := wind }
+  LET wv AS Float = windAt(here)
+  LET cr AS Crown = crownAt(w, h)
+  LET groundY AS Float = h * 0.84
+
+  ' Leaves let go of the crown faster in a stronger wind.
+  MUT leaves AS List OF Leaf = []
+  MUT leafClock AS Float = s.leafClock + dt * (2.0 + math::abs(wv) * 0.06)
+  DO WHILE leafClock >= 1.0
+    LET a AS Float = randF(0.0, TAU)
+    LET r AS Float = math::sqrt(randF(0.0, 1.0))
+    leaves = collections::append(leaves, Leaf[x := cr.cx + math::cos(a) * cr.rx * r, y := cr.cy + math::sin(a) * cr.ry * r, vx := 0.0, vy := 0.0, angle := randF(0.0, TAU), spin := randF(-2.0, 2.0), flip := randF(0.0, TAU), flipRate := randF(2.0, 6.0), hue := math::rand(0, 5), size := h * randF(0.012, 0.02), resting := FALSE])
+    leafClock = leafClock - 1.0
+  LOOP
+  FOR EACH l IN s.leaves
+    IF l.resting THEN
+      ' A strong enough gust lifts a resting leaf again.
+      IF math::abs(wv) > 160.0 AND math::rand(0, 60) = 0 THEN
+        leaves = collections::append(leaves, WITH l { resting := FALSE, vy := -randF(40.0, 120.0), vx := wv * 0.5 })
+      ELSE
+        leaves = collections::append(leaves, l)
+      END IF
+    ELSE
+      ' Air drag pulls the leaf towards the wind's speed; its flutter adds lift
+      ' that comes and goes as it tumbles.
+      LET flutter AS Float = math::sin(l.flip) * 30.0
+      MUT vx AS Float = l.vx + (wv - l.vx) * 1.6 * dt
+      MUT vy AS Float = l.vy + (60.0 - l.vy) * 1.2 * dt + flutter * dt
+      ' The mouse, when dragged nearby, shoves leaves aside.
+      IF dragging THEN
+        LET dx AS Float = l.x - inp.mx
+        LET dy AS Float = l.y - inp.my
+        LET d AS Float = math::sqrt(dx * dx + dy * dy) + 1.0
+        IF d < h * 0.15 THEN
+          vx = vx + pushX * 0.08 * (1.0 - d / (h * 0.15))
+          vy = vy + pushY * 0.08 * (1.0 - d / (h * 0.15))
+        END IF
+      END IF
+      LET nx AS Float = l.x + vx * dt
+      LET ny AS Float = l.y + vy * dt
+      IF ny >= groundY + l.size * hash01(math::floor(l.size * 1000.0)) * 3.0 THEN
+        leaves = collections::append(leaves, WITH l { y := ny, resting := TRUE, flip := 1.2, angle := l.angle })
+      ELSEIF nx > -60.0 AND nx < w + 60.0 AND ny > -60.0 THEN
+        leaves = collections::append(leaves, WITH l { x := nx, y := ny, vx := vx, vy := vy, angle := l.angle + l.spin * dt * (1.0 + math::abs(wv) * 0.004), flip := l.flip + l.flipRate * dt })
+      END IF
+    END IF
+  NEXT
+  ' Keep the pile bounded: the oldest resting leaves go first.
+  IF len(leaves) > 260 THEN leaves = collections::drop(leaves, len(leaves) - 260)
+
+  ' The spring's spray leans downwind.
+  MUT spray AS List OF Spray = []
+  MUT sprayClock AS Float = s.sprayClock + dt * 70.0
+  LET sx AS Float = w * 0.76
+  LET sy AS Float = h * 0.66
+  DO WHILE sprayClock >= 1.0
+    LET a AS Float = -math::pi / 2.0 + randF(-0.14, 0.14)
+    LET sp AS Float = h * randF(0.62, 0.78)
+    spray = collections::append(spray, Spray[x := sx, y := sy, vx := math::cos(a) * sp, vy := math::sin(a) * sp, age := 0.0])
+    sprayClock = sprayClock - 1.0
+  LOOP
+  FOR EACH d IN s.spray
+    LET nvx AS Float = d.vx + (wv - d.vx) * 0.6 * dt
+    LET nvy AS Float = d.vy + h * 1.6 * dt
+    LET ny AS Float = d.y + nvy * dt
+    IF ny < h * 0.76 AND d.age < 3.0 THEN spray = collections::append(spray, Spray[x := d.x + nvx * dt, y := ny, vx := nvx, vy := nvy, age := d.age + dt])
+  NEXT
+
+  ' The owl crosses every twenty seconds or so.
+  MUT owlT AS Float = s.owlT + dt
+  IF owlT > 11.0 THEN owlT = -randF(6.0, 12.0)
+  RETURN CanopyState[t := t, wind := wind, leaves := leaves, spray := spray, sprayClock := sprayClock, leafClock := leafClock, dragging := dragging, lastX := lastX, lastY := lastY, owlT := owlT]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+' A leaf in its own frame: pointed at both ends, one unit long.
+FUNC leafRing AS List OF canvas::Point
+  RETURN [pt(0.5, 0.0), pt(0.25, -0.2), pt(0.0, -0.24), pt(-0.25, -0.18), pt(-0.5, 0.0), pt(-0.25, 0.18), pt(0.0, 0.24), pt(0.25, 0.2)]
+END FUNC
+
+' The tree: limbs grown by recursion from the trunk. Each limb bends with the
+' wind by an amount that grows with its depth, so the tips move most and the
+' trunk barely at all - and the bend is added down the chain, as a real
+' branch carries the bend of the limb it grows from.
+FUNC limb(x AS Float, y AS Float, angle AS Float, len_ AS Float, width AS Float, depth AS Integer, seed AS Integer, bend AS Float, t AS Float) AS List OF canvas::DrawItem
+  IF depth = 0 THEN RETURN []
+  LET flex AS Float = toFloat(8 - depth) * 0.0011
+  LET a AS Float = angle + bend * flex + math::sin(t * 2.3 + toFloat(seed)) * flex * 0.2 * math::abs(bend)
+  LET ex AS Float = x + math::cos(a) * len_
+  LET ey AS Float = y + math::sin(a) * len_
+  MUT out AS List OF canvas::DrawItem = [line(x, y, ex, ey, WITH strokeP(hex("#3b2a24"), width) { cap := canvas::CapStyle.Round })]
+  IF depth <= 2 THEN
+    ' Leaf clusters at the tips: two overlapping ovals along the twig, one
+    ' darker underneath.
+    LET c AS color::Color = leafColor(seed)
+    out = collections::append(out, ellipse(ex, ey + len_ * 0.12, len_ * 0.85, len_ * 0.5, a, fillP(mixC(c, hex("#5a1e14"), 0.35))))
+    out = collections::append(out, ellipse(ex - math::cos(a) * len_ * 0.1, ey - len_ * 0.08, len_ * 0.7, len_ * 0.42, a, fillP(c)))
+  END IF
+  LET spread AS Float = hashRange(seed * 13 + 1, 0.3, 0.55)
+  out = collections::append(out, limb(ex, ey, a - spread, len_ * hashRange(seed * 7 + 2, 0.68, 0.82), width * 0.7, depth - 1, seed * 2 + 1, bend, t))
+  out = collections::append(out, limb(ex, ey, a + spread, len_ * hashRange(seed * 5 + 3, 0.66, 0.8), width * 0.68, depth - 1, seed * 2 + 2, bend, t))
+  IF depth > 3 AND hash01(seed * 17) > 0.5 THEN out = collections::append(out, limb(ex, ey, a + hashRange(seed * 19, -0.2, 0.2), len_ * 0.6, width * 0.6, depth - 2, seed * 3 + 7, bend, t))
+  RETURN out
+END FUNC
+
+' An owl gliding, seen from below: a broad rounded silhouette.
+FUNC owl(x AS Float, y AS Float, s AS Float, flap AS Float) AS List OF canvas::DrawItem
+  LET tr AS canvas::Transform = place2(x, y, 0.06, s, s * 1.15)
+  ' The raptor outline, with a broad round head over it and the pale facial
+  ' disc that makes an owl an owl.
+  MUT out AS List OF canvas::DrawItem = raptor(x, y, 0.06, s, math::sin(flap) * 0.3, hex("#6a5038"), hex("#e8d4b4"))
+  out = collections::append(out, circle(0.42, 0.0, 0.16, WITH fillP(hex("#8a6a4c")) { transform := tr }))
+  out = collections::append(out, ellipse(0.47, -0.065, 0.075, 0.065, 0.0, WITH fillP(hex("#f4ead4")) { transform := tr }))
+  out = collections::append(out, ellipse(0.47, 0.065, 0.075, 0.065, 0.0, WITH fillP(hex("#f4ead4")) { transform := tr }))
+  out = collections::append(out, circle(0.49, -0.06, 0.025, WITH fillP(hex("#1a120c")) { transform := tr }))
+  out = collections::append(out, circle(0.49, 0.06, 0.025, WITH fillP(hex("#1a120c")) { transform := tr }))
+  RETURN out
+END FUNC
+
+FUNC canopyDraw(s AS CanopyState, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET t AS Float = s.t
+  LET wv AS Float = windAt(s)
+  LET cr AS Crown = crownAt(w, h)
+  LET groundY AS Float = h * 0.84
+  ' A pale autumn sky, a low sun, and soft layered hills.
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h, [gstop(0.0, hex("#f4e3c8")), gstop(0.6, hex("#f2c9a0")), gstop(1.0, hex("#e8a77c"))])))]
+  out = collections::append(out, circle(w * 0.72, h * 0.3, h * 0.13, fillP(hex("#f8f0dc"))))
+  out = collections::append(out, glow(w * 0.72, h * 0.3, h * 0.4, rgba(255, 250, 230, 90)))
+  out = collections::append(out, poly(ridge(w, h, h * 0.62, h * 0.06, 51, 0.3, 40), fillP(hex("#e2a98a"))))
+  out = collections::append(out, poly(ridge(w, h, h * 0.7, h * 0.05, 53, 0.25, 40), fillP(hex("#c98b70"))))
+  out = collections::append(out, poly(ridge(w, h, h * 0.78, h * 0.04, 57, 0.2, 40), fillP(hex("#a3665a"))))
+
+  ' Streamlines: pale threads drifting with the wind, faded at both ends.
+  FOR i = 0 TO 13
+    LET y0 AS Float = h * hashRange(i + 80, 0.08, 0.75)
+    LET speed AS Float = wv * hashRange(i + 90, 0.8, 1.4)
+    LET x0 AS Float = fract(hash01(i + 100) + t * speed / (w + 600.0)) * (w + 600.0) - 300.0
+    MUT pts AS List OF canvas::Point = []
+    MUT cols AS List OF color::Color = []
+    LET len_ AS Float = h * hashRange(i + 110, 0.2, 0.45) * clampF(math::abs(wv) / 80.0, 0.3, 2.0)
+    FOR j = 0 TO 12
+      LET u AS Float = toFloat(j) / 12.0
+      pts = collections::append(pts, pt(x0 - len_ * u * math::max(-1.0, math::min(1.0, wv / 50.0)), y0 + math::sin(u * 5.0 + t * 1.3 + toFloat(i)) * h * 0.012))
+      cols = collections::append(cols, rgba(255, 255, 255, (math::round(110.0 * math::sin(u * math::pi)))))
+    NEXT
+    out = collections::append(out, trail(pts, cols, WITH strokeP(color::white, 1.6) { cap := canvas::CapStyle.Round }))
+  NEXT
+
+  ' The tree.
+  ' The wind's pull on the limbs saturates, so a gale bends the tree hard
+  ' without folding it over.
+  LET bend AS Float = 180.0 * (2.0 / (1.0 + math::exp(-2.0 * wv / 180.0)) - 1.0)
+  out = collections::append(out, limb(w * 0.36, groundY, -math::pi / 2.0 - 0.04, h * 0.2, h * 0.05, 8, 1, bend, t))
+  ' The ground, and the basin with its spray.
+  out = collections::append(out, rect(0.0, groundY, w, h - groundY, gradP(linear(0.0, groundY, 0.0, h, [gstop(0.0, hex("#5a3a34")), gstop(1.0, hex("#2e1e1c"))]))))
+  LET bx AS Float = w * 0.76
+  LET by AS Float = h * 0.76
+  FOR EACH d IN s.spray
+    out = collections::append(out, circle(d.x, d.y, 1.8, fillP(rgba(120, 190, 210, 200))))
+  NEXT
+  out = collections::append(out, poly([pt(bx - h * 0.14, by - h * 0.01), pt(bx - h * 0.12, groundY), pt(bx + h * 0.12, groundY), pt(bx + h * 0.14, by - h * 0.01)], fillP(hex("#7a6a64"))))
+  out = collections::append(out, ellipse(bx, by - h * 0.01, h * 0.14, h * 0.018, 0.0, WITH fillP(hex("#5fa8b8")) { stroke := hex("#9a8a84"), strokeWidth := 3.0 }))
+  out = collections::append(out, rect(bx - h * 0.008, h * 0.66, h * 0.016, by - h * 0.66, fillP(hex("#8a7a74"))))
+
+  ' Tufts of dry grass along the ground's edge, leaning downwind.
+  FOR i = 0 TO 44
+    LET gx AS Float = hash01(i + 1200) * w
+    LET lean AS Float = clampF(wv / 200.0, -1.0, 1.0) * h * 0.02 + math::sin(t * 2.0 + gx * 0.05) * h * 0.004
+    LET gh AS Float = h * hashRange(i + 1210, 0.02, 0.045)
+    out = collections::append(out, path([pt(gx, groundY + 2.0), pt(gx + lean * 0.4, groundY - gh * 0.5), pt(gx + lean, groundY - gh)], strokeP(mixC(hex("#6a4a3a"), hex("#b0805a"), hash01(i + 1220)), 1.6)))
+  NEXT
+  ' The leaves: each one tumbling, its X scaled by the cosine of its flip.
+  LET ring AS List OF canvas::Point = leafRing()
+  FOR EACH l IN s.leaves
+    LET sx AS Float = math::cos(l.flip)
+    LET tr AS canvas::Transform = place2(l.x, l.y, l.angle, l.size * 2.0 * (0.15 + 0.85 * math::abs(sx)), l.size * 2.0)
+    MUT c AS color::Color = leafColor(l.hue)
+    IF sx < 0.0 THEN c = mixC(c, hex("#5a2a1e"), 0.3)
+    out = collections::append(out, poly(mapRing(ring, tr), fillP(c)))
+    LET vein AS List OF canvas::Point = mapRing([pt(-0.45, 0.0), pt(0.45, 0.0)], tr)
+    out = collections::append(out, path(vein, strokeP(mixC(c, hex("#3a1a10"), 0.5), math::max(0.8, l.size * 0.08))))
+  NEXT
+
+  ' The owl, gliding across with the wind behind it.
+  IF s.owlT >= 0.0 THEN
+    LET u AS Float = s.owlT / 11.0
+    LET ox AS Float = -h * 0.2 + (w + h * 0.4) * u
+    LET oy AS Float = h * 0.22 + math::sin(u * math::pi * 2.0) * h * 0.05
+    out = collections::append(out, owl(ox, oy, h * 0.11, s.t * 1.5))
+  END IF
+
+  ' The wind gauge: a small vane in the corner showing the wind's strength.
+  LET gx AS Float = 60.0
+  LET gy AS Float = h - 56.0
+  LET strength AS Float = clamp01(math::abs(wv) / 300.0)
+  MUT dir AS Float = 0.0
+  IF wv < 0.0 THEN dir = math::pi
+  out = collections::append(out, circle(gx, gy, 30.0, WITH fillP(rgba(255, 255, 255, 60)) { stroke := rgba(90, 50, 40, 120), strokeWidth := 1.0 }))
+  out = collections::append(out, arc(gx, gy, 24.0, -math::pi * 0.75, -math::pi * 0.75 + math::pi * 1.5 * strength, WITH canvas::stroke(hex("#c23b2a"), 4.0) { cap := canvas::CapStyle.Round }))
+  out = collections::append(out, line(gx - math::cos(dir) * 14.0, gy, gx + math::cos(dir) * 14.0, gy, WITH strokeP(hex("#5a3a34"), 3.0) { cap := canvas::CapStyle.Round }))
+  out = collections::append(out, poly([pt(gx + math::cos(dir) * 18.0, gy), pt(gx + math::cos(dir) * 10.0, gy - 5.0), pt(gx + math::cos(dir) * 10.0, gy + 5.0)], fillP(hex("#5a3a34"))))
+  RETURN out
+END FUNC

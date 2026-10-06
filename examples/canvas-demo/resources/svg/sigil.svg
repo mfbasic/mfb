@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Grove's sigil: a gilded medallion with a tree, drawn for the canvas
+     demo's bestiary. It uses the parts of SVG the bundled animals do not:
+     a radial gradient with a focal point, a linear gradient turned by
+     gradientTransform and mirrored by spreadMethod="reflect", an evenodd
+     ring, elliptical arcs, a dashed round-capped stroke and a
+     bounding-box gradient on the trunk. Written for this repository; released with it. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <radialGradient id="gold" cx="100" cy="100" r="96" fx="70" fy="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff6d0"/>
+      <stop offset="0.35" stop-color="#f1c869"/>
+      <stop offset="0.8" stop-color="#b07a26"/>
+      <stop offset="1" stop-color="#6d4512"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="18" y2="0" gradientUnits="userSpaceOnUse" spreadMethod="reflect" gradientTransform="rotate(35 100 100)">
+      <stop offset="0" stop-color="#1f4a3a"/>
+      <stop offset="1" stop-color="#2f7a5a"/>
+    </linearGradient>
+    <linearGradient id="trunk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5a3414"/>
+      <stop offset="0.5" stop-color="#a8702e"/>
+      <stop offset="1" stop-color="#4a2a10"/>
+    </linearGradient>
+  </defs>
+  <!-- The gold rim: one path, two rings, evenodd makes the inner one a hole. -->
+  <path fill="url(#gold)" fill-rule="evenodd" stroke="#3a2408" stroke-width="1.5"
+        d="M100 4 A96 96 0 1 1 99.99 4 Z M100 22 A78 78 0 1 0 100.01 22 Z"/>
+  <!-- The field, striped by the reflected, rotated gradient. -->
+  <circle cx="100" cy="100" r="78" fill="url(#sheen)"/>
+  <!-- A dashed ring of rivets. -->
+  <circle cx="100" cy="100" r="87" fill="none" stroke="#5a3a10" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 9"/>
+  <!-- The tree: a trunk of curves and a crown of arcs. -->
+  <path fill="url(#trunk)" d="M92 160 C94 140 95 125 90 110 C86 100 78 96 70 92 L74 88 C84 92 92 98 96 104 C98 96 100 86 99 76 L105 76 C106 88 104 98 104 106 C110 98 120 92 130 90 L132 95 C120 98 110 106 106 118 C103 130 104 146 108 160 Z"/>
+  <path fill="#3f8a52" stroke="#1d3a24" stroke-width="1.2" stroke-linejoin="round"
+        d="M100 30 A26 26 0 0 1 124 46 A22 22 0 0 1 146 74 A20 20 0 0 1 128 96 A24 24 0 0 1 100 92 A24 24 0 0 1 72 96 A20 20 0 0 1 54 74 A22 22 0 0 1 76 46 A26 26 0 0 1 100 30 Z"/>
+  <path fill="#6ab868" d="M100 40 A16 16 0 0 1 116 52 A12 12 0 0 1 104 66 A14 14 0 0 1 88 58 A12 12 0 0 1 100 40 Z"/>
+  <!-- Ground and roots. -->
+  <path fill="none" stroke="#c99a4a" stroke-width="4" stroke-linecap="round" d="M50 160 Q100 150 150 160"/>
+  <polyline fill="none" stroke="#7a4a1a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="92,158 84,166 76,168"/>
+  <polyline fill="none" stroke="#7a4a1a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="108,158 118,166 126,166"/>
+  <!-- Four stars at the quarters. -->
+  <polygon fill="#fff4c8" points="100,8 103,13 100,18 97,13"/>
+  <polygon fill="#fff4c8" points="192,100 187,103 182,100 187,97"/>
+  <polygon fill="#fff4c8" points="100,192 97,187 100,182 103,187"/>
+  <polygon fill="#fff4c8" points="8,100 13,97 18,100 13,103"/>
+</svg>

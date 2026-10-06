@@ -1,0 +1,202 @@
+' scenery - the trees, birds, stars and motes several scenes share.
+'
+' Every shape here is built in its own coordinates around (0, 0) and placed with
+' a canvas::Transform, or built directly where it stands, as the comment on each
+' function says. Each takes a seed where it scatters detail, so a tree drawn
+' twice with one seed is the same tree.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+' ---------------------------------------------------------------------------
+' Trees
+' ---------------------------------------------------------------------------
+
+' The outline of a pine standing on (cx, baseY), `h` tall and `w` across at its
+' widest: a short trunk under tiers of drooping, ragged boughs that narrow
+' towards a single tip.
+FUNC pineRing(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer) AS List OF canvas::Point
+  LET tiers AS Integer = 6 + seed MOD 3
+  LET trunkH AS Float = h * 0.07
+  LET trunkW AS Float = w * 0.06
+  LET crownH AS Float = h - trunkH
+  MUT right AS List OF canvas::Point = []
+  ' Down the right-hand side, tier by tier: each tier flares out to a drooping
+  ' bough tip, then tucks back in under it.
+  FOR k = 0 TO tiers - 1
+    LET u0 AS Float = toFloat(k) / toFloat(tiers)
+    LET u1 AS Float = toFloat(k + 1) / toFloat(tiers)
+    LET yTop AS Float = baseY - trunkH - crownH * (1.0 - u0)
+    LET yTip AS Float = baseY - trunkH - crownH * (1.0 - u1) + crownH * 0.015
+    LET reach AS Float = w * 0.5 * (0.18 + 0.82 * u1) * hashRange(seed * 31 + k, 0.86, 1.08)
+    LET tuck AS Float = reach * 0.42
+    right = collections::append(right, pt(cx + tuck * 0.55 + reach * 0.1, yTop + (yTip - yTop) * 0.45))
+    right = collections::append(right, pt(cx + reach * 0.78, yTip - crownH * 0.012))
+    right = collections::append(right, pt(cx + reach, yTip + crownH * 0.006))
+    IF k < tiers - 1 THEN right = collections::append(right, pt(cx + tuck, yTip - crownH * 0.022))
+  NEXT
+  MUT ring AS List OF canvas::Point = [pt(cx, baseY - h)]
+  ring = collections::append(ring, right)
+  ring = collections::append(ring, [pt(cx + trunkW, baseY - trunkH), pt(cx + trunkW, baseY), pt(cx - trunkW, baseY), pt(cx - trunkW, baseY - trunkH)])
+  ' Up the left-hand side: the right side mirrored, with its own raggedness.
+  FOR i = len(right) - 1 TO 0 STEP -1
+    LET p AS canvas::Point = collections::get(right, i)
+    LET jitter AS Float = hashRange(seed * 97 + i, 0.9, 1.08)
+    ring = collections::append(ring, pt(cx - (p.x - cx) * jitter, p.y + (hash01(seed * 13 + i) - 0.5) * h * 0.012))
+  NEXT
+  RETURN ring
+END FUNC
+
+FUNC pine(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN poly(pineRing(cx, baseY, h, w, seed), p)
+END FUNC
+
+' A row of pines along a ridge: `count` trees spread over the width `width`,
+' standing on y `baseY`, sized around `h`. The row is the same for a seed.
+FUNC pineRow(width AS Float, baseY AS Float, h AS Float, count AS Integer, seed AS Integer, p AS canvas::Paint) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  FOR i = 0 TO count - 1
+    LET u AS Float = (toFloat(i) + hashRange(seed * 7 + i, 0.1, 0.9)) / toFloat(count)
+    LET th AS Float = h * hashRange(seed * 11 + i, 0.7, 1.25)
+    out = collections::append(out, pine(-30.0 + (width + 60.0) * u, baseY + hashRange(seed * 5 + i, 0.0, h * 0.12), th, th * hashRange(seed * 17 + i, 0.36, 0.46), seed * 101 + i, p))
+  NEXT
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Birds
+' ---------------------------------------------------------------------------
+
+' A bird in flight seen from the side, in its own frame: beak towards +X, one
+' unit from tail to beak. `flap` runs -1 (wings down) to 1 (wings up). The far
+' wing is a little behind and darker, so a flapping bird reads as having two.
+FUNC birdNearWing(flap AS Float, broad AS Float) AS List OF canvas::Point
+  LET lift AS Float = flap
+  LET elbowX AS Float = 0.02
+  LET elbowY AS Float = -0.36 * lift
+  LET tipX AS Float = -0.34 + 0.06 * math::abs(lift)
+  LET tipY AS Float = -0.78 * lift + 0.08
+  RETURN [pt(0.16, -0.02), pt(elbowX + 0.06, elbowY - 0.04 * broad), pt(tipX, tipY), pt(tipX - 0.05 * broad, tipY + 0.07), pt(elbowX - 0.1 * broad, elbowY + 0.12 * broad), pt(-0.12, 0.04)]
+END FUNC
+
+FUNC birdBody AS List OF canvas::Point
+  RETURN [pt(0.5, 0.0), pt(0.4, -0.06), pt(0.3, -0.08), pt(0.1, -0.08), pt(-0.2, -0.04), pt(-0.48, -0.08), pt(-0.5, 0.06), pt(-0.22, 0.07), pt(0.1, 0.09), pt(0.32, 0.06), pt(0.42, 0.03)]
+END FUNC
+
+' A whole bird placed at (x, y), heading `angle`, `size` pixels from tail to
+' beak. `broad` widens the wings (a hawk is about 1.6, a swallow 0.8). A bird
+' heading left is mirrored rather than flown upside down.
+FUNC bird(x AS Float, y AS Float, angle AS Float, size AS Float, flap AS Float, broad AS Float, body AS color::Color, far AS color::Color) AS List OF canvas::DrawItem
+  MUT a AS Float = angle
+  MUT sy AS Float = size
+  IF math::cos(angle) < 0.0 THEN
+    ' Facing left: mirror vertically in the bird's frame so its back stays up.
+    sy = -size
+  END IF
+  LET t AS canvas::Transform = place2(x, y, a, size, sy)
+  LET farFlap AS Float = flap * 0.8 + 0.1
+  RETURN [poly(mapRing(shiftPts(birdNearWing(farFlap, broad), 0.06, -0.02), t), fillP(far)), poly(mapRing(birdBody(), t), fillP(body)), poly(mapRing(birdNearWing(flap, broad), t), fillP(body))]
+END FUNC
+
+' A soaring raptor seen from below, in its own frame: heading +X, about one
+' unit from tail to beak and two and a quarter from wing tip to wing tip. The
+' wing tips split into primary feathers. `flap` runs -1..1: the wings
+' foreshorten as they beat, which from below is how a wingbeat looks.
+FUNC raptorRing(flap AS Float) AS List OF canvas::Point
+  LET span AS Float = 0.55 + 0.45 * math::cos(flap * 1.2)
+  LET sweep AS Float = flap * 0.08
+  ' Down the right wing (positive y) from the shoulder, out to the fingers and
+  ' back along the trailing edge, then the tail, then the left wing mirrored.
+  LET wing AS List OF canvas::Point = [pt(0.2, 0.07), pt(0.2 + sweep, 0.35 * span), pt(0.12 + sweep, 0.62 * span), pt(0.06 + sweep, 0.9 * span), pt(-0.02 + sweep, 1.1 * span), pt(-0.07 + sweep, 0.98 * span), pt(-0.1 + sweep, 1.1 * span), pt(-0.15 + sweep, 0.96 * span), pt(-0.19 + sweep, 1.05 * span), pt(-0.22 + sweep, 0.9 * span), pt(-0.26 + sweep, 0.95 * span), pt(-0.27 + sweep, 0.78 * span), pt(-0.24, 0.5 * span), pt(-0.2, 0.25 * span), pt(-0.18, 0.08)]
+  MUT ring AS List OF canvas::Point = [pt(0.56, 0.0), pt(0.5, 0.05), pt(0.36, 0.08)]
+  ring = collections::append(ring, wing)
+  ring = collections::append(ring, [pt(-0.3, 0.07), pt(-0.55, 0.17), pt(-0.62, 0.09), pt(-0.64, 0.0), pt(-0.62, -0.09), pt(-0.55, -0.17), pt(-0.3, -0.07)])
+  FOR i = len(wing) - 1 TO 0 STEP -1
+    LET p AS canvas::Point = collections::get(wing, i)
+    ring = collections::append(ring, pt(p.x, -p.y))
+  NEXT
+  RETURN collections::append(ring, [pt(0.36, -0.08), pt(0.5, -0.05)])
+END FUNC
+
+FUNC raptor(x AS Float, y AS Float, heading AS Float, size AS Float, flap AS Float, body AS color::Color, under AS color::Color) AS List OF canvas::DrawItem
+  LET t AS canvas::Transform = place(x, y, heading, size)
+  ' The underside is paler towards the middle of the wing: a radial ramp in the
+  ' bird's own frame, carried round by the same transform as its outline.
+  RETURN [poly(raptorRing(flap), WITH gradP(radial(0.05, 0.0, 1.1, [gstop(0.0, under), gstop(0.55, mixC(under, body, 0.5)), gstop(1.0, body)])) { transform := t })]
+END FUNC
+
+' A small round songbird perched or hopping, drawn where it stands: (x, y) is
+' its feet, `s` its height in pixels, facing right when `dir` is 1 and left when
+' -1. `tilt` cocks the head.
+FUNC songbird(x AS Float, y AS Float, s AS Float, dir AS Float, tilt AS Float, back AS color::Color, breast AS color::Color) AS List OF canvas::DrawItem
+  LET t AS canvas::Transform = place2(x, y, 0.0, s * dir, s)
+  LET headT AS canvas::Transform = place2(x + 0.18 * s * dir, y - 0.62 * s, tilt * dir, s * dir, s)
+  RETURN [
+    poly([pt(-0.18, -0.38), pt(-0.62, -0.5), pt(-0.6, -0.42), pt(-0.2, -0.28)], WITH fillP(back) { transform := t }),
+    ellipse(0.0, -0.36, 0.3, 0.24, -0.25, WITH fillP(back) { transform := t }),
+    ellipse(0.06, -0.3, 0.2, 0.16, -0.2, WITH fillP(breast) { transform := t }),
+    poly([pt(-0.16, -0.42), pt(0.08, -0.44), pt(-0.02, -0.3), pt(-0.28, -0.26)], WITH fillP(mixC(back, color::black, 0.25)) { transform := t }),
+    line(-0.04, -0.12, -0.08, 0.0, WITH strokeP(hex("#3a2a1e"), 0.04) { transform := t }),
+    line(0.06, -0.12, 0.06, 0.0, WITH strokeP(hex("#3a2a1e"), 0.04) { transform := t }),
+    circle(0.0, 0.0, 0.16, WITH fillP(back) { transform := headT }),
+    circle(0.05, 0.04, 0.1, WITH fillP(breast) { transform := headT }),
+    poly([pt(0.13, -0.03), pt(0.27, 0.01), pt(0.13, 0.04)], WITH fillP(hex("#e0a030")) { transform := headT }),
+    circle(0.07, -0.04, 0.035, WITH fillP(hex("#120c08")) { transform := headT }),
+    circle(0.08, -0.05, 0.012, WITH fillP(color::white) { transform := headT })
+  ]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Sky
+' ---------------------------------------------------------------------------
+
+' A field of stars over the upper part of the window, twinkling with time `t`
+' and faded by `visible` (0 by day, 1 at night).
+FUNC starField(w AS Float, h AS Float, count AS Integer, t AS Float, visible AS Float, seed AS Integer) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  IF visible <= 0.01 THEN RETURN out
+  FOR i = 0 TO count - 1
+    LET x AS Float = hash01(seed + i * 3) * w
+    LET y AS Float = math::pow(hash01(seed + i * 3 + 1), 1.6) * h
+    LET big AS Float = hash01(seed + i * 3 + 2)
+    LET tw AS Float = 0.55 + 0.45 * math::sin(t * (1.0 + big * 3.0) + toFloat(i))
+    LET a AS Float = visible * tw * (0.35 + 0.65 * big)
+    IF big > 0.93 THEN
+      out = collections::append(out, glow(x, y, 6.0 + big * 4.0, alpha(hex("#cfe0ff"), a * 0.6)))
+    END IF
+    out = collections::append(out, circle(x, y, 0.6 + big * 1.1, glowP(alpha(hex("#f4f6ff"), a))))
+  NEXT
+  RETURN out
+END FUNC
+
+' Drifting motes of light - pollen, dust in a sunbeam, or fireflies - over the
+' rectangle (x, y, w, h). Each mote wanders on its own slow loop.
+FUNC motes(x AS Float, y AS Float, w AS Float, h AS Float, count AS Integer, t AS Float, c AS color::Color, size AS Float, seed AS Integer) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  FOR i = 0 TO count - 1
+    LET s AS Float = toFloat(seed + i)
+    LET px AS Float = x + fract(hash01(seed + i * 5) + t * 0.01 * hashRange(seed + i * 5 + 1, -1.0, 1.0)) * w + math::sin(t * 0.7 + s) * 18.0
+    LET py AS Float = y + fract(hash01(seed + i * 5 + 2) - t * 0.015 * hashRange(seed + i * 5 + 3, 0.3, 1.0)) * h + math::cos(t * 0.5 + s * 1.3) * 12.0
+    LET pulse AS Float = 0.5 + 0.5 * math::sin(t * 2.0 * hashRange(seed + i * 5 + 4, 0.5, 1.5) + s)
+    LET r AS Float = size * (0.6 + 0.8 * hash01(seed + i * 7))
+    out = collections::append(out, glow(px, py, r * 4.0, fade(c, 0.35 * pulse)))
+    out = collections::append(out, circle(px, py, r * 0.5, glowP(fade(c, 0.4 + 0.6 * pulse))))
+  NEXT
+  RETURN out
+END FUNC
+
+' A soft cloud: overlapping translucent ellipses, lit from above.
+FUNC cloud(cx AS Float, cy AS Float, size AS Float, seed AS Integer, lit AS color::Color, shade AS color::Color) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  LET puffs AS Integer = 7
+  FOR i = 0 TO puffs - 1
+    LET u AS Float = toFloat(i) / toFloat(puffs - 1) - 0.5
+    LET px AS Float = cx + u * size * 2.2 + hashRange(seed * 9 + i, -0.1, 0.1) * size
+    LET r AS Float = size * (0.55 - math::abs(u) * 0.5) * hashRange(seed * 3 + i, 0.8, 1.2)
+    LET py AS Float = cy - r * 0.35 + hashRange(seed * 5 + i, -0.08, 0.08) * size
+    out = collections::append(out, ellipse(px, py, r * 1.25, r * 0.82, 0.0, gradP(linear(px, py - r, px, py + r * 0.8, [gstop(0.0, lit), gstop(1.0, shade)]))))
+  NEXT
+  RETURN out
+END FUNC

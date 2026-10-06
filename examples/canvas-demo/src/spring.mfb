@@ -1,0 +1,506 @@
+' spring - II. The Guardian of the Spring.
+'
+' A hidden glade at nightfall where a mossy stone fountain spills into a pool.
+' Water drops fall from the upper bowl and, where each one lands, a ripple
+' spreads across the pool - clipped to the pool's own ellipse, so a ripple near
+' the rim is cut off by the stone. A glowing sprite, the guardian, follows the
+' mouse on a spring and trails light; click and it dives into the pool. Small
+' birds drink at the rim and scatter when the guardian comes too close.
+'
+' The glade is drawn in depth layers. The still ones - far trees, the middle
+' woods, the ferns in front - are each installed once as a named group with
+' canvas::setGroup, and the frame only says where to draw them: as the mouse
+' moves, each layer slides by a different amount, the near ones most.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+TYPE Drop
+  x AS Float
+  y AS Float
+  vx AS Float
+  vy AS Float
+  big AS Boolean       ' splash spray, which falls into the pool as well
+END TYPE
+
+TYPE Ripple
+  x AS Float
+  y AS Float
+  age AS Float
+  strength AS Float    ' 0..1; a splash is 1, a drop much less
+END TYPE
+
+TYPE Spark
+  x AS Float
+  y AS Float
+  vx AS Float
+  vy AS Float
+  age AS Float
+  life AS Float
+END TYPE
+
+' A bird that drinks at the rim: `away` runs 0 (drinking) to 1 (gone), and the
+' bird flies out along an arc and back as it changes.
+TYPE Drinker
+  homeX AS Float       ' its place on the rim, as a fraction of the pool's half-width
+  away AS Float
+  fleeing AS Boolean
+  calm AS Float        ' seconds until it dares come back
+END TYPE
+
+TYPE SpringState
+  t AS Float
+  w AS Float           ' the size the groups were installed for
+  h AS Float
+  px AS Float          ' the parallax, -1..1 each way, eased towards the mouse
+  py AS Float
+  sx AS Float          ' the guardian
+  sy AS Float
+  svx AS Float
+  svy AS Float
+  trail AS List OF canvas::Point
+  diving AS Boolean
+  diveT AS Float       ' seconds into the dive
+  diveX AS Float       ' where the dive began
+  diveY AS Float
+  surge AS Float       ' 1 just after a dive, fading: the fountain's runes glow
+  emit AS Float        ' drops owed to the stream, carried between frames
+  drops AS List OF Drop
+  ripples AS List OF Ripple
+  sparks AS List OF Spark
+  birds AS List OF Drinker
+END TYPE
+
+FUNC springNew AS SpringState
+  RETURN SpringState[t := 0.0, w := 0.0, h := 0.0, px := 0.0, py := 0.0, sx := -1.0, sy := -1.0, svx := 0.0, svy := 0.0, trail := [], diving := FALSE, diveT := 0.0, diveX := 0.0, diveY := 0.0, surge := 0.0, emit := 0.0, drops := [], ripples := [], sparks := [], birds := [Drinker[homeX := -0.82, away := 0.0, fleeing := FALSE, calm := 0.0], Drinker[homeX := -0.35, away := 0.0, fleeing := FALSE, calm := 0.0], Drinker[homeX := 0.55, away := 0.0, fleeing := FALSE, calm := 0.0]]]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Where things are
+' ---------------------------------------------------------------------------
+
+TYPE Fountain
+  cx AS Float
+  poolY AS Float       ' the water's surface, at the pool's centre
+  rx AS Float          ' the pool's radii
+  ry AS Float
+  bowlY AS Float       ' the upper bowl's rim
+  bowlR AS Float
+END TYPE
+
+FUNC fountainAt(w AS Float, h AS Float, ox AS Float, oy AS Float) AS Fountain
+  LET rx AS Float = math::min(w * 0.25, h * 0.42)
+  RETURN Fountain[cx := w * 0.5 + ox, poolY := h * 0.77 + oy, rx := rx, ry := rx * 0.22, bowlY := h * 0.5 + oy, bowlR := rx * 0.36]
+END FUNC
+
+' How far each layer slides at full parallax, in pixels.
+LET SPRING_FAR AS Float = 10.0
+LET SPRING_MID AS Float = 24.0
+LET SPRING_POOL AS Float = 38.0
+LET SPRING_NEAR AS Float = 80.0
+
+' ---------------------------------------------------------------------------
+' The still layers, installed as groups
+' ---------------------------------------------------------------------------
+
+' A fern frond: a curving stem with leaflets that shrink towards the tip,
+' rooted at (x, y) and leaning by `lean`.
+FUNC fern(x AS Float, y AS Float, size AS Float, lean AS Float, seed AS Integer, c AS color::Color) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  MUT stem AS List OF canvas::Point = []
+  LET n AS Integer = 14
+  FOR i = 0 TO n
+    LET u AS Float = toFloat(i) / toFloat(n)
+    LET a AS Float = -math::pi / 2.0 + lean * u * 1.6
+    stem = collections::append(stem, pt(x + math::sin(lean) * size * u * 0.6 + math::cos(a) * size * u * 0.35, y - size * u + size * u * u * 0.25 * math::abs(lean)))
+  NEXT
+  out = collections::append(out, path(stem, strokeP(mixC(c, color::black, 0.3), size * 0.018)))
+  FOR i = 1 TO n - 1
+    LET p AS canvas::Point = collections::get(stem, i)
+    LET q AS canvas::Point = collections::get(stem, i + 1)
+    LET dir AS Float = math::atan2(q.y - p.y, q.x - p.x)
+    LET len_ AS Float = size * 0.2 * (1.0 - toFloat(i) / toFloat(n)) * hashRange(seed * 7 + i, 0.8, 1.1)
+    FOR side = -1 TO 1 STEP 2
+      LET a AS Float = dir + toFloat(side) * 1.15
+      LET tipX AS Float = p.x + math::cos(a) * len_
+      LET tipY AS Float = p.y + math::sin(a) * len_ + len_ * 0.25
+      LET midX AS Float = (p.x + tipX) / 2.0
+      LET midY AS Float = (p.y + tipY) / 2.0
+      LET nx AS Float = -math::sin(a) * len_ * 0.14
+      LET ny AS Float = math::cos(a) * len_ * 0.14
+      out = collections::append(out, poly([pt(p.x, p.y), pt(midX + nx, midY + ny), pt(tipX, tipY), pt(midX - nx, midY - ny)], fillP(mixC(c, hex("#b8ff9a"), hash01(seed * 3 + i + side) * 0.18))))
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC springFarLayer(w AS Float, h AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  out = collections::append(out, poly(ridge(w + 40.0, h, h * 0.5, h * 0.06, 14, 0.7, 50), fillP(hex("#1a3a4a"))))
+  out = collections::append(out, pineRow(w + 40.0, h * 0.6, h * 0.22, 26, 41, fillP(hex("#163242"))))
+  out = collections::append(out, rect(-40.0, h * 0.45, w + 80.0, h * 0.2, gradP(linear(0.0, h * 0.45, 0.0, h * 0.65, [gstop(0.0, rgba(120, 200, 210, 0)), gstop(0.6, rgba(120, 200, 210, 45)), gstop(1.0, rgba(120, 200, 210, 0))]))))
+  out = collections::append(out, pineRow(w + 40.0, h * 0.7, h * 0.3, 16, 43, fillP(hex("#10283a"))))
+  RETURN out
+END FUNC
+
+FUNC springMidLayer(w AS Float, h AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  ' Old trunks at the edges of the glade, and the mossy bank behind the pool.
+  out = collections::append(out, poly([pt(w * 0.04, h), pt(w * 0.07, h * 0.2), pt(w * 0.06, -20.0), pt(w * 0.16, -20.0), pt(w * 0.13, h * 0.25), pt(w * 0.17, h)], gradP(linear(w * 0.04, 0.0, w * 0.17, 0.0, [gstop(0.0, hex("#0d1c22")), gstop(0.7, hex("#1f3a3e")), gstop(1.0, hex("#0d1c22"))]))))
+  out = collections::append(out, poly([pt(w * 0.86, h), pt(w * 0.89, h * 0.3), pt(w * 0.88, -20.0), pt(w * 0.97, -20.0), pt(w * 0.95, h * 0.3), pt(w * 0.99, h)], gradP(linear(w * 0.86, 0.0, w * 0.99, 0.0, [gstop(0.0, hex("#0d1c22")), gstop(0.4, hex("#1f3a3e")), gstop(1.0, hex("#0d1c22"))]))))
+  out = collections::append(out, poly(ridge(w + 60.0, h + 40.0, h * 0.72, h * 0.03, 17, 0.4, 40), gradP(linear(0.0, h * 0.68, 0.0, h, [gstop(0.0, hex("#2c5a3c")), gstop(0.3, hex("#1b3c2a")), gstop(1.0, hex("#0a1810"))]))))
+  FOR i = 0 TO 7
+    out = collections::append(out, fern(hash01(i + 600) * w, h * hashRange(i + 610, 0.72, 0.78), h * hashRange(i + 620, 0.12, 0.2), hashRange(i + 630, -0.6, 0.6), i + 1, hex("#2f6a44")))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC springNearLayer(w AS Float, h AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  out = collections::append(out, fern(-w * 0.02, h * 1.05, h * 0.5, 0.55, 31, hex("#173a26")))
+  out = collections::append(out, fern(w * 0.06, h * 1.08, h * 0.42, 0.25, 32, hex("#1d4630")))
+  out = collections::append(out, fern(w * 1.02, h * 1.05, h * 0.55, -0.6, 33, hex("#173a26")))
+  out = collections::append(out, fern(w * 0.93, h * 1.08, h * 0.38, -0.3, 34, hex("#1d4630")))
+  out = collections::append(out, fern(w * 0.3, h * 1.12, h * 0.25, -0.2, 35, hex("#14301f")))
+  out = collections::append(out, fern(w * 0.72, h * 1.12, h * 0.28, 0.3, 36, hex("#14301f")))
+  RETURN out
+END FUNC
+
+FUNC springInstall(w AS Float, h AS Float) AS Nothing
+  canvas::setGroup("spring-far", springFarLayer(w, h))
+  canvas::setGroup("spring-mid", springMidLayer(w, h))
+  canvas::setGroup("spring-near", springNearLayer(w, h))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Stepping
+' ---------------------------------------------------------------------------
+
+FUNC insidePool(f AS Fountain, x AS Float, y AS Float) AS Boolean
+  LET dx AS Float = (x - f.cx) / f.rx
+  LET dy AS Float = (y - f.poolY) / f.ry
+  RETURN dx * dx + dy * dy <= 1.0
+END FUNC
+
+FUNC springStep(s AS SpringState, inp AS Input, dt AS Float) AS SpringState
+  LET w AS Float = inp.w
+  LET h AS Float = inp.h
+  IF s.w <> w OR s.h <> h THEN springInstall(w, h)
+  LET t AS Float = s.t + dt
+  ' Parallax follows the mouse, eased.
+  MUT tx AS Float = 0.0
+  MUT ty AS Float = 0.0
+  IF inp.mx >= 0.0 THEN
+    tx = clampF((inp.mx / w - 0.5) * 2.0, -1.0, 1.0)
+    ty = clampF((inp.my / h - 0.5) * 2.0, -1.0, 1.0)
+  END IF
+  LET px AS Float = approach(s.px, tx, 3.0, dt)
+  LET py AS Float = approach(s.py, ty, 3.0, dt)
+  LET f AS Fountain = fountainAt(w, h, -px * SPRING_POOL, -py * SPRING_POOL * 0.4)
+
+  ' The guardian: a damped spring towards the mouse, or towards the pool when
+  ' diving. Before the mouse is seen it circles the fountain.
+  MUT sx AS Float = s.sx
+  MUT sy AS Float = s.sy
+  IF sx < 0.0 THEN
+    sx = f.cx + f.rx * 0.6
+    sy = f.bowlY - h * 0.1
+  END IF
+  MUT goalX AS Float = f.cx + math::cos(t * 0.6) * f.rx * 0.9
+  MUT goalY AS Float = f.bowlY - h * 0.12 + math::sin(t * 1.2) * h * 0.05
+  IF inp.mx >= 0.0 THEN
+    goalX = inp.mx
+    goalY = inp.my
+  END IF
+  MUT diving AS Boolean = s.diving
+  MUT diveT AS Float = s.diveT + dt
+  MUT diveX AS Float = s.diveX
+  MUT diveY AS Float = s.diveY
+  IF inp.pressed AND NOT diving THEN
+    diving = TRUE
+    diveT = 0.0
+    diveX = sx
+    diveY = sy
+  END IF
+  LET k AS Float = 34.0
+  LET damp AS Float = 7.5
+  MUT svx AS Float = s.svx + ((goalX - sx) * k - s.svx * damp) * dt
+  MUT svy AS Float = s.svy + ((goalY - sy) * k - s.svy * damp) * dt
+  IF diving THEN
+    ' The dive is flown, not sprung: a quick rise, then an accelerating arc
+    ' down into the middle of the pool.
+    LET u AS Float = clamp01(diveT / 0.7)
+    LET lift AS Float = math::sin(u * math::pi) * h * 0.08
+    LET e AS Float = u * u * u
+    LET nx AS Float = lerp(diveX, f.cx + f.rx * 0.15, e)
+    LET ny AS Float = lerp(diveY, f.poolY + 2.0, e) - lift * (1.0 - e)
+    svx = (nx - sx) / math::max(dt, 0.001)
+    svy = (ny - sy) / math::max(dt, 0.001)
+    sx = nx
+    sy = ny
+  ELSE
+    sx = sx + svx * dt
+    sy = sy + svy * dt
+  END IF
+  MUT trail AS List OF canvas::Point = collections::prepend(s.trail, pt(sx, sy))
+  IF len(trail) > 26 THEN trail = collections::take(trail, 26)
+
+  MUT drops AS List OF Drop = []
+  MUT ripples AS List OF Ripple = []
+  MUT sparks AS List OF Spark = []
+  MUT surge AS Float = math::max(0.0, s.surge - dt * 0.35)
+
+  ' The dive lands: a splash, a ring of spray, a big ripple, sparks.
+  IF diving AND diveT >= 0.7 THEN
+    diving = FALSE
+    surge = 1.0
+    ripples = collections::append(ripples, Ripple[x := sx, y := f.poolY, age := 0.0, strength := 1.0])
+    ripples = collections::append(ripples, Ripple[x := sx, y := f.poolY, age := -0.25, strength := 0.7])
+    FOR i = 0 TO 39
+      LET a AS Float = -math::pi * hashRange(i + (math::floor(t * 100.0)), 0.1, 0.9)
+      LET sp AS Float = randF(150.0, 420.0)
+      drops = collections::append(drops, Drop[x := sx, y := f.poolY, vx := math::cos(a) * sp * 0.7, vy := math::sin(a) * sp, big := TRUE])
+    NEXT
+    FOR i = 0 TO 29
+      LET a AS Float = randF(0.0, TAU)
+      LET sp AS Float = randF(40.0, 200.0)
+      sparks = collections::append(sparks, Spark[x := sx, y := f.poolY - 4.0, vx := math::cos(a) * sp, vy := math::sin(a) * sp - 120.0, age := 0.0, life := randF(0.8, 1.8)])
+    NEXT
+    sy = f.poolY - h * 0.02
+    svx = 0.0
+    svy = -900.0
+  END IF
+
+  ' The stream: drops spill from the upper bowl's rim on both sides.
+  MUT emit AS Float = s.emit + dt * 110.0
+  DO WHILE emit >= 1.0
+    LET side AS Float = toFloat(math::rand(0, 1) * 2 - 1)
+    LET along AS Float = randF(0.55, 1.0)
+    drops = collections::append(drops, Drop[x := f.cx + side * f.bowlR * along, y := f.bowlY + randF(-2.0, 2.0), vx := side * randF(20.0, 60.0) * along, vy := randF(-20.0, 10.0), big := FALSE])
+    emit = emit - 1.0
+  LOOP
+
+  ' Move every drop; one that reaches the water leaves a ripple.
+  FOR EACH d IN s.drops
+    LET nvy AS Float = d.vy + 980.0 * dt
+    LET nx AS Float = d.x + d.vx * dt
+    LET ny AS Float = d.y + nvy * dt
+    IF ny >= f.poolY + (nx - f.cx) * 0.0 AND insidePool(f, nx, f.poolY) AND nvy > 0.0 THEN
+      IF d.big OR math::rand(0, 5) = 0 THEN ripples = collections::append(ripples, Ripple[x := nx, y := f.poolY + (ny - f.poolY) * 0.2, age := 0.0, strength := randF(0.12, 0.3)])
+    ELSEIF ny < h + 20.0 THEN
+      drops = collections::append(drops, Drop[x := nx, y := ny, vx := d.vx, vy := nvy, big := d.big])
+    END IF
+  NEXT
+  FOR EACH r IN s.ripples
+    IF r.age + dt < 2.4 THEN ripples = collections::append(ripples, WITH r { age := r.age + dt })
+  NEXT
+  FOR EACH sp IN s.sparks
+    IF sp.age + dt < sp.life THEN sparks = collections::append(sparks, WITH sp { x := sp.x + sp.vx * dt, y := sp.y + sp.vy * dt, vx := sp.vx * 0.97, vy := sp.vy + 60.0 * dt, age := sp.age + dt })
+  NEXT
+  ' The guardian sheds a spark now and then as it moves.
+  IF math::rand(0, 3) = 0 THEN sparks = collections::append(sparks, Spark[x := sx + randF(-6.0, 6.0), y := sy + randF(-6.0, 6.0), vx := randF(-20.0, 20.0), vy := randF(-30.0, 10.0), age := 0.0, life := randF(0.5, 1.2)])
+
+  ' The drinking birds take fright when the guardian is near.
+  MUT birds AS List OF Drinker = []
+  FOR EACH b IN s.birds
+    LET bx AS Float = f.cx + b.homeX * f.rx
+    LET by AS Float = f.poolY - f.ry * 0.9
+    LET near AS Boolean = dist(bx, by, sx, sy) < h * 0.18
+    MUT fleeing AS Boolean = b.fleeing
+    MUT calm AS Float = math::max(0.0, b.calm - dt)
+    IF near THEN
+      fleeing = TRUE
+      calm = 3.5
+    ELSEIF calm <= 0.0 THEN
+      fleeing = FALSE
+    END IF
+    MUT away AS Float = b.away
+    IF fleeing THEN
+      away = math::min(1.0, away + dt / 1.4)
+    ELSE
+      away = math::max(0.0, away - dt / 2.2)
+    END IF
+    birds = collections::append(birds, Drinker[homeX := b.homeX, away := away, fleeing := fleeing, calm := calm])
+  NEXT
+
+  RETURN SpringState[t := t, w := w, h := h, px := px, py := py, sx := sx, sy := sy, svx := svx, svy := svy, trail := trail, diving := diving, diveT := diveT, diveX := diveX, diveY := diveY, surge := surge, emit := emit, drops := drops, ripples := ripples, sparks := sparks, birds := birds]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+' The stone fountain: a wide basin, a fluted pillar and an upper bowl, lit by
+' the pool's glow from below. Runes round the basin brighten with `surge`.
+FUNC fountainStone(f AS Fountain, h AS Float, t AS Float, surge AS Float) AS List OF canvas::DrawItem
+  LET stoneLit AS color::Color = hex("#7d8c88")
+  LET stoneDark AS color::Color = hex("#2c3836")
+  LET rimH AS Float = f.ry * 0.9
+  MUT out AS List OF canvas::DrawItem = []
+  ' The basin wall: the front half of an elliptical band.
+  MUT wall AS List OF canvas::Point = []
+  FOR i = 0 TO 32
+    LET a AS Float = toFloat(i) / 32.0 * math::pi
+    wall = collections::append(wall, pt(f.cx + math::cos(a) * f.rx * 1.06, f.poolY + math::sin(a) * f.ry * 1.06 - rimH * 0.15))
+  NEXT
+  FOR i = 32 TO 0 STEP -1
+    LET a AS Float = toFloat(i) / 32.0 * math::pi
+    wall = collections::append(wall, pt(f.cx + math::cos(a) * f.rx * 1.02, f.poolY + math::sin(a) * f.ry * 1.02 + rimH * 2.6))
+  NEXT
+  out = collections::append(out, poly(wall, gradP(linear(f.cx - f.rx, 0.0, f.cx + f.rx, 0.0, [gstop(0.0, stoneDark), gstop(0.45, stoneLit), gstop(1.0, stoneDark)]))))
+  ' Carved runes on the wall, glowing after a dive.
+  LET runeGlow AS color::Color = mixC(hex("#3a4a48"), hex("#8ff8ff"), clamp01(0.25 + surge))
+  FOR i = 0 TO 6
+    LET a AS Float = math::pi * (0.18 + 0.64 * toFloat(i) / 6.0)
+    LET rx AS Float = f.cx + math::cos(a) * f.rx * 1.04
+    LET ry AS Float = f.poolY + math::sin(a) * f.ry * 1.04 + rimH * 1.25
+    LET s AS Float = rimH * 0.5
+    out = collections::append(out, path([pt(rx - s * 0.4, ry - s), pt(rx, ry + s), pt(rx + s * 0.4, ry - s)], WITH strokeP(runeGlow, 1.6) { join := canvas::JoinStyle.Miter }))
+    out = collections::append(out, line(rx - s * 0.5, ry - s * 0.1, rx + s * 0.5, ry - s * 0.1, strokeP(runeGlow, 1.4)))
+    IF surge > 0.02 THEN out = collections::append(out, glow(rx, ry, s * 4.0, alpha(hex("#7ff4ff"), surge * 0.6)))
+  NEXT
+  ' The rim: a stone ring around the water, two ellipses under EvenOdd.
+  out = collections::append(out, shape([ovalRing(f.cx, f.poolY - rimH * 0.15, f.rx * 1.1, f.ry * 1.25, 64, 0.0), ovalRing(f.cx, f.poolY, f.rx * 0.97, f.ry * 0.95, 64, 0.0)], canvas::FillRule.EvenOdd, WITH gradP(linear(0.0, f.poolY - f.ry * 1.3, 0.0, f.poolY + f.ry * 1.2, [gstop(0.0, hex("#5f6f69")), gstop(0.5, hex("#97a59c")), gstop(1.0, hex("#4c5a55"))])) { stroke := hex("#1d2826"), strokeWidth := 1.2 }))
+  ' Moss on the rim.
+  FOR i = 0 TO 23
+    LET a AS Float = math::pi * hashRange(i + 700, 0.03, 0.97)
+    out = collections::append(out, ellipse(f.cx + math::cos(a) * f.rx * 1.05, f.poolY + math::sin(a) * f.ry * 1.1 - f.ry * 0.05, f.rx * hashRange(i + 710, 0.025, 0.06), f.ry * 0.11, 0.0, fillP(mixC(hex("#2c5a2c"), hex("#5f9440"), hash01(i + 720)))))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC fountainPillar(f AS Fountain, h AS Float) AS List OF canvas::DrawItem
+  LET pw AS Float = f.bowlR * 0.24
+  LET stoneLit AS color::Color = hex("#8a9993")
+  LET stoneDark AS color::Color = hex("#2c3836")
+  LET g AS canvas::Gradient = linear(f.cx - pw, 0.0, f.cx + pw, 0.0, [gstop(0.0, stoneDark), gstop(0.4, stoneLit), gstop(1.0, stoneDark)])
+  MUT out AS List OF canvas::DrawItem = []
+  ' The pillar, waisted in the middle, with grooves.
+  out = collections::append(out, poly([pt(f.cx - pw * 1.3, f.poolY), pt(f.cx - pw * 0.8, f.poolY - (f.poolY - f.bowlY) * 0.5), pt(f.cx - pw * 1.1, f.bowlY + f.bowlR * 0.2), pt(f.cx + pw * 1.1, f.bowlY + f.bowlR * 0.2), pt(f.cx + pw * 0.8, f.poolY - (f.poolY - f.bowlY) * 0.5), pt(f.cx + pw * 1.3, f.poolY)], gradP(g)))
+  FOR i = -1 TO 1
+    out = collections::append(out, line(f.cx + toFloat(i) * pw * 0.45, f.bowlY + f.bowlR * 0.3, f.cx + toFloat(i) * pw * 0.6, f.poolY - 4.0, strokeP(rgba(20, 28, 26, 120), 1.2)))
+  NEXT
+  ' The upper bowl: a shallow cup, its water surface, and its lip.
+  out = collections::append(out, poly([pt(f.cx - f.bowlR, f.bowlY), pt(f.cx - f.bowlR * 0.75, f.bowlY + f.bowlR * 0.28), pt(f.cx - f.bowlR * 0.3, f.bowlY + f.bowlR * 0.36), pt(f.cx + f.bowlR * 0.3, f.bowlY + f.bowlR * 0.36), pt(f.cx + f.bowlR * 0.75, f.bowlY + f.bowlR * 0.28), pt(f.cx + f.bowlR, f.bowlY)], gradP(linear(f.cx - f.bowlR, 0.0, f.cx + f.bowlR, 0.0, [gstop(0.0, stoneDark), gstop(0.45, stoneLit), gstop(1.0, stoneDark)]))))
+  out = collections::append(out, ellipse(f.cx, f.bowlY, f.bowlR, f.bowlR * 0.2, 0.0, WITH gradP(radial(f.cx, f.bowlY, f.bowlR, [gstop(0.0, hex("#6fe0e8")), gstop(1.0, hex("#1d5a66"))])) { stroke := hex("#a9b6ae"), strokeWidth := 2.0 }))
+  ' A spout at the top bubbling up.
+  out = collections::append(out, ellipse(f.cx, f.bowlY - 2.0, f.bowlR * 0.12, f.bowlR * 0.05, 0.0, glowP(rgba(160, 250, 255, 160))))
+  RETURN out
+END FUNC
+
+FUNC springDraw(s AS SpringState, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET t AS Float = s.t
+  LET f AS Fountain = fountainAt(w, h, -s.px * SPRING_POOL, -s.py * SPRING_POOL * 0.4)
+  ' Sky and the far layers, each a Group slid by the parallax.
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h * 0.7, [gstop(0.0, hex("#060d1e")), gstop(0.6, hex("#16384c")), gstop(1.0, hex("#2f6a72"))])))]
+  out = collections::append(out, starField(w, h * 0.45, 90, t, 0.8, 23))
+  out = collections::append(out, glow(w * 0.78 - s.px * 4.0, h * 0.16, h * 0.25, rgba(170, 230, 255, 40)))
+  out = collections::append(out, circle(w * 0.78 - s.px * 4.0, h * 0.16, h * 0.035, fillP(hex("#eef6ff"))))
+  out = collections::append(out, item(canvas::Group[dx := -s.px * SPRING_FAR - 20.0, dy := -s.py * SPRING_FAR * 0.4, name := "spring-far"]))
+  out = collections::append(out, item(canvas::Group[dx := -s.px * SPRING_MID - 30.0, dy := -s.py * SPRING_MID * 0.4, name := "spring-mid"]))
+
+  ' The willow behind the fountain: a dark crown, and fronds hanging from it.
+  ' Each frond is a PolyLine stroked with a dash pattern and round caps, so it
+  ' reads as a string of leaves rather than a line, and the colours along it
+  ' fade towards its tip.
+  LET wx AS Float = w * 0.22 - s.px * SPRING_MID
+  LET wy AS Float = h * 0.74 - s.py * SPRING_MID * 0.4
+  out = collections::append(out, poly([pt(wx - h * 0.035, wy), pt(wx - h * 0.015, wy - h * 0.3), pt(wx + h * 0.04, wy - h * 0.47), pt(wx + h * 0.06, wy - h * 0.45), pt(wx + h * 0.015, wy - h * 0.28), pt(wx + h * 0.04, wy)], gradP(linear(wx - h * 0.04, 0.0, wx + h * 0.04, 0.0, [gstop(0.0, hex("#101c18")), gstop(0.6, hex("#2a3a30")), gstop(1.0, hex("#101c18"))]))))
+  FOR i = 0 TO 9
+    LET cx AS Float = wx + h * (-0.17 + 0.042 * toFloat(i))
+    LET cy AS Float = wy - h * (0.48 + 0.05 * math::sin(toFloat(i) * 0.9) + hashRange(i + 540, -0.02, 0.02))
+    out = collections::append(out, ellipse(cx, cy, h * hashRange(i + 550, 0.05, 0.08), h * hashRange(i + 560, 0.035, 0.05), hashRange(i + 570, -0.4, 0.4), gradP(linear(0.0, cy - h * 0.05, 0.0, cy + h * 0.05, [gstop(0.0, hex("#2f6040")), gstop(1.0, hex("#12261c"))]))))
+  NEXT
+  FOR i = 0 TO 47
+    LET u AS Float = toFloat(i) / 47.0
+    LET ox AS Float = wx + h * (-0.22 + 0.48 * u) + hashRange(i + 520, -0.01, 0.01) * h
+    LET oy AS Float = wy - h * 0.5 + math::pow(math::abs(u - 0.45) * 2.0, 2.0) * h * 0.12
+    LET len_ AS Float = h * hashRange(i + 500, 0.2, 0.42)
+    MUT pts AS List OF canvas::Point = []
+    MUT cols AS List OF color::Color = []
+    LET tint AS Float = hash01(i + 530)
+    FOR j = 0 TO 10
+      LET v AS Float = toFloat(j) / 10.0
+      LET sway AS Float = math::sin(t * 0.9 + toFloat(i) * 0.37 + v * 2.0) * h * 0.022 * v * v
+      pts = collections::append(pts, pt(ox + sway + (u - 0.45) * v * h * 0.08, oy + v * len_))
+      cols = collections::append(cols, mixC(mixC(rgba(46, 102, 62, 255), rgba(96, 170, 100, 255), tint), rgba(160, 230, 150, 0), v * v * v))
+    NEXT
+    out = collections::append(out, trail(pts, cols, WITH strokeP(color::white, h * 0.0075) { dashes := [h * 0.009, h * 0.0045], dashOffset := toFloat(i) * 3.0 }))
+  NEXT
+
+  ' The pool's glow lights the stone around it.
+  out = collections::append(out, glow(f.cx, f.poolY, f.rx * 1.6, rgba(80, 220, 230, 40 + toInt(70.0 * s.surge))))
+  out = collections::append(out, fountainStone(f, h, t, s.surge))
+  ' The water: a deep ellipse with a lighter rim, the moon and the guardian
+  ' reflected in it, and the ripples - all clipped to the pool.
+  LET pool AS List OF List OF canvas::Point = [ovalRing(f.cx, f.poolY, f.rx * 0.97, f.ry * 0.95, 64, 0.0)]
+  out = collections::append(out, ellipse(f.cx, f.poolY, f.rx * 0.97, f.ry * 0.95, 0.0, gradP(WITH radial(0.0, 0.0, 1.0, [gstop(0.0, hex("#0f3f4a")), gstop(0.7, hex("#1b6470")), gstop(1.0, hex("#47a4a8"))]) { transform := place2(f.cx, f.poolY, 0.0, f.rx, f.ry) })))
+  out = collections::append(out, ellipse(f.cx + f.rx * 0.45, f.poolY + f.ry * 0.25, f.rx * 0.08, f.ry * 0.5, 0.0, WITH glowP(color::white) { clip := pool, gradient := WITH radial(0.0, 0.0, 1.0, [gstop(0.0, rgba(220, 240, 255, 70)), gstop(1.0, rgba(220, 240, 255, 0))]) { transform := place2(f.cx + f.rx * 0.45, f.poolY + f.ry * 0.25, 0.0, f.rx * 0.08, f.ry * 0.5) } }))
+  out = collections::append(out, ellipse(s.sx, f.poolY + (f.poolY - s.sy) * 0.08, f.rx * 0.12, f.ry * 0.3, 0.0, WITH glowP(color::white) { clip := pool, gradient := WITH radial(0.0, 0.0, 1.0, [gstop(0.0, rgba(180, 255, 240, 120)), gstop(1.0, rgba(180, 255, 240, 0))]) { transform := place2(s.sx, f.poolY + (f.poolY - s.sy) * 0.08, 0.0, f.rx * 0.12, f.ry * 0.3) } }))
+  FOR EACH r IN s.ripples
+    IF r.age > 0.0 THEN
+      LET grow AS Float = easeOutCubic(r.age / 2.4)
+      LET rr AS Float = f.rx * (0.05 + 0.55 * r.strength) * grow + 2.0
+      LET a AS Float = r.strength * (1.0 - r.age / 2.4)
+      out = collections::append(out, ellipse(r.x, r.y, rr, rr * f.ry / f.rx, 0.0, WITH canvas::stroke(rgba(200, 255, 255, (math::round(230.0 * clamp01(a)))), 1.0 + 2.0 * r.strength) { clip := pool, blend := canvas::BlendMode.Add }))
+      IF r.strength > 0.5 THEN out = collections::append(out, ellipse(r.x, r.y, rr * 0.7, rr * 0.7 * f.ry / f.rx, 0.0, WITH canvas::stroke(rgba(200, 255, 255, (math::round(160.0 * clamp01(a)))), 1.5) { clip := pool, blend := canvas::BlendMode.Add }))
+    END IF
+  NEXT
+  out = collections::append(out, fountainPillar(f, h))
+  ' Falling water: each drop a short streak along its velocity.
+  FOR EACH d IN s.drops
+    LET sp AS Float = math::sqrt(d.vx * d.vx + d.vy * d.vy) + 0.001
+    LET l AS Float = math::min(10.0, sp * 0.018)
+    out = collections::append(out, line(d.x, d.y, d.x - d.vx / sp * l, d.y - d.vy / sp * l, WITH strokeP(rgba(170, 240, 255, 170), 1.6) { blend := canvas::BlendMode.Add }))
+  NEXT
+
+  ' The drinking birds: on the rim, or flying off along an arc and back.
+  FOR i = 0 TO len(s.birds) - 1
+    LET b AS Drinker = collections::get(s.birds, i)
+    LET bx AS Float = f.cx + b.homeX * f.rx
+    LET by AS Float = f.poolY - f.ry * 0.9
+    IF b.away <= 0.001 THEN
+      LET peck AS Float = math::max(0.0, math::sin(t * 2.0 + toFloat(i) * 2.1))
+      out = collections::append(out, songbird(bx, by, h * 0.045, toFloat(i MOD 2) * 2.0 - 1.0, 0.6 * math::pow(peck, 6.0), mixC(hex("#5d6f8a"), hex("#8a5a3a"), toFloat(i) / 2.0), hex("#e8d6b0")))
+    ELSEIF b.away < 0.999 THEN
+      LET e AS Float = easeInOut(b.away)
+      LET dir AS Float = toFloat(i MOD 2) * 2.0 - 1.0
+      LET fx AS Float = bx + dir * w * 0.45 * e
+      LET fy AS Float = by - h * 0.6 * e + math::sin(e * math::pi) * h * 0.05
+      MUT heading AS Float = math::atan2(-h * 0.6, dir * w * 0.45)
+      IF NOT b.fleeing THEN heading = math::atan2(h * 0.6, -dir * w * 0.45)
+      out = collections::append(out, bird(fx, fy, heading, h * 0.05, math::sin(t * 40.0 + toFloat(i)), 0.8, mixC(hex("#5d6f8a"), hex("#8a5a3a"), toFloat(i) / 2.0), hex("#2a3040")))
+    END IF
+  NEXT
+
+  ' The guardian: a bright core in layered glows, with a trail of light whose
+  ' colours fade out along it.
+  IF len(s.trail) > 1 THEN
+    MUT cols AS List OF color::Color = []
+    FOR i = 0 TO len(s.trail) - 1
+      LET u AS Float = toFloat(i) / toFloat(len(s.trail) - 1)
+      cols = collections::append(cols, mixC(rgba(200, 255, 240, 200), rgba(90, 160, 255, 0), u))
+    NEXT
+    out = collections::append(out, trail(s.trail, cols, WITH strokeP(color::white, h * 0.012) { blend := canvas::BlendMode.Add }))
+  END IF
+  LET pulse AS Float = 0.85 + 0.15 * math::sin(t * 6.0)
+  out = collections::append(out, glow(s.sx, s.sy, h * 0.14 * pulse, rgba(120, 255, 230, 70)))
+  out = collections::append(out, glow(s.sx, s.sy, h * 0.05, rgba(200, 255, 245, 200)))
+  out = collections::append(out, circle(s.sx, s.sy, h * 0.009, fillP(color::white)))
+  ' Little wings of light either side of it.
+  FOR side = -1 TO 1 STEP 2
+    LET flutter AS Float = math::sin(t * 22.0) * 0.5
+    out = collections::append(out, ellipse(s.sx + toFloat(side) * h * 0.018, s.sy - h * 0.008, h * 0.018, h * 0.007, toFloat(side) * (0.5 + flutter), glowP(rgba(190, 255, 250, 140))))
+  NEXT
+  FOR EACH sp IN s.sparks
+    LET a AS Float = 1.0 - sp.age / sp.life
+    out = collections::append(out, circle(sp.x, sp.y, 1.2 + 1.6 * a, glowP(rgba(200, 255, 240, (math::round(255.0 * a))))))
+  NEXT
+
+  ' Fireflies, and the near ferns in front of everything.
+  out = collections::append(out, motes(0.0, h * 0.35, w, h * 0.6, 28, t, hex("#b6ff8a"), 1.8, 61))
+  out = collections::append(out, item(canvas::Group[dx := -s.px * SPRING_NEAR, dy := -s.py * SPRING_NEAR * 0.4, name := "spring-near"]))
+  RETURN collections::append(out, vignette(w, h, 170))
+END FUNC

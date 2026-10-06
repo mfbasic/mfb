@@ -1,0 +1,262 @@
+' canvas-demo - The Enchanted Grove: ten scenes drawn with the MFBASIC canvas.
+'
+' A title screen offers a card for each scene. Opening one shows a short panel
+' about what it demonstrates - first what it does with the canvas, then what it
+' uses of the language - and then the scene itself runs until Esc returns to
+' the title screen.
+'
+' Build and run it (canvas needs a window, so this is an --app program):
+'   mfb build examples/canvas-demo
+'   open examples/canvas-demo/build/canvas-demo.app        (macOS)
+'   ./examples/canvas-demo/build/canvas-demo.AppImage      (Linux)
+'
+' Options, for presenting:
+'   --scene N       open scene N (1-10) straight away
+'   --skip-intro    with --scene, go straight into the scene without its panel
+'   --stats         start with the drawing statistics showing (as P does)
+'
+' Keys everywhere:
+'   F       full screen on and off
+'   Esc     back to the title screen
+'   I       show the current scene's panel again
+'   P       show how fast the canvas is drawing
+'   M       sound off and on
+'   Q       quit (from the title screen)
+'
+' The program is in these files:
+'   main.mfb       the fonts, the input, and the frame loop (this file)
+'   ui.mfb         input records, text layout, buttons, the intro panel
+'   menu.mfb       the title screen
+'   demos.mfb      the list of scenes and the Scene union that holds one
+'   kit.mfb        shorthand for points, colours, paints and gradients
+'   scenery.mfb    trees, birds, stars and motes the scenes share
+'   audio.mfb      the ambient soundtrack, synthesised on its own thread
+'   one file per scene: dawn, spring, twilight, alchemist, canopy, wanderer,
+'   scribe, bestiary, cathedral and lantern.
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT os
+IMPORT thread
+
+' How long a fade to or from black takes, in seconds.
+LET FADE_SECONDS AS Float = 0.35
+
+' Where the screens are.
+LET AT_MENU AS Integer = -1
+LET NO_TARGET AS Integer = -2
+
+FUNC loadFace(file AS String) AS canvas::Font
+  RETURN canvas::loadFont(os::appResourcePath("fonts/" & file))
+END FUNC
+
+' The scene asked for with --scene N, as an index 0..9, or -1.
+FUNC startScene AS Integer
+  LET args AS List OF String = os::args()
+  FOR i = 0 TO len(args) - 2
+    IF collections::get(args, i) = "--scene" THEN
+      LET n AS Integer = toInt(collections::get(args, i + 1)) TRAP(e)
+        RECOVER 0
+      END TRAP
+      IF n >= 1 AND n <= DEMO_COUNT THEN RETURN n - 1
+    END IF
+  NEXT
+  RETURN -1
+END FUNC
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("MFBASIC Canvas - The Enchanted Grove")
+
+  RES display AS canvas::Font = loadFace("CinzelDecorative-Bold.ttf")
+  RES heading AS canvas::Font = loadFace("Cinzel.ttf")
+  RES body AS canvas::Font = loadFace("Lato-Regular.ttf")
+  RES bold AS canvas::Font = loadFace("Lato-Bold.ttf")
+  RES italic AS canvas::Font = loadFace("Lato-Italic.ttf")
+  LET f AS Fonts = Fonts[display, heading, body, bold, italic]
+
+  canvas::enableMouse(TRUE)
+
+  ' The soundtrack runs on its own thread; it is told which screen is up.
+  RES sound AS Thread OF Integer TO Integer = thread::start(soundtrack, SOUND_MENU)
+
+  MUT menu AS MenuState = menuNew()
+  MUT current AS Integer = startScene()
+  MUT scene AS Scene = sceneNew(0)
+  MUT where AS Integer = AT_MENU
+  IF current >= 0 THEN
+    where = current
+    scene = sceneNew(current)
+    thread::send(sound, current)
+  END IF
+  MUT sceneAge AS Float = 0.0
+  ' The intro panel: whether it is wanted, how far open it is (0..1), its laid
+  ' out text, and the Begin button's hover.
+  MUT introWanted AS Boolean = where <> AT_MENU AND NOT collections::contains(os::args(), "--skip-intro")
+  MUT introOpen AS Float = 0.0
+  MUT introText AS PanelText = panelText(f, demoInfo(0), 0.0, 0.0)
+  MUT beginHover AS Float = 0.0
+  ' Fading: `target` is where to go once the screen is black.
+  MUT blackness AS Float = 1.0
+  MUT target AS Integer = NO_TARGET
+  MUT running AS Boolean = TRUE
+
+  ' The mouse and keyboard as of the last event.
+  MUT mx AS Float = -1.0
+  MUT my AS Float = -1.0
+  MUT down AS Boolean = FALSE
+  MUT rightDown AS Boolean = FALSE
+  MUT held AS List OF String = []
+  MUT clock AS Float = 0.0
+  MUT showStats AS Boolean = collections::contains(os::args(), "--stats")
+
+  DO WHILE running
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    MUT dt AS Float = math::min(stats.dt, 0.05)
+    IF dt <= 0.0 THEN dt = 1.0 / 60.0
+    clock = clock + dt
+    LET size AS canvas::Size = canvas::getSize()
+    LET w AS Float = toFloat(size.width)
+    LET h AS Float = toFloat(size.height)
+
+    ' Gather this frame's input.
+    MUT pressed AS Boolean = FALSE
+    MUT released AS Boolean = FALSE
+    MUT rightPressed AS Boolean = FALSE
+    MUT wheel AS Integer = 0
+    MUT ev AS canvas::MouseEvent = canvas::pollMouse()
+    DO WHILE ev.kind <> canvas::MouseKind.None
+      mx = ev.position.x
+      my = ev.position.y
+      IF ev.kind = canvas::MouseKind.Down AND ev.button = canvas::MouseButton.Left THEN
+        pressed = TRUE
+        down = TRUE
+      ELSEIF ev.kind = canvas::MouseKind.Up AND ev.button = canvas::MouseButton.Left THEN
+        released = TRUE
+        down = FALSE
+      ELSEIF ev.kind = canvas::MouseKind.Down AND ev.button = canvas::MouseButton.Right THEN
+        rightPressed = TRUE
+        rightDown = TRUE
+      ELSEIF ev.kind = canvas::MouseKind.Up AND ev.button = canvas::MouseButton.Right THEN
+        rightDown = FALSE
+      ELSEIF ev.kind = canvas::MouseKind.ScrollUp THEN
+        wheel = wheel + 1
+      ELSEIF ev.kind = canvas::MouseKind.ScrollDown THEN
+        wheel = wheel - 1
+      END IF
+      ev = canvas::pollMouse()
+    LOOP
+    MUT keys AS List OF String = []
+    MUT reading AS Boolean = TRUE
+    DO WHILE reading
+      LET k AS io::Key = io::readKey(0) TRAP(e)
+        IF e.code <> errorCode::ErrTimeout THEN running = FALSE
+        reading = FALSE
+        RECOVER io::Key[key := io::KeyName.F12, grapheme := "", event := io::KeyEvent.Release, shift := FALSE, ctrl := FALSE, alt := FALSE, meta := FALSE]
+      END TRAP
+      IF reading THEN
+        LET name AS String = keyName(k)
+        IF name <> "" THEN
+          IF k.event = io::KeyEvent.Release THEN
+            held = collections::filter(held, LAMBDA(x AS String) -> x <> name)
+          ELSE
+            keys = collections::append(keys, name)
+            IF k.event = io::KeyEvent.Press AND NOT collections::contains(held, name) THEN held = collections::append(held, name)
+          END IF
+        END IF
+      END IF
+    LOOP
+    LET inp AS Input = Input[w := w, h := h, mx := mx, my := my, down := down, pressed := pressed, released := released, rightDown := rightDown, rightPressed := rightPressed, wheel := wheel, keys := keys, held := held]
+
+    ' Keys that mean the same on every screen.
+    IF keyPressed(inp, "f") THEN app::setFullscreen(NOT app::getFullscreen())
+    IF keyPressed(inp, "p") THEN showStats = NOT showStats
+    IF keyPressed(inp, "m") THEN thread::send(sound, SOUND_MUTE)
+    IF keyPressed(inp, "esc") AND where <> AT_MENU AND target = NO_TARGET THEN target = AT_MENU
+
+    ' Advance whichever screen is showing.
+    MUT scene_ AS List OF canvas::DrawItem = []
+    IF where = AT_MENU THEN
+      menu = menuStep(menu, f, inp, dt)
+      IF menu.chosen >= 0 AND target = NO_TARGET THEN
+        target = menu.chosen
+        thread::send(sound, SOUND_CLICK)
+      END IF
+      scene_ = menuDraw(menu, f, w, h)
+    ELSE
+      LET info AS DemoInfo = demoInfo(where)
+      IF introText.forW <> w OR introText.forH <> h THEN introText = panelText(f, info, w, h)
+      LET lay AS PanelLayout = panelLayout(introText, w, h)
+      IF keyPressed(inp, "i") AND NOT introWanted THEN introWanted = TRUE
+      MUT sceneInput AS Input = inp
+      IF introWanted OR introOpen > 0.0 THEN
+        sceneInput = idleInput(inp)
+        LET onBegin AS Boolean = overBegin(lay, mx, my)
+        MUT bt AS Float = 0.0
+        IF onBegin THEN bt = 1.0
+        beginHover = approach(beginHover, bt, 14.0, dt)
+        IF introWanted AND introOpen > 0.5 AND ((pressed AND onBegin) OR keyPressed(inp, "enter") OR keyPressed(inp, "space")) THEN
+          introWanted = FALSE
+          thread::send(sound, SOUND_CLICK)
+        END IF
+      END IF
+      IF introWanted THEN
+        introOpen = math::min(1.0, introOpen + dt / 0.45)
+      ELSE
+        introOpen = math::max(0.0, introOpen - dt / 0.3)
+      END IF
+      scene = sceneStep(scene, sceneInput, dt)
+      IF NOT introWanted THEN sceneAge = sceneAge + dt
+      scene_ = sceneDraw(scene, f, w, h)
+      ' The name and hints show for the first few seconds of a scene, and
+      ' whenever the mouse is near the bottom edge.
+      MUT chrome AS Float = clamp01((5.0 - sceneAge) / 1.0)
+      IF my > h - 70.0 THEN chrome = 1.0
+      scene_ = collections::append(scene_, sceneChrome(f, info, w, h, chrome * (1.0 - introOpen)))
+      IF introOpen > 0.0 THEN scene_ = collections::append(scene_, drawIntro(f, info, introText, lay, w, h, introOpen, beginHover, clock))
+    END IF
+
+    ' Fade to black and switch screens, or fade back in.
+    IF target <> NO_TARGET THEN
+      blackness = math::min(1.0, blackness + dt / FADE_SECONDS)
+      IF blackness >= 1.0 THEN
+        IF target = QUIT_CHOICE THEN
+          running = FALSE
+        ELSEIF target = AT_MENU THEN
+          where = AT_MENU
+          menu = menuNew()
+          thread::send(sound, SOUND_MENU)
+        ELSE
+          where = target
+          scene = sceneNew(target)
+          sceneAge = 0.0
+          introWanted = TRUE
+          introOpen = 0.0
+          introText = panelText(f, demoInfo(target), w, h)
+          thread::send(sound, target)
+        END IF
+        target = NO_TARGET
+      END IF
+    ELSE
+      blackness = math::max(0.0, blackness - dt / FADE_SECONDS)
+    END IF
+    IF showStats THEN scene_ = collections::append(scene_, statsPanel(f, stats, len(scene_), w))
+    scene_ = collections::append(scene_, blackout(w, h, blackness))
+
+    canvas::present(scene_)
+    canvas::waitFrame()
+  LOOP
+
+  canvas::enableMouse(FALSE)
+  thread::send(sound, SOUND_QUIT)
+  RETURN 0
+
+  TRAP(e)
+    io::printError("canvas-demo: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
