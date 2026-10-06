@@ -1,0 +1,68 @@
+IMPORT io
+IMPORT fs
+
+' bug-852's non-goals: what the loop back-edge rule must NOT reject. Each body
+' either closes a resource it declared itself (a fresh one every iteration) or
+' leaves the loop on the path that closes the outer one.
+
+FUNC closeLoopLocal() AS Integer
+  MUT n AS Integer = 0
+  FOR i = 1 TO 3
+    RES g AS fs::File = fs::createTempFile()
+    fs::writeAll(g, "x")
+    fs::close(g)
+    n = n + 1
+  NEXT
+  RETURN n
+END FUNC
+
+FUNC closeThenExit() AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  MUT n AS Integer = 0
+  FOR i = 1 TO 3
+    fs::writeAll(f, "x")
+    n = n + 1
+    IF i = 2 THEN
+      fs::close(f)
+      EXIT FOR
+    END IF
+  NEXT
+  RETURN n
+END FUNC
+
+FUNC closeThenReturn() AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  MUT n AS Integer = 0
+  WHILE n < 5
+    fs::writeAll(f, "x")
+    n = n + 1
+    IF n = 2 THEN
+      fs::close(f)
+      RETURN n
+    END IF
+  END WHILE
+  RETURN n
+END FUNC
+
+' An EXIT of an INNER loop does not leave the outer one: the inner loop's
+' resource is its own, so nothing here is closed twice.
+FUNC innerExit() AS Integer
+  MUT n AS Integer = 0
+  FOR i = 1 TO 2
+    RES g AS fs::File = fs::createTempFile()
+    FOR j = 1 TO 3
+      fs::writeAll(g, "y")
+      n = n + 1
+      IF j = 2 THEN
+        EXIT FOR
+      END IF
+    NEXT
+    fs::close(g)
+  NEXT
+  RETURN n
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(closeLoopLocal()) & " " & toString(closeThenExit()) & " " & toString(closeThenReturn()) & " " & toString(innerExit()))
+  RETURN 0
+END FUNC
