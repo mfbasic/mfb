@@ -1,0 +1,102 @@
+# bug-963: macOS `--app` — switching from a windowed mode to `app::Mode.None` makes AppKit terminate the process (exit 0) moments later, killing the running program
+
+Last updated: 2026-10-05
+Effort: small (<1h)
+Severity: HIGH
+Class: Correctness
+
+Status: Open
+Regression Test: (proposed) GUI (non-headless) macOS run of `setMode(Console); setMode(None); os::sleep(1000); <write marker>` asserts the marker is written and the exit code is the program's
+
+On macOS, `app::setMode(app::Mode.None)` after the window has been shown (from
+`Console` or `Canvas`) orders the window out. With the delegate answering
+`applicationShouldTerminateAfterLastWindowClosed:` YES, AppKit schedules its
+"terminate after last window closed" check when the last visible window goes away,
+and `-[NSApplication terminate:]` ends the process with status 0 a few hundred ms
+later — in the middle of the program. Everything the program does afterwards is lost:
+no further output, no file writes, no lexical cleanup, no `_mfb_shutdown`, and the
+exit status is 0 regardless of what the program would have returned.
+
+A program that *starts* in `None` and never shows a window is unaffected, and a
+program that switches to `None` and returns immediately races to completion, which is
+why the existing headless tests do not see this.
+
+The single correct behavior: `Mode.None` hides the window and the program keeps
+running until it ends itself (as on GTK, measured below); only a **user** closing the
+window (or Cmd-Q) quits the app.
+
+References:
+
+- `src/docs/spec/app/05_presentation-mode.md` — `None` is "windowless"; "a program
+  that intends to manage its own surface ... brings a window up deliberately" (and,
+  by the model, down again).
+- `src/docs/spec/app/01_macos-runtime.md` App delegate — `applicationShouldTerminateAfterLastWindowClosed:` "returns YES so closing the window quits the app".
+- Found by hardening batch B17.
+
+## Failing Reproduction
+
+```
+IMPORT app
+IMPORT io
+IMPORT os
+IMPORT fs
+
+FUNC main() AS Nothing
+  LET path AS String = "/tmp/hardening/B17/ms3.log"
+  fs::appendText(path, "start mode=" & toString(app::getMode()) & "\n")
+  io::print("printed in none (initial)")
+  fs::appendText(path, "after print 1\n")
+  app::setMode(app::Mode.Console)
+  io::print("printed in console")
+  fs::appendText(path, "after print 2\n")
+  app::setMode(app::Mode.None)
+  fs::appendText(path, "switched to none\n")
+  os::sleep(1000)
+  io::print("printed in none (after console)")
+  fs::appendText(path, "end\n")
+END FUNC
+```
+
+```
+mfb build --app ms3 && ms3/build/p1.app/Contents/MacOS/p1; echo $?; cat ms3.log
+```
+
+- Observed: exit `0`; stdout only `printed in none (initial)`; log ends at
+  `switched to none` (no `end`). Same with `Canvas` → `None` (`/tmp/hardening/B17/ms4`,
+  both variants die before `slept`).
+- Expected: `printed in none (after console)` on stdout, log ends with `end`.
+- lldb (`breakpoint set -n terminate:`) on the main thread:
+  `-[NSApplication terminate:]` ← `_terminateFromSender:askIfShouldTerminate:saveWindows:`
+  ← `__79-[NSApplication(NSWindowCache) _scheduleCheckForTerminateAfterLastWindowClosed]_block_invoke`
+  ← run-loop timer ← `-[NSApplication run]`.
+
+| Environment | Result |
+| --- | --- |
+| macOS 15 (Darwin 24.6) aarch64, GUI | terminated ✗ |
+| macOS headless (`MFB_MACAPP_HEADLESS=1`) | runs to end ✓ |
+| linux-aarch64 GTK4/Xvfb, same program | runs to end ✓ |
+
+## Root Cause
+
+`src/target/macos_aarch64/app/bootstrap.rs` reconcile `none_path` sends
+`orderOut:` to the window; `emit_should_terminate_helper` unconditionally returns YES.
+AppKit treats "no visible windows" after an `orderOut:` as the last window closing and
+terminates. Hypothesis for the fix shape: make the delegate answer NO while the
+presentation mode is `None` (or answer NO and terminate explicitly from a real
+`windowWillClose:`), so only a user close quits.
+
+## Goal
+
+- After `setMode(None)` from a windowed mode the program keeps running and exits with
+  its own status.
+- Closing the window by the user still quits.
+
+### Non-goals (must NOT change)
+
+- Headless behavior; GTK and Windows backends.
+
+## Blast Radius
+
+- macOS reconcile `none_path` + `SHOULD_TERMINATE_SYMBOL` — fixed by this bug.
+- Windows: not run (no host); `win_x86_64/app` reconcile hides via its own path —
+  unverified.
