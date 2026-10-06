@@ -33,3 +33,16 @@ in a request-target. `mfb spec stdlib http` "Request Construction" promises
   Already-encoded `%XX` sequences are not double-encoded (match Node's
   `new URL(...).pathname + search`).
 - Control bytes stay rejected as today.
+
+## Golden impact
+
+`__http_requestTarget`'s body changed (now calls the new `__http_percentEncodeTarget`
+helper) and three new private helpers (`__http_percentEncodeTarget`,
+`__http_percentByteEncode`, `__http_isHexDigitChar`) were added to the `http` package's
+assembled MFBASIC source. Every fixture that `IMPORT http`s will therefore show a changed
+`.ast`/`.ir`/`.ncode` (the helper section grows and one existing helper's body text
+changes) — this is a change-sentinel for the fact the http source changed, not a
+correctness signal on its own. Expect diffs under `tests/byte-identity/http/`,
+`tests/syntax/http/**`, and any `tests/rt-behavior/http/**`/`tests/rt-error/http/**`
+fixture with a `.ncodesum`/`.ast`/`.ir` golden. No other package's assembled source
+changed.

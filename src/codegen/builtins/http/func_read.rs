@@ -32,7 +32,14 @@ derived from the URL, is rejected if it contains a control byte (any byte below
 request line.
 
 The request target is `url.path` (an empty path is normalized to `/`) followed by
-`?` and `url.query` when a query is present; the URL fragment is never sent.
+`?` and `url.query` when a query is present; the URL fragment is never sent. A
+space, DEL (0x7F), or any non-ASCII byte in the path/query is percent-encoded
+first (matching Node's `new URL(...).pathname + search`), so the target is
+always a single token — without this a path like `/x HTTP/1.0` would land on
+the wire as a second, attacker-chosen token on the request line itself
+(bug-981), separate from the control-byte rejection above. An escape already
+present (`%` plus two hex digits) is kept as-is, never double-encoded; every
+other byte, including `/ ? = & ; : @ , + $ ! * ' ( ) #`, is unchanged.
 
 The returned `http::Response` exposes `status` (Integer), `reason` (String, `""` when
 omitted), `httpVersion` (String, e.g. `"1.1"`), `headers` (a `Map OF String TO

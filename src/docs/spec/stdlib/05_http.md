@@ -59,12 +59,22 @@ There is no comma-joining of duplicate values.
 
 ## Request Construction
 
-The request line is always `METHOD target HTTP/1.1`. The method is validated and
-normalized: empty or whitespace-containing methods fail (`77050002`); otherwise
-it is uppercased. The request target is the URL path (defaulting to `/` when
-empty) with `?query` appended when the URL carries a query.
+The request line is always `METHOD target HTTP/1.1`, and `target` is always a
+single whitespace-free token. The method is validated and normalized: empty or
+whitespace-containing methods fail (`77050002`); otherwise it is uppercased.
+The request target is the URL path (defaulting to `/` when empty) with
+`?query` appended when the URL carries a query, with space, DEL (0x7F), and
+every non-ASCII byte in that path/query percent-encoded (matching Node's
+`new URL(...).pathname + search`) — otherwise a path or query byte like that
+would land on the wire as a second, attacker-controlled token on the request
+line (bug-981: `http://h/x HTTP/1.0` used to send `GET /x HTTP/1.0 HTTP/1.1`,
+an injected request-line token). Every other byte, including the structural
+delimiters (`/ ? = & ; : @ , + $ ! * ' ( ) #`), is left alone, and an escape
+already present (`%` + two hex digits) is kept verbatim rather than
+double-encoded. Control bytes (below 0x20) are rejected outright, as for any
+header (`77050002`).
 
-[[src/codegen/builtins/http/helper_normalize_method.rs:__http_normalizeMethod]] [[src/codegen/builtins/http/helper_request_target.rs:__http_requestTarget]]
+[[src/codegen/builtins/http/helper_normalize_method.rs:__http_normalizeMethod]] [[src/codegen/builtins/http/helper_request_target.rs:__http_requestTarget]] [[src/codegen/builtins/http/helper_percent_encode_target.rs:__http_percentEncodeTarget]]
 
 Four headers are emitted automatically, each overridable by a caller header of
 the same name (matched case-insensitively):
