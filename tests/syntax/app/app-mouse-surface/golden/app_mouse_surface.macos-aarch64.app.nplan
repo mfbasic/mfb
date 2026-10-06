@@ -11125,9 +11125,12 @@
     ],
     "localSlots": [
     { "name": "table", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 }, "offset": -8, "mutable": false },
-    { "name": "out", "storage": { "name": "List OF Byte", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": true },
-    { "name": "point", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -24, "mutable": false },
-    { "name": "ch", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 }, "offset": -32, "mutable": false }
+    { "name": "tablePoints", "storage": { "name": "List OF Integer", "class": "reference", "size": 8, "align": 8 }, "offset": -16, "mutable": false },
+    { "name": "out", "storage": { "name": "List OF Byte", "class": "reference", "size": 8, "align": 8 }, "offset": -24, "mutable": true },
+    { "name": "point", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -32, "mutable": false },
+    { "name": "idx", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -40, "mutable": true },
+    { "name": "scan", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -48, "mutable": true },
+    { "name": "tablePoint", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -56, "mutable": false }
     ],
     "labels": [
     { "name": "if_else_0", "kind": "ifElse" },
@@ -11137,14 +11140,15 @@
     { "name": "if_else_4", "kind": "ifElse" },
     { "name": "if_end_5", "kind": "ifEnd" },
     { "name": "if_else_6", "kind": "ifElse" },
-    { "name": "if_end_7", "kind": "ifEnd" }
+    { "name": "if_end_7", "kind": "ifEnd" },
+    { "name": "if_else_8", "kind": "ifElse" },
+    { "name": "if_end_9", "kind": "ifEnd" }
     ],
-    "operations": ["branchIfFalse (local codepage = encoding.Codepage.Utf8) -> if_else_0", "return call #encoding_utf8Encode$String$AS$List$OF$Byte(local text)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable table AS String = call #encoding_codepageTable(local codepage)", "bind mutable out AS List OF Byte = list []", "forEach point AS Integer IN call #encoding_codepoints(local text)", "branchIfFalse (local point < Integer(128)) -> if_else_2", "assign out = call collections.append(local out, call toByte(local point))", "branch -> if_end_3", "label if_else_2", "branchIfFalse (local point = Integer(65533)) -> if_else_4", "fail construct Error(Integer(77050003), String(character not representable in this codepage), construct ErrorLoc(String(builtins/encoding.mfb), Integer(1432), Integer(14)))", "branch -> if_end_5", "label if_else_4", "label if_end_5", "bind immutable ch AS String = call #encoding_fromCodepoint(local point)", "branchIfFalse (NOT call strings.contains(local table, local ch)) -> if_else_6", "fail construct Error(Integer(77050003), String(character not representable in this codepage), construct ErrorLoc(String(builtins/encoding.mfb), Integer(1436), Integer(14)))", "branch -> if_end_7", "label if_else_6", "label if_end_7", "assign out = call collections.append(local out, call toByte((call strings.find(local table, local ch) + Integer(128))))", "label if_end_3", "next", "return local out"],
+    "operations": ["branchIfFalse (local codepage = encoding.Codepage.Utf8) -> if_else_0", "return call #encoding_utf8Encode$String$AS$List$OF$Byte(local text)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "bind immutable table AS String = call #encoding_codepageTable(local codepage)", "bind immutable tablePoints AS List OF Integer = call #encoding_codepoints(local table)", "bind mutable out AS List OF Byte = list []", "forEach point AS Integer IN call #encoding_codepoints(local text)", "branchIfFalse (local point < Integer(128)) -> if_else_2", "assign out = call collections.append(local out, call toByte(local point))", "branch -> if_end_3", "label if_else_2", "branchIfFalse (local point = Integer(65533)) -> if_else_4", "fail construct Error(Integer(77050003), String(character not representable in this codepage), construct ErrorLoc(String(builtins/encoding.mfb), Integer(1433), Integer(14)))", "branch -> if_end_5", "label if_else_4", "label if_end_5", "bind mutable idx AS Integer = Integer(-1)", "bind mutable scan AS Integer = Integer(0)", "forEach tablePoint AS Integer IN local tablePoints", "branchIfFalse (local tablePoint = local point) -> if_else_6", "assign idx = local scan", "exit FOR", "branch -> if_end_7", "label if_else_6", "label if_end_7", "assign scan = (local scan + Integer(1))", "next", "branchIfFalse (local idx < Integer(0)) -> if_else_8", "fail construct Error(Integer(77050003), String(character not representable in this codepage), construct ErrorLoc(String(builtins/encoding.mfb), Integer(1457), Integer(14)))", "branch -> if_end_9", "label if_else_8", "label if_end_9", "assign out = call collections.append(local out, call toByte((local idx + Integer(128))))", "label if_end_3", "next", "return local out"],
     "calls": [
     { "target": "#encoding_utf8Encode$String$AS$List$OF$Byte", "symbol": "_mfb_ifn_encoding_5Futf8Encode_24String_24AS_24List_24OF_24Byte", "kind": "local", "stringLiterals": [] },
     { "target": "#encoding_codepageTable", "symbol": "_mfb_ifn_encoding_5FcodepageTable", "kind": "local", "stringLiterals": [] },
-    { "target": "#encoding_codepoints", "symbol": "_mfb_ifn_encoding_5Fcodepoints", "kind": "local", "stringLiterals": [] },
-    { "target": "#encoding_fromCodepoint", "symbol": "_mfb_ifn_encoding_5FfromCodepoint", "kind": "local", "stringLiterals": [] }
+    { "target": "#encoding_codepoints", "symbol": "_mfb_ifn_encoding_5Fcodepoints", "kind": "local", "stringLiterals": [] }
     ]
   },
   {
