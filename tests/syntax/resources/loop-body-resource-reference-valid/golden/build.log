@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/loop-body-resource-reference-valid
+Wrote AST to tests/syntax/resources/loop-body-resource-reference-valid/loop_body_resource_reference_valid.ast
+Wrote IR to tests/syntax/resources/loop-body-resource-reference-valid/loop_body_resource_reference_valid.ir
+[exit 0]
