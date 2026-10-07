@@ -976,7 +976,10 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // `field_types`, `record_field_lists`, `TypeIndex::enums`) -- and none of
     // them decides anything by COMPARING a spelling. One prior site is folded
     // into a shared `imported_type` binding, hence +5/-1.
-    ("declared_sites", "ir", 52),
+    // 52 -> 51: batch-17 integration deleted `is_copyable` (the closure-capture
+    // check now asks the List element rule's `contains_thread_worker`), and
+    // with it its union-variant `declared(variant)` lookup.
+    ("declared_sites", "ir", 51),
     // 1 -> 2: bug-632's `package_type_owners` asks the built-in-resource
     // predicate about a name decoded from the `.mfp` RESOURCE table, so a
     // package's reference to `fs.File` is not mistaken for a type it declares.
