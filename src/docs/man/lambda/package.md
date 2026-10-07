@@ -70,8 +70,10 @@ explains copies in full.
   kept in a module-level variable), the handle stays open while that longer-lived
   variable is in scope and closes once when its scope ends — the same rule a list
   holding the handle follows. `mfb man variable` explains aliases.
-- Capturing any other non-copyable value is also
-  `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`.
+- A thread's worker view (`ThreadWorker`) may not be captured, directly or
+  inside a record, because no list may hold one either. That capture is
+  `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`. A parent `Thread` handle may be captured
+  like any other resource.
 
 ### The non-escaping callback exception
 
@@ -90,7 +92,7 @@ forEach(items, LAMBDA(x AS Integer) -> total = total + x)
 ```
 
 Mutating a captured `MUT List` or `MUT Map` works the same way, and the update is
-reflected in the outer binding after the call. Capturing a resource through such a callback is still rejected. This is a special
+reflected in the outer binding after the call. A resource captured by such a callback follows the rule above. This is a special
 case of `collections::forEach`, not a general feature: you cannot mark a parameter
 of your own function this way, and there is no annotation for it.
 
@@ -102,7 +104,8 @@ of your own function this way, and there is no annotation for it.
   callback position above is exempt.
 - Observing a captured value's later changes through the closure: the closure
   holds its own copy.
-- Capturing resources or other non-copyable values.
+- Capturing a thread's worker view (`ThreadWorker`), directly or inside a
+  record.
 
 ## Errors
 

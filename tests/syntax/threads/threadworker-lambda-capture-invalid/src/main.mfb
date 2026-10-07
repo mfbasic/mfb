@@ -1,0 +1,30 @@
+IMPORT io
+IMPORT thread
+
+' A closure capture works exactly like `collections::append` into a List
+' (bug-843). No collection may hold a ThreadWorker (TYPE_COLLECTION_OWNERSHIP_VIOLATION),
+' so no closure may capture one, directly or through a record whose RES field
+' holds it: each is TYPE_LAMBDA_CAPTURE_UNSUPPORTED. bug-975 made the view a
+' resource, and the capture of a resource is otherwise allowed, so this is the
+' List rule's own ThreadWorker test, not a resource or copyability test.
+'
+' A parent Thread may be a `List OF RES Thread` element, so `keep` captures one
+' and compiles.
+
+TYPE Holder
+  view AS RES ThreadWorker OF String TO Integer
+END TYPE
+
+ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  LET direct AS FUNC() AS Boolean = LAMBDA() -> thread::isCancelled(t)
+  LET h = Holder[t]
+  LET viaRecord AS FUNC() AS Boolean = LAMBDA() -> thread::isCancelled(h.view)
+  RETURN n * 2
+END FUNC
+
+FUNC main AS Integer
+  RES t = thread::start(spin, 21)
+  LET keep AS FUNC() AS Integer = LAMBDA() -> thread::waitFor(t)
+  io::print("thread=" & toString(keep()))
+  RETURN 0
+END FUNC

@@ -182,9 +182,11 @@ impl TypeEnv {
                     //     construction. Exempted rather than owner-listed:
                     //     adding every capture to `current_owners` would make
                     //     ordinary data captures trip TYPE_RES_REQUIRES_RESOURCE
-                    //     below. This leaves no hole — a genuine resource
-                    //     capture is already rejected, more precisely, by
-                    //     TYPE_LAMBDA_CAPTURE_UNSUPPORTED.
+                    //     below. This leaves no hole — a resource capture is
+                    //     a non-owning alias (bug-843, the `List` element rule),
+                    //     so the body's binding must not own it, and the
+                    //     outer binding the capture copies was already checked
+                    //     at its own bind.
                     // The remaining `explicit_type: false` emitters (the FOR
                     // loop variable, the `TRAP(e)` binding) are structurally
                     // non-resource: numeric and `Error` respectively.

@@ -3194,8 +3194,9 @@ fn flatness_walk(
         // on relocating a block into another thread's arena, and a copied block
         // would duplicate the block while the worker kept using the original.
         //
-        // `ir::verify`'s `is_copyable` has said `ThreadHandle { .. } => false`
-        // all along; this arm is codegen finally agreeing with it.
+        // `ir::verify` has never treated a thread view as copyable data — both
+        // views are resources there (`is_resource_base`); this arm is codegen
+        // finally agreeing with it.
         ParameterType::ThreadHandle { .. } => false,
         // bug-781: a function value is flat in NEITHER mode. Its word points to a
         // closure object the holder owns — copying the holder copies the closure
@@ -4177,8 +4178,9 @@ mod res_field_record_layout_tests {
     /// predicate gates relocating a block into another thread's arena, and the
     /// copy would duplicate the block while the worker kept using the original.
     ///
-    /// `ir::verify`'s `is_copyable` has answered `ThreadHandle { .. } => false`
-    /// all along; this is codegen agreeing with it.
+    /// `ir::verify` has never treated a thread view as copyable data — both
+    /// views are resources there (`is_resource_base`); this is codegen agreeing
+    /// with it.
     #[test]
     fn a_thread_handle_is_flat_in_neither_mode() {
         let model = TypeModel::empty();

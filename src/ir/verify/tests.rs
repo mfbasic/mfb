@@ -9196,26 +9196,38 @@ fn accepts_a_resource_capture_in_either_shape() {
     }
 }
 
+/// The capture rule a `List` element has (bug-843: capture works exactly like
+/// `collections::append`): a value that reaches a `ThreadWorker` may not be held
+/// by a closure, because no collection may hold one
+/// (`TYPE_COLLECTION_OWNERSHIP_VIOLATION`). bug-975 made the view a resource, so
+/// a "neither a resource nor copyable" premise no longer singles it out; the
+/// rule is the `List` rule's own `contains_thread_worker`.
 #[test]
-fn rejects_a_non_copyable_capture() {
-    // A worker's view of its own thread is neither a resource nor copyable. (A
-    // parent `Thread` handle is a resource since plan-156, and since bug-843 a
-    // resource capture is a reference, as a `List OF RES Thread` element is.)
-    let body = vec![
-        bind(
-            "t",
-            "ThreadWorker OF Integer TO Integer",
-            Some(int_const("0")),
-            true,
-            false,
-        ),
-        closure_bind(vec![IrValue::Local("t".to_string())]),
-        ret(int_const("0")),
-    ];
+fn rejects_a_capture_of_a_worker_view() {
+    let body = vec![closure_bind(vec![IrValue::Local("w".to_string())])];
+    let f = func_returns("run", "Nothing", vec![param("w", WORKER_VIEW, None)], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_LAMBDA_CAPTURE_UNSUPPORTED");
+}
+
+/// A record whose `RES` field holds the view reaches it, and a `List OF Holder`
+/// is refused for the same reason, so the capture is too.
+#[test]
+fn rejects_a_capture_of_a_record_reaching_a_worker_view() {
+    let body = vec![closure_bind(vec![IrValue::Local("h".to_string())])];
+    let f = func_returns("run", "Nothing", vec![param("h", "Holder", None)], body);
+    let holder = record_typed("Holder", &[("view", &format!("RES {WORKER_VIEW}"))]);
     expect_rule(
-        &project(vec![func("run", vec![], body)], vec![]),
+        &project(vec![f], vec![holder]),
         "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
     );
+}
+
+/// A parent `Thread` may be a `List OF RES Thread` element, so it may be captured.
+#[test]
+fn accepts_a_capture_of_a_parent_thread_view() {
+    let body = vec![closure_bind(vec![IrValue::Local("t".to_string())])];
+    let f = func_returns("run", "Nothing", vec![param("t", THREAD_VIEW, None)], body);
+    expect_no_rule(&project(vec![f], vec![]), "TYPE_LAMBDA_CAPTURE_UNSUPPORTED");
 }
 
 #[test]

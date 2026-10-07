@@ -1056,14 +1056,21 @@ impl TypeEnv {
     /// assignment target, in that order), and the licence a capture was given
     /// survives as its SHAPE: a `LocalRef` is the compiler-proven non-escaping
     /// `MUT` by-ref capture, a `Local` is an ordinary by-value copy. So a
-    /// by-value capture of a `MUT` local is the "mutable capture" rejection, and
-    /// any other by-value capture must be copyable.
+    /// by-value capture of a `MUT` local is the "mutable capture" rejection.
     ///
     /// bug-843: a resource is capturable. A capture copies a reference to the one
     /// resource into the closure, exactly as `collections::append` copies one into
     /// a `List` (§15.6): the closure never owns the resource, and its cleanup scope
     /// rises to the closure's holder through the same container routing
     /// (`resource_escape`) and run-time float a `List` gets.
+    ///
+    /// So the only other rejection is the one a `List` element has: a value that
+    /// reaches a `ThreadWorker` (bug-975 made the view a resource, but no
+    /// collection may hold one — `check_collection_element_worker_free` — so no
+    /// closure may either). It is the same predicate, so the two cannot drift.
+    /// Every other type a capture could name is already a legal `List` element
+    /// or was rejected where it was declared (a mixed union, a bare resource
+    /// field), and a `List` twin adds nothing to those either.
     pub(super) fn check_closure_captures(
         &self,
         captures: &[IrValue],
@@ -1087,14 +1094,11 @@ impl TypeEnv {
                         "Lambda captures mutable local `{name}`; mutable captures are invalid."
                     ),
                 );
-            } else if !mutable
-                && !self.is_resource_type(type_)
-                && !self.is_copyable(type_, &mut HashSet::new())
-            {
+            } else if self.contains_thread_worker(type_, &mut HashSet::new()) {
                 self.emit(
                     "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
                     format!(
-                        "Lambda captures non-copyable local `{name}` of type `{}`; non-copyable captures are invalid.",
+                        "Lambda captures local `{name}` of type `{}`, which contains a `ThreadWorker`; a closure cannot hold a worker's view, as a collection cannot.",
                         type_.name()
                     ),
                 );

@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/threads/threadworker-lambda-capture-invalid
+  17 | 
+  18 | ISOLATED FUNC spin(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
+  19 |   LET direct AS FUNC() AS Boolean = LAMBDA() -> thread::isCancelled(t)
+     | ^
+tests/syntax/threads/threadworker-lambda-capture-invalid/src/main.mfb:19 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures local `t` of type `ThreadWorker OF String TO Integer`, which contains a `ThreadWorker`; a closure cannot hold a worker's view, as a collection cannot.
+  19 |   LET direct AS FUNC() AS Boolean = LAMBDA() -> thread::isCancelled(t)
+  20 |   LET h = Holder[t]
+  21 |   LET viaRecord AS FUNC() AS Boolean = LAMBDA() -> thread::isCancelled(h.view)
+     | ^
+tests/syntax/threads/threadworker-lambda-capture-invalid/src/main.mfb:21 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures local `h` of type `Holder`, which contains a `ThreadWorker`; a closure cannot hold a worker's view, as a collection cannot.
+[exit 1]

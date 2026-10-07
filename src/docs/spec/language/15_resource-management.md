@@ -380,7 +380,9 @@ takes them; a call result that is discarded closes the ones nobody took; a store
 into a module-level binding raises them to the module instance; a copy holds the
 same references. A closure `RETURN`ed over a container declared after the
 resource it carries is refused with `TYPE_RESOURCE_RETURN_ORDER`, as the same
-container would be. [[src/ir/resource_escape.rs:scan_collection_expr]]
+container would be. A value a `List` may not hold — one that reaches a
+`ThreadWorker` — may not be captured either (`TYPE_LAMBDA_CAPTURE_UNSUPPORTED`,
+§14.4). [[src/ir/resource_escape.rs:scan_collection_expr]]
 [[src/codegen/resource/closure_carry.rs:emit_closure_resource_op]]
 A `FUNC` type does not say what its closure captured, so across a function
 boundary the closure is asked: each capturing `LAMBDA`'s environment routine
