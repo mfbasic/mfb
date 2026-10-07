@@ -1,6 +1,6 @@
 # stepping
 
-Run a thread one instruction at a time, and read the machine code it runs
+Run a thread one instruction at a time, move it, and read the machine code it runs
 
 ## Description
 
@@ -12,6 +12,7 @@ dis <count>
 dis -<back> <count>
 dis <where> [<count>]
 dis <function> [<count>]
+jump <where> [<register>=<value>]...  j …
 ```
 
 `step` runs one instruction of thread 0, the main thread of a console program,
@@ -51,6 +52,30 @@ Thread 1: stepped 3 instructions; at 0x0000000100424b8c in isPrime+0xe8.
 `dis`, `bt` and the registers `show mem` and `show type` read belong to the
 current thread: the one `run` last stopped or `step` last ran, thread 0 at
 first.
+
+### Moving a thread
+
+`jump` (`j`) moves the current thread to `<where>`, read the way `show mem`
+reads a place (an address, a register or a function, each with an offset), and
+can give registers new values on the way: `j <where> x0=5 x1=-1`. A value is a
+number, or a place read now: `x1=x2` copies `x2`, and `x2=[sp+8]` takes what is
+stored 8 above `sp`. Up to 8 of `x0` to `x28`, `fp`, `lr`, `sp`, `nzcv`,
+`fpsr` and `fpcr` can be set; the `pc` is the place itself. Every value is read
+before any is set, and the thread stays paused, so `run` or `step` carries it
+on from there:
+
+```
+DBG> j lr x0=0 x1=7
+Moved thread 0 to 0x00000001006ed284 in runRound+0x158; set x0 = 0x0000000000000000 (0), x1 = 0x0000000000000007 (7).
+```
+
+At a function's first instruction, `lr` holds the place it returns to and the
+function has done nothing yet, so `j lr x0=0 x1=7` there makes it return at
+once: no error in `x0`, and 7 as its value in `x1`. Past its first instruction
+a function has set up its own values below `sp`, and leaving it by `lr` skips
+putting them back, so what the program does next is hard to predict. A thread
+moved onto a breakpoint runs past it the next time the program runs, as it does
+whenever it is paused on one.
 
 ### Reading machine code
 
@@ -121,6 +146,33 @@ debug.out`isPrime:
     0x0000000102734ac0 <+28>: ldr    x8, [sp, #0x18]
 DBG> q
 Killed process 89969.
+```
+
+Make the first round's `countPrimes` return 7 without counting anything, then
+let the rest of the program run:
+
+```sh macos
+mfb build --debug -O0 examples/debug
+printf 'bp countPrimes\nrun\nj lr x0=0 x1=7\nbp r countPrimes\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+```
+
+```
+Launched examples/debug/build/debug.out as process 82633; paused before its first instruction.
+DBG> bp countPrimes
+Set a breakpoint at 0x00000001006ecdc4 in countPrimes.
+DBG> run
+--[BP] T: 0 P: 0x00000001006ecdc4 F: countPrimes
+DBG> j lr x0=0 x1=7
+Moved thread 0 to 0x00000001006ed284 in runRound+0x158; set x0 = 0x0000000000000000 (0), x1 = 0x0000000000000007 (7).
+DBG> bp r countPrimes
+Removed the breakpoint at 0x00000001006ecdc4 in countPrimes.
+DBG> run
+round 1: 7 primes
+round 2: 31 primes
+total: 38 primes
+--[EX] Program exit (0)
+DBG> q
+Process 82633 had already exited.
 ```
 
 At `-O0`, each value a function works with has a place of its own below `sp`:
