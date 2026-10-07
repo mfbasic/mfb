@@ -1,0 +1,319 @@
+{
+  "project": "native_declared_resource_union_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "Tr", "closeFn": "c.release", "threadSendable": false, "line": 9 },
+    { "kind": "resource", "visibility": "public", "name": "Tr2", "closeFn": "c.release2", "threadSendable": false, "line": 10 },
+    {
+      "kind": "link",
+      "library": "c",
+      "alias": "c",
+      "line": 12,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "strdup",
+        "returnResource": true,
+        "returnType": "Tr",
+        "returnState": null,
+        "line": 13,
+        "params": [
+        { "name": "name", "type": "String", "default": null, "line": 13 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "name", "ctype": "CString", "out": false, "line": 15 }
+          ],
+          "returnName": "p",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "unary", "operator": "NOT", "operand": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "p" }, "right": { "kind": "identifier", "value": "NOTHING" } } },
+        "result": { "kind": "identifier", "value": "p" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "release",
+        "symbol": "write",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 19,
+        "params": [
+        { "name": "t", "type": "Tr", "default": null, "line": 19 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 21 },
+          { "name": "t", "ctype": "CPtr", "out": false, "line": 21 },
+          { "name": "n", "ctype": "CInt64", "out": false, "line": 21 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt64"
+        },
+        "consts": [
+        { "slot": "fd", "value": { "kind": "number", "value": "1" }, "line": 22 },
+        { "slot": "n", "value": { "kind": "number", "value": "3" }, "line": 23 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "3" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "open2",
+        "symbol": "strdup",
+        "returnResource": true,
+        "returnType": "Tr2",
+        "returnState": null,
+        "line": 26,
+        "params": [
+        { "name": "name", "type": "String", "default": null, "line": 26 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "name", "ctype": "CString", "out": false, "line": 28 }
+          ],
+          "returnName": "p",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "unary", "operator": "NOT", "operand": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "p" }, "right": { "kind": "identifier", "value": "NOTHING" } } },
+        "result": { "kind": "identifier", "value": "p" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "release2",
+        "symbol": "write",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 32,
+        "params": [
+        { "name": "t", "type": "Tr2", "default": null, "line": 32 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 34 },
+          { "name": "t", "ctype": "CPtr", "out": false, "line": 34 },
+          { "name": "n", "ctype": "CInt64", "out": false, "line": 34 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt64"
+        },
+        "consts": [
+        { "slot": "fd", "value": { "kind": "number", "value": "1" }, "line": 35 },
+        { "slot": "n", "value": { "kind": "number", "value": "3" }, "line": 36 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "3" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Duo",
+      "line": 41,
+      "includes": [],
+      "variants": [
+      { "name": "Tr", "line": 42 },
+      { "name": "Tr2", "line": 43 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Mixed",
+      "line": 46,
+      "includes": [],
+      "variants": [
+      { "name": "Tr", "line": 47 },
+      { "name": "fs.File", "line": 48 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pick",
+      "line": 51,
+      "params": [
+      { "name": "k", "type": "Integer", "default": null, "line": 51 }
+      ],
+      "returnType": "Duo",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "1" } },
+        "line": 52,
+        "then": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "Duo", "value": { "kind": "call", "callee": "c.open", "arguments": [{ "kind": "string", "value": "A1\n" }] }, "line": 53 },
+        { "kind": "return", "value": { "kind": "identifier", "value": "t" }, "line": 54 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "u", "type": "Duo", "value": { "kind": "call", "callee": "c.open2", "arguments": [{ "kind": "string", "value": "B2\n" }] }, "line": 56 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "u" }, "line": 57 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "describe",
+      "line": 60,
+      "params": [
+      { "name": "p", "type": "Duo", "default": null, "line": 60 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "p" },
+        "line": 61,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Tr", "binding": "t" },
+          "guard": null,
+          "line": 62,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "Tr" }, "line": 63 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Tr2", "binding": "t" },
+          "guard": null,
+          "line": 64,
+          "body": [
+          { "kind": "return", "value": { "kind": "string", "value": "Tr2" }, "line": 65 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "none" }, "line": 67 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pairs",
+      "line": 70,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "first", "type": "Duo", "value": { "kind": "call", "callee": "pick", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 71 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "second", "type": "Duo", "value": { "kind": "call", "callee": "pick", "arguments": [{ "kind": "number", "value": "2" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "first=" }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "first" }] } }, "right": { "kind": "string", "value": " second=" } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "second" }] } }] }, "line": 73 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "mixed",
+      "line": 76,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 76 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "m", "type": "Mixed", "value": { "kind": "call", "callee": "c.open", "arguments": [{ "kind": "string", "value": "M3\n" }] }, "line": 77 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "Mixed", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 78 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "m" },
+        "line": 79,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Tr", "binding": "t" },
+          "guard": null,
+          "line": 80,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "m=Tr" }] }, "line": 81 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "fs.File", "binding": "h" },
+          "guard": null,
+          "line": 82,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "m=File" }] }, "line": 83 }
+          ]
+        }
+        ]
+      },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "f" },
+        "line": 85,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Tr", "binding": "t" },
+          "guard": null,
+          "line": 86,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "f=Tr" }] }, "line": 87 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "fs.File", "binding": "h" },
+          "guard": null,
+          "line": 88,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f=File " }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "h" }] } }] }, "line": 89 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 93,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pairs", "arguments": [] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "after pairs" }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "mixed", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/native/native-declared-resource-union-rt/data.txt" }] }, "line": 96 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "after mixed" }] }, "line": 97 }
+      ]
+    }
+    ]
+  }
+  ]
+}

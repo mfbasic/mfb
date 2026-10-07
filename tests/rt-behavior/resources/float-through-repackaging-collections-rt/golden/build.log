@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/float-through-repackaging-collections-rt
+Wrote AST to tests/rt-behavior/resources/float-through-repackaging-collections-rt/float_through_repackaging_collections_rt.ast
+Wrote IR to tests/rt-behavior/resources/float-through-repackaging-collections-rt/float_through_repackaging_collections_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/float-through-repackaging-collections-rt
+Wrote executable to tests/rt-behavior/resources/float-through-repackaging-collections-rt/build/float_through_repackaging_collections_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/float-through-repackaging-collections-rt/build/float_through_repackaging_collections_rt.out
+take open=1 hello,
+drop open=1 hello,
+flatten open=1 hello,
+loop open=2 hello,hello,
+merge open=1 hello,
+values open=1 hello,
+get open=1 hello,
+after open=0
+[exit 0]

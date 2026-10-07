@@ -1,0 +1,74 @@
+{
+  "project": "append_res_list_literal_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "lines",
+      "line": 10,
+      "params": [
+      { "name": "xs", "type": "List OF RES fs.File", "default": null, "line": 10 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 11 },
+      {
+        "kind": "forEach",
+        "name": "h",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 12,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "h" }] } }, "right": { "kind": "string", "value": "," } }, "line": 13 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "tests/rt-behavior/resources/append-res-list-literal-rt/data.txt" }, "line": 19 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "ys", "type": "List OF RES fs.File", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "list", "values": [{ "kind": "identifier", "value": "f" }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bind len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ys" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "lines", "arguments": [{ "kind": "identifier", "value": "ys" }] } }] }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "zs", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "2" } },
+        "line": 27,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 28 },
+        { "kind": "assignment", "name": "zs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "zs" }, { "kind": "list", "values": [{ "kind": "identifier", "value": "g" }] }] }, "line": 29 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 30 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "loop len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "zs" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "lines", "arguments": [{ "kind": "identifier", "value": "zs" }] } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "h", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "k", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "ws", "type": "List OF RES fs.File", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "ys" }, { "kind": "list", "values": [{ "kind": "identifier", "value": "h" }, { "kind": "identifier", "value": "k" }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pair len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ws" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "lines", "arguments": [{ "kind": "identifier", "value": "ws" }] } }] }, "line": 37 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1179,7 +1179,10 @@ impl TypeEnv {
         ) {
             return false;
         }
-        if is_resource_name(&name) {
+        // bug-851: every resource, a `RESOURCE`-declared (LINK) one included. The
+        // built-in close table alone let two native handles compare, and a record
+        // holding one reach codegen with a field it cannot compare.
+        if self.is_resource_base(&resource_base_type(type_)) {
             return false;
         }
         if self.unions.contains_key(type_) {

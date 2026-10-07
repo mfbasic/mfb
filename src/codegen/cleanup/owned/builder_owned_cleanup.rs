@@ -1022,7 +1022,7 @@ fn value_produces_no_resource(value: &NirValue) -> bool {
 /// member, `#collections_X$<types>` for an instantiated source-generic body — which
 /// includes the internal `slice` helper the `take`/`drop`/`chunks`/`window` bodies
 /// call. `None` for any other target.
-fn collections_call_member(target: &str) -> Option<&str> {
+pub(crate) fn collections_call_member(target: &str) -> Option<&str> {
     match target.strip_prefix("#collections_") {
         Some(rest) => rest.split('$').next(),
         None => target.strip_prefix("collections."),
@@ -1070,7 +1070,7 @@ fn collections_member_produces_elements(member: &str) -> bool {
 
 /// The type variables `type_` mentions, at any depth of the shapes a `collections`
 /// signature uses.
-fn type_variables(type_: &ParameterType, out: &mut Vec<ParameterType>) {
+pub(crate) fn type_variables(type_: &ParameterType, out: &mut Vec<ParameterType>) {
     match type_ {
         ParameterType::Var(_) => out.push(type_.clone()),
         ParameterType::ListOf(inner)

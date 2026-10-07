@@ -2172,7 +2172,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(&done_label));
                 continue;
             }
-            if crate::codegen::builtins::is_resource_type(&variant) {
+            if self.is_resource_nominal(&variant) {
                 // Resource union `{tag@0, ptr@8}`: the whole-union memcpy copied the
                 // variant record pointer at +8 verbatim, so it still aliases the
                 // sender's arena (a bug-257-class UAF — true for a *stateless*

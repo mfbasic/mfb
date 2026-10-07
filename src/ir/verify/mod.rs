@@ -1497,12 +1497,6 @@ fn read_only_record_type(type_: &ParameterType) -> bool {
         || type_.is_builtin_qualified("audio", crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE)
 }
 
-/// Whether `name` is a built-in resource type (bug-975: a resource, whether or
-/// not it has a close op).
-fn is_resource_name(name: &str) -> bool {
-    crate::codegen::resource::is_builtin_resource(&crate::types::ParameterType::declared(name))
-}
-
 /// The base resource type name, stripping the `RES ` ownership marker and a
 /// trailing `STATE T` clause (`File STATE Cursor` → `File`). Composite-safe: a
 /// `STATE` nested inside a thread plane (`Thread OF RES File STATE Cursor TO Out`)

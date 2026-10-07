@@ -243,7 +243,10 @@ impl CodeBuilder<'_> {
         // element type — that is the single-element fast path). A RHS whose static
         // type is unknown (a general call result) falls through to the value path.
         match self.static_operand_type(&args[1]) {
-            Some(item_type) if item_type == list_type => {}
+            Some(item_type)
+                if crate::codegen::engine::types::typed_same_list_ignoring_res(
+                    &item_type, &list_type,
+                ) => {}
             _ => return Ok(false),
         }
         // plan-145-B: a record or `STATE` field grows its owner's block.
@@ -288,7 +291,7 @@ impl CodeBuilder<'_> {
         // copied top block is freed at the statement's end. As a pointer store, a
         // right-hand list moved at its last read left its block with no owner.
         let rhs = self.lower_value_stored_inline(&args[1])?;
-        if rhs.type_ != list_type {
+        if !crate::codegen::engine::types::typed_same_list_ignoring_res(&rhs.type_, &list_type) {
             return Err(format!(
                 "native bulk append sublist must be {list_type}, got {}",
                 rhs.type_

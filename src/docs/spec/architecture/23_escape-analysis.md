@@ -159,6 +159,9 @@ scan_collection_expr(expr):
                              arg[0] is the collection being updated -> recurse
                                scan_collection_expr
                              arg[1..] are elements -> scan_element
+  Call(f, args) if collections_carry(f) = Container:
+                             every arg -> scan_element (a re-packaging member:
+                               take, drop, flatten, merge, values, zip, ...)
   Trapped{expression,handler}
                           -> scan_collection_expr(expression), and
                              scan_collection_expr on each RECOVER value in handler
@@ -185,8 +188,37 @@ target, so the guarded expression and each handler `RECOVER` value flow into it
 alike. Both arms contribute routing facts.
 
 `scan_element` treats a `RES`-identifier as a direct insertion (push to
-`res_elems`); anything else falls through to `scan_collection_expr` so a nested
-list/map contributes its own reachable resources. [[src/ir/resource_escape.rs:scan_element]]
+`res_elems`). An element read (`collections_carry(f) = Element`, e.g.
+`[collections::get(ys, 0)]`) puts one of its arguments' values into the
+container, so each of its arguments is scanned as an element in turn. Anything
+else falls through to `scan_collection_expr`, so a nested list or map
+contributes its own reachable resources. [[src/ir/resource_escape.rs:scan_element]]
+
+### Re-packaging members
+
+An insertion is not the only call whose result holds its arguments' handles.
+`xs = collections::take(collections::append(xs, f), 10)` routes `f` into `xs`
+exactly as the bare `append` does; before bug-933 the outer `take` hit the
+`_ -> ignore` arm, `f` stayed `Local` to its inner block, and that block closed
+it while `xs` still held it. `collections_carry` classifies a `collections`
+member (native `collections.take` or an instantiated `#collections_take$…`)
+from its registry signature, with no list to maintain:
+[[src/ir/resource_escape.rs:collections_carry]]
+
+```text
+Container  some implementation returns a non-variable type that mentions a type
+           variable one of its parameters also mentions (take, drop, flatten,
+           merge, values, zip, partition, chunks, transform, ...)
+Element    the only carrying implementations return a bare type variable (get)
+Nothing    otherwise (len, findIndex, contains), or not a collections member
+```
+
+A `Container` call is scanned like a literal of its arguments. An `Element`
+call carries only in an element position: as a whole binding
+(`RES g = collections::get(xs, 0)`) it is a borrow, and a scalar or borrowed
+binding must never become a float target. A callback parameter counts as
+carrying when its return type does (`transform`'s `FUNC(T) AS U`), because the
+callback may hand an argument's handle straight back.
 A bare `RETURN f` or `LET g = f` of a resource produces **no** routing, so it
 never floats (it is an ordinary move).
 
@@ -224,7 +256,7 @@ repeat until no change:
 ```
 
 This closes membership over container copy/append/nesting edges (`List`/`Map`
-literals plus insertion builtins) and over **record** edges:
+literals, insertion builtins and re-packaging members) and over **record** edges:
 a record `Constructor` argument and a `WITH` update are element positions, and a
 `WITH`'s target flows into the result exactly as insertion argument 0 does. A
 record is a container in the same sense a collection is — a value that holds

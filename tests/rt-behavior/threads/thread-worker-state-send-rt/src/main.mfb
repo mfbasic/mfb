@@ -1,0 +1,46 @@
+IMPORT io
+IMPORT thread
+IMPORT fs
+
+' bug-844: a `STATE` clause on a thread view never changes which side the view is.
+' A stateful `ThreadWorker` sends to the outbound queue and receives from the
+' inbound queue, and its resource plane transfers outbound and accepts inbound,
+' exactly as a stateless one does. The parent view carries a STATE of its own, so
+' both sides are stateful at once.
+TYPE W
+  n AS Integer
+END TYPE
+
+TYPE P
+  k AS Integer
+END TYPE
+
+ISOLATED FUNC worker(t AS ThreadWorker OF String RES fs::File TO Integer STATE W, seed AS String) AS Integer
+  t.state.n = 4
+  thread::send(t, "hi " & seed)
+  LET got AS String = thread::receive(t, 5000)
+  thread::send(t, "echo " & got)
+  RES pf AS fs::File = thread::accept(t, 5000)
+  t.state.n = t.state.n + len(fs::readAll(pf))
+  fs::close(pf)
+  RES wf AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-worker-state-send-rt/data/worker.txt")
+  thread::transfer(t, wf, 5000)
+  RETURN 100 + t.state.n
+END FUNC
+
+FUNC main AS Integer
+  RES t AS Thread OF String RES fs::File TO Integer STATE P = thread::start(worker, "seed")
+  t.state.k = 9
+  io::print(thread::receive(t, 5000))
+  thread::send(t, "ping", 5000)
+  io::print(toString(thread::poll(t, 5000)))
+  io::print(thread::receive(t, 5000))
+  RES pf AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-worker-state-send-rt/data/parent.txt")
+  thread::transfer(t, pf, 5000)
+  RES wf AS fs::File = thread::accept(t, 5000)
+  io::print(toString(len(fs::readAll(wf))))
+  fs::close(wf)
+  io::print(toString(thread::waitFor(t)))
+  io::print(toString(t.state.k))
+  RETURN 0
+END FUNC

@@ -148,7 +148,7 @@ pub(crate) fn lower_insert(
         index_slot,
     ));
     let item = args[2].clone();
-    if item.type_ == list.type_ {
+    if crate::codegen::engine::types::typed_same_list_ignoring_res(&item.type_, &list.type_) {
         return Err("native collection insert expects a single item, not a list".to_string());
     }
     // Materialize a `d`-native float before the payload spill (plan-01).

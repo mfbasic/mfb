@@ -179,6 +179,9 @@ pub(crate) fn module_uses_migrated(module: &NirModule, bare: &str) -> bool {
 /// `target` (a variant's close op). These calls are codegen-emitted rather than
 /// NIR calls, so they must still pull in the close helper.
 fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
+    // bug-851: a `RESOURCE`-declared variant counts toward an all-resource union.
+    let declared_resources =
+        crate::codegen::engine::validation::validation::module_resource_names(module);
     let unions: std::collections::HashSet<&str> = module
         .types
         .iter()
@@ -186,9 +189,9 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
             type_.kind == "union"
                 && !type_.variants.is_empty()
                 && type_.variants.iter().all(|variant| {
-                    crate::codegen::builtins::is_resource_type(
-                        &crate::types::ParameterType::declared(&variant.name),
-                    )
+                    let variant = crate::types::ParameterType::declared(&variant.name);
+                    crate::codegen::builtins::is_resource_type(&variant)
+                        || declared_resources.contains(&variant)
                 })
                 && type_.variants.iter().any(|variant| {
                     crate::codegen::builtins::resource_close_function(

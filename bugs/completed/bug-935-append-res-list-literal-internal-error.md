@@ -1,12 +1,12 @@
 # bug-935: `collections::append(xs, [f])` on a `List OF RES T` fails the build with an unlocated internal error ("native collection list item must be fs.File, got List OF fs.File")
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/resources/append-res-list-literal-rt (new; name suggested)
+Status: Fixed
+Regression Test: tests/rt-behavior/resources/append-res-list-literal-rt
 
 The list form of `collections::append` ("Return a list with one element, or every element of another
 list") works for a `List OF RES fs::File` when the second argument is a **named** list
@@ -88,3 +88,47 @@ same RES-blind comparison. Shape/IR verification accept the call because their `
 - `gen_mutate.rs` prepend guard `item.type_ == list.type_` — same RES-blind equality; latent.
 - Any other codegen-side `ParameterType ==` between an argument literal and a `List OF RES` slot — not
   surveyed.
+
+## Resolution
+
+New `codegen::engine::types::typed_same_list_ignoring_res(a, b)` returns true when
+`a` and `b` are both `List`s whose elements are equal after `RES` is peeled
+(`typed_list_element_type` already peels it). Every codegen site that tells "a whole
+list" from "one element" by comparing an argument's type with the receiving list's
+now uses it, so it agrees with the front end's `compatible`:
+
+- `gen_mutate.rs:collection_argument_as_list_slot`, the failing site. It is shared
+  by `append`, `insert` and `set`.
+- `gen_mutate.rs:lower_collection_end_insert`'s prepend guard. It was latent;
+  `prepend(xs, [f])` is still refused by the front end (`TYPE_UNKNOWN_VALUE` after
+  the argument mismatch, unchanged, probe `/tmp/g935c`).
+- `func_insert.rs`'s single-item guard. It was latent: `insert` takes `T` only, so
+  the front end refuses a list.
+- `builder_inplace_assign.rs`, the bulk in-place `append` arm, at both its commit
+  test and its sublist check. `zs = collections::append(zs, [g])` in a loop now
+  takes the in-place arm, as the named-list form does. Before, the commit test
+  declined and the value path hit the same error.
+
+The `Err` text itself remains for genuinely ill-typed input. It is unreachable from a
+program the front end accepts, because codegen and `compatible` now agree on this
+question. Locating every remaining internal codegen `Err` is not this bug's change.
+
+Measured (macOS AArch64):
+
+- Before (main at 468ff0f94): `mfb build` of the repro gives
+  `error: native collection list item must be fs.File, got List OF fs.File while lowering bind ys …`,
+  exit 1.
+- After: the fixture prints `bind len=1 hello,`, `loop len=2 hello,hello,` and
+  `pair len=3 world,hello,hello,`, exit 0.
+- "Exactly like the named-list form": the same program with each literal bound
+  first (`LET one AS List OF RES fs::File = [f]`, …) prints the same lines. Under
+  `--debug` both report `alloc_calls 54`, `free_calls 43`, `live_bytes 33952`. The
+  11 unfreed blocks belong to both forms: they are the iterated-`List OF RES` block
+  leak recorded in bug-933's "Found while fixing".
+
+Checks: `scripts/artifact-gate.sh … all` gave 62 diffs, exactly bug-976's base set
+(61 `.ast` + `app-mouse-surface` `.nir`), with no `.ncode`/`.ncodesum`/`.nplan` diff.
+
+## Golden impact
+
+None. Only the new fixture.

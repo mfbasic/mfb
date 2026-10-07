@@ -1,0 +1,142 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_worker_state_send_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 10,
+    "visibility": "public",
+    "name": "W",
+    "fields": [
+    { "visibility": null, "line": 11, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "P",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "k", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "worker",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "t", "line": 18, "type": "ThreadWorker OF String RES fs.File TO Integer STATE W", "default": null },
+    { "name": "seed", "line": 18, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "stateAssign", "line": 19, "resource": "t", "value": { "kind": "with", "type": "W", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "t" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "4" } }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "hi " }, "right": { "kind": "local", "name": "seed" } }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "echo " }, "right": { "kind": "local", "name": "got" } }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "pf", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "thread.acceptResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+    { "op": "stateAssign", "line": 24, "resource": "t", "value": { "kind": "with", "type": "W", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "t" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "t" }, "member": "state" }, "member": "n" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "pf" }] }] } } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "pf" }] } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "wf", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/threads/thread-worker-state-send-rt/data/worker.txt" }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "wf" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+    { "op": "return", "line": 28, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "100" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "W", "target": { "kind": "local", "name": "t" }, "member": "state" }, "member": "n" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 31,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 32, "mutable": false, "name": "t", "type": "Thread OF String RES fs.File TO Integer STATE P", "value": { "kind": "call", "type": "Thread OF String RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "worker", "type": "ISOLATED FUNC(ThreadWorker OF String RES fs.File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "stateAssign", "line": 33, "resource": "t", "value": { "kind": "with", "type": "P", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "t" }, "member": "state" }, "updates": [{ "field": "k", "value": { "kind": "const", "type": "Integer", "value": "9" } }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "ping" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] }] }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "pf", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/threads/thread-worker-state-send-rt/data/parent.txt" }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "pf" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "wf", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "thread.acceptResource", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "wf" }] }] }] }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "wf" }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] }] }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "t" }, "member": "state" }, "member": "k" }] }] } },
+    { "op": "return", "line": 45, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

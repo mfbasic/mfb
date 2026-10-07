@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-worker-state-send-rt
+Wrote AST to tests/rt-behavior/threads/thread-worker-state-send-rt/thread_worker_state_send_rt.ast
+Wrote IR to tests/rt-behavior/threads/thread-worker-state-send-rt/thread_worker_state_send_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-worker-state-send-rt
+Wrote executable to tests/rt-behavior/threads/thread-worker-state-send-rt/build/thread_worker_state_send_rt.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-worker-state-send-rt/build/thread_worker_state_send_rt.out
+hi seed
+TRUE
+echo ping
+12
+110
+9
+[exit 0]
