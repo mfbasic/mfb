@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/collections/func_collection_append_union_list_var_invalid
+  26 |   LET shapes AS List OF Shape = [Circle[1.0]]
+  27 |   LET sq AS List OF Square = [Square[2.0]]
+  28 |   LET listVar AS List OF Shape = collections::append(shapes, sq)
+     | ^
+tests/syntax/collections/func_collection_append_union_list_var_invalid/src/main.mfb:28 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Shape, List OF Square), expected List OF T, T or List OF T, List OF T.
+  26 |   LET shapes AS List OF Shape = [Circle[1.0]]
+  27 |   LET sq AS List OF Square = [Square[2.0]]
+  28 |   LET listVar AS List OF Shape = collections::append(shapes, sq)
+     | ^
+tests/syntax/collections/func_collection_append_union_list_var_invalid/src/main.mfb:28 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `listVar` does not have a known type.
+  28 |   LET listVar AS List OF Shape = collections::append(shapes, sq)
+  29 |   LET circles AS List OF Circle = [Circle[1.0]]
+  30 |   LET notUnion AS List OF Circle = collections::append(circles, Square[2.0])
+     | ^
+tests/syntax/collections/func_collection_append_union_list_var_invalid/src/main.mfb:30 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Circle, Square), expected List OF T, T or List OF T, List OF T.
+  28 |   LET listVar AS List OF Shape = collections::append(shapes, sq)
+  29 |   LET circles AS List OF Circle = [Circle[1.0]]
+  30 |   LET notUnion AS List OF Circle = collections::append(circles, Square[2.0])
+     | ^
+tests/syntax/collections/func_collection_append_union_list_var_invalid/src/main.mfb:30 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `notUnion` does not have a known type.
+  30 |   LET notUnion AS List OF Circle = collections::append(circles, Square[2.0])
+  31 |   LET b AS Boxy = Square[3.0]
+  32 |   LET otherUnion AS List OF Shape = collections::append(shapes, b)
+     | ^
+tests/syntax/collections/func_collection_append_union_list_var_invalid/src/main.mfb:32 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Shape, Boxy), expected List OF T, T or List OF T, List OF T.
+  30 |   LET notUnion AS List OF Circle = collections::append(circles, Square[2.0])
+  31 |   LET b AS Boxy = Square[3.0]
+  32 |   LET otherUnion AS List OF Shape = collections::append(shapes, b)
+     | ^
+tests/syntax/collections/func_collection_append_union_list_var_invalid/src/main.mfb:32 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `otherUnion` does not have a known type.
+[exit 1]

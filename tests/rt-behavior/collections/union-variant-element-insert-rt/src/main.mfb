@@ -1,0 +1,76 @@
+IMPORT collections
+IMPORT io
+
+' bug-988: a union VARIANT value is accepted at a generic collection member's
+' top-level `T` slot when `T` is bound to the union, and the stored element is
+' a tagged union: MATCH routes it to the variant's arm and reads its field.
+
+TYPE Circle
+  r AS Float
+END TYPE
+
+TYPE Square
+  side AS Float
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+FUNC describe(s AS Shape) AS String
+  MATCH s
+    CASE Circle(c)
+      RETURN "circle " & toString(c.r)
+    CASE Square(q)
+      RETURN "square " & toString(q.side)
+  END MATCH
+END FUNC
+
+FUNC showAll(label AS String, xs AS List OF Shape) AS Nothing
+  MUT line AS String = label & ":"
+  FOR EACH s IN xs
+    line = line & " [" & describe(s) & "]"
+  NEXT
+  io::print(line)
+END FUNC
+
+FUNC mk(side AS Float) AS Square
+  RETURN Square[side]
+END FUNC
+
+FUNC main AS Integer
+  MUT shapes AS List OF Shape = [Circle[1.0]]
+  shapes = collections::append(shapes, Square[2.0])
+  showAll("append", shapes)
+
+  shapes = collections::append(shapes, mk(3.0))
+  showAll("append call", shapes)
+
+  LET base AS List OF Shape = [Circle[1.0]]
+  LET pair AS List OF Shape = [Circle[1.0], Circle[2.0]]
+  showAll("append literal", collections::append(base, [Square[4.0]]))
+  showAll("append mixed literal", collections::append(base, [Square[4.0], Circle[5.0]]))
+
+  showAll("prepend", collections::prepend(base, Square[6.0]))
+  showAll("insert", collections::insert(pair, 1, Square[7.0]))
+  showAll("set", collections::set(pair, 0, Square[8.0]))
+  showAll("repeat", collections::repeat(base, Square[9.0], 2))
+
+  io::print("getOr hit: " & describe(collections::getOr(base, 0, Square[10.0])))
+  io::print("getOr miss: " & describe(collections::getOr(base, 5, Square[10.0])))
+
+  MUT m AS Map OF String TO Shape = Map OF String TO Shape { "a" := Circle[1.0] }
+  m = collections::set(m, "b", Square[11.0])
+  io::print("map set: " & describe(collections::get(m, "a")) & ", " & describe(collections::get(m, "b")))
+  io::print("map getOr hit: " & describe(collections::getOr(m, "b", Square[12.0])))
+  io::print("map getOr miss: " & describe(collections::getOr(m, "z", Square[12.0])))
+
+  MUT ip AS List OF Shape = [Circle[1.0]]
+  ip = collections::prepend(ip, Square[13.0])
+  ip = collections::insert(ip, 1, mk(14.0))
+  ip = collections::set(ip, 2, Square[15.0])
+  ip = collections::repeat(ip, Square[16.0], 1, 3)
+  showAll("in place", ip)
+  RETURN 0
+END FUNC
