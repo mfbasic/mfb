@@ -20,7 +20,8 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 **P2: Resource and thread model** (batch 17, `bug-staging-17`; not in main yet)
 [~] 976 → 975 (owner-confirmed language changes; 975 depends on 976's rule): fixed, reviewed, merged into staging
 [~] 843, 842, 852, 854, 899: fixed, reviewed, merged into staging (842 scoped out inline aggregates → bug-999)
-[ ] 844, 933, 935, 851: fixed by agent G, awaiting coordinator review · 856: in progress
+[ ] 844, 933, 935, 851: fixed by agent G, awaiting coordinator review
+[ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
 [ ] Then golden proofs + full gate, then merge to main
 
 **P3: Networking and HTTP**
@@ -75,6 +76,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] 983: string freed wrongly after an absolute `fs::pathJoin` (`http::respondPath("//etc/hosts")` crashes)
 [ ] 992, 984, 1000, 1001: leaks (`graphemesCount` list; macOS TLS listener 2.8 KB; owned-list drain I/O buffer; union drop leaks read and write buffers, up to 16 KiB per drop)
 [ ] 999: an inline aggregate of resources is never closed (`len(mkList())`)
+[ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
 
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
@@ -82,5 +84,5 @@ Into existing phases:
 [ ] P8: 985 (setMode window has no mouse controllers; after 982), 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
