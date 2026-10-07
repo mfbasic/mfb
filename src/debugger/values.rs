@@ -787,7 +787,7 @@ fn elements(
             Part::Key => collection.key_at(entry),
             Part::Value => collection.value_at(entry),
         };
-        rows.push([
+        rows.push(vec![
             index.to_string(),
             format!("0x{at:016x}"),
             size.to_string(),
@@ -800,7 +800,7 @@ fn elements(
         _ => "Value",
     };
     Ok(super::prompt::table(
-        ["Index", "Address", "Bytes", heading],
+        &["Index", "Address", "Bytes", heading],
         rows,
     ))
 }
@@ -1448,9 +1448,15 @@ mod tests {
                 }
             ),
             Ok(vec![
-                "Index Address            Bytes Value".to_string(),
-                format!("1     0x{:016x} 8     0xffffffffffffffec (-20)", BASE + 48),
-                format!("2     0x{:016x} 8     0x000000000000001e (30)", BASE + 56),
+                "Index | Address            | Bytes | Value".to_string(),
+                format!(
+                    "1     | 0x{:016x} | 8     | 0xffffffffffffffec (-20)",
+                    BASE + 48
+                ),
+                format!(
+                    "2     | 0x{:016x} | 8     | 0x000000000000001e (30)",
+                    BASE + 56
+                ),
             ])
         );
         assert_eq!(
@@ -1498,9 +1504,9 @@ mod tests {
                 }
             ),
             Ok(vec![
-                "Index Address            Bytes Value".to_string(),
-                format!("0     0x{data:016x} 2     \"hi\""),
-                format!("1     0x{:016x} 3     \"bye\"", data + 2),
+                "Index | Address            | Bytes | Value".to_string(),
+                format!("0     | 0x{data:016x} | 2     | \"hi\""),
+                format!("1     | 0x{:016x} | 3     | \"bye\"", data + 2),
             ])
         );
     }
@@ -1575,9 +1581,9 @@ mod tests {
                 }
             ),
             Ok(vec![
-                "Index Address            Bytes Element".to_string(),
-                format!("0     0x{data:016x} 3     \"red\""),
-                format!("1     0x{:016x} 5     \"green\"", data + 9),
+                "Index | Address            | Bytes | Element".to_string(),
+                format!("0     | 0x{data:016x} | 3     | \"red\""),
+                format!("1     | 0x{:016x} | 5     | \"green\"", data + 9),
             ])
         );
     }
@@ -1604,17 +1610,23 @@ mod tests {
         assert_eq!(
             map(MapView::Keys(None)),
             Ok(vec![
-                "Index Address            Bytes Key".to_string(),
-                format!("0     0x{base:016x} 3     \"Ada\""),
-                format!("1     0x{:016x} 5     \"Grace\"", base + 16),
+                "Index | Address            | Bytes | Key".to_string(),
+                format!("0     | 0x{base:016x} | 3     | \"Ada\""),
+                format!("1     | 0x{:016x} | 5     | \"Grace\"", base + 16),
             ])
         );
         assert_eq!(
             map(MapView::Values(None)),
             Ok(vec![
-                "Index Address            Bytes Value".to_string(),
-                format!("0     0x{:016x} 8     0x0000000000000024 (36)", base + 8),
-                format!("1     0x{:016x} 8     0x0000000000000055 (85)", base + 24),
+                "Index | Address            | Bytes | Value".to_string(),
+                format!(
+                    "0     | 0x{:016x} | 8     | 0x0000000000000024 (36)",
+                    base + 8
+                ),
+                format!(
+                    "1     | 0x{:016x} | 8     | 0x0000000000000055 (85)",
+                    base + 24
+                ),
             ])
         );
         let grace = Ok(vec![

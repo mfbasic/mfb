@@ -18,11 +18,17 @@
 //! otherwise the program runs on unseen. A `restart` drops every watchpoint:
 //! the new process's memory is laid out anew.
 //!
+//! A breakpoint may carry a test (`breakpointif`): a thread that reaches it
+//! stops only when the test holds for that thread, and otherwise runs on
+//! unseen. Several breakpoints may share an address, each with its own test;
+//! one instruction there serves them all.
+//!
 //! A breakpoint, a watchpoint and the `breakerror` watch may carry commands:
 //! a stop at one runs them, and when every stop at once has commands the
 //! program runs on. `run` hands each stop to the session as it happens.
 
 use super::disassemble::returns;
+use super::location::Condition;
 use super::names::{classify, Collisions};
 use super::prompt::table;
 use super::{Change, FunctionSymbol, Inferior, RunStop, StepStop};
@@ -44,6 +50,10 @@ pub(crate) struct Breakpoint {
     pub(crate) anchor: Option<(String, u64)>,
     /// The commands a stop here runs before the program runs on.
     pub(crate) commands: Vec<String>,
+    /// The test a thread must pass to stop here; `None` stops every one.
+    pub(crate) condition: Option<Condition>,
+    /// The session's number for it, unique among its breakpoints.
+    pub(crate) id: u64,
 }
 
 /// One watchpoint the session holds.
@@ -199,6 +209,8 @@ fn offsets(functions: &[FunctionSymbol], name: &str, offset: u64) -> Result<Vec<
 #[derive(Debug, Default)]
 pub(crate) struct Breakpoints {
     list: Vec<Breakpoint>,
+    /// The id the next breakpoint gets.
+    next_id: u64,
     watches: Vec<Watch>,
     /// The program has been seen at its entry point: every library is bound.
     entry_passed: bool,
@@ -206,9 +218,13 @@ pub(crate) struct Breakpoints {
     errors: Option<ErrorWatch>,
     /// Notes made since the session last heard a stop.
     notes: Vec<String>,
-    /// Threads a step over a watched write left on one of the user's
-    /// breakpoints: the next `run` stops there before it runs anything.
+    /// Threads a step over a watched write left on a breakpoint the session
+    /// holds: the next `run` stops there before it runs anything.
     landed: Vec<(usize, u64)>,
+    /// The `ret`s a `finish` is waiting on.
+    finishing: Vec<u64>,
+    /// The breakpoints each hit of the last stop stopped for, by id.
+    matched: Vec<((usize, u64), Vec<u64>)>,
 }
 
 /// The runtime function every newly raised error goes through: it parks the
@@ -333,6 +349,8 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
                 tag: tag(function, &collisions),
                 anchor: Some((function.name.clone(), 0)),
                 commands: Vec::new(),
+                condition: None,
+                id: 0,
             });
         }
     }
@@ -367,6 +385,8 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             tag: tag(function, &collisions),
             anchor: Some((function.name.clone(), address - start)),
             commands: Vec::new(),
+            condition: None,
+            id: 0,
         };
     }
     match functions
@@ -380,6 +400,8 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             tag: tag(function, &collisions),
             anchor: Some((function.name.clone(), 0)),
             commands: Vec::new(),
+            condition: None,
+            id: 0,
         },
         None => Breakpoint {
             address: Some(address),
@@ -388,6 +410,8 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             tag: None,
             anchor: None,
             commands: Vec::new(),
+            condition: None,
+            id: 0,
         },
     }
 }
@@ -402,6 +426,33 @@ fn place(breakpoint: &Breakpoint) -> String {
     }
 }
 
+/// A breakpoint's test as a sentence ends with it: ` if <test>`, or nothing.
+fn tested(breakpoint: &Breakpoint) -> String {
+    if_shown(breakpoint.condition.as_ref())
+}
+
+/// ` if <test>` for a test, nothing for none.
+fn if_shown(condition: Option<&Condition>) -> String {
+    condition.map_or_else(String::new, |condition| {
+        format!(" if {}", condition.shown())
+    })
+}
+
+/// How a breakpoint reads in a sentence, with its test: `0x… in isPrime if x0
+/// eq 0x… (5)`.
+fn described(breakpoint: &Breakpoint) -> String {
+    format!("{}{}", place(breakpoint), tested(breakpoint))
+}
+
+/// Whether two breakpoints are at the same place: the same address, or, both
+/// pending, on the same symbol.
+fn same_place(one: &Breakpoint, other: &Breakpoint) -> bool {
+    match one.address {
+        Some(_) => one.address == other.address,
+        None => other.address.is_none() && one.symbol == other.symbol,
+    }
+}
+
 /// A breakpoint's written name with its tag, if any.
 fn written_shown(breakpoint: &Breakpoint) -> Option<String> {
     let written = breakpoint.written.clone()?;
@@ -412,11 +463,14 @@ fn written_shown(breakpoint: &Breakpoint) -> Option<String> {
 }
 
 impl Breakpoints {
-    /// Set breakpoints at `target`, each running `commands` at a stop.
+    /// Set breakpoints at `target`, each stopping a thread only when
+    /// `condition` holds for it (every thread, without one) and running
+    /// `commands` at a stop.
     pub(crate) fn set(
         &mut self,
         inferior: &mut dyn Inferior,
         target: &Target,
+        condition: Option<&Condition>,
         commands: &[String],
     ) -> Result<Vec<String>, String> {
         let functions = inferior.functions().unwrap_or_default();
@@ -439,47 +493,77 @@ impl Breakpoints {
         let mut lines = Vec::new();
         for mut breakpoint in wanted {
             breakpoint.commands = commands.to_vec();
-            let exists = self.list.iter().any(|other| match breakpoint.address {
-                Some(_) => other.address == breakpoint.address,
-                None => other.address.is_none() && other.symbol == breakpoint.symbol,
+            breakpoint.condition = condition.cloned();
+            let exists = self.list.iter().any(|other| {
+                same_place(other, &breakpoint) && other.condition == breakpoint.condition
             });
             if exists {
                 continue;
             }
             match breakpoint.address {
                 Some(address) => {
-                    // The park already holds `breakerror`'s breakpoint.
-                    if self.own_park() != Some(address) {
+                    // One instruction serves every breakpoint at an address,
+                    // the park's and a `finish`'s included.
+                    if !self.armed(address) {
                         inferior.insert_breakpoint(address)?;
                     }
                     lines.push(format!(
                         "Set a breakpoint at {}.{}",
-                        place(&breakpoint),
+                        described(&breakpoint),
                         runs(commands)
                     ));
                 }
                 None => lines.push(format!(
-                    "Set a pending breakpoint on {}: it is placed when the program has \
+                    "Set a pending breakpoint on {}{}: it is placed when the program has \
                      loaded its libraries.{}",
                     shown(&breakpoint.symbol),
+                    tested(&breakpoint),
                     runs(commands)
                 )),
             }
+            breakpoint.id = self.next_id;
+            self.next_id += 1;
             self.list.push(breakpoint);
         }
         if lines.is_empty() {
+            let test = if_shown(condition);
             return Err(match target {
-                Target::Name(name) => format!("there is already a breakpoint on '{name}'"),
-                other => format!("there is already a breakpoint at {}", other.shown()),
+                Target::Name(name) => format!("there is already a breakpoint on '{name}'{test}"),
+                other => format!("there is already a breakpoint at {}{test}", other.shown()),
             });
         }
         Ok(lines)
     }
 
+    /// Whether a breakpoint the session holds is at `address`: one of the
+    /// user's, `breakerror`'s on the park, or one on a `ret` a `finish` waits
+    /// on. One instruction there serves them all.
+    fn armed(&self, address: u64) -> bool {
+        self.user_at(address) || self.is_park(address) || self.finishing.contains(&address)
+    }
+
+    /// Whether one of the user's breakpoints is at `address`.
+    fn user_at(&self, address: u64) -> bool {
+        self.list
+            .iter()
+            .any(|breakpoint| breakpoint.address == Some(address))
+    }
+
+    /// Whether `address` is the park `breakerror` keeps a breakpoint on.
+    fn is_park(&self, address: u64) -> bool {
+        self.errors
+            .as_ref()
+            .is_some_and(|watch| watch.park == address)
+    }
+
+    /// Take away the breakpoints at `target`: every one there, whatever its
+    /// test, when `only` is `None` (`breakpoint r`); else just those with the
+    /// test `only` (`breakpointif r`).
     pub(crate) fn remove(
         &mut self,
         inferior: &mut dyn Inferior,
         target: &Target,
+        only: Option<&Condition>,
     ) -> Result<Vec<String>, String> {
         let chosen = match target {
             Target::Address(address) => self
@@ -519,23 +603,38 @@ impl Breakpoints {
                 }
             }
         };
+        let chosen = chosen
+            .into_iter()
+            .filter(|breakpoint| {
+                only.is_none_or(|condition| breakpoint.condition.as_ref() == Some(condition))
+            })
+            .collect::<Vec<_>>();
         if chosen.is_empty() {
+            let test = if_shown(only);
             return Err(match target {
-                Target::Name(name) => format!("there is no breakpoint on '{name}'"),
-                other => format!("there is no breakpoint at {}", other.shown()),
+                Target::Name(name) => format!("there is no breakpoint on '{name}'{test}"),
+                other => format!("there is no breakpoint at {}{test}", other.shown()),
             });
         }
         let mut lines = Vec::new();
-        for breakpoint in chosen {
-            let watched = self.errors.as_ref().map(|watch| watch.park);
-            if let Some(address) = breakpoint
-                .address
-                .filter(|address| Some(*address) != watched)
-            {
+        for breakpoint in &chosen {
+            self.list.retain(|other| other.id != breakpoint.id);
+            lines.push(format!(
+                "Removed the breakpoint at {}.",
+                described(breakpoint)
+            ));
+        }
+        let mut addresses = chosen
+            .iter()
+            .filter_map(|breakpoint| breakpoint.address)
+            .collect::<Vec<_>>();
+        addresses.sort_unstable();
+        addresses.dedup();
+        // The instruction stays while any breakpoint there is left.
+        for address in addresses {
+            if !self.armed(address) {
                 inferior.remove_breakpoint(address)?;
             }
-            self.list.retain(|other| *other != breakpoint);
-            lines.push(format!("Removed the breakpoint at {}.", place(&breakpoint)));
         }
         Ok(lines)
     }
@@ -554,39 +653,60 @@ impl Breakpoints {
         lines
     }
 
-    /// The breakpoint table; a `Commands` column joins it when any
-    /// breakpoint has commands.
+    /// The breakpoint table, in address order and, at one address, those
+    /// without a test first; an `If` column joins it when any breakpoint has
+    /// a test, and a `Commands` column when any has commands.
     fn breakpoint_lines(&self) -> Vec<String> {
         if self.list.is_empty() {
             return vec!["no breakpoints".to_string()];
         }
         let mut sorted = self.list.iter().collect::<Vec<_>>();
-        sorted.sort_by_key(|breakpoint| (breakpoint.address.is_none(), breakpoint.address));
+        sorted.sort_by_key(|breakpoint| {
+            (
+                breakpoint.address.is_none(),
+                breakpoint.address,
+                breakpoint.condition.is_some(),
+                breakpoint.id,
+            )
+        });
+        let tests = sorted
+            .iter()
+            .any(|breakpoint| breakpoint.condition.is_some());
+        let commands = sorted
+            .iter()
+            .any(|breakpoint| !breakpoint.commands.is_empty());
+        let mut headers = vec!["Address", "Symbol", "Written name"];
+        if tests {
+            headers.push("If");
+        }
+        if commands {
+            headers.push("Commands");
+        }
         let rows = sorted
             .iter()
             .map(|breakpoint| {
-                [
+                let mut row = vec![
                     breakpoint
                         .address
                         .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}")),
                     shown(&breakpoint.symbol).to_string(),
                     shown(&written_shown(breakpoint)).to_string(),
-                    listed(&breakpoint.commands),
-                ]
+                ];
+                if tests {
+                    row.push(
+                        breakpoint
+                            .condition
+                            .as_ref()
+                            .map_or_else(|| "-".to_string(), Condition::shown),
+                    );
+                }
+                if commands {
+                    row.push(listed(&breakpoint.commands));
+                }
+                row
             })
-            .collect::<Vec<_>>();
-        if sorted
-            .iter()
-            .all(|breakpoint| breakpoint.commands.is_empty())
-        {
-            return table(
-                ["Address", "Symbol", "Written name"],
-                rows.into_iter()
-                    .map(|[address, symbol, written, _]| [address, symbol, written])
-                    .collect(),
-            );
-        }
-        table(["Address", "Symbol", "Written name", "Commands"], rows)
+            .collect();
+        table(&headers, rows)
     }
 
     /// `watchpoint <where> [<size>] [<commands>]`: stop when a thread changes
@@ -648,27 +768,26 @@ impl Breakpoints {
         }
         let mut sorted = self.watches.iter().collect::<Vec<_>>();
         sorted.sort_by_key(|watch| watch.address);
+        let commands = sorted.iter().any(|watch| !watch.commands.is_empty());
         let rows = sorted
             .iter()
             .map(|watch| {
-                [
+                let mut row = vec![
                     format!("0x{:016x}", watch.address),
                     watch.size.to_string(),
                     watched_value(inferior, watch.address, watch.size)
                         .map_or_else(|_| "-".to_string(), |value| value_shown(value, watch.size)),
-                    listed(&watch.commands),
-                ]
+                ];
+                if commands {
+                    row.push(listed(&watch.commands));
+                }
+                row
             })
-            .collect::<Vec<_>>();
-        if sorted.iter().all(|watch| watch.commands.is_empty()) {
-            return table(
-                ["Address", "Size", "Value"],
-                rows.into_iter()
-                    .map(|[address, size, value, _]| [address, size, value])
-                    .collect(),
-            );
+            .collect();
+        if commands {
+            return table(&["Address", "Size", "Value", "Commands"], rows);
         }
-        table(["Address", "Size", "Value", "Commands"], rows)
+        table(&["Address", "Size", "Value"], rows)
     }
 
     /// The commands each stop in `stop` runs, by thread, and whether every
@@ -681,15 +800,26 @@ impl Breakpoints {
             _ => every = false,
         };
         match stop {
+            // Each breakpoint a hit stopped for runs its commands.
             RunStop::Breakpoints(hits) => {
-                for (thread, address) in hits {
-                    add(
-                        *thread,
-                        self.list
-                            .iter()
-                            .find(|breakpoint| breakpoint.address == Some(*address))
-                            .map(|breakpoint| &breakpoint.commands),
-                    );
+                for hit in hits {
+                    let stopped_for = self
+                        .matched
+                        .iter()
+                        .find(|(matched, _)| matched == hit)
+                        .map_or(&[][..], |(_, ids)| ids.as_slice());
+                    if stopped_for.is_empty() {
+                        add(hit.0, None);
+                    }
+                    for id in stopped_for {
+                        add(
+                            hit.0,
+                            self.list
+                                .iter()
+                                .find(|breakpoint| breakpoint.id == *id)
+                                .map(|breakpoint| &breakpoint.commands),
+                        );
+                    }
                 }
             }
             RunStop::Changed(changes) => {
@@ -730,10 +860,25 @@ impl Breakpoints {
     ) -> Result<Ended, String> {
         loop {
             let landed = std::mem::take(&mut self.landed);
+            // A thread `jump` has moved since is no longer where it landed.
+            let threads = if landed.is_empty() {
+                Vec::new()
+            } else {
+                inferior.threads()?
+            };
+            let landed = landed
+                .into_iter()
+                .filter(|(thread, address)| {
+                    threads
+                        .get(*thread)
+                        .is_some_and(|facts| facts.pc == *address)
+                })
+                .collect::<Vec<_>>();
             let (stop, own) = if landed.is_empty() {
                 self.run_once(inferior)?
             } else {
-                (Some(RunStop::Breakpoints(landed)), Vec::new())
+                let entry = inferior.entry()?;
+                self.settle(inferior, RunStop::Breakpoints(landed), entry, None)?
             };
             let Some(stop) = stop else {
                 if own.is_empty() {
@@ -789,10 +934,10 @@ impl Breakpoints {
         self.settle(inferior, stop, entry, temporary)
     }
 
-    /// Sort what the program stopped for: the user's breakpoints are a stop;
-    /// the debugger's own — the entry point, the error park — are not, though
-    /// a watched raise at the park runs on to the raiser; a watched write is a
-    /// stop only when it changed something.
+    /// Sort what the program stopped for: the user's breakpoints are a stop
+    /// when one there stops the thread; the debugger's own — the entry point,
+    /// the error park — are not, though a watched raise at the park runs on to
+    /// the raiser; a watched write is a stop only when it changed something.
     #[allow(clippy::type_complexity)]
     fn settle(
         &mut self,
@@ -806,35 +951,27 @@ impl Breakpoints {
                 if hits.iter().any(|(_, address)| Some(*address) == entry) {
                     self.entry_passed = true;
                 }
-                let park = self.own_park();
-                let mut raised = None;
-                let mut user = Vec::new();
-                let mut own = Vec::new();
-                for &(thread, address) in &hits {
-                    if Some(address) == temporary {
-                        continue;
-                    }
-                    if Some(address) == park {
-                        if raised.is_none() {
-                            raised = self.watched_raise(inferior, thread)?;
-                        }
-                        continue;
-                    }
-                    if self
-                        .list
-                        .iter()
-                        .any(|breakpoint| breakpoint.address == Some(address))
-                    {
-                        user.push((thread, address));
-                    } else {
-                        own.push((thread, address));
-                    }
-                }
+                let hits = hits
+                    .into_iter()
+                    .filter(|(_, address)| Some(*address) != temporary)
+                    .collect::<Vec<_>>();
+                let (user, own) = self.sort_hits(inferior, &hits);
                 if !user.is_empty() {
                     return Ok((Some(RunStop::Breakpoints(user)), own));
                 }
                 if !own.is_empty() {
                     return Ok((None, own));
+                }
+                // A thread at the park that no breakpoint of the user's
+                // stopped is the watch's to look at.
+                let mut raised = None;
+                for &(thread, address) in &hits {
+                    if self.is_park(address) {
+                        raised = self.watched_raise(inferior, thread)?;
+                        if raised.is_some() {
+                            break;
+                        }
+                    }
                 }
                 match raised {
                     Some(raise) => {
@@ -851,10 +988,52 @@ impl Breakpoints {
         }
     }
 
+    /// Sort breakpoint hits into the user's — a hit where a breakpoint stops
+    /// the thread (it has no test, or its test holds for that thread), each
+    /// remembered for its commands — and the caller's own: a `ret` a `finish`
+    /// waits on, or a breakpoint the session does not hold. A hit only at
+    /// breakpoints whose tests fail is neither, and neither is the park's.
+    #[allow(clippy::type_complexity)]
+    fn sort_hits(
+        &mut self,
+        inferior: &mut dyn Inferior,
+        hits: &[(usize, u64)],
+    ) -> (Vec<(usize, u64)>, Vec<(usize, u64)>) {
+        self.matched.clear();
+        let mut user = Vec::new();
+        let mut own = Vec::new();
+        for &(thread, address) in hits {
+            let here = self
+                .list
+                .iter()
+                .filter(|breakpoint| breakpoint.address == Some(address))
+                .collect::<Vec<_>>();
+            let held = !here.is_empty();
+            let stopping = here
+                .into_iter()
+                .filter(|breakpoint| {
+                    breakpoint
+                        .condition
+                        .as_ref()
+                        .is_none_or(|condition| condition.holds(inferior, thread))
+                })
+                .map(|breakpoint| breakpoint.id)
+                .collect::<Vec<_>>();
+            if !stopping.is_empty() {
+                user.push((thread, address));
+                self.matched.push(((thread, address), stopping));
+            }
+            if self.finishing.contains(&address) || (!held && !self.is_park(address)) {
+                own.push((thread, address));
+            }
+        }
+        (user, own)
+    }
+
     /// Step each of `threads`, stopped before a watched write, over the write:
     /// a `Changed` stop for every watchpoint whose bytes it changed, or `None`
     /// when it changed none. A step that ends otherwise is that stop. A thread
-    /// the step leaves on one of the user's breakpoints stops there next.
+    /// the step leaves on a breakpoint the session holds stops there next.
     fn watched_writes(
         &mut self,
         inferior: &mut dyn Inferior,
@@ -892,11 +1071,7 @@ impl Breakpoints {
                 }
             }
             if let Some(now) = inferior.threads()?.get(thread).map(|facts| facts.pc) {
-                if self
-                    .list
-                    .iter()
-                    .any(|breakpoint| breakpoint.address == Some(now))
-                {
+                if self.armed(now) {
                     self.landed.push((thread, now));
                 }
             }
@@ -910,17 +1085,6 @@ impl Breakpoints {
             .iter()
             .map(|watch| watched_value(inferior, watch.address, watch.size).ok())
             .collect()
-    }
-
-    /// The park's address when the debugger's own breakpoint is there — a
-    /// `breakerror` watch, and no breakpoint of the user's at the same place.
-    fn own_park(&self) -> Option<u64> {
-        let park = self.errors.as_ref()?.park;
-        (!self
-            .list
-            .iter()
-            .any(|breakpoint| breakpoint.address == Some(park)))
-        .then_some(park)
     }
 
     /// Thread `thread` has just entered the park: the error it raises when the
@@ -968,14 +1132,10 @@ impl Breakpoints {
         inferior: &mut dyn Inferior,
         raise: Raise,
     ) -> Result<RunStop, String> {
-        let ours = !self
-            .list
-            .iter()
-            .any(|breakpoint| breakpoint.address == Some(raise.back));
+        let ours = !self.armed(raise.back);
         if ours {
             inferior.insert_breakpoint(raise.back)?;
         }
-        let park = self.own_park();
         let stop = loop {
             let stop = match inferior.run()? {
                 RunStop::Watchpoints(threads) => match self.watched_writes(inferior, &threads)? {
@@ -994,13 +1154,20 @@ impl Breakpoints {
                     origin: raise.origin.clone(),
                 };
             }
-            let user = hits
+            // Another thread at the raiser's place, or at a breakpoint that
+            // does not stop it, runs on; so does a raise at the park.
+            let hits = hits
                 .iter()
                 .copied()
-                .filter(|(_, address)| Some(*address) != park && !(ours && *address == raise.back))
+                .filter(|(_, address)| !(ours && *address == raise.back))
                 .collect::<Vec<_>>();
-            if !user.is_empty() {
-                break RunStop::Breakpoints(user);
+            let (user, own) = self.sort_hits(inferior, &hits);
+            if !user.is_empty() || !own.is_empty() {
+                break RunStop::Breakpoints(
+                    hits.into_iter()
+                        .filter(|hit| user.contains(hit) || own.contains(hit))
+                        .collect(),
+                );
             }
         };
         if ours && !matches!(stop, RunStop::Exited(_)) {
@@ -1035,11 +1202,7 @@ impl Breakpoints {
             }
         } else {
             let park = park_address(inferior)?;
-            if !self
-                .list
-                .iter()
-                .any(|breakpoint| breakpoint.address == Some(park))
-            {
+            if !self.armed(park) {
                 inferior.insert_breakpoint(park)?;
             }
             self.errors = Some(ErrorWatch {
@@ -1056,14 +1219,13 @@ impl Breakpoints {
         &mut self,
         inferior: &mut dyn Inferior,
     ) -> Result<Vec<String>, String> {
-        if self.own_park().is_some() {
-            let park = self.errors.as_ref().expect("a watch").park;
-            inferior.remove_breakpoint(park)?;
+        let Some(watch) = self.errors.take() else {
+            return Err("no errors are being watched for".to_string());
+        };
+        if !self.armed(watch.park) {
+            inferior.remove_breakpoint(watch.park)?;
         }
-        match self.errors.take() {
-            Some(_) => Ok(vec!["Stopped watching for errors.".to_string()]),
-            None => Err("no errors are being watched for".to_string()),
-        }
+        Ok(vec!["Stopped watching for errors.".to_string()])
     }
 
     /// `Stopping when a thread raises <codes>.`, for a watch, and what it
@@ -1085,6 +1247,7 @@ impl Breakpoints {
         self.entry_passed = false;
         self.landed.clear();
         self.notes.clear();
+        self.matched.clear();
         let mut notes = std::mem::take(&mut self.watches)
             .into_iter()
             .map(|watch| {
@@ -1095,9 +1258,12 @@ impl Breakpoints {
                 )
             })
             .collect::<Vec<_>>();
+        // The addresses that hold an instruction again: one per address.
+        let mut placed = Vec::new();
         if let Some(watch) = &mut self.errors {
             watch.park = park_address(inferior)?;
             inferior.insert_breakpoint(watch.park)?;
+            placed.push(watch.park);
         }
         let functions = inferior.functions().unwrap_or_default();
         let mut kept = Vec::new();
@@ -1121,7 +1287,10 @@ impl Breakpoints {
                 }
             };
             if let Some(address) = breakpoint.address {
-                inferior.insert_breakpoint(address)?;
+                if !placed.contains(&address) {
+                    inferior.insert_breakpoint(address)?;
+                    placed.push(address);
+                }
             }
             kept.push(breakpoint);
         }
@@ -1156,36 +1325,20 @@ impl Breakpoints {
                 range.start
             ));
         }
+        // A `ret` that holds a breakpoint already needs no instruction of the
+        // finish's own, but is still one it waits on.
         let ours = ends
             .iter()
             .copied()
-            .filter(|address| {
-                !self
-                    .list
-                    .iter()
-                    .any(|other| other.address == Some(*address))
-            })
+            .filter(|address| !self.armed(*address))
             .collect::<Vec<_>>();
         for address in &ours {
             inferior.insert_breakpoint(*address)?;
         }
-        let outcome = loop {
-            let hits = match self.run(inferior, hear)? {
-                Ended::Heard(stop) => break Some(stop),
-                Ended::Own(hits) => hits,
-            };
-            let popped = hits.iter().any(|(hit, _)| {
-                *hit == thread
-                    && inferior
-                        .threads()
-                        .ok()
-                        .and_then(|threads| threads.get(thread).map(|now| now.sp >= facts.sp))
-                        .unwrap_or(false)
-            });
-            if popped {
-                break None;
-            }
-        };
+        self.finishing = ends;
+        let outcome = self.run_to_return(inferior, thread, facts.sp, hear);
+        self.finishing.clear();
+        let outcome = outcome?;
         if !matches!(outcome, Some(RunStop::Exited(_))) {
             for address in &ours {
                 inferior.remove_breakpoint(*address)?;
@@ -1219,6 +1372,35 @@ impl Breakpoints {
         })
     }
 
+    /// Run until `thread` reaches a `ret` the finish waits on with its frame
+    /// popped (its stack pointer at or above `sp`): `None`; or the stop heard
+    /// first, which ends the finish.
+    fn run_to_return(
+        &mut self,
+        inferior: &mut dyn Inferior,
+        thread: usize,
+        sp: u64,
+        hear: &mut Hear,
+    ) -> Result<Option<RunStop>, String> {
+        loop {
+            let hits = match self.run(inferior, hear)? {
+                Ended::Heard(stop) => return Ok(Some(stop)),
+                Ended::Own(hits) => hits,
+            };
+            let popped = hits.iter().any(|(hit, _)| {
+                *hit == thread
+                    && inferior
+                        .threads()
+                        .ok()
+                        .and_then(|threads| threads.get(thread).map(|now| now.sp >= sp))
+                        .unwrap_or(false)
+            });
+            if popped {
+                return Ok(None);
+            }
+        }
+    }
+
     /// Place every pending breakpoint whose function is now bound, with a
     /// note for each.
     fn place_pending(&mut self, inferior: &mut dyn Inferior) -> Result<(), String> {
@@ -1245,16 +1427,23 @@ impl Breakpoints {
                 index += 1;
                 continue;
             };
-            if self.list.iter().any(|other| other.address == Some(address)) {
-                // Another breakpoint is already there; this one adds nothing.
+            if self
+                .list
+                .iter()
+                .any(|other| other.address == Some(address) && other.condition == pending.condition)
+            {
+                // One with the same test is already there; this adds nothing.
                 self.notes.push(format!(
-                    "The pending breakpoint on {} is at 0x{address:016x}, which already has one.",
-                    shown(&pending.symbol)
+                    "The pending breakpoint on {}{} is at 0x{address:016x}, which already has one.",
+                    shown(&pending.symbol),
+                    tested(pending)
                 ));
                 self.list.remove(index);
                 continue;
             }
-            inferior.insert_breakpoint(address)?;
+            if !self.armed(address) {
+                inferior.insert_breakpoint(address)?;
+            }
             self.list[index].address = Some(address);
             self.list[index].anchor = self.list[index].symbol.clone().map(|symbol| (symbol, 0));
             self.notes.push(format!(
@@ -1301,6 +1490,9 @@ mod tests {
         pc: u64,
         /// `isPrime` is readable code: `nop`s, with a `ret` at [`RET`].
         code: bool,
+        /// Thread 0's `x0`, and the value it takes at each run, in turn.
+        x0: u64,
+        x0s: Vec<u64>,
     }
 
     /// Where [`Program`]'s memory starts.
@@ -1346,6 +1538,8 @@ mod tests {
                 watched: Vec::new(),
                 pc: STORE,
                 code: false,
+                x0: 0,
+                x0s: Vec::new(),
             }
         }
     }
@@ -1388,14 +1582,16 @@ mod tests {
                 .collect())
         }
         fn function_at(&mut self, address: u64) -> Result<Option<FunctionRange>, String> {
-            Ok((self.code && (IS_PRIME..IS_PRIME + 0x40).contains(&address)).then(|| {
-                FunctionRange {
-                    image: "prog".to_string(),
-                    name: Some("_mfb_fn_isPrime".to_string()),
-                    start: IS_PRIME,
-                    size: Some(0x40),
-                }
-            }))
+            Ok(
+                (self.code && (IS_PRIME..IS_PRIME + 0x40).contains(&address)).then(|| {
+                    FunctionRange {
+                        image: "prog".to_string(),
+                        name: Some("_mfb_fn_isPrime".to_string()),
+                        start: IS_PRIME,
+                        size: Some(0x40),
+                    }
+                }),
+            )
         }
         fn data_symbol_at(&mut self, _: u64) -> Result<Option<String>, String> {
             Ok(None)
@@ -1437,10 +1633,20 @@ mod tests {
                 self.raised.remove(0)
             };
             Ok(vec![
+                register("x0", self.x0),
                 register("x1", code),
                 register("x3", 0),
                 register("lr", RAISER),
             ])
+        }
+        /// Thread 0's `pc` moves; nothing else is kept.
+        fn set_registers(&mut self, _: usize, values: &[(String, u64)]) -> Result<(), String> {
+            for (name, value) in values {
+                if name == "pc" {
+                    self.pc = *value;
+                }
+            }
+            Ok(())
         }
         /// Thread 0 runs one instruction: the next of `writes`.
         fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
@@ -1486,6 +1692,9 @@ mod tests {
         }
         fn run(&mut self) -> Result<RunStop, String> {
             self.runs += 1;
+            if !self.x0s.is_empty() {
+                self.x0 = self.x0s.remove(0);
+            }
             if !self.bound && self.inserted.contains(&ENTRY) {
                 self.bound = true;
                 return Ok(RunStop::Breakpoints(vec![(0, ENTRY)]));
@@ -1541,7 +1750,7 @@ mod tests {
         // `isPrime` is written; it covers the function and its `$own` copy.
         assert_eq!(
             breakpoints
-                .set(&mut program, &name("isPrime"), &[])
+                .set(&mut program, &name("isPrime"), None, &[])
                 .unwrap(),
             [
                 "Set a breakpoint at 0x0000000000001100 in isPrime.",
@@ -1551,17 +1760,17 @@ mod tests {
         // `_mfb_fn_exit` is a symbol: only that one function.
         assert_eq!(
             breakpoints
-                .set(&mut program, &name("_mfb_fn_exit"), &[])
+                .set(&mut program, &name("_mfb_fn_exit"), None, &[])
                 .unwrap(),
             ["Set a breakpoint at 0x0000000000001300 in exit <mfb>."]
         );
         assert_eq!(program.inserted, [0x1100, 0x1200, 0x1300]);
         assert_eq!(
-            breakpoints.set(&mut program, &name("isPrime"), &[]),
+            breakpoints.set(&mut program, &name("isPrime"), None, &[]),
             Err("there is already a breakpoint on 'isPrime'".to_string())
         );
         assert_eq!(
-            breakpoints.set(&mut program, &name("nothing"), &[]),
+            breakpoints.set(&mut program, &name("nothing"), None, &[]),
             Err("no function is named 'nothing'; type 'list func' for the functions".to_string())
         );
     }
@@ -1573,7 +1782,7 @@ mod tests {
         // `isPrime` is two functions, the original and a hand-over copy.
         assert_eq!(
             breakpoints
-                .set(&mut program, &name("isPrime+0x24"), &[])
+                .set(&mut program, &name("isPrime+0x24"), None, &[])
                 .unwrap(),
             [
                 "Set a breakpoint at 0x0000000000001124 in isPrime+0x24.",
@@ -1583,31 +1792,31 @@ mod tests {
         // A symbol, with a decimal offset.
         assert_eq!(
             breakpoints
-                .set(&mut program, &name("_mfb_fn_exit+4"), &[])
+                .set(&mut program, &name("_mfb_fn_exit+4"), None, &[])
                 .unwrap(),
             ["Set a breakpoint at 0x0000000000001304 in exit+0x4 <mfb>."]
         );
         assert_eq!(
-            breakpoints.set(&mut program, &name("_mfb_fn_exit+4"), &[]),
+            breakpoints.set(&mut program, &name("_mfb_fn_exit+4"), None, &[]),
             Err("there is already a breakpoint at _mfb_fn_exit+0x4".to_string())
         );
         assert_eq!(
             breakpoints
-                .remove(&mut program, &name("_mfb_fn_isPrime+0x24"))
+                .remove(&mut program, &name("_mfb_fn_isPrime+0x24"), None)
                 .unwrap(),
             ["Removed the breakpoint at 0x0000000000001124 in isPrime+0x24."]
         );
         assert_eq!(program.inserted, [0x1224, 0x1304]);
         // `_exit` is not bound until the program reaches its entry point.
         assert_eq!(
-            breakpoints.set(&mut program, &name("_exit+8"), &[]),
+            breakpoints.set(&mut program, &name("_exit+8"), None, &[]),
             Err(
                 "'_exit' is not loaded yet; run the program until it has loaded its libraries"
                     .to_string()
             )
         );
         assert_eq!(
-            breakpoints.set(&mut program, &name("nothing+8"), &[]),
+            breakpoints.set(&mut program, &name("nothing+8"), None, &[]),
             Err("no function is named 'nothing'; type 'list func' for the functions".to_string())
         );
     }
@@ -1675,14 +1884,16 @@ mod tests {
             .watch_errors(&mut program, ErrorCodes::Any, &[])
             .unwrap();
         breakpoints
-            .set(&mut program, &name(PARK_ERROR), &[])
+            .set(&mut program, &name(PARK_ERROR), None, &[])
             .unwrap();
         assert_eq!(program.inserted, [PARK]);
         // The user's breakpoint is reported as theirs.
         let (_, stop) = run(&mut breakpoints, &mut program).unwrap();
         assert_eq!(stop, RunStop::Breakpoints(vec![(0, PARK)]));
         // Removing it leaves the watch's breakpoint in place.
-        breakpoints.remove(&mut program, &name(PARK_ERROR)).unwrap();
+        breakpoints
+            .remove(&mut program, &name(PARK_ERROR), None)
+            .unwrap();
         assert_eq!(program.inserted, [PARK]);
         assert_eq!(
             breakpoints.lines(),
@@ -1695,21 +1906,21 @@ mod tests {
         let mut program = Program::new(Vec::new());
         let mut breakpoints = Breakpoints::default();
         breakpoints
-            .set(&mut program, &Target::Address(0x1124), &[])
+            .set(&mut program, &Target::Address(0x1124), None, &[])
             .unwrap();
         breakpoints
-            .set(&mut program, &Target::Address(0x5000), &[])
+            .set(&mut program, &Target::Address(0x5000), None, &[])
             .unwrap();
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            Symbol               Written name",
-                "0x0000000000001124 _mfb_fn_isPrime+0x24 isPrime+0x24",
-                "0x0000000000005000 -                    -",
+                "Address            | Symbol               | Written name",
+                "0x0000000000001124 | _mfb_fn_isPrime+0x24 | isPrime+0x24",
+                "0x0000000000005000 | -                    | -",
             ]
         );
         assert_eq!(
-            breakpoints.set(&mut program, &Target::Address(0x1124), &[]),
+            breakpoints.set(&mut program, &Target::Address(0x1124), None, &[]),
             Err("there is already a breakpoint at 0x0000000000001124".to_string())
         );
     }
@@ -1721,7 +1932,9 @@ mod tests {
         // `exit` is no symbol; as written it names both the developer's
         // function and the linked one, which is not bound yet.
         assert_eq!(
-            breakpoints.set(&mut program, &name("exit"), &[]).unwrap(),
+            breakpoints
+                .set(&mut program, &name("exit"), None, &[])
+                .unwrap(),
             [
                 "Set a breakpoint at 0x0000000000001300 in exit <mfb>.",
                 "Set a pending breakpoint on _exit: it is placed when the program has loaded \
@@ -1731,9 +1944,9 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            Symbol       Written name",
-                "0x0000000000001300 _mfb_fn_exit exit <mfb>",
-                "-                  _exit        exit <native>",
+                "Address            | Symbol       | Written name",
+                "0x0000000000001300 | _mfb_fn_exit | exit <mfb>",
+                "-                  | _exit        | exit <native>",
             ]
         );
         let (notes, stop) = run(&mut breakpoints, &mut program).unwrap();
@@ -1752,31 +1965,37 @@ mod tests {
         let mut program = Program::new(Vec::new());
         let mut breakpoints = Breakpoints::default();
         breakpoints
-            .set(&mut program, &name("isPrime"), &[])
+            .set(&mut program, &name("isPrime"), None, &[])
             .unwrap();
-        breakpoints.set(&mut program, &name("_exit"), &[]).unwrap();
+        breakpoints
+            .set(&mut program, &name("_exit"), None, &[])
+            .unwrap();
         assert_eq!(
             breakpoints
-                .remove(&mut program, &name("_mfb_fn_isPrime"))
+                .remove(&mut program, &name("_mfb_fn_isPrime"), None)
                 .unwrap(),
             ["Removed the breakpoint at 0x0000000000001100 in isPrime."]
         );
         assert_eq!(
-            breakpoints.remove(&mut program, &name("isPrime")).unwrap(),
+            breakpoints
+                .remove(&mut program, &name("isPrime"), None)
+                .unwrap(),
             ["Removed the breakpoint at 0x0000000000001200 in isPrime."]
         );
         assert_eq!(
-            breakpoints.remove(&mut program, &name("exit")).unwrap(),
+            breakpoints
+                .remove(&mut program, &name("exit"), None)
+                .unwrap(),
             ["Removed the breakpoint at _exit."]
         );
         assert_eq!(breakpoints.lines(), ["no breakpoints"]);
         assert!(program.inserted.is_empty());
         assert_eq!(
-            breakpoints.remove(&mut program, &Target::Address(0x1100)),
+            breakpoints.remove(&mut program, &Target::Address(0x1100), None),
             Err("there is no breakpoint at 0x0000000000001100".to_string())
         );
         assert_eq!(
-            breakpoints.remove(&mut program, &name("isPrime")),
+            breakpoints.remove(&mut program, &name("isPrime"), None),
             Err("there is no breakpoint on 'isPrime'".to_string())
         );
     }
@@ -1785,8 +2004,12 @@ mod tests {
     fn a_user_breakpoint_at_the_entry_point_is_reported() {
         let mut program = Program::new(Vec::new());
         let mut breakpoints = Breakpoints::default();
-        breakpoints.set(&mut program, &name("_main"), &[]).unwrap();
-        breakpoints.set(&mut program, &name("_exit"), &[]).unwrap();
+        breakpoints
+            .set(&mut program, &name("_main"), None, &[])
+            .unwrap();
+        breakpoints
+            .set(&mut program, &name("_exit"), None, &[])
+            .unwrap();
         let (notes, stop) = run(&mut breakpoints, &mut program).unwrap();
         assert_eq!(stop, RunStop::Breakpoints(vec![(0, ENTRY)]));
         assert_eq!(
@@ -1847,8 +2070,8 @@ mod tests {
         assert_eq!(
             breakpoints.watch_lines(&mut program),
             [
-                "Address            Size Value",
-                "0x0000000000008008 8    0x0000000000000006 (6)",
+                "Address            | Size | Value",
+                "0x0000000000008008 | 8    | 0x0000000000000006 (6)",
             ]
         );
     }
@@ -1919,7 +2142,7 @@ mod tests {
         let commands = ["bt 1".to_string(), "list reg x0".to_string()];
         assert_eq!(
             breakpoints
-                .set(&mut program, &name("_mfb_fn_isPrime"), &commands)
+                .set(&mut program, &name("_mfb_fn_isPrime"), None, &commands)
                 .unwrap(),
             [
                 "Set a breakpoint at 0x0000000000001100 in isPrime. Each stop runs 'bt 1; list \
@@ -1927,14 +2150,14 @@ mod tests {
             ]
         );
         breakpoints
-            .set(&mut program, &name("_mfb_fn_exit"), &[])
+            .set(&mut program, &name("_mfb_fn_exit"), None, &[])
             .unwrap();
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            Symbol          Written name Commands",
-                "0x0000000000001100 _mfb_fn_isPrime isPrime      bt 1; list reg x0",
-                "0x0000000000001300 _mfb_fn_exit    exit <mfb>   -",
+                "Address            | Symbol          | Written name | Commands",
+                "0x0000000000001100 | _mfb_fn_isPrime | isPrime      | bt 1; list reg x0",
+                "0x0000000000001300 | _mfb_fn_exit    | exit <mfb>   | -",
             ]
         );
         // Each stop is heard; the first, whose every breakpoint has
@@ -1969,6 +2192,187 @@ mod tests {
         );
     }
 
+    fn test(location: &str, test: &str, value: Option<&str>) -> Condition {
+        Condition::parse(location, test, value).unwrap()
+    }
+
+    /// Breakpoints with tests share one instruction; a thread stops only
+    /// for those whose test holds, each running its own commands.
+    #[test]
+    fn a_breakpoint_with_a_test_stops_only_when_it_holds() {
+        let mut program = Program::new(vec![
+            RunStop::Breakpoints(vec![(0, IS_PRIME)]),
+            RunStop::Breakpoints(vec![(0, IS_PRIME)]),
+            RunStop::Breakpoints(vec![(0, IS_PRIME)]),
+            RunStop::Exited(Exit::Status(0)),
+        ]);
+        program.bound = true;
+        program.x0s = vec![1, 5, 7];
+        let mut breakpoints = Breakpoints::default();
+        let five = test("x0", "eq", Some("5"));
+        let big = test("x0", "gt", Some("6"));
+        assert_eq!(
+            breakpoints
+                .set(&mut program, &name("_mfb_fn_isPrime"), Some(&five), &[])
+                .unwrap(),
+            ["Set a breakpoint at 0x0000000000001100 in isPrime if x0 eq 0x0000000000000005 (5)."]
+        );
+        breakpoints
+            .set(
+                &mut program,
+                &name("_mfb_fn_isPrime"),
+                Some(&big),
+                &["bt".to_string()],
+            )
+            .unwrap();
+        assert_eq!(
+            breakpoints.set(&mut program, &name("_mfb_fn_isPrime"), Some(&five), &[]),
+            Err(
+                "there is already a breakpoint on '_mfb_fn_isPrime' if x0 eq 0x0000000000000005 (5)"
+                    .to_string()
+            )
+        );
+        breakpoints
+            .set(&mut program, &name("_mfb_fn_exit"), None, &[])
+            .unwrap();
+        assert_eq!(program.inserted, [IS_PRIME, 0x1300]);
+        assert_eq!(
+            breakpoints.lines(),
+            [
+                "Address            | Symbol          | Written name | If                           | Commands",
+                "0x0000000000001100 | _mfb_fn_isPrime | isPrime      | x0 eq 0x0000000000000005 (5) | -",
+                "0x0000000000001100 | _mfb_fn_isPrime | isPrime      | x0 gt 0x0000000000000006 (6) | bt",
+                "0x0000000000001300 | _mfb_fn_exit    | exit <mfb>   | -                            | -",
+            ]
+        );
+        // x0 = 1 passes neither test and runs on; x0 = 5 stops, with no
+        // commands; x0 = 7 runs the other's and runs on to the end.
+        let mut heard = Vec::new();
+        let mut hear = |_: &mut dyn Inferior, breakpoints: &Breakpoints, _, stop: &RunStop| {
+            let (commands, every) = breakpoints.stop_commands(stop);
+            heard.push((stop.clone(), commands));
+            Ok(every)
+        };
+        let ended = breakpoints.run(&mut program, &mut hear).unwrap();
+        assert_eq!(
+            ended,
+            Ended::Heard(RunStop::Breakpoints(vec![(0, IS_PRIME)]))
+        );
+        let ended = breakpoints.run(&mut program, &mut hear).unwrap();
+        assert_eq!(ended, Ended::Heard(RunStop::Exited(Exit::Status(0))));
+        assert_eq!(
+            heard,
+            [
+                (RunStop::Breakpoints(vec![(0, IS_PRIME)]), Vec::new()),
+                (
+                    RunStop::Breakpoints(vec![(0, IS_PRIME)]),
+                    vec![(0, vec!["bt".to_string()])]
+                ),
+                (RunStop::Exited(Exit::Status(0)), Vec::new()),
+            ]
+        );
+        assert_eq!(program.runs, 4);
+        // `breakpointif r` takes just its test's; the instruction stays for
+        // the other, which `breakpoint r` then takes.
+        assert_eq!(
+            breakpoints
+                .remove(&mut program, &name("isPrime"), Some(&five))
+                .unwrap(),
+            ["Removed the breakpoint at 0x0000000000001100 in isPrime if x0 eq 0x0000000000000005 (5)."]
+        );
+        assert_eq!(
+            breakpoints.remove(&mut program, &name("isPrime"), Some(&five)),
+            Err("there is no breakpoint on 'isPrime' if x0 eq 0x0000000000000005 (5)".to_string())
+        );
+        assert_eq!(program.inserted, [IS_PRIME, 0x1300]);
+        assert_eq!(
+            breakpoints
+                .remove(&mut program, &Target::Address(IS_PRIME), None)
+                .unwrap(),
+            ["Removed the breakpoint at 0x0000000000001100 in isPrime if x0 gt 0x0000000000000006 (6)."]
+        );
+        assert_eq!(program.inserted, [0x1300]);
+    }
+
+    /// A test whose memory cannot be read does not stop the thread; `in`
+    /// stops just then.
+    #[test]
+    fn a_test_that_cannot_be_read_stops_only_in() {
+        let mut program = Program::new(vec![RunStop::Breakpoints(vec![(0, IS_PRIME)])]);
+        program.bound = true;
+        program.memory[8] = 5;
+        let mut breakpoints = Breakpoints::default();
+        let unreadable = test("[0x10]", "eq", Some("0"));
+        let missing = test("[0x10]", "in", None);
+        let readable = test("[0x8008]", "eq", Some("5"));
+        for (condition, commands) in [
+            (&unreadable, "list reg x0"),
+            (&missing, "bt"),
+            (&readable, "dis"),
+        ] {
+            breakpoints
+                .set(
+                    &mut program,
+                    &Target::Address(IS_PRIME),
+                    Some(condition),
+                    &[commands.to_string()],
+                )
+                .unwrap();
+        }
+        let mut heard = Vec::new();
+        breakpoints
+            .run(
+                &mut program,
+                &mut |_: &mut dyn Inferior, breakpoints: &Breakpoints, _, stop: &RunStop| {
+                    heard.push(breakpoints.stop_commands(stop));
+                    Ok(false)
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            heard,
+            [(
+                vec![(0, vec!["bt".to_string()]), (0, vec!["dis".to_string()])],
+                true
+            )]
+        );
+    }
+
+    /// A pending breakpoint with a test joins one already at its address.
+    #[test]
+    fn pending_breakpoints_with_different_tests_share_their_place() {
+        let mut program = Program::new(vec![RunStop::Breakpoints(vec![(0, EXIT)])]);
+        let mut breakpoints = Breakpoints::default();
+        breakpoints
+            .set(&mut program, &name("_exit"), None, &[])
+            .unwrap();
+        assert_eq!(
+            breakpoints
+                .set(
+                    &mut program,
+                    &name("_exit"),
+                    Some(&test("x0", "ne", Some("0"))),
+                    &[]
+                )
+                .unwrap(),
+            [
+                "Set a pending breakpoint on _exit if x0 ne 0x0000000000000000 (0): it is placed \
+                 when the program has loaded its libraries."
+            ]
+        );
+        let (notes, stop) = run(&mut breakpoints, &mut program).unwrap();
+        assert_eq!(
+            notes,
+            [
+                "Placed the pending breakpoint on _exit at 0x0000000000009000.",
+                "Placed the pending breakpoint on _exit at 0x0000000000009000.",
+            ]
+        );
+        // x0 is 0: only the breakpoint without a test stops.
+        assert_eq!(stop, RunStop::Breakpoints(vec![(0, EXIT)]));
+        assert_eq!(program.inserted, [EXIT]);
+    }
+
     /// A breakpoint of the user's on a `ret` with commands runs them, and the
     /// finish still returns there.
     #[test]
@@ -1981,7 +2385,12 @@ mod tests {
         program.code = true;
         let mut breakpoints = Breakpoints::default();
         breakpoints
-            .set(&mut program, &Target::Address(RET), &["bt".to_string()])
+            .set(
+                &mut program,
+                &Target::Address(RET),
+                None,
+                &["bt".to_string()],
+            )
             .unwrap();
         let mut heard = Vec::new();
         let finish = breakpoints
@@ -2014,7 +2423,7 @@ mod tests {
             .watch_errors(&mut program, ErrorCodes::Any, &[])
             .unwrap();
         breakpoints
-            .set(&mut program, &name(PARK_ERROR), &[])
+            .set(&mut program, &name(PARK_ERROR), None, &[])
             .unwrap();
         // The new process holds none of the old one's breakpoints.
         program.inserted.clear();

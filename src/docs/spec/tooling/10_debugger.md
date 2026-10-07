@@ -5,9 +5,10 @@
 programs and nothing else, and there is no cross-debugging. Today it starts or
 attaches to a program, pauses it, lists its functions, threads, registers and
 arenas, single-steps one thread or all of them, runs it to software
-breakpoints and hardware watchpoints (running commands at a stop), disassembles
-it, and unwinds its threads' calls; it is the seam later debugger features
-build on.
+breakpoints (each perhaps with a test) and hardware watchpoints (running
+commands at a stop), moves a thread and sets its registers, disassembles it,
+and unwinds its threads' calls; it is the seam later debugger features build
+on.
 
 The developer-facing guide is `./mfb man debug`.
 
@@ -53,15 +54,17 @@ Only macOS has one; on every other host, after argument parsing succeeds,
 `mfb dbg` fails with `mfb dbg is not supported on <std::env::consts::OS>`.
 [[src/debugger/mod.rs:host_backend]] A new platform implements the `Backend`
 trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `end`,
-`functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`, `registers`, `step`,
+`functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`, `registers`,
+`set_registers`, `step`,
 `restart`, `entry`, `insert_breakpoint`, `remove_breakpoint`,
 `insert_watchpoint`, `remove_watchpoint`, `run`, `read_code`, `function_at`,
 `library_functions`, `data_symbol_at`) and is returned from `host_backend`.
 Symbol classification, the reading of the runtime's thread table and arena
-registry (`src/debugger/runtime.rs`), breakpoint resolution and pending
-placement, the watchpoints' change test and commands at a stop
-(`src/debugger/breakpoints.rs`), the listings' format, the prompt and the CLI
-are platform-neutral.
+registry (`src/debugger/runtime.rs`), breakpoint resolution, pending
+placement and tests, the watchpoints' change test and commands at a stop
+(`src/debugger/breakpoints.rs`), locations and their values
+(`src/debugger/location.rs`), the listings' format, the prompt and the CLI are
+platform-neutral.
 [[src/debugger/mod.rs:Backend]] [[src/debugger/mod.rs:Inferior]]
 
 ## The debuggability check
@@ -152,7 +155,13 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   `mach_vm_region` holding `sp`.
 - **Registers.** `registers` reads one thread with `thread_get_state` flavors
   `ARM_THREAD_STATE64` and `ARM_NEON_STATE64`.
-  [[src/debugger/macos.rs:arm64_registers]]
+  [[src/debugger/macos.rs:arm64_registers]] `set_registers` reads
+  `ARM_THREAD_STATE64`, replaces the words it names (`x0`–`x28`, `fp`, `lr`,
+  `sp`, `pc`; for `nzcv`, CPSR's bits 31–28, `NZCV_BITS`, the rest of the word
+  kept), and writes it back with `thread_set_state`; `fpsr` and `fpcr` are read,
+  replaced and written back the same way in `ARM_NEON_STATE64`, only when one
+  is named. The process is paused, so the thread runs from its new state when
+  the program next runs. [[src/debugger/macos.rs:set_thread_state]]
 - **Step.** `step` takes a set of threads and a round count. It holds every
   thread outside the set with `thread_suspend`, installs an exception port for
   `EXC_BAD_ACCESS`, `EXC_BAD_INSTRUCTION`, `EXC_ARITHMETIC` and
@@ -206,7 +215,8 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   session clears them before `task_resume`, so the program never meets a
   watchpoint with no debugger. [[src/debugger/macos.rs:write_watchpoints]]
 - **Run.** `run` first steps every thread whose `pc` is on a breakpoint one
-  instruction (so it does not stop on the breakpoint it is paused at), then
+  instruction (so it does not stop on the breakpoint it is paused at — nor on
+  one `jump` has put it on), then
   installs the exception port, clears the interrupt flag, and `task_resume`s.
   It waits in 100 ms slices for an exception, a set interrupt flag, or the end
   of the program, then `task_suspend`s. Exceptions are classified: every
@@ -299,7 +309,10 @@ Then, repeatedly:
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
 | `breakpoint <target> [<commands>]`, `bp …` | sets breakpoints at `<target>`, each running `<commands>` at a stop |
-| `breakpoint r <target>`, `bp r …` | removes breakpoints at `<target>` |
+| `breakpoint r <target>`, `bp r …` | removes every breakpoint at `<target>`, with a test or not |
+| `breakpointif <where> <test> [<value>] at <target> [<commands>]`, `bpi …` | sets breakpoints at `<target>` that stop a thread only when the test holds for it |
+| `breakpointif r <where> <test> [<value>] at <target>`, `bpi r …` | removes the breakpoints at `<target>` with that test |
+| `jump <where> [<register>=<value>]...`, `j …` | moves the current thread to `<where>`, setting up to 8 registers; it stays paused |
 | `breakerror <code>... [<commands>]`, `be …` | stops when a thread raises an error whose code is one of `<code>` (a number or an `errorCode` name) |
 | `breakerror any [<commands>]`, `be any …` | stops when a thread raises any error |
 | `watchpoint <where> [<size>] [<commands>]`, `wp …` | stops when a thread changes the `<size>` bytes (default 8) at `<where>` |
@@ -333,7 +346,9 @@ Then, repeatedly:
 | `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
 | `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for the groups` |
 | `show mem` with no location | `'show mem' needs an address or a register: show mem <where> [<size>]` |
-| `show mem` with a location that is neither `0x…` nor `<name>[±<n>]` | `'<where>' is not an address, a register or a function` |
+| a location that is neither `0x…`, `<name>` nor `[<location>]`, each `[±<n>]` | `'<where>' is not an address, a register or a function` |
+| a location with a `[` and no matching `]` | `'<where>' opens a '[' it does not close` |
+| a location whose value is outside the address space | `'<where>' is outside the address space` |
 | `show mem` with a size of 0 or over 65536 | `cannot show <size> bytes; give 1 to 65536` |
 | `show mem` at a vector register | `'<name>' is a vector register, not an address` |
 | `show type <type>` with no location | `'show type <type>' needs an address or a register: show type <type> <where>` |
@@ -354,7 +369,33 @@ Then, repeatedly:
 | `breakerror` on a program that does not name `_mfb_rt_park_error` (a build without `--debug`) | `'breakerror' stops in the runtime's error function, which only a debug build names; rebuild the program with: mfb build --debug -O0 <project>` |
 | `breakerror clear` with nothing watched | `no errors are being watched for` |
 | `breakpoint r` with more than a target | `too many arguments to '<name> r'` |
-| a stop's command that is not `list`, `show`, `backtrace`, `disassemble` or a bare `breakerror` | `'<command>' cannot run at a stop: a stop runs list, show, backtrace, disassemble and a bare breakerror` |
+| `breakpointif` without a location and a test | `'<name>' needs a test and a place: <name> <where> eq\|ne\|gt\|lt <value> at <address\|function[+offset]> [<commands>], or <name> <where> in at <address\|function[+offset]>` |
+| a test but `eq`, `ne`, `gt`, `lt` or `in` | `'<test>' is not a test: give eq, ne, gt, lt or in` |
+| `eq`, `ne`, `gt` or `lt` with no value | `'<test>' needs a value to test against: <where> <test> <value>` |
+| `in` with a value | `'in' takes no value: <where> in at <address\|function[+offset]>` |
+| `in` on a location with no `[…]` | `'<where>' can always be worked out: 'in' needs a memory read ([…])` |
+| a value that is no whole number | `'<value>' is not a value: give a number, such as 5, -1 or 0x10` |
+| a negative value below `-0x8000000000000000` | `'<value>' is below the smallest value, -0x8000000000000000` |
+| `breakpointif` without `at` after its test | `'<name>' needs 'at' and the breakpoint's place after its test: <name> <where> <test> at <address\|function[+offset]>` |
+| `breakpointif` with nothing after `at` | `'<name>' needs a place after 'at': an address (0x…) or a function name` |
+| `breakpointif r` with words after its target | `too many arguments to '<name> r'` |
+| a test naming a register or function the current thread does not have (checked when it is set) | `no register or function is named '<name>'; type 'list reg' or 'list func' for them`, or the function name's own refusal |
+| `breakpointif` where the same test is at that place | `there is already a breakpoint at <target> if <test>` / `on '<target>' if <test>` |
+| `breakpointif r` where no breakpoint has that test | `there is no breakpoint at <target> if <test>` / `on '<target>' if <test>` |
+| `jump` with no place | `'<name>' needs a place to go: <name> <where> [<register>=<value>]...` |
+| `jump` with more than 8 registers | `'<name>' sets at most 8 registers` |
+| a `jump` word without `=` | `'<word>' is not a register and its value: <register>=<value>, such as x0=5` |
+| a `jump` register with nothing after `=` | `'<register>' needs a value: <register>=<value>` |
+| a `jump` register named twice | `'<register>' is set twice` |
+| `jump` setting `pc` | `'pc' is where the thread goes: give it as the place, jump <where>; jump sets x0-x28, fp, lr, sp, nzcv, fpsr and fpcr` |
+| `jump` setting `v0`–`v31` | `'<register>' is a vector register; jump sets x0-x28, fp, lr, sp, nzcv, fpsr and fpcr` |
+| `jump` setting any other name | `no register '<register>'; jump sets x0-x28, fp, lr, sp, nzcv, fpsr and fpcr` |
+| `jump` to an address not a multiple of 4 | `0x<address> is not the start of an instruction: they start every 4 bytes` |
+| `jump` to an address with no readable code | `cannot jump to 0x<address>: <reason>` |
+| a `jump` value that cannot be worked out | `cannot set <register>: <reason>` |
+| `nzcv` given bits but 31–28 | `cannot set nzcv to 0x<value>: it holds only the flags, bits 28 to 31 (0x00000000f0000000)` |
+| `fpsr` or `fpcr` given more than 32 bits | `cannot set <register> to 0x<value>: it holds 32 bits` |
+| a stop's command that is not `list`, `show`, `backtrace`, `disassemble`, `jump` or a bare `breakerror` | `'<command>' cannot run at a stop: a stop runs list, show, backtrace, disassemble, jump and a bare breakerror` |
 | a stop's command that does not parse | the command's own refusal |
 | `breakerror` with commands but no code | `'<name>' needs an error code, a name or 'any' before its commands` |
 | `breakerror clear` with commands | `'<name> clear' takes no commands` |
@@ -387,11 +428,12 @@ Then, repeatedly:
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
 | any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
 
-Every listing below is laid out by `prompt::table`: a header line naming its
-columns, then one line per row; the columns are one space apart and each but
-the last is left-aligned to its widest entry, header included, counted in
-characters. A listing with no rows prints no header.
-[[src/debugger/prompt.rs:table]]
+Every listing below — and `show type`'s element table — is laid out by
+`prompt::table`: a header line naming its columns, then one line per row; the
+columns are separated by ` | ` (`COLUMN_SEPARATOR`) and each but the last is
+left-aligned to its widest entry, header included, counted in characters, so
+every row's separators fall under the header's. A listing with no rows prints
+no header. [[src/debugger/prompt.rs:table]]
 
 A listing or step the backend cannot produce prints `error: <reason>`. All go
 to stderr after stdout is flushed; the prompt continues. End of input writes a
@@ -405,8 +447,8 @@ unbound import) is shown once; the same name at two addresses is shown twice:
 [[src/debugger/prompt.rs:function_lines]]
 
 ```text
-Type Address Symbol Written name
-<type> <address> <symbol> <written name>
+Type   | Address   | Symbol   | Written name
+<type> | <address> | <symbol> | <written name>
 
 <type>  <legend>
 ```
@@ -475,8 +517,8 @@ empty. A `_` not followed by two uppercase hex digits is kept literally.
 
 ### `list thread`
 
-One line per thread, in the backend's order, `<id> <name> <pc> <task>`, under
-the header `ID Name PC Task`:
+One line per thread, in the backend's order, `<id> | <name> | <pc> | <task>`,
+under the header `ID | Name | PC | Task`:
 [[src/debugger/prompt.rs:thread_lines]]
 
 - `<id>` is the thread's index, the id `list reg` and `list arena` use.
@@ -508,8 +550,8 @@ registers, in the order given: `gpr`, `simd` and `sys` pick every register of
 that `RegisterGroup` in the backend's order, and any other word picks the one
 register of that name. [[src/debugger/prompt.rs:RegisterPick]]
 
-One line per register picked, `<register> 0x<hex> (<decimal>)`, under the
-header `Register Hex Decimal`: the value as `0x` plus 16 lowercase hex digits
+One line per register picked, `<register> | 0x<hex> | (<decimal>)`, under the
+header `Register | Hex | Decimal`: the value as `0x` plus 16 lowercase hex digits
 (64-bit) or 32 (128-bit), and the same value in decimal, signed for a 64-bit
 register (as MFBASIC's `Integer`) and unsigned for a 128-bit one.
 [[src/debugger/prompt.rs:register_lines]]
@@ -529,8 +571,8 @@ reads; `fpsr` and `fpcr` are the 32-bit words of `ARM_NEON_STATE64`.
 ### `list arena`
 
 One line per live arena in the `--debug` registry,
-`<id> <thread id> <address> <size in KB>`, under the header
-`ID Thread Address Size (KB)`: [[src/debugger/runtime.rs:arenas]]
+`<id> | <thread id> | <address> | <size in KB>`, under the header
+`ID | Thread | Address | Size (KB)`: [[src/debugger/runtime.rs:arenas]]
 [[src/debugger/prompt.rs:arena_lines]]
 
 - `<id>` is the registry slot (`./mfb spec tooling debug-report`); a slot whose
@@ -588,23 +630,47 @@ program starts during the step is not stepped and runs until the round ends.
 instruction`, `an arithmetic exception`, `a breakpoint instruction`, or
 `exception <n>`.
 
+### Locations
+
+[[src/debugger/location.rs:Location]] A `<where>` — what `show mem`,
+`show type`, `watchpoint`, `dis`, `jump` and a `breakpointif` test take — is a
+term and an optional offset, `+<n>` or `-<n>` (decimal, or hex after `0x`):
+
+- `0x…`: a number. An offset is added in when the word is read, failing past 0
+  or `u64::MAX` as an address does (`0x1000-0x10`).
+- a name: a register of the thread the location is worked out for, when it has
+  one so named (a 64-bit register only: a vector register fails with
+  `'<name>' is a vector register, not an address`); else a function, resolved
+  as `dis <function>` resolves one, to its start. A name is letters, digits,
+  `_`, `:`, `#`, `$` and `.`, so a place `bt` or a stop prints can be typed
+  back. A function name that names several functions fails with `'<name>' names
+  <n> functions, at 0x…, 0x…; give one by its address`; one that names none
+  (and no register) with `no register or function is named '<name>'; type
+  'list reg' or 'list func' for them`.
+  [[src/debugger/location.rs:is_register]] [[src/debugger/prompt.rs:function_start]]
+- `[<location>]`, nested to any depth: the 8 bytes, little-endian, in memory at
+  the inner location's value.
+
+The **value** is the term's — the number, the register's value, the
+function's start, the bytes read — plus the offset: `sp+0x18` is a number,
+`[sp+0x18]` what is stored there, `[sp]+0x18` what is stored at `sp` plus
+0x18, `[[sp+0x10]+8]` what is stored 8 past the value stored at `sp+0x10`. A
+read that fails, or an offset that goes below 0 or past `u64::MAX` (`'<where>'
+is outside the address space`), leaves it without a value.
+[[src/debugger/location.rs:Fault]] A location is shown with numbers as `0x`
+and 16 hex digits and offsets in short hex (`[0x0000000012348593]`,
+`[sp+0x18]`, `x19-0x10`). [[src/debugger/location.rs:Location]]
+
 ### `show mem`
 
 [[src/debugger/prompt.rs:show_memory]] `show mem <where> [<size>]` reads
-`<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at `<where>`:
-an address (`0x…`), or a name — a register of the current thread when it has
-one so named (a 64-bit register only), else a function, resolved as
-`dis <function>` resolves one to its start — either with an optional offset
-(`0x1000-0x10`, `sp`, `sp+0x18`, `x19-16`, `main+0x110`, `isPrime+16`). A name
-is letters, digits, `_`, `:`, `#`, `$` and `.`, so a place `bt` or a stop prints
-can be typed back. A function name that names several functions fails with
-`'<name>' names <n> functions, at 0x…, 0x…; give one by its address`; one that
-names none (and no register) with `no register or function is named '<name>';
-type 'list reg' or 'list func' for them`. [[src/debugger/prompt.rs:address]]
-[[src/debugger/prompt.rs:function_start]] It prints
-`Memory at 0x<address>:` — with ` (<register>±0x<offset> of thread <t>)` for a
-register, ` (<function>±0x<offset>)` for a function — then the bytes as `show arena`'s dump does, each line led by its
-full address (`0x` + 16 digits). [[src/debugger/prompt.rs:memory_lines]]
+`<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at the value of
+`<where>` worked out for the current thread (`0x1000-0x10`, `sp`, `sp+0x18`,
+`x19-16`, `main+0x110`, `isPrime+16`, `[sp+0x10]`). It prints
+`Memory at 0x<address>:` — with ` (<where> of thread <t>)` when a register
+went into the value, ` (<where>)` for any other location but a number — then
+the bytes as `show arena`'s dump does, each line led by its full address (`0x` +
+16 digits). [[src/debugger/prompt.rs:resolve]] [[src/debugger/prompt.rs:memory_lines]]
 
 ### `show type`
 
@@ -788,27 +854,56 @@ prints `Set a pending breakpoint on <symbol>: it is placed when the program
 has loaded its libraries.` A target whose every breakpoint exists already
 fails with `there is already a breakpoint at <address>` / `on '<target>'`.
 
+**Tests.** `breakpointif <where> <test> [<value>] at <target> [<commands>]`
+(`bpi`) sets the breakpoints `breakpoint <target>` would, each with a test
+(`location::Condition`): `eq`, `ne`, `gt` or `lt` and a value — a whole number,
+perhaps negative, decimal or `0x` hex (`5`, `-1`, `0x10`), taken as its 64 bits
+(`location::signed`) — or `in` with none. When a thread reaches the breakpoint,
+`<where>` is worked out for that thread (its registers; memory as it is then);
+`eq` and `ne` compare the 64 bits, `gt` and `lt` compare them as signed numbers
+(`i64`), and a value that cannot be worked out passes none of them. `in` holds
+just when it cannot: a location without a `[…]` cannot fail so, and `in` on one
+is refused. The test's names are checked when it is set, against the current
+thread; a memory read that fails then is no fault. A breakpoint's place and
+messages carry ` if <test>`, the test written `<where> <test> <value>` with the
+location as Locations shows one and the value as an 8-byte watchpoint value
+(`x0 eq 0x0000000000000005 (5)`, `[x0+0x8] in`).
+[[src/debugger/location.rs:Condition]] [[src/debugger/breakpoints.rs:Breakpoint]]
+
+Several breakpoints may be at one address, each with a different test (or
+none); setting one with the test, and at the place, of one already there is
+the refusal above, with ` if <test>`. One `brk` serves every breakpoint at an
+address — the user's, `breakerror`'s on the park, a `finish`'s on a `ret` —
+written when the first is set and taken out when the last goes
+(`Breakpoints::armed`). A thread there stops when any of them stops it: one
+with no test, or one whose test holds; each of those runs its own commands. A
+thread no breakpoint there stops runs on, unseen. [[src/debugger/breakpoints.rs:Breakpoints]]
+
 Every word after the target is the breakpoints' **commands** (see Commands at
 a stop below); with any, the line goes on ` Each stop runs '<commands>' and
 continues.`, `<commands>` joined by `; `.
 
 `breakpoint r <target>` removes, by address or by place, the breakpoints there; by name, the
-breakpoints whose symbol is `<target>`, or else whose written name is. Each
-prints `Removed the breakpoint at <place>.`; none fails with `there is no
-breakpoint at <address>` / `on '<target>'`.
+breakpoints whose symbol is `<target>`, or else whose written name is — every
+one, with a test or not. `breakpointif r <where> <test> [<value>] at <target>`
+removes just those of them with that test. Each prints `Removed the breakpoint
+at <place>.` (with ` if <test>`); none fails with `there is no breakpoint at
+<address>` / `on '<target>'` (with ` if <test>` for `breakpointif r`).
 
-`list breakpoint` prints `<address> <symbol> <written name>` per breakpoint
-under the header `Address Symbol Written name`, in address order with pending
-ones last (`-` for the address); with none, `no breakpoints`. When any
-breakpoint has commands, a fourth column `Commands` gives each one's, joined by
-`; `, or `-`.
+`list breakpoint` prints `<address> | <symbol> | <written name>` per breakpoint
+under the header `Address | Symbol | Written name`, in address order with pending
+ones last (`-` for the address), and at one address the one without a test
+first, then in the order they were set; with none, `no breakpoints`. When any
+breakpoint has a test, a column `If` gives each one's (`-` for none); when any
+has commands, a last column `Commands` gives each one's, joined by `; `, or
+`-`.
 
 ### Watchpoints
 
 [[src/debugger/breakpoints.rs:Watch]] `watchpoint <where> [<size>]
 [<commands>]` (`wp`) watches the `<size>` bytes at `<where>`: `<where>` is
 resolved once, now, as `show mem` resolves one (`0x…`, a register of the
-current thread, a function, each `±<offset>`); `<size>` is the word after it
+current thread, a function, `[…]`, each `±<offset>`); `<size>` is the word after it
 when that starts with a digit (decimal, or hex after `0x`), else 8 (an
 `Integer`). The bytes must be 1 to 8 that do not cross an address that is a
 multiple of 8 (`breakpoints::watchable`) and readable; the processor holds a
@@ -833,8 +928,8 @@ there at the next `run`, before anything runs. Only stores the thread makes
 are seen: the kernel writing the memory (a `read` into it) is not. After the
 stop the current thread is the writer, its `pc` past the write.
 
-`list watchpoint` prints `<address> <size> <value>` per watchpoint under the
-header `Address Size Value`, in address order, the value read now (`-` when it
+`list watchpoint` prints `<address> | <size> | <value>` per watchpoint under the
+header `Address | Size | Value`, in address order, the value read now (`-` when it
 cannot be read); a fourth column `Commands` as for `list breakpoint` when any
 has commands; with none, `no watchpoints`. `restart` drops every watchpoint,
 each with `Dropped the watchpoint at 0x<address>: a restarted program's memory
@@ -846,11 +941,11 @@ is laid out anew.`
 a watchpoint's place and size, or `breakerror`'s codes (which end at the first
 word that is a command name, `COMMAND_NAMES`) are joined with spaces and split
 at `;` into commands; empty ones are dropped. Each is parsed now, and must be
-one that only reads the program: `list`, `show`, `backtrace`, `disassemble`, or
-a bare `breakerror`. A stop prints its lines, then runs the commands of each of
-its breakpoints, watchpoints or watched error in turn, each with its own
-thread current, writing their output and errors as at the prompt
-(`prompt::hear_stop`). When every stop in it has commands the program runs on,
+one that reads the program — `list`, `show`, `backtrace`, `disassemble`, or a
+bare `breakerror` — or `jump`, which moves the stopped thread. A stop prints its
+lines, then runs the commands of each breakpoint, watchpoint or watched error
+it stopped for in turn, each with its own thread current, writing their output
+and errors as at the prompt (`prompt::hear_stop`). When every stop in it has commands the program runs on,
 as `run` again would — inside a `finish` too, which goes on toward its return —
 otherwise the prompt returns.
 
@@ -892,10 +987,32 @@ A worker's error that `thread::waitFor` passes to its caller is parked twice —
 by the worker and again in the caller — so it stops twice. Every raise in the
 program stops the process for the comparison, watched or not.
 
+### `jump`
+
+[[src/debugger/prompt.rs:jump]] `jump <where> [<register>=<value>]...` (`j`)
+moves the current thread — at a stop, the stopped one — to the value of
+`<where>` worked out for it, and gives up to 8 registers (`MAX_JUMP_REGISTERS`)
+new values: `x0`–`x28`, `fp`, `lr`, `sp`, `nzcv`, `fpsr`, `fpcr`
+(`prompt::settable`). A value is a number as a `breakpointif` value is, else a
+location's value for the thread (`x0=x1`, `sp=[sp+8]`). Every value is worked out
+before any register is set, so `j lr x0=0` goes to the `lr` the thread had.
+The place must be a multiple of 4 holding readable code; `nzcv` takes only bits
+31–28 (`NZCV_FLAGS`); `fpsr` and `fpcr` take 32 bits. The registers and the
+`pc` are written with `Inferior::set_registers`, and the thread stays paused;
+`run` and `step` carry on from there. It prints `Moved thread <t> to
+<place>.`, `<place>` as `step` prints one, or with registers `Moved thread <t>
+to <place>; set <register> = <value>, ….`, each value as an 8-byte watchpoint
+value. A thread moved onto a breakpoint runs it, unseen, when the program next
+runs, as a thread paused on one always does; one a watched write's step left on
+a breakpoint and `jump` then moved does not stop there.
+
 ### `run`
 
 `run` places every pending breakpoint whose function is now bound, printing
-`Placed the pending breakpoint on <symbol> at 0x<address>.` While any stays
+`Placed the pending breakpoint on <symbol> at 0x<address>.` (a pending one whose
+test, or lack of one, is already at that address is dropped instead, with `The
+pending breakpoint on <symbol>[ if <test>] is at 0x<address>, which already has
+one.`) While any stays
 pending and the program has not been seen at its entry point, the entry point
 gets a breakpoint of the debugger's own (unless one is there): a stop at that
 breakpoint alone places the pending ones and runs on, unseen.
@@ -921,9 +1038,10 @@ library's (`__cxa_finalize_ranges+0x8`), else `-`.
 [[src/debugger/prompt.rs:stop_place]]
 `T: - P: - F: -` stands for a thread no longer there. `<old>` and `<new>` are
 shown as watchpoint values are. The error's origin is not printed; `show
-error` reads it. A stop whose every part has commands runs them and runs on
-(Commands at a stop); the first stop that does not ends the `run`, its thread
-current.
+error` reads it. A thread at breakpoints whose tests all fail is no stop and
+gets no line; at the error park it is still looked at for a watched raise. A
+stop whose every part has commands runs them and runs on (Commands at a stop);
+the first stop that does not ends the `run`, its thread current.
 
 ### `disassemble`
 
@@ -939,9 +1057,9 @@ or the last `step` ran; thread 0 before either, or when it has ended.
   positive: `<length>` instructions from `<back>` before the `pc`, so
   `dis -6 8` shows the six before it, the `pc`'s own and one after. Wherever a
   count is taken below, these two counts may stand for it.
-- `dis <where> [<count>]`, `<where>` starting `0x`, holding `+` or `-`, or a
-  register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it resolves to
-  as `show mem` resolves one (so `dis main+0x110` is a place in `main`), which must be a multiple of 4. With no count, the
+- `dis <where> [<count>]`, `<where>` starting `0x` or `[`, holding `+` or `-`,
+  or a register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it
+  resolves to as `show mem` resolves one (so `dis main+0x110` is a place in `main`), which must be a multiple of 4. With no count, the
   listing runs from there to the end of the function holding it (or to the first
   `ret` or 64 instructions when its extent is unknown); with one, as for
   `dis <count>`. The header names the function holding that address.
@@ -1007,7 +1125,9 @@ and an ignored test compares a whole corpus against lldb
 until the function holding its `pc` returns. It finds every return
 instruction (`ret`, `retaa`, `retab`) in the function (through its extent, or
 the first within 64 instructions as `dis` does, `disassemble::returns`), writes a breakpoint of its own on each that
-holds none, and runs as `run` does. A stop at one of them by the current
+holds none, and runs as `run` does; a `ret` that holds one of the user's is
+waited on all the same (`Breakpoints::finishing`), so a stop there that runs on
+for its commands still ends the finish. A stop at one of them by the current
 thread with its stack pointer at or above the one it had (so a deeper,
 recursive call's return does not count) removes them and steps the `ret`,
 then prints
@@ -1078,8 +1198,10 @@ symbol and offset it was set at — the new process is loaded at a new address �
 a linked function's becoming pending until its library loads; one at an
 address no function held is dropped with `Dropped the breakpoint at <place>:
 no function holds it.`, and one whose function the program no longer has with
-`Dropped the breakpoint on <symbol>: the program no longer has it.` Every
-watchpoint is dropped first, as Watchpoints says. The
+`Dropped the breakpoint on <symbol>: the program no longer has it.` A
+breakpoint keeps its test, and one `brk` is written per address, the park's
+included. A number in a test (`[0x…]`) is not moved to the new process's
+layout. Every watchpoint is dropped first, as Watchpoints says. The
 current thread is 0 again, and the session runs on even after the program had
 ended.
 

@@ -147,6 +147,9 @@ impl Inferior for Paused {
     fn registers(&mut self, _: usize) -> Result<Vec<Register>, String> {
         Ok(Vec::new())
     }
+    fn set_registers(&mut self, _: usize, _: &[(String, u64)]) -> Result<(), String> {
+        Err("the paused program has no threads".to_string())
+    }
     fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
         Err("not stepped".to_string())
     }

@@ -13,6 +13,7 @@ use std::io::{BufRead, Write};
 use super::backtrace;
 use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target};
 use super::disassemble::{self, Request, Window};
+use super::location::{self, is_register, Condition, Location};
 use super::names::{classify, Collisions, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::values::{self, Region, View};
@@ -28,14 +29,26 @@ pub(crate) const HELP: &str = "\
 Commands:
   help, h         Show this list of commands
   list, l         Show what can be listed
-  show            Show memory: show mem <address|register|function[+offset]> [<size>]
+  <where> is an address, a register or a function, each with an optional
+  [+offset]; [<where>] is the 8 bytes stored there, also with an offset:
+  sp+0x18 is sp plus 0x18, [sp+0x18] what is stored there, [[x0]+8] what is
+  stored 8 past where x0's own value points
+  show            Show memory: show mem <where> [<size>]
                   The error a thread has raised and not yet caught: show error [<thread>]
                   An arena's state and blocks: show arena [<id>]
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
                   An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)
   breakpoint, bp  Set a breakpoint: bp <address|function[+offset]> [<commands>]
-                  Remove one: bp r <address|function[+offset]>
+                  Remove every one there: bp r <address|function[+offset]>
+  breakpointif, bpi
+                  Set a breakpoint that stops a thread only when a test holds:
+                  bpi <where> eq|ne|gt|lt <value> at <address|function[+offset]>
+                  [<commands>]; gt and lt compare signed numbers, and a test
+                  whose <where> cannot be read does not stop. bpi <where> in at
+                  ... stops just when it cannot be read
+                  Remove one: bpi r <where> <test> [<value>] at
+                  <address|function[+offset]>
   watchpoint, wp  Stop when a thread changes memory: wp <where> [<size>]
                   [<commands>], <where> as show mem; <size> is 1 to 8 bytes
                   (default 8) that do not cross a multiple of 8
@@ -44,7 +57,7 @@ Commands:
                   be <code|name>... | any [<commands>]
                   Stop watching: be clear; be alone shows what is watched
                   <commands> run at each stop, then the program runs on: list,
-                  show, bt, dis or a bare be, separated by ';' (bp fib bt 1;
+                  show, bt, dis, j or a bare be, separated by ';' (bp fib bt 1;
                   list reg x0)
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
@@ -60,6 +73,10 @@ Commands:
                   Every thread's: bt all
   step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa    Run every thread together: step-all [<count>] (default 1)
+  jump, j         Move the current thread to <where>, setting up to 8 registers
+                  first: j <where> [<register>=<value>]... (x0-x28, fp, lr, sp,
+                  nzcv, fpsr, fpcr; a value is a number or a <where>); the
+                  thread stays paused
   quit, q         End the session: kill the program if the debugger launched
                   it, or detach and let it run on if the debugger attached to it
 
@@ -76,7 +93,7 @@ Each stop prints one line per thread it stopped, starting --[<kind>]:
 pub(crate) const LIST_USAGE: &str = "\
 Usage: list <what>
 
-Each listing starts with a line naming its columns.
+Each listing starts with a line naming its columns; ' | ' separates them.
 
   func [<filter>...]
                 The program's functions, one per line:
@@ -99,8 +116,9 @@ Each listing starts with a line naming its columns.
   arena         The program's MFBASIC memory arenas (debug builds):
                   <id> <thread id> <address> <size in KB>
   breakpoint    The breakpoints: <address> <symbol> <written name>
-                <address> is - for one waiting for its library to load; a
-                <commands> column follows when any has commands.
+                <address> is - for one waiting for its library to load; an
+                <if> column follows when any has a test, and a <commands>
+                column when any has commands.
   watchpoint    The watchpoints: <address> <size> <value>
                 <value> is the bytes' value now; a <commands> column follows
                 when any has commands.";
@@ -144,8 +162,19 @@ enum Command {
     ClearErrors,
     /// `breakerror` alone: what is being watched for.
     ErrorWatch,
-    SetBreakpoint(Target, Vec<String>),
-    RemoveBreakpoint(Target),
+    /// `breakpoint <target> [<commands>]`, or `breakpointif <test> at
+    /// <target> [<commands>]` with a `condition`.
+    SetBreakpoint {
+        target: Target,
+        condition: Option<Condition>,
+        commands: Vec<String>,
+    },
+    /// `breakpoint r <target>` (every one there), or `breakpointif r <test>
+    /// at <target>` (just the ones with that test).
+    RemoveBreakpoint {
+        target: Target,
+        condition: Option<Condition>,
+    },
     /// `watchpoint <where> [<size>] [<commands>]`.
     SetWatchpoint {
         location: Location,
@@ -167,6 +196,11 @@ enum Command {
     },
     TypeUsage,
     Backtrace(Backtrace),
+    /// `jump <where> [<register>=<value>]...`.
+    Jump {
+        to: Location,
+        registers: Vec<(String, Location)>,
+    },
     Quit,
     Empty,
 }
@@ -192,19 +226,6 @@ struct Dump {
     size: u64,
 }
 
-/// Where `show mem` reads: an address, or a register of the current thread or
-/// a function, plus an offset.
-#[derive(Debug, PartialEq, Eq)]
-enum Location {
-    Address(u64),
-    /// A register of the current thread when it has one of this name, else a
-    /// function as `dis <function>` names one (`main+0x110`, `isPrime+16`).
-    Named {
-        name: String,
-        offset: i64,
-    },
-}
-
 /// What a `dis` names, before a location is resolved to an address.
 #[derive(Debug, PartialEq, Eq)]
 enum Disassembly {
@@ -220,6 +241,7 @@ impl Disassembly {
     fn from(start: &str, count: Option<Window>) -> Result<Disassembly, String> {
         let location = start.starts_with("0x")
             || start.starts_with("0X")
+            || start.starts_with('[')
             || start.contains(['+', '-'])
             || is_register(start);
         Ok(if location {
@@ -228,16 +250,6 @@ impl Disassembly {
             Disassembly::Named(start.to_string(), count)
         })
     }
-}
-
-/// Whether `word` names an AArch64 register an address can be in: `x0`–`x30`,
-/// `fp`, `lr`, `sp` or `pc`.
-fn is_register(word: &str) -> bool {
-    matches!(word, "fp" | "lr" | "sp" | "pc")
-        || word.strip_prefix('x').is_some_and(|number| {
-            (number == "0" || !number.starts_with('0'))
-                && number.parse::<u8>().is_ok_and(|number| number <= 30)
-        })
 }
 
 /// Whether `word` reads as a count: digits, perhaps after a `-`.
@@ -313,40 +325,6 @@ pub(crate) fn address(word: &str) -> Option<Result<u64, String>> {
         base.checked_add(amount)
             .ok_or_else(|| format!("'{word}' is past the last address"))
     })
-}
-
-/// Whether `byte` can be part of a register's or a function's name: a symbol
-/// (`_mfb_fn_main`) or a written name (`datetime::#normInstant`, `f$own1`).
-fn name_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':' | b'#' | b'$' | b'.')
-}
-
-impl Location {
-    /// `0x…`, or `<name>`, `<name>+<n>`, `<name>-<n>` (`n` decimal or `0x`
-    /// hex), where `<name>` is a register or a function.
-    fn parse(word: &str) -> Result<Location, String> {
-        if let Some(address) = address(word) {
-            return address.map(Location::Address);
-        }
-        let (name, offset) = match word.find(['+', '-']) {
-            Some(at) => {
-                let amount = number(&word[at + 1..])?;
-                let amount = i64::try_from(amount).map_err(|_| format!("'{word}' is too far"))?;
-                let negative = word[at..].starts_with('-');
-                (&word[..at], if negative { -amount } else { amount })
-            }
-            None => (word, 0),
-        };
-        if name.is_empty() || !name.bytes().all(name_byte) {
-            return Err(format!(
-                "'{word}' is not an address, a register or a function"
-            ));
-        }
-        Ok(Location::Named {
-            name: name.to_string(),
-            offset,
-        })
-    }
 }
 
 /// The symbols of the `String` literals the executable carries
@@ -546,14 +524,64 @@ fn parse(line: &str) -> Result<Command, String> {
         ("breakpoint" | "bp", ["r"]) | ("breakpoint" | "bp", []) => Err(format!(
             "'{name}' needs an address (0x…) or a function name"
         )),
-        ("breakpoint" | "bp", ["r", target]) => {
-            Ok(Command::RemoveBreakpoint(Target::parse(target)?))
-        }
+        ("breakpoint" | "bp", ["r", target]) => Ok(Command::RemoveBreakpoint {
+            target: Target::parse(target)?,
+            condition: None,
+        }),
         ("breakpoint" | "bp", ["r", ..]) => Err(format!("too many arguments to '{name} r'")),
-        ("breakpoint" | "bp", [target, commands @ ..]) => Ok(Command::SetBreakpoint(
-            Target::parse(target)?,
-            stop_commands(commands)?,
+        ("breakpoint" | "bp", [target, commands @ ..]) => Ok(Command::SetBreakpoint {
+            target: Target::parse(target)?,
+            condition: None,
+            commands: stop_commands(commands)?,
+        }),
+        ("breakpointif" | "bpi", ["r", words @ ..]) => {
+            let (condition, target, rest) = conditional(name, words)?;
+            if !rest.is_empty() {
+                return Err(format!("too many arguments to '{name} r'"));
+            }
+            Ok(Command::RemoveBreakpoint {
+                target,
+                condition: Some(condition),
+            })
+        }
+        ("breakpointif" | "bpi", words) => {
+            let (condition, target, commands) = conditional(name, words)?;
+            Ok(Command::SetBreakpoint {
+                target,
+                condition: Some(condition),
+                commands: stop_commands(commands)?,
+            })
+        }
+        ("jump" | "j", []) => Err(format!(
+            "'{name}' needs a place to go: {name} <where> [<register>=<value>]..."
         )),
+        ("jump" | "j", [to, sets @ ..]) => {
+            if sets.len() > MAX_JUMP_REGISTERS {
+                return Err(format!(
+                    "'{name}' sets at most {MAX_JUMP_REGISTERS} registers"
+                ));
+            }
+            let mut registers: Vec<(String, Location)> = Vec::new();
+            for set in sets {
+                let Some((register, value)) = set.split_once('=') else {
+                    return Err(format!(
+                        "'{set}' is not a register and its value: <register>=<value>, such as x0=5"
+                    ));
+                };
+                settable(register)?;
+                if value.is_empty() {
+                    return Err(format!("'{register}' needs a value: {register}=<value>"));
+                }
+                if registers.iter().any(|(other, _)| other == register) {
+                    return Err(format!("'{register}' is set twice"));
+                }
+                registers.push((register.to_string(), assigned(value)?));
+            }
+            Ok(Command::Jump {
+                to: Location::parse(to)?,
+                registers,
+            })
+        }
         ("watchpoint" | "wp", ["r"] | []) => Err(format!(
             "'{name}' needs an address or a register: {name} <where> [<size>] [<commands>]"
         )),
@@ -689,6 +717,76 @@ fn parse(line: &str) -> Result<Command, String> {
 /// How many bytes a watchpoint covers when no size is given: an `Integer`.
 const WATCH_SIZE: u64 = 8;
 
+/// The most registers one `jump` sets besides the `pc`.
+const MAX_JUMP_REGISTERS: usize = 8;
+
+/// The bits of `nzcv` that hold anything: the N, Z, C and V flags.
+const NZCV_FLAGS: u64 = 0xf000_0000;
+
+/// `<where> <test> [<value>] at <target>`, as `breakpointif` takes them: the
+/// test, the place, and the words after it.
+#[allow(clippy::type_complexity)]
+fn conditional<'a, 'b>(
+    name: &str,
+    words: &'a [&'b str],
+) -> Result<(Condition, Target, &'a [&'b str]), String> {
+    let [location, test, rest @ ..] = words else {
+        return Err(format!(
+            "'{name}' needs a test and a place: {name} <where> eq|ne|gt|lt <value> at \
+             <address|function[+offset]> [<commands>], or {name} <where> in at \
+             <address|function[+offset]>"
+        ));
+    };
+    let (value, rest) = match rest {
+        [value, rest @ ..] if *value != "at" => (Some(*value), rest),
+        rest => (None, rest),
+    };
+    let condition = Condition::parse(location, test, value)?;
+    match rest {
+        ["at", target, rest @ ..] => Ok((condition, Target::parse(target)?, rest)),
+        ["at"] => Err(format!(
+            "'{name}' needs a place after 'at': an address (0x…) or a function name"
+        )),
+        _ => Err(format!(
+            "'{name}' needs 'at' and the breakpoint's place after its test: {name} <where> \
+             <test> at <address|function[+offset]>"
+        )),
+    }
+}
+
+/// Refuse a register `jump` does not set: it sets `x0`–`x28`, `fp`, `lr`,
+/// `sp`, `nzcv`, `fpsr` and `fpcr`, and moves the `pc` itself.
+fn settable(name: &str) -> Result<(), String> {
+    let general = name.strip_prefix('x').is_some_and(|number| {
+        (number == "0" || !number.starts_with('0'))
+            && number.parse::<u8>().is_ok_and(|number| number <= 28)
+    });
+    if general || matches!(name, "fp" | "lr" | "sp" | "nzcv" | "fpsr" | "fpcr") {
+        return Ok(());
+    }
+    let sets = "jump sets x0-x28, fp, lr, sp, nzcv, fpsr and fpcr";
+    if name == "pc" {
+        return Err(format!(
+            "'pc' is where the thread goes: give it as the place, jump <where>; {sets}"
+        ));
+    }
+    if name
+        .strip_prefix('v')
+        .is_some_and(|number| number.parse::<u8>().is_ok_and(|number| number <= 31))
+    {
+        return Err(format!("'{name}' is a vector register; {sets}"));
+    }
+    Err(format!("no register '{name}'; {sets}"))
+}
+
+/// A register's new value as `jump` takes it: a number (`5`, `-1`, `0x10`),
+/// else a `<where>` worked out as a value (`x1`, `[sp+8]`, `main`).
+fn assigned(word: &str) -> Result<Location, String> {
+    location::signed(word)
+        .map(Location::number)
+        .or_else(|_| Location::parse(word))
+}
+
 /// Every command name and short form.
 const COMMAND_NAMES: &[&str] = &[
     "help",
@@ -714,6 +812,10 @@ const COMMAND_NAMES: &[&str] = &[
     "dis",
     "backtrace",
     "bt",
+    "breakpointif",
+    "bpi",
+    "jump",
+    "j",
     "step",
     "s",
     "step-all",
@@ -727,8 +829,8 @@ fn is_command(word: &str) -> bool {
 
 /// The commands a stop runs, from the words after a breakpoint's,
 /// watchpoint's or error watch's own: `;` separates them. Each must be one
-/// that only reads the program — `list`, `show`, `backtrace`, `disassemble`,
-/// or a bare `breakerror`.
+/// that reads the program — `list`, `show`, `backtrace`, `disassemble`, or a
+/// bare `breakerror` — or `jump`, which moves the stopped thread.
 fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
     let text = words.join(" ");
     let mut commands = Vec::new();
@@ -745,11 +847,12 @@ fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
             | Command::ShowError(_)
             | Command::Backtrace(_)
             | Command::Disassemble(_)
+            | Command::Jump { .. }
             | Command::ErrorWatch => commands.push(command.to_string()),
             _ => {
                 return Err(format!(
                     "'{command}' cannot run at a stop: a stop runs list, show, backtrace, \
-                     disassemble and a bare breakerror"
+                     disassemble, jump and a bare breakerror"
                 ))
             }
         }
@@ -807,34 +910,42 @@ fn thread_id(word: &str) -> Result<usize, String> {
         .map_err(|_| format!("'{word}' is not a thread id; type 'list thread' for the threads"))
 }
 
-/// Lay out a listing: a line of `headers`, then one line per row, the columns
-/// one space apart and each but the last left-aligned to its widest entry,
-/// header included. A listing with no rows has no lines, not even the header.
-pub(crate) fn table<const N: usize>(headers: [&str; N], rows: Vec<[String; N]>) -> Vec<String> {
+/// What separates a listing's columns.
+const COLUMN_SEPARATOR: &str = " | ";
+
+/// Lay out a listing: a line of `headers`, then one line per row (a cell for
+/// each header), the columns separated by ` | ` and each but the last
+/// left-aligned to its widest entry, header included. A listing with no rows
+/// has no lines, not even the header.
+pub(crate) fn table(headers: &[&str], rows: Vec<Vec<String>>) -> Vec<String> {
     if rows.is_empty() {
         return Vec::new();
     }
-    let mut widths = headers.map(|header| header.chars().count());
+    let mut widths = headers
+        .iter()
+        .map(|header| header.chars().count())
+        .collect::<Vec<_>>();
     for row in &rows {
         for (width, cell) in widths.iter_mut().zip(row) {
             *width = (*width).max(cell.chars().count());
         }
     }
-    std::iter::once(headers.map(str::to_string))
+    let last = headers.len() - 1;
+    std::iter::once(headers.iter().map(|header| header.to_string()).collect())
         .chain(rows)
-        .map(|row| {
+        .map(|row: Vec<String>| {
             row.iter()
-                .zip(widths)
+                .zip(&widths)
                 .enumerate()
                 .map(|(at, (cell, width))| {
-                    if at + 1 == N {
+                    if at == last {
                         cell.clone()
                     } else {
                         format!("{cell:<width$}")
                     }
                 })
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join(COLUMN_SEPARATOR)
         })
         .collect()
 }
@@ -864,10 +975,10 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol], filter: &FunctionFilter
     let mut origins = rows.iter().map(|(origin, ..)| *origin).collect::<Vec<_>>();
     origins.dedup();
     let mut lines = table(
-        ["Type", "Address", "Symbol", "Written name"],
+        &["Type", "Address", "Symbol", "Written name"],
         rows.into_iter()
             .map(|(origin, address, name, written)| {
-                [
+                vec![
                     origin.code().to_string(),
                     address.map_or_else(|| "-".to_string(), |at| format!("0x{at:016x}")),
                     name.clone(),
@@ -892,12 +1003,12 @@ pub(crate) fn function_lines(symbols: &[FunctionSymbol], filter: &FunctionFilter
 /// then in decimal — signed for a 64-bit register, as MFBASIC's `Integer` is.
 pub(crate) fn register_lines(registers: &[Register]) -> Vec<String> {
     table(
-        ["Register", "Hex", "Decimal"],
+        &["Register", "Hex", "Decimal"],
         registers
             .iter()
             .map(|register| {
                 let (hex, decimal) = register_value(register);
-                [register.name.clone(), hex, decimal]
+                vec![register.name.clone(), hex, decimal]
             })
             .collect(),
     )
@@ -920,7 +1031,7 @@ pub(crate) fn thread_lines(
     functions: &[FunctionSymbol],
 ) -> Vec<String> {
     table(
-        ["ID", "Name", "PC", "Task"],
+        &["ID", "Name", "PC", "Task"],
         threads
             .iter()
             .zip(roles)
@@ -931,7 +1042,7 @@ pub(crate) fn thread_lines(
                     .clone()
                     .or_else(|| runtime::locate(functions, thread.pc))
                     .unwrap_or_else(|| format!("thread-{:#x}", thread.id));
-                [
+                vec![
                     id.to_string(),
                     name,
                     format!("0x{:016x}", thread.pc),
@@ -946,11 +1057,11 @@ pub(crate) fn thread_lines(
 /// rounded up to whole kilobytes and `-` for an arena no thread allocates from.
 pub(crate) fn arena_lines(arenas: &[Arena]) -> Vec<String> {
     table(
-        ["ID", "Thread", "Address", "Size (KB)"],
+        &["ID", "Thread", "Address", "Size (KB)"],
         arenas
             .iter()
             .map(|arena| {
-                [
+                vec![
                     arena.id.to_string(),
                     arena
                         .thread
@@ -1471,8 +1582,10 @@ fn hear_stop(
     for (thread, commands) in commands {
         *current = thread;
         for command in commands {
-            let result = parse(&command)
-                .and_then(|command| inspect(inferior, program, breakpoints, thread, command));
+            let result = parse(&command).and_then(|command| match command {
+                Command::Jump { to, registers } => jump(inferior, thread, &to, &registers),
+                command => inspect(inferior, program, breakpoints, thread, command),
+            });
             emit(out, err, result)?;
         }
     }
@@ -1721,48 +1834,82 @@ pub(crate) fn function_start(inferior: &mut dyn Inferior, name: &str) -> Result<
 }
 
 /// The address `location` names for thread `current`, and how to describe it
-/// when it came from a register: ` (<register>+<offset> of thread <t>)`.
+/// when it is more than a number: ` (<location>)`, with ` of thread <t>` when
+/// a register went into it.
 fn resolve(
     inferior: &mut dyn Inferior,
     current: usize,
     location: &Location,
 ) -> Result<(u64, String), String> {
-    match location {
-        Location::Address(address) => Ok((*address, String::new())),
-        Location::Named { name, offset } => {
-            let shown = match offset {
-                0 => name.clone(),
-                offset if *offset < 0 => format!("{name}-{:#x}", offset.unsigned_abs()),
-                offset => format!("{name}+{offset:#x}"),
-            };
-            let registers = if is_register(name) {
-                inferior.registers(current)?
-            } else {
-                inferior.registers(current).unwrap_or_default()
-            };
-            if let Some(register) = registers.iter().find(|register| &register.name == name) {
-                let RegisterValue::Bits64(base) = register.value else {
-                    return Err(format!("'{name}' is a vector register, not an address"));
-                };
-                let address = base.wrapping_add(*offset as u64);
-                return Ok((address, format!(" ({shown} of thread {current})")));
-            }
-            let start = function_start(inferior, name).map_err(|error| {
-                if error.starts_with("no function is named") {
-                    format!(
-                        "no register or function is named '{name}'; type 'list reg' or \
-                         'list func' for them"
-                    )
-                } else {
-                    error
-                }
-            })?;
-            let address = start
-                .checked_add_signed(*offset)
-                .ok_or_else(|| format!("'{shown}' is outside the address space"))?;
-            Ok((address, format!(" ({shown})")))
-        }
+    let value = location
+        .value(inferior, current)
+        .map_err(location::Fault::message)?;
+    let described = match (&location.term, value.register) {
+        (location::Term::Number(_), _) => String::new(),
+        (_, true) => format!(" ({} of thread {current})", location.shown()),
+        (_, false) => format!(" ({})", location.shown()),
+    };
+    Ok((value.value, described))
+}
+
+/// `jump <where> [<register>=<value>]...`: put thread `thread` at `<where>`
+/// with the registers given, every value worked out before any is set. The
+/// thread stays paused.
+fn jump(
+    inferior: &mut dyn Inferior,
+    thread: usize,
+    to: &Location,
+    registers: &[(String, Location)],
+) -> Result<Vec<String>, String> {
+    let threads = inferior.threads()?.len();
+    if thread >= threads {
+        return Err(no_thread(thread, threads));
     }
+    let (address, _) = resolve(inferior, thread, to)?;
+    if address % 4 != 0 {
+        return Err(format!(
+            "0x{address:016x} is not the start of an instruction: they start every 4 bytes"
+        ));
+    }
+    inferior
+        .read_code(address, 4)
+        .map_err(|error| format!("cannot jump to 0x{address:016x}: {error}"))?;
+    let mut values = vec![("pc".to_string(), address)];
+    for (register, location) in registers {
+        let value = location
+            .value(inferior, thread)
+            .map_err(|fault| format!("cannot set {register}: {}", fault.message()))?
+            .value;
+        match register.as_str() {
+            "nzcv" if value & !NZCV_FLAGS != 0 => {
+                return Err(format!(
+                    "cannot set nzcv to 0x{value:016x}: it holds only the flags, bits 28 to 31 \
+                     (0x00000000f0000000)"
+                ))
+            }
+            "fpsr" | "fpcr" if value > u64::from(u32::MAX) => {
+                return Err(format!(
+                    "cannot set {register} to 0x{value:016x}: it holds 32 bits"
+                ))
+            }
+            _ => {}
+        }
+        values.push((register.clone(), value));
+    }
+    inferior.set_registers(thread, &values)?;
+    let place = places(inferior)?
+        .get(thread)
+        .cloned()
+        .unwrap_or_else(|| format!("0x{address:016x}"));
+    let set = values[1..]
+        .iter()
+        .map(|(register, value)| format!("{register} = {}", breakpoints::value_shown(*value, 8)))
+        .collect::<Vec<_>>();
+    Ok(vec![if set.is_empty() {
+        format!("Moved thread {thread} to {place}.")
+    } else {
+        format!("Moved thread {thread} to {place}; set {}.", set.join(", "))
+    }])
 }
 
 /// The `backtrace` lines: one thread's frames, or every thread's, the
@@ -1916,10 +2063,18 @@ pub(crate) fn run(
                 exited = ended;
                 lines
             }),
-            Ok(Command::SetBreakpoint(target, commands)) => {
-                breakpoints.set(inferior, &target, &commands)
+            Ok(Command::SetBreakpoint {
+                target,
+                condition,
+                commands,
+            }) => condition
+                .as_ref()
+                .map_or(Ok(()), |condition| condition.check(inferior, current))
+                .and_then(|()| breakpoints.set(inferior, &target, condition.as_ref(), &commands)),
+            Ok(Command::RemoveBreakpoint { target, condition }) => {
+                breakpoints.remove(inferior, &target, condition.as_ref())
             }
-            Ok(Command::RemoveBreakpoint(target)) => breakpoints.remove(inferior, &target),
+            Ok(Command::Jump { to, registers }) => jump(inferior, current, &to, &registers),
             Ok(Command::SetWatchpoint {
                 location,
                 size,
@@ -2021,6 +2176,12 @@ mod tests {
         inserted: Vec<u64>,
         watched: Vec<(u64, u64)>,
         runs: Vec<RunStop>,
+        /// Every `set_registers`: the thread and its values. Thread 0's `pc`
+        /// moves; its `x0` is the last value set, when any is.
+        sets: Vec<(usize, Vec<(String, u64)>)>,
+        x0: Option<u64>,
+        /// Memory a `[…]` can read: 8-byte words by address.
+        words: Vec<(u64, u64)>,
     }
 
     impl Recorder {
@@ -2036,6 +2197,9 @@ mod tests {
                 inserted: Vec::new(),
                 watched: Vec::new(),
                 runs: Vec::new(),
+                sets: Vec::new(),
+                x0: None,
+                words: Vec::new(),
             }
         }
     }
@@ -2114,8 +2278,11 @@ mod tests {
         fn library_functions(&mut self, _: &str) -> Result<Vec<FunctionRange>, String> {
             Ok(Vec::new())
         }
-        fn read_bytes(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
-            Err(format!("unmapped {address:#x}"))
+        fn read_bytes(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+            match self.words.iter().find(|(at, _)| *at == address) {
+                Some((_, word)) if length <= 8 => Ok(word.to_le_bytes()[..length].to_vec()),
+                _ => Err(format!("unmapped {address:#x}")),
+            }
         }
         fn threads(&mut self) -> Result<Vec<ThreadFacts>, String> {
             if self.unreadable {
@@ -2140,7 +2307,10 @@ mod tests {
             if self.unreadable {
                 return Err("cannot read thread 0's registers".to_string());
             }
-            let x0 = 0x2a + thread as u64;
+            let x0 = match self.x0 {
+                Some(x0) if thread == 0 => x0,
+                _ => 0x2a + thread as u64,
+            };
             Ok(vec![
                 Register {
                     name: "x0".to_string(),
@@ -2158,6 +2328,17 @@ mod tests {
                     value: RegisterValue::Bits128(1 << 64),
                 },
             ])
+        }
+        fn set_registers(&mut self, thread: usize, values: &[(String, u64)]) -> Result<(), String> {
+            self.sets.push((thread, values.to_vec()));
+            for (name, value) in values {
+                match name.as_str() {
+                    "pc" if thread == 0 => self.pc = *value,
+                    "x0" if thread == 0 => self.x0 = Some(*value),
+                    _ => {}
+                }
+            }
+            Ok(())
         }
         /// Thread 0 moves 4 bytes an instruction; the others do not move.
         fn step(&mut self, threads: &[usize], count: u64) -> Result<Vec<Step>, String> {
@@ -2313,15 +2494,15 @@ mod tests {
             out,
             format!(
                 "{PROMPT}\
-Type Address            Symbol                          Written name
-MU   0x0000000000001004 _mfb_fn_next_5Fseed             next_seed
-MU   0x0000000000001010 _mfb_fn_main                    main <mfb>
-MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
-MR   0x0000000000001000 _main                           -
-MR   0x0000000000001008 _mfb_rt_print                   -
-SL   0x0000000000009000 _free                           free
-SL   -                  _malloc                         malloc
-SD   0x000000000000a000 _vkCreateInstance               vkCreateInstance
+Type | Address            | Symbol                          | Written name
+MU   | 0x0000000000001004 | _mfb_fn_next_5Fseed             | next_seed
+MU   | 0x0000000000001010 | _mfb_fn_main                    | main <mfb>
+MB   | 0x0000000000001020 | _mfb_ifn_datetime_5FnormInstant | datetime::#normInstant
+MR   | 0x0000000000001000 | _main                           | -
+MR   | 0x0000000000001008 | _mfb_rt_print                   | -
+SL   | 0x0000000000009000 | _free                           | free
+SL   | -                  | _malloc                         | malloc
+SD   | 0x000000000000a000 | _vkCreateInstance               | vkCreateInstance
 
 MU  {MU}
 MB  {MB}
@@ -2346,10 +2527,10 @@ SD  {SD}
             out,
             format!(
                 "{PROMPT}\
-ID Name             PC                 Task
-0  _main            0x0000000000001000 MFB Main
-1  com.apple.worker 0x0000000000007000 Other
-2  thread-0x503     0x0000000000007004 Other
+ID | Name             | PC                 | Task
+0  | _main            | 0x0000000000001000 | MFB Main
+1  | com.apple.worker | 0x0000000000007000 | Other
+2  | thread-0x503     | 0x0000000000007004 | Other
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -2387,13 +2568,13 @@ ID Name             PC                 Task
             out,
             format!(
                 "{PROMPT}\
-Register Hex                                Decimal
-v31      0x00000000000000010000000000000000 (18446744073709551616)
+Register | Hex                                | Decimal
+v31      | 0x00000000000000010000000000000000 | (18446744073709551616)
 {PROMPT}\
-Register Hex                                Decimal
-x0       0x000000000000002c                 (44)
-nzcv     0x0000000060000000                 (1610612736)
-v31      0x00000000000000010000000000000000 (18446744073709551616)
+Register | Hex                                | Decimal
+x0       | 0x000000000000002c                 | (44)
+nzcv     | 0x0000000060000000                 | (1610612736)
+v31      | 0x00000000000000010000000000000000 | (18446744073709551616)
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -2410,15 +2591,15 @@ v31      0x00000000000000010000000000000000 (18446744073709551616)
             out,
             format!(
                 "{PROMPT}\
-Register Hex                                Decimal
-x0       0x000000000000002a                 (42)
-nzcv     0x0000000060000000                 (1610612736)
-v31      0x00000000000000010000000000000000 (18446744073709551616)
+Register | Hex                                | Decimal
+x0       | 0x000000000000002a                 | (42)
+nzcv     | 0x0000000060000000                 | (1610612736)
+v31      | 0x00000000000000010000000000000000 | (18446744073709551616)
 {PROMPT}\
-Register Hex                                Decimal
-x0       0x000000000000002c                 (44)
-nzcv     0x0000000060000000                 (1610612736)
-v31      0x00000000000000010000000000000000 (18446744073709551616)
+Register | Hex                                | Decimal
+x0       | 0x000000000000002c                 | (44)
+nzcv     | 0x0000000060000000                 | (1610612736)
+v31      | 0x00000000000000010000000000000000 | (18446744073709551616)
 {PROMPT}Killed process 42.\n"
             )
         );
@@ -2452,9 +2633,9 @@ v31      0x00000000000000010000000000000000 (18446744073709551616)
                 out,
                 format!(
                     "{PROMPT}\
-Register Hex                Decimal
-nzcv     0x0000000060000000 (1610612736)
-x0       0x000000000000002c (44)
+Register | Hex                | Decimal
+nzcv     | 0x0000000060000000 | (1610612736)
+x0       | 0x000000000000002c | (44)
 {PROMPT}Killed process 42.\n"
                 ),
                 "{line}"
@@ -2472,8 +2653,8 @@ x0       0x000000000000002c (44)
         assert_eq!(
             register_lines(&[register]),
             [
-                "Register Hex                Decimal",
-                "x8       0xffffffffffffffff (-1)",
+                "Register | Hex                | Decimal",
+                "x8       | 0xffffffffffffffff | (-1)",
             ]
         );
     }
@@ -2483,27 +2664,21 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show mem 0x1000"),
             Ok(Command::ShowMemory {
-                location: Location::Address(0x1000),
+                location: Location::number(0x1000),
                 size: MEMORY_SIZE
             })
         );
         assert_eq!(
             parse("show mem sp+0x18 8"),
             Ok(Command::ShowMemory {
-                location: Location::Named {
-                    name: "sp".to_string(),
-                    offset: 0x18
-                },
+                location: Location::named("sp", 0x18),
                 size: 8
             })
         );
         assert_eq!(
             parse("show mem x19-16"),
             Ok(Command::ShowMemory {
-                location: Location::Named {
-                    name: "x19".to_string(),
-                    offset: -16
-                },
+                location: Location::named("x19", -16),
                 size: MEMORY_SIZE
             })
         );
@@ -2533,32 +2708,27 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show mem _mfb_fn_f$own4+8"),
             Ok(Command::ShowMemory {
-                location: Location::Named {
-                    name: "_mfb_fn_f$own4".to_string(),
-                    offset: 8,
-                },
+                location: Location::named("_mfb_fn_f$own4", 8),
                 size: MEMORY_SIZE
             })
         );
         assert_eq!(
             parse("dis datetime::#normInstant+0x10 2"),
             Ok(Command::Disassemble(Disassembly::At(
-                Location::Named {
-                    name: "datetime::#normInstant".to_string(),
-                    offset: 16,
-                },
+                Location::named("datetime::#normInstant", 16),
                 Some(Window::count(2))
             )))
         );
         assert_eq!(
             parse("bp main+272"),
-            Ok(Command::SetBreakpoint(
-                Target::Offset {
+            Ok(Command::SetBreakpoint {
+                target: Target::Offset {
                     name: "main".to_string(),
                     offset: 272,
                 },
-                Vec::new()
-            ))
+                condition: None,
+                commands: Vec::new()
+            })
         );
         // `main` is the program's (`_mfb_fn_main` at 0x1010), so `main+0x10`
         // is 0x1020; a register keeps its name; nothing else is a place.
@@ -2659,17 +2829,14 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show type string x1"),
             Ok(Command::ShowType {
-                location: Location::Named {
-                    name: "x1".to_string(),
-                    offset: 0
-                },
+                location: Location::named("x1", 0),
                 view: View::String
             })
         );
         assert_eq!(
             parse("show type list 0x1000 resource 2..5"),
             Ok(Command::ShowType {
-                location: Location::Address(0x1000),
+                location: Location::number(0x1000),
                 view: View::List {
                     element: Some(values::Kind::Resource),
                     span: Some(values::Span {
@@ -2682,10 +2849,7 @@ x0       0x000000000000002c (44)
         assert_eq!(
             parse("show type map x3 get Grace Hopper"),
             Ok(Command::ShowType {
-                location: Location::Named {
-                    name: "x3".to_string(),
-                    offset: 0
-                },
+                location: Location::named("x3", 0),
                 view: View::Map(values::MapView::Get("Grace Hopper".to_string()))
             })
         );
@@ -2758,10 +2922,10 @@ x0       0x000000000000002c (44)
                 arena(13, None, 0x2_0000, 0),
             ]),
             [
-                "ID Thread Address            Size (KB)",
-                "0  0      0x0000000016f00000 4",
-                "12 3      0x0000000000010000 5",
-                "13 -      0x0000000000020000 0",
+                "ID | Thread | Address            | Size (KB)",
+                "0  | 0      | 0x0000000016f00000 | 4",
+                "12 | 3      | 0x0000000000010000 | 5",
+                "13 | -      | 0x0000000000020000 | 0",
             ]
         );
         assert!(arena_lines(&[]).is_empty());
@@ -2921,20 +3085,24 @@ Thread 2 is at 0x0000000000007004.
         assert!(function_lines(&[], &FunctionFilter::default()).is_empty());
         assert!(register_lines(&[]).is_empty());
         assert!(thread_lines(&[], &[], &[]).is_empty());
-        assert!(table(["A", "B"], Vec::new()).is_empty());
+        assert!(table(&["A", "B"], Vec::new()).is_empty());
     }
 
     #[test]
     fn a_table_aligns_every_column_to_its_widest_entry_by_characters() {
         assert_eq!(
             table(
-                ["ID", "Name", "Task"],
+                &["ID", "Name", "Task"],
                 vec![
-                    ["0".to_string(), "héllo".to_string(), "MFB Main".to_string()],
-                    ["10".to_string(), "x".to_string(), "Other".to_string()],
+                    vec!["0".to_string(), "héllo".to_string(), "MFB Main".to_string()],
+                    vec!["10".to_string(), "x".to_string(), "Other".to_string()],
                 ]
             ),
-            ["ID Name  Task", "0  héllo MFB Main", "10 x     Other",]
+            [
+                "ID | Name  | Task",
+                "0  | héllo | MFB Main",
+                "10 | x     | Other",
+            ]
         );
     }
 
@@ -2953,12 +3121,12 @@ Thread 2 is at 0x0000000000007004.
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed.\n\
                  {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
                  {PROMPT}\
-Address            Symbol              Written name
-0x0000000000001004 _mfb_fn_next_5Fseed next_seed
-0x0000000000001012 _mfb_fn_main+0x2    main+0x2 <mfb>
+Address            | Symbol              | Written name
+0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed
+0x0000000000001012 | _mfb_fn_main+0x2    | main+0x2 <mfb>
 {PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
-                 {PROMPT}Address            Symbol              Written name\n\
-                 0x0000000000001004 _mfb_fn_next_5Fseed next_seed\n\
+                 {PROMPT}Address            | Symbol              | Written name\n\
+                 0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed\n\
                  {PROMPT}Killed process 42.\n"
             )
         );
@@ -3040,16 +3208,13 @@ Address            Symbol              Written name
             );
         }
         assert_eq!(address("16"), None);
-        assert_eq!(Location::parse("0x1000-16"), Ok(Location::Address(0xff0)));
+        assert_eq!(Location::parse("0x1000-16"), Ok(Location::number(0xff0)));
         assert_eq!(Target::parse("0x1000+4"), Ok(Target::Address(0x1004)));
     }
 
     #[test]
     fn dis_takes_a_count_a_place_or_a_function_and_counts_back_when_negative() {
-        let register = |name: &str, offset| Location::Named {
-            name: name.to_string(),
-            offset,
-        };
+        let register = |name: &str, offset| Location::named(name, offset);
         for (line, expected) in [
             ("dis", Disassembly::Current),
             ("dis 5", Disassembly::Count(Window::count(5))),
@@ -3065,7 +3230,7 @@ Address            Symbol              Written name
             ),
             (
                 "dis 0x100+4 -1",
-                Disassembly::At(Location::Address(0x104), Some(Window::count(-1))),
+                Disassembly::At(Location::number(0x104), Some(Window::count(-1))),
             ),
             (
                 "dis isPrime",
@@ -3161,23 +3326,23 @@ prog`datetime::#normInstant:
             out,
             format!(
                 "{PROMPT}\
-Type Address            Symbol              Written name
-MU   0x0000000000001004 _mfb_fn_next_5Fseed next_seed
+Type | Address            | Symbol              | Written name
+MU   | 0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed
 
 MU  {user}
 {PROMPT}\
-Type Address            Symbol                          Written name
-MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
-MR   0x0000000000001000 _main                           -
-MR   0x0000000000001008 _mfb_rt_print                   -
+Type | Address            | Symbol                          | Written name
+MB   | 0x0000000000001020 | _mfb_ifn_datetime_5FnormInstant | datetime::#normInstant
+MR   | 0x0000000000001000 | _main                           | -
+MR   | 0x0000000000001008 | _mfb_rt_print                   | -
 
 MB  {builtin}
 MR  {runtime}
 {PROMPT}\
-Type Address            Symbol                          Written name
-MU   0x0000000000001004 _mfb_fn_next_5Fseed             next_seed
-MB   0x0000000000001020 _mfb_ifn_datetime_5FnormInstant datetime::#normInstant
-SL   0x0000000000009000 _free                           free
+Type | Address            | Symbol                          | Written name
+MU   | 0x0000000000001004 | _mfb_fn_next_5Fseed             | next_seed
+MB   | 0x0000000000001020 | _mfb_ifn_datetime_5FnormInstant | datetime::#normInstant
+SL   | 0x0000000000009000 | _free                           | free
 
 MU  {user}
 MB  {builtin}
@@ -3271,18 +3436,16 @@ SL  {linked}
         let commands = |list: &[&str]| list.iter().map(|word| word.to_string()).collect::<Vec<_>>();
         assert_eq!(
             parse("bp fib bt 1; list reg x0 ;"),
-            Ok(Command::SetBreakpoint(
-                Target::Name("fib".to_string()),
-                commands(&["bt 1", "list reg x0"])
-            ))
+            Ok(Command::SetBreakpoint {
+                target: Target::Name("fib".to_string()),
+                condition: None,
+                commands: commands(&["bt 1", "list reg x0"])
+            })
         );
         assert_eq!(
             parse("wp sp+0x10"),
             Ok(Command::SetWatchpoint {
-                location: Location::Named {
-                    name: "sp".to_string(),
-                    offset: 16
-                },
+                location: Location::named("sp", 16),
                 size: 8,
                 commands: Vec::new(),
             })
@@ -3290,17 +3453,14 @@ SL  {linked}
         assert_eq!(
             parse("watchpoint 0x1000 0x4 show mem 0x1000 4;be"),
             Ok(Command::SetWatchpoint {
-                location: Location::Address(0x1000),
+                location: Location::number(0x1000),
                 size: 4,
                 commands: commands(&["show mem 0x1000 4", "be"]),
             })
         );
         assert_eq!(
             parse("wp r x19+8"),
-            Ok(Command::RemoveWatchpoint(Location::Named {
-                name: "x19".to_string(),
-                offset: 8
-            }))
+            Ok(Command::RemoveWatchpoint(Location::named("x19", 8)))
         );
         assert_eq!(
             parse("be ErrOverflow 42 show error; bt"),
@@ -3320,18 +3480,18 @@ SL  {linked}
         for (line, message) in [
             (
                 "bp fib run",
-                "'run' cannot run at a stop: a stop runs list, show, backtrace, disassemble \
-                 and a bare breakerror",
+                "'run' cannot run at a stop: a stop runs list, show, backtrace, disassemble, \
+                 jump and a bare breakerror",
             ),
             (
                 "wp 0x1000 8 bt; step",
-                "'step' cannot run at a stop: a stop runs list, show, backtrace, disassemble \
-                 and a bare breakerror",
+                "'step' cannot run at a stop: a stop runs list, show, backtrace, disassemble, \
+                 jump and a bare breakerror",
             ),
             (
                 "be any be clear",
                 "'be clear' cannot run at a stop: a stop runs list, show, backtrace, \
-                 disassemble and a bare breakerror",
+                 disassemble, jump and a bare breakerror",
             ),
             ("wp 0x1000 8x", "'8x' is not a number"),
             (
@@ -3376,8 +3536,8 @@ SL  {linked}
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs \
                  'list reg x0; show mem 0x10' and continues.
 {PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: next_seed
-Register Hex                Decimal
-x0       0x000000000000002a (42)
+Register | Hex                | Decimal
+x0       | 0x000000000000002a | (42)
 --[EX] Program exit (0)
 {PROMPT}Killed process 42.
 "
@@ -3571,6 +3731,348 @@ x0       0x000000000000002a (42)
         ] {
             assert_eq!(parse(line), Err(message.to_string()), "{line}");
         }
+    }
+
+    #[test]
+    fn breakpointif_takes_a_test_a_place_and_commands() {
+        let condition =
+            |location, test, value| Some(Condition::parse(location, test, value).unwrap());
+        assert_eq!(
+            parse("bpi x0 eq 5 at logPath bt"),
+            Ok(Command::SetBreakpoint {
+                target: Target::Name("logPath".to_string()),
+                condition: condition("x0", "eq", Some("5")),
+                commands: vec!["bt".to_string()],
+            })
+        );
+        assert_eq!(
+            parse("breakpointif [sp+0x18] in at 0x1000+4"),
+            Ok(Command::SetBreakpoint {
+                target: Target::Address(0x1004),
+                condition: condition("[sp+0x18]", "in", None),
+                commands: Vec::new(),
+            })
+        );
+        assert_eq!(
+            parse("bpi r [x0]-8 lt -1 at main+0x10"),
+            Ok(Command::RemoveBreakpoint {
+                target: Target::Offset {
+                    name: "main".to_string(),
+                    offset: 0x10
+                },
+                condition: condition("[x0]-8", "lt", Some("-1")),
+            })
+        );
+        for (line, message) in [
+            (
+                "bpi",
+                "'bpi' needs a test and a place: bpi <where> eq|ne|gt|lt <value> at \
+                 <address|function[+offset]> [<commands>], or bpi <where> in at \
+                 <address|function[+offset]>",
+            ),
+            (
+                "bpi x0 is 5 at f",
+                "'is' is not a test: give eq, ne, gt, lt or in",
+            ),
+            (
+                "bpi x0 eq at f",
+                "'eq' needs a value to test against: <where> eq <value>",
+            ),
+            (
+                "bpi x0 eq five at f",
+                "'five' is not a value: give a number, such as 5, -1 or 0x10",
+            ),
+            (
+                "bpi [x0] in 5 at f",
+                "'in' takes no value: <where> in at <address|function[+offset]>",
+            ),
+            (
+                "bpi x0 in at f",
+                "'x0' can always be worked out: 'in' needs a memory read ([…])",
+            ),
+            (
+                "bpi x0 eq 5 f",
+                "'bpi' needs 'at' and the breakpoint's place after its test: bpi <where> \
+                 <test> at <address|function[+offset]>",
+            ),
+            (
+                "bpi x0 eq 5 at",
+                "'bpi' needs a place after 'at': an address (0x…) or a function name",
+            ),
+            ("bpi r x0 eq 5 at f bt", "too many arguments to 'bpi r'"),
+            (
+                "bpi x0 eq 5 at f run",
+                "'run' cannot run at a stop: a stop runs list, show, backtrace, disassemble, \
+                 jump and a bare breakerror",
+            ),
+        ] {
+            assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_breakpoint_with_a_test_is_listed_with_it_and_bp_r_takes_every_one_there() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        let (out, err) = drive(
+            &mut inferior,
+            "bp next_seed bt
+bpi x0 eq 5 at next_seed
+bpi [0x12348593] eq 5 at next_seed bt
+\
+             bpi x9 eq 5 at next_seed
+l breakpoint
+bpi r x0 eq 5 at next_seed
+\
+             bp r next_seed
+l breakpoint
+q
+",
+            false,
+        );
+        assert_eq!(
+            err,
+            "error: no register or function is named 'x9'; type 'list reg' or 'list func' for \
+             them
+"
+        );
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs 'bt' \
+                 and continues.
+{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed if x0 eq 0x0000000000000005 (5).
+{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed if [0x0000000012348593] eq \
+                 0x0000000000000005 (5). Each stop runs 'bt' and continues.
+{PROMPT}{PROMPT}\
+Address            | Symbol              | Written name | If                                             | Commands
+0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed    | -                                              | bt
+0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed    | x0 eq 0x0000000000000005 (5)                   | -
+0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed    | [0x0000000012348593] eq 0x0000000000000005 (5) | bt
+{PROMPT}Removed the breakpoint at 0x0000000000001004 in next_seed if x0 eq 0x0000000000000005 (5).
+{PROMPT}Removed the breakpoint at 0x0000000000001004 in next_seed.
+Removed the breakpoint at 0x0000000000001004 in next_seed if [0x0000000012348593] eq \
+                 0x0000000000000005 (5).
+{PROMPT}no breakpoints
+{PROMPT}Killed process 42.
+"
+            )
+        );
+        assert!(inferior.inserted.is_empty());
+    }
+
+    #[test]
+    fn jump_moves_the_current_thread_and_sets_its_registers() {
+        assert_eq!(
+            parse("j lr x0=0 x1=-1 sp=[sp+8]"),
+            Ok(Command::Jump {
+                to: Location::named("lr", 0),
+                registers: vec![
+                    ("x0".to_string(), Location::number(0)),
+                    ("x1".to_string(), Location::number(u64::MAX)),
+                    ("sp".to_string(), Location::parse("[sp+8]").unwrap()),
+                ],
+            })
+        );
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.code = true;
+        inferior.words = vec![(0x2a, 0x77)];
+        let (out, err) = drive(
+            &mut inferior,
+            "jump 0x1010
+j next_seed x0=[x0] nzcv=0x60000000 fpcr=0
+list reg x0
+q
+",
+            false,
+        );
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}Moved thread 0 to 0x0000000000001010 in main <mfb>.
+{PROMPT}Moved thread 0 to 0x0000000000001004 in next_seed; set x0 = 0x0000000000000077 \
+                 (119), nzcv = 0x0000000060000000 (1610612736), fpcr = 0x0000000000000000 (0).
+{PROMPT}\
+Register | Hex                | Decimal
+x0       | 0x0000000000000077 | (119)
+{PROMPT}Killed process 42.
+"
+            )
+        );
+        assert_eq!(
+            inferior.sets,
+            [
+                (0, vec![("pc".to_string(), 0x1010)]),
+                (
+                    0,
+                    vec![
+                        ("pc".to_string(), 0x1004),
+                        ("x0".to_string(), 0x77),
+                        ("nzcv".to_string(), 0x6000_0000),
+                        ("fpcr".to_string(), 0),
+                    ]
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn jump_refuses_a_bad_place_register_or_value() {
+        let sets = "jump sets x0-x28, fp, lr, sp, nzcv, fpsr and fpcr";
+        for (line, message) in [
+            (
+                "j".to_string(),
+                "'j' needs a place to go: j <where> [<register>=<value>]...".to_string(),
+            ),
+            (
+                "j lr pc=4".to_string(),
+                format!(
+                    "'pc' is where the thread goes: give it as the place, jump <where>; {sets}"
+                ),
+            ),
+            (
+                "j lr v0=1".to_string(),
+                format!("'v0' is a vector register; {sets}"),
+            ),
+            (
+                "j lr x29=1".to_string(),
+                format!("no register 'x29'; {sets}"),
+            ),
+            (
+                "j lr x0=1 x0=2".to_string(),
+                "'x0' is set twice".to_string(),
+            ),
+            (
+                "j lr x0".to_string(),
+                "'x0' is not a register and its value: <register>=<value>, such as x0=5"
+                    .to_string(),
+            ),
+            (
+                "j lr x0=".to_string(),
+                "'x0' needs a value: x0=<value>".to_string(),
+            ),
+            (
+                format!(
+                    "j lr {}",
+                    (0..9)
+                        .map(|n| format!("x{n}=0"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+                "'j' sets at most 8 registers".to_string(),
+            ),
+        ] {
+            assert_eq!(parse(&line), Err(message), "{line}");
+        }
+        let mut inferior = Recorder::new(Ending::Killed);
+        let (_, err) = drive(
+            &mut inferior,
+            "j 0x1002
+j 0x1010
+",
+            false,
+        );
+        assert_eq!(
+            err,
+            "error: 0x0000000000001002 is not the start of an instruction: they start every 4 \
+             bytes
+\
+             error: cannot jump to 0x0000000000001010: unmapped 0x1010
+"
+        );
+        inferior.code = true;
+        let (_, err) = drive(
+            &mut inferior,
+            "j 0x1010 nzcv=1
+j 0x1010 fpsr=0x100000000
+j 0x1010 x0=[0x10]
+j 0x1010 x0=nothing
+",
+            false,
+        );
+        assert_eq!(
+            err,
+            "error: cannot set nzcv to 0x0000000000000001: it holds only the flags, bits 28 to 31 \
+             (0x00000000f0000000)
+\
+             error: cannot set fpsr to 0x0000000100000000: it holds 32 bits
+\
+             error: cannot set x0: unmapped 0x10
+\
+             error: cannot set x0: no register or function is named 'nothing'; type 'list reg' or \
+             'list func' for them
+"
+        );
+        assert!(inferior.sets.is_empty());
+    }
+
+    #[test]
+    fn a_stop_can_jump_the_stopped_thread_and_run_on() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.code = true;
+        inferior.runs = vec![
+            RunStop::Breakpoints(vec![(0, 0x1004)]),
+            RunStop::Exited(Exit::Status(0)),
+        ];
+        let (out, err) = drive(
+            &mut inferior,
+            "bp next_seed j 0x1010 x0=7
+run
+q
+",
+            false,
+        );
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs 'j \
+                 0x1010 x0=7' and continues.
+{PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: next_seed
+Moved thread 0 to 0x0000000000001010 in main <mfb>; set x0 = 0x0000000000000007 (7).
+--[EX] Program exit (0)
+{PROMPT}Killed process 42.
+"
+            )
+        );
+    }
+
+    #[test]
+    fn show_mem_reads_through_memory_in_brackets() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.words = vec![(0x2000, 0x3000), (0x3000, 0x4847_4645_4443_4241)];
+        let (out, err) = drive(
+            &mut inferior,
+            "show mem [0x2000] 8
+show mem [x0]+8 8
+show mem [0x2000 8
+",
+            false,
+        );
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}Memory at 0x0000000000003000 ([0x0000000000002000]):
+0x0000000000003000 41 42 43 44 45 46 47 48                         | A B C D E F G H
+{PROMPT}{PROMPT}{PROMPT}
+Killed process 42.
+"
+            )
+        );
+        assert_eq!(
+            err,
+            "error: unmapped 0x2a
+\
+             error: '[0x2000' opens a '[' it does not close
+"
+        );
+        assert_eq!(
+            parse("dis [sp+8]"),
+            Ok(Command::Disassemble(Disassembly::At(
+                Location::parse("[sp+8]").unwrap(),
+                None
+            )))
+        );
     }
 
     #[test]
