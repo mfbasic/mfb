@@ -347,20 +347,23 @@ fn split_cells(line: &str) -> Vec<String> {
     let t = line.trim();
     let t = t.strip_prefix('|').unwrap_or(t);
     let t = t.strip_suffix('|').unwrap_or(t);
-    // Split on unescaped `|` only, leaving `\|` in the cell for `parse_inline`
-    // to turn back into a literal pipe — so a pipe inside cell text cannot break
-    // the column count.
+    // Split on unescaped `|` only, so a pipe inside cell text cannot break the
+    // column count. As in GFM, `\|` becomes a literal pipe here, before the
+    // cell's text is read, so it is one inside a code span too; any other
+    // escape is left for `parse_inline`.
     let mut cells = Vec::new();
     let mut cur = String::new();
     let mut chars = t.chars();
     while let Some(c) = chars.next() {
         match c {
-            '\\' => {
-                cur.push('\\');
-                if let Some(next) = chars.next() {
+            '\\' => match chars.next() {
+                Some('|') => cur.push('|'),
+                Some(next) => {
+                    cur.push('\\');
                     cur.push(next);
                 }
-            }
+                None => cur.push('\\'),
+            },
             '|' => {
                 cells.push(cur.trim().to_string());
                 cur.clear();
@@ -817,6 +820,17 @@ mod tests {
         }
         // The words survive the wrap.
         assert!(strip_ansi(&out).contains("lambda"));
+    }
+
+    /// In a table cell `\\|` is a literal pipe, in a code span too, as GFM
+    /// has it: the escape is undone before the cell's text is read.
+    #[test]
+    fn an_escaped_pipe_in_a_table_cell_is_a_pipe_even_in_code() {
+        let md = "| Op | Text |\n| --- | --- |\n| `\\|>` | a \\| b |";
+        let out = strip_ansi(&render(md, &plain_style(80)));
+        assert!(out.contains("|>"), "{out}");
+        assert!(out.contains("a | b"), "{out}");
+        assert!(!out.contains('\\'), "{out}");
     }
 
     #[test]
