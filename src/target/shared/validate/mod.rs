@@ -194,9 +194,9 @@ fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
                     let is_resource = crate::codegen::builtins::is_resource_type(&variant_type)
                         || declared_resources.contains(&variant_type)
                         || variant
-                        .fields
-                        .iter()
-                        .any(|field| type_owns_resource(&field.type_));
+                            .fields
+                            .iter()
+                            .any(|field| type_owns_resource(&field.type_));
                     if is_resource {
                         has_resource = true;
                     } else {
