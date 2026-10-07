@@ -1569,8 +1569,12 @@ mod tests {
         assert!(matches!(worker, ParameterType::Stateful { .. }));
         assert!(is_worker_thread_handle(&worker));
         assert!(!is_worker_thread_handle(&parent));
-        assert!(crate::codegen::engine::types::is_parent_thread_type(&parent));
-        assert!(!crate::codegen::engine::types::is_parent_thread_type(&worker));
+        assert!(crate::codegen::engine::types::is_parent_thread_type(
+            &parent
+        ));
+        assert!(!crate::codegen::engine::types::is_parent_thread_type(
+            &worker
+        ));
     }
 
     /// plan-113: every C ABI spelling round-trips `parse` → `name` byte-exact,
