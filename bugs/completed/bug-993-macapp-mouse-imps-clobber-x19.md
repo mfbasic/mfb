@@ -1,12 +1,12 @@
 # bug-993: macOS app mouse IMPs clobber callee-saved `x19`, so AppKit releases a garbage pointer and the app SIGSEGVs on a zero-`deltaY` scroll or an out-of-view mouse-up
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: tests/runtime/rt_app_callback_callee_saved.rs (to be added, Phase 1)
+Status: Fixed (2026-10-07, bs18-agent-i)
+Regression Test: `tests/runtime/rt_foreign_entry_callee_saved.rs` (`macos_app_imps_preserve_callee_saved`); `macos_aarch64::app::mouse_view::tests::every_imp_saves_and_restores_local0`
 
 A macOS app-mode program that has turned mouse reporting on (`canvas::enableMouse(TRUE)`;
 `term::enableMouse(TRUE)` installs the same IMP bodies) dies with SIGSEGV on the main thread
@@ -276,7 +276,7 @@ symbols and `_mfb_macapp_canvas_blit`. Windows goldens must not move.
 
 ### Phase 1: failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_app_callback_callee_saved.rs`, modelled on
+- [ ] Add `tests/runtime/rt_app_callback_callee_saved.rs` (landed as `rt_foreign_entry_callee_saved.rs`), modelled on
       `rt_runtime_helper_callee_saved.rs`. Build `-ncode` for a canvas+term mouse program
       (the `app-mouse-surface` source works) for macos-aarch64, linux-aarch64 and linux-x86_64 in
       app mode. For every function the OS enters (`_mfb_macapp_{term,canvas}_*` mouse IMPs,
@@ -321,7 +321,7 @@ Commit: —
 
 ## Validation Plan
 
-- Regression test: `tests/runtime/rt_app_callback_callee_saved.rs` (fails before the fix, passes
+- Regression test: `tests/runtime/rt_app_callback_callee_saved.rs` (landed as `rt_foreign_entry_callee_saved.rs`) (fails before the fix, passes
   after), plus the static IMP-shape assertion in `mouse_view.rs`.
 - Runtime proof: `/tmp/bug993/try.sh mouse seq 0.5 0.5 pixel 0:1:0`,
   `… line 1:0:0 0:0:0`, `… dragout 0.5 0.5` and `/tmp/cdtools/mouse cdscroll trackpad 0.5 0.5`
@@ -342,3 +342,48 @@ The fix itself is a few lines. The risk is in the audit: proving every OS-entere
 every app backend, preserves callee-saved registers. A clobber that happens to leave a harmless
 value (here, the `NSApplication` class on the full path) hides the bug until an early-exit path
 leaves a non-object in the register. Wire format, gating and coordinate semantics stay untouched.
+
+## Resolution
+
+`emit_mouse_imp` (`src/target/macos_aarch64/app/mouse_view.rs`) stores `LOCAL[0]` (`x19`)
+at `OFF_SAVED_LOCAL0` (72) in the prologue and reloads it at `{sym}_done`, the single exit;
+the report buffer moved from 72 to 80 and the frame size did not change (rounding). The
+frame doc comment now says what is saved. `emit_canvas_blit_helper`
+(`app/bootstrap.rs`) now stores `LOCAL[3]`/`LOCAL[4]` at `[sp+32]`/`[sp+40]`, the slots its
+epilogue already reloaded. The function-level `-ncode` diff against main is exactly the
+save, the restore and the report-buffer offset (+8) in each of the 22 IMPs, and the two
+stores in the blit. The audit (Phase 1's test) landed as
+`tests/runtime/rt_foreign_entry_callee_saved.rs` under bug-982, which covers every
+foreign-entered function on every app target; see bug-982's resolution for the full
+verdict table. `.ai/arch-abi.md` has the note.
+
+### Proof
+
+Local macOS 15.7.7 arm64, `/tmp/bug993/try.sh` against `/tmp/cdscroll` built by each
+compiler:
+
+| events | main f6b4099c9 | fix |
+| --- | --- | --- |
+| `seq 0.5 0.5 pixel 0:1:0 0:4:0` | DIED rc=139 (2/2) | ALIVE |
+| `seq 0.5 0.5 line 1:0:0 0:0:0` | DIED rc=139 (2/2) | ALIVE |
+| `seq 0.5 0.5 pixel 0:1:0` | ALIVE once, then see above | ALIVE |
+| `seq 0.5 0.5 pixel 6:0:0 0:0:0` | (doc: DIED) | ALIVE |
+| `dragout 0.5 0.5` | DIED rc=139 | ALIVE (2/2) |
+| `click 0.5 0.5` | (doc: ALIVE) | ALIVE |
+| `trackpad 0.5 0.5` | (doc: DIED 6/6) | ALIVE (3/3) |
+| `nomouse` | ALIVE | ALIVE |
+
+Wheel count: `wheel events 0` with BOTH compilers on this host. That is not this fix:
+`cdscroll` never reads stdin, and the mouse decoder runs only on the stdin read path (see
+bug-982's Note); an lldb trace also showed no IMP reaching `write` under the synthetic
+events here. The report path's code is unchanged except the buffer offset, per the
+`-ncode` diff above. The GTK runtime proof on 2226 (bug-982) shows the shared decoder
+delivering reports once the program reads stdin.
+
+Not re-run: a real trackpad in `examples/canvas-demo` (needs a person at the machine).
+
+## Golden impact
+
+`syntax/app/app-mouse-surface/golden/app_mouse_surface.macos-aarch64.app.ncodesum` (the 22
+IMPs, the blit and the graphics entry). No `.nir`/`.nplan` change (artifact gate). Windows
+goldens move only through bug-982's graphics-entry/trampoline saves.
