@@ -1103,13 +1103,12 @@ fn lower_statement_inner(
                     .and_then(|value| expression_type(value, locals, context))
                     .unwrap_or(ParameterType::Unknown)
             });
+            // A resource (or data) variant value bound to a union-typed binding is
+            // wrapped into its union by `lower_expression_with_expected`, so a
+            // `RES s AS Stream = <a File>` carries the variant tag for
+            // tag-dispatched drop.
             let lowered_value = value.as_ref().map(|value| {
-                let base =
-                    lower_expression_with_expected(value, Some(&lowered_type), locals, context);
-                // Wrap a resource (or data) variant value into its union when the
-                // binding is union-typed, so a `RES s AS Stream = <a File>` carries
-                // the variant tag for tag-dispatched drop.
-                wrap_union_value(base, value, Some(&lowered_type), locals, context)
+                lower_expression_with_expected(value, Some(&lowered_type), locals, context)
             });
             // A `RES` binding's `STATE T` rides in the lowered type
             // (`File STATE T`) so codegen can default-initialize and address the
@@ -1140,14 +1139,12 @@ fn lower_statement_inner(
                 // unsuffixed literal returned from a `Fixed`/`Money`/`Float`
                 // function is classified as `Integer` and its raw bits are
                 // reinterpreted as the destination type (bug-156).
+                // A returned variant is wrapped into the function's declared union
+                // return type there too, so the wrap is explicit in the IR (and
+                // faithfully serialized into Binary Representation) rather than
+                // re-derived during native codegen.
                 let expected = context.current_return_type.clone();
-                let base =
-                    lower_expression_with_expected(value, expected.as_ref(), locals, context);
-                // Implicitly wrap a returned member constructor into the
-                // function's declared union return type, so the wrap is explicit
-                // in the IR (and faithfully serialized into Binary Representation) rather
-                // than re-derived during native codegen.
-                wrap_union_value(base, value, expected.as_ref(), locals, context)
+                lower_expression_with_expected(value, expected.as_ref(), locals, context)
             }),
             loc,
         }],
@@ -1213,15 +1210,13 @@ fn lower_statement_inner(
             };
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
-                    let base =
-                        lower_expression_with_expected(value, Some(&target.type_), locals, context);
                     // bug-648 E: a union-typed slot (the trapped producer returns the
-                    // union) receiving a VARIANT needs the same explicit wrap a
-                    // `LET`/`RETURN` delivery gets — the trailing `Bind name = $trap_val`
-                    // is union-to-union and adds none, so an unwrapped variant reached
-                    // the binding with no tag.
+                    // union) receiving a VARIANT needs the explicit wrap every
+                    // expected-type position gets from `lower_expression_with_expected`
+                    // — the trailing `Bind name = $trap_val` is union-to-union and adds
+                    // none, so an unwrapped variant reached the binding with no tag.
                     let lowered =
-                        wrap_union_value(base, value, Some(&target.type_), locals, context);
+                        lower_expression_with_expected(value, Some(&target.type_), locals, context);
                     vec![IrOp::Assign {
                         name: slot,
                         value: lowered,
@@ -2207,9 +2202,11 @@ fn lower_inline_trap(
 ///
 /// The slot is typed with the PRODUCER's type, which for `LET v AS Val =
 /// makeNum(7) TRAP …` is the variant `Num`, not the union `Val`. Every other
-/// binding and assignment path runs its value through [`wrap_union_value`],
-/// which inserts the `UnionWrap` that gives the value its `{tag, payload}`
-/// union representation. [`lower_inline_trap`] delivered a bare
+/// expected-type position lowers its value through
+/// [`lower_expression_with_expected`], whose [`wrap_union_value`] inserts the
+/// `UnionWrap` that gives the value its `{tag, payload}` union representation.
+/// The staged slot is not a lowered expression, so it gets no such wrap, and
+/// [`lower_inline_trap`] delivered a bare
 /// `IrValue::Local(slot)` instead, so the binding held an untagged variant:
 /// `MATCH` on it read a tag that was never written and fell through EVERY case,
 /// silently, with a clean exit (bug-642's widened scope). For a RESOURCE union
@@ -5026,7 +5023,30 @@ fn builtin_predicate_ref_type(name: &str, expected: &ParameterType) -> Option<Pa
     crate::codegen::builtins::general::filter_predicate_type_typed(name, &params[0])
 }
 
+/// Lower `expression` against the type its position expects.
+///
+/// Union-variant subsumption is applied HERE, once, for every expression kind:
+/// a value whose static type is a variant of the expected union comes back as
+/// `UnionWrap { union, member, value }` (spec `architecture ir` § "Implicit
+/// union auto-wrap"). Every expected-type position (call argument, list/map
+/// literal element, constructor field, `WITH` field, assignment, binding and
+/// global initializer, `RETURN`) reaches the wrap through this one function.
+/// Wrapping only selected arms left a call result, field read, `collections::get`
+/// or `WITH` result bare at an argument or element position, where codegen read
+/// the variant record as a `{tag, size, data}` block (bug-990).
 fn lower_expression_with_expected(
+    expression: &HirExpression,
+    expected: Option<&ParameterType>,
+    locals: &HashMap<String, ParameterType>,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
+    let base = lower_expression_unwrapped(expression, expected, locals, context);
+    wrap_union_value(base, expression, expected, locals, context)
+}
+
+/// The per-kind lowering behind [`lower_expression_with_expected`], which adds
+/// the union wrap. Call it only through that function.
+fn lower_expression_unwrapped(
     expression: &HirExpression,
     expected: Option<&ParameterType>,
     locals: &HashMap<String, ParameterType>,
@@ -5124,7 +5144,7 @@ fn lower_expression_with_expected(
                 return IrValue::Const { type_, value };
             }
 
-            let base = if locals.contains_key(value) {
+            if locals.contains_key(value) {
                 IrValue::Local(value.clone())
             } else if let Some(type_) = context
                 .function_types
@@ -5161,8 +5181,7 @@ fn lower_expression_with_expected(
                 }
             } else {
                 IrValue::Local(value.clone())
-            };
-            wrap_union_value(base, expression, expected, locals, context)
+            }
         }
         HirExpression::Call {
             callee,
@@ -5736,11 +5755,10 @@ fn lower_expression_with_expected(
                 .or_else(|| context.type_index.records.get(constructor_type))
                 .or_else(|| context.type_index.variant_fields.get(&canonical_type))
                 .or_else(|| context.type_index.variant_fields.get(constructor_type));
-            let base = IrValue::Constructor {
+            IrValue::Constructor {
                 type_: canonical_type,
                 args: lower_constructor_args(arguments, fields, locals, context),
-            };
-            wrap_union_value(base, expression, expected, locals, context)
+            }
         }
         HirExpression::WithUpdate { target, updates } => {
             let type_ = expression_type(target, locals, context).unwrap_or(ParameterType::Unknown);
@@ -6059,6 +6077,14 @@ fn build_error_value(code: IrValue, message: IrValue, file: &str, loc: IrSourceL
     }
 }
 
+/// Wrap `base`, the lowering of `expression`, into the expected union when the
+/// expression's static type is one of that union's variants (data or resource).
+///
+/// Called only by [`lower_expression_with_expected`], so every expected-type
+/// position and every expression kind gets the wrap (bug-990). Idempotent: no
+/// expected type, an already-wrapped value, an untypeable expression, or a type
+/// that is not a variant of the WHOLE expected type (a `List OF Square` at a
+/// `List OF Shape` slot, a union at its own union) all return `base` unchanged.
 fn wrap_union_value(
     base: IrValue,
     expression: &HirExpression,
@@ -6068,6 +6094,13 @@ fn wrap_union_value(
 ) -> IrValue {
     let Some(union_type) = expected else {
         return base;
+    };
+    // A `List OF RES Handle` element position expects `RES Handle`: the `RES`
+    // marks ownership, the union is `Handle`, exactly as a `RES h AS Handle`
+    // binding's lowered type is the bare `Handle`.
+    let union_type = match union_type {
+        ParameterType::Res(inner) => inner.as_ref(),
+        other => other,
     };
     // Avoid double-wrapping when the value's own lowering already wrapped it
     // (e.g. a variant constructor assigned to a union-typed binding).

@@ -49,6 +49,13 @@ An unannotated binding first infers its initializer type; ordinary expression
 statements have no enclosing expected type. Assignments use the target binding's
 type. [[src/ir/lower.rs:lower_statement]]
 
+At every position in the table, a value whose static type is a variant of the
+expected union is wrapped into that union (`UnionWrap`), whatever its expression
+kind: a call result, a `collections::get` result, a field read and a `WITH`
+result are wrapped exactly as an identifier or a variant constructor is. The wrap
+is applied once, by `lower_expression_with_expected` itself (architecture `ir`,
+"Implicit union auto-wrap"). [[src/ir/lower.rs:lower_expression_with_expected]]
+
 These positions are **synthesized bottom-up only** (expected is never consulted):
 
 - **Binary and unary operands.** The `Binary`/`Unary` arms type each operand

@@ -1,12 +1,12 @@
 # bug-990: a union-variant value produced by a call, field read, `collections::get` or `WITH` is not union-wrapped at a call argument, list/map element, constructor field, `WITH` field, `MUT` assignment or global initializer, so the program traps `Allocation failed.`, segfaults, or `MATCH` fires no arm
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/types/union-variant-expression-wrap (new; name suggested)
+Status: Fixed (bs18-agent-j)
+Regression Test: tests/rt-behavior/types/union-variant-expression-wrap, tests/rt-behavior/types/union-variant-expression-wrap-resource, `ir::tests::lower_tests::variant_of_every_expression_kind_wraps_at_a_union_argument` / `union_valued_argument_is_not_wrapped_again` (src/ir/tests.rs)
 
 Take `UNION Shape  Circle  Square`, `FUNC mk AS Square`, and `FUNC show(s AS Shape)`, which
 `MATCH`es on `s`. Then `show(mk())` builds cleanly and traps with `Error: 7-701-0001 Allocation
@@ -424,3 +424,77 @@ The risk is in the audit and golden regeneration. Every IR delta must map to an 
 site. Resource-variant call results start getting wrapped at union arguments, and the rt/resource
 suites must show that no cleanup obligation moves. Type rules, container assignability (bug-989),
 callable invariance, and the double-wrap guard are untouched.
+
+## Resolution
+
+The wrap is a property of `lower_expression_with_expected` itself (Fix Design). The
+per-kind body moved to `lower_expression_unwrapped`; the public function lowers and then
+applies `wrap_union_value` once. The two per-arm calls (`Identifier`, `Constructor`)
+and the three statement post-wraps (`Let`, `Return`, the `RECOVER` slot) are deleted.
+
+Open Decision 1 (post-wraps) — **deleted**, decided by measurement: each was called with
+the same expression, expected type and locals as the `lower_expression_with_expected`
+call right before it, so after the fix it was an exact no-op, and
+`scripts/artifact-gate.sh <mfb> all` reports `1649 tests, 1828 build(s), 2308 golden(s)
+checked, 0 diff(s)` — every `.ir` golden, including every `LET`/`RETURN`/`RECOVER`
+fixture, is byte-identical. Open Decision 2 (verifier backstop) is not done here; it is
+a follow-up, as the doc recommends.
+
+**Found on the way, fixed in the same change (same seam).** A `RES U` expected type was
+never wrapped into `U`, for ANY expression kind, identifiers included:
+`variant_belongs_to_union(fs.File, RES Handle)` is a table lookup on the `RES`-marked
+type and always answered no. So a resource variant placed in a `List OF RES Handle`
+literal (`[a0]`, `[openOne()]`) or a `RES Handle` record field (`HB[a0]`) stayed a bare
+`fs::File` handle: on main `MATCH` fired no arm for the list element and the
+`tcp::Socket` arm for the record field (measured, `/tmp/bs18j/resu_var.mfb`,
+`/tmp/bs18j/rh.mfb`). `wrap_union_value` now peels a top-level `RES` off the expected
+type before the membership test, which is exactly the type a `RES h AS Handle` binding
+lowers to (`Handle`). Covered by `union-variant-expression-wrap-resource` (`elem`).
+
+### Runtime proof
+
+- `tests/rt-behavior/types/union-variant-expression-wrap`: producers `call`, `field`,
+  `get`, `with`, fallible call, plus the contrast producers `var`, `ctor`, `matchvar`, at
+  positions argument, list element, constructor field (positional and named), map value,
+  `WITH` field, local `MUT` assignment, `LET`, global `MUT` assignment, `RETURN`, plus a
+  global initializer: 81 lines, every one `square 2.00`, then `after`, exit 0.
+  `MFB_OPT=0` and `MFB_OPT=3 scripts/test-accept.sh <mfb> … 'union-variant-expression-wrap*'`
+  both pass. On main it traps `Error: 7-701-0001 Allocation failed.` at the global
+  initializer (exit 255).
+- `tests/rt-behavior/types/union-variant-expression-wrap-resource`: a `RES fs::File`
+  call result at a `Handle` argument now takes the `fs::File` arm (main: `tcp::Socket`),
+  and inside a `List OF RES Handle` literal it takes the `fs::File` arm (main: no arm).
+- The doc's matrix harness (`/tmp/bs18j/gen.sh`, same cells as `/tmp/bug990/gen.sh`):
+  all 56 cells print `square 2.00`, exit 0.
+- `--debug` balance, data unions: every new wrap path is flat. One cell per producer ×
+  position (`/tmp/bs18j/dv_*.mfb`: call/field/get/with argument, call element, `MUT`,
+  map, `WITH`, constructor) shows `alloc_calls == free_calls`, `live_bytes 0`. The whole
+  fixture: 578 allocs / 576 frees / 64 B, and the contrast-only program is 213 / 211 /
+  64 B on BOTH main and the fix: the residue is the two module-level `Shape` globals.
+- The inline-`TRAP`-as-argument form does not parse (a `TRAP` is a statement value), so
+  it has no cell; its slot keeps its own wrap (`wrap_trap_slot_value`).
+- `canvas::DrawItem` (built-in union, app mode): `[dotc(1.0)]` and `count([dotc(2.0)])`
+  with `FUNC dotc AS canvas::Circle` now lower with
+  `unionWrap(canvas.DrawItem <- canvas.Circle)` (main: none) and the app builds. Not run:
+  app mode needs a window.
+
+### Not fixed here (filed)
+
+A resource-union wrap allocates a 16-byte `{tag, record-ptr}` box that only a binding
+frees. Wrapped at an argument, a list element or a record field, nothing frees it:
+16 B per evaluation. That was already true on main for an identifier at an argument
+(`which("var", a0)`: 6 allocs / 5 frees / 16 B on both main and the fix); the fix makes
+call results and `List OF RES U` elements take the same (correct-arm) path, so they leak
+the same 16 B instead of misrouting. Freeing the box at statement end is NOT safe as it
+stands: a `RES U` record field stores the box by pointer with no owner, and on main
+`RETURN keep(u)` (`keep(h AS Handle) AS HB` = `HB[h]`) already dereferences a freed box
+(SIGSEGV, exit 139). Both are filed as bug-1005, with repros.
+
+## Golden impact
+
+- `scripts/artifact-gate.sh <mfb> all`: 1649 tests, 2308 goldens, 0 diffs. No existing
+  `.ir`/`.ast`/native golden moves. So the Phase 1 audit is answered by measurement: no
+  committed fixture passes a call, field read, `get` or `WITH` result into a union slot
+  at a non-`LET`/`RETURN` position, and none places a resource variant at a `RES U`
+  element or field.
+- New goldens only: the two new fixtures (`build.log`, `.run`, `.ast`, `.ir`).
