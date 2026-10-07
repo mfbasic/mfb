@@ -1,0 +1,58 @@
+' bug-983: fs::pathJoin restarts at an absolute component, and it used to size
+' its result for the FINAL path but still copy every earlier component into it
+' first. A root longer than the absolute tail therefore wrote past the end of
+' the allocation, over whatever block came next. Here that block is the
+' re-sliced `rel` (a `MUT String` updated in place), so its header was replaced
+' with path bytes and the frame's string drop freed a garbage size: SIGBUS at
+' every -O level. `http::respondPath` has exactly this shape for a `//`-prefixed
+' capture.
+IMPORT fs
+IMPORT io
+IMPORT strings
+
+FUNC check(s AS String, root AS String) AS Integer
+  MUT rel AS String = ""
+  rel = s
+  IF strings::startsWith(rel, "/") THEN
+    rel = strings::mid(rel, 1, len(rel) - 1)
+  END IF
+  LET candidate AS String = fs::pathJoin([root, rel])
+  IF fs::fileExists(candidate) = FALSE THEN
+    RETURN 404
+  END IF
+  MUT within AS Boolean = FALSE
+  within = fs::isWithin(root, candidate) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  IF within = FALSE THEN
+    RETURN 403
+  END IF
+  RETURN 200
+END FUNC
+
+' The joined value itself, for a long owned prefix and an absolute or relative
+' tail: an absolute tail is the whole result, and the re-sliced `rel` beside it
+' is untouched. Printed relative to `root` so the output does not depend on the
+' host's temporary directory.
+FUNC joined(root AS String, tail AS String) AS String
+  MUT rel AS String = tail
+  rel = strings::mid(rel, 1, len(rel) - 1)
+  LET out AS String = fs::pathJoin([root, "sub", rel, "leaf"])
+  IF strings::startsWith(out, root) THEN
+    RETURN "<root>" & strings::mid(out, len(root), len(out) - len(root)) & " | " & rel
+  END IF
+  RETURN out & " | " & rel
+END FUNC
+
+FUNC main AS Integer
+  LET root AS String = fs::pathJoin([fs::tempDirectory(), "bug983", "a-long-root-component"])
+  io::print(toString(check("//etc/hosts", fs::tempDirectory())))
+  io::print(toString(check("//etc/nonexistent_bug983", fs::tempDirectory())))
+  io::print(toString(check("//etc/nonexistent_bug983", root)))
+  io::print(toString(check("/missing_bug983.txt", root)))
+  io::print(joined(root, "//abs/x"))
+  io::print(joined(root, "xrel"))
+  io::print(fs::pathJoin([root, "/", "b"]))
+  io::print(fs::pathJoin([root, "/a", "", "/b/", "c"]))
+  RETURN 0
+END FUNC

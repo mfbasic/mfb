@@ -1,0 +1,186 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_pathjoin_absolute_owned_root_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "check",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 13, "type": "String", "default": null },
+    { "name": "root", "line": 13, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": true, "name": "rel", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "assign", "line": 15, "name": "rel", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "if",
+      "line": 16,
+      "condition": { "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "rel" }, { "kind": "const", "type": "String", "value": "/" }] },
+      "then": [
+      { "op": "assign", "line": 17, "name": "rel", "value": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "rel" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "rel" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 19, "mutable": false, "name": "candidate", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "root" }, { "kind": "local", "name": "rel" }] }] } },
+    {
+      "op": "if",
+      "line": 20,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "candidate" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+      "then": [
+      { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "404" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 23, "mutable": true, "name": "within", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res0", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "fs.isWithin", "args": [{ "kind": "local", "name": "root" }, { "kind": "local", "name": "candidate" }] } },
+    { "op": "bind", "line": 24, "mutable": true, "name": "$trap_val1", "type": "Boolean", "value": null },
+    {
+      "op": "if",
+      "line": 24,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 24, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "assign", "line": 25, "name": "$trap_val1", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ]
+    },
+    { "op": "assign", "line": 24, "name": "within", "value": { "kind": "local", "name": "$trap_val1" } },
+    {
+      "op": "if",
+      "line": 27,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "within" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+      "then": [
+      { "op": "return", "line": 28, "value": { "kind": "const", "type": "Integer", "value": "403" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 30, "value": { "kind": "const", "type": "Integer", "value": "200" } }
+    ]
+  },
+  {
+    "name": "joined",
+    "line": 37,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "root", "line": 37, "type": "String", "default": null },
+    { "name": "tail", "line": 37, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 38, "mutable": true, "name": "rel", "type": "String", "value": { "kind": "local", "name": "tail" } },
+    { "op": "assign", "line": 39, "name": "rel", "value": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "rel" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "rel" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "out", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "sub" }, { "kind": "local", "name": "rel" }, { "kind": "const", "type": "String", "value": "leaf" }] }] } },
+    {
+      "op": "if",
+      "line": 41,
+      "condition": { "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "root" }] },
+      "then": [
+      { "op": "return", "line": 42, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "<root>" }, "right": { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "root" }] }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "out" }] }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "root" }] } }] } }, "right": { "kind": "const", "type": "String", "value": " | " } }, "right": { "kind": "local", "name": "rel" } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 44, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": " | " } }, "right": { "kind": "local", "name": "rel" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 47,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 48, "mutable": false, "name": "root", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] }, { "kind": "const", "type": "String", "value": "bug983" }, { "kind": "const", "type": "String", "value": "a-long-root-component" }] }] } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "//etc/hosts" }, { "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] }] }] }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "//etc/nonexistent_bug983" }, { "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] }] }] }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "//etc/nonexistent_bug983" }, { "kind": "local", "name": "root" }] }] }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "/missing_bug983.txt" }, { "kind": "local", "name": "root" }] }] }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "joined", "args": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "//abs/x" }] }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "joined", "args": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "xrel" }] }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "/" }, { "kind": "const", "type": "String", "value": "b" }] }] }] } },
+    { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "root" }, { "kind": "const", "type": "String", "value": "/a" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "/b/" }, { "kind": "const", "type": "String", "value": "c" }] }] }] } },
+    { "op": "return", "line": 57, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
