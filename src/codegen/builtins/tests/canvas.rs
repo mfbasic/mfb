@@ -563,3 +563,56 @@ fn the_canvas_program_lowers_on_every_app_capable_backend() {
         "four of the five backends have an -app mode (rv64 is console-only)"
     );
 }
+
+/// A program whose OWN types reuse canvas variant names (`TYPE Circle`, `TYPE
+/// Rectangle`, and a `UNION` over them). Inside the compiler a bare spelling is
+/// the user's type, so the canvas helpers must not read these layouts or union
+/// tags in place of `canvas.Circle` / `canvas.Rectangle`'s.
+const USER_TYPES_NAMED_LIKE_CANVAS_SRC: &str = "\
+IMPORT app
+IMPORT canvas
+IMPORT color
+
+TYPE Circle
+  r AS Float
+END TYPE
+
+TYPE Rectangle
+  w AS Float
+END TYPE
+
+UNION Shape
+  Rectangle
+  Circle
+END UNION
+
+FUNC main() AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET s AS Shape = Circle[1.0]
+  canvas::present([canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(color::black)], canvas::Rectangle[x := 0.0, y := 0.0, w := 1.0, h := 1.0, paint := canvas::fill(color::black)]])
+  RETURN 0
+END FUNC
+";
+
+#[test]
+fn a_user_type_named_like_a_canvas_variant_does_not_change_the_canvas_code() {
+    // The same program with the user's types renamed. The canvas helpers read only
+    // canvas layouts and `DrawItem` tags, so the two programs lower to the same code.
+    // Before the fix the first did not build at all: the geometry builder resolved
+    // the bare `Circle` to the user's record and failed with "canvas: the record
+    // 'Circle' has no field 'paint'"; with a user record that had the fields, it would
+    // have read the user union's tag for `Circle` instead.
+    let renamed = USER_TYPES_NAMED_LIKE_CANVAS_SRC
+        .replace("TYPE Circle", "TYPE Circx")
+        .replace("  Circle\n", "  Circx\n")
+        .replace("Shape = Circle[", "Shape = Circx[")
+        .replace("TYPE Rectangle", "TYPE Rectx")
+        .replace("  Rectangle\n", "  Rectx\n");
+    assert!(renamed.contains("TYPE Circx") && renamed.contains("  Rectx\n"));
+    let colliding = app_code_cached(USER_TYPES_NAMED_LIKE_CANVAS_SRC, CodeTarget::LinuxX86_64);
+    let distinct = app_code_cached(&renamed, CodeTarget::LinuxX86_64);
+    assert!(
+        colliding.to_json() == distinct.to_json(),
+        "a program's own `TYPE Circle` changed the canvas code"
+    );
+}
