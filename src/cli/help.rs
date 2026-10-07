@@ -71,7 +71,8 @@ unreachable registry reports NOT VERIFIED. Every result exits 0.
 Arguments:
   <binary>    The executable to inspect.";
 
-pub(crate) const DBG_HELP: &str = "\
+/// `mfb dbg --help` before the prompt's commands.
+const DBG_HELP_INTRO: &str = "\
 Usage: mfb dbg <binary> [-- <args>...]
        mfb dbg <pid>
 
@@ -81,55 +82,10 @@ program and pause it. Either way the program waits at the DBG> prompt.
 
 The program must be an MFBASIC executable built for this computer. mfb dbg
 runs on macOS only, where macOS requires this mfb to be signed for debugging
-(sh scripts/sign-debugger.sh, from the compiler's source tree).
+(sh scripts/sign-debugger.sh, from the compiler's source tree).";
 
-Commands at the DBG> prompt:
-  help, h         Show this list of commands
-  list, l         Show what can be listed
-  show            Show memory: show mem <address|register|function[+offset]> [<size>]
-                  The error a thread has raised and not yet caught: show error [<thread>]
-                  An arena's state and blocks: show arena [<id>]
-                  Dump a block: show arena <id> <block> [<offset>] [<size>]
-                  An arena value as a type: show type <type> <where> (as show mem)
-                  ('show type' alone for the types and their forms)
-  breakpoint, bp  Set a breakpoint: bp <address|function[+offset]> [<commands>]
-                  Remove one: bp r <address|function[+offset]>
-  watchpoint, wp  Stop when a thread changes memory: wp <where> [<size>]
-                  [<commands>], <where> as show mem; <size> is 1 to 8 bytes
-                  (default 8) that do not cross a multiple of 8
-                  Remove one: wp r <where>
-  breakerror, be  Stop when a thread raises an error:
-                  be <code|name>... | any [<commands>]
-                  Stop watching: be clear; be alone shows what is watched
-                  <commands> run at each stop, then the program runs on: list,
-                  show, bt, dis or a bare be, separated by ';' (bp fib bt 1;
-                  list reg x0)
-  run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
-  finish, f       Run until the current function returns
-  restart, rs     Start the program again (a program the debugger launched)
-  disassemble, dis
-                  Disassemble the current function; dis <count> instructions
-                  from the current one (negative: before it), or dis -<back>
-                  <count> to show <count> from <back> before it; dis <where>
-                  [<count>] from an address, register or function, with an
-                  offset (pc-0x20, main+0x110); or
-                  dis <function> [<count>]
-  backtrace, bt   Show the current thread's calls: bt [<count>] [<thread>]
-                  Every thread's: bt all
-  step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
-  step-all, sa    Run every thread together: step-all [<count>] (default 1)
-  quit, q         End the session: kill the program if the debugger launched
-                  it, or detach and let it run on if the debugger attached to it
-
-Each stop prints one line per thread it stopped, starting --[<kind>]:
-  --[BP] T: <thread> P: <pc> F: <function>             a breakpoint
-  --[WP] T: <thread> P: <pc> F: <function> M: <address>: <old> -> <new>
-                                                        a watched change
-  --[BE] T: <thread> P: <pc> F: <function> E: <error>  a watched error
-  --[XC] T: <thread> P: <pc> F: <function> X: <what>   another exception
-  --[CC] User Break                                     Ctrl-C
-  --[EX] Program exit (<status>)                        the end
-
+/// `mfb dbg --help` after them.
+const DBG_HELP_TAIL: &str = "\
 Function names and arenas come from a debug build (mfb build --debug -O0);
 without one, list func shows only the functions the program calls in linked
 libraries, and list arena, show arena and show type are not available.
@@ -143,6 +99,15 @@ Arguments:
   <binary>    The executable to launch. An existing file wins over a <pid>.
   <pid>       The process ID of a running program to attach to.
   <args>      Arguments passed to the launched program.";
+
+/// `mfb dbg --help`: the prompt's `help` listing (`prompt::HELP`) between an
+/// introduction and the arguments, so the two cannot drift apart.
+pub(crate) fn dbg_help() -> String {
+    let commands = crate::debugger::prompt::HELP
+        .split_once('\n')
+        .map_or(crate::debugger::prompt::HELP, |(_, rest)| rest);
+    format!("{DBG_HELP_INTRO}\n\nCommands at the DBG> prompt:\n{commands}\n\n{DBG_HELP_TAIL}")
+}
 
 pub(crate) const INIT_PKG_HELP: &str = "\
 Usage: mfb init-pkg <path>

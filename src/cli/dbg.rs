@@ -11,7 +11,7 @@ use std::ffi::OsString;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 
-use crate::cli::help::DBG_HELP;
+use crate::cli::help::dbg_help;
 use crate::cli::CommandError;
 use crate::debugger::{check_debuggable, host_backend, prompt, shown, Backend, Inferior};
 
@@ -42,13 +42,15 @@ fn parse(args: &[String]) -> Result<Request, CommandError> {
         [operand] => operand,
         [] => {
             return Err(CommandError::Usage(format!(
-                "mfb dbg requires a <binary> or a <pid>\n\n{DBG_HELP}"
+                "mfb dbg requires a <binary> or a <pid>\n\n{}",
+                dbg_help()
             )))
         }
         _ => {
             return Err(CommandError::Usage(format!(
-            "mfb dbg accepts one <binary> or <pid>; pass program arguments after --\n\n{DBG_HELP}"
-        )))
+                "mfb dbg accepts one <binary> or <pid>; pass program arguments after --\n\n{}",
+                dbg_help()
+            )))
         }
     };
     let program = PathBuf::from(operand);
@@ -62,13 +64,15 @@ fn parse(args: &[String]) -> Result<Request, CommandError> {
     }
     if operand.starts_with('-') {
         return Err(CommandError::Usage(format!(
-            "mfb dbg got unknown option '{operand}'\n\n{DBG_HELP}"
+            "mfb dbg got unknown option '{operand}'\n\n{}",
+            dbg_help()
         )));
     }
     if !operand.is_empty() && operand.bytes().all(|byte| byte.is_ascii_digit()) {
         if program_args.is_some() {
             return Err(CommandError::Usage(format!(
-                "program arguments after -- need a <binary>, not a <pid>\n\n{DBG_HELP}"
+                "program arguments after -- need a <binary>, not a <pid>\n\n{}",
+                dbg_help()
             )));
         }
         let pid = operand

@@ -21,8 +21,9 @@ mfb dbg <pid>
 
 The debugger's own arguments end at the first `--`; everything after it is
 passed to a launched program verbatim, including a second `--` or a `--help`.
-A `--help`/`-h` before the first `--` prints `DBG_HELP` and exits `0`.
-[[src/cli/dispatch.rs:dispatch]] [[src/cli/help.rs:DBG_HELP]]
+A `--help`/`-h` before the first `--` prints `dbg_help()` — an introduction, the
+prompt's `HELP` listing, and the arguments — and exits `0`.
+[[src/cli/dispatch.rs:dispatch]] [[src/cli/help.rs:dbg_help]]
 
 The single operand is classified in this order:[[src/cli/dbg.rs:parse]]
 

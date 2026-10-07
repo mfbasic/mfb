@@ -12,7 +12,7 @@ use crate::cli::dbg::run_dbg_command;
 use crate::cli::doc::run_doc_command;
 use crate::cli::fmt::run_fmt_command;
 use crate::cli::help::{
-    AUDIT_HELP, BUILD_HELP, DBG_HELP, DOC_HELP, FMT_HELP, INFO_HELP, INIT_HELP, INIT_PKG_HELP,
+    dbg_help, AUDIT_HELP, BUILD_HELP, DOC_HELP, FMT_HELP, INFO_HELP, INIT_HELP, INIT_PKG_HELP,
     PKG_HELP, REPO_HELP, SPEC_HELP, TEST_HELP, USAGE,
 };
 use crate::cli::info::run_info_command;
@@ -244,7 +244,7 @@ pub(crate) fn dispatch(args: Vec<String>) -> i32 {
                 .take_while(|arg| *arg != "--")
                 .any(|arg| is_help_flag(arg))
             {
-                println!("{DBG_HELP}");
+                println!("{}", dbg_help());
                 return 0;
             }
             if let Err(err) = run_dbg_command(&dbg_args) {
