@@ -23,7 +23,8 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [~] 844, 933, 935, 851: fixed, reviewed, merged into staging
 [~] integration fix: a closure may not capture a ThreadWorker (975 × 843 interaction; capture check now shares the List-element predicate)
 [ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
-[ ] Then golden proofs + full gate, then merge to main
+[~] Golden proofs done (131 goldens, each attributed), committed in staging
+[ ] Full gate running, then merge to main
 
 **P3: Networking and HTTP**
 [ ] 979 first: it takes over the validation half of 872 and shares an oracle with 868 (if 868 didn't land in P1).
