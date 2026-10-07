@@ -46,6 +46,8 @@ both `aarch64-unknown-linux-gnu` and `aarch64-unknown-linux-musl` (a static musl
 on the Alpine boxes too). The `mfb` test binary is OOM-killed with debug info on this box: test with
 `CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0`. `kernel.yama.ptrace_scope` is 0 there, so
 `mfb dbg <pid>` can attach; 2224's is 1 (only children).
+**Never fire a hardware watchpoint on 2224** (`mfb dbg`'s `wp`, gdb's `watch`): the guest freezes
+at 100% CPU and needs a restart from UTM (2026-10-07, three times). The same `wp` session works on 2226.
 
 **Prefer 2223 for a Linux `cargo` row.** Its aarch64 release build completed a clean
 archived tree and native `os::prog` proof on 2026-09-10. Use 2227 when its x86_64 musl
