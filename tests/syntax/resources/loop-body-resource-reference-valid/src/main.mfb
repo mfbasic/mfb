@@ -1,0 +1,61 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+IMPORT canvas
+IMPORT color
+
+' bug-852's loop back-edge rule carries only real moves of an outer resource round
+' the loop: a close, a `RES` rebind. Every shape below only places a REFERENCE to
+' the outer resource on each pass (§15.6), so none is a use after move. The first
+' cut of the rule also carried the moves a consuming parameter makes through
+' containment (`canvas::setGroup` taking over what its items name), which refused
+' the canvas rebuild-every-frame loop (`tests/canvas/rt_canvas_group_ownership.rs`).
+
+TYPE Holder
+  handle AS RES fs::File
+END TYPE
+
+UNION Slot
+  Holder
+END UNION
+
+FUNC use(f AS fs::File) AS Integer
+  RETURN 1
+END FUNC
+
+FUNC placements(p AS String) AS Integer
+  RES f AS fs::File = fs::openFile(p)
+  MUT xs AS List OF RES fs::File = []
+  MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}
+  MUT n AS Integer = 0
+  FOR i = 1 TO 3
+    LET h AS Holder = Holder[f]
+    LET s AS Slot = h
+    LET lit AS List OF RES fs::File = [f]
+    LET mlit AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { "k" := f }
+    xs = collections::append(xs, f)
+    xs = collections::insert(xs, 0, f)
+    m = collections::set(m, toString(i), f)
+    n = n + use(f) + use(h.handle) + len(lit) + len(mlit)
+    LET g = LAMBDA() -> use(f)
+    n = n + g()
+  NEXT
+  RETURN n + len(xs) + len(m)
+END FUNC
+
+' The canvas shape: a group rebuilt every frame from one outer font.
+FUNC frames() AS Integer
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    RETURN 0
+  END TRAP
+  FOR i = 1 TO 6
+    LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
+    canvas::setGroup("panel", [tag])
+  NEXT
+  RETURN 1
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(placements("in.txt") + frames()))
+  RETURN 0
+END FUNC
