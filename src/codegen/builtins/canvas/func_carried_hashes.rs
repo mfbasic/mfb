@@ -35,9 +35,10 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// The union tag of `DrawItem` variant `name`, as the type model numbers it.
+/// The union tag of `DrawItem` variant `name`, as the type model numbers it. Qualified
+/// first: a bare `Circle` in the model is a user union's variant (`geo_build::variant`).
 fn variant_tag(builder: &CodeBuilder, name: &str) -> Result<usize, String> {
-    for spelling in [name.to_string(), format!("canvas.{name}")] {
+    for spelling in [format!("canvas.{name}"), name.to_string()] {
         if let Some(tag) = builder
             .type_model
             .union_variant_tags
