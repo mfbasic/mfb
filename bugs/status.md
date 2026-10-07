@@ -24,8 +24,8 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [~] integration fix: a closure may not capture a ThreadWorker (975 × 843 interaction; capture check now shares the List-element predicate)
 [ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
 [~] Golden proofs done (131 goldens, each attributed), committed in staging
-[ ] Full gate #1: 2 real failures (bug-852 over-rejects a resource placed in a record inside a loop → agent F fixing) + 2 pre-existing flakes filed (1003, 1004)
-[ ] Re-prove goldens, full gate #2, then merge to main → then PAUSE (owner request)
+[~] Full gate #1: 2 real failures (bug-852 over-carried a consuming call's take-over round the loop) → fixed by agent F, reviewed, merged; + 2 pre-existing flakes filed (1003, 1004)
+[ ] Full gate #2 running (main merged in; artifact-gate clean), then merge to main → then PAUSE (owner request)
 
 **P3: Networking and HTTP**
 [ ] 979 first: it takes over the validation half of 872 and shares an oracle with 868 (if 868 didn't land in P1).
