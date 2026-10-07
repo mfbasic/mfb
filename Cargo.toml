@@ -1091,6 +1091,10 @@ name = "rt_runtime_helper_callee_saved"
 path = "tests/runtime/rt_runtime_helper_callee_saved.rs"
 
 [[test]]
+name = "rt_foreign_entry_callee_saved"
+path = "tests/runtime/rt_foreign_entry_callee_saved.rs"
+
+[[test]]
 name = "rt_compress_throughput"
 path = "tests/runtime/rt_compress_throughput.rs"
 
