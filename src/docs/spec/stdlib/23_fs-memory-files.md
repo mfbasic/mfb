@@ -32,8 +32,8 @@ closes — including when the process dies.
 | OS | backing |
 |---|---|
 | Linux | `memfd_create("mfb-data", MFD_CLOEXEC)` through libc `syscall()` (number 319 on x86-64, 279 on AArch64 and RISC-V; glibc and musl both export `syscall`) |
-| macOS | a `0600` file created exclusively (`O_CREAT|O_EXCL`) in the user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`) as `mfb-data-<uuid v4>.tmp`, and unlinked as soon as the mode handle is open |
-| Windows | `CreateFileW(CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE)` in `GetTempPathW`, same name shape |
+| macOS | a `0600` file created exclusively (`O_CREAT\|O_EXCL`) in the user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`) as `mfb-data-<uuid v4>.tmp`, and unlinked as soon as the mode handle is open |
+| Windows | `CreateFileW(CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY \| FILE_FLAG_DELETE_ON_CLOSE)` in `GetTempPathW`, same name shape |
 
 macOS has no memory-only equivalent that works here: a POSIX `shm_open` descriptor
 refuses `read`/`write` (`ENXIO`) and `lseek` (`ESPIPE`) — measured with a C probe on

@@ -210,8 +210,8 @@ loop before `queue_draw`, so a draw can never observe a half-written frame
 | 1120 | `ST_TERM_ACTIVE` | 1 while term:: is on |
 | 1128 | `ST_TERM_ROW` | cursor row |
 | 1136 | `ST_TERM_COL` | cursor col |
-| 1144 | `ST_TERM_CUR_FG` | current fg (packed `| COLOR_SET`) |
-| 1152 | `ST_TERM_CUR_BG` | current bg (packed `| COLOR_SET`) |
+| 1144 | `ST_TERM_CUR_FG` | current fg (packed `\| COLOR_SET`) |
+| 1152 | `ST_TERM_CUR_BG` | current bg (packed `\| COLOR_SET`) |
 | 1160 | `ST_TERM_CUR_BOLD` | current bold flag |
 | 1168 | `ST_TERM_CUR_UNDERLINE` | current underline flag |
 | 1176 | `ST_TERM_CURSOR_VISIBLE` | cursor visibility |

@@ -110,7 +110,7 @@ encoder. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
 | `StrU16` | `str_u16` | `src`,`base`,`offset` | `0x79000000` | scale 2; `src=Rt` |
 | `StrU8` | `str_u8` | `src`,`base`,`offset` | `0x39000000` | scale 1 |
 | `Adrp` | `adrp` | `dst`,`symbol` | `0x90000000` | emits a `page21` relocation |
-| `AddPageOff` | `add_pageoff` | `dst`,`symbol` | `0x91000000`+`(Rd<<5)|Rd` | emits a `pageoff12` relocation |
+| `AddPageOff` | `add_pageoff` | `dst`,`symbol` | `0x91000000`+`(Rd<<5)\|Rd` | emits a `pageoff12` relocation |
 | `FMovXFromD` | `fmov_x_from_d` | `dst`,`src` | `0x9E660000` | `Xd ← Dn` bits |
 | `FMovDFromX` | `fmov_d_from_x` | `dst`,`src` | `0x9E670000` | `Dd ← Xn` bits |
 | `FAddD` | `fadd_d` | `dst`,`lhs`,`rhs` | `0x1E602800` | double add |
@@ -212,7 +212,7 @@ ops: `Vd=bits[4:0]`, `Vn=bits[9:5]`, `Vm=bits[20:16]`.
 | `FNmsubD` | `fnmsub_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F408000` | `dst = addend - lhs*rhs` (selects FMSUB) |
 | `FNmaddD` | `fnmadd_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F600000` | `dst = -(lhs*rhs) - addend` (FNMADD) |
 
-The four scalar FMA ops share the `Dm<<16 \| Da<<10 \| Dn<<5 \| Dd` layout and one
+The four scalar FMA ops share the `Dm<<16 | Da<<10 | Dn<<5 | Dd` layout and one
 round. The neutral MIR mnemonic names the *result*; the AArch64 instruction that
 computes it is not always the same name (MIR `fmsub_d` = `lhs*rhs − addend` is
 AArch64 `FNMSUB`; MIR `fnmsub_d` = `addend − lhs*rhs` is `FMSUB`) — the mapping is

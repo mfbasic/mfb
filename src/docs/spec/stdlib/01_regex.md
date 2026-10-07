@@ -96,7 +96,7 @@ record is spelled `MatchInfo`.[[src/codegen/builtins/regex/mod.rs:MatchInfo]]
 | Type | Fields |
 |------|--------|
 | `regex.Group` | `start AS Integer`, `endIndex AS Integer`, `text AS String` |
-| `regex.MatchInfo` | `start AS Integer`, `endIndex AS Integer`, `text AS String`, `groups AS List OF Group`, `names AS Map OF String TO Integer` |[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
+| `regex.MatchInfo` | `start AS Integer`, `endIndex AS Integer`, `text AS String`, `groups AS List OF Group`, `names AS Map OF String TO Integer` [[src/codegen/builtins/regex/func_find.rs:__regex_find]] |
 
 Errors use `FAIL error(code, ...)`: `77050003` invalid pattern, `77050001` `start` index
 out of range, `77050002` (`ErrInvalidArgument`) raised by `count`, `split` and `replace`
