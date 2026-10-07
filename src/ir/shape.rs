@@ -590,6 +590,29 @@ impl builtins::TypeKinds for ShapeKinds<'_> {
             })
             .is_some_and(|shape| shape.is_enum)
     }
+
+    /// bug-988: a declared or imported union's variant list, spelled as the
+    /// compatibility rule's union arm matches it (qualified or bare), else the
+    /// built-in packages' unions.
+    fn union_accepts(&self, union: &ParameterType, actual: &ParameterType) -> bool {
+        let union = union.without_state();
+        let actual = actual.without_state();
+        let union_name = union.name();
+        let actual_name = actual.name();
+        let union_bare = builtins::builtin_qualified_bare_leaf(&union_name);
+        let actual_bare = builtins::builtin_qualified_bare_leaf(&actual_name);
+        let declared =
+            self.0
+                .get(&union)
+                .or_else(|| self.0.get(&ParameterType::named(union_bare)))
+                .is_some_and(|shape| {
+                    shape.is_union
+                        && shape.variants.iter().any(|variant| {
+                            variant == actual_name.as_ref() || variant == actual_bare
+                        })
+                });
+        declared || crate::codegen::registry::registry_union_accepts(&union, &actual)
+    }
 }
 
 /// How a block ends, as the source checker judged it.
@@ -2416,6 +2439,11 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
+            // bug-988: a union-variant list literal at a `List OF T` position
+            // (`append(shapes, [Square[2.0]])`) is accepted as the union's list when
+            // only typing it bottom-up stood in the way. Lowering relaxes the same
+            // literal the same way, so it lowers that literal against the union's
+            // list and wraps each element.
             if builtins::resolve_call_return_type_with_kinds(
                 canonical,
                 &arg_types,
@@ -2423,6 +2451,15 @@ impl<'a> Walker<'a> {
                 &ShapeKinds(&self.types),
             )
             .is_none()
+                && lower::union_literal_call_types(
+                    canonical,
+                    normalized,
+                    &arg_types,
+                    true,
+                    locals,
+                    &self.context,
+                )
+                .is_none()
             {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);

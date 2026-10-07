@@ -541,6 +541,19 @@ pub(crate) trait TypeKinds {
     /// kind, never from "is a declared type": a record that answered `true` would
     /// silently lose a user override at monomorph's gap-fill check.
     fn is_enum(&self, t: &crate::types::ParameterType) -> bool;
+
+    /// Whether the union `union` has `actual` among its variants, so a value of type
+    /// `actual` is accepted where `union` is expected (and lowering wraps it). A
+    /// generic call's top-level type variable bound to a union asks this (bug-988).
+    /// The default knows only the built-in packages' unions; an oracle over declared
+    /// types answers for a user union too.
+    fn union_accepts(
+        &self,
+        union: &crate::types::ParameterType,
+        actual: &crate::types::ParameterType,
+    ) -> bool {
+        crate::codegen::registry::registry_union_accepts(union, actual)
+    }
 }
 
 /// The oracle that knows no declared kinds: every `is_enum` is `false`.
@@ -599,7 +612,9 @@ pub(crate) fn resolve_call_return_type_with_kinds(
         return crate::codegen::builtins::regex::resolve_return_type(callee, arg_types, strict);
     }
     if crate::codegen::registry::registry().is_member(callee) {
-        return crate::codegen::registry::resolve_call_typed(callee, arg_types, strict);
+        return crate::codegen::registry::resolve_call_typed_with_kinds(
+            callee, arg_types, strict, kinds,
+        );
     }
     None
 }
@@ -805,8 +820,73 @@ pub(crate) fn resolved_argument_type(
     index: usize,
     arg_types: &[crate::types::ParameterType],
     expected_return: Option<&crate::types::ParameterType>,
+    kinds: &dyn TypeKinds,
 ) -> Option<crate::types::ParameterType> {
-    crate::codegen::registry::resolved_parameter_type(callee, index, arg_types, expected_return)
+    crate::codegen::registry::resolved_parameter_type(
+        callee,
+        index,
+        arg_types,
+        expected_return,
+        kinds,
+    )
+}
+
+/// bug-988: a generic built-in call's argument types with every list-literal
+/// argument relaxed to `List OF Unknown`, when that is what lets the call resolve
+/// and each relaxed literal's elements are the element type the call gives its
+/// position, or members of it (`TypeKinds::union_accepts`).
+///
+/// A list literal types bottom-up from its first element, so `[Square[2.0]]` is
+/// `List OF Square`, and `append(List OF Shape, List OF Square)` binds `T` twice,
+/// to two different types. The literal's elements are lowered one by one against
+/// the expected element type, though, exactly as `LET xs AS List OF Shape =
+/// [Square[2.0]]` lowers them, so the literal can BE a `List OF Shape`. Relaxing
+/// only the literal lets the other arguments decide `T`. A list VALUE is never
+/// relaxed: a `List OF Square` variable has no conversion (bug-989).
+///
+/// `literal_elements[i]` is `Some(element types)` when argument `i` is a non-empty
+/// list literal (an element whose type is unknown is `None`), else `None`. The
+/// answer is `None` when no argument is such a literal, when the call does not
+/// resolve even relaxed, or when an element is neither the element type nor a
+/// member of it — every case where relaxing would change nothing or accept a
+/// literal its position cannot hold.
+pub(crate) fn union_literal_relaxed_arg_types(
+    callee: &str,
+    arg_types: &[crate::types::ParameterType],
+    literal_elements: &[Option<Vec<Option<crate::types::ParameterType>>>],
+    strict: bool,
+    kinds: &dyn TypeKinds,
+) -> Option<Vec<crate::types::ParameterType>> {
+    use crate::types::ParameterType;
+    let literal = |index: usize| literal_elements.get(index).and_then(Option::as_ref);
+    let relaxed: Vec<ParameterType> = arg_types
+        .iter()
+        .enumerate()
+        .map(|(index, type_)| match literal(index) {
+            Some(_) => ParameterType::list_of(ParameterType::Unknown),
+            None => type_.clone(),
+        })
+        .collect();
+    if relaxed == arg_types {
+        return None;
+    }
+    resolve_call_return_type_with_kinds(callee, &relaxed, strict, kinds)?;
+    for (index, elements) in (0..arg_types.len()).filter_map(|i| Some((i, literal(i)?))) {
+        let Some(ParameterType::ListOf(element)) =
+            resolved_argument_type(callee, index, &relaxed, None, kinds)
+        else {
+            return None;
+        };
+        let fits = elements.iter().all(|value_type| {
+            value_type.as_ref().is_some_and(|value_type| {
+                value_type == element.as_ref() || kinds.union_accepts(&element, value_type)
+            })
+        });
+        if !fits {
+            return None;
+        }
+    }
+    Some(relaxed)
 }
 
 /// Whether parameter `index` of the built-in `callee` is a compiler-known

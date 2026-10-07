@@ -136,6 +136,7 @@ pub(crate) type MfbFastPath =
 // A [`Parameter`]'s type is [`crate::types::ParameterType`] — the compiler-wide type
 // vocabulary (see that module for why it lives outside `codegen`). Imported for the
 // registry's own use; not re-exported, so callers name it as `crate::types::ParameterType`.
+use crate::codegen::builtins::{NoTypeKinds, TypeKinds};
 use crate::intern::Symbol;
 use crate::types::ParameterType;
 
@@ -531,7 +532,17 @@ impl RegistryFunction {
     /// `None` when no overload accepts the call, which the type checker turns into an
     /// arity / argument-type error. Use this to answer "do these concrete args match?".
     pub(crate) fn resolve(&self, call: &CallShape) -> Option<Selection<'_>> {
-        self.match_overload(call, true)
+        self.match_overload(call, true, &NoTypeKinds)
+    }
+
+    /// [`resolve`](Self::resolve) with the caller's declared-type oracle, so a top-level
+    /// type variable bound to a union accepts a variant of it (bug-988).
+    pub(crate) fn resolve_with_kinds(
+        &self,
+        call: &CallShape,
+        kinds: &dyn TypeKinds,
+    ) -> Option<Selection<'_>> {
+        self.match_overload(call, true, kinds)
     }
 
     /// LENIENT overload resolution for **dispatch / return-type inference**: like
@@ -541,7 +552,16 @@ impl RegistryFunction {
     /// feeds IR lowering / codegen — because rejecting it there perturbs type propagation
     /// on valid programs. Validation strictness belongs on [`resolve`](Self::resolve).
     pub(crate) fn dispatch(&self, call: &CallShape) -> Option<Selection<'_>> {
-        self.match_overload(call, false)
+        self.match_overload(call, false, &NoTypeKinds)
+    }
+
+    /// [`dispatch`](Self::dispatch) with the caller's declared-type oracle (bug-988).
+    pub(crate) fn dispatch_with_kinds(
+        &self,
+        call: &CallShape,
+        kinds: &dyn TypeKinds,
+    ) -> Option<Selection<'_>> {
+        self.match_overload(call, false, kinds)
     }
 
     /// The overload this call resolves to: the first implementation whose arity and
@@ -554,7 +574,12 @@ impl RegistryFunction {
     /// the case with no type variables. `get(List OF T, Integer) AS T` called with
     /// `["List OF Integer", "Integer"]` selects the list overload, binds `T = Integer`,
     /// and reports the return type `Integer`, with no per-package resolver.
-    fn match_overload(&self, call: &CallShape, strict: bool) -> Option<Selection<'_>> {
+    fn match_overload(
+        &self,
+        call: &CallShape,
+        strict: bool,
+        kinds: &dyn TypeKinds,
+    ) -> Option<Selection<'_>> {
         for implementation in &self.implementations {
             let required = implementation
                 .params
@@ -570,7 +595,7 @@ impl RegistryFunction {
                 .params
                 .iter()
                 .zip(call.args.iter())
-                .all(|(param, arg)| unify(&param.ty, arg, &mut bindings, strict));
+                .all(|(param, arg)| unify_with_kinds(&param.ty, arg, &mut bindings, strict, kinds));
             if !unifies {
                 continue;
             }
@@ -2628,6 +2653,17 @@ fn value_type_accepts(declared: &str, concrete: &ParameterType) -> Option<bool> 
     }
 }
 
+/// Whether `union` names a REGISTRY union (a built-in package's, `canvas.DrawItem`)
+/// that has `actual` among its variants — the answer [`TypeKinds::union_accepts`] gives
+/// when the caller's oracle knows no declared unions (bug-988).
+pub(crate) fn registry_union_accepts(union: &ParameterType, actual: &ParameterType) -> bool {
+    let union = union.without_state().name().into_owned();
+    matches!(
+        registry().resolve_type(&union),
+        Some(ResolvedType::Union(_))
+    ) && value_type_accepts(&union, actual) == Some(true)
+}
+
 /// Whether `name` (a parameter's type leaf, possibly carrying a `STATE` clause) names a
 /// resource handle — a legacy builtin resource (`net.Socket`) or a migrated-package
 /// resource registered via [`RegistryPackage::add_resource`] (`fs.File`, addressed by its
@@ -2661,7 +2697,65 @@ fn unify(
     bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
 ) -> bool {
-    unify_at(pattern, concrete, bindings, strict, NothingBinding::Allowed)
+    unify_with_kinds(pattern, concrete, bindings, strict, &NoTypeKinds)
+}
+
+/// [`unify`] with the caller's declared-type oracle. `kinds` answers whether a union
+/// accepts a variant ([`TypeKinds::union_accepts`]): a type variable that occurs as a
+/// WHOLE parameter (`append`'s item `T`), already bound to a union, accepts a value of
+/// one of that union's variants and stays bound to the union, so the argument's expected
+/// type is the union and lowering wraps it (bug-988). Nowhere else — see
+/// [`VarPosition`].
+fn unify_with_kinds(
+    pattern: &ParameterType,
+    concrete: &ParameterType,
+    bindings: &mut BTreeMap<Symbol, ParameterType>,
+    strict: bool,
+    kinds: &dyn TypeKinds,
+) -> bool {
+    unify_at(
+        pattern,
+        concrete,
+        bindings,
+        strict,
+        NothingBinding::Allowed,
+        Position {
+            kinds,
+            var: VarPosition::WholeParameter,
+        },
+    )
+}
+
+/// Where a type variable sits in the parameter being unified (bug-988).
+///
+/// Union-variant subsumption is a per-VALUE conversion: lowering realizes it by
+/// wrapping that one value (`UnionWrap`). A variable that IS the whole parameter
+/// (`append(List OF T, T)`'s item) receives exactly one value, so a variant there can
+/// be wrapped into the union `T` is bound to. Inside a container or callable
+/// (`List OF T`, `FUNC(T) AS U`) the variant would have to be converted element by
+/// element, and no such conversion exists: accepting `append(shapes, squares)` with
+/// `squares AS List OF Square` stores untagged records in a `List OF Shape`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VarPosition {
+    WholeParameter,
+    Nested,
+}
+
+/// The per-position context [`unify_at`] threads: the declared-type oracle and
+/// whether a variable met here is the whole parameter.
+#[derive(Clone, Copy)]
+struct Position<'k> {
+    kinds: &'k dyn TypeKinds,
+    var: VarPosition,
+}
+
+impl<'k> Position<'k> {
+    fn nested(self) -> Position<'k> {
+        Position {
+            var: VarPosition::Nested,
+            ..self
+        }
+    }
 }
 
 /// Whether a type variable met at this position may bind to `Nothing` under STRICT
@@ -2689,15 +2783,16 @@ fn unify_at(
     bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
     nothing: NothingBinding,
+    at: Position<'_>,
 ) -> bool {
     // `RES ` is transparent to unification (historically stripped by `parse` before
     // the matcher): unwrap it on either side so a `Var` binds to the unwrapped inner
     // (dropping the marker, exactly as before) and container recursion is unperturbed.
     if let ParameterType::Res(inner) = concrete {
-        return unify_at(pattern, inner, bindings, strict, nothing);
+        return unify_at(pattern, inner, bindings, strict, nothing, at);
     }
     if let ParameterType::Res(inner) = pattern {
-        return unify_at(inner, concrete, bindings, strict, nothing);
+        return unify_at(inner, concrete, bindings, strict, nothing, at);
     }
     // plan-156-E: a thread view's STATE is the view's own, not part of its channel
     // types, so a thread-handle pattern matches a stateful view by its handle (and
@@ -2707,7 +2802,7 @@ fn unify_at(
         if matches!(**base, ParameterType::ThreadHandle { .. })
             && !matches!(pattern, ParameterType::Var(_))
         {
-            return unify_at(pattern, base, bindings, strict, nothing);
+            return unify_at(pattern, base, bindings, strict, nothing, at);
         }
     }
     if matches!(concrete, ParameterType::Unknown) {
@@ -2746,10 +2841,19 @@ fn unify_at(
                 }
                 // A re-occurring variable must match its binding — but resource element
                 // types compare STATE/ownership-agnostically (bug-427): a bound element
-                // `Handle STATE Cursor` accepts an item spelled `Handle`, mirroring
-                // `general::element_accepts_item`. `resource_base_eq` is plain `==` for
-                // every non-resource type.
-                Some(bound) => resource_base_eq(bound, concrete),
+                // `Handle STATE Cursor` accepts an item spelled `Handle`
+                // (`resource_base_eq`, plain `==` for every non-resource type).
+                //
+                // bug-988: a variable that is the whole parameter, bound to a union,
+                // also accepts a value of one of its variants, and stays bound to the
+                // union — `append(List OF Shape, Square)` is `T = Shape`, so the item's
+                // expected type is `Shape` and lowering wraps it. Never in a nested
+                // position ([`VarPosition`]).
+                Some(bound) => {
+                    resource_base_eq(bound, concrete)
+                        || (at.var == VarPosition::WholeParameter
+                            && at.kinds.union_accepts(bound, concrete))
+                }
                 None => {
                     bindings.insert(*name, concrete.clone());
                     true
@@ -2762,6 +2866,7 @@ fn unify_at(
             bindings,
             strict,
             NothingBinding::Allowed,
+            at.nested(),
         ),
         (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => unify_at(
             elem,
@@ -2769,29 +2874,44 @@ fn unify_at(
             bindings,
             strict,
             NothingBinding::Allowed,
+            at.nested(),
         ),
         (ParameterType::MapOf(key, value), ParameterType::MapOf(concrete_key, concrete_value)) => {
-            unify_at(key, concrete_key, bindings, strict, NothingBinding::Allowed)
-                && unify_at(
-                    value,
-                    concrete_value,
-                    bindings,
-                    strict,
-                    NothingBinding::Allowed,
-                )
+            unify_at(
+                key,
+                concrete_key,
+                bindings,
+                strict,
+                NothingBinding::Allowed,
+                at.nested(),
+            ) && unify_at(
+                value,
+                concrete_value,
+                bindings,
+                strict,
+                NothingBinding::Allowed,
+                at.nested(),
+            )
         }
         (
             ParameterType::MapEntryOf(key, value),
             ParameterType::MapEntryOf(concrete_key, concrete_value),
         ) => {
-            unify_at(key, concrete_key, bindings, strict, NothingBinding::Allowed)
-                && unify_at(
-                    value,
-                    concrete_value,
-                    bindings,
-                    strict,
-                    NothingBinding::Allowed,
-                )
+            unify_at(
+                key,
+                concrete_key,
+                bindings,
+                strict,
+                NothingBinding::Allowed,
+                at.nested(),
+            ) && unify_at(
+                value,
+                concrete_value,
+                bindings,
+                strict,
+                NothingBinding::Allowed,
+                at.nested(),
+            )
         }
         (ParameterType::ResultOf(success), ParameterType::ResultOf(concrete_success)) => unify_at(
             success,
@@ -2799,6 +2919,7 @@ fn unify_at(
             bindings,
             strict,
             NothingBinding::Allowed,
+            at.nested(),
         ),
         // A user generic unifies head-then-arguments, exactly like the container arms
         // (plan-105-B). Same template name and same arity, then each argument
@@ -2810,10 +2931,9 @@ fn unify_at(
         ) => {
             name == concrete_name
                 && args.len() == concrete_args.len()
-                && args
-                    .iter()
-                    .zip(concrete_args.iter())
-                    .all(|(a, c)| unify_at(a, c, bindings, strict, NothingBinding::Allowed))
+                && args.iter().zip(concrete_args.iter()).all(|(a, c)| {
+                    unify_at(a, c, bindings, strict, NothingBinding::Allowed, at.nested())
+                })
         }
         (
             ParameterType::Func(params, ret, isolated),
@@ -2828,11 +2948,17 @@ fn unify_at(
             // (`thread::start`'s worker) accepts only an isolated concrete.
             (!isolated || *concrete_isolated)
                 && params.len() == concrete_params.len()
-                && params
-                    .iter()
-                    .zip(concrete_params.iter())
-                    .all(|(p, c)| unify_at(p, c, bindings, strict, NothingBinding::Allowed))
-                && unify_at(ret, concrete_ret, bindings, strict, NothingBinding::Refused)
+                && params.iter().zip(concrete_params.iter()).all(|(p, c)| {
+                    unify_at(p, c, bindings, strict, NothingBinding::Allowed, at.nested())
+                })
+                && unify_at(
+                    ret,
+                    concrete_ret,
+                    bindings,
+                    strict,
+                    NothingBinding::Refused,
+                    at.nested(),
+                )
         }
         // Two thread handles unify structurally, exactly like the container arms: the
         // kind (parent `Thread` vs worker `ThreadWorker`) must match — the two never
@@ -2857,9 +2983,9 @@ fn unify_at(
             },
         ) => {
             p_worker == c_worker
-                && thread_slot_unifies(p_msg, c_msg, bindings, strict)
-                && thread_slot_unifies(p_out, c_out, bindings, strict)
-                && thread_slot_unifies(p_res, c_res, bindings, strict)
+                && thread_slot_unifies(p_msg, c_msg, bindings, strict, at)
+                && thread_slot_unifies(p_out, c_out, bindings, strict, at)
+                && thread_slot_unifies(p_res, c_res, bindings, strict, at)
         }
         // A container/function/thread pattern against a non-matching concrete fails.
         (
@@ -2892,15 +3018,23 @@ fn thread_slot_unifies(
     concrete: &ParameterType,
     bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
+    at: Position<'_>,
 ) -> bool {
     if matches!(pattern, ParameterType::Unknown) {
         return true;
     }
-    unify_at(pattern, concrete, bindings, strict, NothingBinding::Refused)
+    unify_at(
+        pattern,
+        concrete,
+        bindings,
+        strict,
+        NothingBinding::Refused,
+        at.nested(),
+    )
 }
 
-/// STATE/ownership-agnostic type equality, matching
-/// `general::element_accepts_item`: two resource types with the same base name (a
+/// STATE/ownership-agnostic type equality (bug-427): two resource types with the same
+/// base name (a
 /// trailing `STATE T` clause stripped) are compatible, and every non-resource type
 /// reduces to plain `==` (`base_resource_name` is the identity there).
 fn resource_base_eq(a: &ParameterType, b: &ParameterType) -> bool {
@@ -3156,10 +3290,21 @@ pub(crate) fn resolve_call_typed(
     arg_types: &[ParameterType],
     strict: bool,
 ) -> Option<ParameterType> {
+    resolve_call_typed_with_kinds(qualified, arg_types, strict, &NoTypeKinds)
+}
+
+/// [`resolve_call_typed`] with the caller's declared-type oracle, which lets a
+/// top-level type variable bound to a union accept one of its variants (bug-988).
+pub(crate) fn resolve_call_typed_with_kinds(
+    qualified: &str,
+    arg_types: &[ParameterType],
+    strict: bool,
+    kinds: &dyn TypeKinds,
+) -> Option<ParameterType> {
     let call = CallShape {
         args: arg_types.to_vec(),
     };
-    resolved_return_type(qualified, &call, strict).map(|return_type| match return_type {
+    resolved_return_type(qualified, &call, strict, kinds).map(|return_type| match return_type {
         ParameterType::Arg(n) => arg_types[n].clone(),
         other => other,
     })
@@ -3171,7 +3316,12 @@ pub(crate) fn resolve_call_typed(
 /// marker, which each entry point resolves against its own argument
 /// representation (the string form echoes the caller's original string
 /// verbatim; the typed form echoes the typed argument).
-fn resolved_return_type(qualified: &str, call: &CallShape, strict: bool) -> Option<ParameterType> {
+fn resolved_return_type(
+    qualified: &str,
+    call: &CallShape,
+    strict: bool,
+    kinds: &dyn TypeKinds,
+) -> Option<ParameterType> {
     let function = registry().resolve_func(qualified)?.function;
     // `strict` (argument validation) rejects a scalar-for-nominal argument; the lenient
     // mode (return-type inference feeding IR lowering / codegen) coarsely accepts it.
@@ -3182,9 +3332,11 @@ fn resolved_return_type(qualified: &str, call: &CallShape, strict: bool) -> Opti
     // inferred return type (`Integer`) and the body that runs (`__crypto_randomIntBig`)
     // would come from two different implementations.
     let selection = if strict {
-        function.resolve(call)
+        function.resolve_with_kinds(call, kinds)
     } else {
-        function.resolve(call).or_else(|| function.dispatch(call))
+        function
+            .resolve_with_kinds(call, kinds)
+            .or_else(|| function.dispatch_with_kinds(call, kinds))
     };
     selection.map(|selection| selection.return_type)
 }
@@ -3578,6 +3730,7 @@ pub(crate) fn resolved_parameter_type(
     index: usize,
     arg_types: &[ParameterType],
     expected_return: Option<&ParameterType>,
+    kinds: &dyn TypeKinds,
 ) -> Option<ParameterType> {
     let function = registry().resolve_func(qualified)?.function;
     let mut agreed: Option<ParameterType> = None;
@@ -3597,7 +3750,7 @@ pub(crate) fn resolved_parameter_type(
                 other => Some(other),
             };
             if let Some(pattern) = pattern {
-                if !unify(pattern, expected, &mut bindings, false) {
+                if !unify_with_kinds(pattern, expected, &mut bindings, false, kinds) {
                     continue;
                 }
             }
@@ -3606,7 +3759,7 @@ pub(crate) fn resolved_parameter_type(
             .params
             .iter()
             .zip(arg_types.iter())
-            .all(|(param, arg)| unify(&param.ty, arg, &mut bindings, false))
+            .all(|(param, arg)| unify_with_kinds(&param.ty, arg, &mut bindings, false, kinds))
         {
             continue;
         }
@@ -5884,6 +6037,7 @@ mod tests {
                 0,
                 &[unknown_list.clone(), ParameterType::Integer],
                 None,
+                &NoTypeKinds,
             ),
             Some(list_of(ParameterType::Integer)),
             "T refines Unknown -> Integer, so parameter 0 is List OF Integer"
@@ -5900,6 +6054,7 @@ mod tests {
                 0,
                 &[unknown_list.clone(), string_list.clone()],
                 None,
+                &NoTypeKinds,
             ),
             None,
             "an ambiguous generic position declines"
@@ -5914,6 +6069,7 @@ mod tests {
                 0,
                 &[unknown_list.clone(), string_list.clone()],
                 Some(&string_list),
+                &NoTypeKinds,
             ),
             Some(string_list.clone()),
             "the expected return type seeds the unification"
@@ -5923,9 +6079,120 @@ mod tests {
         // existing providers answer it, and a position they deliberately decline
         // must keep going through the existing selection path.
         assert_eq!(
-            resolved_parameter_type("strings.upper", 0, &[ParameterType::String], None),
+            resolved_parameter_type(
+                "strings.upper",
+                0,
+                &[ParameterType::String],
+                None,
+                &NoTypeKinds,
+            ),
             None,
             "a non-generic parameter declines"
+        );
+    }
+
+    /// bug-988: an oracle in which `U` is a union whose one variant is `V`.
+    struct UnionUOverV;
+
+    impl TypeKinds for UnionUOverV {
+        fn is_enum(&self, _t: &ParameterType) -> bool {
+            false
+        }
+
+        fn union_accepts(&self, union: &ParameterType, actual: &ParameterType) -> bool {
+            union.is_named("U") && actual.is_named("V")
+        }
+    }
+
+    #[test]
+    fn a_top_level_variable_bound_to_a_union_accepts_its_variant() {
+        let union = ParameterType::named("U");
+        let variant = ParameterType::named("V");
+        let other = ParameterType::named("W");
+        let union_list = list_of(union.clone());
+        // (a) `append(List OF U, V)`: `T = U` from the list, the item `V` is a
+        // variant, so the item's expected type is the union and lowering wraps it.
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                1,
+                &[union_list.clone(), variant.clone()],
+                Some(&union_list),
+                &UnionUOverV,
+            ),
+            Some(union.clone()),
+        );
+        assert_eq!(
+            resolve_call_typed_with_kinds(
+                "collections.append",
+                &[union_list.clone(), variant.clone()],
+                true,
+                &UnionUOverV,
+            ),
+            Some(union_list.clone()),
+        );
+        // Without the oracle nothing changes: identity rebinding rejects it.
+        assert_eq!(
+            resolve_call_typed(
+                "collections.append",
+                &[union_list.clone(), variant.clone()],
+                true
+            ),
+            None,
+        );
+        // (b) A `List OF V` VALUE at the nested `List OF T` stays rejected: no
+        // conversion turns its untagged records into union elements.
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                1,
+                &[union_list.clone(), list_of(variant.clone())],
+                Some(&union_list),
+                &UnionUOverV,
+            ),
+            None,
+        );
+        assert_eq!(
+            resolve_call_typed_with_kinds(
+                "collections.append",
+                &[union_list.clone(), list_of(variant.clone())],
+                true,
+                &UnionUOverV,
+            ),
+            None,
+        );
+        // (c) A type that is not a variant of `U` stays rejected.
+        assert_eq!(
+            resolve_call_typed_with_kinds(
+                "collections.append",
+                &[union_list.clone(), other],
+                true,
+                &UnionUOverV,
+            ),
+            None,
+        );
+        // A built-in package's union needs no declared-type oracle: the default
+        // `union_accepts` reads the registry (`canvas::DrawItem`, bug-988's report).
+        let draw_items = list_of(ParameterType::named("canvas.DrawItem"));
+        assert_eq!(
+            resolve_call_typed_with_kinds(
+                "collections.append",
+                &[draw_items.clone(), ParameterType::named("canvas.Rectangle")],
+                true,
+                &NoTypeKinds,
+            ),
+            Some(draw_items),
+        );
+        // No least upper bound: a variable bound to the VARIANT does not widen to a
+        // union that arrives later (`reduce`'s variant-first order stays rejected).
+        assert_eq!(
+            resolve_call_typed_with_kinds(
+                "collections.append",
+                &[list_of(variant), union],
+                true,
+                &UnionUOverV,
+            ),
+            None,
         );
     }
 

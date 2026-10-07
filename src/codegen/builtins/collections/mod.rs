@@ -111,6 +111,11 @@ require an orderable element or key type, and `distinct` requires a comparable
 element type. Map helpers operate on `Map OF K TO V` values, where the key type
 `K` is the map's declared key type.
 
+Where a helper takes one element, key or value of a collection whose element
+type is a `UNION` (`append`, `prepend`, `insert`, `set`, `getOr`, `repeat`), a
+value of any of the union's member types is accepted as that union, exactly as
+in `LET s AS Shape = Square[2.0]`.
+
 Predicates and other function arguments are passed as function values: a named
 `FUNC`, a `LAMBDA`, or a general built-in predicate such as `isEven`,
 `isPositive` or `isEmpty`. A built-in predicate resolves against the type

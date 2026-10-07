@@ -20,4 +20,7 @@ map set: circle 1.00, square 11.00
 map getOr hit: square 11.00
 map getOr miss: square 12.00
 in place: [square 13.00] [square 14.00] [square 15.00] [square 16.00]
+unannotated: [circle 1.00] [square 17.00]
+unannotated literal: [circle 1.00] [square 18.00]
+template: square 19.00
 [exit 0]

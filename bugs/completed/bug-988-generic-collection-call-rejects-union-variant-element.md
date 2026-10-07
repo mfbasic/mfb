@@ -1,12 +1,12 @@
 # bug-988: `collections::append`/`prepend`/`insert`/`set` (and every generic `T` slot) reject a union VARIANT value where the collection's element type is the union
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/collections/union-variant-element-insert-rt (new; name suggested), plus registry unit tests beside `resolved_parameter_type_infers_a_generic_position_from_the_call` in `src/codegen/registry/mod.rs`
+Status: Fixed (bs18-agent-j), except `reduce`/`reduceRight` (Open Decision, unchanged — needs the owner's call)
+Regression Test: tests/rt-behavior/collections/union-variant-element-insert-rt, tests/syntax/collections/func_collection_append_union_list_var_invalid, `codegen::registry::tests::a_top_level_variable_bound_to_a_union_accepts_its_variant`
 
 A generic collections member whose element slot is a bare type variable `T` rejects a value of a
 union's **variant** type when the collection's element type is that union. With
@@ -381,3 +381,109 @@ list-covariance hole proves that accepting a variant without a conversion silent
 Acceptance (shape pass) and the expected type (lowering rule 3) share `unify`, so one oracle-aware
 change fixes both. Changing only one of them turns the clean diagnostic into an internal codegen
 error. Comparability gates, resource STATE-agnostic rebinding, and the no-LUB rule are untouched.
+
+## Resolution
+
+Fix Design 1–5, with one change to step 4 (below).
+
+1. `TypeKinds::union_accepts(union, actual)` (`src/codegen/builtins/mod.rs`). Its
+   default answers the built-in packages' unions (`registry::registry_union_accepts`,
+   over `value_type_accepts`), so `NoTypeKinds` and every test oracle need nothing.
+   Overridden by `TypeIndex` (lowering: exactly `variant_belongs_to_union`, the
+   membership `wrap_union_value` wraps by), `ShapeKinds` (shape pass: the union arm's
+   qualified-or-bare variant match), `TypeEnv` (verifier: `union_variants`),
+   `TypeModel` (codegen) and `Monomorphizer` (declared unions through `INCLUDES`).
+   `FieldTypes` keeps the default: codegen sees the call after lowering wrapped the
+   item. Monomorph's `builtin_call_return_type` keeps its kind-less answer and falls
+   back to the union-aware one (and the literal relaxation) only for a non-`general`
+   call that otherwise does not type, so `firstOf(collections::prepend(base,
+   mk(19.0)))` infers `T = Shape` (measured: without it, `cannot infer template
+   arguments from Unknown`).
+2. The oracle is threaded through `unify_with_kinds` / `unify_at`, `match_overload`
+   (`resolve_with_kinds` / `dispatch_with_kinds`), `resolve_call_typed_with_kinds` and
+   `resolved_parameter_type`. `resolve_call_return_type_with_kinds` now forwards its
+   `kinds` to the registry path (it dropped it). The kind-less entry points
+   (`unify`, `resolve`, `dispatch`, `resolve_call_typed`) are unchanged and pass
+   `NoTypeKinds`.
+3. `unify_at` carries a `Position { kinds, var: VarPosition }`. A `Var` that IS the
+   whole parameter, already bound to a union, also accepts a value of one of its
+   variants and stays bound to the union; every container, map, result, user-generic,
+   callable and thread-slot recursion passes `VarPosition::Nested`, where only
+   `resource_base_eq` applies. Lowering's `resolved_generic_argument_type` passes
+   `TypeIndex`, so rule 3 answers `Shape` for the item and it lowers wrapped (bug-990's
+   wrap does the rest).
+4. Changed: the list-literal relaxation lives in ONE function,
+   `builtins::union_literal_relaxed_arg_types` (adapted to HIR arguments by
+   `ir::lower::union_literal_call_types`), used by every seam that must agree: the
+   shape pass (`check_builtin_call`'s collections branch), lowering's return-type oracle
+   (`generic_builtin_call_type`, the `abi_inline` and registry arms of
+   `expression_type`), rule 3 (`resolved_generic_argument_type`) and monomorph's
+   built-in typing. Only when the
+   call does not resolve as typed, every non-empty list-literal argument is retyped
+   `List OF Unknown`; the call is then accepted only if it resolves AND every element
+   of each relaxed literal is the element type the call gives that position or a
+   variant of it. A list VALUE is never relaxed. The doc's step 4 ran the shape pass's
+   `expression_compatible` instead; that predicate accepts `List OF Square` for
+   `List OF Shape` only through bug-989's leak, so it would have tied this fix to the
+   hole bug-989 closes, and it is not visible to lowering's typing.
+5. The dangling `general::element_accepts_item` citations are gone (`unify_at`,
+   `resource_base_eq` now cite bug-427).
+
+Open Decisions:
+
+- **List-literal argument** — accepted, as the Goal lists it
+  (`append(shapes, [Square[2.0]])` and the mixed `[Square[4.0], Circle[5.0]]`).
+- **`reduce`/`reduceRight` with a variant initial value — NOT changed.** The doc leaves
+  it to a recorded decision and none is recorded (`bugs/status.md` "Owner decisions
+  recorded" does not list 988). It still reports `TYPE_CALL_ARGUMENT_MISMATCH` (+
+  `TYPE_UNKNOWN_VALUE`), same as main (`/tmp/bug988/reduce`). The workaround is
+  `LET init AS Shape = Square[2.0]`. The registry unit test pins only the general
+  rule it rests on (no least upper bound: a variable bound to the variant does not
+  widen to a later union).
+
+### Runtime proof
+
+- `tests/rt-behavior/collections/union-variant-element-insert-rt`: `append`
+  (constructor, call result, list literal, mixed literal), `prepend`, `insert`, `set`,
+  `repeat`, list `getOr` (hit and miss), map `set` and map `getOr` (hit and miss), and
+  the in-place `xs = op(xs, …)` forms; every element `MATCH`es its own arm and prints
+  its field. It also covers an unannotated binding of each form and a template
+  argument inferred from such a call. `MFB_OPT=0` and `MFB_OPT=3
+  scripts/test-accept.sh` both pass. Main: every call is `TYPE_CALL_ARGUMENT_MISMATCH`.
+- `--debug`, one program per form (`/tmp/bs18j/b_*.mfb`), once and in a 200-iteration
+  loop: `alloc_calls == free_calls`, `live_bytes 0`, `double_free_skips 0` for all 22
+  (e.g. `b_append_loop` 1025 / 1025 / 0, `b_appendlit_loop` 2227 / 2227 / 0,
+  `b_mapset_loop` 2010 / 2010 / 0).
+- `/tmp/bug988` matrix: every ✗ row now builds and runs (`append_list_lit`,
+  `append_member`, `prepend`, `insert`, `set`, `map_set`, `getOr`, `map_getOr`,
+  `repeat`); `contains`/`contains_member`/`find`/`replace` now report
+  `TYPE_REQUIRES_COMPARABLE` (main: `TYPE_CALL_ARGUMENT_MISMATCH`), as intended;
+  `append_list_var` still `TYPE_CALL_ARGUMENT_MISMATCH`; `reduce` unchanged; every
+  contrast row prints what it did on main.
+- `canvas::DrawItem` (app mode, `/tmp/bs18j/m/cv`): `collections::append(items,
+  dotc(3.0))` and `append(items, canvas::Rectangle[…])` build, with
+  `unionWrap(canvas.DrawItem <- canvas.Circle / canvas.Rectangle)` in the IR; main
+  rejects both. Not run (needs a window). `examples/canvas-demo` builds.
+- A resource-union variant (`append(hs AS List OF RES Handle, openOne())`) works (both
+  elements `MATCH` `fs::File` and are writable) and leaks the 16 B box bug-1005
+  describes (272 B live vs 240 B for the bound-union form on main and here).
+
+### Found on the way (not this bug)
+
+`/tmp/bug988/canvas_registry_union` declares a user `TYPE Circle` in an app-mode
+program. With it, ANY `canvas::DrawItem` append fails the build with the internal
+`canvas: the record 'Circle' has no field 'paint'` — also on main with the
+`LET d AS canvas::DrawItem = …` workaround, so it is not caused by this fix. Fixed
+separately (see its own commit).
+
+## Golden impact
+
+- `scripts/artifact-gate.sh <mfb> all`: 1651 tests, 2310 goldens, 0 diffs.
+- `scripts/diag-set-diff.sh <mfb>`: 652 fixtures with diagnostics, 652 SAME — no
+  existing `*_invalid` golden pinned the old mismatch for an accepted shape, and no
+  existing golden has a `contains`/`find`/`replace` of a variant over a union list.
+- New goldens only: the two new fixtures.
+- The registry unit test `a_top_level_variable_bound_to_a_union_accepts_its_variant`
+  lands with the fix, not in the RED commit: it calls the oracle-taking entry points
+  the fix adds. The RED proof is the rt fixture (main: `TYPE_CALL_ARGUMENT_MISMATCH` on
+  every call).

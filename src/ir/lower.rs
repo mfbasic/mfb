@@ -4409,10 +4409,12 @@ pub(super) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type_typed(
+                return generic_builtin_call_type(
                     &canonical_callee,
+                    &normalized,
                     &arg_types,
-                    false,
+                    locals,
+                    context,
                 );
             }
             // The remaining builtin packages share one arg-typed dispatch
@@ -4464,15 +4466,18 @@ pub(super) fn expression_type(
                 // `migrated_arg_typed` (`registry::is_member`) above.
                 || crate::codegen::builtins::thread::is_thread_call(&canonical_callee)
             {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type_typed(
+                let normalized =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
+                let arg_types = normalized
+                    .iter()
+                    .map(|argument| expression_type(argument, locals, context))
+                    .collect::<Option<Vec<_>>>()?;
+                return generic_builtin_call_type(
                     &canonical_callee,
+                    &normalized,
                     &arg_types,
-                    false,
+                    locals,
+                    context,
                 );
             }
             builtins::call_return_type(&canonical_callee)
@@ -4654,6 +4659,42 @@ fn canonical_import_type(type_: &ParameterType, context: &LowerContext<'_>) -> P
     }
 }
 
+/// The (lenient) return type of a built-in call resolved through the registry's
+/// generic matcher, with the declared types as its oracle, so a top-level `T`
+/// bound to a union accepts a variant of it (bug-988), and with a union-variant
+/// list literal relaxed when only that lets the call resolve
+/// ([`union_literal_call_types`]).
+fn generic_builtin_call_type(
+    canonical_callee: &str,
+    normalized: &[&HirExpression],
+    arg_types: &[ParameterType],
+    locals: &HashMap<String, ParameterType>,
+    context: &LowerContext<'_>,
+) -> Option<ParameterType> {
+    builtins::resolve_call_return_type_with_kinds(
+        canonical_callee,
+        arg_types,
+        false,
+        context.type_index,
+    )
+    .or_else(|| {
+        let relaxed = union_literal_call_types(
+            canonical_callee,
+            normalized,
+            arg_types,
+            false,
+            locals,
+            context,
+        )?;
+        builtins::resolve_call_return_type_with_kinds(
+            canonical_callee,
+            &relaxed,
+            false,
+            context.type_index,
+        )
+    })
+}
+
 fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
     canonical_import_name_in(name, &context.current_imports)
 }
@@ -4691,13 +4732,73 @@ fn resolved_generic_argument_type(
     locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
 ) -> Option<ParameterType> {
-    let arg_types: Vec<ParameterType> = normalize_builtin_call_arguments(callee, arguments)
-        .into_iter()
+    let normalized = normalize_builtin_call_arguments(callee, arguments);
+    let arg_types: Vec<ParameterType> = normalized
+        .iter()
         .map(|argument| {
             expression_type(argument, locals, context).unwrap_or(ParameterType::Unknown)
         })
         .collect();
-    builtins::resolved_argument_type(canonical_callee, index, &arg_types, expected_return)
+    builtins::resolved_argument_type(
+        canonical_callee,
+        index,
+        &arg_types,
+        expected_return,
+        context.type_index,
+    )
+    .or_else(|| {
+        // bug-988: a list literal of union variants at a `List OF T` position
+        // (`append(shapes, [Square[2.0]])`) gets the union's list as its expected
+        // type, so its elements lower wrapped — when the call accepts it at all.
+        let relaxed = union_literal_call_types(
+            canonical_callee,
+            &normalized,
+            &arg_types,
+            false,
+            locals,
+            context,
+        )?;
+        builtins::resolved_argument_type(
+            canonical_callee,
+            index,
+            &relaxed,
+            expected_return,
+            context.type_index,
+        )
+    })
+}
+
+/// bug-988: [`builtins::union_literal_relaxed_arg_types`] over a call's HIR
+/// arguments, typed with lowering's own oracle and the declared types' union
+/// membership — the one relaxation the shape pass, the return-type oracle and
+/// rule 3 of `call_argument_expected_type` all apply.
+pub(super) fn union_literal_call_types(
+    canonical_callee: &str,
+    arguments: &[&HirExpression],
+    arg_types: &[ParameterType],
+    strict: bool,
+    locals: &HashMap<String, ParameterType>,
+    context: &LowerContext<'_>,
+) -> Option<Vec<ParameterType>> {
+    let literal_elements: Vec<Option<Vec<Option<ParameterType>>>> = arguments
+        .iter()
+        .map(|argument| match argument {
+            HirExpression::ListLiteral(values) if !values.is_empty() => Some(
+                values
+                    .iter()
+                    .map(|value| expression_type(value, locals, context))
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect();
+    builtins::union_literal_relaxed_arg_types(
+        canonical_callee,
+        arg_types,
+        &literal_elements,
+        strict,
+        context.type_index,
+    )
 }
 
 fn call_argument_expected_type(
@@ -6388,6 +6489,12 @@ impl builtins::TypeKinds for TypeIndex {
             let bare = builtins::builtin_qualified_bare_leaf(&name);
             bare != name.as_ref() && self.enums.contains_key(&ParameterType::named(bare))
         }
+    }
+
+    /// bug-988: exactly the membership `wrap_union_value` wraps by, so a generic
+    /// call accepts a variant only where lowering will tag it.
+    fn union_accepts(&self, union: &ParameterType, actual: &ParameterType) -> bool {
+        self.variant_belongs_to_union(&actual.without_state(), &union.without_state())
     }
 }
 

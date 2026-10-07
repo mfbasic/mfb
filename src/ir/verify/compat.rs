@@ -103,6 +103,20 @@ impl builtins::TypeKinds for TypeEnv {
     fn is_enum(&self, t: &ParameterType) -> bool {
         self.enums.contains_key(t)
     }
+
+    /// bug-988: the verifier's union table (`union_variants`), matched the way
+    /// `compatible`'s union arm matches a variant (qualified or bare), else the
+    /// built-in packages' unions.
+    fn union_accepts(&self, union: &ParameterType, actual: &ParameterType) -> bool {
+        let actual = actual.without_state();
+        let actual_name = actual.name();
+        let actual_bare = builtins::builtin_qualified_bare_leaf(&actual_name);
+        self.union_variants(&union.without_state())
+            .is_some_and(|variants| {
+                variants.contains(actual_name.as_ref()) || variants.contains(actual_bare)
+            })
+            || crate::codegen::registry::registry_union_accepts(union, &actual)
+    }
 }
 
 impl TypeEnv {

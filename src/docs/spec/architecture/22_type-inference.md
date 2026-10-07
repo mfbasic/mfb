@@ -96,6 +96,31 @@ Rule 3 is what gives an empty `[]` written at a generic parameter an element
 type. Without it the literal lowers as `List OF Unknown` and the collections
 lowering has no element type to check the item against.
 
+Rule 3 also carries union-variant subsumption into a generic call. A type
+variable that is a **whole** parameter (`append`'s item `T`), once bound to a
+union, accepts a value of one of that union's variants and stays bound to the
+union: `collections::append(shapes, Square[2.0])` with `shapes AS List OF Shape`
+resolves `T = Shape`, so the item's expected type is `Shape` and it lowers
+wrapped. The registry asks the caller's declared-type oracle
+(`TypeKinds::union_accepts`) for the membership, the same membership lowering
+wraps by. A variable **nested** in a parameter (`List OF T`, `FUNC(T) AS U`) never
+accepts a variant: a `List OF Square` value at `append`'s second `List OF T` stays
+a `TYPE_CALL_ARGUMENT_MISMATCH`, because nothing converts its untagged elements.
+There is no least upper bound either: a variable first bound to a variant does
+not widen to a union that a later argument brings.
+[[src/codegen/registry/mod.rs:unify_with_kinds]] [[src/codegen/builtins/mod.rs:TypeKinds]]
+
+A non-empty list **literal** at a generic `List OF T` parameter types bottom-up
+from its first element (`[Square[2.0]]` is `List OF Square`). When that alone
+keeps the call from resolving, the literal is retyped `List OF Unknown` so the
+other arguments decide `T`, and the call is accepted when every element is the
+element type the call then gives that position, or one of its variants:
+`collections::append(shapes, [Square[2.0], Circle[3.0]])` lowers the literal as a
+`List OF Shape` with each element wrapped. The shape pass, the return-type oracle
+and rule 3 all apply the same relaxation, and so does monomorphization's typing
+of a built-in call, so a template argument can be inferred from such a call.
+[[src/codegen/builtins/mod.rs:union_literal_relaxed_arg_types]] [[src/ir/lower.rs:union_literal_call_types]]
+
 ### Overload resolution
 
 For an ordinary user `FUNC` name with more than one visible signature, the monomorphizer

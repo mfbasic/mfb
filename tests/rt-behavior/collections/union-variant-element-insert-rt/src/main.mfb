@@ -39,6 +39,10 @@ FUNC mk(side AS Float) AS Square
   RETURN Square[side]
 END FUNC
 
+FUNC firstOf OF T(xs AS List OF T) AS T
+  RETURN collections::get(xs, 0)
+END FUNC
+
 FUNC main AS Integer
   MUT shapes AS List OF Shape = [Circle[1.0]]
   shapes = collections::append(shapes, Square[2.0])
@@ -72,5 +76,11 @@ FUNC main AS Integer
   ip = collections::set(ip, 2, Square[15.0])
   ip = collections::repeat(ip, Square[16.0], 1, 3)
   showAll("in place", ip)
+
+  LET inferred = collections::append(base, Square[17.0])
+  showAll("unannotated", inferred)
+  LET inferredLiteral = collections::append(base, [Square[18.0]])
+  showAll("unannotated literal", inferredLiteral)
+  io::print("template: " & describe(firstOf(collections::prepend(base, mk(19.0)))))
   RETURN 0
 END FUNC
