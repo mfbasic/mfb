@@ -1362,7 +1362,10 @@ mod tests {
     fn a_scalar_or_element_result_is_not_a_float_target() {
         use CollectionsCarry::{Container, Element, Nothing};
         assert_eq!(collections_carry("collections.take"), Container);
-        assert_eq!(collections_carry("#collections_take$RES$fs$File"), Container);
+        assert_eq!(
+            collections_carry("#collections_take$RES$fs$File"),
+            Container
+        );
         assert_eq!(collections_carry("collections.flatten"), Container);
         assert_eq!(collections_carry("collections.merge"), Container);
         assert_eq!(collections_carry("collections.values"), Container);
@@ -1388,10 +1391,7 @@ mod tests {
                     list("ys", HirExpression::ListLiteral(vec![ident("f")])),
                     HirStatement::Assign {
                         name: "n".to_string(),
-                        value: call(
-                            "collections.findIndex",
-                            vec![ident("ys"), ident("isOpen")],
-                        ),
+                        value: call("collections.findIndex", vec![ident("ys"), ident("isOpen")]),
                         line: 1,
                     },
                 ],
