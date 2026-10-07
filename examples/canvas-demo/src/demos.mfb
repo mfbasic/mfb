@@ -1,0 +1,111 @@
+' demos - the ten scenes: what each is called, what its intro panel says, and
+' one UNION that holds whichever scene is running.
+'
+' Each scene lives in its own file and offers three functions: <name>New to
+' start it, <name>Step to advance it by a time step given the input, and
+' <name>Draw to picture it. The Scene union below is what lets the main loop
+' hold "the current scene" without knowing which one it is: stepping and
+' drawing are each a single exhaustive MATCH, so adding a scene to the union
+' without teaching both of them about it is a compile error.
+
+IMPORT canvas
+IMPORT collections
+
+TYPE DemoInfo
+  numeral AS String
+  title AS String
+  tagline AS String
+  interactive AS Boolean
+  flavor AS String
+  canvasFeatures AS List OF String
+  languageFeatures AS List OF String
+  controls AS String
+  hint AS String
+END TYPE
+
+UNION Scene
+  DawnState
+  SpringState
+  TwilightState
+  AlchemistState
+  CanopyState
+  WandererState
+  ScribeState
+  BestiaryState
+  CathedralState
+  LanternState
+END UNION
+
+LET DEMO_COUNT AS Integer = 10
+
+FUNC demoInfo(i AS Integer) AS DemoInfo
+  MATCH i
+    CASE 0
+      RETURN DemoInfo[numeral := "I", title := "Dawn Awakening", tagline := "A forest clearing through a whole day, from starlight to the golden hour.", interactive := FALSE, flavor := "The canopy wakes as the sun cuts through the pines and the old archway catches the first light.", canvasFeatures := ["Multi-stop gradients re-coloured every frame from one time-of-day palette", "A Multiply-blended gradient wash as the colour grade over the land", "Sunbeams and drifting dust added on with BlendMode.Add", "The archway: two contours under FillRule.EvenOdd, its mortar clipped to the same rings", "Paint.transform placing the hawk and turning and mirroring the songbirds"], languageFeatures := ["No simulation state: each bird is a pure function of the clock", "Records updated with WITH; repeatable hashing scatters the scenery"], controls := "Drag, or turn the wheel, to scrub the time of day.", hint := "Drag  scrub time"]
+    CASE 1
+      RETURN DemoInfo[numeral := "II", title := "The Guardian of the Spring", tagline := "A hidden glade where a guardian sprite keeps watch over a sacred fountain.", interactive := TRUE, flavor := "Deep in the glade the old fountain still runs, and something small and bright keeps watch over it.", canvasFeatures := ["Parallax: still layers installed once with canvas::setGroup, then slid by a Group's dx and dy", "Ripples clipped to the pool's own ellipse with Paint.clip", "Willow fronds as PolyLines whose colours fade to nothing at the tip", "A radial gradient stretched into the pool's shape by its own transform", "A light trail and sparks added on with BlendMode.Add"], languageFeatures := ["Lists of drops, ripples and sparks rebuilt each frame with FOR EACH and WITH", "A damped spring, integrated by hand, that the guardian rides on"], controls := "Move the mouse to look around the glade and lead the guardian. Click to send it diving into the pool.", hint := "Move  lead the guardian    Click  dive"]
+    CASE 2
+      RETURN DemoInfo[numeral := "III", title := "Twilight Flight", tagline := "A flock of a hundred and fifty birds wheels over a mountain lake at dusk.", interactive := TRUE, flavor := "Over the Runestone Fountain the evening flock gathers, turns as one, and scatters from the hawk.", canvasFeatures := ["The lake mirrors the mountains and the fountain: the same items under a transform with a negative Y scale", "A crescent moon: a disc clipped by two rings under EvenOdd", "A portal of rings from a radial gradient with GradientSpread.Repeat", "Water sheets as dashed PolyLines whose dash offset runs with time", "A gnarled tree grown by recursion, every limb a round-capped curve"], languageFeatures := ["Reynolds' boids: separation, alignment and cohesion over a List of records", "Recursive functions returning lists of draw items"], controls := "Move the mouse and the flock flees it like a hawk. Hold the button to lure the flock instead. Right-click or Space to scatter it.", hint := "Move  hawk    Hold  lure    Space  scatter"]
+    CASE 3
+      RETURN DemoInfo[numeral := "IV", title := "The Alchemist's Sanctuary", tagline := "Brew in an overgrown ruin: pour potions into a cauldron and watch it change.", interactive := TRUE, flavor := "In the ruins of an alchemist's garden the old cauldron still simmers, waiting for an ingredient.", canvasFeatures := ["Each potion's liquid clipped to its own bottle's outline - one wavy block fits five shapes", "Glass from a radial gradient with a focal highlight, painting the outline too (FillAndStroke)", "Steam composited with BlendMode.Screen; sparks and glows with Add", "A runic circle of dashed strokes whose dash offsets turn at different speeds", "Tentacle vines: tapering polygons built either side of a swaying spine"], languageFeatures := ["MATCH on integers picks each bottle's shape and colour", "Lambdas with collections::transform carry the clip ring round with the bottle"], controls := "Click a potion (or press 1-5) to pour it into the cauldron.", hint := "Click a potion  pour"]
+    CASE 4
+      RETURN DemoInfo[numeral := "V", title := "Echoes of the Canopy", tagline := "Wind made visible: a great tree, a thousand falling leaves and a spring in the breeze.", interactive := TRUE, flavor := "An autumn hillside where everything answers to the wind - the branches, the leaves, the water and the owl.", canvasFeatures := ["Hundreds of leaves, each one Polygon tumbling as it falls", "A tumbling leaf is one 2x3 matrix: a turn, and a scale of cos(spin) along its own X axis", "Streamlines as PolyLines whose per-point colours fade in and out", "A wind gauge from a round-capped Arc whose sweep follows the wind"], languageFeatures := ["A tree grown by a recursive function, each limb returning its own branches", "Frame-rate independent physics: drag towards the wind with exponential decay"], controls := "Drag across the scene to blow the wind that way - near leaves are shoved aside. Turn the wheel to set a steady breeze.", hint := "Drag  blow    Wheel  breeze"]
+    CASE 5
+      RETURN DemoInfo[numeral := "VI", title := "The Wanderer's Path", tagline := "Pixel art meets vector light: run, jump and light the lanterns through day and night.", interactive := TRUE, flavor := "A walk through the old wood, from the first signpost to the flag at the path's end. Light every lantern you pass.", canvasFeatures := ["Sprite sheets loaded with loadImage, read back with getBytes and cut into images with createImage", "Every image owned by a named group: the whole level is one Group moved by the camera", "Nearest-neighbour Picture scaling at whole multiples keeps the pixel art crisp", "Picture tint: the hero's blink after a fall is the same frames multiplied red", "Night as a Multiply wash, with lantern light and glowing gems added on top"], languageFeatures := ["The level is a list of strings, read character by character with strings::graphemeAt", "Tile-grid collision, coyote time and a variable-height jump in plain arithmetic"], controls := "Left and Right (or A and D) to walk, Space or Up to jump. N switches between day and night.", hint := "Arrows  walk    Space  jump    N  night"]
+    CASE 6
+      RETURN DemoInfo[numeral := "VII", title := "The Runestone Scribe", tagline := "Carve runes into an ancient stone - every stroke styled, every corner joined.", interactive := TRUE, flavor := "The stone remembers its own name. Watch it carve, then take up the chisel yourself.", canvasFeatures := ["Stroke caps on Paint - Butt, Round and Square - and joins - Miter, Bevel and Round - with a miter limit", "A line drawn on by a dash pattern: one dash as long as the cut so far, one gap longer than the line", "Marching dashes from an animated dash offset", "A groove from three passes of one PolyLine: light edge, dark edge and the cut", "Lichen on the stone clipped to its outline"], languageFeatures := ["Ramer-Douglas-Peucker line simplification, recursive, over List OF canvas::Point", "Runes as data: MATCH on a letter returns its strokes, mapped into place with a lambda"], controls := "Draw on the stone with the mouse. Pick a cap, a join or dashes from the toolbox on the left. D toggles dashes, C clears the stone.", hint := "Drag  carve    D  dashes    C  clear"]
+    CASE 7
+      RETURN DemoInfo[numeral := "VIII", title := "The Living Bestiary", tagline := "An illuminated book of beasts, every one a real SVG read and drawn at runtime.", interactive := TRUE, flavor := "The scribes of the Grove kept a book of every creature in the wood. Its pages are still turning.", canvasFeatures := ["Real SVG files drawn by an SVG reader written in MFBASIC: each path's subpaths become one Polygon's contours", "fill-rule, transforms and gradients - spreadMethod, gradientTransform, focal point - map straight onto canvas", "A page turn: whole pages restyled under one transform whose X scale is the cosine of the leaf's angle", "Zoomed artwork clipped to its frame, the clip mapped into each item's own space", "W shows every contour as the canvas receives it"], languageFeatures := ["A tokenizer, number reader and path parser over a List OF Integer of character codes", "Parsed files cached in a Map OF Integer TO SvgImage, loaded the first time a page opens"], controls := "Left and Right (or the arrows on the page) turn the pages. Wheel to zoom, drag to move the creature, 0 to reset. W toggles the wireframe.", hint := "Arrows  turn    Wheel  zoom    W  wireframe"]
+    CASE 8
+      RETURN DemoInfo[numeral := "IX", title := "The Cathedral of Light", tagline := "A rose window of stained glass, and the colour it throws across the floor.", interactive := TRUE, flavor := "Deep in the wood an old chapel still keeps its rose window. When the sun finds it, the floor blooms.", canvasFeatures := ["Glass from gradients: Repeat-spread streaks turned by the gradient's own transform, focal radial blooms", "A gilded frame whose fill and outline are painted by one Reflect-spread gradient (FillAndStroke)", "The light on the floor: the same pane rings again, mapped by one shearing, flattening matrix and added on", "Lead came as polygon strokes with round joins; the frame an EvenOdd ring"], languageFeatures := ["Point-in-polygon hit testing by ray crossing, over each pane's ring", "Panes as records updated in place with collections::set and WITH"], controls := "Move the mouse to move the sun. Click a pane to change its glass. R re-colours the whole window.", hint := "Move  sun    Click  glass    R  recolour"]
+    CASE 9
+      RETURN DemoInfo[numeral := "X", title := "Lanternlight", tagline := "Carry a lantern through the midnight wood and find what only its light can show.", interactive := TRUE, flavor := "At midnight the old wood is two woods at once. Only a lantern shows the other one - and the spirits hiding in it.", canvasFeatures := ["A whole second world drawn with Paint.clip set to the lantern's circle - shapes, strokes and text alike", "Darkness from one rectangle and a radial gradient whose clear centre follows the light", "Screen and Add blending to make the spirit world glow through the night", "A swinging lantern built in its own unit space and placed by one rotating transform"], languageFeatures := ["A pendulum integrated per frame from the mouse's acceleration", "collections::all with a lambda to notice the last spirit set free"], controls := "Move the mouse to carry the lantern; turn the wheel to widen its light. Click a spirit inside the light to free it. R hides them again.", hint := "Move  lantern    Wheel  light    Click  free a spirit"]
+    CASE ELSE
+      RETURN demoInfo(0)
+  END MATCH
+END FUNC
+
+FUNC sceneNew(i AS Integer) AS Scene
+  MATCH i
+    CASE 1 : RETURN springNew()
+    CASE 2 : RETURN twilightNew()
+    CASE 3 : RETURN alchemistNew()
+    CASE 4 : RETURN canopyNew()
+    CASE 5 : RETURN wandererNew()
+    CASE 6 : RETURN scribeNew()
+    CASE 7 : RETURN bestiaryNew()
+    CASE 8 : RETURN cathedralNew()
+    CASE 9 : RETURN lanternNew()
+    CASE ELSE : RETURN dawnNew()
+  END MATCH
+END FUNC
+
+FUNC sceneStep(s AS Scene, inp AS Input, dt AS Float) AS Scene
+  MATCH s
+    CASE DawnState(v) : RETURN dawnStep(v, inp, dt)
+    CASE SpringState(v) : RETURN springStep(v, inp, dt)
+    CASE TwilightState(v) : RETURN twilightStep(v, inp, dt)
+    CASE AlchemistState(v) : RETURN alchemistStep(v, inp, dt)
+    CASE CanopyState(v) : RETURN canopyStep(v, inp, dt)
+    CASE WandererState(v) : RETURN wandererStep(v, inp, dt)
+    CASE ScribeState(v) : RETURN scribeStep(v, inp, dt)
+    CASE BestiaryState(v) : RETURN bestiaryStep(v, inp, dt)
+    CASE CathedralState(v) : RETURN cathedralStep(v, inp, dt)
+    CASE LanternState(v) : RETURN lanternStep(v, inp, dt)
+  END MATCH
+END FUNC
+
+FUNC sceneDraw(s AS Scene, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  MATCH s
+    CASE DawnState(v) : RETURN dawnDraw(v, w, h)
+    CASE SpringState(v) : RETURN springDraw(v, w, h)
+    CASE TwilightState(v) : RETURN twilightDraw(v, w, h)
+    CASE AlchemistState(v) : RETURN alchemistDraw(v, f, w, h)
+    CASE CanopyState(v) : RETURN canopyDraw(v, w, h)
+    CASE WandererState(v) : RETURN wandererDraw(v, f, w, h)
+    CASE ScribeState(v) : RETURN scribeDraw(v, f, w, h)
+    CASE BestiaryState(v) : RETURN bestiaryDraw(v, f, w, h)
+    CASE CathedralState(v) : RETURN cathedralDraw(v, f, w, h)
+    CASE LanternState(v) : RETURN lanternDraw(v, f, w, h)
+  END MATCH
+END FUNC

@@ -1,0 +1,482 @@
+' alchemist - IV. The Alchemist's Hidden Sanctuary.
+'
+' An overgrown ruin where an old stone cauldron still bubbles. Five potions
+' stand on the mossy stones around it. Click one and it lifts, flies to the
+' cauldron, tips and pours; the brew takes on its colour, steam rises in that
+' colour, and the runic circle around the cauldron flares. Hummingbirds dart
+' about the clearing, passing in front of the cauldron and behind it.
+'
+' Each bottle's liquid is drawn as a plain rectangle with a wavy top and
+' clipped to the bottle's own outline, so the same liquid fits a round flask, a
+' tall vial or a heart-shaped bottle. The glass is a radial gradient with its
+' focal point pulled up and to the side for the highlight, and its outline is
+' painted by the same gradient (GradientApply.FillAndStroke). The runes turn
+' as dashed strokes whose dash offset advances.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+TYPE Puff
+  x AS Float
+  y AS Float
+  r AS Float
+  age AS Float
+  life AS Float
+  tint AS color::Color
+  drift AS Float
+END TYPE
+
+TYPE Bubble
+  x AS Float           ' as a fraction of the cauldron's half-width
+  age AS Float
+  size AS Float
+END TYPE
+
+TYPE Pour
+  bottle AS Integer    ' which bottle is out, or -1
+  age AS Float         ' seconds since it left its place
+END TYPE
+
+TYPE Hummer
+  x AS Float
+  y AS Float
+  z AS Float           ' depth: under 1 is behind the cauldron
+  tx AS Float          ' where it is darting to
+  ty AS Float
+  tz AS Float
+  wait AS Float        ' seconds left hovering before the next dart
+  face AS Float        ' 1 facing right, -1 left
+END TYPE
+
+TYPE AlchemistState
+  t AS Float
+  brew AS color::Color
+  flare AS Float
+  levels AS List OF Float     ' how full each bottle is, 0..1
+  hover AS List OF Float
+  pour AS Pour
+  puffs AS List OF Puff
+  bubbles AS List OF Bubble
+  sparks AS List OF Spark
+  birds AS List OF Hummer
+  puffClock AS Float
+END TYPE
+
+LET POUR_SECONDS AS Float = 3.2
+
+FUNC potionColor(i AS Integer) AS color::Color
+  MATCH i
+    CASE 0 : RETURN hex("#ff3b5c")
+    CASE 1 : RETURN hex("#3dff9a")
+    CASE 2 : RETURN hex("#3aa8ff")
+    CASE 3 : RETURN hex("#ffb52e")
+    CASE ELSE : RETURN hex("#b45cff")
+  END MATCH
+END FUNC
+
+FUNC potionName(i AS Integer) AS String
+  MATCH i
+    CASE 0 : RETURN "Dragon's Blood"
+    CASE 1 : RETURN "Essence of Fern"
+    CASE 2 : RETURN "Moonwater"
+    CASE 3 : RETURN "Liquid Sunrise"
+    CASE ELSE : RETURN "Twilight Nectar"
+  END MATCH
+END FUNC
+
+FUNC alchemistNew AS AlchemistState
+  RETURN AlchemistState[t := 0.0, brew := hex("#4fe0c0"), flare := 0.0, levels := [0.8, 0.7, 0.85, 0.65, 0.75], hover := [0.0, 0.0, 0.0, 0.0, 0.0], pour := Pour[bottle := -1, age := 0.0], puffs := [], bubbles := [], sparks := [], birds := [Hummer[x := 0.3, y := 0.35, z := 1.1, tx := 0.3, ty := 0.35, tz := 1.1, wait := 1.0, face := 1.0], Hummer[x := 0.7, y := 0.3, z := 0.75, tx := 0.7, ty := 0.3, tz := 0.75, wait := 2.0, face := -1.0]], puffClock := 0.0]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Where things are
+' ---------------------------------------------------------------------------
+
+TYPE Cauldron
+  cx AS Float
+  rimY AS Float
+  rx AS Float
+  ry AS Float
+END TYPE
+
+FUNC cauldronAt(w AS Float, h AS Float) AS Cauldron
+  LET rx AS Float = math::min(w * 0.17, h * 0.26)
+  RETURN Cauldron[cx := w * 0.5, rimY := h * 0.6, rx := rx, ry := rx * 0.26]
+END FUNC
+
+' Where bottle i stands at rest: its base centre, and its size.
+FUNC bottleHome(i AS Integer, w AS Float, h AS Float) AS canvas::Point
+  LET xs AS List OF Float = [0.12, 0.25, 0.75, 0.88, 0.18]
+  LET ys AS List OF Float = [0.86, 0.9, 0.9, 0.86, 0.66]
+  IF i = 4 THEN RETURN pt(w * 0.86, h * 0.64)
+  RETURN pt(w * collections::get(xs, i), h * collections::get(ys, i))
+END FUNC
+
+FUNC bottleSize(h AS Float) AS Float
+  RETURN h * 0.14
+END FUNC
+
+' A bottle's outline in its own frame, base centre at (0, 0), one unit tall,
+' Y up being negative. Five shapes: a round flask, a tall vial, a conical
+' flask, a square bottle and a heart.
+FUNC bottleShape(i AS Integer) AS List OF canvas::Point
+  MATCH i
+    CASE 0
+      MUT ring AS List OF canvas::Point = [pt(-0.07, -1.0), pt(0.07, -1.0), pt(0.07, -0.72)]
+      FOR k = 0 TO 28
+        LET a AS Float = -math::pi / 2.0 + 0.32 + toFloat(k) / 28.0 * (TAU - 0.64)
+        ring = collections::append(ring, pt(math::cos(a) * 0.34, -0.34 + math::sin(a) * 0.34))
+      NEXT
+      RETURN collections::append(ring, pt(-0.07, -0.72))
+    CASE 1
+      RETURN collections::append([pt(-0.06, -1.0), pt(0.06, -1.0), pt(0.06, -0.9), pt(0.12, -0.84), pt(0.12, -0.06)], collections::append(quadPts(0.12, -0.06, 0.12, 0.0, 0.0, 0.0, 4), collections::append(quadPts(0.0, 0.0, -0.12, 0.0, -0.12, -0.06, 4), [pt(-0.12, -0.84), pt(-0.06, -0.9)])))
+    CASE 2
+      RETURN [pt(-0.06, -1.0), pt(0.06, -1.0), pt(0.06, -0.62), pt(0.36, -0.04), pt(0.32, 0.0), pt(-0.32, 0.0), pt(-0.36, -0.04), pt(-0.06, -0.62)]
+    CASE 3
+      RETURN [pt(-0.07, -1.0), pt(0.07, -1.0), pt(0.07, -0.86), pt(0.2, -0.78), pt(0.24, -0.72), pt(0.24, -0.03), pt(0.21, 0.0), pt(-0.21, 0.0), pt(-0.24, -0.03), pt(-0.24, -0.72), pt(-0.2, -0.78), pt(-0.07, -0.86)]
+    CASE ELSE
+      MUT ring AS List OF canvas::Point = [pt(-0.06, -1.0), pt(0.06, -1.0), pt(0.06, -0.78)]
+      ' A heart: two lobes and a point, by its usual parametric curve.
+      FOR k = 0 TO 40
+        LET a AS Float = toFloat(k) / 40.0 * TAU
+        LET hx AS Float = 16.0 * math::pow(math::sin(a), 3.0)
+        LET hy AS Float = 13.0 * math::cos(a) - 5.0 * math::cos(2.0 * a) - 2.0 * math::cos(3.0 * a) - math::cos(4.0 * a)
+        IF k > 1 AND k < 39 THEN ring = collections::append(ring, pt(hx * 0.021, -0.4 - hy * 0.021))
+      NEXT
+      RETURN collections::append(ring, pt(-0.06, -0.78))
+  END MATCH
+END FUNC
+
+' Where bottle i is now, its tilt, and how high it is lifted, given the pour
+' in progress: lift, fly in an arc to the cauldron, tip and pour, fly home.
+TYPE BottlePose
+  x AS Float
+  y AS Float
+  tilt AS Float
+  pouring AS Boolean
+END TYPE
+
+FUNC bottlePose(i AS Integer, s AS AlchemistState, w AS Float, h AS Float) AS BottlePose
+  LET home AS canvas::Point = bottleHome(i, w, h)
+  IF s.pour.bottle <> i THEN RETURN BottlePose[x := home.x, y := home.y, tilt := 0.0, pouring := FALSE]
+  LET c AS Cauldron = cauldronAt(w, h)
+  LET side AS Float = math::max(-1.0, math::min(1.0, (home.x - c.cx) / math::abs(home.x - c.cx + 0.001)))
+  LET at AS canvas::Point = pt(c.cx + side * c.rx * 0.55, c.rimY - h * 0.12)
+  LET a AS Float = s.pour.age
+  IF a < 0.8 THEN
+    LET u AS Float = easeInOut(a / 0.8)
+    RETURN BottlePose[x := lerp(home.x, at.x, u), y := lerp(home.y, at.y, u) - math::sin(u * math::pi) * h * 0.15, tilt := 0.0, pouring := FALSE]
+  ELSEIF a < 2.4 THEN
+    LET u AS Float = clamp01((a - 0.8) / 0.35)
+    LET back AS Float = clamp01((2.4 - a) / 0.35)
+    RETURN BottlePose[x := at.x, y := at.y, tilt := -side * 2.0 * easeInOut(math::min(u, back)), pouring := a > 1.05 AND a < 2.15]
+  END IF
+  LET u AS Float = easeInOut((a - 2.4) / (POUR_SECONDS - 2.4))
+  RETURN BottlePose[x := lerp(at.x, home.x, u), y := lerp(at.y, home.y, u) - math::sin(u * math::pi) * h * 0.12, tilt := 0.0, pouring := FALSE]
+END FUNC
+
+FUNC overBottle(i AS Integer, w AS Float, h AS Float, mx AS Float, my AS Float) AS Boolean
+  LET home AS canvas::Point = bottleHome(i, w, h)
+  LET s AS Float = bottleSize(h)
+  RETURN mx > home.x - s * 0.4 AND mx < home.x + s * 0.4 AND my > home.y - s * 1.05 AND my < home.y + 4.0
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Stepping
+' ---------------------------------------------------------------------------
+
+FUNC alchemistStep(s AS AlchemistState, inp AS Input, dt AS Float) AS AlchemistState
+  LET w AS Float = inp.w
+  LET h AS Float = inp.h
+  LET t AS Float = s.t + dt
+  LET c AS Cauldron = cauldronAt(w, h)
+  MUT pour AS Pour = WITH s.pour { age := s.pour.age + dt }
+  IF pour.bottle >= 0 AND pour.age >= POUR_SECONDS THEN pour = Pour[bottle := -1, age := 0.0]
+  MUT hover AS List OF Float = []
+  MUT levels AS List OF Float = []
+  FOR i = 0 TO 4
+    LET over AS Boolean = overBottle(i, w, h, inp.mx, inp.my) AND pour.bottle < 0
+    MUT target AS Float = 0.0
+    IF over THEN target = 1.0
+    hover = collections::append(hover, approach(collections::get(s.hover, i), target, 12.0, dt))
+    IF over AND inp.pressed THEN pour = Pour[bottle := i, age := 0.0]
+    MUT lv AS Float = collections::get(s.levels, i)
+    IF pour.bottle = i AND pour.age > 1.05 AND pour.age < 2.15 THEN
+      lv = math::max(0.15, lv - dt * 0.35)
+    ELSEIF pour.bottle <> i THEN
+      lv = math::min(0.85, lv + dt * 0.04)
+    END IF
+    levels = collections::append(levels, lv)
+  NEXT
+  ' Number keys pour too.
+  FOR i = 0 TO 4
+    IF pour.bottle < 0 AND keyPressed(inp, toString(i + 1)) THEN pour = Pour[bottle := i, age := 0.0]
+  NEXT
+
+  ' The brew drifts to the colour being poured, and flares as it lands.
+  MUT brew AS color::Color = s.brew
+  MUT flare AS Float = math::max(0.0, s.flare - dt * 0.5)
+  MUT sparks AS List OF Spark = []
+  IF pour.bottle >= 0 AND pour.age > 1.2 AND pour.age < 2.15 THEN
+    brew = mixC(brew, potionColor(pour.bottle), 1.0 - math::exp(-dt * 2.2))
+    flare = math::min(1.0, flare + dt * 1.6)
+    IF math::rand(0, 2) = 0 THEN sparks = collections::append(sparks, Spark[x := c.cx + randF(-c.rx, c.rx) * 0.6, y := c.rimY, vx := randF(-40.0, 40.0), vy := randF(-260.0, -120.0), age := 0.0, life := randF(0.8, 1.6)])
+  END IF
+  FOR EACH sp IN s.sparks
+    IF sp.age + dt < sp.life THEN sparks = collections::append(sparks, WITH sp { x := sp.x + sp.vx * dt, y := sp.y + sp.vy * dt, vy := sp.vy + 90.0 * dt, age := sp.age + dt })
+  NEXT
+
+  ' Steam: puffs rise from the brew, swell and fade, swaying on a sine.
+  MUT puffs AS List OF Puff = []
+  MUT clock AS Float = s.puffClock + dt * (7.0 + flare * 10.0)
+  DO WHILE clock >= 1.0
+    puffs = collections::append(puffs, Puff[x := c.cx + randF(-0.6, 0.6) * c.rx, y := c.rimY - c.ry * 0.3, r := c.rx * randF(0.12, 0.22), age := 0.0, life := randF(2.8, 4.2), tint := brew, drift := randF(0.0, TAU)])
+    clock = clock - 1.0
+  LOOP
+  FOR EACH p IN s.puffs
+    IF p.age + dt < p.life THEN puffs = collections::append(puffs, WITH p { y := p.y - (h * 0.09 + p.r * 0.3) * dt, x := p.x + math::sin(p.age * 1.7 + p.drift) * h * 0.02 * dt, r := p.r + h * 0.03 * dt, age := p.age + dt })
+  NEXT
+  MUT bubbles AS List OF Bubble = []
+  IF math::rand(0, 3) = 0 THEN bubbles = collections::append(bubbles, Bubble[x := randF(-0.8, 0.8), age := 0.0, size := randF(0.04, 0.1)])
+  FOR EACH b IN s.bubbles
+    IF b.age + dt < 0.9 THEN bubbles = collections::append(bubbles, WITH b { age := b.age + dt })
+  NEXT
+
+  ' Hummingbirds: hover, then dart to a new spot, sometimes in front of the
+  ' cauldron and sometimes behind it.
+  MUT birds AS List OF Hummer = []
+  FOR EACH b IN s.birds
+    MUT nb AS Hummer = b
+    IF b.wait > 0.0 THEN
+      nb = WITH b { wait := b.wait - dt }
+    ELSE
+      LET k AS Float = 1.0 - math::exp(-dt * 7.0)
+      nb = WITH b { x := lerp(b.x, b.tx, k), y := lerp(b.y, b.ty, k), z := lerp(b.z, b.tz, k) }
+      IF math::abs(nb.x - b.tx) < 0.004 AND math::abs(nb.y - b.ty) < 0.004 THEN
+        LET nx AS Float = randF(0.15, 0.85)
+        MUT face AS Float = 1.0
+        IF nx < b.x THEN face = -1.0
+        nb = WITH nb { tx := nx, ty := randF(0.18, 0.5), tz := randF(0.6, 1.25), wait := randF(0.6, 2.2), face := face }
+      END IF
+    END IF
+    birds = collections::append(birds, nb)
+  NEXT
+  RETURN AlchemistState[t := t, brew := brew, flare := flare, levels := levels, hover := hover, pour := pour, puffs := puffs, bubbles := bubbles, sparks := sparks, birds := birds, puffClock := clock]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+' A potion bottle at (x, y) - its base centre - `size` tall, tilted.
+FUNC bottle(i AS Integer, x AS Float, y AS Float, size AS Float, tilt AS Float, level AS Float, hover AS Float, t AS Float) AS List OF canvas::DrawItem
+  LET ring AS List OF canvas::Point = bottleShape(i)
+  LET tr AS canvas::Transform = place(x, y, tilt, size)
+  LET liquid AS color::Color = potionColor(i)
+  MUT out AS List OF canvas::DrawItem = []
+  IF hover > 0.01 THEN out = collections::append(out, glow(x, y - size * 0.4, size * 0.9, fade(liquid, 0.45 * hover)))
+  ' Glass back: dark and faintly tinted.
+  out = collections::append(out, poly(ring, WITH fillP(rgba(20, 24, 40, 150)) { transform := tr }))
+  ' The liquid: a block with a wavy top, in the bottle's frame, clipped to the
+  ' bottle's outline. The surface stays level as the bottle tips, so its wave
+  ' is drawn in the window's frame and only the clip turns with the bottle.
+  LET surfaceY AS Float = y - size * level * 0.9
+  MUT top AS List OF canvas::Point = []
+  FOR k = 0 TO 16
+    LET u AS Float = toFloat(k) / 16.0
+    LET lx AS Float = x - size * 0.8 + u * size * 1.6
+    top = collections::append(top, pt(lx, surfaceY + math::sin(u * 9.0 + t * 3.0 + toFloat(i)) * size * 0.015))
+  NEXT
+  LET body AS List OF canvas::Point = collections::append(top, [pt(x + size * 0.8, y + size * 0.8), pt(x - size * 0.8, y + size * 0.8)])
+  ' The clip is the bottle ring in window coordinates: transform its points.
+  LET co AS Float = math::cos(tilt) * size
+  LET si AS Float = math::sin(tilt) * size
+  LET clipRing AS List OF canvas::Point = collections::transform(ring, LAMBDA(p AS canvas::Point) -> pt(x + p.x * co - p.y * si, y + p.x * si + p.y * co))
+  out = collections::append(out, poly(body, WITH gradP(linear(0.0, surfaceY, 0.0, y, [gstop(0.0, mixC(liquid, color::white, 0.25)), gstop(1.0, mixC(liquid, color::black, 0.45))])) { clip := [clipRing] }))
+  out = collections::append(out, poly(top, WITH strokeP(mixC(liquid, color::white, 0.6), 1.2) { clip := [clipRing] }))
+  ' Light inside the liquid.
+  out = collections::append(out, glow(x, y - size * 0.25, size * 0.35, fade(liquid, 0.5 + 0.2 * math::sin(t * 2.0 + toFloat(i)))))
+  ' The glass: a radial ramp with its focus pulled up-left for the highlight,
+  ' outline and all (FillAndStroke).
+  LET glass AS canvas::Gradient = WITH focal(0.0, -0.4, 0.6, -0.18, -0.22, [gstop(0.0, rgba(255, 255, 255, 140)), gstop(0.25, rgba(220, 240, 255, 40)), gstop(0.8, rgba(180, 210, 255, 20)), gstop(1.0, rgba(200, 230, 255, 120))]) { strokeApply := canvas::GradientApply.FillAndStroke }
+  out = collections::append(out, poly(ring, WITH gradP(glass) { transform := tr, stroke := rgba(255, 255, 255, 0), strokeWidth := 0.022, join := canvas::JoinStyle.Round }))
+  ' Cork.
+  out = collections::append(out, rrect(-0.075, -1.1, 0.15, 0.13, 0.03, WITH fillP(hex("#9a6a3e")) { transform := tr, stroke := hex("#5a3a1e"), strokeWidth := 0.01 }))
+  RETURN out
+END FUNC
+
+' A hummingbird at (x, y), `s` pixels long, its wings a blur of ellipses. Its
+' throat and back are iridescent: a gradient that shifts with time.
+FUNC hummingbird(x AS Float, y AS Float, s AS Float, face AS Float, t AS Float, seed AS Float) AS List OF canvas::DrawItem
+  LET tr AS canvas::Transform = place2(x, y, 0.15 * face, s * face, s)
+  LET shimmer AS Float = 0.5 + 0.5 * math::sin(t * 3.0 + seed)
+  LET back AS color::Color = mixC(hex("#1fbf7a"), hex("#2a8cff"), shimmer)
+  LET throat AS color::Color = mixC(hex("#ff2e6a"), hex("#ffa02e"), shimmer)
+  LET beat AS Float = math::sin(t * 70.0 + seed)
+  RETURN [
+    ellipse(-0.05, -0.18, 0.42, 0.08 + 0.1 * math::abs(beat), -0.9 + beat * 0.5, WITH fillP(rgba(200, 230, 255, 70)) { transform := tr }),
+    poly([pt(-0.3, 0.02), pt(-0.62, 0.12), pt(-0.6, 0.0), pt(-0.3, -0.04)], WITH fillP(mixC(back, color::black, 0.4)) { transform := tr }),
+    ellipse(0.0, 0.0, 0.32, 0.14, -0.2, WITH gradP(linear(-0.3, -0.1, 0.3, 0.1, [gstop(0.0, back), gstop(1.0, mixC(back, color::white, 0.25))])) { transform := tr }),
+    ellipse(0.06, 0.06, 0.18, 0.08, -0.2, WITH fillP(hex("#e8eef0")) { transform := tr }),
+    circle(0.3, -0.08, 0.11, WITH fillP(back) { transform := tr }),
+    ellipse(0.28, 0.0, 0.08, 0.05, 0.3, WITH fillP(throat) { transform := tr }),
+    line(0.4, -0.08, 0.78, -0.02, WITH strokeP(hex("#1a1a1a"), 0.03) { transform := tr }),
+    circle(0.34, -0.11, 0.025, WITH fillP(hex("#0a0a0a")) { transform := tr }),
+    ellipse(0.05, -0.2, 0.36, 0.06 + 0.08 * math::abs(beat), -1.2 - beat * 0.4, WITH fillP(rgba(220, 240, 255, 110)) { transform := tr })
+  ]
+END FUNC
+
+' A vine that writhes like a tentacle: a spine of points that sways and curls
+' at its tip, outlined as a tapering polygon either side of it.
+FUNC vine(x AS Float, y AS Float, angle AS Float, length AS Float, width AS Float, t AS Float, seed AS Float, c AS color::Color) AS List OF canvas::DrawItem
+  LET n AS Integer = 24
+  MUT spine AS List OF canvas::Point = []
+  MUT a AS Float = angle
+  MUT px AS Float = x
+  MUT py AS Float = y
+  FOR i = 0 TO n
+    LET u AS Float = toFloat(i) / toFloat(n)
+    spine = collections::append(spine, pt(px, py))
+    a = a + (0.05 + u * u * 0.55) * math::sin(seed) + math::sin(t * 0.8 + u * 4.0 + seed) * 0.06 * u
+    px = px + math::cos(a) * length / toFloat(n)
+    py = py + math::sin(a) * length / toFloat(n)
+  NEXT
+  MUT leftSide AS List OF canvas::Point = []
+  MUT rightSide AS List OF canvas::Point = []
+  FOR i = 0 TO n
+    LET p AS canvas::Point = collections::get(spine, i)
+    LET q AS canvas::Point = collections::get(spine, math::min(i + 1, n))
+    LET r AS canvas::Point = collections::get(spine, math::max(i - 1, 0))
+    LET d AS Float = math::atan2(q.y - r.y, q.x - r.x)
+    LET hw AS Float = width * (1.0 - toFloat(i) / toFloat(n)) + 0.6
+    leftSide = collections::append(leftSide, pt(p.x - math::sin(d) * hw, p.y + math::cos(d) * hw))
+    rightSide = collections::prepend(rightSide, pt(p.x + math::sin(d) * hw, p.y - math::cos(d) * hw))
+  NEXT
+  MUT out AS List OF canvas::DrawItem = [poly(collections::append(leftSide, rightSide), gradP(linear(x, y, px, py, [gstop(0.0, mixC(c, color::black, 0.4)), gstop(1.0, c)])))]
+  ' Leaves along it.
+  FOR i = 3 TO n - 2 STEP 3
+    LET p AS canvas::Point = collections::get(spine, i)
+    LET side AS Float = toFloat((i / 3) MOD 2) * 2.0 - 1.0
+    out = collections::append(out, ellipse(p.x + side * width * 0.9, p.y, width * 1.1, width * 0.45, side * 0.7 + math::sin(t + toFloat(i)) * 0.2, fillP(mixC(c, hex("#9ad86a"), 0.35))))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC drawHummers(s AS AlchemistState, w AS Float, h AS Float, front AS Boolean) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  FOR i = 0 TO len(s.birds) - 1
+    LET b AS Hummer = collections::get(s.birds, i)
+    IF (b.z >= 0.95) = front THEN
+      LET bob AS Float = math::sin(s.t * 5.0 + toFloat(i)) * h * 0.006
+      out = collections::append(out, hummingbird(b.x * w, b.y * h + bob, h * 0.06 * b.z, b.face, s.t, toFloat(i) * 2.3))
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC alchemistDraw(s AS AlchemistState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET t AS Float = s.t
+  LET c AS Cauldron = cauldronAt(w, h)
+  LET brew AS color::Color = s.brew
+  ' The ruin: a night sky through a broken arch of the old walls.
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h, [gstop(0.0, hex("#07101c")), gstop(0.55, hex("#13283a")), gstop(1.0, hex("#0c1a14"))])))]
+  out = collections::append(out, starField(w, h * 0.5, 80, t, 0.7, 77))
+  out = collections::append(out, pineRow(w, h * 0.62, h * 0.28, 18, 71, fillP(hex("#0c1d24"))))
+  ' Broken walls left and right, with an empty window.
+  LET wall AS color::Color = hex("#1f2a2c")
+  out = collections::append(out, shape([[pt(-10.0, h), pt(-10.0, h * 0.08), pt(w * 0.08, h * 0.05), pt(w * 0.14, h * 0.12), pt(w * 0.2, h * 0.1), pt(w * 0.24, h * 0.3), pt(w * 0.22, h * 0.55), pt(w * 0.28, h)], ovalRingCcw(w * 0.11, h * 0.3, w * 0.035, h * 0.09, 32, 0.0)], canvas::FillRule.NonZero, gradP(linear(0.0, 0.0, w * 0.28, 0.0, [gstop(0.0, hex("#0f1617")), gstop(1.0, wall)]))))
+  ' The window's stone frame, and the moon through it.
+  out = collections::append(out, ellipse(w * 0.11, h * 0.3, w * 0.035, h * 0.09, 0.0, WITH canvas::stroke(hex("#4a5654"), 4.0) { dashes := [h * 0.04, h * 0.006], join := canvas::JoinStyle.Miter }))
+  out = collections::append(out, glow(w * 0.115, h * 0.26, h * 0.06, rgba(200, 220, 255, 120)))
+  out = collections::append(out, shape([[pt(w + 10.0, h), pt(w + 10.0, h * 0.12), pt(w * 0.9, h * 0.06), pt(w * 0.84, h * 0.16), pt(w * 0.79, h * 0.3), pt(w * 0.8, h * 0.52), pt(w * 0.73, h)]], canvas::FillRule.NonZero, gradP(linear(w * 0.73, 0.0, w, 0.0, [gstop(0.0, wall), gstop(1.0, hex("#0f1617"))]))))
+  ' Vines writhing down the walls.
+  out = collections::append(out, vine(w * 0.2, h * 0.11, 1.2, h * 0.45, h * 0.012, t, 0.9, hex("#2f6a3a")))
+  out = collections::append(out, vine(w * 0.08, h * 0.06, 1.0, h * 0.5, h * 0.014, t, -1.3, hex("#3a7a40")))
+  out = collections::append(out, vine(w * 0.86, h * 0.14, 1.9, h * 0.42, h * 0.012, t, -0.8, hex("#2f6a3a")))
+  out = collections::append(out, vine(w * 0.94, h * 0.1, 2.1, h * 0.5, h * 0.015, t, 1.4, hex("#3a7a40")))
+  ' The ground: flagstones, mossy.
+  out = collections::append(out, poly(ridge(w, h + 10.0, h * 0.72, h * 0.02, 5, 0.3, 30), gradP(linear(0.0, h * 0.7, 0.0, h, [gstop(0.0, hex("#2a3a30")), gstop(1.0, hex("#0f1813"))]))))
+  ' The runic circle on the ground, turning: three dashed ellipses whose dash
+  ' offsets advance at different rates, lit by the brew.
+  LET runeA AS Float = 0.35 + 0.65 * s.flare
+  FOR k = 0 TO 2
+    LET fk AS Float = toFloat(k)
+    LET rr AS Float = c.rx * (1.5 + fk * 0.28)
+    out = collections::append(out, ellipse(c.cx, h * 0.8, rr, rr * 0.22, 0.0, WITH canvas::stroke(fade(brew, runeA * (0.9 - fk * 0.2)), 2.0 - fk * 0.4) { dashes := [rr * (0.05 + fk * 0.04), rr * 0.03, rr * 0.01, rr * 0.03], dashOffset := t * (30.0 - fk * 25.0), cap := canvas::CapStyle.Round, blend := canvas::BlendMode.Add }))
+  NEXT
+  out = collections::append(out, ellipse(c.cx, h * 0.8, c.rx * 2.0, c.rx * 0.45, 0.0, WITH glowP(color::white) { gradient := WITH radial(0.0, 0.0, 1.0, [gstop(0.0, fade(brew, 0.25 + 0.3 * s.flare)), gstop(1.0, fade(brew, 0.0))]) { transform := place2(c.cx, h * 0.8, 0.0, c.rx * 2.0, c.rx * 0.45) } }))
+
+  ' Behind the cauldron: the hummingbirds that are further away.
+  out = collections::append(out, drawHummers(s, w, h, FALSE))
+
+  ' The cauldron: a stone bowl on three feet, the brew glowing inside.
+  LET bodyTop AS Float = c.rimY
+  LET bodyBottom AS Float = c.rimY + c.rx * 0.95
+  out = collections::append(out, glow(c.cx, c.rimY, c.rx * 2.4, fade(brew, 0.22 + 0.25 * s.flare)))
+  FOR k = -1 TO 1
+    out = collections::append(out, poly([pt(c.cx + toFloat(k) * c.rx * 0.6 - c.rx * 0.08, bodyBottom - c.rx * 0.2), pt(c.cx + toFloat(k) * c.rx * 0.7 - c.rx * 0.06, h * 0.82), pt(c.cx + toFloat(k) * c.rx * 0.7 + c.rx * 0.08, h * 0.82), pt(c.cx + toFloat(k) * c.rx * 0.6 + c.rx * 0.1, bodyBottom - c.rx * 0.2)], fillP(hex("#1c2224"))))
+  NEXT
+  MUT bowl AS List OF canvas::Point = []
+  FOR k = 0 TO 32
+    LET a AS Float = toFloat(k) / 32.0 * math::pi
+    bowl = collections::append(bowl, pt(c.cx + math::cos(a) * c.rx * 1.02, bodyTop + math::sin(a) * (bodyBottom - bodyTop)))
+  NEXT
+  out = collections::append(out, poly(bowl, gradP(focal(c.cx, bodyTop, c.rx * 1.2, -c.rx * 0.4, c.rx * 0.3, [gstop(0.0, mixC(hex("#4c5a58"), brew, 0.2)), gstop(0.6, hex("#2a3234")), gstop(1.0, hex("#111618"))]))))
+  ' Engraved band round the bowl.
+  out = collections::append(out, arc(c.cx, bodyTop, c.rx * 0.92, 0.25, math::pi - 0.25, WITH canvas::stroke(fade(brew, 0.5 + 0.4 * s.flare), 2.0) { dashes := [8.0, 5.0, 2.0, 5.0], cap := canvas::CapStyle.Round }))
+  ' The brew's surface, and its bubbles.
+  out = collections::append(out, ellipse(c.cx, c.rimY, c.rx * 0.95, c.ry * 0.9, 0.0, gradP(WITH radial(0.0, 0.0, 1.0, [gstop(0.0, mixC(brew, color::white, 0.45)), gstop(0.6, brew), gstop(1.0, mixC(brew, color::black, 0.4))]) { transform := place2(c.cx, c.rimY, 0.0, c.rx * 0.95, c.ry * 0.9) })))
+  LET surface AS List OF List OF canvas::Point = [ovalRing(c.cx, c.rimY, c.rx * 0.95, c.ry * 0.9, 48, 0.0)]
+  FOR EACH b IN s.bubbles
+    LET r AS Float = c.rx * b.size * math::sin(clamp01(b.age / 0.9) * math::pi)
+    LET bx AS Float = c.cx + b.x * c.rx * 0.8
+    out = collections::append(out, circle(bx, c.rimY - r * 0.4, r, WITH gradP(focal(bx, c.rimY - r * 0.4, r, -r * 0.35, -r * 0.35, [gstop(0.0, rgba(255, 255, 255, 220)), gstop(0.4, fade(mixC(brew, color::white, 0.3), 0.6)), gstop(1.0, fade(brew, 0.9))])) { clip := surface }))
+  NEXT
+  ' The rim of the bowl over the surface.
+  out = collections::append(out, shape([ovalRing(c.cx, c.rimY, c.rx * 1.06, c.ry * 1.2, 48, 0.0), ovalRing(c.cx, c.rimY, c.rx * 0.95, c.ry * 0.9, 48, 0.0)], canvas::FillRule.EvenOdd, gradP(linear(c.cx - c.rx, 0.0, c.cx + c.rx, 0.0, [gstop(0.0, hex("#2a3234")), gstop(0.4, hex("#6a7a76")), gstop(1.0, hex("#1c2224"))]))))
+
+  ' Steam: soft discs that rise, swell and fade, in the brew's colour, Screen
+  ' blended so they lighten what is behind them without hiding it.
+  FOR EACH p IN s.puffs
+    LET u AS Float = p.age / p.life
+    LET a AS Float = math::sin(u * math::pi) * 0.4
+    out = collections::append(out, circle(p.x, p.y, p.r, WITH fillP(color::white) { blend := canvas::BlendMode.Screen, gradient := radial(p.x, p.y, p.r, [gstop(0.0, fade(mixC(p.tint, color::white, 0.55), a)), gstop(1.0, fade(p.tint, 0.0))]) }))
+  NEXT
+  FOR EACH sp IN s.sparks
+    LET a AS Float = 1.0 - sp.age / sp.life
+    out = collections::append(out, circle(sp.x, sp.y, 1.5 + 2.0 * a, glowP(fade(mixC(brew, color::white, 0.5), a))))
+  NEXT
+
+  ' The potions.
+  FOR i = 0 TO 4
+    LET pose AS BottlePose = bottlePose(i, s, w, h)
+    LET size AS Float = bottleSize(h)
+    out = collections::append(out, ellipse(bottleHome(i, w, h).x, bottleHome(i, w, h).y, size * 0.3, size * 0.05, 0.0, fillP(rgba(0, 0, 0, 90))))
+    out = collections::append(out, bottle(i, pose.x, pose.y, size, pose.tilt, collections::get(s.levels, i), collections::get(s.hover, i), t))
+    IF pose.pouring THEN
+      ' The pour: a stream from the bottle's mouth down into the brew.
+      LET mouthX AS Float = pose.x + math::sin(pose.tilt) * size
+      LET mouthY AS Float = pose.y - math::cos(pose.tilt) * size
+      MUT stream AS List OF canvas::Point = []
+      FOR k = 0 TO 10
+        LET u AS Float = toFloat(k) / 10.0
+        stream = collections::append(stream, pt(lerp(mouthX, c.cx + (mouthX - c.cx) * 0.4, u) + math::sin(t * 20.0 + u * 6.0) * 1.5, lerp(mouthY, c.rimY, u * u)))
+      NEXT
+      out = collections::append(out, trail(stream, [mixC(potionColor(i), color::white, 0.3), potionColor(i)], WITH strokeP(color::white, size * 0.06) { blend := canvas::BlendMode.Normal }))
+      out = collections::append(out, glow(c.cx + (mouthX - c.cx) * 0.4, c.rimY, size * 0.5, fade(potionColor(i), 0.6)))
+    END IF
+    ' The potion's name under the mouse.
+    LET hv AS Float = collections::get(s.hover, i)
+    IF hv > 0.05 THEN
+      LET home AS canvas::Point = bottleHome(i, w, h)
+      out = collections::append(out, centered(f.italic, 15.0, potionName(i), home.x, home.y + 24.0, fillP(fade(mixC(potionColor(i), color::white, 0.6), hv))))
+    END IF
+  NEXT
+
+  ' In front: the nearer hummingbirds.
+  out = collections::append(out, drawHummers(s, w, h, TRUE))
+  out = collections::append(out, motes(0.0, h * 0.2, w, h * 0.6, 22, t, hex("#d8ffa0"), 1.6, 81))
+  RETURN collections::append(out, vignette(w, h, 190))
+END FUNC

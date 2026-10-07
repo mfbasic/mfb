@@ -22,9 +22,11 @@ needed: everything here happens at build time and in `mfb dbg`.
 paused, or pauses one that is already running, and gives you a `DBG>` prompt
 where you can:
 
-- stop it when it reaches a function, and run it on to the next stop;
+- stop it when it reaches a function, or only when a test you give holds there,
+  and run it on to the next stop;
 - see the calls that led there, on one thread or all of them;
-- step through it an instruction at a time, and read its machine code;
+- step through it an instruction at a time, move a thread somewhere else with
+  registers of your choosing, and read its machine code;
 - read its registers and memory, and show the values in memory as what they
   are: a `String`, a `List`, a `Map`, a `Set`, a number, an open `File`;
 - look inside the pools of memory each thread keeps its values in.
@@ -111,9 +113,9 @@ DBG> bt
     frame #2: 0x00000001005d1040 debug.out`main + 2912 <mfb>
     frame #3: 0x00000001005c8634 debug.out`main + 348 <native>
 DBG> show type list x0 0..
-Index Address            Bytes Value
-0     0x0000000100644338 8     0x0000000000000025 (37)
-1     0x0000000100644340 8     0x000000000000001f (31)
+Index | Address            | Bytes | Value
+0     | 0x0000000100644338 | 8     | 0x0000000000000025 (37)
+1     | 0x0000000100644340 | 8     | 0x000000000000001f (31)
 DBG> show type map x1 get round 2
 Index: 1
 Key: "round 2" at 0x0000000100644538 (7 bytes)
@@ -169,8 +171,8 @@ session's.
 ## Topics
 
 - `start` — start or attach to a program, end the session, and drive it from a script.
-- `breakpoints` — stop in a function or when memory changes, run commands at a stop, finish a function, start over.
-- `stepping` — run one instruction at a time, and read the machine code.
+- `breakpoints` — stop in a function, or only when a test holds there, or when memory changes; run commands at a stop, finish a function, start over.
+- `stepping` — run one instruction at a time, move a thread, and read the machine code.
 - `backtraces` — see the calls that led to where each thread is.
 - `inspecting` — list the functions, threads and registers, and read memory.
 - `values` — show a value in memory as the type it is.

@@ -16,7 +16,8 @@ Memory does not say what type of value it holds: a `String` is its length in
 8 bytes, then its text, with nothing to mark it as a `String`. When you know
 what is at an address, `show type` reads it as that type.
 
-`<where>` is an address, or a register holding one, as for `show mem`: the
+`<where>` is an address, or a register or `[…]` holding one, as for
+`show mem`: the
 place in memory where the value is. A function receives its first eight
 arguments in `x0` to `x7`, and a `String`, a collection or a resource arrives
 as the address of the value, so at a breakpoint at the start of a function
@@ -62,9 +63,9 @@ runs to the end), for its elements, each with its address and size:
 DBG> show type list x0
 List Type: Integer Length: 2 Capacity: 4 Data: 16/32 bytes Block: 0x00000001048b4310-0x00000001048b4358 (72 bytes)
 DBG> show type list x0 0..
-Index Address            Bytes Value
-0     0x00000001048b4338 8     0x0000000000000025 (37)
-1     0x00000001048b4340 8     0x000000000000001f (31)
+Index | Address            | Bytes | Value
+0     | 0x00000001048b4338 | 8     | 0x0000000000000025 (37)
+1     | 0x00000001048b4340 | 8     | 0x000000000000001f (31)
 ```
 
 A list knows the type of its elements except for a `Set`, a resource, a record,
@@ -79,9 +80,9 @@ entry by index, or the entry for a key:
 
 ```
 DBG> show type map x1 keys
-Index Address            Bytes Key
-0     0x00000001048b4528 7     "round 1"
-1     0x00000001048b4538 7     "round 2"
+Index | Address            | Bytes | Key
+0     | 0x00000001048b4528 | 7     | "round 1"
+1     | 0x00000001048b4538 | 7     | "round 2"
 DBG> show type map x1 get round 2
 Index: 1
 Key: "round 2" at 0x00000001048b4538 (7 bytes)
@@ -129,23 +130,23 @@ round 2: 31 primes
 DBG> show type list x0
 List Type: Integer Length: 2 Capacity: 4 Data: 16/32 bytes Block: 0x00000001048b4310-0x00000001048b4358 (72 bytes)
 DBG> show type map x1 keys
-Index Address            Bytes Key
-0     0x00000001048b4528 7     "round 1"
-1     0x00000001048b4538 7     "round 2"
+Index | Address            | Bytes | Key
+0     | 0x00000001048b4528 | 7     | "round 1"
+1     | 0x00000001048b4538 | 7     | "round 2"
 DBG> show type set x2 0..
-Index Address            Bytes Element
-0     0x00000001048b4658 8     0x0000000000000025 (37)
-1     0x00000001048b4668 8     0x000000000000001f (31)
+Index | Address            | Bytes | Element
+0     | 0x00000001048b4658 | 8     | 0x0000000000000025 (37)
+1     | 0x00000001048b4668 | 8     | 0x000000000000001f (31)
 DBG> show type list x3 0..
-Index Address            Bytes Value
-0     0x00000001048b4388 8     0x4042800000000000 (37.0)
-1     0x00000001048b4390 8     0x4041000000000000 (34.0)
+Index | Address            | Bytes | Value
+0     | 0x00000001048b4388 | 8     | 0x4042800000000000 (37.0)
+1     | 0x00000001048b4390 | 8     | 0x4041000000000000 (34.0)
 DBG> show type list x4 1
-Index Address            Bytes Value
-1     0x00000001048b4710 8     0x0000000633333333 (6.20)
+Index | Address            | Bytes | Value
+1     | 0x00000001048b4710 | 8     | 0x0000000633333333 (6.20)
 DBG> show type list x5 0
-Index Address            Bytes Value
-0     0x00000001048b4758 8     0x00000000000001f4 (0.00500)
+Index | Address            | Bytes | Value
+0     | 0x00000001048b4758 | 8     | 0x00000000000001f4 (0.00500)
 DBG> show type resource x6
 Type: File Closed: N Moved: N Handle (fd): 3 State: 0x0000000000000000 Scope: 0x16b5c5087fff (scope depth 1 of the frame whose token slot is 0x16b5c5088) Write Buffer: 0x0 Write Filled: 0 Write Enabled: 0 Read Buffer: 0x0 Read Position: 0 Read Filled: 0 At EOF: 0
 DBG> q

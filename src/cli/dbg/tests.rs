@@ -147,6 +147,9 @@ impl Inferior for Paused {
     fn registers(&mut self, _: usize) -> Result<Vec<Register>, String> {
         Ok(Vec::new())
     }
+    fn set_registers(&mut self, _: usize, _: &[(String, u64)]) -> Result<(), String> {
+        Err("the paused program has no threads".to_string())
+    }
     fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
         Err("not stepped".to_string())
     }
@@ -378,4 +381,18 @@ fn a_program_without_function_names_is_announced_as_not_a_debug_build() {
     backend.symbols = Err("cannot read".to_string());
     let out = run_session(Request::Attach { pid: 7 }, &backend, "q\n").unwrap();
     assert!(!out.contains("note:"), "{out}");
+}
+
+/// `mfb dbg --help` lists the prompt's commands exactly as `help` at the
+/// prompt does, so the two cannot drift apart.
+#[test]
+fn the_dbg_help_lists_every_prompt_command() {
+    let commands = crate::debugger::prompt::HELP
+        .split_once('\n')
+        .expect("a heading line")
+        .1;
+    assert!(
+        crate::cli::help::dbg_help().contains(commands),
+        "mfb dbg --help does not carry the prompt's command list"
+    );
 }

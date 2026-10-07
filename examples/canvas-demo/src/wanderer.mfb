@@ -1,0 +1,563 @@
+' wanderer - VI. The Wanderer's Path.
+'
+' A walk through a pixel-art wood: run and jump along the path, gather coins
+' and gems, light the lanterns as you pass them, and reach the flag. Day turns
+' to night as you go (or press N), and at night the lanterns, the gems and the
+' fireflies are the only light.
+'
+' The art is Kenney's CC0 "Pixel Platformer" sheets (resources/sprites). Each
+' sheet is loaded once with canvas::loadImage, read back with canvas::getBytes,
+' cut into its 18- and 24-pixel cells in MFBASIC, and every cell becomes its own
+' image with canvas::createImage - a mirrored copy too, for the hero facing
+' left. canvas::Picture scales with nearest-neighbour sampling, so drawing a
+' cell at a whole-number multiple keeps the pixels crisp.
+'
+' All of those images belong to groups: the whole level is one group, drawn
+' each frame at the camera's offset, and each sprite frame is a group of its
+' own. A frame's scene is then mostly Group nodes - a few dozen items, not the
+' level's hundreds of tiles.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+IMPORT os
+IMPORT strings
+
+LET WANDER_TILE AS Integer = 18
+LET WANDER_HERO AS Integer = 24
+
+' The level, one string per row of tiles, top row first:
+'   G  ground (the top row of each column of ground is drawn with grass)
+'   P  a floating platform
+'   c  a coin       g  a gem
+'   s  a sprout     t  a little pine     m  a mushroom   f  a fence
+'   >  a signpost   L  a lantern post    F  the flag
+LET WANDER_LEVEL AS List OF String = [
+  "                                                                                                                    ",
+  "                                                                                                                    ",
+  "                                                                    g                                               ",
+  "                                                 c g                                                                ",
+  "                                                c c c              PPP                                              ",
+  "                     g                         PPPPPP         c c                       g                           ",
+  "                  c c c           c c                         PPPP                    PPPP                          ",
+  "                  PPPPPP          PPPP   c c                                                                    F   ",
+  "                 s      t               GGGG                            s   c c c                                   ",
+  "      >   L s t GGGGGGGGGG  c cm L  s t GGGG sm   c   c  Lt s  fff    GGGGG     t s L m     c c  s t  m L  s t      ",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG   GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG   GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG   GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG   GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG  GGGGGGGGGGGGGGGGGGGGGGGG"
+]
+
+TYPE Pickup
+  col AS Integer
+  row AS Integer
+  gem AS Boolean
+  taken AS Float       ' -1 still there, else seconds since it was taken
+END TYPE
+
+TYPE WandererState
+  lv AS Level
+  t AS Float
+  ready AS Boolean     ' the sprite groups are installed
+  scale AS Float       ' screen pixels per sprite pixel, for the window size the level was installed at
+  x AS Float           ' the hero's feet, in sprite pixels
+  y AS Float
+  vx AS Float
+  vy AS Float
+  grounded AS Boolean
+  coyote AS Float      ' seconds left in which a jump still counts after leaving a ledge
+  face AS Integer      ' 1 right, -1 left
+  walk AS Float        ' the walk cycle
+  cam AS Float         ' the camera's left edge, in sprite pixels
+  night AS Float       ' 0 day .. 1 night
+  nightWanted AS Boolean
+  dayClock AS Float
+  pickups AS List OF Pickup
+  lit AS List OF Integer        ' columns of the lanterns already lit
+  coins AS Integer
+  gems AS Integer
+  checkpoint AS Float
+  hurt AS Float        ' seconds left blinking after a fall
+  won AS Float         ' seconds since reaching the flag, or -1
+END TYPE
+
+' The level unpacked once: every cell as its own one-letter string in a flat
+' list, so a lookup is an index rather than a walk along a row of text, and
+' the places the frame needs every time - lanterns and the flag - found up
+' front.
+TYPE Level
+  cols AS Integer
+  rows AS Integer
+  cells AS List OF String
+  lanterns AS List OF Integer     ' a lantern's column
+  lanternRows AS List OF Integer  ' and its row
+  flag AS Integer
+END TYPE
+
+FUNC parseLevel(lines AS List OF String) AS Level
+  MUT cells AS List OF String = []
+  FOR EACH line_ IN lines
+    cells = collections::append(cells, strings::graphemes(line_))
+  NEXT
+  LET rows AS Integer = len(lines)
+  LET cols AS Integer = len(cells) / rows
+  MUT lanterns AS List OF Integer = []
+  MUT lanternRows AS List OF Integer = []
+  MUT flag AS Integer = cols - 2
+  FOR row = 0 TO rows - 1
+    FOR col = 0 TO cols - 1
+      LET c AS String = collections::get(cells, row * cols + col)
+      IF c = "L" THEN
+        lanterns = collections::append(lanterns, col)
+        lanternRows = collections::append(lanternRows, row)
+      END IF
+      IF c = "F" THEN flag = col
+    NEXT
+  NEXT
+  RETURN Level[cols := cols, rows := rows, cells := cells, lanterns := lanterns, lanternRows := lanternRows, flag := flag]
+END FUNC
+
+FUNC levelChar(lv AS Level, col AS Integer, row AS Integer) AS String
+  IF row < 0 OR row >= lv.rows OR col < 0 OR col >= lv.cols THEN RETURN " "
+  RETURN collections::get(lv.cells, row * lv.cols + col)
+END FUNC
+
+FUNC solidAt(lv AS Level, col AS Integer, row AS Integer) AS Boolean
+  IF row >= lv.rows THEN RETURN FALSE
+  IF col < 0 OR col >= lv.cols THEN RETURN TRUE
+  LET c AS String = levelChar(lv, col, row)
+  RETURN c = "G" OR c = "P"
+END FUNC
+
+FUNC wandererNew AS WandererState
+  LET lv AS Level = parseLevel(WANDER_LEVEL)
+  MUT pickups AS List OF Pickup = []
+  FOR row = 0 TO lv.rows - 1
+    FOR col = 0 TO lv.cols - 1
+      LET c AS String = levelChar(lv, col, row)
+      IF c = "c" OR c = "g" THEN pickups = collections::append(pickups, Pickup[col := col, row := row, gem := c = "g", taken := -1.0])
+    NEXT
+  NEXT
+  RETURN WandererState[lv := lv, t := 0.0, ready := FALSE, scale := 0.0, x := 40.0, y := 160.0, vx := 0.0, vy := 0.0, grounded := FALSE, coyote := 0.0, face := 1, walk := 0.0, cam := 0.0, night := 0.0, nightWanted := FALSE, dayClock := 0.0, pickups := pickups, lit := [], coins := 0, gems := 0, checkpoint := 40.0, hurt := 0.0, won := -1.0]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Cutting the sheets
+' ---------------------------------------------------------------------------
+
+' One cell of a sheet as its own RGBA8 pixels: `size` rows, each a slice of
+' the sheet's row. Mirrored left-to-right when `mirror` is set.
+FUNC cell(pixels AS List OF Byte, sheetW AS Integer, col AS Integer, row AS Integer, size AS Integer, mirror AS Boolean) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR y = 0 TO size - 1
+    LET start AS Integer = ((row * size + y) * sheetW + col * size) * 4
+    LET line_ AS List OF Byte = collections::mid(pixels, start, size * 4)
+    IF mirror THEN
+      FOR x = size - 1 TO 0 STEP -1
+        out = collections::append(out, collections::mid(line_, x * 4, 4))
+      NEXT
+    ELSE
+      out = collections::append(out, line_)
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The tile drawn for a ground or platform cell: grass on top of the ground,
+' dirt below it, and the edge pieces where the neighbour on that side is open.
+FUNC groundTile(lv AS Level, col AS Integer, row AS Integer) AS Integer
+  LET c AS String = levelChar(lv, col, row)
+  LET openL AS Boolean = NOT solidAt(lv, col - 1, row) OR col = 0
+  LET openR AS Boolean = NOT solidAt(lv, col + 1, row) OR col = lv.cols - 1
+  IF c = "P" THEN
+    IF openL AND openR THEN RETURN 0
+    IF openL THEN RETURN 1
+    IF openR THEN RETURN 3
+    RETURN 2
+  END IF
+  LET top AS Boolean = NOT solidAt(lv, col, row - 1)
+  MUT base AS Integer = 120
+  IF top THEN base = 20
+  IF openL AND openR THEN RETURN base
+  IF openL AND col > 0 THEN RETURN base + 1
+  IF openR AND col < lv.cols - 1 THEN RETURN base + 3
+  RETURN base + 2
+END FUNC
+
+FUNC decorTile(c AS String) AS Integer
+  MATCH c
+    CASE "s" : RETURN 125
+    CASE "t" : RETURN 126
+    CASE "m" : RETURN 128
+    CASE "f" : RETURN 106
+    CASE ">" : RETURN 85
+    CASE ELSE : RETURN -1
+  END MATCH
+END FUNC
+
+
+' Load and cut both sheets and install every group the scene draws with. `s`
+' is the scale the level is drawn at.
+FUNC wandererInstall(lv AS Level, s AS Float) AS Nothing
+  RES tiles AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/tiles.png"))
+  RES chars AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/characters.png"))
+  LET tilePx AS List OF Byte = canvas::getBytes(tiles)
+  LET charPx AS List OF Byte = canvas::getBytes(chars)
+  LET tilesW AS Integer = canvas::getSize(tiles).width
+  LET charsW AS Integer = canvas::getSize(chars).width
+
+  ' The level: one Picture per solid or decorated cell, each its own image.
+  LET size AS Float = toFloat(WANDER_TILE) * s
+  MUT level AS List OF canvas::DrawItem = []
+  FOR row = 0 TO lv.rows - 1
+    FOR col = 0 TO lv.cols - 1
+      LET c AS String = levelChar(lv, col, row)
+      MUT index AS Integer = -1
+      IF c = "G" OR c = "P" THEN
+        index = groundTile(lv, col, row)
+      ELSE
+        index = decorTile(c)
+      END IF
+      IF index >= 0 THEN
+        ' The Picture is built right here, around the image: a resource
+        ' placed straight into the list floats out to the list's scope, where
+        ' a call that merely returned it would leave it closing at the end of
+        ' this iteration.
+        RES img AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, index MOD 20, index / 20, WANDER_TILE, FALSE))
+        LET tile AS canvas::DrawItem = canvas::Picture[x := toFloat(col) * size, y := toFloat(row) * size, w := size, h := size, image := img, paint := canvas::fill(color::white)]
+        level = collections::append(level, tile)
+      END IF
+      IF c = "F" THEN
+        ' The flag is two cells: the banner and the pole under it.
+        RES top AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 5, WANDER_TILE, FALSE))
+        RES pole AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 6, WANDER_TILE, FALSE))
+        LET banner AS canvas::DrawItem = canvas::Picture[x := toFloat(col) * size, y := toFloat(row + 1) * size, w := size, h := size, image := top, paint := canvas::fill(color::white)]
+        LET staff AS canvas::DrawItem = canvas::Picture[x := toFloat(col) * size, y := toFloat(row + 2) * size, w := size, h := size, image := pole, paint := canvas::fill(color::white)]
+        level = collections::append(level, [banner, staff])
+      END IF
+    NEXT
+  NEXT
+  canvas::setGroup("wander-level", level)
+
+  ' The hero: two frames, each facing both ways, and the same four tinted red -
+  ' a Picture's fill colour multiplies the image, at a strength set by its
+  ' alpha - for the blink after a fall.
+  LET hs AS Float = toFloat(WANDER_HERO) * s
+  FOR frame = 0 TO 1
+    FOR dir = 0 TO 1
+      FOR red = 0 TO 1
+        RES img AS canvas::Image = canvas::createImage(WANDER_HERO, WANDER_HERO, cell(charPx, charsW, frame, 1, WANDER_HERO, dir = 1))
+        MUT tint AS color::Color = color::white
+        IF red = 1 THEN tint = rgba(255, 70, 70, 220)
+        canvas::setGroup("wander-hero-" & toString(frame) & toString(dir) & toString(red), [canvas::Picture[x := -hs / 2.0, y := -hs, w := hs, h := hs, image := img, paint := canvas::fill(tint)]])
+      NEXT
+    NEXT
+  NEXT
+
+  ' Coins (face-on and edge-on, for the spin) and the gem, centred on (0, 0).
+  LET ts AS Float = toFloat(WANDER_TILE) * s
+  RES coinA AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 7, WANDER_TILE, FALSE))
+  canvas::setGroup("wander-coin-0", [canvas::Picture[x := -ts / 2.0, y := -ts / 2.0, w := ts, h := ts, image := coinA, paint := canvas::fill(color::white)]])
+  RES coinB AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 12, 7, WANDER_TILE, FALSE))
+  canvas::setGroup("wander-coin-1", [canvas::Picture[x := -ts / 2.0, y := -ts / 2.0, w := ts, h := ts, image := coinB, paint := canvas::fill(color::white)]])
+  RES gem AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 7, 3, WANDER_TILE, FALSE))
+  canvas::setGroup("wander-gem", [canvas::Picture[x := -ts / 2.0, y := -ts / 2.0, w := ts, h := ts, image := gem, paint := canvas::fill(color::white)]])
+  ' Small copies for the counters in the corner.
+  RES coinHud AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 7, WANDER_TILE, FALSE))
+  canvas::setGroup("wander-hud-coin", [canvas::Picture[x := 0.0, y := 0.0, w := 36.0, h := 36.0, image := coinHud, paint := canvas::fill(color::white)]])
+  RES gemHud AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 7, 3, WANDER_TILE, FALSE))
+  canvas::setGroup("wander-hud-gem", [canvas::Picture[x := 0.0, y := 0.0, w := 36.0, h := 36.0, image := gemHud, paint := canvas::fill(color::white)]])
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Stepping
+' ---------------------------------------------------------------------------
+
+LET HERO_HALF_W AS Float = 5.0
+LET HERO_H AS Float = 18.0
+
+FUNC hitsSolid(lv AS Level, x AS Float, y AS Float) AS Boolean
+  LET ts AS Float = toFloat(WANDER_TILE)
+  LET c0 AS Integer = math::floor((x - HERO_HALF_W) / ts)
+  LET c1 AS Integer = math::floor((x + HERO_HALF_W - 0.01) / ts)
+  LET r0 AS Integer = math::floor((y - HERO_H) / ts)
+  LET r1 AS Integer = math::floor((y - 0.01) / ts)
+  FOR r = r0 TO r1
+    FOR c = c0 TO c1
+      IF solidAt(lv, c, r) THEN RETURN TRUE
+    NEXT
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC wanderScale(h AS Float) AS Float
+  RETURN math::max(2.0, toFloat(math::round(h / (toFloat(WANDER_TILE) * 12.5))))
+END FUNC
+
+FUNC wandererStep(s AS WandererState, inp AS Input, dt AS Float) AS WandererState
+  LET sc AS Float = wanderScale(inp.h)
+  LET lv AS Level = s.lv
+  IF NOT s.ready OR sc <> s.scale THEN wandererInstall(lv, sc)
+  LET ts AS Float = toFloat(WANDER_TILE)
+  MUT x AS Float = s.x
+  MUT y AS Float = s.y
+  MUT vx AS Float = s.vx
+  MUT vy AS Float = s.vy
+  MUT grounded AS Boolean = s.grounded
+  MUT coyote AS Float = math::max(0.0, s.coyote - dt)
+  MUT face AS Integer = s.face
+  LET left AS Boolean = keyHeld(inp, "left") OR keyHeld(inp, "a")
+  LET right AS Boolean = keyHeld(inp, "right") OR keyHeld(inp, "d")
+  LET jump AS Boolean = keyPressed(inp, "space") OR keyPressed(inp, "up") OR keyPressed(inp, "w")
+  MUT target AS Float = 0.0
+  IF s.won < 0.0 THEN
+    IF left THEN target = target - 120.0
+    IF right THEN target = target + 120.0
+  END IF
+  IF target < 0.0 THEN face = -1
+  IF target > 0.0 THEN face = 1
+  ' Quick to start and stop on the ground, floatier in the air.
+  MUT accel AS Float = 14.0
+  IF NOT grounded THEN accel = 6.0
+  vx = vx + (target - vx) * math::min(1.0, accel * dt)
+  IF jump AND (grounded OR coyote > 0.0) AND s.won < 0.0 THEN
+    vy = -330.0
+    grounded = FALSE
+    coyote = 0.0
+  END IF
+  ' A short hop when the jump key is let go early.
+  IF vy < -120.0 AND NOT (keyHeld(inp, "space") OR keyHeld(inp, "up") OR keyHeld(inp, "w")) THEN vy = vy + 1400.0 * dt
+  vy = math::min(vy + 980.0 * dt, 600.0)
+  ' Move one axis at a time, backing out of anything solid.
+  LET nx AS Float = x + vx * dt
+  IF hitsSolid(lv, nx, y) THEN
+    vx = 0.0
+  ELSE
+    x = nx
+  END IF
+  LET ny AS Float = y + vy * dt
+  LET wasGrounded AS Boolean = grounded
+  IF hitsSolid(lv, x, ny) THEN
+    IF vy > 0.0 THEN
+      ' Land on the top of the cell below.
+      y = toFloat(math::floor(ny / ts)) * ts
+      grounded = TRUE
+    ELSE
+      y = toFloat(math::floor((ny - HERO_H) / ts) + 1) * ts + HERO_H
+    END IF
+    vy = 0.0
+  ELSE
+    y = ny
+    grounded = FALSE
+  END IF
+  IF wasGrounded AND NOT grounded AND vy >= 0.0 THEN coyote = 0.1
+
+  ' Falling into a gap: back to the last lantern, blinking.
+  MUT hurt AS Float = math::max(0.0, s.hurt - dt)
+  IF y > toFloat(lv.rows + 2) * ts THEN
+    x = s.checkpoint
+    y = 8.0 * ts
+    vx = 0.0
+    vy = 0.0
+    hurt = 1.2
+  END IF
+
+  ' Lanterns light as the hero passes, and each becomes the checkpoint.
+  MUT lit AS List OF Integer = s.lit
+  MUT checkpoint AS Float = s.checkpoint
+  FOR EACH col IN lv.lanterns
+    IF NOT collections::contains(lit, col) AND math::abs(x - (toFloat(col) + 0.5) * ts) < ts THEN
+      lit = collections::append(lit, col)
+      checkpoint = (toFloat(col) + 0.5) * ts
+    END IF
+  NEXT
+
+  ' Pickups within reach are taken.
+  MUT coins AS Integer = s.coins
+  MUT gems AS Integer = s.gems
+  MUT pickups AS List OF Pickup = []
+  FOR EACH p IN s.pickups
+    IF p.taken < 0.0 THEN
+      LET px AS Float = (toFloat(p.col) + 0.5) * ts
+      LET py AS Float = (toFloat(p.row) + 0.5) * ts
+      IF math::abs(px - x) < 11.0 AND math::abs(py - (y - HERO_H * 0.5)) < 15.0 THEN
+        pickups = collections::append(pickups, WITH p { taken := 0.0 })
+        IF p.gem THEN
+          gems = gems + 1
+        ELSE
+          coins = coins + 1
+        END IF
+      ELSE
+        pickups = collections::append(pickups, p)
+      END IF
+    ELSE
+      pickups = collections::append(pickups, WITH p { taken := p.taken + dt })
+    END IF
+  NEXT
+
+  MUT won AS Float = s.won
+  IF won >= 0.0 THEN won = won + dt
+  IF won < 0.0 AND x > (toFloat(lv.flag) + 0.2) * ts THEN won = 0.0
+  IF won > 6.0 THEN
+    ' Round again from the start, with the wood restored.
+    RETURN WITH wandererNew() { ready := TRUE, scale := sc, night := s.night, nightWanted := s.nightWanted, t := s.t + dt }
+  END IF
+
+  ' Day and night: a slow cycle, or N to switch.
+  MUT nightWanted AS Boolean = s.nightWanted
+  MUT dayClock AS Float = s.dayClock + dt
+  IF keyPressed(inp, "n") THEN
+    nightWanted = NOT nightWanted
+    dayClock = 0.0
+  END IF
+  IF dayClock > 40.0 THEN
+    nightWanted = NOT nightWanted
+    dayClock = 0.0
+  END IF
+  MUT nt AS Float = 0.0
+  IF nightWanted THEN nt = 1.0
+  LET night AS Float = approach(s.night, nt, 0.9, dt)
+
+  ' The camera keeps the hero a little left of centre, eased.
+  LET viewW AS Float = inp.w / sc
+  LET want AS Float = clampF(x - viewW * 0.4, 0.0, toFloat(lv.cols) * ts - viewW)
+  LET cam AS Float = approach(s.cam, want, 5.0, dt)
+  MUT walk AS Float = s.walk
+  IF grounded AND math::abs(vx) > 10.0 THEN walk = walk + dt * math::abs(vx) / 18.0
+  RETURN WandererState[lv := lv, t := s.t + dt, ready := TRUE, scale := sc, x := x, y := y, vx := vx, vy := vy, grounded := grounded, coyote := coyote, face := face, walk := walk, cam := cam, night := night, nightWanted := nightWanted, dayClock := dayClock, pickups := pickups, lit := lit, coins := coins, gems := gems, checkpoint := checkpoint, hurt := hurt, won := won]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+' The height of a far hill line at world position u, for the parallax layers.
+FUNC hillAt(u AS Float, seed AS Float) AS Float
+  RETURN math::sin(u * 0.004 + seed) * 0.5 + math::sin(u * 0.011 + seed * 2.0) * 0.3 + math::sin(u * 0.027 + seed * 3.0) * 0.2
+END FUNC
+
+FUNC hillLayer(w AS Float, baseY AS Float, amp AS Float, offset AS Float, seed AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  MUT pts AS List OF canvas::Point = [pt(-10.0, baseY + amp * 3.0)]
+  FOR i = 0 TO 48
+    LET sx AS Float = -10.0 + (w + 20.0) * toFloat(i) / 48.0
+    pts = collections::append(pts, pt(sx, baseY - amp * hillAt(sx + offset, seed)))
+  NEXT
+  RETURN poly(collections::append(pts, pt(w + 10.0, baseY + amp * 3.0)), p)
+END FUNC
+
+FUNC wandererDraw(s AS WandererState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET sc AS Float = wanderScale(h)
+  LET ts AS Float = toFloat(WANDER_TILE)
+  LET cam AS Float = s.cam
+  LET n AS Float = s.night
+  LET t AS Float = s.t
+  ' The level's rows are fixed to the bottom of the window.
+  LET lv AS Level = s.lv
+  LET levelH AS Float = toFloat(lv.rows) * ts * sc
+  LET oy AS Float = h - levelH
+  ' Sky and the vector backdrop: hills drawn with smooth curves behind the
+  ' pixel art, sliding at a fraction of the camera's speed.
+  LET skyTop AS color::Color = mixC(hex("#7ec8f0"), hex("#0a0f2a"), n)
+  LET skyLow AS color::Color = mixC(hex("#dff4ff"), hex("#2a2450"), n)
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h * 0.8, [gstop(0.0, skyTop), gstop(1.0, skyLow)])))]
+  out = collections::append(out, starField(w, h * 0.6, 100, t, n, 51))
+  LET orbX AS Float = w * 0.78
+  LET orbY AS Float = h * 0.18
+  out = collections::append(out, glow(orbX, orbY, h * 0.25, fade(mixC(hex("#fff6c0"), hex("#c8d8ff"), n), 0.5)))
+  out = collections::append(out, circle(orbX, orbY, h * 0.05, fillP(mixC(hex("#fff2b0"), hex("#eef2ff"), n))))
+  out = collections::append(out, hillLayer(w, h * 0.55, h * 0.08, cam * sc * 0.1, 1.0, fillP(mixC(hex("#a8d8c8"), hex("#1e2a48"), n))))
+  out = collections::append(out, hillLayer(w, h * 0.62, h * 0.07, cam * sc * 0.25, 4.0, fillP(mixC(hex("#7cc4a0"), hex("#172238"), n))))
+  out = collections::append(out, hillLayer(w, h * 0.7, h * 0.06, cam * sc * 0.45, 7.0, fillP(mixC(hex("#4fa878"), hex("#101a2a"), n))))
+
+  ' The level itself: one Group, moved by the camera. Whole-pixel offsets keep
+  ' the pixel art from shimmering.
+  LET dx AS Float = toFloat(math::round(-cam * sc))
+  out = collections::append(out, item(canvas::Group[dx := dx, dy := oy, name := "wander-level"]))
+  ' Lantern posts, drawn in vectors over the tiles.
+  FOR i = 0 TO len(lv.lanterns) - 1
+    LET col AS Integer = collections::get(lv.lanterns, i)
+    LET lx AS Float = dx + (toFloat(col) + 0.5) * ts * sc
+    LET baseY AS Float = oy + toFloat(collections::get(lv.lanternRows, i) + 1) * ts * sc
+    LET postH AS Float = ts * sc * 1.6
+    out = collections::append(out, rect(lx - sc * 1.5, baseY - postH, sc * 3.0, postH, fillP(hex("#3a2a24"))))
+    out = collections::append(out, rrect(lx - sc * 4.0, baseY - postH - sc * 8.0, sc * 8.0, sc * 9.0, sc * 2.0, WITH fillP(hex("#2a1e1a")) { stroke := hex("#6a4a3a"), strokeWidth := sc }))
+    IF collections::contains(s.lit, col) THEN
+      out = collections::append(out, rect(lx - sc * 2.5, baseY - postH - sc * 6.5, sc * 5.0, sc * 6.0, fillP(hex("#ffd27a"))))
+    END IF
+  NEXT
+  ' Pickups, bobbing, coins spinning between their two frames.
+  FOR EACH p IN s.pickups
+    LET px AS Float = dx + (toFloat(p.col) + 0.5) * ts * sc
+    LET py AS Float = oy + (toFloat(p.row) + 0.5) * ts * sc + math::sin(t * 3.0 + toFloat(p.col)) * sc * 1.5
+    IF p.taken < 0.0 AND px > -40.0 AND px < w + 40.0 THEN
+      IF p.gem THEN
+        out = collections::append(out, item(canvas::Group[dx := px, dy := py, name := "wander-gem"]))
+      ELSE
+        out = collections::append(out, item(canvas::Group[dx := px, dy := py, name := "wander-coin-" & toString(math::floor(t * 5.0 + toFloat(p.col)) MOD 2)]))
+      END IF
+    ELSEIF p.taken >= 0.0 AND p.taken < 0.6 THEN
+      ' Taken: a ring of light rising and fading.
+      LET u AS Float = p.taken / 0.6
+      out = collections::append(out, circle(px, py - u * ts * sc, ts * sc * (0.3 + u * 0.6), WITH canvas::stroke(fade(hex("#fff0a0"), 1.0 - u), 2.0 * sc) { blend := canvas::BlendMode.Add }))
+    END IF
+  NEXT
+  ' The hero: a group per frame and facing; red-tinted frames while blinking.
+  LET frame AS Integer = math::floor(s.walk) MOD 2
+  MUT dir AS Integer = 0
+  IF s.face < 0 THEN dir = 1
+  MUT red AS Integer = 0
+  IF s.hurt > 0.0 AND math::floor(s.hurt * 10.0) MOD 2 = 0 THEN red = 1
+  MUT heroFrame AS Integer = frame
+  IF NOT s.grounded THEN heroFrame = 1
+  LET hx AS Float = toFloat(math::round(dx + s.x * sc))
+  LET hy AS Float = toFloat(math::round(oy + s.y * sc))
+  out = collections::append(out, ellipse(hx, hy, ts * sc * 0.35, sc * 1.5, 0.0, fillP(rgba(0, 0, 0, 60))))
+  out = collections::append(out, item(canvas::Group[dx := hx, dy := hy + sc * 2.0, name := "wander-hero-" & toString(heroFrame) & toString(dir) & toString(red)]))
+
+  ' Night: a Multiply wash over everything so far, then the lights added on
+  ' top of it - the lanterns, the gems and the fireflies.
+  IF n > 0.01 THEN
+    out = collections::append(out, rect(0.0, 0.0, w, h, WITH fillP(mixC(color::white, hex("#3a4a8a"), n)) { blend := canvas::BlendMode.Multiply }))
+    FOR i = 0 TO len(lv.lanterns) - 1
+      LET col AS Integer = collections::get(lv.lanterns, i)
+      LET ly AS Float = oy + toFloat(collections::get(lv.lanternRows, i) + 1) * ts * sc - ts * sc * 1.6 - sc * 3.5
+      LET lx AS Float = dx + (toFloat(col) + 0.5) * ts * sc
+      IF collections::contains(s.lit, col) THEN
+        LET flick AS Float = 0.9 + 0.1 * math::sin(t * 13.0 + toFloat(col))
+        out = collections::append(out, glow(lx, ly, ts * sc * 4.0 * flick, fade(hex("#ffb84a"), 0.55 * n)))
+        out = collections::append(out, glow(lx, ly, ts * sc * 0.8, fade(hex("#fff0c0"), 0.9 * n)))
+      END IF
+    NEXT
+    FOR EACH p IN s.pickups
+      IF p.taken < 0.0 THEN
+        LET px AS Float = dx + (toFloat(p.col) + 0.5) * ts * sc
+        LET py AS Float = oy + (toFloat(p.row) + 0.5) * ts * sc
+        IF p.gem THEN
+          out = collections::append(out, glow(px, py, ts * sc * 1.4, fade(hex("#6ad8ff"), 0.7 * n)))
+        ELSE
+          out = collections::append(out, glow(px, py, ts * sc * 0.7, fade(hex("#ffd84a"), 0.4 * n)))
+        END IF
+      END IF
+    NEXT
+    out = collections::append(out, glow(hx, hy - ts * sc * 0.6, ts * sc * 2.0, fade(hex("#ffe8b0"), 0.18 * n)))
+    out = collections::append(out, motes(0.0, h * 0.35, w, h * 0.5, 24, t, fade(hex("#d8ff7a"), n), 2.2, 33))
+  END IF
+
+  ' The counters.
+  LET hudX AS Float = w - 220.0
+  out = collections::append(out, rrect(hudX, 16.0, 200.0, 50.0, 25.0, WITH fillP(rgba(10, 14, 24, 150)) { stroke := alpha(gold(), 0.4), strokeWidth := 1.0 }))
+  out = collections::append(out, item(canvas::Group[dx := hudX + 14.0, dy := 23.0, name := "wander-hud-coin"]))
+  out = collections::append(out, label(f.bold, 20.0, toString(s.coins), hudX + 56.0, 49.0, parchment()))
+  out = collections::append(out, item(canvas::Group[dx := hudX + 104.0, dy := 23.0, name := "wander-hud-gem"]))
+  out = collections::append(out, label(f.bold, 20.0, toString(s.gems), hudX + 146.0, 49.0, parchment()))
+  IF s.won >= 0.0 THEN
+    LET a AS Float = clamp01(s.won / 0.6)
+    out = collections::append(out, rect(0.0, 0.0, w, h, fillP(rgba(0, 0, 0, (math::round(120.0 * a))))))
+    out = collections::append(out, glowText(f.display, 54.0, "The Path's End", (w - textWidth(f.display, 54.0, "The Path's End")) / 2.0, h * 0.45, gold(), 2.5))
+    out = collections::append(out, centered(f.display, 54.0, "The Path's End", w / 2.0, h * 0.45, fillP(fade(hex("#f6e3b4"), a))))
+    out = collections::append(out, centered(f.italic, 20.0, toString(s.coins) & " coins and " & toString(s.gems) & " gems gathered", w / 2.0, h * 0.45 + 44.0, fillP(fade(parchment(), a))))
+  END IF
+  RETURN out
+END FUNC

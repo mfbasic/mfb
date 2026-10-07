@@ -148,6 +148,8 @@ const ARM_THREAD_STATE64: c_int = 6;
 const ARM_THREAD_STATE64_COUNT: u32 = 68;
 const ARM_NEON_STATE64: c_int = 17;
 const ARM_NEON_STATE64_COUNT: u32 = 132;
+/// The bits of CPSR the `nzcv` register shows: the N, Z, C and V flags.
+const NZCV_BITS: u64 = 0xf000_0000;
 /// The most memory regions the header search walks before giving up.
 const MAX_REGIONS: usize = 1 << 16;
 /// `<mach/thread_info.h>`: `THREAD_IDENTIFIER_INFO` and its size in `int`s
@@ -1505,6 +1507,42 @@ fn general_state(thread: MachPort) -> Result<[u64; 34], String> {
     Ok(general)
 }
 
+/// `ARM_NEON_STATE64`: v0–v31, fpsr, fpcr.
+fn neon_state(thread: MachPort) -> Result<NeonState, String> {
+    let mut neon = NeonState {
+        v: [0; 32],
+        fpsr: 0,
+        fpcr: 0,
+    };
+    thread_state(
+        thread,
+        ARM_NEON_STATE64,
+        ptr::addr_of_mut!(neon).cast(),
+        ARM_NEON_STATE64_COUNT,
+    )?;
+    Ok(neon)
+}
+
+/// Write one register set of `thread` from `state`, which holds `count` ints;
+/// `what` names the set in an error.
+fn set_thread_state(
+    thread: MachPort,
+    flavor: c_int,
+    state: *const u32,
+    count: u32,
+    what: &str,
+) -> Result<(), String> {
+    // SAFETY: the caller passes a buffer of `count` ints for this flavor.
+    let status = unsafe { thread_set_state(thread, flavor, state, count) };
+    if status != KERN_SUCCESS {
+        return Err(format!(
+            "cannot set a thread's {what}: thread_set_state: {}",
+            mach_error(status)
+        ));
+    }
+    Ok(())
+}
+
 /// `thread`'s debug registers.
 fn debug_state(thread: MachPort) -> Result<[u64; DEBUG_WORDS], String> {
     let mut debug = [0u64; DEBUG_WORDS];
@@ -1519,22 +1557,13 @@ fn debug_state(thread: MachPort) -> Result<[u64; DEBUG_WORDS], String> {
 
 /// Write `thread`'s debug registers; `what` names the change in an error.
 fn set_debug_state(thread: MachPort, debug: &[u64; DEBUG_WORDS], what: &str) -> Result<(), String> {
-    // SAFETY: `debug` holds `ARM_DEBUG_STATE64_COUNT` ints of that flavor.
-    let status = unsafe {
-        thread_set_state(
-            thread,
-            ARM_DEBUG_STATE64,
-            debug.as_ptr().cast(),
-            ARM_DEBUG_STATE64_COUNT,
-        )
-    };
-    if status != KERN_SUCCESS {
-        return Err(format!(
-            "cannot set a thread's {what}: thread_set_state: {}",
-            mach_error(status)
-        ));
-    }
-    Ok(())
+    set_thread_state(
+        thread,
+        ARM_DEBUG_STATE64,
+        debug.as_ptr().cast(),
+        ARM_DEBUG_STATE64_COUNT,
+        what,
+    )
 }
 
 /// Set or clear `MDSCR_EL1.SS`, the hardware single-step bit, for `thread`.
@@ -2003,18 +2032,64 @@ impl Inferior for Task {
         let threads = self.thread_ports()?;
         let thread = self.thread_at(&threads, index)?;
         let general = general_state(thread)?;
-        let mut neon = NeonState {
-            v: [0; 32],
-            fpsr: 0,
-            fpcr: 0,
-        };
-        thread_state(
-            thread,
-            ARM_NEON_STATE64,
-            ptr::addr_of_mut!(neon).cast(),
-            ARM_NEON_STATE64_COUNT,
-        )?;
+        let neon = neon_state(thread)?;
         Ok(arm64_registers(&general, &neon))
+    }
+
+    fn set_registers(&mut self, index: usize, values: &[(String, u64)]) -> Result<(), String> {
+        let threads = self.thread_ports()?;
+        let thread = self.thread_at(&threads, index)?;
+        let mut general = general_state(thread)?;
+        let mut neon = None;
+        for (name, value) in values {
+            match name.as_str() {
+                "fp" => general[29] = *value,
+                "lr" => general[30] = *value,
+                "sp" => general[31] = *value,
+                "pc" => general[32] = *value,
+                // The flags are CPSR's top four bits; the rest of the word
+                // (and `__pad` above it) is left as it is.
+                "nzcv" => general[33] = (general[33] & !NZCV_BITS) | (*value & NZCV_BITS),
+                "fpsr" | "fpcr" => {
+                    if neon.is_none() {
+                        neon = Some(neon_state(thread)?);
+                    }
+                    let state = neon.as_mut().expect("read above");
+                    let word = u32::try_from(*value)
+                        .map_err(|_| format!("{name} holds 32 bits, not 0x{value:016x}"))?;
+                    if name == "fpsr" {
+                        state.fpsr = word;
+                    } else {
+                        state.fpcr = word;
+                    }
+                }
+                other => {
+                    let index = other
+                        .strip_prefix('x')
+                        .and_then(|number| number.parse::<usize>().ok())
+                        .filter(|number| *number < 29)
+                        .ok_or_else(|| format!("no register '{other}' to set"))?;
+                    general[index] = *value;
+                }
+            }
+        }
+        set_thread_state(
+            thread,
+            ARM_THREAD_STATE64,
+            general.as_ptr().cast(),
+            ARM_THREAD_STATE64_COUNT,
+            "registers",
+        )?;
+        if let Some(state) = neon {
+            set_thread_state(
+                thread,
+                ARM_NEON_STATE64,
+                ptr::addr_of!(state).cast(),
+                ARM_NEON_STATE64_COUNT,
+                "floating-point control registers",
+            )?;
+        }
+        Ok(())
     }
 
     fn step(&mut self, indices: &[usize], count: u64) -> Result<Vec<Step>, String> {
@@ -2273,7 +2348,7 @@ fn arm64_registers(general: &[u64; 34], neon: &NeonState) -> Vec<Register> {
     registers.push(x(
         "nzcv".to_string(),
         RegisterGroup::System,
-        general[33] & 0xf000_0000,
+        general[33] & NZCV_BITS,
     ));
     registers.push(x(
         "fpsr".to_string(),

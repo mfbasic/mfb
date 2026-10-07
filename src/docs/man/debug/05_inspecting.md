@@ -12,11 +12,14 @@ show mem <where> [<size>]
 show error [<thread>]
 ```
 
+Each listing starts with a line naming its columns, ` | ` between them, and
+every column lines up under its name.
+
 ### Listing functions
 
 `list func` prints one function per line, under the header
-`Type Address Symbol Written name`, and after the list a legend for the types
-it shows:
+`Type | Address | Symbol | Written name`, and after the list a legend for the
+types it shows:
 
 | Type | The function is |
 | --- | --- |
@@ -68,7 +71,8 @@ Your functions are named only in a program built with `--debug`; in any other,
 
 ### Listing threads
 
-`list thread` prints one thread per line, under the header `ID Name PC Task`.
+`list thread` prints one thread per line, under the header
+`ID | Name | PC | Task`.
 `ID` is the number the other commands use for the thread. `Name` is the
 name the thread gave itself (system threads often have one); otherwise the
 function it is in, such as `isPrime+0x278`; otherwise `thread-` and the
@@ -90,8 +94,8 @@ is running your code; while it waits (in `os::sleep`, say) it shows as `Other`.
 
 `list reg` on its own explains how to list registers. Name a group, or the
 registers you want, and it prints them for thread 0, one per line under the
-header `Register Hex Decimal`, in hex and then in decimal
-(`0x000000000000002d (45)`):
+header `Register | Hex | Decimal`, in hex and then in decimal
+(`0x000000000000002d | (45)`):
 
 | Group | The registers |
 | --- | --- |
@@ -114,9 +118,14 @@ the address of the value, which `show type` reads (`mfb man debug values`).
 `show mem` prints raw bytes, 64 unless you give a size. Name an address, a
 register or a function, each with an offset (`0x16b2d0c00+0x10`, `sp-16`,
 `main+0x110`): at `-O0` the values a function works with live at
-offsets from `sp`, so `show mem sp+0x10 24` shows three of them at once. Each
-line starts with the address, then the bytes in hex, then the ones that are
-printable. Numbers are stored lowest byte first, so the 8 bytes
+offsets from `sp`, so `show mem sp+0x10 24` shows three of them at once. Put a
+place in `[` and `]` to use the address stored there instead: when the value
+at `sp+0x18` is a `String`, `sp+0x18` holds where the `String` is, so
+`show mem [sp+0x18]` shows the `String` itself, and `[sp+0x18]+8` starts 8
+past it. They nest, so `[[sp+0x10]+8]` is
+what is stored 8 past the address stored at `sp+0x10`. The same places work in
+`show type`, `wp`, `dis`, `j` and `bpi`. Each line starts with the address,
+then the bytes in hex, then the ones that are printable. Numbers are stored lowest byte first, so the 8 bytes
 `a7 20 06 00 00 00 00 00` are 0x620a7, 401575.
 
 `show mem` reads any memory the program has. To read a value as its type
@@ -162,10 +171,10 @@ DBG> run
 DBG> step 7
 Stepped 7 instructions; thread 0 is at 0x0000000104b2cac0 in isPrime+0x1c.
 DBG> list reg x0, sp, pc
-Register Hex                Decimal
-x0       0x00000000000620a7 (401575)
-sp       0x000000016b2d0c00 (6093081600)
-pc       0x0000000104b2cac0 (4373793472)
+Register | Hex                | Decimal
+x0       | 0x00000000000620a7 | (401575)
+sp       | 0x000000016b2d0c00 | (6093081600)
+pc       | 0x0000000104b2cac0 | (4373793472)
 DBG> show mem sp+0x10 24
 Memory at 0x000000016b2d0c10 (sp+0x10 of thread 0):
 0x000000016b2d0c10 a7 20 06 00 00 00 00 00 a7 20 06 00 00 00 00 00 | .   . . . . . . .   . . . . . .

@@ -18,7 +18,7 @@ built with `--debug`, and list nothing until it has started running.
 ### Listing the pools
 
 `list arena` prints one pool per line, under the header
-`ID Thread Address Size (KB)`. `ID` is the number `show arena` takes. `Thread`
+`ID | Thread | Address | Size (KB)`. `ID` is the number `show arena` takes. `Thread`
 is the thread that uses the pool (the `ID` from `list thread`), or `-` for a
 pool that only carries values from one thread to another. `Size (KB)` is how
 much memory the pool holds.
@@ -74,8 +74,8 @@ round 1: 37 primes
 round 2: 31 primes
 --[BP] T: 0 P: 0x0000000100205ee0 F: summarize
 DBG> list arena
-ID Thread Address            Size (KB)
-0  0      0x000000016fbf9f50 12
+ID | Thread | Address            | Size (KB)
+0  | 0      | 0x000000016fbf9f50 | 12
 DBG> show arena 0 0 0x340 48
 Arena Block (0,0):
 0x0000_0340 1f 00 00 00 00 00 00 00 2d 96 57 99 20 ed f3 fb | . . . . . . . . - . W .   . . .

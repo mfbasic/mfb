@@ -10,6 +10,9 @@ when a thread changes memory you name:
 ```
 breakpoint <where> [<commands>]           bp …
 breakpoint r <where>                      bp r …
+breakpointif <test> at <where> [<commands>]
+                                          bpi …
+breakpointif r <test> at <where>          bpi r …
 list breakpoint                           l breakpoint
 watchpoint <where> [<size>] [<commands>]  wp …
 watchpoint r <where>                      wp r …
@@ -32,7 +35,8 @@ function name:
   the way `bt` and a stop show one: `bp main+0x110` or `bp main+272`.
 
 A name sets a breakpoint at every function it matches. `breakpoint r` takes the
-same forms and removes what they name. `list breakpoint` lists them.
+same forms and removes every breakpoint they name, with a test or not.
+`list breakpoint` lists them.
 
 A system function such as `_exit` has no address until the program has loaded
 its libraries. Set before then, its breakpoint waits (`list breakpoint` shows
@@ -65,6 +69,51 @@ to shows `--[EX] Program exit`, since only its own parent learns its status.
 Once the program has ended, only `help`, `list`, `list breakpoint`,
 `list watchpoint`, `list reg` and `show type` on their own, `restart` and
 `quit` still work.
+
+### Stopping only when a test holds
+
+`breakpointif` (`bpi`) sets a breakpoint that stops a thread only when a test
+holds for it. When the test fails, the thread runs on and nothing is printed:
+
+```
+bpi <what> eq <value> at <where>     <what> is <value>
+bpi <what> ne <value> at <where>     <what> is not <value>
+bpi <what> gt <value> at <where>     <what> is greater than <value>
+bpi <what> lt <value> at <where>     <what> is less than <value>
+bpi <what> in at <where>             <what> cannot be read
+```
+
+`<where>` is the breakpoint's place, as for `breakpoint`. `<what>` is worked
+out for the thread that gets there, each time it does, the way `show mem` reads
+a place (`mfb man debug inspecting`): a register is its value (`x0`), an address
+or a function is the number it is, each with an offset, and any of these in `[`
+and `]` is the 8 bytes stored there. `[sp+0x18]` is what is stored 0x18 above
+`sp`, and `[[sp+0x10]+8]` what is stored 8 past the address stored at
+`sp+0x10`. `<value>` is a whole number, decimal or hex after `0x`, perhaps
+negative: `5`, `-1`, `0x10`. `gt` and `lt` compare the two as `Integer`s, so
+`-1` is less than `0`. When `<what>` cannot be read, because a `[…]` in it
+names memory the program does not have, no test holds but `in`, which holds
+just then.
+
+A function's first eight arguments arrive in `x0` to `x7`, so a test on one
+stops only the calls you want. `countPrimes` gets the start of its range in
+`x0`; with `bpi x0 eq 824084 at countPrimes` the first round's call runs on and
+the second's stops:
+
+```
+DBG> bpi x0 eq 824084 at countPrimes
+Set a breakpoint at 0x00000001048f0dc4 in countPrimes if x0 eq 0x00000000000c9314 (824084).
+DBG> run
+round 1: 37 primes
+--[BP] T: 0 P: 0x00000001048f0dc4 F: countPrimes
+```
+
+Breakpoints with different tests can share a place. A thread stops there when
+any of them stops it, and each of those runs its own commands. `list breakpoint`
+shows each one's test in an `If` column. `bpi r <what> <test> [<value>] at
+<where>` removes just the one with that test; `bp r <where>` removes every one
+there. Each arrival briefly stops the program while the debugger checks the
+test, so a test on a function the program calls millions of times slows the run.
 
 ### Finishing a function
 
@@ -189,18 +238,18 @@ DBG> bp countPrimes list reg x0, x1; bt 3
 Set a breakpoint at 0x0000000100508d1c in countPrimes. Each stop runs 'list reg x0, x1; bt 3' and continues.
 DBG> run
 --[BP] T: 0 P: 0x0000000100508d1c F: countPrimes
-Register Hex                Decimal
-x0       0x00000000000620a7 (401575)
-x1       0x00000000000001f4 (500)
+Register | Hex                | Decimal
+x0       | 0x00000000000620a7 | (401575)
+x1       | 0x00000000000001f4 | (500)
 * thread #0, task = 'MFB Main'
   * frame #0: 0x0000000100508d1c debug.out`countPrimes
     frame #1: 0x00000001005091dc debug.out`runRound + 344
     frame #2: 0x000000010050b624 debug.out`runRounds + 5224
 round 1: 37 primes
 --[BP] T: 0 P: 0x0000000100508d1c F: countPrimes
-Register Hex                Decimal
-x0       0x00000000000c9314 (824084)
-x1       0x00000000000001f4 (500)
+Register | Hex                | Decimal
+x0       | 0x00000000000c9314 | (824084)
+x1       | 0x00000000000001f4 | (500)
 * thread #0, task = 'MFB Main'
   * frame #0: 0x0000000100508d1c debug.out`countPrimes
     frame #1: 0x00000001005091dc debug.out`runRound + 344
@@ -212,9 +261,11 @@ total: 68 primes
 
 The commands run with the stopped thread as the current one. They can be
 `list`, `show`, `bt`, `dis`, or `be` alone: commands that look at the program
-without running it. `be ErrOverflow show error` prints every overflow as it
-happens, and `wp sp-0xf0 8 bt 2` shows each change with the calls that made
-it. When threads stop
+without running it. They can also be `j`, which moves the stopped thread
+(`mfb man debug stepping`). `be ErrOverflow show error` prints every overflow
+as it happens, `wp sp-0xf0 8 bt 2` shows each change with the calls that made
+it, and `bp countPrimes j lr x0=0 x1=7` makes every call of `countPrimes`
+return 7 at once. When threads stop
 at the same time and one of their stops has no commands, the program stays
 stopped. A `finish` that meets a stop with commands runs them and carries on
 toward the end of its function. `list breakpoint` and `list watchpoint` show
@@ -259,6 +310,32 @@ DBG> q
 Process 89957 had already exited.
 ```
 
+Stop in `countPrimes` only for the second round, where `x0`, its first argument,
+is 824084:
+
+```sh macos
+mfb build --debug -O0 examples/debug
+printf 'bpi x0 eq 824084 at countPrimes\nrun\nlist breakpoint\nlist reg x0, x1\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+```
+
+```
+Launched examples/debug/build/debug.out as process 82620; paused before its first instruction.
+DBG> bpi x0 eq 824084 at countPrimes
+Set a breakpoint at 0x00000001048f0dc4 in countPrimes if x0 eq 0x00000000000c9314 (824084).
+DBG> run
+round 1: 37 primes
+--[BP] T: 0 P: 0x00000001048f0dc4 F: countPrimes
+DBG> list breakpoint
+Address            | Symbol              | Written name | If
+0x00000001048f0dc4 | _mfb_fn_countPrimes | countPrimes  | x0 eq 0x00000000000c9314 (824084)
+DBG> list reg x0, x1
+Register | Hex                | Decimal
+x0       | 0x00000000000c9314 | (824084)
+x1       | 0x00000000000001f4 | (500)
+DBG> q
+Killed process 82620.
+```
+
 Read the line `formatLine` makes, then start the program over with the
 breakpoint still set:
 
@@ -280,8 +357,8 @@ Length: 18 Value: "round 1: 37 primes"
 DBG> restart
 Restarted the program as process 89965; paused before its first instruction.
 DBG> list breakpoint
-Address            Symbol             Written name
-0x0000000104bd1374 _mfb_fn_formatLine formatLine
+Address            | Symbol             | Written name
+0x0000000104bd1374 | _mfb_fn_formatLine | formatLine
 DBG> q
 Killed process 89965.
 ```

@@ -19,7 +19,7 @@ with `fs::pathJoin`.
 
 The steps then run **in this order**, and the order is observable:
 
-1. A purely **lexical** check (bug-862) rejects a `..` segment in the relative
+1. A purely **lexical** check rejects a `..` segment in the relative
    path that would climb back above `root` — before anything touches the
    filesystem, so it cannot act as an existence oracle. A path like
    `../secret.txt` or `../../../../etc/hosts` is `403` whether or not the

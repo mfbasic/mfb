@@ -1,0 +1,350 @@
+' scribe - VII. The Runestone Scribe.
+'
+' A standing stone in a dark hall, and a scribe's chisel. On arrival the stone
+' carves its own name - MFBASIC, in the Elder Futhark - one stroke at a time,
+' each stroke glowing like an ember as the chisel runs along it and cooling
+' into a groove. Then the chisel is yours: draw on the stone and what you draw
+' is carved the same way, in the cap, join and dash style chosen in the
+' toolbox.
+'
+' Every stroke here is a canvas::PolyLine. The carving is a dash pattern of one
+' dash as long as the part already cut and one gap longer than the stroke, so
+' a growing dash reveals the line; the groove is the same line drawn three
+' times - a light edge, a dark edge, and the cut between them; the toolbox
+' shows the caps (Butt, Round, Square), the joins (Miter, Bevel, Round) and a
+' marching dash pattern.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+
+TYPE Carving
+  points AS List OF canvas::Point
+  length AS Float
+  cap AS canvas::CapStyle
+  join AS canvas::JoinStyle
+  dashed AS Boolean
+  age AS Float            ' seconds since carving began
+END TYPE
+
+TYPE ScribeState
+  t AS Float
+  w AS Float
+  h AS Float
+  carvings AS List OF Carving
+  queue AS List OF List OF canvas::Point    ' the name's strokes still to carve
+  nextAt AS Float
+  drawing AS List OF canvas::Point          ' the stroke being drawn, in window pixels
+  cap AS canvas::CapStyle
+  join AS canvas::JoinStyle
+  dashed AS Boolean
+  hover AS Integer        ' which toolbox button is under the mouse, or -1
+END TYPE
+
+FUNC scribeNew AS ScribeState
+  RETURN ScribeState[t := 0.0, w := 0.0, h := 0.0, carvings := [], queue := [], nextAt := 0.8, drawing := [], cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashed := FALSE, hover := -1]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Runes
+' ---------------------------------------------------------------------------
+
+' A rune's strokes in a box 0.6 wide and 1 tall, top-left at (0, 0).
+FUNC rune(letter AS String) AS List OF List OF canvas::Point
+  MATCH letter
+    CASE "M" : RETURN [[pt(0.1, 1.0), pt(0.1, 0.0), pt(0.5, 0.45)], [pt(0.5, 1.0), pt(0.5, 0.0), pt(0.1, 0.45)]]
+    CASE "F" : RETURN [[pt(0.12, 1.0), pt(0.12, 0.0)], [pt(0.12, 0.3), pt(0.5, 0.05)], [pt(0.12, 0.58), pt(0.5, 0.33)]]
+    CASE "B" : RETURN [[pt(0.12, 1.0), pt(0.12, 0.0), pt(0.48, 0.25), pt(0.12, 0.5), pt(0.48, 0.75), pt(0.12, 1.0)]]
+    CASE "A" : RETURN [[pt(0.12, 1.0), pt(0.12, 0.0)], [pt(0.12, 0.05), pt(0.5, 0.32)], [pt(0.12, 0.38), pt(0.5, 0.65)]]
+    CASE "S" : RETURN [[pt(0.42, 0.0), pt(0.12, 0.38), pt(0.48, 0.62), pt(0.18, 1.0)]]
+    CASE "I" : RETURN [[pt(0.3, 0.0), pt(0.3, 1.0)]]
+    CASE "C" : RETURN [[pt(0.48, 0.12), pt(0.12, 0.45), pt(0.48, 0.78)]]
+    CASE ELSE : RETURN []
+  END MATCH
+END FUNC
+
+' The name's strokes laid out across the stone, in window pixels.
+FUNC nameStrokes(stone AS StoneBox) AS List OF List OF canvas::Point
+  LET letters AS List OF String = ["M", "F", "B", "A", "S", "I", "C"]
+  LET size AS Float = stone.h * 0.2
+  LET pitch AS Float = size * 0.62
+  LET x0 AS Float = stone.cx - pitch * 3.5 + size * 0.02
+  LET y0 AS Float = stone.y + stone.h * 0.12
+  MUT out AS List OF List OF canvas::Point = []
+  FOR i = 0 TO 6
+    FOR EACH stroke IN rune(collections::get(letters, i))
+      out = collections::append(out, [collections::transform(stroke, LAMBDA(p AS canvas::Point) -> pt(x0 + toFloat(i) * pitch + p.x * size, y0 + p.y * size))])
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC pathLength(points AS List OF canvas::Point) AS Float
+  MUT total AS Float = 0.0
+  FOR i = 1 TO len(points) - 1
+    LET a AS canvas::Point = collections::get(points, i - 1)
+    LET b AS canvas::Point = collections::get(points, i)
+    total = total + dist(a.x, a.y, b.x, b.y)
+  NEXT
+  RETURN total
+END FUNC
+
+' Ramer-Douglas-Peucker: keep only the points that matter to the shape of a
+' hand-drawn line, so a jittery stroke carves clean.
+FUNC simplify(points AS List OF canvas::Point, epsilon AS Float) AS List OF canvas::Point
+  LET n AS Integer = len(points)
+  IF n < 3 THEN RETURN points
+  LET a AS canvas::Point = collections::get(points, 0)
+  LET b AS canvas::Point = collections::get(points, n - 1)
+  LET dx AS Float = b.x - a.x
+  LET dy AS Float = b.y - a.y
+  LET lenAB AS Float = math::sqrt(dx * dx + dy * dy) + 0.0001
+  MUT far AS Integer = 0
+  MUT farD AS Float = 0.0
+  FOR i = 1 TO n - 2
+    LET p AS canvas::Point = collections::get(points, i)
+    LET d AS Float = math::abs((p.x - a.x) * dy - (p.y - a.y) * dx) / lenAB
+    IF d > farD THEN
+      farD = d
+      far = i
+    END IF
+  NEXT
+  IF farD <= epsilon THEN RETURN [a, b]
+  LET left AS List OF canvas::Point = simplify(collections::take(points, far + 1), epsilon)
+  LET right AS List OF canvas::Point = simplify(collections::drop(points, far), epsilon)
+  RETURN collections::append(left, collections::drop(right, 1))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Layout
+' ---------------------------------------------------------------------------
+
+TYPE StoneBox
+  x AS Float
+  y AS Float
+  w AS Float
+  h AS Float
+  cx AS Float
+END TYPE
+
+FUNC stoneAt(w AS Float, h AS Float) AS StoneBox
+  LET sh AS Float = h * 0.78
+  LET sw AS Float = math::min(w * 0.62, sh * 1.25)
+  LET sx AS Float = w * 0.58 - sw / 2.0
+  RETURN StoneBox[x := sx, y := h * 0.1, w := sw, h := sh, cx := sx + sw / 2.0]
+END FUNC
+
+FUNC stoneRing(s AS StoneBox) AS List OF canvas::Point
+  RETURN [pt(s.x + s.w * 0.06, s.y + s.h), pt(s.x, s.y + s.h * 0.3), pt(s.x + s.w * 0.1, s.y + s.h * 0.06), pt(s.x + s.w * 0.4, s.y), pt(s.x + s.w * 0.72, s.y + s.h * 0.02), pt(s.x + s.w * 0.95, s.y + s.h * 0.12), pt(s.x + s.w, s.y + s.h * 0.45), pt(s.x + s.w * 0.95, s.y + s.h)]
+END FUNC
+
+' The toolbox buttons: three caps, three joins, and the dash switch.
+FUNC toolBox(i AS Integer, h AS Float) AS Box
+  LET size AS Float = math::min(64.0, h * 0.09)
+  LET gap AS Float = size * 0.22
+  LET y0 AS Float = h * 0.5 - (size * 7.0 + gap * 8.0) / 2.0
+  MUT extra AS Float = 0.0
+  IF i >= 3 THEN extra = gap
+  IF i >= 6 THEN extra = gap * 2.0
+  RETURN Box[x := 28.0, y := y0 + toFloat(i) * (size + gap) + extra, w := size * 1.6, h := size]
+END FUNC
+
+FUNC capOf(i AS Integer) AS canvas::CapStyle
+  IF i = 0 THEN RETURN canvas::CapStyle.Butt
+  IF i = 1 THEN RETURN canvas::CapStyle.Round
+  RETURN canvas::CapStyle.Square
+END FUNC
+
+FUNC joinOf(i AS Integer) AS canvas::JoinStyle
+  IF i = 3 THEN RETURN canvas::JoinStyle.Miter
+  IF i = 4 THEN RETURN canvas::JoinStyle.Bevel
+  RETURN canvas::JoinStyle.Round
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Stepping
+' ---------------------------------------------------------------------------
+
+FUNC scribeStep(s AS ScribeState, inp AS Input, dt AS Float) AS ScribeState
+  LET w AS Float = inp.w
+  LET h AS Float = inp.h
+  LET stone AS StoneBox = stoneAt(w, h)
+  LET t AS Float = s.t + dt
+  MUT carvings AS List OF Carving = collections::transform(s.carvings, LAMBDA(c AS Carving) -> WITH c { age := c.age + dt })
+  MUT queue AS List OF List OF canvas::Point = s.queue
+  MUT nextAt AS Float = s.nextAt
+  ' On arrival, and after a resize, the name is queued to carve.
+  IF s.w <> w OR s.h <> h THEN
+    carvings = []
+    queue = nameStrokes(stone)
+    nextAt = t + 0.6
+  END IF
+  IF len(queue) > 0 AND t >= nextAt THEN
+    LET stroke AS List OF canvas::Point = collections::get(queue, 0)
+    LET l AS Float = pathLength(stroke)
+    carvings = collections::append(carvings, Carving[points := stroke, length := l, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashed := FALSE, age := 0.0])
+    queue = collections::drop(queue, 1)
+    nextAt = t + carveSeconds(l) * 0.75
+  END IF
+
+  ' The toolbox.
+  MUT hover AS Integer = -1
+  FOR i = 0 TO 6
+    IF inBox(toolBox(i, h), inp.mx, inp.my) THEN hover = i
+  NEXT
+  MUT cap AS canvas::CapStyle = s.cap
+  MUT join AS canvas::JoinStyle = s.join
+  MUT dashed AS Boolean = s.dashed
+  IF inp.pressed AND hover >= 0 THEN
+    IF hover < 3 THEN cap = capOf(hover)
+    IF hover >= 3 AND hover < 6 THEN join = joinOf(hover)
+    IF hover = 6 THEN dashed = NOT dashed
+  END IF
+  IF keyPressed(inp, "d") THEN dashed = NOT dashed
+  IF keyPressed(inp, "c") THEN carvings = []
+
+  ' Drawing on the stone.
+  MUT drawing AS List OF canvas::Point = s.drawing
+  LET onStone AS Boolean = inp.mx > stone.x AND inp.mx < stone.x + stone.w AND inp.my > stone.y AND inp.my < stone.y + stone.h
+  IF inp.pressed AND hover < 0 AND onStone THEN drawing = [pt(inp.mx, inp.my)]
+  IF inp.down AND len(drawing) > 0 THEN
+    LET last AS canvas::Point = collections::get(drawing, len(drawing) - 1)
+    IF dist(last.x, last.y, inp.mx, inp.my) > 3.0 THEN drawing = collections::append(drawing, pt(clampF(inp.mx, stone.x, stone.x + stone.w), clampF(inp.my, stone.y, stone.y + stone.h)))
+  END IF
+  IF NOT inp.down AND len(drawing) > 0 THEN
+    LET clean AS List OF canvas::Point = simplify(drawing, 2.5)
+    IF len(clean) >= 2 THEN carvings = collections::append(carvings, Carving[points := clean, length := pathLength(clean), cap := cap, join := join, dashed := dashed, age := 0.0])
+    drawing = []
+  END IF
+  ' The stone holds a few dozen carvings; the oldest wear away first.
+  IF len(carvings) > 60 THEN carvings = collections::drop(carvings, len(carvings) - 60)
+  RETURN ScribeState[t := t, w := w, h := h, carvings := carvings, queue := queue, nextAt := nextAt, drawing := drawing, cap := cap, join := join, dashed := dashed, hover := hover]
+END FUNC
+
+' How long the chisel takes along a stroke of this length.
+FUNC carveSeconds(length AS Float) AS Float
+  RETURN 0.25 + length / 420.0
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+' A carving: the groove in three passes, plus the ember while it is being cut.
+FUNC carve(c AS Carving, width AS Float, t AS Float) AS List OF canvas::DrawItem
+  LET cut AS Float = clamp01(c.age / carveSeconds(c.length))
+  LET shown AS Float = c.length * cut
+  ' A solid stroke is revealed by one dash as long as what is cut so far; a
+  ' dashed one marches its own pattern and is clipped to what is cut by the
+  ' same trick applied to its dash offset.
+  MUT dashes AS List OF Float = [shown + 0.01, c.length + width * 4.0]
+  IF c.dashed AND cut >= 1.0 THEN dashes = [width * 2.2, width * 1.6]
+  LET base AS canvas::Paint = WITH canvas::stroke(color::white, width) { cap := c.cap, join := c.join, miterLimit := 6.0, dashes := dashes, dashOffset := 0.0 }
+  MUT out AS List OF canvas::DrawItem = []
+  out = collections::append(out, trail(shiftPts(c.points, -1.2, -1.2), [], WITH base { stroke := rgba(200, 196, 186, 120) }))
+  out = collections::append(out, trail(shiftPts(c.points, 1.5, 1.5), [], WITH base { stroke := rgba(10, 10, 14, 200) }))
+  out = collections::append(out, trail(c.points, [], WITH base { stroke := hex("#2b2a30"), strokeWidth := width * 0.78 }))
+  ' The ember: a hot line along the cut, cooling over a few seconds, and a
+  ' bright spark where the chisel is.
+  LET heat AS Float = clamp01(1.0 - (c.age - carveSeconds(c.length)) / 2.5)
+  IF heat > 0.0 THEN
+    out = collections::append(out, trail(c.points, [], WITH base { stroke := fade(hex("#ff7a2a"), 0.35 * heat), strokeWidth := width * 2.6, blend := canvas::BlendMode.Add }))
+    out = collections::append(out, trail(c.points, [], WITH base { stroke := fade(hex("#ffd27a"), heat), strokeWidth := width * 0.45, blend := canvas::BlendMode.Add }))
+  END IF
+  IF cut < 1.0 THEN
+    LET tip AS canvas::Point = pointAlong(c.points, shown)
+    out = collections::append(out, glow(tip.x, tip.y, width * 5.0, hex("#ffc86a")))
+    out = collections::append(out, circle(tip.x, tip.y, width * 0.5, fillP(color::white)))
+  END IF
+  RETURN out
+END FUNC
+
+' The point `d` pixels along a path.
+FUNC pointAlong(points AS List OF canvas::Point, d AS Float) AS canvas::Point
+  MUT left AS Float = d
+  FOR i = 1 TO len(points) - 1
+    LET a AS canvas::Point = collections::get(points, i - 1)
+    LET b AS canvas::Point = collections::get(points, i)
+    LET seg AS Float = dist(a.x, a.y, b.x, b.y)
+    IF left <= seg THEN RETURN pt(lerp(a.x, b.x, left / math::max(seg, 0.0001)), lerp(a.y, b.y, left / math::max(seg, 0.0001)))
+    left = left - seg
+  NEXT
+  RETURN collections::get(points, len(points) - 1)
+END FUNC
+
+' One toolbox button and the sample it shows.
+FUNC toolButton(f AS Fonts, i AS Integer, s AS ScribeState, h AS Float) AS List OF canvas::DrawItem
+  LET b AS Box = toolBox(i, h)
+  MUT on AS Boolean = FALSE
+  IF i < 3 THEN on = s.cap = capOf(i)
+  IF i >= 3 AND i < 6 THEN on = s.join = joinOf(i)
+  IF i = 6 THEN on = s.dashed
+  MUT ring AS color::Color = rgba(255, 255, 255, 40)
+  IF s.hover = i THEN ring = alpha(gold(), 0.6)
+  IF on THEN ring = gold()
+  MUT out AS List OF canvas::DrawItem = [rrect(b.x, b.y, b.w, b.h, 10.0, WITH fillP(rgba(20, 22, 30, 200)) { stroke := ring, strokeWidth := 1.5 })]
+  LET sw AS Float = b.h * 0.2
+  MUT lit AS Float = 0.0
+  IF on THEN lit = 1.0
+  LET ink AS color::Color = mixC(hex("#c9c2b2"), hex("#ffe0a0"), lit)
+  IF i < 3 THEN
+    ' A thick line with a thin guide showing where its ends really are: the
+    ' cap is everything past the guide.
+    LET y AS Float = b.y + b.h * 0.42
+    LET x0 AS Float = b.x + b.w * 0.3
+    LET x1 AS Float = b.x + b.w * 0.7
+    out = collections::append(out, line(x0, y, x1, y, WITH canvas::stroke(ink, sw) { cap := capOf(i) }))
+    out = collections::append(out, line(x0, y, x1, y, canvas::stroke(hex("#e2554a"), 1.2)))
+  ELSEIF i < 6 THEN
+    ' A sharp V, so the corner shows how it is joined.
+    out = collections::append(out, path([pt(b.x + b.w * 0.28, b.y + b.h * 0.24), pt(b.x + b.w * 0.5, b.y + b.h * 0.62), pt(b.x + b.w * 0.72, b.y + b.h * 0.24)], WITH canvas::stroke(ink, sw) { join := joinOf(i), miterLimit := 8.0 }))
+  ELSE
+    LET y AS Float = b.y + b.h * 0.42
+    out = collections::append(out, line(b.x + b.w * 0.18, y, b.x + b.w * 0.82, y, WITH canvas::stroke(ink, sw * 0.7) { cap := canvas::CapStyle.Round, dashes := [sw * 1.2, sw * 1.1], dashOffset := -s.t * 30.0 }))
+  END IF
+  LET names AS List OF String = ["Butt", "Round", "Square", "Miter", "Bevel", "Round", "Dashes"]
+  out = collections::append(out, centered(f.body, 10.5, collections::get(names, i), b.x + b.w / 2.0, b.y + b.h - 6.0, fillP(mixC(muted(), parchment(), lit))))
+  RETURN out
+END FUNC
+
+FUNC scribeDraw(s AS ScribeState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET t AS Float = s.t
+  LET stone AS StoneBox = stoneAt(w, h)
+  ' The hall: dark, lit warm from a brazier off to the left.
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(radial(w * 0.2, h * 0.7, w, [gstop(0.0, hex("#3a2a20")), gstop(0.5, hex("#17131a")), gstop(1.0, hex("#08070c"))])))]
+  ' Floor flagstones in perspective.
+  FOR i = 0 TO 12
+    LET u AS Float = toFloat(i) / 12.0
+    out = collections::append(out, line(w * 0.5 + (u - 0.5) * w * 0.4, h * 0.86, w * 0.5 + (u - 0.5) * w * 2.2, h, canvas::stroke(rgba(255, 220, 180, 14), 1.0)))
+  NEXT
+  out = collections::append(out, rect(0.0, h * 0.86, w, 1.0, fillP(rgba(255, 220, 180, 30))))
+  ' The stone, its face lit from the left, its edge picked out.
+  LET ring AS List OF canvas::Point = stoneRing(stone)
+  out = collections::append(out, poly(shiftPts(ring, 10.0, 14.0), fillP(rgba(0, 0, 0, 120))))
+  out = collections::append(out, poly(ring, WITH gradP(focal(stone.x + stone.w * 0.3, stone.y + stone.h * 0.4, stone.w, -stone.w * 0.2, -stone.h * 0.1, [gstop(0.0, hex("#6a6660")), gstop(0.6, hex("#45423f")), gstop(1.0, hex("#26252a"))])) { stroke := hex("#8a847a"), strokeWidth := 2.0, join := canvas::JoinStyle.Bevel }))
+  ' Lichen and grain on the stone, clipped to it.
+  FOR i = 0 TO 40
+    LET gx AS Float = stone.x + hash01(i + 1300) * stone.w
+    LET gy AS Float = stone.y + hash01(i + 1310) * stone.h
+    out = collections::append(out, ellipse(gx, gy, stone.w * hashRange(i + 1320, 0.01, 0.05), stone.w * hashRange(i + 1330, 0.005, 0.02), hashRange(i + 1340, -0.5, 0.5), WITH fillP(mixC(rgba(120, 140, 90, 50), rgba(30, 28, 30, 70), hash01(i + 1350))) { clip := [ring] }))
+  NEXT
+  ' The carvings.
+  LET width AS Float = math::max(4.0, h * 0.011)
+  FOR EACH c IN s.carvings
+    out = collections::append(out, carve(c, width, t))
+  NEXT
+  ' The stroke being drawn: a faint scratch along the chisel's path.
+  IF len(s.drawing) > 1 THEN out = collections::append(out, trail(s.drawing, [], WITH canvas::stroke(rgba(255, 210, 150, 160), 2.0) { cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round, dashes := [6.0, 4.0], dashOffset := -t * 40.0 }))
+  ' The brazier's flicker over the whole hall.
+  LET flick AS Float = 0.8 + 0.2 * math::sin(t * 9.0) * math::sin(t * 13.7)
+  out = collections::append(out, glow(-w * 0.02, h * 0.75, h * 0.7 * flick, rgba(255, 140, 60, 70)))
+  out = collections::append(out, motes(0.0, h * 0.4, w * 0.4, h * 0.5, 14, t, hex("#ffb060"), 1.4, 17))
+  ' The toolbox.
+  out = collections::append(out, centered(f.bold, 10.5, "CAPS", toolBox(0, h).x + toolBox(0, h).w / 2.0, toolBox(0, h).y - 8.0, fillP(gold())))
+  out = collections::append(out, centered(f.bold, 10.5, "JOINS", toolBox(3, h).x + toolBox(3, h).w / 2.0, toolBox(3, h).y - 8.0, fillP(gold())))
+  FOR i = 0 TO 6
+    out = collections::append(out, toolButton(f, i, s, h))
+  NEXT
+  RETURN collections::append(out, vignette(w, h, 200))
+END FUNC

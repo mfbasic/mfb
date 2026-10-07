@@ -1,0 +1,21 @@
+{
+  "name": "canvas-demo",
+  "version": "1.0.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "mode": "app",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "resources": [
+    { "src": "resources/fonts/*.ttf", "dst": "fonts/" },
+    { "src": "resources/sprites/*.png", "dst": "sprites/" },
+    { "src": "resources/svg/*.svg", "dst": "svg/" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

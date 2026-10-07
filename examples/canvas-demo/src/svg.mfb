@@ -1,0 +1,902 @@
+' svg - a small SVG reader, written in MFBASIC, that draws through canvas.
+'
+' It reads the subset of SVG that illustration tools export: <svg viewBox>,
+' nested <g> groups, <path>, <circle>, <ellipse>, <rect>, <polygon>,
+' <polyline> and <line>, presentation attributes and inline style="...",
+' transforms, and <linearGradient>/<radialGradient> with their stops,
+' gradientTransform, spreadMethod, focal point and gradientUnits.
+'
+' Every SVG feature lands on a canvas feature directly, which is the point of
+' plan-163: a path's subpaths become a Polygon's contours, fill-rule becomes
+' Polygon.rule, the element's transform becomes Paint.transform, and a
+' gradient becomes a canvas::Gradient in the element's own user space - its
+' gradientTransform its transform, spreadMethod its spread, fx/fy its focal
+' offset. Curves are flattened to points; nothing else is approximated. The
+' one thing left out is a stroke painted with a gradient: canvas paints an
+' item's outline with its gradient only together with its interior, so an
+' SVG outline-only gradient has no canvas equivalent and is not drawn.
+'
+' The text is read as a list of character codes and walked by index, so the
+' reader never re-scans a string.
+
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+IMPORT strings
+
+TYPE SvgGradient
+  id AS String
+  isLinear AS Boolean
+  x1 AS Float
+  y1 AS Float
+  x2 AS Float
+  y2 AS Float
+  cx AS Float
+  cy AS Float
+  r AS Float
+  fx AS Float
+  fy AS Float
+  hasFocus AS Boolean
+  stops AS List OF canvas::GradientStop
+  spread AS canvas::GradientSpread
+  transform AS canvas::Transform
+  boundingBox AS Boolean
+  href AS String
+END TYPE
+
+TYPE SvgPaintSpec
+  fill AS String          ' "none", a colour, or "url(#id)"
+  stroke AS String
+  strokeWidth AS Float
+  opacity AS Float
+  fillOpacity AS Float
+  strokeOpacity AS Float
+  rule AS canvas::FillRule
+  cap AS canvas::CapStyle
+  join AS canvas::JoinStyle
+  miter AS Float
+  dashes AS List OF Float
+END TYPE
+
+' The rings of one element, and which of them were closed. An open subpath
+' is filled as if closed (as SVG fills it) but stroked without its closing
+' edge.
+TYPE Rings
+  rings AS List OF List OF canvas::Point
+  closed AS List OF Boolean
+END TYPE
+
+TYPE SvgShape
+  contours AS List OF List OF canvas::Point
+  closed AS List OF Boolean
+  paint AS SvgPaintSpec
+  transform AS canvas::Transform
+  ' The canvas paints, worked out once when the file is read: the colours
+  ' parsed and the gradients built, so drawing a frame only places them.
+  fill AS canvas::Paint
+  hasFill AS Boolean
+  stroke AS canvas::Paint
+  hasStroke AS Boolean
+END TYPE
+
+TYPE SvgImage
+  vx AS Float
+  vy AS Float
+  vw AS Float
+  vh AS Float
+  shapes AS List OF SvgShape
+  gradients AS List OF SvgGradient
+  points AS Integer
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Character codes
+' ---------------------------------------------------------------------------
+
+LET C_LT AS Integer = 60       ' <
+LET C_GT AS Integer = 62       ' >
+LET C_SLASH AS Integer = 47
+LET C_EQ AS Integer = 61
+LET C_QUOTE AS Integer = 34
+LET C_APOS AS Integer = 39
+LET C_BANG AS Integer = 33
+LET C_QUESTION AS Integer = 63
+LET C_MINUS AS Integer = 45
+LET C_PLUS AS Integer = 43
+LET C_DOT AS Integer = 46
+LET C_COMMA AS Integer = 44
+
+FUNC isSpace(c AS Integer) AS Boolean
+  RETURN c = 32 OR c = 9 OR c = 10 OR c = 13
+END FUNC
+
+FUNC isDigit(c AS Integer) AS Boolean
+  RETURN c >= 48 AND c <= 57
+END FUNC
+
+FUNC isNameChar(c AS Integer) AS Boolean
+  RETURN (c >= 65 AND c <= 90) OR (c >= 97 AND c <= 122) OR isDigit(c) OR c = C_MINUS OR c = 58 OR c = 95
+END FUNC
+
+FUNC codes(text AS String) AS List OF Integer
+  RETURN collections::transform(strings::toScalars(text), LAMBDA(c AS Scalar) -> toInt(c))
+END FUNC
+
+FUNC textOf(cs AS List OF Integer, start AS Integer, stop AS Integer) AS String
+  IF stop <= start THEN RETURN ""
+  RETURN strings::fromScalars(collections::transform(collections::mid(cs, start, stop - start), LAMBDA(c AS Integer) -> toScalar(c)))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Numbers
+' ---------------------------------------------------------------------------
+
+' A number read from position i, and where reading stopped. SVG lets numbers
+' run together - "1.5.5" is 1.5 then .5, "3-2" is 3 then -2 - so the reader
+' stops at the first character that cannot continue the one it has.
+TYPE NumRead
+  ok AS Boolean
+  value AS Float
+  after AS Integer
+END TYPE
+
+FUNC readNumber(cs AS List OF Integer, start AS Integer) AS NumRead
+  LET n AS Integer = len(cs)
+  MUT i AS Integer = start
+  DO WHILE i < n AND (isSpace(collections::get(cs, i)) OR collections::get(cs, i) = C_COMMA)
+    i = i + 1
+  LOOP
+  IF i >= n THEN RETURN NumRead[ok := FALSE, value := 0.0, after := i]
+  MUT sign AS Float = 1.0
+  MUT c AS Integer = collections::get(cs, i)
+  IF c = C_MINUS OR c = C_PLUS THEN
+    IF c = C_MINUS THEN sign = -1.0
+    i = i + 1
+  END IF
+  MUT whole AS Float = 0.0
+  MUT digits AS Integer = 0
+  DO WHILE i < n AND isDigit(collections::get(cs, i))
+    whole = whole * 10.0 + toFloat(collections::get(cs, i) - 48)
+    i = i + 1
+    digits = digits + 1
+  LOOP
+  IF i < n AND collections::get(cs, i) = C_DOT THEN
+    i = i + 1
+    MUT scale AS Float = 0.1
+    DO WHILE i < n AND isDigit(collections::get(cs, i))
+      whole = whole + toFloat(collections::get(cs, i) - 48) * scale
+      scale = scale * 0.1
+      i = i + 1
+      digits = digits + 1
+    LOOP
+  END IF
+  IF digits = 0 THEN RETURN NumRead[ok := FALSE, value := 0.0, after := start]
+  ' An exponent, as in 1e-4.
+  IF i < n AND (collections::get(cs, i) = 101 OR collections::get(cs, i) = 69) THEN
+    MUT j AS Integer = i + 1
+    MUT esign AS Float = 1.0
+    IF j < n AND (collections::get(cs, j) = C_MINUS OR collections::get(cs, j) = C_PLUS) THEN
+      IF collections::get(cs, j) = C_MINUS THEN esign = -1.0
+      j = j + 1
+    END IF
+    IF j < n AND isDigit(collections::get(cs, j)) THEN
+      MUT e AS Float = 0.0
+      DO WHILE j < n AND isDigit(collections::get(cs, j))
+        e = e * 10.0 + toFloat(collections::get(cs, j) - 48)
+        j = j + 1
+      LOOP
+      whole = whole * math::pow(10.0, esign * e)
+      i = j
+    END IF
+  END IF
+  RETURN NumRead[ok := TRUE, value := sign * whole, after := i]
+END FUNC
+
+' Every number in a string, in order: a points list, a viewBox, a matrix.
+FUNC numbers(text AS String) AS List OF Float
+  LET cs AS List OF Integer = codes(text)
+  MUT out AS List OF Float = []
+  MUT i AS Integer = 0
+  DO WHILE i < len(cs)
+    LET r AS NumRead = readNumber(cs, i)
+    IF r.ok THEN
+      out = collections::append(out, r.value)
+      i = r.after
+    ELSE
+      i = i + 1
+    END IF
+  LOOP
+  RETURN out
+END FUNC
+
+FUNC numberOr(text AS String, fallback AS Float) AS Float
+  LET ns AS List OF Float = numbers(text)
+  IF len(ns) = 0 THEN RETURN fallback
+  ' A percentage is a fraction.
+  IF strings::endsWith(strings::trim(text), "%") THEN RETURN collections::get(ns, 0) / 100.0
+  RETURN collections::get(ns, 0)
+END FUNC
+
+FUNC numAt(ns AS List OF Float, i AS Integer, fallback AS Float) AS Float
+  IF i < len(ns) THEN RETURN collections::get(ns, i)
+  RETURN fallback
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Transforms
+' ---------------------------------------------------------------------------
+
+FUNC matrix(a AS Float, b AS Float, c AS Float, d AS Float, e AS Float, f AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := a, b := b, c := c, d := d, tx := e, ty := f]
+END FUNC
+
+FUNC unit AS canvas::Transform
+  RETURN matrix(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+END FUNC
+
+' A transform attribute: a list of functions applied right to left.
+FUNC parseTransform(text AS String) AS canvas::Transform
+  MUT result AS canvas::Transform = unit()
+  FOR EACH part IN strings::split(text, ")")
+    LET p AS String = strings::trim(part)
+    IF p <> "" THEN
+      LET bits AS List OF String = strings::split(p, "(")
+      IF len(bits) = 2 THEN
+        LET name AS String = strings::lower(strings::trim(strings::trimChars(collections::get(bits, 0), ", ")))
+        LET ns AS List OF Float = numbers(collections::get(bits, 1))
+        MUT m AS canvas::Transform = unit()
+        IF name = "matrix" AND len(ns) >= 6 THEN m = matrix(collections::get(ns, 0), collections::get(ns, 1), collections::get(ns, 2), collections::get(ns, 3), collections::get(ns, 4), collections::get(ns, 5))
+        IF name = "translate" THEN m = matrix(1.0, 0.0, 0.0, 1.0, numAt(ns, 0, 0.0), numAt(ns, 1, 0.0))
+        IF name = "scale" THEN m = matrix(numAt(ns, 0, 1.0), 0.0, 0.0, numAt(ns, 1, numAt(ns, 0, 1.0)), 0.0, 0.0)
+        IF name = "rotate" THEN
+          LET a AS Float = numAt(ns, 0, 0.0) * math::pi / 180.0
+          LET cx AS Float = numAt(ns, 1, 0.0)
+          LET cy AS Float = numAt(ns, 2, 0.0)
+          m = compose(matrix(1.0, 0.0, 0.0, 1.0, cx, cy), compose(matrix(math::cos(a), math::sin(a), -math::sin(a), math::cos(a), 0.0, 0.0), matrix(1.0, 0.0, 0.0, 1.0, -cx, -cy)))
+        END IF
+        IF name = "skewx" THEN m = matrix(1.0, 0.0, math::tan(numAt(ns, 0, 0.0) * math::pi / 180.0), 1.0, 0.0, 0.0)
+        IF name = "skewy" THEN m = matrix(1.0, math::tan(numAt(ns, 0, 0.0) * math::pi / 180.0), 0.0, 1.0, 0.0, 0.0)
+        result = compose(result, m)
+      END IF
+    END IF
+  NEXT
+  RETURN result
+END FUNC
+
+FUNC applyT(t AS canvas::Transform, p AS canvas::Point) AS canvas::Point
+  RETURN pt(t.a * p.x + t.c * p.y + t.tx, t.b * p.x + t.d * p.y + t.ty)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Colours and style
+' ---------------------------------------------------------------------------
+
+FUNC hexDigit(c AS Integer) AS Integer
+  IF c >= 48 AND c <= 57 THEN RETURN c - 48
+  IF c >= 97 AND c <= 102 THEN RETURN c - 87
+  IF c >= 65 AND c <= 70 THEN RETURN c - 55
+  RETURN 0
+END FUNC
+
+' An SVG colour: #rgb, #rrggbb, rgb(r, g, b) or a CSS name. Anything this
+' cannot read is black, as a browser would draw an invalid colour.
+FUNC svgColor(text AS String) AS color::Color
+  LET s AS String = strings::trim(text)
+  IF strings::startsWith(s, "#") THEN
+    LET cs AS List OF Integer = codes(s)
+    IF len(cs) = 4 THEN RETURN color::rgb(hexDigit(collections::get(cs, 1)) * 17, hexDigit(collections::get(cs, 2)) * 17, hexDigit(collections::get(cs, 3)) * 17)
+    IF len(cs) >= 7 THEN RETURN color::rgb(hexDigit(collections::get(cs, 1)) * 16 + hexDigit(collections::get(cs, 2)), hexDigit(collections::get(cs, 3)) * 16 + hexDigit(collections::get(cs, 4)), hexDigit(collections::get(cs, 5)) * 16 + hexDigit(collections::get(cs, 6)))
+    RETURN color::black
+  END IF
+  IF strings::startsWith(s, "rgb") THEN
+    LET ns AS List OF Float = numbers(s)
+    RETURN color::rgb((math::round(numAt(ns, 0, 0.0))), (math::round(numAt(ns, 1, 0.0))), (math::round(numAt(ns, 2, 0.0))))
+  END IF
+  LET named AS color::Color = color::fromName(strings::lower(s)) TRAP(e)
+    RECOVER color::black
+  END TRAP
+  RETURN named
+END FUNC
+
+FUNC defaultPaint AS SvgPaintSpec
+  RETURN SvgPaintSpec[fill := "#000000", stroke := "none", strokeWidth := 1.0, opacity := 1.0, fillOpacity := 1.0, strokeOpacity := 1.0, rule := canvas::FillRule.NonZero, cap := canvas::CapStyle.Butt, join := canvas::JoinStyle.Miter, miter := 4.0, dashes := []]
+END FUNC
+
+' One presentation property, from an attribute or a style declaration, applied
+' on top of what is inherited. Opacity does not inherit; the caller resets it.
+FUNC applyProperty(p AS SvgPaintSpec, name AS String, value AS String) AS SvgPaintSpec
+  LET v AS String = strings::trim(value)
+  MATCH name
+    CASE "fill" : RETURN WITH p { fill := v }
+    CASE "stroke" : RETURN WITH p { stroke := v }
+    CASE "stroke-width" : RETURN WITH p { strokeWidth := numberOr(v, 1.0) }
+    CASE "opacity" : RETURN WITH p { opacity := p.opacity * numberOr(v, 1.0) }
+    CASE "fill-opacity" : RETURN WITH p { fillOpacity := numberOr(v, 1.0) }
+    CASE "stroke-opacity" : RETURN WITH p { strokeOpacity := numberOr(v, 1.0) }
+    CASE "fill-rule"
+      IF v = "evenodd" THEN RETURN WITH p { rule := canvas::FillRule.EvenOdd }
+      RETURN WITH p { rule := canvas::FillRule.NonZero }
+    CASE "stroke-linecap"
+      IF v = "round" THEN RETURN WITH p { cap := canvas::CapStyle.Round }
+      IF v = "square" THEN RETURN WITH p { cap := canvas::CapStyle.Square }
+      RETURN WITH p { cap := canvas::CapStyle.Butt }
+    CASE "stroke-linejoin"
+      IF v = "round" THEN RETURN WITH p { join := canvas::JoinStyle.Round }
+      IF v = "bevel" THEN RETURN WITH p { join := canvas::JoinStyle.Bevel }
+      RETURN WITH p { join := canvas::JoinStyle.Miter }
+    CASE "stroke-miterlimit" : RETURN WITH p { miter := numberOr(v, 4.0) }
+    CASE "stroke-dasharray"
+      IF v = "none" THEN RETURN WITH p { dashes := [] }
+      RETURN WITH p { dashes := numbers(v) }
+    CASE ELSE : RETURN p
+  END MATCH
+END FUNC
+
+' The paint an element draws with: what it inherited, then its attributes,
+' then its style="" declarations, which win.
+FUNC elementPaint(inherited AS SvgPaintSpec, attrs AS Map OF String TO String) AS SvgPaintSpec
+  MUT p AS SvgPaintSpec = WITH inherited { opacity := 1.0 }
+  FOR EACH key IN collections::keys(attrs)
+    p = applyProperty(p, key, collections::get(attrs, key))
+  NEXT
+  IF collections::hasKey(attrs, "style") THEN
+    FOR EACH decl IN strings::split(collections::get(attrs, "style"), ";")
+      LET kv AS List OF String = strings::split(decl, ":")
+      IF len(kv) = 2 THEN p = applyProperty(p, strings::trim(collections::get(kv, 0)), collections::get(kv, 1))
+    NEXT
+  END IF
+  RETURN WITH p { opacity := p.opacity * inherited.opacity }
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Paths
+' ---------------------------------------------------------------------------
+
+FUNC curveSteps(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float) AS Integer
+  LET l AS Float = dist(x0, y0, x1, y1) + dist(x1, y1, x2, y2) + dist(x2, y2, x3, y3)
+  RETURN math::max(3, math::min(24, (math::round(l * 0.6))))
+END FUNC
+
+' The points of an elliptical arc from (x1, y1) to (x2, y2), by the
+' endpoint-to-centre conversion of SVG 1.1 appendix F.6.5, excluding the start.
+FUNC arcPts(x1 AS Float, y1 AS Float, rx0 AS Float, ry0 AS Float, angleDeg AS Float, large AS Boolean, sweep AS Boolean, x2 AS Float, y2 AS Float) AS List OF canvas::Point
+  IF rx0 = 0.0 OR ry0 = 0.0 THEN RETURN [pt(x2, y2)]
+  MUT rx AS Float = math::abs(rx0)
+  MUT ry AS Float = math::abs(ry0)
+  LET phi AS Float = angleDeg * math::pi / 180.0
+  LET co AS Float = math::cos(phi)
+  LET si AS Float = math::sin(phi)
+  LET dx AS Float = (x1 - x2) / 2.0
+  LET dy AS Float = (y1 - y2) / 2.0
+  LET x1p AS Float = co * dx + si * dy
+  LET y1p AS Float = -si * dx + co * dy
+  ' Radii too small to reach are scaled up just enough.
+  LET lambda_ AS Float = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry)
+  IF lambda_ > 1.0 THEN
+    rx = rx * math::sqrt(lambda_)
+    ry = ry * math::sqrt(lambda_)
+  END IF
+  LET num AS Float = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p
+  LET den AS Float = rx * rx * y1p * y1p + ry * ry * x1p * x1p
+  MUT coef AS Float = 0.0
+  IF den > 0.0 THEN coef = math::sqrt(math::max(0.0, num / den))
+  IF large = sweep THEN coef = -coef
+  LET cxp AS Float = coef * rx * y1p / ry
+  LET cyp AS Float = -coef * ry * x1p / rx
+  LET cx AS Float = co * cxp - si * cyp + (x1 + x2) / 2.0
+  LET cy AS Float = si * cxp + co * cyp + (y1 + y2) / 2.0
+  LET a1 AS Float = math::atan2((y1p - cyp) / ry, (x1p - cxp) / rx)
+  MUT da AS Float = math::atan2((-y1p - cyp) / ry, (-x1p - cxp) / rx) - a1
+  IF sweep AND da < 0.0 THEN da = da + TAU
+  IF NOT sweep AND da > 0.0 THEN da = da - TAU
+  LET steps AS Integer = math::max(4, math::min(48, (math::round(math::abs(da) * math::max(rx, ry) * 0.5))))
+  MUT out AS List OF canvas::Point = []
+  FOR i = 1 TO steps
+    LET a AS Float = a1 + da * toFloat(i) / toFloat(steps)
+    out = collections::append(out, pt(cx + co * rx * math::cos(a) - si * ry * math::sin(a), cy + si * rx * math::cos(a) + co * ry * math::sin(a)))
+  NEXT
+  RETURN out
+END FUNC
+
+' Path data to contours: each M starts a new ring, curves are flattened.
+FUNC parsePath(d AS String) AS Rings
+  LET cs AS List OF Integer = codes(d)
+  LET n AS Integer = len(cs)
+  MUT rings AS List OF List OF canvas::Point = []
+  MUT closed AS List OF Boolean = []
+  MUT ring AS List OF canvas::Point = []
+  MUT i AS Integer = 0
+  MUT cmd AS Integer = 0
+  MUT x AS Float = 0.0
+  MUT y AS Float = 0.0
+  MUT sx AS Float = 0.0
+  MUT sy AS Float = 0.0
+  ' The last control point, for the smooth curve commands.
+  MUT qx AS Float = 0.0
+  MUT qy AS Float = 0.0
+  MUT lastCmd AS Integer = 0
+  DO WHILE i < n
+    LET c AS Integer = collections::get(cs, i)
+    IF isSpace(c) OR c = C_COMMA THEN
+      i = i + 1
+    ELSE
+      IF (c >= 65 AND c <= 90) OR (c >= 97 AND c <= 122) THEN
+        IF c <> 101 AND c <> 69 THEN
+          cmd = c
+          i = i + 1
+        END IF
+      END IF
+      LET rel AS Boolean = cmd >= 97
+      MUT op AS Integer = cmd
+      IF rel THEN op = cmd - 32
+      MUT ox AS Float = 0.0
+      MUT oy AS Float = 0.0
+      IF rel THEN
+        ox = x
+        oy = y
+      END IF
+      IF op = 90 THEN
+        ' Z: close the ring; the next command starts from its first point.
+        IF len(ring) > 1 THEN
+          rings = collections::append(rings, [ring])
+          closed = collections::append(closed, TRUE)
+        END IF
+        ring = []
+        x = sx
+        y = sy
+        lastCmd = op
+      ELSE
+        ' Every other command needs at least one number; without one, stop.
+        LET a AS NumRead = readNumber(cs, i)
+        IF NOT a.ok THEN
+          i = n
+        ELSEIF op = 77 OR op = 76 OR op = 84 THEN
+          LET b AS NumRead = readNumber(cs, a.after)
+          LET nx AS Float = ox + a.value
+          LET ny AS Float = oy + b.value
+          i = b.after
+          IF op = 77 THEN
+            IF len(ring) > 1 THEN
+              rings = collections::append(rings, [ring])
+              closed = collections::append(closed, FALSE)
+            END IF
+            ring = [pt(nx, ny)]
+            sx = nx
+            sy = ny
+            ' Further pairs after an M are line-tos.
+            IF rel THEN
+              cmd = 108
+            ELSE
+              cmd = 76
+            END IF
+          ELSEIF op = 84 THEN
+            MUT cx AS Float = x
+            MUT cy AS Float = y
+            IF lastCmd = 81 OR lastCmd = 84 THEN
+              cx = 2.0 * x - qx
+              cy = 2.0 * y - qy
+            END IF
+            ring = collections::append(ring, quadPts(x, y, cx, cy, nx, ny, 8))
+            qx = cx
+            qy = cy
+          ELSE
+            ring = collections::append(ring, pt(nx, ny))
+          END IF
+          x = nx
+          y = ny
+        ELSEIF op = 72 THEN
+          x = a.value
+          IF rel THEN x = ox + a.value
+          ring = collections::append(ring, pt(x, y))
+          i = a.after
+        ELSEIF op = 86 THEN
+          y = a.value
+          IF rel THEN y = oy + a.value
+          ring = collections::append(ring, pt(x, y))
+          i = a.after
+        ELSEIF op = 67 THEN
+          LET b AS NumRead = readNumber(cs, a.after)
+          LET c2 AS NumRead = readNumber(cs, b.after)
+          LET d2 AS NumRead = readNumber(cs, c2.after)
+          LET e AS NumRead = readNumber(cs, d2.after)
+          LET f AS NumRead = readNumber(cs, e.after)
+          LET x1 AS Float = ox + a.value
+          LET y1 AS Float = oy + b.value
+          LET x2 AS Float = ox + c2.value
+          LET y2 AS Float = oy + d2.value
+          LET x3 AS Float = ox + e.value
+          LET y3 AS Float = oy + f.value
+          ring = collections::append(ring, cubicPts(x, y, x1, y1, x2, y2, x3, y3, curveSteps(x, y, x1, y1, x2, y2, x3, y3)))
+          qx = x2
+          qy = y2
+          x = x3
+          y = y3
+          i = f.after
+        ELSEIF op = 83 THEN
+          LET b AS NumRead = readNumber(cs, a.after)
+          LET c2 AS NumRead = readNumber(cs, b.after)
+          LET d2 AS NumRead = readNumber(cs, c2.after)
+          MUT x1 AS Float = x
+          MUT y1 AS Float = y
+          IF lastCmd = 67 OR lastCmd = 83 THEN
+            x1 = 2.0 * x - qx
+            y1 = 2.0 * y - qy
+          END IF
+          LET x2 AS Float = ox + a.value
+          LET y2 AS Float = oy + b.value
+          LET x3 AS Float = ox + c2.value
+          LET y3 AS Float = oy + d2.value
+          ring = collections::append(ring, cubicPts(x, y, x1, y1, x2, y2, x3, y3, curveSteps(x, y, x1, y1, x2, y2, x3, y3)))
+          qx = x2
+          qy = y2
+          x = x3
+          y = y3
+          i = d2.after
+        ELSEIF op = 81 THEN
+          LET b AS NumRead = readNumber(cs, a.after)
+          LET c2 AS NumRead = readNumber(cs, b.after)
+          LET d2 AS NumRead = readNumber(cs, c2.after)
+          LET x1 AS Float = ox + a.value
+          LET y1 AS Float = oy + b.value
+          LET x2 AS Float = ox + c2.value
+          LET y2 AS Float = oy + d2.value
+          ring = collections::append(ring, quadPts(x, y, x1, y1, x2, y2, 8))
+          qx = x1
+          qy = y1
+          x = x2
+          y = y2
+          i = d2.after
+        ELSEIF op = 65 THEN
+          ' A: rx ry rotation large-arc sweep x y. The two flags may be written
+          ' as single digits with nothing between them.
+          LET b AS NumRead = readNumber(cs, a.after)
+          LET rot AS NumRead = readNumber(cs, b.after)
+          LET fl AS Flags = readFlags(cs, rot.after)
+          LET ex AS NumRead = readNumber(cs, fl.after)
+          LET ey AS NumRead = readNumber(cs, ex.after)
+          LET nx AS Float = ox + ex.value
+          LET ny AS Float = oy + ey.value
+          ring = collections::append(ring, arcPts(x, y, a.value, b.value, rot.value, fl.large, fl.sweep, nx, ny))
+          x = nx
+          y = ny
+          i = ey.after
+        ELSE
+          i = a.after
+        END IF
+        lastCmd = op
+      END IF
+    END IF
+  LOOP
+  IF len(ring) > 1 THEN
+    rings = collections::append(rings, [ring])
+    closed = collections::append(closed, FALSE)
+  END IF
+  RETURN Rings[rings := rings, closed := closed]
+END FUNC
+
+TYPE Flags
+  large AS Boolean
+  sweep AS Boolean
+  after AS Integer
+END TYPE
+
+FUNC readFlags(cs AS List OF Integer, start AS Integer) AS Flags
+  MUT i AS Integer = start
+  MUT got AS List OF Boolean = []
+  DO WHILE i < len(cs) AND len(got) < 2
+    LET c AS Integer = collections::get(cs, i)
+    IF c = 48 OR c = 49 THEN got = collections::append(got, c = 49)
+    i = i + 1
+  LOOP
+  RETURN Flags[large := len(got) > 0 AND collections::get(got, 0), sweep := len(got) > 1 AND collections::get(got, 1), after := i]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Elements
+' ---------------------------------------------------------------------------
+
+TYPE Tag
+  name AS String
+  attrs AS Map OF String TO String
+  closing AS Boolean     ' </name>
+  selfClosing AS Boolean ' <name ... />
+  after AS Integer
+END TYPE
+
+' Read the tag that starts at '<' at position i.
+FUNC readTag(cs AS List OF Integer, start AS Integer) AS Tag
+  LET n AS Integer = len(cs)
+  MUT i AS Integer = start + 1
+  MUT closing AS Boolean = FALSE
+  IF i < n AND collections::get(cs, i) = C_SLASH THEN
+    closing = TRUE
+    i = i + 1
+  END IF
+  LET nameStart AS Integer = i
+  DO WHILE i < n AND isNameChar(collections::get(cs, i))
+    i = i + 1
+  LOOP
+  LET name AS String = textOf(cs, nameStart, i)
+  MUT attrs AS Map OF String TO String = Map OF String TO String {}
+  MUT selfClosing AS Boolean = FALSE
+  MUT reading AS Boolean = TRUE
+  DO WHILE reading AND i < n
+    LET c AS Integer = collections::get(cs, i)
+    IF c = C_GT THEN
+      reading = FALSE
+      i = i + 1
+    ELSEIF c = C_SLASH THEN
+      selfClosing = TRUE
+      i = i + 1
+    ELSEIF isNameChar(c) THEN
+      LET ks AS Integer = i
+      DO WHILE i < n AND isNameChar(collections::get(cs, i))
+        i = i + 1
+      LOOP
+      LET key AS String = textOf(cs, ks, i)
+      DO WHILE i < n AND (isSpace(collections::get(cs, i)) OR collections::get(cs, i) = C_EQ)
+        i = i + 1
+      LOOP
+      IF i < n AND (collections::get(cs, i) = C_QUOTE OR collections::get(cs, i) = C_APOS) THEN
+        LET q AS Integer = collections::get(cs, i)
+        LET vs AS Integer = i + 1
+        i = vs
+        DO WHILE i < n AND collections::get(cs, i) <> q
+          i = i + 1
+        LOOP
+        attrs = collections::set(attrs, key, textOf(cs, vs, i))
+        i = i + 1
+      END IF
+    ELSE
+      i = i + 1
+    END IF
+  LOOP
+  RETURN Tag[name := name, attrs := attrs, closing := closing, selfClosing := selfClosing, after := i]
+END FUNC
+
+FUNC attr(t AS Tag, key AS String) AS String
+  RETURN collections::getOr(t.attrs, key, "")
+END FUNC
+
+FUNC attrNum(t AS Tag, key AS String, fallback AS Float) AS Float
+  RETURN numberOr(attr(t, key), fallback)
+END FUNC
+
+' The rings of a basic shape element, or none.
+FUNC shapeRings(t AS Tag) AS Rings
+  MATCH t.name
+    CASE "path" : RETURN parsePath(attr(t, "d"))
+    CASE "circle"
+      LET r AS Float = attrNum(t, "r", 0.0)
+      RETURN Rings[rings := [ovalRing(attrNum(t, "cx", 0.0), attrNum(t, "cy", 0.0), r, r, math::max(16, math::min(64, (math::round(r * 2.0)))), 0.0)], closed := [TRUE]]
+    CASE "ellipse"
+      LET rx AS Float = attrNum(t, "rx", 0.0)
+      LET ry AS Float = attrNum(t, "ry", 0.0)
+      RETURN Rings[rings := [ovalRing(attrNum(t, "cx", 0.0), attrNum(t, "cy", 0.0), rx, ry, math::max(16, math::min(64, (math::round((rx + ry) * 1.5)))), 0.0)], closed := [TRUE]]
+    CASE "rect"
+      RETURN Rings[rings := [rectRing(attrNum(t, "x", 0.0), attrNum(t, "y", 0.0), attrNum(t, "width", 0.0), attrNum(t, "height", 0.0))], closed := [TRUE]]
+    CASE "line"
+      RETURN Rings[rings := [[pt(attrNum(t, "x1", 0.0), attrNum(t, "y1", 0.0)), pt(attrNum(t, "x2", 0.0), attrNum(t, "y2", 0.0))]], closed := [FALSE]]
+    CASE "polygon", "polyline"
+      LET ns AS List OF Float = numbers(attr(t, "points"))
+      MUT ring AS List OF canvas::Point = []
+      FOR k = 0 TO len(ns) / 2 - 1
+        ring = collections::append(ring, pt(collections::get(ns, k * 2), collections::get(ns, k * 2 + 1)))
+      NEXT
+      RETURN Rings[rings := [ring], closed := [t.name = "polygon"]]
+    CASE ELSE : RETURN Rings[rings := [], closed := []]
+  END MATCH
+END FUNC
+
+' The gradient a <linearGradient> or <radialGradient> tag opens.
+FUNC gradientFrom(t AS Tag) AS SvgGradient
+  MUT spread AS canvas::GradientSpread = canvas::GradientSpread.Pad
+  IF attr(t, "spreadMethod") = "reflect" THEN spread = canvas::GradientSpread.Reflect
+  IF attr(t, "spreadMethod") = "repeat" THEN spread = canvas::GradientSpread.Repeat
+  LET bbox AS Boolean = attr(t, "gradientUnits") <> "userSpaceOnUse"
+  MUT defaultEnd AS Float = 1.0
+  LET cx AS Float = attrNum(t, "cx", 0.5)
+  LET cy AS Float = attrNum(t, "cy", 0.5)
+  LET href AS String = strings::stripPrefix(collections::getOr(t.attrs, "xlink:href", collections::getOr(t.attrs, "href", "")), "#")
+  RETURN SvgGradient[id := attr(t, "id"), isLinear := t.name = "linearGradient", x1 := attrNum(t, "x1", 0.0), y1 := attrNum(t, "y1", 0.0), x2 := attrNum(t, "x2", defaultEnd), y2 := attrNum(t, "y2", 0.0), cx := cx, cy := cy, r := attrNum(t, "r", 0.5), fx := attrNum(t, "fx", cx), fy := attrNum(t, "fy", cy), hasFocus := collections::hasKey(t.attrs, "fx") OR collections::hasKey(t.attrs, "fy"), stops := [], spread := spread, transform := parseTransform(attr(t, "gradientTransform")), boundingBox := bbox, href := href]
+END FUNC
+
+FUNC stopFrom(t AS Tag) AS canvas::GradientStop
+  MUT c AS String = attr(t, "stop-color")
+  MUT op AS Float = attrNum(t, "stop-opacity", 1.0)
+  IF collections::hasKey(t.attrs, "style") THEN
+    FOR EACH decl IN strings::split(attr(t, "style"), ";")
+      LET kv AS List OF String = strings::split(decl, ":")
+      IF len(kv) = 2 THEN
+        LET k AS String = strings::trim(collections::get(kv, 0))
+        IF k = "stop-color" THEN c = collections::get(kv, 1)
+        IF k = "stop-opacity" THEN op = numberOr(collections::get(kv, 1), 1.0)
+      END IF
+    NEXT
+  END IF
+  IF c = "" THEN c = "#000000"
+  RETURN gstop(clamp01(numberOr(attr(t, "offset"), 0.0)), fade(svgColor(c), op))
+END FUNC
+
+' Read a whole SVG document.
+FUNC parseSvg(text AS String) AS SvgImage
+  LET cs AS List OF Integer = codes(text)
+  LET n AS Integer = len(cs)
+  MUT shapes AS List OF SvgShape = []
+  MUT grads AS List OF SvgGradient = []
+  MUT current AS SvgGradient = gradientFrom(Tag[name := "", attrs := Map OF String TO String {}, closing := FALSE, selfClosing := FALSE, after := 0])
+  MUT inGradient AS Boolean = FALSE
+  ' The open groups: each one's paint and transform, innermost last.
+  MUT paints AS List OF SvgPaintSpec = [defaultPaint()]
+  MUT transforms AS List OF canvas::Transform = [unit()]
+  ' The viewBox is held as a list rather than as four Float locals: on
+  ' windows-x86_64 a Float kept in a register across a call to a function
+  ' that uses math::sin, math::cos or math::pow can be overwritten (bug-994),
+  ' and this one lives across every element the loop reads.
+  MUT viewBox AS List OF Float = [0.0, 0.0, 100.0, 100.0]
+  MUT points AS Integer = 0
+  MUT i AS Integer = 0
+  DO WHILE i < n
+    IF collections::get(cs, i) <> C_LT THEN
+      i = i + 1
+    ELSEIF i + 1 < n AND (collections::get(cs, i + 1) = C_BANG OR collections::get(cs, i + 1) = C_QUESTION) THEN
+      ' A comment, declaration or processing instruction: skip it whole.
+      MUT j AS Integer = i + 1
+      IF i + 3 < n AND collections::get(cs, i + 2) = C_MINUS AND collections::get(cs, i + 3) = C_MINUS THEN
+        DO WHILE j + 2 < n AND NOT (collections::get(cs, j) = C_MINUS AND collections::get(cs, j + 1) = C_MINUS AND collections::get(cs, j + 2) = C_GT)
+          j = j + 1
+        LOOP
+        i = j + 3
+      ELSE
+        DO WHILE j < n AND collections::get(cs, j) <> C_GT
+          j = j + 1
+        LOOP
+        i = j + 1
+      END IF
+    ELSE
+      LET tag AS Tag = readTag(cs, i)
+      i = tag.after
+      LET inherited AS SvgPaintSpec = collections::get(paints, len(paints) - 1)
+      LET outer AS canvas::Transform = collections::get(transforms, len(transforms) - 1)
+      IF tag.closing THEN
+        IF tag.name = "g" AND len(paints) > 1 THEN
+          paints = collections::take(paints, len(paints) - 1)
+          transforms = collections::take(transforms, len(transforms) - 1)
+        END IF
+        IF (tag.name = "linearGradient" OR tag.name = "radialGradient") AND inGradient THEN
+          grads = collections::append(grads, current)
+          inGradient = FALSE
+        END IF
+      ELSEIF tag.name = "svg" THEN
+        LET vb AS List OF Float = numbers(attr(tag, "viewBox"))
+        IF len(vb) = 4 THEN viewBox = vb
+        paints = [elementPaint(defaultPaint(), tag.attrs)]
+      ELSEIF tag.name = "g" THEN
+        IF NOT tag.selfClosing THEN
+          paints = collections::append(paints, elementPaint(inherited, tag.attrs))
+          transforms = collections::append(transforms, compose(outer, parseTransform(attr(tag, "transform"))))
+        END IF
+      ELSEIF tag.name = "linearGradient" OR tag.name = "radialGradient" THEN
+        current = gradientFrom(tag)
+        IF tag.selfClosing THEN
+          grads = collections::append(grads, current)
+        ELSE
+          inGradient = TRUE
+        END IF
+      ELSEIF tag.name = "stop" AND inGradient THEN
+        current = WITH current { stops := collections::append(current.stops, stopFrom(tag)) }
+      ELSE
+        LET found AS Rings = shapeRings(tag)
+        IF len(found.rings) > 0 THEN
+          FOR EACH r IN found.rings
+            points = points + len(r)
+          NEXT
+          shapes = collections::append(shapes, SvgShape[contours := found.rings, closed := found.closed, paint := elementPaint(inherited, tag.attrs), transform := compose(outer, parseTransform(attr(tag, "transform"))), fill := canvas::fill(color::white), hasFill := FALSE, stroke := canvas::fill(color::white), hasStroke := FALSE])
+        END IF
+      END IF
+    END IF
+  LOOP
+  LET img AS SvgImage = SvgImage[vx := collections::get(viewBox, 0), vy := collections::get(viewBox, 1), vw := collections::get(viewBox, 2), vh := collections::get(viewBox, 3), shapes := shapes, gradients := grads, points := points]
+  RETURN WITH img { shapes := collections::transform(shapes, LAMBDA(sh AS SvgShape) -> resolve(img, sh)) }
+END FUNC
+
+' Work out a shape's canvas paints from its SVG paint.
+FUNC resolve(img AS SvgImage, s AS SvgShape) AS SvgShape
+  LET p AS SvgPaintSpec = s.paint
+  MUT fill AS canvas::Paint = canvas::fill(rgba(0, 0, 0, 0))
+  MUT hasFill AS Boolean = FALSE
+  IF strings::startsWith(p.fill, "url(") THEN
+    fill = WITH canvas::fill(color::white) { gradient := canvasGradient(findGradient(img, refId(p.fill)), s.contours, p.opacity * p.fillOpacity) }
+    hasFill = TRUE
+  ELSEIF p.fill <> "none" AND p.fill <> "" THEN
+    fill = canvas::fill(fade(svgColor(p.fill), p.opacity * p.fillOpacity))
+    hasFill = TRUE
+  END IF
+  ' A stroke painted with a gradient is not drawn: canvas paints a stroke with
+  ' the item's one gradient only together with its fill.
+  LET hasStroke AS Boolean = p.stroke <> "none" AND p.stroke <> "" AND p.strokeWidth > 0.0 AND NOT strings::startsWith(p.stroke, "url(")
+  MUT stroke AS canvas::Paint = canvas::fill(rgba(0, 0, 0, 0))
+  IF hasStroke THEN stroke = WITH canvas::stroke(fade(svgColor(p.stroke), p.opacity * p.strokeOpacity), p.strokeWidth) { cap := p.cap, join := p.join, miterLimit := p.miter, dashes := p.dashes }
+  RETURN WITH s { fill := fill, hasFill := hasFill, stroke := stroke, hasStroke := hasStroke }
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Drawing
+' ---------------------------------------------------------------------------
+
+FUNC findGradient(img AS SvgImage, id AS String) AS SvgGradient
+  FOR EACH g IN img.gradients
+    IF g.id = id THEN
+      ' A gradient that names another with href borrows its stops.
+      IF len(g.stops) = 0 AND g.href <> "" AND g.href <> id THEN RETURN WITH g { stops := findGradient(img, g.href).stops }
+      RETURN g
+    END IF
+  NEXT
+  RETURN gradientFrom(Tag[name := "", attrs := Map OF String TO String {}, closing := FALSE, selfClosing := FALSE, after := 0])
+END FUNC
+
+FUNC bounds(rings AS List OF List OF canvas::Point) AS Box
+  MUT x0 AS Float = 1.0e9
+  MUT y0 AS Float = 1.0e9
+  MUT x1 AS Float = -1.0e9
+  MUT y1 AS Float = -1.0e9
+  FOR EACH r IN rings
+    FOR EACH p IN r
+      x0 = math::min(x0, p.x)
+      y0 = math::min(y0, p.y)
+      x1 = math::max(x1, p.x)
+      y1 = math::max(y1, p.y)
+    NEXT
+  NEXT
+  RETURN Box[x := x0, y := y0, w := math::max(x1 - x0, 0.0001), h := math::max(y1 - y0, 0.0001)]
+END FUNC
+
+' The canvas gradient for an SVG gradient used by a shape: in the shape's own
+' user space, or its bounding box for objectBoundingBox units.
+FUNC canvasGradient(g AS SvgGradient, rings AS List OF List OF canvas::Point, opacity AS Float) AS canvas::Gradient
+  MUT tr AS canvas::Transform = g.transform
+  IF g.boundingBox THEN
+    LET b AS Box = bounds(rings)
+    tr = compose(matrix(b.w, 0.0, 0.0, b.h, b.x, b.y), g.transform)
+  END IF
+  LET stops AS List OF canvas::GradientStop = collections::transform(g.stops, LAMBDA(s AS canvas::GradientStop) -> gstop(s.offset, fade(s.color, opacity)))
+  IF g.isLinear THEN
+    RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := pt(g.x1, g.y1), endPoint := pt(g.x2, g.y2), stops := stops, spread := g.spread, transform := tr, focalOffset := pt(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  END IF
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := pt(g.cx, g.cy), endPoint := pt(g.cx + g.r, g.cy), stops := stops, spread := g.spread, transform := tr, focalOffset := pt(g.fx - g.cx, g.fy - g.cy), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+END FUNC
+
+FUNC refId(value AS String) AS String
+  RETURN strings::stripSuffix(strings::stripPrefix(strings::trim(value), "url(#"), ")")
+END FUNC
+
+' The picture of an SVG image, placed by `view` (from viewBox units to the
+' window). `outline` draws every contour as a thin line with its points
+' marked instead - the wireframe view.
+FUNC svgItems(img AS SvgImage, view AS canvas::Transform, outline AS Boolean, t AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  FOR EACH s IN img.shapes
+    LET tr AS canvas::Transform = compose(view, s.transform)
+    IF outline THEN
+      out = collections::append(out, shape(s.contours, s.paint.rule, WITH canvas::stroke(rgba(120, 220, 255, 200), 0.35) { transform := tr, join := canvas::JoinStyle.Round }))
+    ELSE
+      IF s.hasFill THEN out = collections::append(out, shape(s.contours, s.paint.rule, WITH s.fill { transform := tr }))
+      IF s.hasStroke THEN
+        ' The outline: closed rings as one stroked, unfilled Polygon; each open
+        ' subpath as a PolyLine, so it is not closed back to its start.
+        LET sp AS canvas::Paint = WITH s.stroke { transform := tr }
+        MUT shut AS List OF List OF canvas::Point = []
+        FOR k = 0 TO len(s.contours) - 1
+          IF collections::get(s.closed, k) THEN
+            shut = collections::append(shut, [collections::get(s.contours, k)])
+          ELSE
+            out = collections::append(out, path(collections::get(s.contours, k), sp))
+          END IF
+        NEXT
+        IF len(shut) > 0 THEN out = collections::append(out, shape(shut, s.paint.rule, sp))
+      END IF
+    END IF
+  NEXT
+  RETURN out
+END FUNC
