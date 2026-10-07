@@ -20,7 +20,8 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 **P2: Resource and thread model** (batch 17, `bug-staging-17`; not in main yet)
 [~] 976 → 975 (owner-confirmed language changes; 975 depends on 976's rule): fixed, reviewed, merged into staging
 [~] 843, 842, 852, 854, 899: fixed, reviewed, merged into staging (842 scoped out inline aggregates → bug-999)
-[ ] 844, 933, 935, 851: fixed by agent G, awaiting coordinator review
+[~] 844, 933, 935, 851: fixed, reviewed, merged into staging
+[~] integration fix: a closure may not capture a ThreadWorker (975 × 843 interaction; capture check now shares the List-element predicate)
 [ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
 [ ] Then golden proofs + full gate, then merge to main
 
@@ -80,6 +81,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
+[ ] P5: 1002 (TYPE_COLLECTION_OWNERSHIP_VIOLATION reported twice)
 [ ] P5: 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
 [ ] P8: 985 (setMode window has no mouse controllers; after 982), 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
