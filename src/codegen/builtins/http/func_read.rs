@@ -36,8 +36,8 @@ The request target is `url.path` (an empty path is normalized to `/`) followed b
 space, DEL (0x7F), or any non-ASCII byte in the path/query is percent-encoded
 first (matching Node's `new URL(...).pathname + search`), so the target is
 always a single token — without this a path like `/x HTTP/1.0` would land on
-the wire as a second, attacker-chosen token on the request line itself
-(bug-981), separate from the control-byte rejection above. An escape already
+the wire as a second, attacker-chosen token on the request line itself,
+separate from the control-byte rejection above. An escape already
 present (`%` plus two hex digits) is kept as-is, never double-encoded; every
 other byte, including `/ ? = & ; : @ , + $ ! * ' ( ) #`, is unchanged.
 

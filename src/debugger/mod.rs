@@ -11,6 +11,7 @@
 pub(crate) mod backtrace;
 pub(crate) mod breakpoints;
 pub(crate) mod disassemble;
+pub(crate) mod location;
 pub(crate) mod names;
 pub(crate) mod prompt;
 pub(crate) mod runtime;
@@ -77,6 +78,11 @@ pub(crate) trait Inferior {
     /// The registers of thread `thread` (an index into [`Inferior::threads`]),
     /// in display order.
     fn registers(&mut self, thread: usize) -> Result<Vec<Register>, String>;
+    /// Give registers of thread `thread` new values, each named as
+    /// [`Inferior::registers`] names it: a general-purpose register, `sp`,
+    /// `pc`, `nzcv` (its flag bits), `fpsr` or `fpcr` (32 bits). Every value is
+    /// written before the thread next runs.
+    fn set_registers(&mut self, thread: usize, values: &[(String, u64)]) -> Result<(), String>;
     /// Run `threads` (indices into [`Inferior::threads`]) in up to `count`
     /// rounds of one instruction each, with every other thread held; the
     /// process is paused again afterwards. A thread that stops early sits out

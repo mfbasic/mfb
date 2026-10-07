@@ -45,7 +45,7 @@ when the expression has effects or is expensive.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| — | `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING` | The right-hand side of `|>` contains no `_` placeholder. Reported at parse time. |
+| — | `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING` | The right-hand side of `\|>` contains no `_` placeholder. Reported at parse time. |
 
 ## Examples
 

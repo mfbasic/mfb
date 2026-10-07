@@ -213,17 +213,11 @@ mod macos {
             .split_once("\n\n")
             .unwrap_or_else(|| panic!("no legend after the listing in {reply:?}"));
         let rows = table_rows(table, FUNCTION_COLUMNS)
-            .iter()
-            .map(|line| {
-                // The written name may carry a tag (`main <mfb>`): it is the
-                // rest of the line after three columns.
-                let mut words = line.split_whitespace();
-                let mut next = || words.next().unwrap_or_else(|| panic!("{line}")).to_string();
-                let cells = [next(), next(), next()];
-                let written = words.collect::<Vec<_>>().join(" ");
-                assert!(!written.is_empty(), "{line}");
-                let [kind, address, symbol] = cells;
-                [kind, address, symbol, written]
+            .into_iter()
+            .map(|cells| {
+                // The written name may carry a tag (`main <mfb>`).
+                assert!(!cells[3].is_empty(), "{cells:?}");
+                <[String; 4]>::try_from(cells).unwrap()
             })
             .collect::<Vec<_>>();
         let mut shown = rows.iter().map(|row| row[0].clone()).collect::<Vec<_>>();
@@ -466,7 +460,7 @@ mod macos {
         let registers = table_rows(&session.until_prompt(), REGISTER_COLUMNS);
         let lines = registers
             .iter()
-            .map(|line| line.split_whitespace().collect::<Vec<_>>())
+            .map(|cells| cells.iter().map(String::as_str).collect::<Vec<_>>())
             .collect::<Vec<_>>();
         let names = lines
             .iter()
@@ -640,41 +634,49 @@ mod macos {
     const ARENA_COLUMNS: &[&str] = &["ID", "Thread", "Address", "Size (KB)"];
     const BREAKPOINT_COLUMNS: &[&str] = &["Address", "Symbol", "Written name"];
 
-    /// The rows of a listing reply, after checking that its first line is the
-    /// header naming `columns` and that every row starts each column where the
-    /// header does.
-    fn table_rows(reply: &str, columns: &[&str]) -> Vec<String> {
+    /// What separates a listing's columns.
+    const SEPARATOR: &str = " | ";
+
+    /// The cells of each row of a listing reply, after checking that its
+    /// first line is the header naming `columns`, separated by ` | `, and that
+    /// every row has a cell for each, its separators under the header's.
+    fn table_rows(reply: &str, columns: &[&str]) -> Vec<Vec<String>> {
         let mut lines = body(reply);
         assert!(!lines.is_empty(), "no listing in {reply:?}");
-        let header = lines.remove(0).chars().collect::<Vec<_>>();
-        let text = header.iter().collect::<String>();
-        let mut starts = Vec::new();
-        let mut from = 0;
-        for column in columns {
-            let at = text[from..]
-                .find(column)
-                .map(|at| text[..from + at].chars().count())
-                .unwrap_or_else(|| panic!("no column {column:?} in {text:?}"));
-            starts.push(at);
-            from = text.char_indices().nth(at).unwrap().0 + column.len();
-        }
-        assert_eq!(starts[0], 0, "{text:?}");
-        assert_eq!(
-            text.split_whitespace().collect::<Vec<_>>(),
-            columns.join(" ").split_whitespace().collect::<Vec<_>>(),
-            "{text:?}"
-        );
-        for line in &lines {
-            let cells = line.chars().collect::<Vec<_>>();
-            for start in &starts[1..] {
-                assert!(
-                    cells.get(start - 1) == Some(&' ')
-                        && cells.get(*start).is_some_and(|cell| *cell != ' '),
-                    "a column of {line:?} does not start at {start}, under {text:?}"
-                );
-            }
-        }
+        let header = lines.remove(0);
+        let separators = |line: &str| {
+            line.match_indices(SEPARATOR)
+                .map(|(at, _)| line[..at].chars().count())
+                .collect::<Vec<_>>()
+        };
+        let names = header
+            .split(SEPARATOR)
+            .map(str::trim_end)
+            .collect::<Vec<_>>();
+        assert_eq!(names, columns, "{header:?}");
+        let under = separators(&header);
         lines
+            .iter()
+            .map(|line| {
+                let cells = line
+                    .split(SEPARATOR)
+                    .map(|cell| cell.trim_end().to_string())
+                    .collect::<Vec<_>>();
+                assert_eq!(cells.len(), columns.len(), "{line:?} under {header:?}");
+                assert_eq!(
+                    separators(line),
+                    under,
+                    "the columns of {line:?} are not under {header:?}"
+                );
+                assert!(
+                    cells
+                        .iter()
+                        .all(|cell| !cell.is_empty() && !cell.starts_with(' ')),
+                    "{line:?} under {header:?}"
+                );
+                cells
+            })
+            .collect()
     }
 
     /// A launched program has one thread, the one that will run `main`, and no
@@ -690,10 +692,10 @@ mod macos {
         session.send("list thread\n");
         let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
         assert_eq!(threads.len(), 1, "{threads:?}");
-        let words = threads[0].split_whitespace().collect::<Vec<_>>();
-        assert_eq!(words[0], "0");
-        assert!(is_address(words[2]), "{threads:?}");
-        assert_eq!(words[3..], ["MFB", "Main"]);
+        let cells = &threads[0];
+        assert_eq!(cells[0], "0");
+        assert!(is_address(&cells[2]), "{threads:?}");
+        assert_eq!(cells[3], "MFB Main");
 
         session.send("list arena\n");
         assert_eq!(
@@ -751,30 +753,18 @@ mod macos {
 
         session.send("list thread\n");
         let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
-        let task = |line: &String| {
-            line.split_whitespace()
-                .skip(3)
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
+        let task = |cells: &Vec<String>| cells[3].clone();
         assert_eq!(task(&threads[0]), "MFB Main", "{threads:?}");
         let workers = threads
             .iter()
-            .filter(|line| task(line) == "User Thread")
-            .map(|line| line.split_whitespace().next().unwrap().to_string())
+            .filter(|cells| task(cells) == "User Thread")
+            .map(|cells| cells[0].clone())
             .collect::<Vec<_>>();
         assert_eq!(workers.len(), 1, "{threads:?}");
 
         session.send("list arena\n");
         let arenas = table_rows(&session.until_prompt(), ARENA_COLUMNS);
-        let rows = arenas
-            .iter()
-            .map(|line| {
-                line.split_whitespace()
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let rows = arenas.clone();
         assert!(
             rows.iter().all(|row| row.len() == 4
                 && row[0].parse::<usize>().is_ok()
@@ -868,12 +858,7 @@ mod macos {
         session.until_prompt();
         session.send("list thread\n");
         let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
-        let task = |line: &String| {
-            line.split_whitespace()
-                .skip(3)
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
+        let task = |cells: &Vec<String>| cells[3].clone();
         assert_eq!(task(&threads[0]), "App", "{threads:?}");
         assert_eq!(
             threads
@@ -944,11 +929,7 @@ mod macos {
             .nth(1)
             .unwrap_or_else(|| panic!("no frame in {first:?}"));
         session.send("list reg lr\n");
-        let lr = table_rows(&session.until_prompt(), REGISTER_COLUMNS)[0]
-            .split_whitespace()
-            .nth(1)
-            .unwrap()
-            .to_string();
+        let lr = table_rows(&session.until_prompt(), REGISTER_COLUMNS)[0][1].clone();
         session.send(&format!("wp sp-{frame}\n"));
         let set = body(&session.until_prompt());
         assert!(
@@ -982,7 +963,9 @@ mod macos {
         session.send("list watchpoint\n");
         let listed = table_rows(&session.until_prompt(), &["Address", "Size", "Value"]);
         assert!(
-            listed.len() == 1 && listed[0].starts_with(&format!("{address} 8    {lr}")),
+            listed.len() == 1
+                && listed[0][..2] == [address.to_string(), "8".to_string()]
+                && listed[0][2].starts_with(&lr),
             "{listed:?}"
         );
         session.send(&format!("wp r {address}\n"));
@@ -1031,10 +1014,14 @@ mod macos {
         for at in stops {
             assert_eq!(
                 run[at + 1],
-                "Register Hex                Decimal",
+                "Register | Hex                | Decimal",
                 "{run:?}"
             );
-            assert_eq!(run[at + 2], "x1       0x00000000000001f4 (500)", "{run:?}");
+            assert_eq!(
+                run[at + 2],
+                "x1       | 0x00000000000001f4 | (500)",
+                "{run:?}"
+            );
             assert_eq!(run[at + 3], "* thread #0, task = 'MFB Main'", "{run:?}");
             assert!(run[at + 4].ends_with(" debug.out`countPrimes"), "{run:?}");
         }
@@ -1049,6 +1036,89 @@ mod macos {
 
     /// Breakpoints by written name and by a system function's symbol (pending
     /// until the libraries load), `run` to each, then to the end.
+    /// `bpi` stops in `countPrimes` only for the second round's range (its
+    /// first argument, in `x0`), and `j` makes that call return at once with
+    /// a count of 7, which the round then prints.
+    #[test]
+    fn a_tested_breakpoint_stops_once_and_a_jump_returns_early() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bpi x0 eq 824084 at countPrimes\n");
+        let set = body(&session.until_prompt());
+        assert!(
+            set.len() == 1
+                && set[0].ends_with(" in countPrimes if x0 eq 0x00000000000c9314 (824084)."),
+            "{set:?}"
+        );
+        session.send("bpi [0x10] in at countPrimes bt 1\n");
+        session.until_prompt();
+        session.send("bpi r [0x10] in at countPrimes\n");
+        session.until_prompt();
+        session.send("list breakpoint\n");
+        let listed = table_rows(
+            &session.until_prompt(),
+            &["Address", "Symbol", "Written name", "If"],
+        );
+        assert!(
+            listed.len() == 1
+                && listed[0][1..]
+                    == [
+                        "_mfb_fn_countPrimes".to_string(),
+                        "countPrimes".to_string(),
+                        "x0 eq 0x00000000000c9314 (824084)".to_string()
+                    ],
+            "{listed:?}"
+        );
+        // The first round's call runs on unseen; the second's stops.
+        session.send("run\n");
+        let run = body(&session.until_prompt());
+        assert_eq!(run.len(), 2, "{run:?}");
+        assert_eq!(run[0], "round 1: 37 primes");
+        assert!(
+            run[1].starts_with("--[BP] T: 0 P: 0x") && run[1].ends_with(" F: countPrimes"),
+            "{run:?}"
+        );
+        session.send("list reg x0\n");
+        assert_eq!(
+            table_rows(&session.until_prompt(), REGISTER_COLUMNS),
+            [["x0", "0x00000000000c9314", "(824084)"]]
+        );
+        // At its first instruction the function has not touched its frame,
+        // so going to lr returns from it: no error (x0) and a count of 7 (x1).
+        session.send("j lr x0=0 x1=7\n");
+        let moved = body(&session.until_prompt());
+        assert!(
+            moved.len() == 1
+                && moved[0].starts_with("Moved thread 0 to 0x")
+                && moved[0].contains(" in runRound+0x")
+                && moved[0]
+                    .ends_with("; set x0 = 0x0000000000000000 (0), x1 = 0x0000000000000007 (7)."),
+            "{moved:?}"
+        );
+        session.send("list reg x0 x1\n");
+        assert_eq!(
+            table_rows(&session.until_prompt(), REGISTER_COLUMNS),
+            [
+                ["x0", "0x0000000000000000", "(0)"],
+                ["x1", "0x0000000000000007", "(7)"]
+            ]
+        );
+        session.send("run\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            [
+                "round 2: 7 primes",
+                "total: 44 primes",
+                "--[EX] Program exit (0)"
+            ]
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
     #[test]
     fn run_stops_at_breakpoints_and_at_the_end() {
         let mfb = signed_mfb();
@@ -1124,9 +1194,11 @@ mod macos {
         let registers = table_rows(&session.until_prompt(), REGISTER_COLUMNS);
         assert!(
             registers.len() == 2
-                && registers[0].starts_with("x0       0x")
-                && registers[0].ends_with(')')
-                && registers[1].starts_with("sp       0x"),
+                && registers[0][0] == "x0"
+                && registers[0][1].starts_with("0x")
+                && registers[0][2].ends_with(')')
+                && registers[1][0] == "sp"
+                && registers[1][1].starts_with("0x"),
             "{registers:?}"
         );
         session.send("show mem sp 16\n");
@@ -1160,9 +1232,7 @@ mod macos {
         session.send("list breakpoint\n");
         let listed = table_rows(&session.until_prompt(), BREAKPOINT_COLUMNS);
         assert_eq!(listed.len(), 2, "{listed:?}");
-        assert!(listed
-            .iter()
-            .all(|line| is_address(line.split_whitespace().next().unwrap())));
+        assert!(listed.iter().all(|cells| is_address(&cells[0])));
 
         session.send("bp r isPrime\n");
         session.until_prompt();
@@ -1196,7 +1266,7 @@ mod macos {
         session.send("list breakpoint\n");
         assert_eq!(
             body(&session.until_prompt()),
-            ["Address Symbol Written name", "-       _exit  exit"]
+            ["Address | Symbol | Written name", "-       | _exit  | exit"]
         );
         session.send("run\n");
         let again = body(&session.until_prompt());

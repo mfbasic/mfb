@@ -24,7 +24,7 @@ Precedence, highest to lowest:
 | 9          | `NOT` |
 | 10         | `AND` |
 | 11         | `OR`, `XOR` |
-| 12         | Pipeline: `|>` |
+| 12         | Pipeline: `\|>` |
 
 `XOR` has the same precedence as `OR` and evaluates both operands. Both `XOR` and `OR` are parsed at the same level (one `parse_or` loop), left-associative.
 

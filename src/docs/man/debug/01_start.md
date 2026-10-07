@@ -96,8 +96,8 @@ kill $!
 ```
 Attached to process 92393 (/Users/you/mfb/examples/debug/build/debug.out); paused.
 DBG> list thread
-ID Name          PC                 Task
-0  isPrime+0x230 0x0000000100d14cd4 MFB Main
+ID | Name          | PC                 | Task
+0  | isPrime+0x230 | 0x0000000100d14cd4 | MFB Main
 DBG> q
 Detached from process 92393; it continues running.
 ```
