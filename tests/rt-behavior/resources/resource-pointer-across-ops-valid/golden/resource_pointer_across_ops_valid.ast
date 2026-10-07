@@ -15,7 +15,7 @@
       "name": "logLine",
       "line": 4,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 4 },
+      { "name": "f", "type": "fs.File", "default": null, "line": 4 },
       { "name": "msg", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": "Nothing",

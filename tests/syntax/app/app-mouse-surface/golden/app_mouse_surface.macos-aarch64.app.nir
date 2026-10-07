@@ -15781,6 +15781,7 @@
     "kind": "func",
     "isolated": false,
     "file": "builtins/canvas.mfb",
+    "resourceOwners": [{ "name": "font", "owner": { "kind": "local" } }],
     "params": [
     { "name": "font", "type": "canvas.Font", "default": null },
     { "name": "size", "type": "Float", "default": null },

@@ -46,7 +46,7 @@
       "name": "drain",
       "line": 36,
       "params": [
-      { "name": "conn", "type": "tls.Socket", "resource": true, "state": null, "default": null, "line": 36 }
+      { "name": "conn", "type": "tls.Socket", "default": null, "line": 36 }
       ],
       "returnType": "String",
       "body": [
@@ -76,7 +76,7 @@
       "name": "writeOnce",
       "line": 46,
       "params": [
-      { "name": "conn", "type": "tls.Socket", "resource": true, "state": null, "default": null, "line": 46 },
+      { "name": "conn", "type": "tls.Socket", "default": null, "line": 46 },
       { "name": "text", "type": "String", "default": null, "line": 46 }
       ],
       "returnType": "String",

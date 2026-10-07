@@ -63,7 +63,7 @@
         "returnState": null,
         "line": 30,
         "params": [
-        { "name": "db", "type": "#c2515768f1aa7dc6$Db", "resource": true, "state": "#c2515768f1aa7dc6$DbInfo", "default": null, "line": 30 }
+        { "name": "db", "type": "#c2515768f1aa7dc6$Db", "state": "#c2515768f1aa7dc6$DbInfo", "default": null, "line": 30 }
         ],
         "abi": {
           "slots": [

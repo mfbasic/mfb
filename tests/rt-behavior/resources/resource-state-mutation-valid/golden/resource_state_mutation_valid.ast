@@ -25,7 +25,7 @@
       "name": "advance",
       "line": 9,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "FileState", "default": null, "line": 9 },
+      { "name": "f", "type": "fs.File", "state": "FileState", "default": null, "line": 9 },
       { "name": "by", "type": "Integer", "default": null, "line": 9 }
       ],
       "returnType": "Nothing",

@@ -27,7 +27,7 @@
       "name": "feed",
       "line": 17,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Accum", "default": null, "line": 17 },
+      { "name": "f", "type": "fs.File", "state": "Accum", "default": null, "line": 17 },
       { "name": "chunk", "type": "List OF Byte", "default": null, "line": 17 }
       ],
       "returnType": "Nothing",

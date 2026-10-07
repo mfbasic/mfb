@@ -18,7 +18,7 @@
       "name": "feed",
       "line": 37,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "state_reach_worker.Accum", "default": null, "line": 37 },
+      { "name": "f", "type": "fs.File", "state": "state_reach_worker.Accum", "default": null, "line": 37 },
       { "name": "rounds", "type": "Integer", "default": null, "line": 37 }
       ],
       "returnType": "Nothing",
@@ -44,7 +44,7 @@
       "name": "nextByte",
       "line": 48,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "state_reach_worker.Accum", "default": null, "line": 48 }
+      { "name": "f", "type": "fs.File", "state": "state_reach_worker.Accum", "default": null, "line": 48 }
       ],
       "returnType": "Byte",
       "body": [

@@ -110,7 +110,7 @@
         "returnState": null,
         "line": 39,
         "params": [
-        { "name": "sndfile", "type": "SoundFile", "resource": true, "state": "FileInfo", "default": null, "line": 39 }
+        { "name": "sndfile", "type": "SoundFile", "state": "FileInfo", "default": null, "line": 39 }
         ],
         "abi": {
           "slots": [

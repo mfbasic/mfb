@@ -36,7 +36,7 @@
       "name": "advance",
       "line": 16,
       "params": [
-      { "name": "p", "type": "Stream", "resource": true, "state": "Cursor", "default": null, "line": 16 }
+      { "name": "p", "type": "Stream", "state": "Cursor", "default": null, "line": 16 }
       ],
       "returnType": "Nothing",
       "body": [

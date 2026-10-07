@@ -5,10 +5,4 @@ $ mfb build -ast -ir tests/syntax/functions/lambda-capture-invalid
      | ^
 tests/syntax/functions/lambda-capture-invalid/src/main.mfb:5 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
                Lambda captures mutable local `offset`; mutable captures are invalid.
-   6 | 
-   7 |   RES file = fs::openFile("tests/syntax/functions/lambda-capture-invalid/data/input.txt")
-   8 |   LET badResource AS FUNC() AS String = LAMBDA() -> fs::readLine(file)
-     | ^
-tests/syntax/functions/lambda-capture-invalid/src/main.mfb:8 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
-               Lambda captures resource local `file`; resource captures are invalid.
 [exit 1]

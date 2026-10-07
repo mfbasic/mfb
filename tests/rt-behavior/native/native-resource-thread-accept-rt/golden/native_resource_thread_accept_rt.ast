@@ -54,7 +54,7 @@
         "returnState": null,
         "line": 64,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 64 },
+        { "name": "db", "type": "Db", "default": null, "line": 64 },
         { "name": "statement", "type": "String", "default": null, "line": 64 }
         ],
         "abi": {
@@ -89,7 +89,7 @@
         "returnState": null,
         "line": 72,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 72 }
+        { "name": "db", "type": "Db", "default": null, "line": 72 }
         ],
         "abi": {
           "slots": [
@@ -145,7 +145,7 @@
       "name": "give",
       "line": 96,
       "params": [
-      { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 96 },
+      { "name": "db", "type": "Db", "default": null, "line": 96 },
       { "name": "t", "type": "Thread OF RES Db TO Integer", "default": null, "line": 96 }
       ],
       "returnType": "Nothing",

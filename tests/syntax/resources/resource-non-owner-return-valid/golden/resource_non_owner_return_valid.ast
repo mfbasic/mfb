@@ -14,7 +14,7 @@
       "name": "steal",
       "line": 20,
       "params": [
-      { "name": "p", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 20 }
+      { "name": "p", "type": "fs.File", "default": null, "line": 20 }
       ],
       "returnType": "fs.File", "returnResource": true, "returnState": null,
       "body": [

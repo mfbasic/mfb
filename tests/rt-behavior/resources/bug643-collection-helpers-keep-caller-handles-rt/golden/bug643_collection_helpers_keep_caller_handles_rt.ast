@@ -18,7 +18,7 @@
       "name": "state",
       "line": 19,
       "params": [
-      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 19 }
+      { "name": "h", "type": "fs.File", "default": null, "line": 19 }
       ],
       "returnType": "String",
       "body": [
@@ -150,7 +150,7 @@
         "line": 97,
         "then": [
         { "kind": "binding", "mutable": false, "name": "kept", "type": null, "value": { "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "lf" }, { "kind": "lambda", "params": [
-{ "name": "x", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 98 }], "body": { "kind": "boolean", "value": true } }] }, "line": 98 },
+{ "name": "x", "type": "fs.File", "default": null, "line": 98 }], "body": { "kind": "boolean", "value": true } }] }, "line": 98 },
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "inner filter len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "kept" }] }] } }] }, "line": 99 }
         ],
         "else": [

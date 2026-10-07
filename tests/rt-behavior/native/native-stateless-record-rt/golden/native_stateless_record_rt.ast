@@ -54,7 +54,7 @@
         "returnState": null,
         "line": 39,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 39 },
+        { "name": "db", "type": "Db", "default": null, "line": 39 },
         { "name": "statement", "type": "String", "default": null, "line": 39 }
         ],
         "abi": {
@@ -89,7 +89,7 @@
         "returnState": null,
         "line": 47,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 47 },
+        { "name": "db", "type": "Db", "default": null, "line": 47 },
         { "name": "statement", "type": "String", "default": null, "line": 47 }
         ],
         "abi": {
@@ -123,7 +123,7 @@
         "returnState": null,
         "line": 55,
         "params": [
-        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 55 }
+        { "name": "stmt", "type": "Stmt", "default": null, "line": 55 }
         ],
         "abi": {
           "slots": [
@@ -150,7 +150,7 @@
         "returnState": null,
         "line": 61,
         "params": [
-        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 61 },
+        { "name": "stmt", "type": "Stmt", "default": null, "line": 61 },
         { "name": "col", "type": "Integer", "default": null, "line": 61 }
         ],
         "abi": {
@@ -179,7 +179,7 @@
         "returnState": null,
         "line": 66,
         "params": [
-        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null, "line": 66 }
+        { "name": "stmt", "type": "Stmt", "default": null, "line": 66 }
         ],
         "abi": {
           "slots": [
@@ -206,7 +206,7 @@
         "returnState": null,
         "line": 71,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 71 }
+        { "name": "db", "type": "Db", "default": null, "line": 71 }
         ],
         "abi": {
           "slots": [

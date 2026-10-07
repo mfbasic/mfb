@@ -57,7 +57,7 @@
       "name": "putMap",
       "line": 42,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "MapState", "default": null, "line": 42 },
+      { "name": "f", "type": "fs.File", "state": "MapState", "default": null, "line": 42 },
       { "name": "k", "type": "String", "default": null, "line": 42 },
       { "name": "v", "type": "Integer", "default": null, "line": 42 }
       ],
@@ -74,7 +74,7 @@
       "name": "dropMap",
       "line": 47,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "MapState", "default": null, "line": 47 },
+      { "name": "f", "type": "fs.File", "state": "MapState", "default": null, "line": 47 },
       { "name": "k", "type": "String", "default": null, "line": 47 }
       ],
       "returnType": "Nothing",
@@ -90,7 +90,7 @@
       "name": "addSet",
       "line": 52,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "SetState", "default": null, "line": 52 },
+      { "name": "f", "type": "fs.File", "state": "SetState", "default": null, "line": 52 },
       { "name": "v", "type": "Integer", "default": null, "line": 52 }
       ],
       "returnType": "Nothing",
@@ -106,7 +106,7 @@
       "name": "setFixed",
       "line": 57,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "FixedListState", "default": null, "line": 57 },
+      { "name": "f", "type": "fs.File", "state": "FixedListState", "default": null, "line": 57 },
       { "name": "i", "type": "Integer", "default": null, "line": 57 },
       { "name": "v", "type": "Integer", "default": null, "line": 57 }
       ],
@@ -123,7 +123,7 @@
       "name": "setVar",
       "line": 62,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "VarListState", "default": null, "line": 62 },
+      { "name": "f", "type": "fs.File", "state": "VarListState", "default": null, "line": 62 },
       { "name": "i", "type": "Integer", "default": null, "line": 62 },
       { "name": "v", "type": "String", "default": null, "line": 62 }
       ],

@@ -15,7 +15,7 @@
       "name": "trySeek",
       "line": 6,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 6 },
+      { "name": "f", "type": "fs.File", "default": null, "line": 6 },
       { "name": "position", "type": "Integer", "default": null, "line": 6 }
       ],
       "returnType": "String",

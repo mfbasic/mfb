@@ -64,7 +64,7 @@
         "returnState": null,
         "line": 31,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 31 },
+        { "name": "db", "type": "Db", "default": null, "line": 31 },
         { "name": "statement", "type": "String", "default": null, "line": 31 }
         ],
         "abi": {
@@ -99,7 +99,7 @@
         "returnState": null,
         "line": 39,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": "DbInfo", "default": null, "line": 39 }
+        { "name": "db", "type": "Db", "state": "DbInfo", "default": null, "line": 39 }
         ],
         "abi": {
           "slots": [

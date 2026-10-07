@@ -17,7 +17,7 @@
       "name": "describe",
       "line": 11,
       "params": [
-      { "name": "c", "type": "tls.Socket", "resource": true, "state": null, "default": null, "line": 11 }
+      { "name": "c", "type": "tls.Socket", "default": null, "line": 11 }
       ],
       "returnType": "String",
       "body": [

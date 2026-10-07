@@ -91,7 +91,7 @@
         "returnState": null,
         "line": 37,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 37 },
+        { "name": "db", "type": "Db", "default": null, "line": 37 },
         { "name": "statement", "type": "String", "default": null, "line": 37 }
         ],
         "abi": {
@@ -126,7 +126,7 @@
         "returnState": null,
         "line": 45,
         "params": [
-        { "name": "db", "type": "Tracked", "resource": true, "state": null, "default": null, "line": 45 },
+        { "name": "db", "type": "Tracked", "default": null, "line": 45 },
         { "name": "statement", "type": "String", "default": null, "line": 45 }
         ],
         "abi": {
@@ -161,7 +161,7 @@
         "returnState": null,
         "line": 53,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 53 }
+        { "name": "db", "type": "Db", "default": null, "line": 53 }
         ],
         "abi": {
           "slots": [
@@ -188,7 +188,7 @@
         "returnState": null,
         "line": 58,
         "params": [
-        { "name": "db", "type": "Tracked", "resource": true, "state": null, "default": null, "line": 58 }
+        { "name": "db", "type": "Tracked", "default": null, "line": 58 }
         ],
         "abi": {
           "slots": [
@@ -215,7 +215,7 @@
       "name": "closeVia",
       "line": 69,
       "params": [
-      { "name": "d", "type": "Db", "resource": true, "state": null, "default": null, "line": 69 }
+      { "name": "d", "type": "Db", "default": null, "line": 69 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -229,7 +229,7 @@
       "name": "closeViaTracked",
       "line": 73,
       "params": [
-      { "name": "d", "type": "Tracked", "resource": true, "state": null, "default": null, "line": 73 }
+      { "name": "d", "type": "Tracked", "default": null, "line": 73 }
       ],
       "returnType": "Nothing",
       "body": [

@@ -15,7 +15,7 @@
       "name": "sendAfterInputClosed",
       "line": 11,
       "params": [
-      { "name": "p", "type": "process.Process", "resource": true, "state": null, "default": null, "line": 11 }
+      { "name": "p", "type": "process.Process", "default": null, "line": 11 }
       ],
       "returnType": "Integer",
       "body": [

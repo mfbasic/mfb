@@ -54,7 +54,7 @@
         "returnState": null,
         "line": 40,
         "params": [
-        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 40 }
+        { "name": "db", "type": "Db", "default": null, "line": 40 }
         ],
         "abi": {
           "slots": [

@@ -41,7 +41,7 @@
       "name": "state",
       "line": 23,
       "params": [
-      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 23 }
+      { "name": "h", "type": "fs.File", "default": null, "line": 23 }
       ],
       "returnType": "String",
       "body": [
@@ -97,7 +97,7 @@
       "name": "ident",
       "line": 40,
       "params": [
-      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 40 }
+      { "name": "h", "type": "fs.File", "default": null, "line": 40 }
       ],
       "returnType": "fs.File", "returnResource": true, "returnState": null,
       "body": [
@@ -171,7 +171,7 @@
       "line": 64,
       "params": [
       { "name": "c", "type": "Boolean", "default": null, "line": 64 },
-      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 64 }
+      { "name": "h", "type": "fs.File", "default": null, "line": 64 }
       ],
       "returnType": "fs.File", "returnResource": true, "returnState": null,
       "body": [
@@ -196,7 +196,7 @@
       "line": 71,
       "params": [
       { "name": "xs", "type": "List OF RES fs.File", "default": null, "line": 71 },
-      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 71 }
+      { "name": "h", "type": "fs.File", "default": null, "line": 71 }
       ],
       "returnType": "List OF RES fs.File",
       "body": [
@@ -210,7 +210,7 @@
       "name": "wrap",
       "line": 75,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 75 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 75 }
       ],
       "returnType": "Holder",
       "body": [

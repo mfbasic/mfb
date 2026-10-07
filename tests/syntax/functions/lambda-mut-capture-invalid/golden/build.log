@@ -35,10 +35,4 @@ tests/syntax/functions/lambda-mut-capture-invalid/src/main.mfb:28 error[2-203-00
      | ^
 tests/syntax/functions/lambda-mut-capture-invalid/src/main.mfb:31 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
                Lambda captures mutable local `total`; mutable captures are invalid.
-  36 |   RES handle = fs::openFile("tests/syntax/functions/lambda-mut-capture-invalid/data/input.txt")
-  37 |   MUT lastLine AS String = ""
-  38 |   collections::forEach(numbers, LAMBDA(x AS Integer) -> lastLine = fs::readLine(handle))
-     | ^
-tests/syntax/functions/lambda-mut-capture-invalid/src/main.mfb:38 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
-               Lambda captures resource local `handle`; resource captures are invalid.
 [exit 1]

@@ -16,7 +16,7 @@
       "name": "negativeIsRejected",
       "line": 18,
       "params": [
-      { "name": "c", "type": "tls.Socket", "resource": true, "state": null, "default": null, "line": 18 }
+      { "name": "c", "type": "tls.Socket", "default": null, "line": 18 }
       ],
       "returnType": "Integer",
       "body": [

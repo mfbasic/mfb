@@ -38,7 +38,7 @@
       "name": "setCount",
       "line": 39,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 39 },
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 39 },
       { "name": "v", "type": "Integer", "default": null, "line": 39 }
       ],
       "returnType": "Nothing",
@@ -53,7 +53,7 @@
       "name": "setFlag",
       "line": 43,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 43 },
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 43 },
       { "name": "v", "type": "Boolean", "default": null, "line": 43 }
       ],
       "returnType": "Nothing",
@@ -68,7 +68,7 @@
       "name": "setTag",
       "line": 47,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 47 },
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 47 },
       { "name": "v", "type": "String", "default": null, "line": 47 }
       ],
       "returnType": "Nothing",
@@ -83,7 +83,7 @@
       "name": "setItems",
       "line": 51,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 51 },
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 51 },
       { "name": "v", "type": "List OF Integer", "default": null, "line": 51 }
       ],
       "returnType": "Nothing",
@@ -98,7 +98,7 @@
       "name": "setInner",
       "line": 55,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 55 },
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 55 },
       { "name": "v", "type": "Leaf", "default": null, "line": 55 }
       ],
       "returnType": "Nothing",
@@ -113,7 +113,7 @@
       "name": "setCountAndTag",
       "line": 62,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 62 },
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 62 },
       { "name": "n", "type": "Integer", "default": null, "line": 62 },
       { "name": "v", "type": "String", "default": null, "line": 62 }
       ],
@@ -129,7 +129,7 @@
       "name": "setCountAndFlag",
       "line": 68,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 68 },
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 68 },
       { "name": "n", "type": "Integer", "default": null, "line": 68 },
       { "name": "b", "type": "Boolean", "default": null, "line": 68 }
       ],
@@ -146,7 +146,7 @@
       "line": 72,
       "params": [
       { "name": "label", "type": "String", "default": null, "line": 72 },
-      { "name": "f", "type": "fs.File", "resource": true, "state": "Mixed", "default": null, "line": 72 }
+      { "name": "f", "type": "fs.File", "state": "Mixed", "default": null, "line": 72 }
       ],
       "returnType": "Nothing",
       "body": [

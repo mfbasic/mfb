@@ -34,7 +34,7 @@
       "name": "work",
       "line": 17,
       "params": [
-      { "name": "worker", "type": "ThreadWorker OF Integer TO Integer", "default": null, "line": 17 },
+      { "name": "worker", "type": "ThreadWorker OF Integer TO Integer", "state": "W", "default": null, "line": 17 },
       { "name": "n", "type": "Integer", "default": null, "line": 17 }
       ],
       "returnType": "Integer",

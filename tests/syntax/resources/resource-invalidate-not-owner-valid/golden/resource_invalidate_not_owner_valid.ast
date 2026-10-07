@@ -14,7 +14,7 @@
       "name": "consume",
       "line": 17,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 17 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 17 }
       ],
       "returnType": "Nothing",
       "body": [

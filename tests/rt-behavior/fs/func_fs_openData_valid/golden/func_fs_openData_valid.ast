@@ -16,7 +16,7 @@
       "name": "tryWrite",
       "line": 8,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 8 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 8 }
       ],
       "returnType": "String",
       "body": [
@@ -39,7 +39,7 @@
       "name": "tryRead",
       "line": 15,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 15 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 15 }
       ],
       "returnType": "String",
       "body": [

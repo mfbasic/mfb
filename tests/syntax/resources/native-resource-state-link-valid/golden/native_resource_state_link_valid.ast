@@ -62,7 +62,7 @@
         "returnState": null,
         "line": 28,
         "params": [
-        { "name": "db", "type": "SfFile", "resource": true, "state": "FileInfo", "default": null, "line": 28 }
+        { "name": "db", "type": "SfFile", "state": "FileInfo", "default": null, "line": 28 }
         ],
         "abi": {
           "slots": [

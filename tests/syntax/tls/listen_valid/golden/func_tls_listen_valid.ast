@@ -16,7 +16,7 @@
       "name": "serveOnce",
       "line": 9,
       "params": [
-      { "name": "listener", "type": "tls.Listener", "resource": true, "state": null, "default": null, "line": 9 }
+      { "name": "listener", "type": "tls.Listener", "default": null, "line": 9 }
       ],
       "returnType": "Integer",
       "body": [

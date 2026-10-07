@@ -47,7 +47,7 @@
       "name": "pre",
       "line": 32,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "ListState", "default": null, "line": 32 },
+      { "name": "f", "type": "fs.File", "state": "ListState", "default": null, "line": 32 },
       { "name": "v", "type": "Integer", "default": null, "line": 32 }
       ],
       "returnType": "Nothing",
@@ -63,7 +63,7 @@
       "name": "ins",
       "line": 37,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "ListState", "default": null, "line": 37 },
+      { "name": "f", "type": "fs.File", "state": "ListState", "default": null, "line": 37 },
       { "name": "at", "type": "Integer", "default": null, "line": 37 },
       { "name": "v", "type": "Integer", "default": null, "line": 37 }
       ],
@@ -80,7 +80,7 @@
       "name": "delAt",
       "line": 42,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "ListState", "default": null, "line": 42 },
+      { "name": "f", "type": "fs.File", "state": "ListState", "default": null, "line": 42 },
       { "name": "at", "type": "Integer", "default": null, "line": 42 }
       ],
       "returnType": "Nothing",
@@ -96,7 +96,7 @@
       "name": "preVar",
       "line": 47,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "VarState", "default": null, "line": 47 },
+      { "name": "f", "type": "fs.File", "state": "VarState", "default": null, "line": 47 },
       { "name": "v", "type": "String", "default": null, "line": 47 }
       ],
       "returnType": "Nothing",
@@ -112,7 +112,7 @@
       "name": "drop",
       "line": 52,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "SetState", "default": null, "line": 52 },
+      { "name": "f", "type": "fs.File", "state": "SetState", "default": null, "line": 52 },
       { "name": "v", "type": "Integer", "default": null, "line": 52 }
       ],
       "returnType": "Nothing",
@@ -128,7 +128,7 @@
       "name": "add",
       "line": 57,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "SetState", "default": null, "line": 57 },
+      { "name": "f", "type": "fs.File", "state": "SetState", "default": null, "line": 57 },
       { "name": "v", "type": "Integer", "default": null, "line": 57 }
       ],
       "returnType": "Nothing",

@@ -24,7 +24,7 @@
       "name": "opaque",
       "line": 14,
       "params": [
-      { "name": "p", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 14 }
+      { "name": "p", "type": "fs.File", "default": null, "line": 14 }
       ],
       "returnType": "Nothing",
       "body": [

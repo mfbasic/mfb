@@ -26,7 +26,7 @@
       "name": "sideEffect",
       "line": 29,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "St", "default": null, "line": 29 }
+      { "name": "f", "type": "fs.File", "state": "St", "default": null, "line": 29 }
       ],
       "returnType": "Integer",
       "body": [
@@ -42,7 +42,7 @@
       "name": "indirectSideEffect",
       "line": 37,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": "St", "default": null, "line": 37 }
+      { "name": "f", "type": "fs.File", "state": "St", "default": null, "line": 37 }
       ],
       "returnType": "Integer",
       "body": [

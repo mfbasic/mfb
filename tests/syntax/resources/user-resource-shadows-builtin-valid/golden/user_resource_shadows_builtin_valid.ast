@@ -54,7 +54,7 @@
         "returnState": null,
         "line": 23,
         "params": [
-        { "name": "db", "type": "File", "resource": true, "state": null, "default": null, "line": 23 }
+        { "name": "db", "type": "File", "default": null, "line": 23 }
         ],
         "abi": {
           "slots": [
@@ -81,7 +81,7 @@
         "returnState": null,
         "line": 29,
         "params": [
-        { "name": "sock", "type": "Socket", "resource": true, "state": null, "default": null, "line": 29 }
+        { "name": "sock", "type": "Socket", "default": null, "line": 29 }
         ],
         "abi": {
           "slots": [

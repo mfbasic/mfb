@@ -62,7 +62,7 @@
       "name": "bumpState",
       "line": 32,
       "params": [
-      { "name": "h", "type": "fs.File", "resource": true, "state": "P", "default": null, "line": 32 }
+      { "name": "h", "type": "fs.File", "state": "P", "default": null, "line": 32 }
       ],
       "returnType": "Nothing",
       "body": [

@@ -30,7 +30,7 @@
       "name": "peek",
       "line": 11,
       "params": [
-      { "name": "t", "type": "Thread OF Integer TO Integer", "resource": true, "state": null, "default": null, "line": 11 }
+      { "name": "t", "type": "Thread OF Integer TO Integer", "default": null, "line": 11 }
       ],
       "returnType": "Boolean",
       "body": [

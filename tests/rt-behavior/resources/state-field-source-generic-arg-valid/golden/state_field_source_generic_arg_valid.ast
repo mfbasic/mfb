@@ -130,7 +130,7 @@
       "line": 53,
       "params": [
       { "name": "tag", "type": "String", "default": null, "line": 53 },
-      { "name": "h", "type": "fs.File", "resource": true, "state": "Cur", "default": null, "line": 53 }
+      { "name": "h", "type": "fs.File", "state": "Cur", "default": null, "line": 53 }
       ],
       "returnType": "Nothing",
       "body": [

@@ -25,7 +25,7 @@
       "name": "seek",
       "line": 10,
       "params": [
-      { "name": "s", "type": "fs.File", "resource": true, "state": "Cursor", "default": null, "line": 10 },
+      { "name": "s", "type": "fs.File", "state": "Cursor", "default": null, "line": 10 },
       { "name": "dest", "type": "Integer", "default": null, "line": 10 }
       ],
       "returnType": "Nothing",

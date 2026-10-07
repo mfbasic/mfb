@@ -18,7 +18,7 @@
       "name": "state",
       "line": 14,
       "params": [
-      { "name": "h", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 14 }
+      { "name": "h", "type": "fs.File", "default": null, "line": 14 }
       ],
       "returnType": "String",
       "body": [
@@ -51,7 +51,7 @@
       "name": "rank",
       "line": 24,
       "params": [
-      { "name": "x", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 24 }
+      { "name": "x", "type": "fs.File", "default": null, "line": 24 }
       ],
       "returnType": "Integer",
       "body": [
@@ -75,18 +75,18 @@
       { "kind": "binding", "mutable": false, "name": "groups", "type": null, "value": { "kind": "call", "callee": "collections.groupBy", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "identifier", "value": "rank" }, { "kind": "identifier", "value": "rank" }] }, "line": 34 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "groupBy groups=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "groups" }] }] } }] }, "line": 35 },
       { "kind": "binding", "mutable": false, "name": "parts", "type": null, "value": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "lambda", "params": [
-{ "name": "x", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 36 }], "body": { "kind": "boolean", "value": true } }] }, "line": 36 },
+{ "name": "x", "type": "fs.File", "default": null, "line": 36 }], "body": { "kind": "boolean", "value": true } }] }, "line": 36 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "partition matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "parts" }, "member": "matched" }] }] } }, "right": { "kind": "string", "value": " unmatched=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "parts" }, "member": "unmatched" }] }] } }] }, "line": 37 },
       { "kind": "binding", "mutable": false, "name": "sorted", "type": null, "value": { "kind": "call", "callee": "collections.sortBy", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "identifier", "value": "rank" }] }, "line": 38 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sortBy len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "sorted" }] }] } }] }, "line": 39 },
       { "kind": "binding", "mutable": false, "name": "at", "type": null, "value": { "kind": "call", "callee": "collections.findIndex", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "lambda", "params": [
-{ "name": "x", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 40 }], "body": { "kind": "boolean", "value": true } }] }, "line": 40 },
+{ "name": "x", "type": "fs.File", "default": null, "line": 40 }], "body": { "kind": "boolean", "value": true } }] }, "line": 40 },
       { "kind": "binding", "mutable": false, "name": "last", "type": null, "value": { "kind": "call", "callee": "collections.findLastIndex", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "lambda", "params": [
-{ "name": "x", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 41 }], "body": { "kind": "boolean", "value": true } }] }, "line": 41 },
+{ "name": "x", "type": "fs.File", "default": null, "line": 41 }], "body": { "kind": "boolean", "value": true } }] }, "line": 41 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findIndex=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "at" }] } }, "right": { "kind": "string", "value": " findLastIndex=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "last" }] } }] }, "line": 42 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "all=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.all", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "lambda", "params": [
-{ "name": "x", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 43 }], "body": { "kind": "boolean", "value": true } }] }] } }, "right": { "kind": "string", "value": " any=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "lambda", "params": [
-{ "name": "x", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 43 }], "body": { "kind": "boolean", "value": false } }] }] } }] }, "line": 43 },
+{ "name": "x", "type": "fs.File", "default": null, "line": 43 }], "body": { "kind": "boolean", "value": true } }] }] } }, "right": { "kind": "string", "value": " any=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "files" }, { "kind": "lambda", "params": [
+{ "name": "x", "type": "fs.File", "default": null, "line": 43 }], "body": { "kind": "boolean", "value": false } }] }] } }] }, "line": 43 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "a: " }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "a" }] } }, "right": { "kind": "string", "value": " b: " } }, "right": { "kind": "call", "callee": "state", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 44 }
       ]
     }

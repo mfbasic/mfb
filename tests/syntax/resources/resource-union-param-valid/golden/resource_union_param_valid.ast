@@ -26,7 +26,7 @@
       "name": "useStream",
       "line": 11,
       "params": [
-      { "name": "s", "type": "Stream", "resource": true, "state": null, "default": null, "line": 11 }
+      { "name": "s", "type": "Stream", "default": null, "line": 11 }
       ],
       "returnType": "Integer",
       "body": [

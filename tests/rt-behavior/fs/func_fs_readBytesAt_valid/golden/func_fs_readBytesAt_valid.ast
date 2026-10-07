@@ -16,7 +16,7 @@
       "name": "closeHandle",
       "line": 12,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 12 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 12 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -46,7 +46,7 @@
       "name": "readNegative",
       "line": 22,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 22 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 22 }
       ],
       "returnType": "Integer",
       "body": [
@@ -60,7 +60,7 @@
       "name": "readNegativeOffset",
       "line": 26,
       "params": [
-      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 26 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 26 }
       ],
       "returnType": "Integer",
       "body": [

@@ -1,5 +1,5 @@
 $ mfb build -ast -ir tests/syntax/native/native-abi-unbound-slot-invalid
-   5 |   FUNC close(RES db AS Db) AS Nothing
+   5 |   FUNC close(db AS Db) AS Nothing
    6 |     SYMBOL "demo_close"
    7 |     ABI (db CPtr, mystery CInt32) AS status CInt32
      | ^
