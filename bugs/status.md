@@ -24,7 +24,8 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [~] integration fix: a closure may not capture a ThreadWorker (975 × 843 interaction; capture check now shares the List-element predicate)
 [ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
 [~] Golden proofs done (131 goldens, each attributed), committed in staging
-[ ] Full gate running, then merge to main
+[ ] Full gate #1: 2 real failures (bug-852 over-rejects a resource placed in a record inside a loop → agent F fixing) + 2 pre-existing flakes filed (1003, 1004)
+[ ] Re-prove goldens, full gate #2, then merge to main → then PAUSE (owner request)
 
 **P3: Networking and HTTP**
 [ ] 979 first: it takes over the validation half of 872 and shares an oracle with 868 (if 868 didn't land in P1).
@@ -82,6 +83,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
+[ ] Flakes: 1003 (http::pump example hangs on a stalled remote), 1004 (cli_dbg threaded-arena test timing)
 [ ] P5: 1002 (TYPE_COLLECTION_OWNERSHIP_VIOLATION reported twice)
 [ ] P5: 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
 [ ] P8: 985 (setMode window has no mouse controllers; after 982), 991, 995, 996, 997
