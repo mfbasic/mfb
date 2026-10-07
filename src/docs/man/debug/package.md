@@ -34,7 +34,8 @@ where you can:
 It needs nothing besides `mfb`. Everything it shows uses the names you wrote:
 `isPrime`, `round 2`, `io::print`.
 
-`mfb dbg` runs on macOS today. On Linux and Windows, lldb and gdb do the job;
+`mfb dbg` runs on macOS and on Linux on Arm (AArch64) computers. On Linux on
+x86-64 or RISC-V, and on Windows, lldb and gdb do the job;
 `mfb man debug-external` shows how, and it covers profilers and crash-address
 lookup on every platform too.
 
@@ -85,7 +86,9 @@ worker thread (`roundWorker`). `2 500` runs in a moment; `3000 20000 1` runs
 for about ten seconds, long enough to attach to it.
 
 Every script in this topic runs from the root of the repository, builds the
-example itself, and was run as written on macOS.
+example itself, and was run as written on macOS. On Linux, run the same
+commands with `debug-glibc.out` (or `debug-musl.out`) in place of `debug.out`
+(`mfb man debug start`).
 
 ### A first session
 

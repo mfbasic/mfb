@@ -27,7 +27,7 @@
 //! a stop at one runs them, and when every stop at once has commands the
 //! program runs on. `run` hands each stop to the session as it happens.
 
-use super::disassemble::returns;
+use super::disassemble::{returns, spelled_as_written};
 use super::location::Condition;
 use super::names::{classify, Collisions};
 use super::prompt::table;
@@ -321,9 +321,11 @@ fn shown(name: &Option<String>) -> &str {
 /// written `name`; one per distinct address, and one per symbol not yet bound.
 fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
     let collisions = Collisions::of(functions);
+    // A symbol spelled as its written name (a C function on ELF) is found
+    // with the others written so.
     let mut matches = functions
         .iter()
-        .filter(|function| function.name == name)
+        .filter(|function| function.name == name && !spelled_as_written(function))
         .collect::<Vec<_>>();
     if matches.is_empty() {
         matches = functions
@@ -589,7 +591,10 @@ impl Breakpoints {
                 let by_symbol = self
                     .list
                     .iter()
-                    .filter(|breakpoint| breakpoint.symbol.as_ref() == Some(name))
+                    .filter(|breakpoint| {
+                        breakpoint.symbol.as_ref() == Some(name)
+                            && breakpoint.written.as_ref() != Some(name)
+                    })
                     .cloned()
                     .collect::<Vec<_>>();
                 if by_symbol.is_empty() {
@@ -1507,6 +1512,17 @@ mod tests {
     const STORE: u64 = 0x1110;
     const IS_PRIME: u64 = 0x1100;
     const EXIT: u64 = 0x9000;
+    /// Where the linked `abort` binds.
+    const ABORT: u64 = 0x9200;
+
+    /// The C library's `exit` and `abort` as the host's format spells their
+    /// symbols (`_exit` on Mach-O, `exit` on ELF).
+    fn exit() -> String {
+        format!("{}exit", crate::debugger::names::C_PREFIX)
+    }
+    fn abort() -> String {
+        format!("{}abort", crate::debugger::names::C_PREFIX)
+    }
     /// `isPrime`'s `ret`, when the program has [`Program::code`].
     const RET: u64 = 0x1130;
 
@@ -1552,14 +1568,15 @@ mod tests {
             Ok(Ending::Killed)
         }
         fn functions(&mut self) -> Result<Vec<FunctionSymbol>, String> {
-            let exit = self.bound.then_some(EXIT);
+            let (exit_at, abort_at) = (self.bound.then_some(EXIT), self.bound.then_some(ABORT));
             Ok(vec![
                 function("_main", false, Some(ENTRY), Some(0x100)),
                 function("_mfb_fn_isPrime", false, Some(IS_PRIME), Some(0x40)),
                 function("_mfb_fn_isPrime$own1", false, Some(0x1200), Some(0x40)),
                 function("_mfb_fn_exit", false, Some(0x1300), Some(0x10)),
-                function("_exit", true, exit, None),
-                function("_exit", true, exit, None),
+                function(&exit(), true, exit_at, None),
+                function(&exit(), true, exit_at, None),
+                function(&abort(), true, abort_at, None),
                 function(PARK_ERROR, false, Some(PARK), Some(0x100)),
             ])
         }
@@ -1807,13 +1824,13 @@ mod tests {
             ["Removed the breakpoint at 0x0000000000001124 in isPrime+0x24."]
         );
         assert_eq!(program.inserted, [0x1224, 0x1304]);
-        // `_exit` is not bound until the program reaches its entry point.
+        // `abort` is not bound until the program reaches its entry point.
         assert_eq!(
-            breakpoints.set(&mut program, &name("_exit+8"), None, &[]),
-            Err(
-                "'_exit' is not loaded yet; run the program until it has loaded its libraries"
-                    .to_string()
-            )
+            breakpoints.set(&mut program, &name(&format!("{}+8", abort())), None, &[]),
+            Err(format!(
+                "'{}' is not loaded yet; run the program until it has loaded its libraries",
+                abort()
+            ))
         );
         assert_eq!(
             breakpoints.set(&mut program, &name("nothing+8"), None, &[]),
@@ -1929,24 +1946,28 @@ mod tests {
     fn an_unbound_linked_function_is_pending_until_the_entry_point() {
         let mut program = Program::new(vec![RunStop::Breakpoints(vec![(0, EXIT)])]);
         let mut breakpoints = Breakpoints::default();
-        // `exit` is no symbol; as written it names both the developer's
-        // function and the linked one, which is not bound yet.
+        // As written, `exit` names both the developer's function and the
+        // linked one, which is not bound yet (on Mach-O `exit` is no symbol;
+        // on ELF the C symbol is spelled as its written name).
         assert_eq!(
             breakpoints
                 .set(&mut program, &name("exit"), None, &[])
                 .unwrap(),
             [
-                "Set a breakpoint at 0x0000000000001300 in exit <mfb>.",
-                "Set a pending breakpoint on _exit: it is placed when the program has loaded \
-                 its libraries.",
+                "Set a breakpoint at 0x0000000000001300 in exit <mfb>.".to_string(),
+                format!(
+                    "Set a pending breakpoint on {}: it is placed when the program has loaded \
+                     its libraries.",
+                    exit()
+                ),
             ]
         );
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            | Symbol       | Written name",
-                "0x0000000000001300 | _mfb_fn_exit | exit <mfb>",
-                "-                  | _exit        | exit <native>",
+                "Address            | Symbol       | Written name".to_string(),
+                "0x0000000000001300 | _mfb_fn_exit | exit <mfb>".to_string(),
+                format!("-                  | {:<12} | exit <native>", exit()),
             ]
         );
         let (notes, stop) = run(&mut breakpoints, &mut program).unwrap();
@@ -1954,7 +1975,10 @@ mod tests {
         assert_eq!(program.runs, 2);
         assert_eq!(
             notes,
-            ["Placed the pending breakpoint on _exit at 0x0000000000009000."]
+            [format!(
+                "Placed the pending breakpoint on {} at 0x0000000000009000.",
+                exit()
+            )]
         );
         assert_eq!(stop, RunStop::Breakpoints(vec![(0, EXIT)]));
         assert_eq!(program.inserted, [0x1300, EXIT]);
@@ -1968,7 +1992,7 @@ mod tests {
             .set(&mut program, &name("isPrime"), None, &[])
             .unwrap();
         breakpoints
-            .set(&mut program, &name("_exit"), None, &[])
+            .set(&mut program, &name(&abort()), None, &[])
             .unwrap();
         assert_eq!(
             breakpoints
@@ -1984,9 +2008,9 @@ mod tests {
         );
         assert_eq!(
             breakpoints
-                .remove(&mut program, &name("exit"), None)
+                .remove(&mut program, &name("abort"), None)
                 .unwrap(),
-            ["Removed the breakpoint at _exit."]
+            [format!("Removed the breakpoint at {}.", abort())]
         );
         assert_eq!(breakpoints.lines(), ["no breakpoints"]);
         assert!(program.inserted.is_empty());
@@ -2008,13 +2032,16 @@ mod tests {
             .set(&mut program, &name("_main"), None, &[])
             .unwrap();
         breakpoints
-            .set(&mut program, &name("_exit"), None, &[])
+            .set(&mut program, &name(&abort()), None, &[])
             .unwrap();
         let (notes, stop) = run(&mut breakpoints, &mut program).unwrap();
         assert_eq!(stop, RunStop::Breakpoints(vec![(0, ENTRY)]));
         assert_eq!(
             notes,
-            ["Placed the pending breakpoint on _exit at 0x0000000000009000."]
+            [format!(
+                "Placed the pending breakpoint on {} at 0x0000000000009200.",
+                abort()
+            )]
         );
         assert_eq!(program.runs, 1);
     }
@@ -2341,36 +2368,35 @@ mod tests {
     /// A pending breakpoint with a test joins one already at its address.
     #[test]
     fn pending_breakpoints_with_different_tests_share_their_place() {
-        let mut program = Program::new(vec![RunStop::Breakpoints(vec![(0, EXIT)])]);
+        let mut program = Program::new(vec![RunStop::Breakpoints(vec![(0, ABORT)])]);
         let mut breakpoints = Breakpoints::default();
         breakpoints
-            .set(&mut program, &name("_exit"), None, &[])
+            .set(&mut program, &name(&abort()), None, &[])
             .unwrap();
         assert_eq!(
             breakpoints
                 .set(
                     &mut program,
-                    &name("_exit"),
+                    &name(&abort()),
                     Some(&test("x0", "ne", Some("0"))),
                     &[]
                 )
                 .unwrap(),
-            [
-                "Set a pending breakpoint on _exit if x0 ne 0x0000000000000000 (0): it is placed \
-                 when the program has loaded its libraries."
-            ]
+            [format!(
+                "Set a pending breakpoint on {} if x0 ne 0x0000000000000000 (0): it is placed \
+                 when the program has loaded its libraries.",
+                abort()
+            )]
         );
         let (notes, stop) = run(&mut breakpoints, &mut program).unwrap();
-        assert_eq!(
-            notes,
-            [
-                "Placed the pending breakpoint on _exit at 0x0000000000009000.",
-                "Placed the pending breakpoint on _exit at 0x0000000000009000.",
-            ]
+        let placed = format!(
+            "Placed the pending breakpoint on {} at 0x0000000000009200.",
+            abort()
         );
+        assert_eq!(notes, [placed.clone(), placed]);
         // x0 is 0: only the breakpoint without a test stops.
-        assert_eq!(stop, RunStop::Breakpoints(vec![(0, EXIT)]));
-        assert_eq!(program.inserted, [EXIT]);
+        assert_eq!(stop, RunStop::Breakpoints(vec![(0, ABORT)]));
+        assert_eq!(program.inserted, [ABORT]);
     }
 
     /// A breakpoint of the user's on a `ret` with commands runs them, and the

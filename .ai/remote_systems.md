@@ -14,7 +14,7 @@
 
 ## Which boxes have a Rust toolchain — probe, do not read
 
-**Four do, and no single probe finds all four.** Measured 2026-09-03 (with 2223
+**Five do (2226 links only through `~/cctool`), and no single probe finds them all.** Measured 2026-09-03 (with 2223
 re-probed 2026-09-10); the claim in
 `scripts/linux-runtime-proof.sh`'s header that *"none of the Linux boxes carries a Rust
 toolchain (2229 is the lone exception)"* is false and has been corrected there too.
@@ -25,6 +25,7 @@ toolchain (2229 is the lone exception)"* is false and has been corrected there t
 | **2228** Ubuntu x86_64 gtk glibc | 1.96.0 | `~/.cargo/bin/cargo` — **not on the non-interactive PATH** | 1 |
 | **2229** Alpine riscv64 musl | 1.96.0 | `/usr/bin/cargo` | 8 |
 | **2223** Kali aarch64 glibc | verified 2026-09-10 | `/usr/bin/cargo` | probe before use |
+| **2226** Debian 12 aarch64 glibc gtk | 1.96.0 + stable, probed 2026-10-06 | `~/.cargo/bin/cargo` — **no C compiler or linker on the box**: `. ~/cctool/env.sh` first | 8, 3.9 GB RAM |
 
 The trap is in the middle row. `ssh -p 2228 'command -v cargo'` answers **nothing**,
 because a non-login shell does not source the rustup env — yet 2228 is the box this
@@ -36,6 +37,15 @@ ssh -p PORT test@127.0.0.1 "ls ~/.cargo/bin/cargo 2>/dev/null; command -v cargo"
 ```
 
 and invoke it by the path you found, not by name.
+
+**2226 builds only through `~/cctool`.** It has `cargo` but no `cc`, so nothing links
+(and `rusqlite`/`ring` cannot compile their C). A user-space GCC 12 + binutils, and Debian's
+musl-tools, were unpacked there without root (`apt-get download` + `dpkg -x`, the same trick as
+`strace` below); `. ~/cctool/env.sh` points `CC`/`AR`/the cargo linker at their wrappers for
+both `aarch64-unknown-linux-gnu` and `aarch64-unknown-linux-musl` (a static musl `mfb`, which runs
+on the Alpine boxes too). The `mfb` test binary is OOM-killed with debug info on this box: test with
+`CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0`. `kernel.yama.ptrace_scope` is 0 there, so
+`mfb dbg <pid>` can attach; 2224's is 1 (only children).
 
 **Prefer 2223 for a Linux `cargo` row.** Its aarch64 release build completed a clean
 archived tree and native `os::prog` proof on 2026-09-10. Use 2227 when its x86_64 musl

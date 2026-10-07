@@ -168,9 +168,10 @@ fn the_host_image_matches_how_inspect_spells_formats_and_architectures() {
 
 #[test]
 fn the_backend_exists_exactly_where_mfb_dbg_is_supported() {
+    let host = (std::env::consts::OS, std::env::consts::ARCH);
     assert_eq!(
         super::host_backend().is_some(),
-        std::env::consts::OS == "macos"
+        host.0 == "macos" || host == ("linux", "aarch64")
     );
 }
 

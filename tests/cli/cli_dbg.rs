@@ -1,11 +1,14 @@
-//! `mfb dbg`: the command line on every host, and on macOS real sessions — a
-//! launched program paused before it runs and killed on `q`, and a running one
-//! attached to, paused, and left running on `q`.
+//! `mfb dbg`: the command line on every host, and on macOS and Linux on AArch64
+//! real sessions — a launched program paused before it runs and killed on `q`,
+//! and a running one attached to, paused, and left running on `q`.
 //!
 //! macOS hands a debugger another program's task port only when the debugger is
 //! signed with the `com.apple.security.cs.debugger` entitlement. The cargo-built
-//! `mfb` is not, so the live sessions run a copy signed by
+//! `mfb` is not, so the live sessions there run a copy signed by
 //! `scripts/sign-debugger.sh` — which is also the proof that script works.
+//! Linux needs no signing; a system whose `kernel.yama.ptrace_scope` keeps a
+//! debugger from attaching to a program it did not start has each attaching
+//! test check the refusal instead.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -57,9 +60,9 @@ fn help_and_usage_errors_on_every_host() {
     );
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64"))))]
 #[test]
-fn the_debugger_is_not_supported_off_macos() {
+fn the_debugger_is_not_supported_off_macos_and_linux_aarch64() {
     let project = temp_project("dbg_probe", "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n");
     let binary = build_project(&project);
     let (code, stdout, stderr) = dbg(&PathBuf::from(mfb_exe()), &[binary.to_str().unwrap()]);
@@ -67,17 +70,27 @@ fn the_debugger_is_not_supported_off_macos() {
     assert_eq!(
         stderr,
         format!(
-            "error: mfb dbg is not supported on {}\n",
-            std::env::consts::OS
+            "error: mfb dbg is not supported on {} {}; it runs on macOS and on Linux on \
+             AArch64\n",
+            std::env::consts::OS,
+            std::env::consts::ARCH
         )
     );
 }
 
-#[cfg(target_os = "macos")]
-mod macos {
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64")))]
+mod native {
     use super::*;
 
+    /// The `mfb` the sessions run: on Linux the one cargo built, which needs
+    /// nothing more.
+    #[cfg(target_os = "linux")]
+    fn signed_mfb() -> PathBuf {
+        PathBuf::from(mfb_exe())
+    }
+
     /// A copy of `mfb` signed for debugging, in a directory of its own.
+    #[cfg(target_os = "macos")]
     fn signed_mfb() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("mfb_dbg_signed_{}", unique_nonce()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -171,12 +184,85 @@ mod macos {
     }
 
     fn process_exists(pid: u32) -> bool {
+        if cfg!(target_os = "linux") {
+            return Path::new(&format!("/proc/{pid}")).exists();
+        }
         Command::new("ps")
             .args(["-p", &pid.to_string()])
             .stdout(Stdio::null())
             .status()
             .unwrap()
             .success()
+    }
+
+    /// The executable `mfb build` writes for project `name` that this host
+    /// runs: `<name>.out` on macOS, the host libc's `<name>-<libc>.out` on
+    /// Linux.
+    fn executable_name(name: &str) -> String {
+        if cfg!(target_os = "linux") {
+            format!("{name}-{}.out", host_libc_flavor())
+        } else {
+            format!("{name}.out")
+        }
+    }
+
+    /// How a frame or a listing names `examples/debug`'s executable.
+    fn image() -> String {
+        executable_name("debug")
+    }
+
+    /// The system function the program's entry ends it with, by its symbol:
+    /// `_exit` on both formats, which is C's `exit` on Mach-O and C's `_exit`
+    /// on ELF.
+    const EXIT_SYMBOL: &str = "_exit";
+
+    /// That function's C name, as listings and stops write it.
+    fn exit_name() -> &'static str {
+        if cfg!(target_os = "linux") {
+            "_exit"
+        } else {
+            "exit"
+        }
+    }
+
+    /// The file a frame or listing names the C library by.
+    fn c_library() -> &'static str {
+        if cfg!(target_os = "macos") {
+            "libsystem_c.dylib"
+        } else if host_libc_flavor() == "musl" {
+            "ld-musl-aarch64.so.1"
+        } else {
+            "libc.so.6"
+        }
+    }
+
+    /// How the refusal of a foreign program names this host's programs.
+    fn host_image() -> &'static str {
+        if cfg!(target_os = "macos") {
+            "Mach-O aarch64"
+        } else {
+            "ELF aarch64"
+        }
+    }
+
+    /// Whether this system lets a debugger attach to a program it did not
+    /// start. When it does not, the attaching tests check that `mfb dbg`
+    /// says so and why.
+    fn attach_allowed(mfb: &Path, pid: u32) -> bool {
+        let scope = std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope")
+            .map(|text| text.trim().to_string())
+            .unwrap_or_else(|_| "0".to_string());
+        if !cfg!(target_os = "linux") || scope == "0" {
+            return true;
+        }
+        let (code, _, stderr) = dbg(mfb, &[&pid.to_string()]);
+        assert_eq!(code, Some(1), "{stderr}");
+        assert!(
+            stderr.starts_with(&format!("error: cannot attach to process {pid}: ptrace: "))
+                && stderr.contains(&format!("kernel.yama.ptrace_scope is {scope}")),
+            "{stderr}"
+        );
+        false
     }
 
     /// What follows the banner for a program built without `--debug`.
@@ -202,7 +288,7 @@ mod macos {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        project.join("build").join(format!("{name}.out"))
+        project.join("build").join(executable_name(name))
     }
 
     /// The `list func` rows of a reply, split into their four columns.
@@ -309,6 +395,11 @@ mod macos {
             std::thread::sleep(Duration::from_millis(50));
         }
 
+        if !attach_allowed(&mfb, ticker.id()) {
+            ticker.kill().unwrap();
+            ticker.wait().unwrap();
+            return;
+        }
         let mut session = Session::start(&mfb, &[&ticker.id().to_string()]);
         let banner = session.until_prompt();
         assert_eq!(
@@ -368,8 +459,9 @@ mod macos {
         assert_eq!(
             stderr,
             format!(
-                "error: '{}' is built for ELF x86-64; this debugger runs Mach-O aarch64 programs\n",
-                foreign.display()
+                "error: '{}' is built for ELF x86-64; this debugger runs {} programs\n",
+                foreign.display(),
+                host_image()
             )
         );
 
@@ -389,6 +481,7 @@ mod macos {
     /// The cargo-built `mfb` carries no debugger entitlement, so macOS refuses it
     /// the task port; the error says how to sign it, and the program it started
     /// is not left behind. Root is exempt from the entitlement check.
+    #[cfg(target_os = "macos")]
     #[test]
     fn an_unsigned_mfb_explains_how_to_sign_itself() {
         let uid = Command::new("id").arg("-u").output().unwrap();
@@ -500,6 +593,11 @@ mod macos {
             .expect("start the ticker");
         while line_count(&log) < 3 {
             std::thread::sleep(Duration::from_millis(50));
+        }
+        if !attach_allowed(&mfb, ticker.id()) {
+            ticker.kill().unwrap();
+            ticker.wait().unwrap();
+            return;
         }
         let mut session = Session::start(&mfb, &[&ticker.id().to_string()]);
         session.until_prompt();
@@ -748,6 +846,11 @@ mod macos {
             .spawn()
             .expect("start the example");
         std::thread::sleep(Duration::from_millis(1000));
+        if !attach_allowed(&mfb, example.id()) {
+            example.kill().unwrap();
+            example.wait().unwrap();
+            return;
+        }
         let mut session = Session::start(&mfb, &[&example.id().to_string()]);
         session.until_prompt();
 
@@ -833,6 +936,9 @@ mod macos {
 
     /// An app's initial thread runs the window system and `main` runs on
     /// another thread.
+    /// An AppKit app; a Linux GTK app needs a display and its AppImage
+    /// unpacked, so it is checked by hand (`mfb man debug start`).
+    #[cfg(target_os = "macos")]
     #[test]
     fn an_app_s_threads_are_the_app_and_mfb_main() {
         let mfb = signed_mfb();
@@ -1023,7 +1129,10 @@ mod macos {
                 "{run:?}"
             );
             assert_eq!(run[at + 3], "* thread #0, task = 'MFB Main'", "{run:?}");
-            assert!(run[at + 4].ends_with(" debug.out`countPrimes"), "{run:?}");
+            assert!(
+                run[at + 4].ends_with(&format!(" {}`countPrimes", image())),
+                "{run:?}"
+            );
         }
         assert_eq!(
             run.last().map(String::as_str),
@@ -1134,20 +1243,22 @@ mod macos {
                 && set[0].ends_with(" in isPrime."),
             "{set:?}"
         );
-        session.send("bp _exit\n");
+        session.send(&format!("bp {EXIT_SYMBOL}\n"));
         assert_eq!(
             body(&session.until_prompt()),
-            [
-                "Set a pending breakpoint on _exit: it is placed when the program has loaded its \
-              libraries."
-            ]
+            [format!(
+                "Set a pending breakpoint on {EXIT_SYMBOL}: it is placed when the program has \
+                 loaded its libraries."
+            )]
         );
 
         session.send("run\n");
         let first = body(&session.until_prompt());
         assert!(
             first.len() == 2
-                && first[0].starts_with("Placed the pending breakpoint on _exit at 0x")
+                && first[0].starts_with(&format!(
+                    "Placed the pending breakpoint on {EXIT_SYMBOL} at 0x"
+                ))
                 && first[1].starts_with("--[BP] T: 0 P: 0x")
                 && first[1].ends_with(" F: isPrime"),
             "{first:?}"
@@ -1157,7 +1268,7 @@ mod macos {
         // system function by name.
         session.send("dis\n");
         let function = body(&session.until_prompt());
-        assert_eq!(function[0], "debug.out`isPrime:", "{function:?}");
+        assert_eq!(function[0], format!("{}`isPrime:", image()), "{function:?}");
         assert!(function[1].starts_with("->  0x"), "{function:?}");
         // The prologue's frame allocation; its size is the compiler's to choose.
         assert!(function[1].contains(" sub    sp, sp, #0x"), "{function:?}");
@@ -1165,9 +1276,13 @@ mod macos {
         session.send("dis 3\n");
         let three = body(&session.until_prompt());
         assert_eq!(three.len(), 4, "{three:?}");
-        session.send("dis exit\n");
+        session.send(&format!("dis {}\n", exit_name()));
         let exit = body(&session.until_prompt());
-        assert_eq!(exit[0], "libsystem_c.dylib`exit:", "{exit:?}");
+        assert_eq!(
+            exit[0],
+            format!("{}`{}:", c_library(), exit_name()),
+            "{exit:?}"
+        );
 
         // The calls that led to isPrime, innermost first, ending at the
         // program's entry; `bt 2` keeps the innermost two.
@@ -1175,15 +1290,19 @@ mod macos {
         let frames = body(&session.until_prompt());
         assert_eq!(frames[0], "* thread #0, task = 'MFB Main'", "{frames:?}");
         assert!(frames[1].starts_with("  * frame #0: 0x"), "{frames:?}");
-        assert!(frames[1].ends_with(" debug.out`isPrime"), "{frames:?}");
-        for (line, function) in frames[2..].iter().zip([
-            "debug.out`countPrimes",
-            "debug.out`runRound",
-            "debug.out`runRounds",
-            "debug.out`main",
-            "debug.out`main",
-        ]) {
-            assert!(line.contains(&format!(" {function} + ")), "{frames:?}");
+        assert!(
+            frames[1].ends_with(&format!(" {}`isPrime", image())),
+            "{frames:?}"
+        );
+        for (line, function) in
+            frames[2..]
+                .iter()
+                .zip(["countPrimes", "runRound", "runRounds", "main", "main"])
+        {
+            assert!(
+                line.contains(&format!(" {}`{function} + ", image())),
+                "{frames:?}"
+            );
         }
         assert_eq!(frames.len(), 7, "{frames:?}");
         session.send("bt 2\n");
@@ -1239,9 +1358,10 @@ mod macos {
         session.send("run\n");
         let second = body(&session.until_prompt());
         assert!(
-            second.last().is_some_and(
-                |line| line.starts_with("--[BP] T: 0 P: 0x") && line.ends_with(" F: exit")
-            ),
+            second
+                .last()
+                .is_some_and(|line| line.starts_with("--[BP] T: 0 P: 0x")
+                    && line.ends_with(&format!(" F: {}", exit_name()))),
             "{second:?}"
         );
         // The program printed its rounds before reaching `exit`.
@@ -1266,16 +1386,20 @@ mod macos {
         session.send("list breakpoint\n");
         assert_eq!(
             body(&session.until_prompt()),
-            ["Address | Symbol | Written name", "-       | _exit  | exit"]
+            [
+                "Address | Symbol | Written name".to_string(),
+                format!("-       | {EXIT_SYMBOL:<6} | {}", exit_name())
+            ]
         );
         session.send("run\n");
         let again = body(&session.until_prompt());
         // 031f64353 made every stop line a tagged `--[BP] T: P: F:` line; the
         // first run's stop above was updated, this restart's stop was not.
         assert!(
-            again.last().is_some_and(
-                |line| line.starts_with("--[BP] T: 0 P: 0x") && line.ends_with(" F: exit")
-            ),
+            again
+                .last()
+                .is_some_and(|line| line.starts_with("--[BP] T: 0 P: 0x")
+                    && line.ends_with(&format!(" F: {}", exit_name()))),
             "{again:?}"
         );
         session.send("q\n");
