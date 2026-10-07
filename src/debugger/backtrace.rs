@@ -27,9 +27,15 @@ const MAX_SCAN: u64 = 1 << 20;
 /// The functions with no caller to unwind to: the program's entry, whose
 /// return address into the loader is gone once it makes its first call.
 const OUTERMOST: &[&str] = &["_main"];
-/// Return addresses carry no pointer-authentication bits in an arm64 process;
-/// this strips any that a system library's code might have left.
-const ADDRESS_MASK: u64 = (1 << 47) - 1;
+/// The bits of a user-space address: 47 on macOS, 48 on Linux. Return
+/// addresses carry no pointer-authentication bits in an arm64 process; masking
+/// strips any that a system library's code might have left, which sit above
+/// these.
+const ADDRESS_MASK: u64 = if cfg!(target_os = "linux") {
+    (1 << 48) - 1
+} else {
+    (1 << 47) - 1
+};
 
 /// One frame: where it is, and the function holding it.
 #[derive(Debug, Clone, PartialEq, Eq)]

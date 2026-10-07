@@ -2204,6 +2204,11 @@ mod tests {
         }
     }
 
+    /// A C function's symbol as the host's format spells it.
+    fn c(name: &str) -> String {
+        format!("{}{name}", crate::debugger::names::C_PREFIX)
+    }
+
     fn symbol(name: &str, linked: bool, address: Option<u64>, size: Option<u64>) -> FunctionSymbol {
         FunctionSymbol {
             name: name.to_string(),
@@ -2229,7 +2234,7 @@ mod tests {
             Ok(vec![
                 symbol("_main", false, Some(0x1000), Some(4)),
                 symbol("_mfb_fn_main", false, Some(0x1010), Some(0x10)),
-                symbol("_malloc", true, None, None),
+                symbol(&c("malloc"), true, None, None),
                 symbol("_mfb_rt_print", false, Some(0x1008), Some(8)),
                 symbol("_mfb_fn_next_5Fseed", false, Some(0x1004), Some(4)),
                 symbol(
@@ -2238,11 +2243,11 @@ mod tests {
                     Some(0x1020),
                     Some(8),
                 ),
-                symbol("_free", true, Some(0x9000), None),
-                symbol("_malloc", true, None, None),
+                symbol(&c("free"), true, Some(0x9000), None),
+                symbol(&c("malloc"), true, None, None),
                 FunctionSymbol {
                     loaded: true,
-                    ..symbol("_vkCreateInstance", true, Some(0xa000), None)
+                    ..symbol(&c("vkCreateInstance"), true, Some(0xa000), None)
                 },
             ])
         }
@@ -2500,9 +2505,9 @@ MU   | 0x0000000000001010 | _mfb_fn_main                    | main <mfb>
 MB   | 0x0000000000001020 | _mfb_ifn_datetime_5FnormInstant | datetime::#normInstant
 MR   | 0x0000000000001000 | _main                           | -
 MR   | 0x0000000000001008 | _mfb_rt_print                   | -
-SL   | 0x0000000000009000 | _free                           | free
-SL   | -                  | _malloc                         | malloc
-SD   | 0x000000000000a000 | _vkCreateInstance               | vkCreateInstance
+SL   | 0x0000000000009000 | {free:<31} | free
+SL   | -                  | {malloc:<31} | malloc
+SD   | 0x000000000000a000 | {vk:<31} | vkCreateInstance
 
 MU  {MU}
 MB  {MB}
@@ -2511,6 +2516,9 @@ SL  {SL}
 SD  {SD}
 {PROMPT}Killed process 42.\n",
                 MU = Origin::User.legend(),
+                free = c("free"),
+                malloc = c("malloc"),
+                vk = c("vkCreateInstance"),
                 MB = Origin::Builtin.legend(),
                 MR = Origin::Runtime.legend(),
                 SL = Origin::Linked.legend(),
@@ -3342,7 +3350,7 @@ MR  {runtime}
 Type | Address            | Symbol                          | Written name
 MU   | 0x0000000000001004 | _mfb_fn_next_5Fseed             | next_seed
 MB   | 0x0000000000001020 | _mfb_ifn_datetime_5FnormInstant | datetime::#normInstant
-SL   | 0x0000000000009000 | _free                           | free
+SL   | 0x0000000000009000 | {free:<31} | free
 
 MU  {user}
 MB  {builtin}
@@ -3350,6 +3358,7 @@ SL  {linked}
 {PROMPT}{PROMPT}Killed process 42.
 ",
                 user = Origin::User.legend(),
+                free = c("free"),
                 builtin = Origin::Builtin.legend(),
                 runtime = Origin::Runtime.legend(),
                 linked = Origin::Linked.legend(),

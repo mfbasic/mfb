@@ -318,7 +318,7 @@ pub(crate) fn show_literal(
         end: address.saturating_add(9).saturating_add(length),
     };
     let mut lines = show(read, &[literal], address, &View::String)?;
-    let name = symbol.strip_prefix('_').unwrap_or(symbol);
+    let name = super::names::plain_name(symbol);
     if let Some(line) = lines.first_mut() {
         line.push_str(&format!(" (the literal {name})"));
     }
