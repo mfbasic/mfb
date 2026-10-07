@@ -1067,6 +1067,26 @@ pub(crate) fn lower_thread_trampoline(
     // riscv64 parks it: their trampoline bytes and frames are unchanged.
     const SCRATCH_OFFSET: usize = 72;
     let scratch_is_callee_saved = platform.arch() == "riscv64";
+    // bug-982 audit: the worker is compiled MFB code, which keeps the 8th internal
+    // argument in `rbp` on x86-64 (bug-296) and, on Win64, the 5th and 6th in
+    // `rdi`/`rsi` — all three callee-saved to the thread library that called this.
+    // (`rdi` is also where this routine itself stages `_mfb_rt_thread_finish`'s
+    // fifth argument.) An `rbp` or `rdi` handed back changed reaches
+    // `start_thread` / `BaseThreadInitThunk`, which may keep its own state there.
+    // AArch64 and RISC-V pass those arguments in caller-saved registers, so they
+    // save nothing extra and keep their frames. The slots start where RISC-V's
+    // `SCRATCH_OFFSET` sits, which x86-64 never uses.
+    let x86_argument_saves: Vec<abi::Reg> = if platform.arch() == "x86_64" {
+        let mut saves = vec![abi::mfb_arg(7)];
+        if platform.family() == PlatformFamily::Windows {
+            saves.extend([abi::mfb_arg(4), abi::mfb_arg(5)]);
+        }
+        saves
+    } else {
+        Vec::new()
+    };
+    const ARGUMENT_SAVE_OFFSET: usize = SCRATCH_OFFSET;
+    let slots_end = ARGUMENT_SAVE_OFFSET + 8 * x86_argument_saves.len();
     let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
     // Stack-alignment fixup, mirroring the program entry's
@@ -1101,7 +1121,10 @@ pub(crate) fn lower_thread_trampoline(
     // frame. macOS (aarch64) likewise takes no realign.
     let needs_realign = platform.arch() == "x86_64";
     let x86_realign = if needs_realign { 8 } else { 0 };
-    let frame = FRAME_SIZE + x86_realign;
+    // The x86 realign's 8 bytes sit at the top of the frame, unused, so SysV's one
+    // extra slot fits inside the 88-byte frame; Win64's three grow it by 16.
+    let frame =
+        FRAME_SIZE.max(slots_end.saturating_sub(x86_realign).div_ceil(16) * 16) + x86_realign;
 
     let mut instructions = vec![
         abi::label("entry"),
@@ -1116,6 +1139,13 @@ pub(crate) fn lower_thread_trampoline(
             abi::SCRATCH[4],
             abi::stack_pointer(),
             SCRATCH_OFFSET,
+        ));
+    }
+    for (index, register) in x86_argument_saves.iter().enumerate() {
+        instructions.push(abi::store_u64(
+            *register,
+            abi::stack_pointer(),
+            ARGUMENT_SAVE_OFFSET + 8 * index,
         ));
     }
     instructions.extend([
@@ -1258,6 +1288,13 @@ pub(crate) fn lower_thread_trampoline(
             abi::SCRATCH[4],
             abi::stack_pointer(),
             SCRATCH_OFFSET,
+        ));
+    }
+    for (index, register) in x86_argument_saves.iter().enumerate() {
+        instructions.push(abi::load_u64(
+            *register,
+            abi::stack_pointer(),
+            ARGUMENT_SAVE_OFFSET + 8 * index,
         ));
     }
     instructions.extend([

@@ -1545,7 +1545,41 @@ pub(crate) fn graphics_trampoline_shadow(windows: bool) -> usize {
 /// arrives in `lr` rather than on the stack.
 pub(crate) fn graphics_trampoline_frame(arch: &str, windows: bool) -> usize {
     let realign = usize::from(arch == "x86_64") * 8;
-    32 + realign + graphics_trampoline_shadow(windows)
+    // `lr`, then one slot per saved register, rounded to the 16 every frame keeps.
+    let saves = 8 * (1 + graphics_trampoline_saved(arch, windows).len());
+    saves.div_ceil(16) * 16 + realign + graphics_trampoline_shadow(windows)
+}
+
+/// The callee-saved registers the graphics thread entry saves for its caller, in
+/// slot order above `lr` (bug-982 audit).
+///
+/// The caller is `_pthread_start` / `start_thread` / `BaseThreadInitThunk`, which
+/// keeps its own state in the callee-saved registers across the call, and the
+/// body runs compiled MFB code. MFB code preserves only the callee-saved registers
+/// the allocator hands out; the rest of the bank is the convention's to change, and
+/// every one of them must reach the thread library intact:
+///
+/// - the arena-state, current-thread and closure-environment registers MFB code
+///   pins (`x19`/`x20`/`x28` on AArch64, `r15`/`rbx`/`r13` on x86-64; `rbx`/`r13`
+///   are also the x86 homes of the hand-written runtime helpers' scratch, which
+///   the render loop reaches);
+/// - the 8th internal argument register, `rbp` on x86-64 (see the emitter);
+/// - on Win64, `rdi`/`rsi`, the internal 5th and 6th argument registers, which
+///   Win64 (unlike SysV) makes callee-saved.
+///
+/// The arch parameter is unused today because `canvas` needs app mode and app mode
+/// has no RISC-V target; it stays in the signature beside `graphics_trampoline_frame`'s.
+pub(crate) fn graphics_trampoline_saved(_arch: &str, windows: bool) -> Vec<abi::Reg> {
+    let mut saved = vec![
+        ARENA_STATE_REGISTER,
+        abi::CURRENT_THREAD,
+        CLOSURE_ENV_REGISTER,
+        abi::mfb_arg(7),
+    ];
+    if windows {
+        saved.extend([abi::mfb_arg(4), abi::mfb_arg(5)]);
+    }
+    saved
 }
 
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
@@ -1660,11 +1694,9 @@ pub(crate) fn emit_graphics_trampoline(
     // thread runtime's own trampoline saves the same register for the same reason;
     // "a thread entry has nobody to return to" is wrong, because pthread is the
     // caller.
-    instructions.push(abi::store_u64(
-        ARENA_STATE_REGISTER,
-        abi::stack_pointer(),
-        shadow + 8,
-    ));
+    // (Every register `graphics_trampoline_saved` lists is stored below, after
+    // the two that cost the most to find.)
+    //
     // **Save the 8th internal argument register too.**
     //
     // MFBASIC functions take up to 8 parameters and AArch64 has 8 argument
@@ -1700,11 +1732,14 @@ pub(crate) fn emit_graphics_trampoline(
     // ubuntu:24.04 container with the same GTK run the same binaries clean, dozens
     // of times — because whether a clobbered `rbp` is ever *dereferenced* depends on
     // the libc's own code path after the start routine returns.
-    instructions.push(abi::store_u64(
-        abi::mfb_arg(7),
-        abi::stack_pointer(),
-        shadow + 16,
-    ));
+    let saved = graphics_trampoline_saved(platform.arch(), windows);
+    for (index, register) in saved.iter().enumerate() {
+        instructions.push(abi::store_u64(
+            *register,
+            abi::stack_pointer(),
+            shadow + 8 + 8 * index,
+        ));
+    }
     // Pin the child arena state. Every MFB global access on this thread — including
     // the geometry cache and the sRGB table — is addressed off it.
     instructions.push(abi::move_register(ARENA_STATE_REGISTER, abi::c_arg(0)));
@@ -1734,18 +1769,15 @@ pub(crate) fn emit_graphics_trampoline(
     // return, and parking made the shutdown join wait forever on a thread that
     // was spinning two instructions away from finishing.
     instructions.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
-    // The 8th argument register, then the arena register: on x86-64 these are `rbp`
-    // and `r15`, and both must reach `start_thread` intact.
-    instructions.push(abi::load_u64(
-        abi::mfb_arg(7),
-        abi::stack_pointer(),
-        shadow + 16,
-    ));
-    instructions.push(abi::load_u64(
-        ARENA_STATE_REGISTER,
-        abi::stack_pointer(),
-        shadow + 8,
-    ));
+    // Every saved register, the arena register (`r15` on x86-64) and the 8th
+    // argument register (`rbp`) among them: all must reach `start_thread` intact.
+    for (index, register) in saved.iter().enumerate().rev() {
+        instructions.push(abi::load_u64(
+            *register,
+            abi::stack_pointer(),
+            shadow + 8 + 8 * index,
+        ));
+    }
     instructions.push(abi::load_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -3402,7 +3434,7 @@ pub(crate) fn emit_use_gpu(
 
 #[cfg(test)]
 mod tests {
-    use super::{graphics_trampoline_frame, graphics_trampoline_shadow};
+    use super::{graphics_trampoline_frame, graphics_trampoline_saved, graphics_trampoline_shadow};
 
     /// bug-479. The graphics thread ran eight bytes out of alignment on Windows for as
     /// long as canvas mode existed there, because this frame skipped the x86-64 realign
@@ -3436,20 +3468,37 @@ mod tests {
     }
 
     /// The saves must sit ABOVE the shadow space, or a callee spilling its register
-    /// arguments overwrites the saved return address and arena pointer. The emitter
-    /// stores at `shadow` and `shadow + 8`, so the frame has to hold both beyond it.
+    /// arguments overwrites the saved return address and registers. The emitter
+    /// stores `lr` at `shadow` and each saved register in the slot after it, so the
+    /// frame has to hold all of them beyond it.
     #[test]
-    fn the_frame_holds_both_saves_above_the_shadow_space() {
+    fn the_frame_holds_every_save_above_the_shadow_space() {
         for (arch, windows) in [("x86_64", true), ("x86_64", false), ("aarch64", false)] {
             let frame = graphics_trampoline_frame(arch, windows);
             let shadow = graphics_trampoline_shadow(windows);
+            let saves = 8 * (1 + graphics_trampoline_saved(arch, windows).len());
             assert!(
-                frame >= shadow + 16,
-                "{arch} (windows={windows}): frame {frame} cannot hold the two saves at \
-                 {shadow} and {} above its {shadow}-byte shadow space",
-                shadow + 8
+                frame >= shadow + saves,
+                "{arch} (windows={windows}): frame {frame} cannot hold {saves} bytes of \
+                 saves above its {shadow}-byte shadow space"
             );
         }
+    }
+
+    /// bug-982 audit: the entry saves every callee-saved register the MFB render
+    /// loop may leave changed — on Win64 that includes `rdi`/`rsi`, which are
+    /// argument registers inside MFB code and callee-saved to the thread library.
+    #[test]
+    fn win64_saves_the_internal_argument_registers_it_owes_the_thread_library() {
+        use crate::target::shared::abi;
+        let saved = graphics_trampoline_saved("x86_64", true);
+        for register in [abi::mfb_arg(4), abi::mfb_arg(5), abi::mfb_arg(7)] {
+            assert!(
+                saved.contains(&register),
+                "{register} is not saved: {saved:?}"
+            );
+        }
+        assert!(!graphics_trampoline_saved("x86_64", false).contains(&abi::mfb_arg(4)));
     }
 
     /// Windows owes its callees 32 bytes; nothing else does.

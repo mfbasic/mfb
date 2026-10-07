@@ -251,10 +251,14 @@ pub(crate) fn tls_verify_callback_function() -> CodeFunction {
     let reject = format!("{TLS_VERIFY_CB}_reject");
     let done = format!("{TLS_VERIFY_CB}_done");
     // A standalone trampoline runs BELOW the register allocator, so this must be
-    // a physical scratch token, never a `%vN` (which reaches the backend as
-    // "unknown register"). SCRATCH is caller-saved, which is right: every use
-    // here is re-materialised after the call that would clobber it.
-    let v = abi::SCRATCH[0];
+    // a fixed ABI token, never a `%vN` (which reaches the backend as "unknown
+    // register"). It must also be caller-saved on every target, because OpenSSL
+    // is the caller and keeps its own state in the callee-saved registers across
+    // this call: the third C argument register (`x2`/`rdx`/`a2`) is, and this
+    // callback takes only two. `SCRATCH[0]` was used here once, and it realizes to
+    // the callee-saved `rbx` on x86-64 (bug-982 audit). Every use is
+    // re-materialised after the call that would clobber it.
+    let v = abi::c_arg(2);
     let mut instructions = vec![
         abi::label("entry"),
         abi::subtract_stack(32),
