@@ -8,15 +8,25 @@
 //! platform produced it. A platform joins by implementing [`Backend`] and
 //! answering it from [`host_backend`]; the prompt and the CLI need no change.
 
+#[cfg(any(
+    target_os = "macos",
+    all(target_os = "linux", target_arch = "aarch64"),
+    test
+))]
+mod arm64;
 pub(crate) mod backtrace;
 pub(crate) mod breakpoints;
 pub(crate) mod disassemble;
+#[cfg(any(all(target_os = "linux", target_arch = "aarch64"), test))]
+mod elf;
 pub(crate) mod location;
 pub(crate) mod names;
 pub(crate) mod prompt;
 pub(crate) mod runtime;
 pub(crate) mod values;
 
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+mod linux;
 #[cfg(any(target_os = "macos", test))]
 mod macho;
 #[cfg(target_os = "macos")]
@@ -276,13 +286,17 @@ pub(crate) enum Ending {
 }
 
 /// The debugger for the platform this `mfb` was built for, or `None` where
-/// `mfb dbg` is not supported.
+/// `mfb dbg` is not supported: it runs on macOS and on Linux on AArch64.
 pub(crate) fn host_backend() -> Option<&'static dyn Backend> {
     #[cfg(target_os = "macos")]
     {
         Some(&macos::MacOs)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    {
+        Some(&linux::LinuxAarch64)
+    }
+    #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64"))))]
     {
         None
     }
@@ -310,15 +324,19 @@ pub(crate) fn check_debuggable(path: &Path) -> Result<Program, String> {
         app: binary
             .libraries
             .iter()
-            .any(|library| library.contains("AppKit.framework")),
+            .any(|library| library.contains("AppKit.framework") || library == GTK_LIBRARY),
     })
 }
+
+/// The GTK a Linux `--app` build links (`./mfb spec app linux-runtime`).
+const GTK_LIBRARY: &str = "libgtk-4.so.1";
 
 /// What the debugger knows about the program from its file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Program {
     /// Built with `mfb build --app` (or as a Canvas program): the initial
-    /// thread runs the window system and `main` runs on a thread of its own.
+    /// thread runs the window system — AppKit on macOS, GTK on Linux — and
+    /// `main` runs on a thread of its own.
     pub(crate) app: bool,
 }
 

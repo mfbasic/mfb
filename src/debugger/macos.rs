@@ -68,10 +68,11 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use super::arm64::{self, Float};
 use super::macho::{self, Location};
 use super::{
-    Backend, Ending, Exit, FunctionRange, FunctionSymbol, Inferior, Register, RegisterGroup,
-    RegisterValue, RunStop, Step, StepStop, ThreadFacts,
+    Backend, Ending, Exit, FunctionRange, FunctionSymbol, Inferior, Register, RunStop, Step,
+    StepStop, ThreadFacts,
 };
 
 type MachPort = u32;
@@ -148,8 +149,6 @@ const ARM_THREAD_STATE64: c_int = 6;
 const ARM_THREAD_STATE64_COUNT: u32 = 68;
 const ARM_NEON_STATE64: c_int = 17;
 const ARM_NEON_STATE64_COUNT: u32 = 132;
-/// The bits of CPSR the `nzcv` register shows: the N, Z, C and V flags.
-const NZCV_BITS: u64 = 0xf000_0000;
 /// The most memory regions the header search walks before giving up.
 const MAX_REGIONS: usize = 1 << 16;
 /// `<mach/thread_info.h>`: `THREAD_IDENTIFIER_INFO` and its size in `int`s
@@ -1508,12 +1507,8 @@ fn general_state(thread: MachPort) -> Result<[u64; 34], String> {
 }
 
 /// `ARM_NEON_STATE64`: v0–v31, fpsr, fpcr.
-fn neon_state(thread: MachPort) -> Result<NeonState, String> {
-    let mut neon = NeonState {
-        v: [0; 32],
-        fpsr: 0,
-        fpcr: 0,
-    };
+fn neon_state(thread: MachPort) -> Result<Float, String> {
+    let mut neon = Float::zeroed();
     thread_state(
         thread,
         ARM_NEON_STATE64,
@@ -1780,14 +1775,6 @@ impl Exception {
     }
 }
 
-/// `__darwin_arm_neon_state64`: 32 128-bit registers, then FPSR and FPCR.
-#[repr(C, align(16))]
-struct NeonState {
-    v: [u128; 32],
-    fpsr: u32,
-    fpcr: u32,
-}
-
 /// Read one register set of `thread` into `state`, which holds `count` ints.
 fn thread_state(
     thread: MachPort,
@@ -2033,7 +2020,7 @@ impl Inferior for Task {
         let thread = self.thread_at(&threads, index)?;
         let general = general_state(thread)?;
         let neon = neon_state(thread)?;
-        Ok(arm64_registers(&general, &neon))
+        Ok(arm64::registers(&general, &neon))
     }
 
     fn set_registers(&mut self, index: usize, values: &[(String, u64)]) -> Result<(), String> {
@@ -2041,37 +2028,16 @@ impl Inferior for Task {
         let thread = self.thread_at(&threads, index)?;
         let mut general = general_state(thread)?;
         let mut neon = None;
+        // The flags are CPSR's top four bits; the rest of the word (and
+        // `__pad` above it) is left as it is.
         for (name, value) in values {
-            match name.as_str() {
-                "fp" => general[29] = *value,
-                "lr" => general[30] = *value,
-                "sp" => general[31] = *value,
-                "pc" => general[32] = *value,
-                // The flags are CPSR's top four bits; the rest of the word
-                // (and `__pad` above it) is left as it is.
-                "nzcv" => general[33] = (general[33] & !NZCV_BITS) | (*value & NZCV_BITS),
-                "fpsr" | "fpcr" => {
-                    if neon.is_none() {
-                        neon = Some(neon_state(thread)?);
-                    }
-                    let state = neon.as_mut().expect("read above");
-                    let word = u32::try_from(*value)
-                        .map_err(|_| format!("{name} holds 32 bits, not 0x{value:016x}"))?;
-                    if name == "fpsr" {
-                        state.fpsr = word;
-                    } else {
-                        state.fpcr = word;
-                    }
-                }
-                other => {
-                    let index = other
-                        .strip_prefix('x')
-                        .and_then(|number| number.parse::<usize>().ok())
-                        .filter(|number| *number < 29)
-                        .ok_or_else(|| format!("no register '{other}' to set"))?;
-                    general[index] = *value;
-                }
-            }
+            arm64::assign(
+                &mut general,
+                &mut neon,
+                &mut || neon_state(thread),
+                name,
+                *value,
+            )?;
         }
         set_thread_state(
             thread,
@@ -2325,47 +2291,6 @@ impl Task {
             what: first.describe(),
         })
     }
-}
-
-/// Every register of a thread, in display order, from the
-/// `__darwin_arm_thread_state64` words (x0–x28, fp, lr, sp, pc, cpsr) and the
-/// NEON state (v0–v31, fpsr, fpcr): the general-purpose registers, then the
-/// system ones, then the SIMD ones. NZCV is the top four bits of CPSR, shown
-/// where the `NZCV` system register holds them.
-fn arm64_registers(general: &[u64; 34], neon: &NeonState) -> Vec<Register> {
-    let x = |name: String, group: RegisterGroup, value: u64| Register {
-        name,
-        group,
-        value: RegisterValue::Bits64(value),
-    };
-    let mut registers = (0..29)
-        .map(|index| x(format!("x{index}"), RegisterGroup::General, general[index]))
-        .collect::<Vec<_>>();
-    registers.push(x("fp".to_string(), RegisterGroup::General, general[29]));
-    registers.push(x("lr".to_string(), RegisterGroup::General, general[30]));
-    registers.push(x("sp".to_string(), RegisterGroup::System, general[31]));
-    registers.push(x("pc".to_string(), RegisterGroup::System, general[32]));
-    registers.push(x(
-        "nzcv".to_string(),
-        RegisterGroup::System,
-        general[33] & NZCV_BITS,
-    ));
-    registers.push(x(
-        "fpsr".to_string(),
-        RegisterGroup::System,
-        neon.fpsr.into(),
-    ));
-    registers.push(x(
-        "fpcr".to_string(),
-        RegisterGroup::System,
-        neon.fpcr.into(),
-    ));
-    registers.extend(neon.v.iter().enumerate().map(|(index, value)| Register {
-        name: format!("v{index}"),
-        group: RegisterGroup::Simd,
-        value: RegisterValue::Bits128(*value),
-    }));
-    registers
 }
 
 impl Drop for Task {

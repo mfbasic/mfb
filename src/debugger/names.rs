@@ -111,8 +111,8 @@ pub(crate) fn classify(function: &FunctionSymbol) -> (Origin, Option<String>) {
 /// The names an MFBASIC function and a native one share — the program's `main`
 /// and the runtime's `_main`, a developer's `exit` and the C library's — which
 /// are shown with a tag saying which is meant: `main <mfb>`, `main <native>`.
-/// A function's name here is its written name, else its symbol less one
-/// leading `_`, as listings show it.
+/// A function's name here is its written name, else its [`plain_name`], as
+/// listings show it.
 #[derive(Debug, Default)]
 pub(crate) struct Collisions(std::collections::HashSet<String>);
 
@@ -121,7 +121,7 @@ impl Collisions {
         let mut sides = std::collections::HashMap::<String, [bool; 2]>::new();
         for function in functions {
             let (origin, written) = classify(function);
-            let name = written.unwrap_or_else(|| linked_name(&function.name));
+            let name = written.unwrap_or_else(|| plain_name(&function.name));
             sides.entry(name).or_default()[usize::from(origin.native())] = true;
         }
         Self(
@@ -219,9 +219,25 @@ fn builtin_name(decoded: &str) -> Option<String> {
     })
 }
 
-/// The name a linked function has in C: the Mach-O symbol less its leading `_`.
+/// How the host's executable format spells a C function's symbol: Mach-O
+/// with a leading `_` (`_malloc` is `malloc`), ELF bare (`_exit` is `_exit`).
+/// The debugger debugs only programs in its own host's format.
+pub(crate) const C_PREFIX: &str = if cfg!(target_os = "linux") { "" } else { "_" };
+
+/// The name a linked function has in C: its symbol less [`C_PREFIX`].
 pub(crate) fn linked_name(symbol: &str) -> String {
-    symbol.strip_prefix('_').unwrap_or(symbol).to_string()
+    symbol.strip_prefix(C_PREFIX).unwrap_or(symbol).to_string()
+}
+
+/// The name a symbol with no written name is shown by: an MFBASIC
+/// executable's own symbols (`_main`, `_mfb_…`), which every format spells
+/// with a leading `_`, less it; any other, a system library's, as
+/// [`linked_name`] reads it.
+pub(crate) fn plain_name(symbol: &str) -> String {
+    match symbol.strip_prefix('_') {
+        Some(rest) if symbol == "_main" || symbol.starts_with("_mfb") => rest.to_string(),
+        _ => linked_name(symbol),
+    }
 }
 
 /// Drop a hand-over copy's `$own<hex>` suffix; the copy is the same function.
@@ -423,9 +439,24 @@ mod tests {
 
     #[test]
     fn linked_functions_drop_the_leading_underscore() {
-        assert_eq!(linked_name("_malloc"), "malloc");
-        assert_eq!(linked_name("___error"), "__error");
+        if cfg!(target_os = "linux") {
+            // ELF spells a C function bare: `_exit` is not `exit`.
+            assert_eq!(linked_name("_exit"), "_exit");
+            assert_eq!(linked_name("__libc_start_main"), "__libc_start_main");
+        } else {
+            assert_eq!(linked_name("_malloc"), "malloc");
+            assert_eq!(linked_name("___error"), "__error");
+        }
         assert_eq!(linked_name("plain"), "plain");
+        // The executable's own symbols read the same on every format.
+        assert_eq!(plain_name("_main"), "main");
+        assert_eq!(plain_name("_mfb_rt_print"), "mfb_rt_print");
+        assert_eq!(plain_name(&format!("{C_PREFIX}write")), "write");
+    }
+
+    /// A C function's symbol as the host's format spells it.
+    fn c(name: &str) -> String {
+        format!("{C_PREFIX}{name}")
     }
 
     fn symbol(name: &str, linked: bool) -> FunctionSymbol {
@@ -444,9 +475,9 @@ mod tests {
             symbol("_mfb_fn_main", false),
             symbol("_main", false),
             symbol("_mfb_fn_exit", false),
-            symbol("_exit", true),
+            symbol(&c("exit"), true),
             symbol("_mfb_fn_isPrime", false),
-            symbol("_malloc", true),
+            symbol(&c("malloc"), true),
         ]);
         let tagged = |name: &str, origin| collisions.tagged(name.to_string(), origin);
         assert_eq!(tagged("main", Origin::User), "main <mfb>");
@@ -456,7 +487,7 @@ mod tests {
         assert_eq!(tagged("isPrime", Origin::User), "isPrime");
         assert_eq!(tagged("malloc", Origin::Linked), "malloc");
         // Two native functions of one name are no MFBASIC/native collision.
-        let native = Collisions::of(&[symbol("_write", true), symbol("_write", false)]);
+        let native = Collisions::of(&[symbol(&c("write"), true), symbol(&c("write"), false)]);
         assert_eq!(native.tagged("write".to_string(), Origin::Linked), "write");
     }
 

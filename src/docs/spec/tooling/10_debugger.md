@@ -51,8 +51,11 @@ renderer.[[src/cli/mod.rs:dispatch_command_error]]
 ## Host support
 
 `host_backend` answers the platform backend compiled into this `mfb`, or none.
-Only macOS has one; on every other host, after argument parsing succeeds,
-`mfb dbg` fails with `mfb dbg is not supported on <std::env::consts::OS>`.
+macOS has one, and Linux on AArch64; on every other host, after argument
+parsing succeeds, `mfb dbg` fails with `mfb dbg is not supported on <os>
+<arch>; it runs on macOS and on Linux on AArch64` (`std::env::consts`). The
+disassembler and the unwinder read AArch64 code, so another architecture has
+no backend. [[src/cli/dbg.rs:run_dbg_command]]
 [[src/debugger/mod.rs:host_backend]] A new platform implements the `Backend`
 trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `end`,
 `functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`, `registers`,
@@ -83,12 +86,15 @@ executable and attaching — the file is read and checked by `check_debuggable`:
   `'<path>' is built for <format> <arch>; this debugger runs <format> <arch> programs`.
   [[src/debugger/mod.rs:host_image]]
 
-A file whose loaded libraries include `AppKit.framework` is an **app**
-(`Program::app`): its initial thread runs the window system and `main` runs on
-a thread of its own (`./mfb spec app macos-runtime`).
+A file whose loaded libraries include `AppKit.framework`, or `libgtk-4.so.1`
+(`GTK_LIBRARY`), is an **app** (`Program::app`): its initial thread runs the
+window system and `main` runs on a thread of its own (`./mfb spec app
+macos-runtime`, `./mfb spec app linux-runtime`). A Linux app is an AppImage;
+it is debugged through the executable inside it (`usr/bin/<name>` of
+`--appimage-extract`), or by attaching to it.
 
 For a `<pid>`, the executable is the one the kernel reports for the process
-(`proc_pidpath` on macOS); a process that does not exist fails with
+(`proc_pidpath` on macOS, `/proc/<pid>/exe` on Linux); a process that does not exist fails with
 `no process with PID <pid>`.[[src/debugger/macos.rs:MacOs]] Every path printed
 by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:shown]]
 
@@ -156,9 +162,9 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   `mach_vm_region` holding `sp`.
 - **Registers.** `registers` reads one thread with `thread_get_state` flavors
   `ARM_THREAD_STATE64` and `ARM_NEON_STATE64`.
-  [[src/debugger/macos.rs:arm64_registers]] `set_registers` reads
+  [[src/debugger/arm64.rs:registers]] `set_registers` reads
   `ARM_THREAD_STATE64`, replaces the words it names (`x0`–`x28`, `fp`, `lr`,
-  `sp`, `pc`; for `nzcv`, CPSR's bits 31–28, `NZCV_BITS`, the rest of the word
+  `sp`, `pc`; for `nzcv`, CPSR's bits 31–28, `arm64::NZCV_BITS`, the rest of the word
   kept), and writes it back with `thread_set_state`; `fpsr` and `fpcr` are read,
   replaced and written back the same way in `ARM_NEON_STATE64`, only when one
   is named. The process is paused, so the thread runs from its new state when
@@ -268,6 +274,115 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
 `scripts/sign-debugger.sh` ad-hoc signs a given `mfb` (default
 `target/debug/mfb` and `target/release/mfb`) with that one entitlement. A cargo
 build relinks `mfb` and drops the signature, so it is re-run after each build.
+
+## Linux backend
+
+[[src/debugger/linux.rs:LinuxAarch64]] Linux on AArch64, the `ET_DYN`
+executables of `./mfb spec linker linux-aarch64` in either libc world. Linux
+needs no signing: a process may trace its own children, and others as
+`kernel.yama.ptrace_scope` allows.
+
+- **Launch.** `fork`; the child puts itself in a process group of its own
+  (`setpgid(0, 0)`), stops itself (`SIGSTOP`), and `execve`s the program with
+  the arguments after `--` and this process's environment and stdio; a failed
+  `execve` reports its errno through a close-on-exec pipe (`cannot launch
+  '<path>': <error>`). The parent waits for the stop, seizes the child
+  (`PTRACE_SEIZE` with `PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
+  PTRACE_O_EXITKILL`), continues it, and waits for `PTRACE_EVENT_EXEC`: the
+  program is stopped at its exec, before the loader (`ld.so`) runs.
+  [[src/debugger/linux.rs:spawn]] [[src/debugger/linux.rs:seize_launched]]
+- **Attach.** Every thread in `/proc/<pid>/task` is seized with
+  `PTRACE_O_TRACECLONE` (again until no new one appears), then interrupted
+  (`PTRACE_INTERRUPT`) and waited for. A refused seize names its errno; for
+  `EPERM` with `ptrace_scope` not 0 the message adds that the system lets a
+  debugger attach only to its own children, and to launch the program instead
+  or run `mfb dbg` as root. [[src/debugger/linux.rs:seize_all]]
+  [[src/debugger/linux.rs:seize_refusal]]
+- **Threads.** The session holds every traced thread, leader first. A thread
+  the program starts is traced from its first instruction and appended when
+  its first stop, or its parent's `PTRACE_EVENT_CLONE`, is seen; one that ends
+  is dropped. `threads` reads `pc`, `sp` and `x19` from `NT_PRSTATUS`, the stack
+  from the `/proc/<pid>/maps` region holding `sp`, and the name from
+  `/proc/<pid>/task/<tid>/comm` — none for the leader, or for a thread whose
+  `comm` is still the program's. The `pthread_t` is the thread pointer
+  (`NT_ARM_TLS`) less glibc's `struct pthread` size, which the loaded libc
+  exports as `_thread_db_sizeof_pthread`, or, for musl (an interpreter path
+  naming `musl`), less the gap at which the descriptor's first word, `self`,
+  holds its own address, tried in steps of 8 up to 4096 (`MAX_PTHREAD_SIZE`);
+  0 when neither is found, as before libc has set the thread pointer.
+  [[src/debugger/linux.rs:GLIBC_PTHREAD_SIZE]] [[src/debugger/linux.rs:Tracee]]
+- **Memory.** `/proc/<pid>/mem`, read and written at an offset; a breakpoint's
+  `brk #0` is written over read-only code through it, and the kernel makes the
+  page a private copy. [[src/debugger/linux.rs:BREAKPOINT_INSTRUCTION]]
+- **Symbols.** The executable is read by `super::elf`: `.symtab`'s functions
+  and objects (a `--debug` build); each undefined dynamic symbol, an import,
+  with the GOT slot an `R_AARCH64_JUMP_SLOT` or `R_AARCH64_GLOB_DAT` relocation
+  names, the dynamic table reached through `PT_DYNAMIC` (a build without
+  `--debug` has no section table); and the import stubs at the end of the
+  code (`adrp x16` / `ldr x17, [x16]` / `br x17`), each named by the GOT slot it
+  loads. A slot holding 0 is unbound. The load bias is where
+  `/proc/<pid>/maps` maps the executable's first page, less that page's
+  link-time address; `entry` is `e_entry` plus it. [[src/debugger/elf.rs:executable]]
+- **Libraries.** Each file `/proc/<pid>/maps` maps at offset 0, but the
+  executable, is read from its file (through `/proc/<pid>/root` when the path
+  does not resolve here). Its functions are the defined `STT_FUNC` and
+  `STT_GNU_IFUNC` entries of its dynamic symbol table and of `.symtab` when it
+  has one, with their sizes; an address in its `.plt` is `symbol stub for:
+  <symbol>`, by the entry's `R_AARCH64_JUMP_SLOT`. A library was loaded while
+  the program ran (`SD`) when the executable's `DT_NEEDED` closure, through
+  each library's `DT_SONAME` and `DT_NEEDED`, does not reach it and it is not
+  the loader. The list is read again when the maps change.
+  [[src/debugger/elf.rs:read]]
+- **Registers.** `NT_PRSTATUS` (`user_pt_regs`) and `NT_FPREGSET`
+  (`user_fpsimd_state`), laid out as macOS's thread and NEON states;
+  `set_registers` writes them back with `PTRACE_SETREGSET`.
+  [[src/debugger/arm64.rs:registers]]
+- **Run.** A thread paused on a breakpoint steps over it first, as on macOS;
+  then every stopped thread is continued (`PTRACE_CONT`) with any signal held
+  for it, and the session waits (`waitpid(-1, __WALL)`). A `SIGTRAP` with
+  `si_code` `TRAP_BRKPT` at a breakpoint's address is a hit, elsewhere `a
+  breakpoint instruction`; one with `TRAP_HWBKPT` while watchpoints are set is
+  a watched write. `SIGSEGV` and `SIGBUS` are `a bad memory access at
+  0x<si_addr>`, `SIGILL` `an illegal instruction`, `SIGFPE` `an arithmetic
+  exception`. On any of these every other thread is interrupted and waited
+  for, and what they stopped for joins it, classified as macOS's are. The
+  kernel's own traps — a single step's (`TRAP_TRACE`, or `SI_USER` from pid 0
+  for a step over a system call) and a removed watchpoint's — are dropped; so
+  is a `SIGSTOP`. Any other signal (`SIGCHLD`, `SIGPIPE`, a timer, a `SIGTRAP`
+  a process sent) is passed on at once and the program runs on, unseen. An
+  exception's signal is held and delivered when the program next runs, so its
+  handler — or the default action, which ends it — runs then; macOS retries
+  the faulting instruction instead. A job-control stop (`PTRACE_EVENT_STOP`)
+  is continued. The program has ended when its leader's end is reaped: its
+  exit status or signal, for an attached program too.
+  [[src/debugger/linux.rs:signal_stop]]
+- **Step.** Every breakpoint is lifted and the stepping threads' watchpoints
+  turned off, as on macOS. Each round, every stepping thread gets
+  `PTRACE_SINGLESTEP` and the session polls (`waitpid(WNOHANG)`) in 2000 ms
+  slices (`STEP_SLICE`) for each to stop. Threads still running after a slice
+  are given up when each is blocked in the kernel (`S` or `D` in
+  `/proc/<pid>/task/<tid>/stat`) or 30 s (`STEP_LIMIT`) have passed: they are
+  interrupted and are `Waiting`. A signal that stops a stepping thread is held
+  and the instruction tried again; a clone event lets the step finish.
+  [[src/debugger/linux.rs:step_rounds]]
+- **Watchpoints.** The processor's watchpoint register pairs (`dbg_info`'s
+  count, from `NT_ARM_HW_WATCH`), encoded as on macOS and written into every
+  thread with `PTRACE_SETREGSET`; the kernel does not copy them into a new
+  thread, so each gets them at its first stop.
+  [[src/debugger/linux.rs:set_thread_watchpoints]]
+- **Ending.** A launched program is killed (`SIGKILL`; `PTRACE_O_EXITKILL`
+  kills it too if `mfb` dies) and every thread reaped until the leader is. An
+  attached one has its breakpoints lifted and watchpoints cleared, and every
+  thread is detached (`PTRACE_DETACH`) with any signal held for it.
+  [[src/debugger/linux.rs:kill_and_reap]]
+- **Ctrl-C.** A `SIGINT` handler installed without `SA_RESTART` sets a flag;
+  landing on any thread but the session's — `mfb` runs a command on a thread
+  of its own, and the session's thread is the one that waits — it sends the
+  signal on to it with `tgkill`, so the wait returns `EINTR`. A `run` that sees
+  the flag interrupts every thread and answers `RunStop::Interrupted`.
+  [[src/debugger/linux.rs:on_interrupt]]
+- **Restart.** The old process is killed and reaped, the program launched
+  again, and everything about the old process forgotten, as on macOS.
 
 ## The prompt
 
@@ -495,12 +610,14 @@ Classification and the written name come from the symbol alone
 | `_mfb_ifn_<escaped>` decoding to `<package>_<name>` (less any `$…`), `<package>` a registry package's import name: a built-in package's MFBASIC function, which its source spells `__<package>_<name>` | `MB` | `<package>::<name>` when the package registers a member `<name>` that is not `internal_only`; else `<package>::#<name>` (`#` is `crate::internal_name::INTERNAL_SIGIL`): `_mfb_ifn_datetime_5FnormInstant` is `datetime::#normInstant` |
 | `_mfb_rt_<family>_<call>` that `symbol_for_call` makes from a catalog spec whose `call` is a registry package member (`registry().owning_package` answers) | `MR` | `call` with its first `.` written `::`: `_mfb_rt_io_io_print` is `io::print` |
 | any other defined symbol (other `_mfb_ifn_*`, other `_mfb_rt_*`, `_mfb_arena_*`, `_mfb_debug_*`, `_main`, …) | `MR` | `-` |
-| an import | `SL` | the symbol less one leading `_` |
-| a function of a library loaded while the program ran | `SD` | the symbol less one leading `_` |
+| an import | `SL` | its C name: the symbol less `names::C_PREFIX` (`_` on Mach-O, nothing on ELF) |
+| a function of a library loaded while the program ran | `SD` | its C name, likewise |
 
 A name an MFBASIC function (`MU`, `MB`) and a native one (`MR`, `SL`, `SD`)
-share — a function's name being its written name, else its symbol less one
-leading `_`, over every function `Inferior::functions` answers — is shown with
+share — a function's name being its written name, else its plain name (the
+executable's own `_main` and `_mfb…` less their `_` on every format, any other
+symbol's C name; `names::plain_name`), over every function
+`Inferior::functions` answers — is shown with
 a tag: ` <mfb>` after the MFBASIC one's, ` <native>` after the native one's, so
 the program's `main` is `main <mfb>` and the runtime's `_main` reads `main
 <native>`. The tag follows any offset (`main+0x24 <mfb>`, `main + 8 <native>`)
@@ -558,7 +675,7 @@ register (as MFBASIC's `Integer`) and unsigned for a 128-bit one.
 [[src/debugger/prompt.rs:register_lines]]
 
 On AArch64 every register of the thread state is read
-(`src/debugger/macos.rs:arm64_registers`):
+(`src/debugger/arm64.rs:registers`), the same on macOS and Linux:
 
 | Group | Registers |
 | --- | --- |
@@ -837,9 +954,11 @@ anything else is a name.
   that holds it (`<symbol>+0x<offset>` and `<written>+0x<offset>`), a linked
   function bound exactly there, or `-`.
 - **By name**: the function symbols spelled exactly `<target>` (as `list func`
-  shows them: `_mfb_rt_print`, `_exit`); only when there are none, those whose
+  shows them: `_mfb_rt_print`, `_exit`) but one spelled as its own written name
+  — a C function on ELF, whose symbol has no `_` to drop
+  (`disassemble::spelled_as_written`); only when there are none, those whose
   written name is `<target>` (`isPrime`, `exit` — which can name both a
-  developer's function and a linked one). One breakpoint per distinct address
+  developer's function and a linked one, on either format). One breakpoint per distinct address
   among them; a linked function not yet bound gives one **pending**
   breakpoint per symbol, unless another record of it is bound. No match:
   `no function is named '<target>'; type 'list func' for the functions`.
@@ -1067,9 +1186,10 @@ or the last `step` ran; thread 0 before either, or when it has ended.
 - `dis <function> <count>`: `<count>` counted from each function's start, as
   for `dis <count>`.
 - `dis <function>`: resolved as a breakpoint name is — symbols spelled
-  `<function>` (the executable's, its imports' bound addresses, the libraries'
-  via `library_functions`), else written names (the executable's functions,
-  its imports less `_`, and the libraries' `_<function>`) — one listing per
+  `<function>` (the executable's, its imports' bound addresses, and on Mach-O
+  the libraries' via `library_functions`), else written names (the
+  executable's functions, its imports' C names, and the libraries'
+  `<C_PREFIX><function>`) — one listing per
   distinct start, separated by an empty line.
 
 A function's extent is the first known of: the executable's symbol size
@@ -1080,8 +1200,7 @@ breakpoint's saved instruction back, so a listing never shows the `brk`.
 
 The listing is lldb's: a header `<image>`<name>:` (`<image>`0x<start>:` when
 unnamed; `0x<start>:` when no image holds it), where the name is the written
-name for the developer's functions and otherwise the symbol less one leading
-`_`; then per instruction `->  ` at the current `pc` or four spaces, the
+name for the developer's functions and otherwise the plain name; then per instruction `->  ` at the current `pc` or four spaces, the
 address as `0x` and 16 hex digits, ` <+<offset>>:` (` <-<offset>>:` before the
 function's start, when a count runs back past it into code no function holds)
 padded to the widest in the listing (omitted, `:` alone padded the same way,
@@ -1171,7 +1290,9 @@ frame is unwound by reading its function's code from its start to the frame's
 
 A frame's caller resumes at the saved `lr` (the thread's `lr` for the
 innermost frame while it is unsaved), with `sp` the CFA and `fp` the saved one
-(else unchanged); the address has bits 63–47 cleared. The function for a frame
+(else unchanged); the address has every bit above the host's user addresses
+cleared — bits 63–47 on macOS, 63–48 on Linux, which also strips
+pointer-authentication bits (`ADDRESS_MASK`). The function for a frame
 after the first is looked up at its return address less 4, so a call that is a
 function's last instruction is attributed to it. The walk ends after the
 program entry `_main` (whose caller's return address is gone once it calls),

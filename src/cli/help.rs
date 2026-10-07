@@ -81,8 +81,10 @@ pause it before its first instruction; given a <pid>, attach to that running
 program and pause it. Either way the program waits at the DBG> prompt.
 
 The program must be an MFBASIC executable built for this computer. mfb dbg
-runs on macOS only, where macOS requires this mfb to be signed for debugging
-(sh scripts/sign-debugger.sh, from the compiler's source tree).";
+runs on macOS, where macOS requires this mfb to be signed for debugging
+(sh scripts/sign-debugger.sh, from the compiler's source tree), and on Linux
+on AArch64, where the system may let it attach only to a program it launched
+(kernel.yama.ptrace_scope).";
 
 /// `mfb dbg --help` after them.
 const DBG_HELP_TAIL: &str = "\

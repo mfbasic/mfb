@@ -874,7 +874,7 @@ mod tests {
             function("_mfb_fn_isPrime", 0x1000, 0x40),
             function("_mfb_rt_print", 0x1040, 0x10),
             FunctionSymbol {
-                name: "_malloc".to_string(),
+                name: format!("{}malloc", super::super::names::C_PREFIX),
                 linked: true,
                 loaded: false,
                 address: Some(0x9000),
