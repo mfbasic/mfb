@@ -183,7 +183,12 @@ outside the loop, on a path that goes round again, is a use-after-move on the
 next pass. A path that leaves the loop — `RETURN`, `FAIL`, `EXIT PROGRAM`, an
 `EXIT` that targets this loop or an outer one, a `CONTINUE` of an outer loop —
 does not reach the back edge; an `EXIT` or `CONTINUE` of a loop nested inside the
-body does. A `thread::transfer`'s move is not carried round: a retry loop that
+body does. Only a close, a `RETURN` and a `RES` rebind are carried round; placing
+the resource by reference — a record or union-variant constructor, a collection
+literal or insertion, an argument, a closure capture — is never a move, and a
+consuming parameter's take-over (`canvas::setGroup` of items naming it) is not
+carried either: a group rebuilt from the same outer font every frame is valid, and
+the group closes it once. A `thread::transfer`'s move is not carried round: a retry loop that
 leaves once a transfer succeeds is valid, the flag that ends it is not something
 this check tracks, and a transfer actually repeated is refused at run time with
 `ErrResourceMoved`. A resource the body declares itself is fresh each iteration. One scan

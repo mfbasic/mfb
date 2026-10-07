@@ -279,7 +279,19 @@ impl TypeEnv {
             // self-report to avoid. It is ordered after `consumed_resource` for the same
             // reason a close is — a SECOND install of the same resource must see the
             // first one's move.
-            for held in self.consumed_contained(op, locals, contains) {
+            //
+            // bug-852: not carried round a loop's back edge. A consuming parameter
+            // takes over what its argument names on EVERY pass, and a resource it
+            // already owns is simply named again: the rebuild-every-frame loop
+            // (`FOR … canvas::setGroup("panel", [Text[font := face]]) NEXT`) is valid
+            // and the group closes the font once. Only a close, a `RETURN` and a
+            // `RES` rebind are moves the next iteration must see.
+            let carrying = self.back_edge_scan.borrow().is_some();
+            for held in self
+                .consumed_contained(op, locals, contains)
+                .into_iter()
+                .filter(|_| !carrying)
+            {
                 // The argument may hold the resource directly or through nested
                 // containers (`[Picture[image := img]]` is a list holding a record
                 // holding the resource), so the closure walks the whole chain.
