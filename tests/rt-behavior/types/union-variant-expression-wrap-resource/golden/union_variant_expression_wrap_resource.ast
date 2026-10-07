@@ -1,0 +1,121 @@
+{
+  "project": "union_variant_expression_wrap_resource",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "tcp", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Handle",
+      "line": 9,
+      "includes": [],
+      "variants": [
+      { "name": "fs.File", "line": 10 },
+      { "name": "tcp.Socket", "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "which",
+      "line": 14,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 14 },
+      { "name": "h", "type": "Handle", "default": null, "line": 14 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "h" },
+        "line": 15,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "fs.File", "binding": "f" },
+          "guard": null,
+          "line": 16,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": file" } }] }, "line": 17 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "tcp.Socket", "binding": "s" },
+          "guard": null,
+          "line": 18,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": socket" } }] }, "line": 19 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "openOne",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "handleOf",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Handle", "returnResource": true, "returnState": null,
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "openOne", "arguments": [] }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 32,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "which", "arguments": [{ "kind": "string", "value": "arg" }, { "kind": "call", "callee": "openOne", "arguments": [] }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "hs", "type": "List OF RES Handle", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "openOne", "arguments": [] }] }, "line": 34 },
+      {
+        "kind": "forEach",
+        "name": "h",
+        "iterable": { "kind": "identifier", "value": "hs" },
+        "line": 35,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "which", "arguments": [{ "kind": "string", "value": "elem" }, { "kind": "identifier", "value": "h" }] }, "line": 36 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "one", "type": "Handle", "value": { "kind": "call", "callee": "openOne", "arguments": [] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "which", "arguments": [{ "kind": "string", "value": "let" }, { "kind": "identifier", "value": "one" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "Handle", "value": { "kind": "call", "callee": "handleOf", "arguments": [] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "which", "arguments": [{ "kind": "string", "value": "ret" }, { "kind": "identifier", "value": "r" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "which", "arguments": [{ "kind": "string", "value": "var" }, { "kind": "identifier", "value": "a" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "after" }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 45 }
+      ]
+    }
+    ]
+  }
+  ]
+}

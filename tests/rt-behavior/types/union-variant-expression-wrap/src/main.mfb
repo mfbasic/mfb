@@ -1,0 +1,306 @@
+IMPORT io
+IMPORT collections
+
+' bug-990: a union-variant value of every expression kind is union-wrapped at
+' every expected-union position. Every line must print "<producer> <position>:
+' square 2.00"; a missing line means MATCH fired no arm.
+
+TYPE Circle
+  r AS Float
+END TYPE
+
+TYPE Square
+  side AS Float
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+TYPE Hold
+  sq AS Square
+END TYPE
+
+TYPE Box
+  s AS Shape
+END TYPE
+
+FUNC show(label AS String, s AS Shape) AS Nothing
+  MATCH s
+    CASE Circle(c)
+      io::print(label & ": circle " & toString(c.r))
+    CASE Square(q)
+      io::print(label & ": square " & toString(q.side))
+  END MATCH
+END FUNC
+
+FUNC showAll(label AS String, xs AS List OF Shape) AS Nothing
+  FOR EACH s IN xs
+    show(label, s)
+  NEXT
+END FUNC
+
+FUNC mk AS Square
+  RETURN Square[2.0]
+END FUNC
+
+FUNC mkf(n AS Integer) AS Square
+  IF n < 0 THEN
+    FAIL error(1, "neg")
+  END IF
+  RETURN Square[2.0]
+END FUNC
+
+LET g AS Shape = mk()
+MUT gm AS Shape = Circle[1.0]
+
+FUNC ret_call AS Shape
+  RETURN mk()
+END FUNC
+
+FUNC cells_call AS Nothing
+  show("call arg", mk())
+  LET l AS List OF Shape = [mk()]
+  showAll("call elem", l)
+  LET b AS Box = Box[mk()]
+  show("call ctor", b.s)
+  LET b1 AS Box = Box[s := mk()]
+  show("call ctor-named", b1.s)
+  LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := mk() }
+  showAll("call map", collections::values(mp))
+  LET b2 AS Box = WITH Box[Circle[1.0]] { s := mk() }
+  show("call with", b2.s)
+  MUT m AS Shape = Circle[1.0]
+  m = mk()
+  show("call mut", m)
+  LET one AS Shape = mk()
+  show("call let", one)
+  gm = Circle[1.0]
+  gm = mk()
+  show("call global-mut", gm)
+  show("call ret", ret_call())
+END FUNC
+
+FUNC ret_field AS Shape
+  LET h AS Hold = Hold[Square[2.0]]
+  RETURN h.sq
+END FUNC
+
+FUNC cells_field AS Nothing
+  LET h AS Hold = Hold[Square[2.0]]
+  show("field arg", h.sq)
+  LET l AS List OF Shape = [h.sq]
+  showAll("field elem", l)
+  LET b AS Box = Box[h.sq]
+  show("field ctor", b.s)
+  LET b1 AS Box = Box[s := h.sq]
+  show("field ctor-named", b1.s)
+  LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := h.sq }
+  showAll("field map", collections::values(mp))
+  LET b2 AS Box = WITH Box[Circle[1.0]] { s := h.sq }
+  show("field with", b2.s)
+  MUT m AS Shape = Circle[1.0]
+  m = h.sq
+  show("field mut", m)
+  LET one AS Shape = h.sq
+  show("field let", one)
+  gm = Circle[1.0]
+  gm = h.sq
+  show("field global-mut", gm)
+  show("field ret", ret_field())
+END FUNC
+
+FUNC ret_get AS Shape
+  LET sqs AS List OF Square = [Square[2.0]]
+  RETURN collections::get(sqs, 0)
+END FUNC
+
+FUNC cells_get AS Nothing
+  LET sqs AS List OF Square = [Square[2.0]]
+  show("get arg", collections::get(sqs, 0))
+  LET l AS List OF Shape = [collections::get(sqs, 0)]
+  showAll("get elem", l)
+  LET b AS Box = Box[collections::get(sqs, 0)]
+  show("get ctor", b.s)
+  LET b1 AS Box = Box[s := collections::get(sqs, 0)]
+  show("get ctor-named", b1.s)
+  LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := collections::get(sqs, 0) }
+  showAll("get map", collections::values(mp))
+  LET b2 AS Box = WITH Box[Circle[1.0]] { s := collections::get(sqs, 0) }
+  show("get with", b2.s)
+  MUT m AS Shape = Circle[1.0]
+  m = collections::get(sqs, 0)
+  show("get mut", m)
+  LET one AS Shape = collections::get(sqs, 0)
+  show("get let", one)
+  gm = Circle[1.0]
+  gm = collections::get(sqs, 0)
+  show("get global-mut", gm)
+  show("get ret", ret_get())
+END FUNC
+
+FUNC ret_with AS Shape
+  LET w0 AS Square = Square[9.0]
+  RETURN WITH w0 { side := 2.0 }
+END FUNC
+
+FUNC cells_with AS Nothing
+  LET w0 AS Square = Square[9.0]
+  show("with arg", WITH w0 { side := 2.0 })
+  LET l AS List OF Shape = [WITH w0 { side := 2.0 }]
+  showAll("with elem", l)
+  LET b AS Box = Box[WITH w0 { side := 2.0 }]
+  show("with ctor", b.s)
+  LET b1 AS Box = Box[s := WITH w0 { side := 2.0 }]
+  show("with ctor-named", b1.s)
+  LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := WITH w0 { side := 2.0 } }
+  showAll("with map", collections::values(mp))
+  LET b2 AS Box = WITH Box[Circle[1.0]] { s := WITH w0 { side := 2.0 } }
+  show("with with", b2.s)
+  MUT m AS Shape = Circle[1.0]
+  m = WITH w0 { side := 2.0 }
+  show("with mut", m)
+  LET one AS Shape = WITH w0 { side := 2.0 }
+  show("with let", one)
+  gm = Circle[1.0]
+  gm = WITH w0 { side := 2.0 }
+  show("with global-mut", gm)
+  show("with ret", ret_with())
+END FUNC
+
+FUNC ret_fallible AS Shape
+  RETURN mkf(1)
+END FUNC
+
+FUNC cells_fallible AS Nothing
+  show("fallible arg", mkf(1))
+  LET l AS List OF Shape = [mkf(1)]
+  showAll("fallible elem", l)
+  LET b AS Box = Box[mkf(1)]
+  show("fallible ctor", b.s)
+  LET b1 AS Box = Box[s := mkf(1)]
+  show("fallible ctor-named", b1.s)
+  LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := mkf(1) }
+  showAll("fallible map", collections::values(mp))
+  LET b2 AS Box = WITH Box[Circle[1.0]] { s := mkf(1) }
+  show("fallible with", b2.s)
+  MUT m AS Shape = Circle[1.0]
+  m = mkf(1)
+  show("fallible mut", m)
+  LET one AS Shape = mkf(1)
+  show("fallible let", one)
+  gm = Circle[1.0]
+  gm = mkf(1)
+  show("fallible global-mut", gm)
+  show("fallible ret", ret_fallible())
+END FUNC
+
+FUNC ret_var AS Shape
+  LET v AS Square = Square[2.0]
+  RETURN v
+END FUNC
+
+FUNC cells_var AS Nothing
+  LET v AS Square = Square[2.0]
+  show("var arg", v)
+  LET l AS List OF Shape = [v]
+  showAll("var elem", l)
+  LET b AS Box = Box[v]
+  show("var ctor", b.s)
+  LET b1 AS Box = Box[s := v]
+  show("var ctor-named", b1.s)
+  LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := v }
+  showAll("var map", collections::values(mp))
+  LET b2 AS Box = WITH Box[Circle[1.0]] { s := v }
+  show("var with", b2.s)
+  MUT m AS Shape = Circle[1.0]
+  m = v
+  show("var mut", m)
+  LET one AS Shape = v
+  show("var let", one)
+  gm = Circle[1.0]
+  gm = v
+  show("var global-mut", gm)
+  show("var ret", ret_var())
+END FUNC
+
+FUNC ret_ctor AS Shape
+  RETURN Square[2.0]
+END FUNC
+
+FUNC cells_ctor AS Nothing
+  show("ctor arg", Square[2.0])
+  LET l AS List OF Shape = [Square[2.0]]
+  showAll("ctor elem", l)
+  LET b AS Box = Box[Square[2.0]]
+  show("ctor ctor", b.s)
+  LET b1 AS Box = Box[s := Square[2.0]]
+  show("ctor ctor-named", b1.s)
+  LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := Square[2.0] }
+  showAll("ctor map", collections::values(mp))
+  LET b2 AS Box = WITH Box[Circle[1.0]] { s := Square[2.0] }
+  show("ctor with", b2.s)
+  MUT m AS Shape = Circle[1.0]
+  m = Square[2.0]
+  show("ctor mut", m)
+  LET one AS Shape = Square[2.0]
+  show("ctor let", one)
+  gm = Circle[1.0]
+  gm = Square[2.0]
+  show("ctor global-mut", gm)
+  show("ctor ret", ret_ctor())
+END FUNC
+
+FUNC ret_matchvar AS Shape
+  LET z AS Shape = Square[2.0]
+  MATCH z
+    CASE Square(q)
+      RETURN q
+    CASE Circle(c)
+      RETURN c
+  END MATCH
+END FUNC
+
+FUNC cells_matchvar AS Nothing
+  LET z AS Shape = Square[2.0]
+  MATCH z
+    CASE Square(q)
+      show("matchvar arg", q)
+      LET l AS List OF Shape = [q]
+      showAll("matchvar elem", l)
+      LET b AS Box = Box[q]
+      show("matchvar ctor", b.s)
+      LET b1 AS Box = Box[s := q]
+      show("matchvar ctor-named", b1.s)
+      LET mp AS Map OF String TO Shape = Map OF String TO Shape { "a" := q }
+      showAll("matchvar map", collections::values(mp))
+      LET b2 AS Box = WITH Box[Circle[1.0]] { s := q }
+      show("matchvar with", b2.s)
+      MUT m AS Shape = Circle[1.0]
+      m = q
+      show("matchvar mut", m)
+      LET one AS Shape = q
+      show("matchvar let", one)
+      gm = Circle[1.0]
+      gm = q
+      show("matchvar global-mut", gm)
+    CASE Circle(c)
+      io::print("unreachable")
+  END MATCH
+  show("matchvar ret", ret_matchvar())
+END FUNC
+
+FUNC main AS Integer
+  show("call global", g)
+  cells_call()
+  cells_field()
+  cells_get()
+  cells_with()
+  cells_fallible()
+  cells_var()
+  cells_ctor()
+  cells_matchvar()
+  io::print("after")
+  RETURN 0
+END FUNC
