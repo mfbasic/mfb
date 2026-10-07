@@ -17,15 +17,15 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [x] Security: 859, 981, 885, 862, 902, 868
 [x] High-severity correctness: 844 is deferred to P2. This phase has 858, 861, 963, and 957 (needs the riscv64 box).
 
-**P2: Resource and thread model** (batch 17, `bug-staging-17`; not in main yet)
-[~] 976 → 975 (owner-confirmed language changes; 975 depends on 976's rule): fixed, reviewed, merged into staging
-[~] 843, 842, 852, 854, 899: fixed, reviewed, merged into staging (842 scoped out inline aggregates → bug-999)
-[~] 844, 933, 935, 851: fixed, reviewed, merged into staging
-[~] integration fix: a closure may not capture a ThreadWorker (975 × 843 interaction; capture check now shares the List-element predicate)
+**P2: Resource and thread model** (batch 17; in main at 42f635656)
+[x] 976 → 975 (owner-confirmed language changes; 975 depends on 976's rule): fixed, reviewed, merged into staging
+[x] 843, 842, 852, 854, 899: fixed, reviewed, merged into staging (842 scoped out inline aggregates → bug-999)
+[x] 844, 933, 935, 851: fixed, reviewed, merged into staging
+[x] integration fix: a closure may not capture a ThreadWorker (975 × 843 interaction; capture check now shares the List-element predicate)
 [ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
-[~] Golden proofs done (131 goldens, each attributed), committed in staging
-[~] Full gate #1: 2 real failures (bug-852 over-carried a consuming call's take-over round the loop) → fixed by agent F, reviewed, merged; + 2 pre-existing flakes filed (1003, 1004)
-[ ] Full gate #2 running (main merged in; artifact-gate clean), then merge to main → then PAUSE (owner request)
+[x] Golden proofs done (131 goldens, each attributed), committed in staging
+[x] Full gate #1: 2 real failures (bug-852 over-carried a consuming call's take-over round the loop) → fixed by agent F, reviewed, merged; + 2 pre-existing flakes filed (1003, 1004)
+[x] Full gate #2 green; merged to main. Work PAUSED here at the owner's request (next: P2b).
 
 **P3: Networking and HTTP**
 [ ] 979 first: it takes over the validation half of 872 and shares an oracle with 868 (if 868 didn't land in P1).
