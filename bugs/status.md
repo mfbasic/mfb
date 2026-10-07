@@ -25,7 +25,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
 [x] Golden proofs done (131 goldens, each attributed), committed in staging
 [x] Full gate #1: 2 real failures (bug-852 over-carried a consuming call's take-over round the loop) → fixed by agent F, reviewed, merged; + 2 pre-existing flakes filed (1003, 1004)
-[x] Full gate #2 green; merged to main. Work PAUSED here at the owner's request (next: P2b).
+[x] Full gate #2 green; merged to main. Paused, then resumed by the owner (2026-10-07).
 
 **P3: Networking and HTTP**
 [ ] 979 first: it takes over the validation half of 872 and shares an oracle with 868 (if 868 didn't land in P1).
@@ -72,7 +72,8 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 ## New bugs filed since the plan
 
-**P2b: Memory safety, ABI and silent wrong values** (owner-approved 2026-10-06; runs after P2, before P3):
+**P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; in progress)
+Round 1: agent I on 982+993, 994, 983; agent J on 990, 989, 988. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
 [ ] 982 + 993: mouse callbacks overwrite callee-saved `x19` (GTK aarch64 / macOS app); same mistake, fix together
 [ ] 994: Win64 functions overwrite `xmm6`/`xmm7` without saving them (silent wrong Float); prove on 206
 [ ] 989 + 990 + 988: union-variant values not union-wrapped (crash / garbage / `MATCH` takes no arm); one agent
