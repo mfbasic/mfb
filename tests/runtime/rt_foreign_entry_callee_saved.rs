@@ -370,8 +370,10 @@ fn audit(ncode: &Value, target: &str, what: &str) -> BTreeSet<String> {
 
     // Escape sets for every function, to a fixpoint (recursion makes a single
     // pass unsound).
-    let mut escape: HashMap<String, BTreeSet<String>> =
-        functions.keys().map(|s| (s.clone(), BTreeSet::new())).collect();
+    let mut escape: HashMap<String, BTreeSet<String>> = functions
+        .keys()
+        .map(|s| (s.clone(), BTreeSet::new()))
+        .collect();
     loop {
         let mut grew = false;
         for (symbol, function) in &functions {
@@ -453,7 +455,9 @@ fn copy_dir(from: &Path, to: &Path) {
 fn fixture_project(fixture: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("mfb_{fixture}_{}", unique_nonce()));
     copy_dir(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/byte-identity").join(fixture),
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/byte-identity")
+            .join(fixture),
         &root,
     );
     root
@@ -461,7 +465,10 @@ fn fixture_project(fixture: &str) -> PathBuf {
 
 fn audit_app(target: &str) -> BTreeSet<String> {
     let mut audited = BTreeSet::new();
-    for (name, source) in [("cb_mouse_surfaces", MOUSE_SURFACES), ("cb_mouse_console", MOUSE_CONSOLE)] {
+    for (name, source) in [
+        ("cb_mouse_surfaces", MOUSE_SURFACES),
+        ("cb_mouse_console", MOUSE_CONSOLE),
+    ] {
         let project = app_project(name, source);
         let ncode = build_ncode_app(&project, target, name);
         let _ = std::fs::remove_dir_all(&project);

@@ -484,6 +484,37 @@ Debugging technique that cracked it: **taking `close` out of the picture** — a
 
 `_pthread_start` keeps its own state in callee-saved registers, so a start routine that clobbers one (e.g. pinning `ARENA_STATE_REGISTER`) runs its body correctly and then crashes at thread exit — in `_pthread_terminate`, or a libmalloc abort in `_pthread_tsd_cleanup` — with no MFB frame in the trace. `lower_thread_trampoline` (`src/codegen/runtime/thread/runtime_helpers.rs`) saves `ARENA_STATE_REGISTER`, `CURRENT_THREAD` and `CLOSURE_ENV_REGISTER`; copy it. Same neighbourhood: give the thread an explicit 8 MiB stack (macOS defaults to 512 KiB and musl to 128 KiB, and an overflow smashes the TSD block with the same exit-time symptom), and don't create autoreleased Objective-C objects on a thread with no autorelease pool — the thread-exit drain aborts on them.
 
+### Every OS-entered callback is a C-ABI callee, on every exit (bug-982, bug-993)
+
+AppKit IMPs, GTK signal handlers, the Win32 window procedure, thread start routines and
+the OpenSSL verify callback are called by foreign code that keeps its own state in the
+callee-saved registers across the call. GLib's closure marshaller held a pointer in
+`x19` and dereferenced the GTK mouse handler's mode word after the return;
+`-[NSWindow sendEvent:]` passed the mouse IMP's leftover `x19` to `objc_release`. The
+macOS case crashed only on an EARLY exit (zero wheel delta, release off the view),
+because the full path happened to leave the `NSApplication` class object in `x19`, which
+`objc_release` tolerates: a clobber that lands a harmless value hides until a different
+path leaves a harmful one, so test the property, not a run.
+
+Three things are easy to miss:
+
+* A role token is not a register class. `SCRATCH[0]` realizes to the callee-saved `rbx`
+  on x86-64 (`_mfb_tls_verify_cb` wrote it), and `SCRATCH[10..12]` are `x20`–`x22` on
+  AArch64.
+* A callback that runs compiled MFB code inherits what MFB code may change: the pinned
+  arena/thread/closure registers, the x86 scratch homes `rbx`/`r13`, the internal 8th
+  argument `rbp`, and on Win64 the 5th/6th arguments `rdi`/`rsi`. Only the allocator's
+  callee-saved registers (`x21`–`x27`, `r12`/`r14`, …) are preserved by every MFB frame.
+  So the thread trampoline and the canvas graphics entry save the rest themselves.
+* `finalize_x86_app_function`'s bracket saves `rbx`/`r12`/`r13`/`r14` only; `LOCAL[0]`
+  stays physical as `rbp` and the body must save it.
+
+`tests/runtime/rt_foreign_entry_callee_saved.rs` checks every address-taken function and
+every `_mfb_{macapp,gtkapp,winapp}_*` body in each target's `-ncode` with a
+value-tracking dataflow (slots, moves, interprocedural escape sets). A new callback is
+audited automatically once its address is taken; a new MFB-dispatching `blr` routine
+must be added to its `MFB_DISPATCHERS`.
+
 ## Windows (PE / console / audio)
 
 ### Windows codegen verification
