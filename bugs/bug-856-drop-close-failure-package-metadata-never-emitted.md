@@ -9,7 +9,22 @@ Status: Open
 Coordinator note: repro measured by the review agent only; the coordinator did not re-run it.
 Regression Test: none yet
 
-**Owner decision (2026-10-05):** follow the language spec (§15). Compiled cleanup metadata is emitted, so a drop-close
+**Owner decision (2026-10-06, supersedes 2026-10-05): remove the cleanup table.** It is a
+bytecode-era structure (PC ranges, a resource register). Structured IR already encodes every
+resource lifetime through binding types and scopes, `resource_owners` and `RESOURCE_TABLE`, and
+nothing at runtime reads the table. So:
+- Remove the per-function cleanup table from the package format entirely, including
+  `FUNCTION_TABLE`'s `cleanupCount`/`cleanupOffset` fields. They have no use. Bump the package
+  format version, rebuild every committed `.mfp`, and decide how an old-format package is
+  rejected (a clear version error).
+- Remove the writer and reader code, the `pkg info` "Resource Cleanups" section, the
+  `package/07_functions.md` cleanup fields and the `package/09` "Relationship to the
+  function-table cleanup fields" section. Remove §15's "compiled cleanup metadata" sentence.
+- **Keep the secondary-close audit by deriving it**: `pkg info`'s secondary-close line and
+  `AUDIT-RESOURCE-SECONDARY-CLOSE` fire for a package function that binds a resource whose
+  `RESOURCE_TABLE` entry has the close-may-fail flag. Spec the derived rule in the same change.
+
+Earlier decision (2026-10-05, superseded): follow the language spec (§15). Compiled cleanup metadata is emitted, so a drop-close
 failure can be reported by runtime and audit tooling, and package audit output identifies
 those cleanup regions. The writer (`src/binary_repr/writer.rs:lower_function`) stops emitting
 an empty cleanup table. `package/09_resource-regions.md` is rewritten to describe the emitted
