@@ -31,8 +31,19 @@ The program must be an MFBASIC executable built for the computer you are on.
 When a file exists with a name made only of digits, `mfb dbg 1234` starts that
 file. Name it `./1234` either way to be clear.
 
-`mfb dbg` runs on macOS. On Linux and Windows it says `mfb dbg is not supported`
-and stops; `mfb man debug-external` shows how to use gdb there.
+`mfb dbg` runs on macOS, and on Linux on Arm (AArch64) computers. On Linux on
+x86-64 or RISC-V, and on Windows, it says `mfb dbg is not supported` and stops;
+`mfb man debug-external` shows how to use gdb there.
+
+On Linux, `mfb build` writes the example as `examples/debug/build/debug-glibc.out`
+and `debug-musl.out`, one for each C library Linux systems use. Debug the one
+your system runs — `debug-musl.out` on Alpine, `debug-glibc.out` on most
+others — wherever these pages say `debug.out`.
+
+A Linux app (`mfb build --app`) is an AppImage. Debug the program inside it:
+`./<name>-glibc.AppImage --appimage-extract` writes it to
+`squashfs-root/usr/bin/<name>`, and `mfb dbg` starts that. Or attach to the app
+while it runs.
 
 A program built without `--debug` can be debugged too, but `mfb dbg` says so
 when it starts, because the names of your functions are missing:
@@ -79,6 +90,12 @@ sh scripts/sign-debugger.sh
 ```
 
 Programs that `mfb build` makes need nothing extra.
+
+Linux needs no signing. Many Linux systems, though, let a program pause only
+the programs it started itself (their `kernel.yama.ptrace_scope` setting is 1
+or more), so `mfb dbg <pid>` stops with `cannot attach to process …` and says
+so. Start the program with `mfb dbg <binary>` instead, or run `mfb dbg` as the
+system's administrator.
 
 ## Examples
 
