@@ -1299,6 +1299,8 @@ mod tests {
         watched: Vec<(u64, u64)>,
         /// Thread 0's pc.
         pc: u64,
+        /// `isPrime` is readable code: `nop`s, with a `ret` at [`RET`].
+        code: bool,
     }
 
     /// Where [`Program`]'s memory starts.
@@ -1313,6 +1315,8 @@ mod tests {
     const STORE: u64 = 0x1110;
     const IS_PRIME: u64 = 0x1100;
     const EXIT: u64 = 0x9000;
+    /// `isPrime`'s `ret`, when the program has [`Program::code`].
+    const RET: u64 = 0x1130;
 
     fn function(
         name: &str,
@@ -1341,6 +1345,7 @@ mod tests {
                 writes: Vec::new(),
                 watched: Vec::new(),
                 pc: STORE,
+                code: false,
             }
         }
     }
@@ -1367,11 +1372,30 @@ mod tests {
         fn data_symbol(&mut self, _: &str) -> Result<Option<u64>, String> {
             Ok(None)
         }
-        fn read_code(&mut self, address: u64, _: usize) -> Result<Vec<u8>, String> {
-            Err(format!("unmapped {address:#x}"))
+        fn read_code(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
+            if !self.code || !(IS_PRIME..IS_PRIME + 0x40).contains(&address) {
+                return Err(format!("unmapped {address:#x}"));
+            }
+            Ok((0..length as u64 / 4)
+                .flat_map(|index| {
+                    let word: u32 = if address + index * 4 == RET {
+                        0xd65f_03c0
+                    } else {
+                        0xd503_201f
+                    };
+                    word.to_le_bytes()
+                })
+                .collect())
         }
-        fn function_at(&mut self, _: u64) -> Result<Option<FunctionRange>, String> {
-            Ok(None)
+        fn function_at(&mut self, address: u64) -> Result<Option<FunctionRange>, String> {
+            Ok((self.code && (IS_PRIME..IS_PRIME + 0x40).contains(&address)).then(|| {
+                FunctionRange {
+                    image: "prog".to_string(),
+                    name: Some("_mfb_fn_isPrime".to_string()),
+                    start: IS_PRIME,
+                    size: Some(0x40),
+                }
+            }))
         }
         fn data_symbol_at(&mut self, _: u64) -> Result<Option<String>, String> {
             Ok(None)
@@ -1943,6 +1967,59 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// A breakpoint of the user's on a `ret` with commands runs them, and the
+    /// finish still returns there.
+    #[test]
+    fn a_finish_returns_at_a_ret_holding_a_breakpoint_with_commands() {
+        let mut program = Program::new(vec![
+            RunStop::Breakpoints(vec![(0, RET)]),
+            RunStop::Exited(Exit::Status(0)),
+        ]);
+        program.bound = true;
+        program.code = true;
+        let mut breakpoints = Breakpoints::default();
+        breakpoints
+            .set(&mut program, &Target::Address(RET), &["bt".to_string()])
+            .unwrap();
+        let mut heard = Vec::new();
+        let finish = breakpoints
+            .finish(
+                &mut program,
+                0,
+                &mut |_: &mut dyn Inferior, breakpoints: &Breakpoints, _, stop: &RunStop| {
+                    heard.push(stop.clone());
+                    Ok(breakpoints.stop_commands(stop).1)
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            finish,
+            Finish::Returned {
+                from: Some("_mfb_fn_isPrime".to_string())
+            }
+        );
+        assert_eq!(heard, [RunStop::Breakpoints(vec![(0, RET)])]);
+        assert_eq!(program.inserted, [RET]);
+    }
+
+    /// A restart places the error park's breakpoint once, though one of the
+    /// user's is there too.
+    #[test]
+    fn a_restart_places_a_shared_park_breakpoint_once() {
+        let mut program = Program::new(Vec::new());
+        let mut breakpoints = Breakpoints::default();
+        breakpoints
+            .watch_errors(&mut program, ErrorCodes::Any, &[])
+            .unwrap();
+        breakpoints
+            .set(&mut program, &name(PARK_ERROR), &[])
+            .unwrap();
+        // The new process holds none of the old one's breakpoints.
+        program.inserted.clear();
+        assert_eq!(breakpoints.restarted(&mut program), Ok(Vec::new()));
+        assert_eq!(program.inserted, [PARK]);
     }
 
     #[test]
