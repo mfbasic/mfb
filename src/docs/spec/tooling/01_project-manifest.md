@@ -42,8 +42,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
 | `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |
 | `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** |
-| `maxBuffer` | number | no | ceiling on a single native `OUT CBuffer` allocation, in MiB. Whole number, 1–4096; defaults to **64**. See *Native buffer ceiling* |
-| `options` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
+| `options` | object | no | runtime tunables baked into the executable (see ⁴) |
 | `config` | object | no | named build configurations of String/Integer/Float values (see *Named configs*) |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
@@ -78,23 +77,26 @@ a malformed `icon` fails either app build.
 
 The manifest validator checks required `name`/`version`/`mfb` strings,
 optional `entry`/`author`/`url`/`icon` strings, `description`, `kind`, `mode`,
-`sources`, `maxBuffer`, `resources`, `libraries`, `config`, and the array shape of
+`sources`, `options.maxBuffer`, `resources`, `libraries`, `config`, and the array shape of
 `packages`. Dependency-entry fields are interpreted by later package stages;
 `ident` and `options` are read lazily. `targets` and per-source `role` are emitted
 by `mfb init` but are not consulted by selection or build stages.
 [[src/manifest/mod.rs:validate_project_manifest]]
 [[src/manifest/mod.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
-⁴ `options` holds build-time runtime tunables baked into the compiled executable.
-One key is read: `stdinLogCap`, the stdin broadcast-log
+⁴ `options` holds runtime tunables baked into the compiled executable.
+Two keys are read: `stdinLogCap`, the stdin broadcast-log
 backpressure high-water mark in bytes — the runtime reader blocks a
 producer rather than growing the log past `base + stdinLogCap`. It is read lazily
 on the executable codegen path and defaults to `STDIN_LOG_CAP_DEFAULT` (4 MiB) when
 absent, non-numeric, non-finite, or below one read chunk (8 KiB, which could not hold a single
-chunk); unknown keys under `options` are ignored. It is not a runtime env var or
-setter — the value is fixed into the binary at build time. Accepted finite
-values are cast to `u64`: fractions truncate and values above its range saturate.
-[[src/manifest/mod.rs:stdin_log_cap]]
+chunk); and `maxBuffer`, the ceiling on one native `OUT CBuffer` allocation in MiB.
+`maxBuffer` must be a whole number from 1 through 4096 and defaults to 64. Both
+are read lazily on executable codegen and are fixed into the binary at build time;
+they are not environment variables or runtime setters. Unknown keys are ignored.
+`stdinLogCap` finite values are cast to `u64`: fractions truncate and values above
+its range saturate. [[src/manifest/mod.rs:stdin_log_cap]]
+[[src/manifest/mod.rs:max_buffer_bytes]]
 The section was named `config` before plan-167; a manifest whose `config` object
 still holds a `stdinLogCap` member fails validation with
 `PROJECT_JSON_CONFIG_MOVED_OPTION` at that member, naming `options.stdinLogCap`.
@@ -108,14 +110,14 @@ most 4096 bytes; an empty string is accepted. A package that omits it emits
 [[src/manifest/mod.rs:MAX_DESCRIPTION_BYTES]]
 [[src/manifest/mod.rs:validate_description]]
 
-## Native buffer ceiling (`maxBuffer`)
+## Native buffer ceiling (`options.maxBuffer`)
 
 A native `LINK` wrapper with an `OUT CBuffer` slot sizes its buffer from a `BUFFER … SIZE` expression over the wrapper's parameters (./mfb spec language native-libraries). That size is a *runtime* value chosen by the caller, so without a ceiling it is an unbounded allocation request.
 
-`maxBuffer` sets that ceiling, in MiB:
+`options.maxBuffer` sets that ceiling, in MiB:
 
 ```json
-{ "maxBuffer": 256 }
+{ "options": { "maxBuffer": 256 } }
 ```
 
 - Whole number, 1 to 4096. Anything else — a string, a fraction, zero, out of range — is `PROJECT_JSON_FIELD_TYPE`.

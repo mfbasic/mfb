@@ -2,7 +2,7 @@
   "name": "link_const_pins_cover",
   "version": "0.1.0",
   "mfb": "1.0",
-  "maxBuffer": 1,
+  "options": { "maxBuffer": 1 },
   "kind": "executable",
   "libraries": {
     "c": [

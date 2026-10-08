@@ -191,7 +191,7 @@ pub(crate) const WIN_LINK_VENDORSEP_TEXT: &str = "\\vendor\\";
 #[derive(Clone, Copy)]
 pub(crate) struct LinkCodegenOptions {
     pub(crate) globals_base: usize,
-    /// project.json `maxBuffer` in bytes — the `OUT CBuffer` allocation ceiling.
+    /// project.json `options.maxBuffer` in bytes — the `OUT CBuffer` allocation ceiling.
     /// The CONSUMING project's setting: thunks are emitted when an executable
     /// links, so a binding cannot raise an application's ceiling on its behalf.
     pub(crate) max_buffer_bytes: u64,
@@ -213,7 +213,7 @@ struct ThunkContext {
     globals_base: usize,
     /// The globals slot holding the `FREE` deallocator's resolved address.
     free_slot: Option<usize>,
-    /// project.json `maxBuffer` in bytes — the `OUT CBuffer` allocation ceiling.
+    /// project.json `options.maxBuffer` in bytes — the `OUT CBuffer` allocation ceiling.
     /// The CONSUMING project's setting; see `emit_link_support`.
     max_buffer_bytes: u64,
 }
@@ -3270,8 +3270,8 @@ mod tests {
         index: 0,
         globals_base: 0,
         free_slot: None,
-        // The project.json `maxBuffer` default, so a test asserting the size gate
-        // reads against the same number a project with no `maxBuffer` gets.
+        // The project.json `options.maxBuffer` default, so a test asserting the size gate
+        // reads against the same number a project with no `options.maxBuffer` gets.
         max_buffer_bytes: 64 * 1024 * 1024,
     };
 
