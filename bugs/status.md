@@ -1,4 +1,4 @@
-I've placed all 154 open bugs in `bugs/` into 11 phases. The tally is measured: I compared the phase lists below against `ls bugs/bug-*.md` with a script, and no bug is missing or listed twice. I worked from each bug's header (title, severity, effort, class, owner decisions) and the references between bugs. I did not re-run any repro, so some of these may already be fixed. `/fix-bug` re-runs the repro first, so that will show up when each one is picked up.
+I've placed all 157 open bug documents in `bugs/` into 11 phases (counted with `python3 -c 'from pathlib import Path; print(len(list(Path("bugs").glob("bug-*.md"))))'`). The phase lists were compared against the open bug documents, with no bug missing or listed twice. I worked from each bug's header (title, severity, effort, class, owner decisions) and the references between bugs. I did not re-run each repro, so some of these may already be fixed. `/fix-bug` re-runs the repro first, so that will show up when each one is picked up.
 
 ## How I ordered them
 1. **Crashes and security holes first**, when the fix is small and doesn't sit inside a planned redesign.
@@ -43,8 +43,9 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] 977 → 878, then 978 + 839, then 945 (large; `Result`/`Ok` reserved in user code)
 
 **P7: Standard library correctness**
+[ ] Collections: 1006 (`collections::window` overflows its next-window bound for a valid large stride), 1007 (fixed-width `chunks` fast path overallocates short chunks), 1009 (fixed-width `toSet` reserves by input length), 1010 (native `merge` reserves for overlapping input keys), 1011 (reserved collection results retain source-sized capacity when outputs are smaller)
 [ ] Numbers: 831, 931, 932, 934, 845
-[ ] Text and formats: 827, 828, 829, 869, 871, 863, 905, 906, 879, 888
+[ ] Text and formats: 1005 (`strings::repeat` on an empty string still loops `times` times), 827, 828, 829, 869, 871, 863, 905, 906, 879, 888
 [ ] I/O and OS: 891, 892, 893, 886
 
 **P8: App, terminal and canvas**
@@ -61,6 +62,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 **P10: Codegen internals**
 [ ] 946 (huge refactor) together with 930
 [ ] 855 (quadratic copying when walking recursive unions)
+[ ] 1008 (large valid constant `chunks`/`window` sizes panic in native code generation)
 
 **P11: Spec-drift sweep**
 [ ] Any order: 830, 840, 883, 889, 890, 894, 896, 904, 910, 927, 944, 961, 974
