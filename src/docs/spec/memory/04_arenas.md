@@ -463,8 +463,8 @@ local counts as keeping); no element read back out of it by `collections::get`/`
 (or a `*::poll`) is kept — a read written straight into an argument of a call that does
 not keep it ends with that call, while one that is bound, returned, stored as an element
 or nested in another value disqualifies the collection; and every element that floats
-into it is a fresh producer record that does not escape and is not handed to code that
-keeps it. Such a collection also frees the block a copying
+into it is a fresh producer record that does not escape and is not handed to such
+unread code. Such a collection also frees the block a copying
 reassignment replaces (`out = collections::append(out, x)` when the in-place append
 declines); the elements are references and are not touched. The intermediates a `collections` member builds for a `RES` collection (an
 element's singleton, `set`'s removed copy) are freed the same shallow way.

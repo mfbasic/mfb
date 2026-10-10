@@ -504,7 +504,9 @@ const INNER_OWNING_BUILTIN_BODIES: &[&str] = &["#collections_chunks$", "#collect
 /// lowered builtin: a call through a function value, or one handed a callback that
 /// keeps what it is passed, reaches code that may store the reference anywhere
 /// ([`CollectionUses::call_reaches_unread_code`]). Such an argument is kept, for the
-/// collection and for an element alike.
+/// collection and for an element alike. (A named callee that keeps its parameter
+/// keeps a collection's block, but is no hazard for an element: see
+/// `kept_by_unread_code`.)
 ///
 /// The float exclusion in [`Resolver::local_fresh`] is lifted for exactly the elements
 /// of the collection being asked about: "this local floated into a collection" is the
@@ -595,8 +597,8 @@ fn owning_collections(
         };
         let elements_owned = elements.iter().all(|element| {
             !uses.escaping.contains(element)
-                // bug-1000: nor handed to code that keeps it.
-                && !uses.kept_by_code.contains(element)
+                // bug-1000: nor handed to code the walk cannot read.
+                && !uses.kept_by_unread_code.contains(element)
                 && !stores
                     .stores
                     .get(element)
@@ -675,12 +677,16 @@ struct CollectionUses<'m, 'f> {
     /// reference stored without a float (`keep = collections::append(keep,
     /// collections::get(mkList(), 0))`) must go on reading a closed handle.
     exclusive_temps: HashMap<usize, bool>,
-    /// bug-1000: the locals in `kept` that CODE keeps — a callee whose body keeps
-    /// its parameter, or code this walk cannot read — as opposed to a `collections`
-    /// member storing its element argument. A floated element is in `kept` by
-    /// construction (the `append` that floats it), so that set cannot be asked of
-    /// one; this one can.
-    kept_by_code: HashSet<String>,
+    /// bug-1000: the locals handed to code this walk cannot read
+    /// ([`Self::call_reaches_unread_code`]): a callback that keeps what it is
+    /// passed, or a call through a function value. Asked of a floated ELEMENT,
+    /// which `kept` cannot be: an element is in `kept` by construction (the
+    /// `append` that floats it), and a named callee that keeps its parameter is
+    /// no hazard for one — what it keeps dies with its frame, comes back as a
+    /// result the caller's binding adopts by the owner test, or is raised to the
+    /// module instance. Unread code can hold a reference to an outer scope's
+    /// list (a `LAMBDA`'s by-reference capture), which none of those cover.
+    kept_by_unread_code: HashSet<String>,
     /// bug-1000: the locals and parameters of this function that hold a function
     /// value — a call through one, or a call handed one, runs code this walk
     /// cannot read.
@@ -724,7 +730,7 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
             transient_borrow: false,
             transient_readers: HashSet::new(),
             exclusive_temps: HashMap::new(),
-            kept_by_code: HashSet::new(),
+            kept_by_unread_code: HashSet::new(),
             function_values: function
                 .params
                 .iter()
@@ -1098,11 +1104,11 @@ impl NirVisitor for CollectionUses<'_, '_> {
                 // bug-1000: and so does code this walk cannot read.
                 let unread = self.call_reaches_unread_code(target, args);
                 for (index, arg) in args.iter().enumerate() {
-                    let code_keeps = unread
+                    let keeps = unread
+                        || (stores_elements && index > 0)
                         || callee
                             .as_ref()
                             .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true));
-                    let keeps = code_keeps || (stores_elements && index > 0);
                     let NirValue::Local(name) = arg else {
                         // bug-1000: a borrowed-element read written straight into an
                         // argument position is a use of the element exactly as naming
@@ -1142,8 +1148,8 @@ impl NirVisitor for CollectionUses<'_, '_> {
                     if keeps {
                         self.kept.insert(name.clone());
                     }
-                    if code_keeps {
-                        self.kept_by_code.insert(name.clone());
+                    if unread {
+                        self.kept_by_unread_code.insert(name.clone());
                     }
                 }
                 return;
@@ -1813,7 +1819,7 @@ mod owned_list_ownership_tests {
             &mut CalleeParamUses::default(),
             |uses| {
                 assert!(uses.block_held_elsewhere("stashed"));
-                assert!(uses.kept_by_code.contains("stashed"));
+                assert!(uses.kept_by_unread_code.contains("stashed"));
                 assert!(!uses.block_held_elsewhere("read"));
                 assert!(uses.block_held_elsewhere("unknown"));
             },

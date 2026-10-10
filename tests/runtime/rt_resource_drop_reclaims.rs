@@ -442,6 +442,44 @@ END FUNC
     assert_eq!(out.trim(), "110");
 }
 
+/// A floated element handed to a named function that binds its parameter (here,
+/// a `MATCH` view of it) still belongs to the list: what a named callee keeps dies
+/// with its frame. Only code the proof cannot read disqualifies an element.
+#[test]
+fn a_floated_element_given_to_a_named_callee_is_freed() {
+    let out = assert_balanced(
+        "b1000_named_callee",
+        &list_program(
+            r#"FUNC firstLine(h AS fs::File) AS Integer
+  RES view AS fs::File = h
+  RETURN len(fs::readLine(view))
+END FUNC
+
+FUNC once() AS Integer
+  MUT xs AS List OF RES fs::File = []
+  MUT n AS Integer = 0
+  IF len("x") = 1 THEN
+    RES f AS fs::File = openData()
+    n = firstLine(f)
+    xs = collections::append(xs, f)
+  END IF
+  RETURN n + len(xs)
+END FUNC
+
+FUNC main() AS Integer
+  MUT t AS Integer = 0
+  FOR i = 1 TO count()
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+  RETURN 0
+END FUNC
+"#,
+        ),
+    );
+    assert_eq!(out.trim(), "60");
+}
+
 // The shapes below must NOT be freed by the list: something else still holds the
 // record. Each uses the handle after the point a wrong free would have run, and
 // each must stay free of double frees.

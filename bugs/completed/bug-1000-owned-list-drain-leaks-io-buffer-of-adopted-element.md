@@ -199,7 +199,10 @@ base compiler):**
   a parameter that can carry a reference; a callback held in a local, and a call
   through a function value, cannot be read and count as keeping
   (`call_reaches_unread_code`). A floated element handed to such code no longer
-  qualifies either (`kept_by_code`).
+  qualifies either (`kept_by_unread_code`). A floated element handed to a NAMED
+  function that keeps its parameter still qualifies, as it did: what such a
+  callee keeps dies with its frame, comes back as a result the caller's binding
+  adopts by the owner test, or is raised to the module instance.
 - **An adopted list around a record its own scope already owns.**
   `RES a = open()` then `LET xs = wrap(a)` (`wrap` returns `[f]`) listed `a`'s
   record on `xs`'s owned-list. Both are at one scope depth, so the drain passed the
