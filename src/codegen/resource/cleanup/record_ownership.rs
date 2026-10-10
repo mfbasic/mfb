@@ -63,6 +63,10 @@ pub(crate) struct RecordOwnership {
     /// bug-753: owning nested collections whose inner blocks are theirs alone, so
     /// the scope-exit free releases each inner block, then the outer one.
     pub(crate) inner_owning_collections: HashSet<String>,
+    /// bug-999: the call nodes (by address) whose result nothing but their own
+    /// statement can hold, mapped to whether the result's block is one the callee
+    /// built — see [`CollectionUses::exclusive_temps`].
+    pub(crate) exclusive_temps: HashMap<usize, bool>,
 }
 
 /// Where one store into a local comes from, as far as record ownership is concerned.
@@ -391,7 +395,7 @@ pub(crate) fn record_ownership(
             _ => None,
         })
         .collect();
-    let owning_collections = owning_collections(
+    let (owning_collections, exclusive_temps) = owning_collections(
         function,
         functions,
         record_type,
@@ -408,6 +412,7 @@ pub(crate) fn record_ownership(
         owning_collections,
         reassign_free_collections,
         inner_owning_collections,
+        exclusive_temps,
     }
 }
 
@@ -512,7 +517,7 @@ fn owning_collections(
     union_collection_type: &dyn Fn(&ParameterType) -> bool,
     stores: &Stores,
     params: &HashSet<String>,
-) -> HashSet<String> {
+) -> (HashSet<String>, HashMap<usize, bool>) {
     let mut floats: HashMap<String, Vec<String>> = HashMap::new();
     for (name, owner) in &function.resource_owners {
         if let crate::ir::resource_escape::ResOwner::Float(collection) = owner {
@@ -523,7 +528,8 @@ fn owning_collections(
         }
     }
     let mut callees = CalleeParamUses::default();
-    let uses = CollectionUses::of(function, functions, &mut callees);
+    let mut uses = CollectionUses::of(function, functions, &mut callees);
+    let exclusive_temps = std::mem::take(&mut uses.exclusive_temps);
     // bug-1000's wider rule, except for a collection of resource-union boxes
     // (`block_held_elsewhere_strict`).
     let held_elsewhere = |name: &str, type_: &ParameterType| {
@@ -559,7 +565,7 @@ fn owning_collections(
         owning.insert(name.clone());
     }
     if floats.is_empty() {
-        return owning;
+        return (owning, exclusive_temps);
     }
     for (collection, elements) in &floats {
         // A float target with no bind in this body (a parameter) takes the strict
@@ -601,7 +607,7 @@ fn owning_collections(
             owning.insert(collection.clone());
         }
     }
-    owning
+    (owning, exclusive_temps)
 }
 
 /// Where each local is NAMED, for [`owning_collections`]: the positions that can create
@@ -650,6 +656,25 @@ struct CollectionUses<'m, 'f> {
     /// `transient_borrow`). Kept apart from `element_readers` for the collections
     /// that still take the strict rule ([`Self::block_held_elsewhere_strict`]).
     transient_readers: HashSet<String>,
+    /// bug-999: call nodes (by address) whose result is the statement's alone, so
+    /// the statement may FREE what it closes, as a binding's scope would
+    /// (`LET t = mkList()` then `len(t)`). Three facts make it so:
+    ///
+    /// * the call is written straight into an argument of a call that does not
+    ///   keep the argument (a natively lowered builtin, or a body read and found
+    ///   not to) and takes no callback;
+    /// * that receiving call can only answer with a plain scalar, so nothing of the
+    ///   argument comes back out of it;
+    /// * the call itself runs a body whose parameters are all plain scalars
+    ///   ([`Self::call_takes_only_plain_scalars`]), so what its result reaches
+    ///   unowned came from its own frame.
+    ///
+    /// The value says whether the result's own block is one the callee built
+    /// ([`Self::user_call_returns_fresh_block`]). Any other aggregate temporary keeps
+    /// the close-only rule: its records stay as closed tombstones, because a
+    /// reference stored without a float (`keep = collections::append(keep,
+    /// collections::get(mkList(), 0))`) must go on reading a closed handle.
+    exclusive_temps: HashMap<usize, bool>,
     /// bug-1000: the locals in `kept` that CODE keeps — a callee whose body keeps
     /// its parameter, or code this walk cannot read — as opposed to a `collections`
     /// member storing its element argument. A floated element is in `kept` by
@@ -698,6 +723,7 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
             in_iterable: false,
             transient_borrow: false,
             transient_readers: HashSet::new(),
+            exclusive_temps: HashMap::new(),
             kept_by_code: HashSet::new(),
             function_values: function
                 .params
@@ -796,6 +822,45 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
             .iter()
             .zip(keeps)
             .any(|(param, kept)| kept && !is_plain_scalar(&param.type_))
+    }
+
+    /// bug-999: whether `value` calls a function with a body all of whose
+    /// parameters are plain scalars. Nothing such a call is given can carry a
+    /// reference in, so an unowned record in its result is one its own frame
+    /// produced and released: no argument's holder, and no closed tombstone some
+    /// longer-lived list still names, can be among them.
+    fn call_takes_only_plain_scalars(&self, value: &NirValue) -> bool {
+        // A plain call only: a `CallResult` yields a `Result` wrapper, not the value.
+        let NirValue::Call { target, .. } = value else {
+            return false;
+        };
+        self.functions.get(target).is_some_and(|callee| {
+            callee
+                .params
+                .iter()
+                .all(|param| is_plain_scalar(&param.type_))
+        })
+    }
+
+    /// bug-999: whether a call to `target` can only ever answer with a plain scalar
+    /// — a value that cannot hold a reference to anything its arguments reached. A
+    /// function with a body answers by its declared return; a builtin by every
+    /// overload it declares.
+    fn call_returns_plain_scalar(&self, target: &str) -> bool {
+        if let Some(callee) = self.functions.get(target) {
+            return is_plain_scalar(&callee.returns);
+        }
+        let (package, member) = target.split_once('.').unwrap_or(("general", target));
+        crate::codegen::registry::registry()
+            .resolve_package(package)
+            .and_then(|package| package.function(member))
+            .is_some_and(|function| {
+                !function.implementations.is_empty()
+                    && function
+                        .implementations
+                        .iter()
+                        .all(|implementation| is_plain_scalar(&implementation.return_type))
+            })
     }
 
     /// Whether a holder other than `name` itself can still reach its block or read a
@@ -1057,6 +1122,19 @@ impl NirVisitor for CollectionUses<'_, '_> {
                             && !keeps
                             && consumes != Some(index)
                             && (!borrowed || (transient && index == 0));
+                        // bug-999: a call written straight into an argument this
+                        // call neither keeps nor can answer with.
+                        if !borrowed_read
+                            && !borrowed
+                            && !keeps
+                            && consumes != Some(index)
+                            && self.call_takes_only_plain_scalars(arg)
+                            && self.call_returns_plain_scalar(target)
+                        {
+                            let fresh_block = self.user_call_returns_fresh_block(arg);
+                            self.exclusive_temps
+                                .insert(arg as *const NirValue as usize, fresh_block);
+                        }
                         self.visit_value(arg);
                         self.transient_borrow = false;
                         continue;

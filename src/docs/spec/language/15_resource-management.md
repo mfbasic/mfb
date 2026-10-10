@@ -56,7 +56,14 @@ used as a call argument (`useF(fs::open(p, "read"))`), as the target of a member
 read (`openTagged(p).state.pos`), or as an element of a list or record literal that
 is itself passed on (`useList([mk()])`): at the end of its statement, every
 resource the value reaches that is still unowned and not already closed is closed,
-on every exit from the statement. One a binding, an adopting container, a global or
+on every exit from the statement. A call to a function with a body that returns an
+aggregate reaching resources is such a producer too (`len(mkList())`, a returned
+record, a `List` or `Map` of them): its `RETURN` released exactly the resources its
+own scopes owned, so the ones still unowned at the end of the statement are the ones
+it handed over and nothing took. Two aggregates are views and are left alone: one a
+natively implemented builtin returns, which can name resources another owner holds,
+and one from a function whose every `RETURN` hands back a parameter it never
+reassigns or a module-level binding, which transfers nothing. One a binding, an adopting container, a global or
 a `RETURN` took by then has an owner and is left to it, so `RES k = ident(mk())`
 and `RETURN ident(mk())` keep theirs. An inline `TRAP` over a call that hands out
 resources (`LET xs = mkList() TRAP … END TRAP`) adopts them into the binding's scope

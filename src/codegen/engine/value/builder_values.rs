@@ -89,6 +89,63 @@ pub(crate) enum EscapingValue {
     InSlot(usize),
 }
 
+/// bug-999: whether every `RETURN` of `function` hands back a view — the value of
+/// a module-level binding, or a parameter the body never reassigns. Such a function
+/// transfers nothing: a parameter's resources are the caller's, and a module-level
+/// binding's are the module instance's (`resource/module_owner.rs`). A call to one
+/// nested in an expression (`__canvas_hashScene(__canvas_frameItems(), [])`, where
+/// `__canvas_frameItems` returns the frame's item list) is therefore not a producer
+/// of resources, and its statement has nothing of its to close.
+fn function_returns_only_views(function: &NirFunction) -> bool {
+    use crate::target::shared::nir::visit::{walk_op, NirVisitor};
+    struct Returns<'f> {
+        function: &'f NirFunction,
+        any: bool,
+        only_views: bool,
+        returned_params: Vec<&'f str>,
+    }
+    impl<'f> NirVisitor for Returns<'f> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Return { value: Some(value) } = op {
+                self.any = true;
+                match value {
+                    NirValue::Global { .. } => {}
+                    NirValue::Local(name) => {
+                        match self
+                            .function
+                            .params
+                            .iter()
+                            .find(|param| param.name == *name)
+                        {
+                            Some(param) => self.returned_params.push(param.name.as_str()),
+                            None => self.only_views = false,
+                        }
+                    }
+                    _ => self.only_views = false,
+                }
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut returns = Returns {
+        function,
+        any: false,
+        only_views: true,
+        returned_params: Vec::new(),
+    };
+    returns.visit_ops(&function.body);
+    if !returns.any || !returns.only_views {
+        return false;
+    }
+    let reassigned = crate::codegen::engine::function::function_lowering::collect_reassigned_locals(
+        &function.body,
+    );
+    !returns
+        .returned_params
+        .iter()
+        .any(|param| reassigned.contains(*param))
+}
+
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // bug-592: plan-86 E's borrow flag belongs to exactly one frame — the
@@ -217,6 +274,7 @@ impl CodeBuilder<'_> {
         self.operand_snapshot_wanted.truncate(snapshot_mark);
         crate::codegen::engine::expansion::exit(self.instructions.len());
         self.current_loc = saved_loc;
+        let mut resource_temp = Ok(());
         if let Ok(result) = &result {
             let fresh_string = fresh_string.is_some_and(|block| block == result.location);
             if !placed_in_record_temp {
@@ -229,9 +287,10 @@ impl CodeBuilder<'_> {
             let root_taken = value_discarded
                 || self.resource_temp_exempt == Some(value as *const NirValue as usize);
             if !root_taken {
-                self.register_resource_temp(value, result);
+                resource_temp = self.register_resource_temp(value, result);
             }
         }
+        let result = resource_temp.and(result);
         // bug-496: if THIS value is such an operand of the enclosing node, hand
         // its consumer a statement-scope deep copy instead of the live pointer.
         let mut result = result.and_then(|result| self.snapshot_aliased_operand(value, result));
@@ -301,29 +360,68 @@ impl CodeBuilder<'_> {
     /// then has an owner and is left to it, and one a callee was handed and handed
     /// back keeps its owner.
     ///
-    /// Only a call whose result IS a resource (or a resource union) is a producer
-    /// here. An aggregate a call returns may be a view of resources someone else
-    /// holds without an owner word to say so — `canvas::groupItems` hands back the
-    /// group store's own items — so closing what it reaches is not this rule's to
-    /// decide. A borrowed element (`collections::get`, a `poll`) produces nothing.
-    fn register_resource_temp(&mut self, value: &NirValue, result: &ValueResult) {
+    /// A call whose result IS a resource (or a resource union) is a producer here,
+    /// whatever it calls. A borrowed element (`collections::get`, a `poll`) produces
+    /// nothing.
+    ///
+    /// bug-999: an AGGREGATE reaching resources (`len(mkList())`, a record or a
+    /// `List OF Holder`) is one only when the call runs a function BODY. A body
+    /// leaves through `RETURN`, which releases exactly the records its own frame
+    /// owned (`emit_release_returned_value`), so an unowned record in its result is
+    /// one it handed over and nobody took — the same fact the bound form
+    /// `LET xs = mkList()` adopts on, under the same `adopts_from_call` exclusion
+    /// for a `collections` member that only re-packages its arguments. A natively
+    /// lowered call has no `RETURN` and makes no such statement: `canvas::groupItems`
+    /// hands back the group store's own items, which are held and unowned at once,
+    /// so its result stays a view this rule does not touch (bug-842). Nor does a
+    /// body that can only hand back what it was given or what the module holds
+    /// ([`function_returns_only_views`]).
+    fn register_resource_temp(
+        &mut self,
+        value: &NirValue,
+        result: &ValueResult,
+    ) -> Result<(), String> {
         if self.borrow_get_result {
-            return;
+            return Ok(());
         }
         let (NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
         | NirValue::RuntimeCall { target, .. }) = value
         else {
-            return;
+            return Ok(());
         };
-        if !self.is_resource_leaf(&result.type_) || Self::target_returns_borrowed_resource(target) {
-            return;
+        if Self::target_returns_borrowed_resource(target) {
+            return Ok(());
+        }
+        // Cheapest test first: almost no call's result reaches a resource, and the
+        // last test walks the callee's body.
+        let handed_over_aggregate = || {
+            !matches!(value, NirValue::RuntimeCall { .. })
+                && !self.resource_leaf_types(&result.type_).is_empty()
+                && crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
+                && self
+                    .functions
+                    .get(target.as_str())
+                    .is_some_and(|callee| !function_returns_only_views(callee))
+        };
+        let leaf = self.is_resource_leaf(&result.type_);
+        if !leaf && !handed_over_aggregate() {
+            return Ok(());
         }
         let slot = self.allocate_stack_object("resource_temp", 8);
         self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
         // A slot a skipped producer (a short-circuited operand, an earlier loop
         // iteration's path) never wrote must read null, not stack garbage.
         self.owned_value_slots.push(slot);
+        if !leaf && self.adopt_exclusive_temp(value, slot, &result.type_)? {
+            // The adoption allocated list nodes, and an arena call destroys every
+            // caller-saved register: hand the consumer the value back from its slot.
+            self.emit(abi::load_u64(
+                abi::Reg::from(&result.location),
+                abi::stack_pointer(),
+                slot,
+            ));
+        }
         let token = self.allocate_register();
         self.pending_temp_frees.push(PendingTemp {
             type_: result.type_.clone(),
@@ -332,6 +430,115 @@ impl CodeBuilder<'_> {
             shallow: false,
             resource: true,
         });
+        Ok(())
+    }
+
+    /// bug-999: adopt, for the statement, what an exclusive aggregate temporary in
+    /// `slot` reaches ([`ExclusiveTemps`]). Every unowned record is claimed for the
+    /// current scope and listed, one list per resource leaf kind, exactly as a
+    /// binding of the same call adopts; a record that already has an owner is left
+    /// to it. Emits nothing and answers `false` for a value this cannot own
+    /// outright, which keeps the close-only rule.
+    fn adopt_exclusive_temp(
+        &mut self,
+        value: &NirValue,
+        slot: usize,
+        type_: &ParameterType,
+    ) -> Result<bool, String> {
+        let Some(&fresh_block) = self
+            .exclusive_temps
+            .calls
+            .get(&(value as *const NirValue as usize))
+        else {
+            return Ok(false);
+        };
+        // A function value's resources ride its environment routine, not a list.
+        if self.type_reaches_closure_leaf(type_) {
+            return Ok(false);
+        }
+        let leaves = self.resource_leaf_types(type_);
+        // A resource-union box a callee's binding wrapped is freed by that binding
+        // as the callee returns (bug-1012), so a drain that frees boxes would free
+        // it twice. Such a result keeps the close-only rule until a box has an
+        // owner outside a binding.
+        if leaves
+            .iter()
+            .any(|leaf| self.resource_union_cleanup(leaf).is_some())
+        {
+            return Ok(false);
+        }
+        let depth = self.current_scope_depth();
+        let mut lists = Vec::new();
+        for leaf in leaves {
+            let drop = self.resource_leaf_drop(&leaf)?;
+            let head_slot = self.allocate_stack_object("resource_temp_owned", 8);
+            // Empty on every path that does not reach the producer, like `slot`.
+            self.owned_value_slots.push(head_slot);
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), head_slot));
+            lists.push(OwnedListCleanup {
+                name: String::new(),
+                head_slot,
+                drop,
+                owns_elements: true,
+                scope_depth: depth,
+                leaf,
+            });
+        }
+        let heads: Vec<(ParameterType, usize, bool)> = lists
+            .iter()
+            .map(|list| {
+                (
+                    list.leaf.clone(),
+                    list.head_slot,
+                    matches!(list.drop, OwnedListDrop::Union { .. }),
+                )
+            })
+            .collect();
+        self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
+            let leaf = crate::codegen::engine::types::typed_strip_res_marker(leaf);
+            let Some((_, head_slot, union)) =
+                heads.iter().find(|(kind, _, _)| kind == leaf).or_else(|| {
+                    heads
+                        .iter()
+                        .find(|(kind, _, _)| kind.without_state() == leaf.without_state())
+                })
+            else {
+                return Err(format!(
+                    "resource temporary reaches '{leaf}', which it has no list for (bug-999)"
+                ));
+            };
+            builder.emit_owned_list_push_node(*head_slot, Some((depth, *union)), leaf_slot, true)
+        })?;
+        let frees_block = fresh_block && Self::is_res_collection_block(type_);
+        self.exclusive_temps
+            .drops
+            .insert(slot, (lists, frees_block));
+        Ok(true)
+    }
+
+    /// bug-999: the statement-end drop of an exclusive aggregate temporary: drain
+    /// the lists [`Self::adopt_exclusive_temp`] seeded — close each record this
+    /// scope took, then free its buffers, `STATE` and record, as a sole owner's
+    /// drain does — and free the result's own block when the callee built it.
+    /// Every step nulls what it consumed, so a drop reached again on this slot
+    /// (another exit path, a loop that skipped the producer) does nothing.
+    fn emit_exclusive_temp_drop(&mut self, temp: &PendingTemp) -> Result<bool, String> {
+        let Some((lists, frees_block)) = self.exclusive_temps.drops.get(&temp.slot).cloned() else {
+            return Ok(false);
+        };
+        for list in &lists {
+            self.emit_owned_list_drain(list)?;
+        }
+        if frees_block {
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: temp.type_.clone(),
+                stack_offset: temp.slot,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            })?;
+        }
+        Ok(true)
     }
 
     /// Whether a fresh block produced by `value` (of static type `type_`) may be
@@ -668,6 +875,13 @@ impl CodeBuilder<'_> {
         // slot is nulled so a loop that re-reaches this drop without the producer
         // running again closes nothing.
         if temp.resource {
+            // bug-999: a temporary the statement owns outright frees what it
+            // closes. Its drop is the same on every path, a `RETURN`'s included:
+            // nothing a returned value carries can be among its records.
+            if self.emit_exclusive_temp_drop(temp)? {
+                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), temp.slot));
+                return Ok(());
+            }
             if !self.resource_temps_closed_on_path {
                 self.emit_resource_temp_close(temp.slot, &temp.type_)?;
             }
@@ -692,7 +906,9 @@ impl CodeBuilder<'_> {
     pub(crate) fn close_resource_temps_before_return(&mut self) -> Result<(), String> {
         let temps = self.pending_temp_frees.clone();
         for temp in temps.iter().rev() {
-            if temp.resource {
+            // bug-999: an exclusive temporary is dropped whole by the interior
+            // drop this path emits next, which does not consult the flag below.
+            if temp.resource && !self.exclusive_temps.drops.contains_key(&temp.slot) {
                 self.emit_resource_temp_close(temp.slot, &temp.type_)?;
             }
         }
@@ -4486,5 +4702,103 @@ mod borrowed_resource_tests {
         assert!(CodeBuilder::value_aliases_live_resource(&plain_call(
             "collections.get"
         )));
+    }
+}
+
+#[cfg(test)]
+mod view_return_tests {
+    use super::*;
+    use crate::types::ParameterType;
+    use std::collections::HashMap;
+
+    fn function(params: &[&str], body: Vec<NirOp>) -> NirFunction {
+        NirFunction {
+            name: "f".to_string(),
+            visibility: String::new(),
+            kind: "function".to_string(),
+            isolated: false,
+            params: params
+                .iter()
+                .map(|name| NirParam {
+                    name: name.to_string(),
+                    type_: ParameterType::parse("List OF RES fs.File"),
+                    default: None,
+                })
+                .collect(),
+            returns: ParameterType::parse("List OF RES fs.File"),
+            body,
+            file: String::new(),
+            resource_owners: HashMap::new(),
+        }
+    }
+
+    fn returns(value: NirValue) -> NirOp {
+        NirOp::Return { value: Some(value) }
+    }
+
+    fn local(name: &str) -> NirValue {
+        NirValue::Local(name.to_string())
+    }
+
+    fn global(name: &str) -> NirValue {
+        NirValue::Global {
+            name: name.to_string(),
+            type_: ParameterType::parse("List OF RES fs.File"),
+        }
+    }
+
+    fn fresh_list() -> NirValue {
+        NirValue::ListLiteral {
+            type_: ParameterType::parse("List OF RES fs.File"),
+            values: Vec::new(),
+        }
+    }
+
+    /// bug-999: a function that hands back only what it was given, or what the
+    /// module holds, transfers nothing, so a call to it is not a resource producer.
+    #[test]
+    fn a_parameter_or_a_module_binding_is_a_view() {
+        assert!(function_returns_only_views(&function(
+            &["xs"],
+            vec![returns(local("xs"))]
+        )));
+        assert!(function_returns_only_views(&function(
+            &[],
+            vec![returns(global("frameItems"))]
+        )));
+        assert!(function_returns_only_views(&function(
+            &["xs"],
+            vec![returns(global("frameItems")), returns(local("xs"))]
+        )));
+    }
+
+    /// The guard: anything the body could have built or filled is not a view — a
+    /// local, a literal, a call, a reassigned parameter — and neither is a function
+    /// with one such `RETURN` among view ones, or with no value `RETURN` at all.
+    #[test]
+    fn anything_the_body_built_is_not_a_view() {
+        assert!(!function_returns_only_views(&function(
+            &[],
+            vec![returns(fresh_list())]
+        )));
+        assert!(!function_returns_only_views(&function(
+            &[],
+            vec![returns(local("built"))]
+        )));
+        assert!(!function_returns_only_views(&function(
+            &["xs"],
+            vec![
+                NirOp::Assign {
+                    name: "xs".to_string(),
+                    value: fresh_list(),
+                },
+                returns(local("xs")),
+            ]
+        )));
+        assert!(!function_returns_only_views(&function(
+            &["xs"],
+            vec![returns(local("xs")), returns(fresh_list())]
+        )));
+        assert!(!function_returns_only_views(&function(&["xs"], Vec::new())));
     }
 }

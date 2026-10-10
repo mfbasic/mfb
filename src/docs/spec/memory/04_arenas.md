@@ -487,6 +487,19 @@ tag-dispatched close it frees a `File` variant's output and read buffers, then t
 owned-list drain of union elements frees the buffers under the same proof as the
 record. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_union_tag_dispatch_drop]]
 
+A resource temporary (`./mfb spec language resource-management`, "produced inline")
+is closed at the end of its statement and its buffers and `STATE` are reclaimed; its
+record stays as a closed tombstone, because a reference stored without a float may
+still read it. One class of aggregate temporary is freed whole instead: a call to a
+function whose parameters are all plain scalars, written straight into an argument of
+a call that does not keep that argument, takes no callback and can only answer with
+a plain scalar (`len(mkList())`). Nothing but the statement can hold what such a
+result reaches, so when the call returns the statement adopts every unowned record
+it reaches as a binding would, and at its end drains them with the owning frees
+above and frees the result's block when the callee built it.
+[[src/codegen/engine/value/builder_values.rs:adopt_exclusive_temp]]
+[[src/codegen/resource/cleanup/record_ownership.rs:CollectionUses]]
+
 The same rules cover a list of such collections (`List OF List OF RES T`), which
 holds each inner list by pointer, in its own block. Two further verdicts apply to
 every `RES`-block collection. A copying reassignment frees the block it replaces
