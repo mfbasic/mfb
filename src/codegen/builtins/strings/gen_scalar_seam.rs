@@ -227,6 +227,11 @@ pub(crate) fn lower_from_scalars(
 
     let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+    // bug-992: the block allocated above is this call's result and nothing else
+    // names it, so an unbound result (`len(strings::fromScalars(xs))`) is the
+    // statement's to free. Unmarked, it leaked `round16(8 + byteLen)` per call.
+    // Every path here allocates: there is no shared-constant fast path.
+    builder.mark_fresh_string(Operand::from(result));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::String,

@@ -1047,6 +1047,9 @@ pub(crate) struct ResourceUnionCleanup {
     /// from the bind so the tag-dispatched drop can free the active variant
     /// record's STATE block after the close — mirrors `ResourceCleanup.state_type`.
     pub(crate) state_type: Option<ParameterType>,
+    /// bug-1001: the variant tags whose record carries the two `File` I/O buffers,
+    /// which the drop frees after the close as the concrete drop does.
+    pub(crate) io_buffer_tags: Vec<usize>,
     /// bug-623 B: the variant tags whose record this binding's drop frees after the
     /// close — the `resource_record_freed_at_drop` variants, and only when the binding
     /// owns the record (`record_owning_locals`). Empty for a union wrapping a live
@@ -1095,6 +1098,8 @@ pub(crate) enum OwnedListDrop {
     Union {
         variants: Vec<(usize, String)>,
         state_type: Option<ParameterType>,
+        /// bug-1001: the variant tags whose record carries `File` I/O buffers.
+        io_buffer_tags: Vec<usize>,
         record_free_tags: Vec<usize>,
     },
 }

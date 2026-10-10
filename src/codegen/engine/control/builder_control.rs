@@ -3285,6 +3285,7 @@ impl CodeBuilder<'_> {
                                     name: name.clone(),
                                     variants,
                                     state_type: type_.state(),
+                                    io_buffer_tags: self.resource_union_io_buffer_tags(type_),
                                     record_free_tags: if !alias_wrap
                                         && self.record_owning_locals.contains(name)
                                     {

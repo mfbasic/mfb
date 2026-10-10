@@ -1,12 +1,12 @@
 # bug-992: `strings::graphemesCount` and `strings::graphemeAt` leak a whole `List OF String` per call
 
-Last updated: 2026-10-06
+Last updated: 2026-10-10
 Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory)
 
-Status: Open
-Regression Test: planned `tests/runtime/rt_strings_unowned_blocks.rs` (new; `--debug` `live_bytes` at N and 2N)
+Status: Fixed (2026-10-10)
+Regression Test: `tests/runtime/rt_strings_unowned_blocks.rs` (`--debug` `alloc_calls`/`free_calls`/`live_bytes` at N = 100 and 200)
 
 Every call to `strings::graphemesCount(s)` builds the complete `List OF String` of `s`'s
 grapheme clusters, reads its `count` word, and drops the block with no owner. Nothing ever
@@ -251,7 +251,7 @@ fixtures. Nothing else should move. An unexpected diff elsewhere is a bug-hunt t
 
 ### Phase 1: failing test + audit (no behavior change)
 
-- [ ] Add `tests/runtime/rt_strings_unowned_blocks.rs`, built on `common::debug_report`
+- [x] Add `tests/runtime/rt_strings_unowned_blocks.rs`, built on `common::debug_report`
       (`build_debug`, `run_ok`, `arena_lines`, `counter`), like `rt_debug_soak.rs`'s
       `assert_live_bytes_within`. Each case puts the expression in a loop whose count is a
       literal `{N}`, builds it at N = 100 and 200, and asserts main-arena `live_bytes` growth
@@ -262,12 +262,12 @@ fixtures. Nothing else should move. An unexpected diff elsewhere is a bug-hunt t
       siblings as POSITIVE cases (`graphemes`, `displayWidth`, `mid`, a bound
       `fromScalars`) so that a fix which disables an allocation is caught. Use
       `#![cfg(unix)]` as `rt_debug_soak.rs` does.
-- [ ] Add one value check per member (ASCII, emoji ZWJ/modifier, empty string,
+- [x] Add one value check per member (ASCII, emoji ZWJ/modifier, empty string,
       `graphemeAt` at 0, at the last cluster, and out of range → `ErrIndexOutOfRange`). The
       leak tests must not pass because a value changed.
-- [ ] Confirm the three RED cases fail at about 1,968 / 1,968 / 64 B per iteration for a
+- [x] Confirm the three RED cases fail at about 1,968 / 1,968 / 64 B per iteration for a
       47-byte `s`, and the positive cases pass.
-- [ ] Do the outside-`strings` grep from Blast Radius and record a verdict per site here.
+- [x] Do the outside-`strings` grep from Blast Radius and record a verdict per site here.
 
 Acceptance: the RED cases fail for the documented reason, the positive pins pass, and the
 audit list is complete.
@@ -275,14 +275,14 @@ Commit: —
 
 ### Phase 2: the fix
 
-- [ ] `gen_graphemes.rs`: extract the count pass into `emit_grapheme_count` and use it from
+- [x] `gen_graphemes.rs`: extract the count pass into `emit_grapheme_count` and use it from
       `lower_strings_graphemes` and `func_graphemes_count.rs:lower`. Remove
       `graphemesCount`'s `ErrOutOfMemory` descriptor entry once it cannot raise it.
-- [ ] `func_grapheme_at.rs:lower`: route through `grapheme_at_window` +
+- [x] `func_grapheme_at.rs:lower`: route through `grapheme_at_window` +
       `emit_materialize_string_from_bytes`, or use the interior-temp fallback (record which
       one here and why).
-- [ ] `gen_scalar_seam.rs:lower_from_scalars`: `mark_fresh_string` on the returned block.
-- [ ] Update the `gen_graphemes.rs:grapheme_at_window` doc comment, which says the copying
+- [x] `gen_scalar_seam.rs:lower_from_scalars`: `mark_fresh_string` on the returned block.
+- [x] Update the `gen_graphemes.rs:grapheme_at_window` doc comment, which says the copying
       lowering allocates.
 
 Acceptance: the Phase 1 tests pass, the value checks are unchanged, and
@@ -331,3 +331,101 @@ freshness mark. The `graphemesCount` fix only reuses the count pass that already
 care goes into `graphemeAt`'s error path at an expression site and into keeping the golden
 delta limited to the three members' call sites. Segmentation, `graphemes`, the in-place
 window arm, and every other `strings` member (all measured flat) are left alone.
+
+## Resolution (2026-10-10)
+
+Both Open Decisions went the way the Fix Design proposed.
+
+**A, `graphemesCount`.** The count pass is its own emitter,
+`gen_graphemes.rs:emit_grapheme_count_pass` (registers in `GraphemeCountRegs`,
+labels in `GraphemeCountLabels`). `lower_strings_graphemes` calls it with the same
+registers and mints the same labels in the same order as before, so
+`strings::graphemes` emits what it did: `mfb build -ncode` of a program that calls
+`len(strings::graphemes(io::readLine()))` is byte-identical between the base
+compiler and this branch (`cmp`). `func_graphemes_count.rs:lower` runs the pass and
+returns the count. It allocates nothing, so `ErrOutOfMemory` is gone from its
+descriptor and from its man page (`mfb man strings graphemesCount` renders no
+Errors section and still says "the call never fails").
+
+**A, `graphemeAt` (copying).** `func_grapheme_at.rs:lower` is
+`grapheme_at_window` + `emit_materialize_string_from_bytes`: the walk the in-place
+arm already used, then the copy of the one span. Its only allocation is its
+result. The walk raises the same `ErrIndexOutOfRange` under the same member name
+(`strings.graphemeAt`); the value test checks index `-1` and index `count` on
+seven strings. The interior-temp fallback was not needed.
+
+**B, `fromScalars`.** `gen_scalar_seam.rs:lower_from_scalars` marks its result
+fresh. Every path through it allocates the block it returns.
+
+**C (found by the Phase 1 audit), `normalizeNfc`.** The report's sweep used an
+ASCII string, which takes `normalizeNfc`'s copy-only fast path. On a non-ASCII
+string the copying lowering allocates a scalar array (`scalarCount × 8` bytes,
+`temp_slot`) to decompose and compose in, and never freed it: 8 bytes per scalar
+per call (measured on the base compiler: `a😀b` 32 B, the 59-byte probe string
+400 B). `func_normalize_nfc.rs:lower_out` frees it after the encode pass, and on
+the two exits that raise `ErrOutOfMemory` between its allocation and then. The
+in-place arm (`StringOut::Scratch`) keeps its array in the function's self-update
+scratch and is unchanged.
+
+### Phase 1 audit verdict
+
+- `grep -rn lower_strings_graphemes src`: one caller left, `func_graphemes.rs`,
+  which returns the list as its own result.
+- Dynamic sweep (`/tmp/k/sw`, `mfb build --debug`, `live_bytes` at N = 100 and
+  200, per-call growth) over 23 `strings` members with a non-ASCII argument
+  (`upper`, `lower`, `caseFold`, `normalizeNfc`, `displayWidth`, `graphemesCount`,
+  `graphemeAt`, `graphemes`, `toScalars`, `fromScalars`, `padLeftToWidth`,
+  `padRightToWidth`, `padLeft`, `trim`, `trimChars`, `left`, `right`, `mid`,
+  `replace`, `split`, `find`, `count`, `repeat`, `toBytes`, `stripPrefix`) and 14
+  `collections` expressions (`sort`, `distinct`, `keys`, `values`, `filter`,
+  `reduce`, `take`, `chunks`, `zip`, `flatten`, `join`, `split`, …): every one is
+  0 B per call on this branch. On the base compiler the only non-zero rows are the
+  three this report names and `normalizeNfc` (sub-issue C).
+- A static per-site audit of every lowering outside `strings` that builds a block
+  and returns a scalar was not done; the sweep above is the evidence for the
+  members it lists and for no others.
+
+### Runtime proof
+
+`mfb build -q --debug`, arena 0, per-call growth of `live_bytes` from N = 100 to
+N = 200 for the 59-byte probe string (`The quick brown fox jumps over the lazy dog
+a😀b👍🏽c`, 49 clusters):
+
+| expression | base | fixed |
+|---|---|---|
+| `strings::graphemesCount(s)` | 2,064 B | 0 B, and no allocation at all |
+| `len(strings::graphemeAt(s, 47))` | 2,064 B | 0 B, one allocation (the result) |
+| `len(strings::fromScalars(strings::toScalars(s)))` | 80 B | 0 B |
+| `len(strings::normalizeNfc(s))` | 400 B | 0 B |
+| `len(strings::graphemes(s))`, `displayWidth`, `mid`, `toScalars` | 0 B | 0 B |
+
+The test asserts `alloc_calls == free_calls` and `live_bytes 0` at both counts, and
+compares `alloc_calls` per call against a `len(s)` baseline: equal for
+`graphemesCount`, one more for `graphemeAt`, two more for `normalizeNfc`.
+`rt_scalar_seam_alloc` still passes (`fromScalars` allocates once per call).
+
+`strings` man examples: `MFB=<worktree mfb> scripts/man-run-examples.sh strings
+--run` reports `examples: 89 built: 89 ran: 89 failed: 0`.
+
+Not re-measured here: `/tmp/cdleak` and the canvas-demo bestiary scene (the
+programs are not in the tree).
+
+## Golden impact
+
+Measured with `scripts/artifact-gate.sh <mfb> all` on this branch and on its base
+commit `821806278` (built in a detached worktree): the base already reports 33
+diffs it inherited (goldens not regenerated in this batch), and this branch
+reports 39. The per-function comparison below is `mfb build -ncode` from the two
+compilers.
+
+Five goldens, new diffs on this branch:
+
+- `tests/byte-identity/strings`: `strings_codegen_cover_rt.{linux-aarch64,
+  linux-riscv64,linux-x86_64,macos-aarch64,windows-x86_64}.ncode`. Two functions
+  differ from the base commit's: `_mfb_fn_main` (macOS 10,706 → 9,575 instructions;
+  the `graphemesCount` and `graphemeAt` call sites no longer build the list, and
+  `normalizeNfc` gains its free) and `_mfb_ifn_strings_5FfromScalars` (234 → 188:
+  marked fresh, its result is returned as it is instead of being copied).
+
+`strings::graphemes` call sites are byte-identical. The rendered
+`mfb man strings graphemesCount` loses its Errors section.

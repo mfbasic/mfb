@@ -107,12 +107,11 @@ pub(crate) const REC_QUEUE: usize = RESOURCE_TAIL_START + 8;
 /// supply only the port — a `Listener`'s handle slot holds an `nw_listener`, not a
 /// descriptor, and Network.framework exposes `nw_listener_get_port` but nothing
 /// that answers the bound address. So `tls::listen` parks the C string it already
-/// built for `nw_endpoint_create_host` here. It is either an arena copy of the
-/// caller's host or the static `_mfb_tls_anyhost` (`"0.0.0.0"`), so the record
-/// borrows it with nothing to release.
+/// built for `nw_endpoint_create_host` here. bug-984: it is always an arena block
+/// the record OWNS — a copy of the caller's host, or of `"0.0.0.0"` for a bind-all
+/// listener — and `tls::close` on the listener frees it by `strlen + 1`.
 ///
-/// The arena copy is process-lifetime only for a handle that never leaves its
-/// thread. Since bug-464 a TLS handle can be *transferred*, and an arena is
+/// Since bug-464 a TLS handle can be *transferred*, and an arena is
 /// per-thread: a verbatim move would leave the receiver's
 /// `tls::localAddress` reading a string the sender's teardown released. The
 /// registry therefore declares this slot `SlotTransfer::ArenaCString` so the

@@ -502,6 +502,7 @@ impl CodeBuilder<'_> {
             )],
         };
         let union = self.resource_union_cleanup(leaf).is_some();
+        let io_buffer_tags = self.resource_union_io_buffer_tags(leaf);
         for (tag, close) in closes {
             let other = self.label("listed_close_other_variant");
             let closed = self.label("listed_close_closed");
@@ -521,6 +522,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&closed));
             if reclaim {
                 if union {
+                    // bug-1001: a `File` variant's two I/O buffers, as the
+                    // concrete arm below reclaims them.
+                    if tag.is_some_and(|tag| io_buffer_tags.contains(&tag)) {
+                        self.emit_resource_block_reclaim(record_slot, None, true, false)?;
+                    }
                     if let Some(state_type) = leaf.state() {
                         self.emit_free_resource_state_block(record_slot, &state_type)?;
                     }
