@@ -142,16 +142,18 @@ removed, and `Size` and the others stay.
 
 ### Phase 1 — The import
 
-- [ ] If P3 was FALSIFIED: add `vector::augmented_project` on the `color` precedent in
-      `src/ir/lower.rs` and `src/resolver/mod.rs`, and the generic-injection skip in
-      `src/codegen/registry/mod.rs`.
+- [ ] Add `vector::augmented_project` (and its test-only `augmented_hir_project`) on the
+      `color` precedent, call them after `color`'s in `src/ir/lower.rs` and at both
+      sites in `src/resolver/mod.rs`, and add the generic-injection skip in
+      `src/codegen/registry/mod.rs`. Unconditional: P3 was FALSIFIED (172-A §4 Results).
 - [ ] Add `pub(crate) const FLOAT2_TYPE_ID: &str = "vector.Float2"` to
       `src/codegen/builtins/vector/mod.rs`.
 - [ ] Add `"vector"` to `pkg.add_imports` in `src/codegen/builtins/canvas/mod.rs`, and
       extend the import-cost comment there with the measured byte cost from P3.
 
 Acceptance: a canvas program that names no `vector::` type still builds and runs, and
-its `.ncode` grew by the amount P3 recorded.
+its executable grew by the amount P3 recorded (+330,236 bytes on macOS aarch64:
+2,666,000 → 2,996,236 for an empty `present`).
   Check: `cargo test --test rt_canvas_debug_hooks` → pass (est. 3 min).
 Commit: —
 
@@ -208,7 +210,13 @@ None. P3 decides the only fork, in 172-A.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-A, P3 FALSIFIED:** the late injection pass is required, not conditional.
+  Phase 1's first task and its acceptance are rewritten above with the measured cost.
+- **From 172-A, finding 1:** a program that reads a `vector::Float2`'s fields must
+  `IMPORT vector` itself — `e.position.x` without it is `TYPE_UNKNOWN_VALUE`. Phase 2's
+  port therefore adds `IMPORT vector` to every file that reads a coordinate pair's
+  `.x` / `.y`, not only to files that name the type; `tests/syntax/app/app-mouse-surface`
+  is one (it reads `e.position.x` and names no `canvas::Point`).
 
 ## Summary
 

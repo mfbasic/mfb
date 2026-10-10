@@ -56,10 +56,10 @@ These gate the whole of plan-172. Every other letter points here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| No plan has added a `DrawItem` variant beyond the eleven | `grep -c '"ParticleSystem"\|"Path"' src/codegen/builtins/canvas/mod.rs` → 0 | MET |
-| plan-150 and plan-164 have not started | `git log --oneline -- src/codegen/builtins/canvas/helper_particles.rs \| wc -l` → 0 | UNVERIFIED — run first |
-| The canvas suites are green before any edit | `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser --test rt_canvas_metal` → pass | UNVERIFIED — run first |
-| `vector::Float2` exists as a value record of two `Float`s | `cargo run -- man vector types \| grep -c Float2` → ≥ 1 | UNVERIFIED — run first |
+| No plan has added a `DrawItem` variant beyond the eleven | `grep -c '"ParticleSystem"\|"Path"' src/codegen/builtins/canvas/mod.rs` → 0 | MET — measured 0 |
+| plan-150 and plan-164 have not started | `git log --oneline -- src/codegen/builtins/canvas/helper_particles.rs \| wc -l` → 0 | MET — measured 0 |
+| The canvas suites are green before any edit | `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser --test rt_canvas_metal` → pass | MET — 22 / 86 (2 ignored) / 45 passed, 0 failed |
+| `vector::Float2` exists as a value record of two `Float`s | `cargo run --bin mfb -- man vector types \| grep -c Float2` → ≥ 1 | MET — measured 1 |
 
 If any row is NOT MET, plan-172 cannot start, full stop. Everything below is written
 against the world where they hold.
@@ -252,6 +252,46 @@ Each is a probe program under `/tmp/plan-172-A/`, a command, and a named alterna
 | P5 | `pollMouse` can become an MFBASIC wrapper over a native raw poll and return a record holding a `String` | In the worktree rename the native to `pollMouseRaw` (`internal_only`), add an MFBASIC `pollMouse` returning `raw WITH { overID := "x" }`; run `tests/syntax/app/app-mouse-surface` and a `MFB_MOUSE_INJECT` run | The native emitter writes the string slot itself; 172-I gains a task to read the String representation from `.ai/codegen-invariants.md` and build it in `func_poll_mouse.rs` |
 | P6 | A record constructor must name every field, so the new shapes need constructor functions to be usable | `canvas::Circle[x := 1.0, y := 1.0, radius := 2.0]` (no `paint`) through `cargo run -- build`; record the diagnostic | If a field may be omitted, drop the constructor functions from D, E and F and Open Decision 1 |
 
+### Results (measured 2026-10-10)
+
+Every probe program, edit script and captured output is under `/tmp/plan-172-A/`; the
+compiler changes the probes needed are one diff, `/tmp/plan-172-A/probe.diff` (17 files),
+taken from the discarded worktree `/tmp/plan-172-A/wt` at `29e56cf34`. Programs were
+built with `/tmp/plan-172-A/mk.sh <mfb> <name> <source> [--debug]` and run headless
+(`MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1`) on macOS aarch64.
+
+| # | Verdict | Probe | Command and observed output |
+|---|---|---|---|
+| P1 | **CONFIRMED** | `p1.mfb` | `RegistryUnion.includes` rendered as `UNION X INCLUDES Y` parses and nests. `p1` printed `item:Circle`, `shape:Circle`, `auto:Circle`, `item:Probe`: one `Circle` value is accepted as a `DrawItem`, a `Shape` and an `AutoShape`, and each union `MATCH`es it. Tags: an included union's members come first, in its own order, then the local members (`src/binary_repr/writer.rs:concrete_union_variants`), so the three unions agree on every shared tag — `Shape` is a prefix of `AutoShape` is a prefix of `DrawItem`. With `new_canvas.md`'s declarations: Rectangle 0, Line 1, Polygon 2, Circle 3, Arc 4, Text 5, Ellipse 6, PolyLine 7, AutoPaint 8, Picture 9, Group 10. Adding a variant makes four companion `MATCH`es non-exhaustive (`TYPE_MATCH_NOT_EXHAUSTIVE`, all in `helper_geometry.rs`); the native emitters built unchanged |
+| P2 | **CONFIRMED** | `p2.mfb`, `run_p2.sh` | `sh run_p2.sh 1000` → `sum=20000`, exit 0. A `Probe[shape AS Shape]` variant presented, installed in a group and dropped per round. Worker arena `live_bytes` 31568 at 10 rounds and 31568 at 1,000; graphics arena 28208 and 28208; `double_free_skips 0` on both. The nested union read back through two `MATCH`es each round |
+| P3 | **FALSIFIED**, alternative adopted and proven | `empty.mfb`, `empty_vec.mfb`, `p3.mfb` | With only `"vector"` in `pkg.add_imports`, a canvas program that does not itself `IMPORT vector` fails: six `TYPE_UNKNOWN_VALUE` in the companion (`g.startPoint.x` and its five siblings in `helper_geometry.rs`), because the generic injection pass never injected `vector`. With the late pass wired on the `color` precedent (`vector::augmented_project`, the generic-pass skip, the two AST call sites and the HIR one) the same program builds and `p3` renders a red→blue ramp through the **native** geometry builder, which read `vector.Float2`'s `x` / `y` by name unchanged (pixels at x = 45 / 200 / 355: `[253,0,35]`, `[187,0,188]`, `[32,0,253]`). Byte cost, `ls -l` of the executable: 2,666,000 before → 2,996,236 after, **+330,236 bytes on every canvas program**; a program that already imports `vector` is the same 2,996,236, so the cost is `vector`'s whole companion and nothing else |
+| P4 | **CONFIRMED** | `p4.mfb`, `run_p4.sh` | `sh run_p4.sh` → `centre=-20.00`, `edge=0.00`, `outside=30.00`, `other=-5.00`, `again=-20.00`, exit 0. By hand for a circle at (40, 40) radius 20: −20, 0, and √(30² + 40²) − 20 = 30. The worker called `__canvas_geometryFor` + `__canvas_geoDistance` with no `present`, so its own thread-local cache held the records; a second item and a re-query of the first both answered correctly |
+| P5 | **CONFIRMED** | `p5.mfb`, `run_p5.sh` | `sh run_p5.sh` (one injected `ESC[<0;10;20M`) → `event at 9.00,19.00 overID=[x]`, then `idle overID=[x]` twice, exit 0, `double_free_skips 0`. The native poll returned an internal six-field record and the MFBASIC wrapper built the seven-field `MouseEvent` by name; `position` was a `vector.Float2` inlined exactly as `Point` was (the native block stayed 64 bytes) |
+| P6 | **CONFIRMED** | `p6.mfb` | `mk.sh … p6 p6.mfb` → `error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments — Constructor `canvas.Circle` has 3 argument(s), expected 4.` A constructor names every field, so the shape constructor functions stay in D, E and F |
+
+Four things the probes found that no premise asked about. Each is written into the
+letter it lands in:
+
+1. **A program that reads a `vector::Float2`'s fields must `IMPORT vector` itself.**
+   `e.position.x` on a `canvas::MouseEvent` without it is `TYPE_UNKNOWN_VALUE`: "Field
+   `x` belongs to `vector::Float2`, whose fields are not visible in this file. Imports
+   are not transitive…". So `tests/syntax/app/app-mouse-surface` gains `IMPORT vector`
+   in 172-B, as does every program that reads or builds a coordinate pair.
+2. **`canvas.pollMouse` is spelled in six per-target tables** besides its registration
+   (`src/target/{macos_aarch64,win_x86_64,linux_common}/{mod,plan}.rs`), and in
+   `src/codegen/registry/mod.rs`'s record-returning list. The rename to `pollMouseRaw`
+   in 172-I moves all of them; missing one is `native backend does not support runtime
+   call 'canvas.pollMouseRaw'`.
+3. **Mouse state is reserved by symbol suffix.** `module_uses_mouse`
+   (`src/target/shared/plan/symbols.rs`) and two sites in
+   `src/codegen/engine/builder/mod.rs` test `ends_with("_pollMouse")`. A raw poll named
+   `pollMouseRaw` does not match, and the build fails with `native code plan emits
+   '_mfb_rt_canvas_canvas_pollMouseRaw' without reserving mouse state`.
+4. **An MFBASIC `pollMouse` is compiled into every canvas program, used or not.** `p4`
+   never names the mouse and still emitted the raw poll. So once the three suffix tests
+   accept the raw name, every canvas program reserves mouse state unless the wrapper is
+   a gated helper. 172-I registers it gated on use.
+
 ## Compatibility / Format Impact
 
 This letter changes nothing observable. The plan as a whole changes:
@@ -280,14 +320,19 @@ This letter changes nothing observable. The plan as a whole changes:
 The three that decide how the types are declared. Cheapest, and K cannot be designed
 without them.
 
-- [ ] Create a detached worktree: `git worktree add --detach /tmp/plan-172-A/wt`.
-- [ ] P6: build the omitted-field probe; record the diagnostic text and code in §4.
-- [ ] P1: make the `RegistryUnion` change in the worktree and build the three-union
+- [x] Create a detached worktree: `git worktree add --detach /tmp/plan-172-A/wt`.
+      → `HEAD is now at 29e56cf34`.
+- [x] P6: build the omitted-field probe; record the diagnostic text and code in §4.
+      → `2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH`, CONFIRMED.
+- [x] P1: make the `RegistryUnion` change in the worktree and build the three-union
       probe. Record whether one record may be a member of three builtin unions and what
       tags each union assigns.
-- [ ] P2: add the `Probe` variant and run the present / setGroup / drop loop under
+      → CONFIRMED; `p1` printed all four names; tags are prefix-consistent (§4 Results).
+- [x] P2: add the `Probe` variant and run the present / setGroup / drop loop under
       `--debug`. Record leaks, double frees or a clean run.
-- [ ] Record each result in §4 as CONFIRMED or FALSIFIED with the command and output.
+      → CONFIRMED; `sh /tmp/plan-172-A/run_p2.sh 1000` → clean, `live_bytes` flat.
+- [x] Record each result in §4 as CONFIRMED or FALSIFIED with the command and output.
+      → `grep -c 'CONFIRMED\|FALSIFIED' planning/plan-172-A-canvas-shapes-premises.md` ≥ 3.
 
 Acceptance: §4 rows P1, P2 and P6 each carry a verdict, a probe path and observed
 output; a FALSIFIED row's alternative is written into 172-K (P1, P2) or 172-D/E/F (P6).
@@ -297,16 +342,23 @@ Commit: —
 
 ### Phase 2 — Package and thread premises (P3, P4, P5)
 
-- [ ] P3: import `vector` into `canvas` in the worktree; build and run a gradient scene
+- [x] P3: import `vector` into `canvas` in the worktree; build and run a gradient scene
       and a `MouseEvent` read. Record the empty-program `.ncode` size before and after
       with `ls -l`, and whether a late injection pass was needed.
-- [ ] P4: build the worker-side distance probe; compare its three distances with the
+      → FALSIFIED; the late pass is needed and works; 2,666,000 → 2,996,236 bytes.
+- [x] P4: build the worker-side distance probe; compare its three distances with the
       values computed by hand for the circle.
-- [ ] P5: build the `pollMouse` wrapper probe; run it under `MFB_MOUSE_INJECT` with one
+      → CONFIRMED; −20 / 0 / 30 observed, −20 / 0 / 30 by hand.
+- [x] P5: build the `pollMouse` wrapper probe; run it under `MFB_MOUSE_INJECT` with one
       injected press and print `overID`.
-- [ ] Record each result in §4, and correct 172-B (P3) and 172-I (P4, P5) where a
+      → CONFIRMED; `event at 9.00,19.00 overID=[x]`.
+- [x] Record each result in §4, and correct 172-B (P3) and 172-I (P4, P5) where a
       premise failed.
-- [ ] Remove the worktree: `git worktree remove /tmp/plan-172-A/wt`.
+      → 172-B Phase 1 and §3 corrected for P3 and finding 1; 172-I Phase 3 corrected for
+        findings 2–4 (P4 and P5 held, so its design stands).
+- [x] Remove the worktree: `git worktree remove --force /tmp/plan-172-A/wt`.
+      → `git worktree list | grep -c plan-172-A` → 0. `--force` because the probe edits
+        were uncommitted by design; they survive as `/tmp/plan-172-A/probe.diff`.
 
 Acceptance: §4 rows P3, P4 and P5 each carry a verdict, a probe path and observed
 output, and the main checkout is untouched.
@@ -363,7 +415,26 @@ Commit: —
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **Prerequisite row 4's command did not run as written.** `cargo run -- man vector
+  types` fails with "`cargo run` could not determine which binary to run … available
+  binaries: mfb, mfb-repo". Corrected to `cargo run --bin mfb -- …`, which prints 1.
+- **P3 is FALSIFIED.** Importing `vector` is not enough; see §4 Results. The named
+  alternative (a late injection pass) was built in the probe worktree and works, so
+  172-B's first Phase 1 task is unconditional. The measured cost is +330,236 bytes on
+  every canvas program.
+- **P3's probe was run with the late pass wired**, which the row did not ask for, so the
+  alternative is proven rather than assumed.
+- **P5's row said to "run `tests/syntax/app/app-mouse-surface`".** That fixture reads
+  `e.position.x` and does not `IMPORT vector`, so under the probe compiler it fails for
+  the reason in finding 1, not for anything P5 is about. `p5.mfb` (the same reads, with
+  the import) was run instead.
+- **P2's row named `canvas::setGroup`'s flat copy and the native item hash.** Both ran
+  in `p2` (the `Probe` is installed in a group and presented each round). The `Probe`
+  variant hashed through a companion `__canvas_hashItem` arm the probe added, not
+  through a native arm; 172-K writes the real `AutoPaint` hash.
+- **`/tmp/plan-172-A/wt` was removed with `--force`.** The task's bare
+  `git worktree remove` refuses a worktree with uncommitted changes, and the probe's
+  changes were never meant to be committed.
 
 ## Summary
 

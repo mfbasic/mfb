@@ -194,6 +194,15 @@ Commit: —
 - [ ] `mod.rs`: append `overID AS String` to `MouseEvent`; add the internal raw record.
 - [ ] `func_poll_mouse.rs`: the native becomes `pollMouseRaw`, `internal_only`; add the
       MFBASIC `pollMouse` body and the lazy worker draw list with its three conditions.
+- [ ] Rename `canvas.pollMouse` to `canvas.pollMouseRaw` in the six per-target tables
+      (`src/target/{macos_aarch64,win_x86_64,linux_common}/{mod,plan}.rs`) and move the
+      `src/codegen/registry/mod.rs` record-returning entry (172-A finding 2).
+- [ ] Make the three mouse-state suffix tests (`src/target/shared/plan/symbols.rs:
+      module_uses_mouse`, two in `src/codegen/engine/builder/mod.rs`) accept the raw
+      poll's symbol, and register the MFBASIC `pollMouse` so a canvas program that never
+      calls it does not emit the raw poll or reserve mouse state (172-A findings 3, 4).
+      Check: an empty canvas program's executable is the same size before and after
+      this phase.
 - [ ] `func_present.rs` / `func_present_layers.rs`: record whether the published scene
       has any non-empty `id`.
 - [ ] Runtime cases in `tests/canvas/rt_canvas_hit.rs` under `MFB_MOUSE_INJECT`: a
@@ -245,7 +254,11 @@ None beyond 172-A's Open Decision 5.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-A:** P4 and P5 are both CONFIRMED, so §3 stands as written. The P5 probe
+  found three things the design did not name — six per-target tables spell
+  `canvas.pollMouse`; mouse state is reserved by a `_pollMouse` symbol suffix; and an
+  MFBASIC wrapper is compiled into every canvas program whether called or not. Phase 3
+  gains two tasks for them.
 
 ## Summary
 
