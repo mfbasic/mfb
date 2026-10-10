@@ -241,7 +241,12 @@ B. For each bug, the agent:
    - also runs any tests/guards/* covering the files it touched (no_type_strings, the
      declared-errors guards, drop-count/helper-scratch tests);
    - does NOT run the full suite and does NOT regenerate goldens. It records in the
-     bug doc which goldens it expects to change, and why;
+     bug doc which goldens it expects to change, and why. "Full suite" includes the
+     unfiltered unit binary: an agent NEVER runs `cargo test` or `cargo test --bin mfb`
+     without a filter (~40 min each, under the one build lock, and the gate in F runs
+     them anyway). Unit tests are run filtered to the modules touched
+     (`cargo test --bin mfb -- <module>::`). The coordinator must not tell an agent
+     otherwise, in a brief or a follow-up, whatever a gate failure seemed to teach;
    - STOPS that bug and reports if the fix would change an observable contract beyond
      what the bug doc already settles. The coordinator asks the owner, and an answer is
      not a go-ahead (AGENTS.md "Questions");
@@ -297,7 +302,9 @@ F. Full gate. Freeze staging, then:
    (rt_big_int_cost, rt_compress_bounds) false-fail under load, so the next phase's
    agents wait for the gate to finish. To restart, stop the gate and pkill its
    cargo/test-accept processes first.
-G. Failures: fix them, then go back to E. A failure counts as a flake only if it also
+G. Failures: fix them, then go back to E. When the gate catches something an agent's
+   targeted checks missed, add that ONE named test or guard to the targeted list in the
+   agent brief. Never respond by making agents run the full suite. A failure counts as a flake only if it also
    fails on main over N runs (300 for anything under ~1 s; otherwise as many as fit in
    ~10 min); then file a bug for it. If a bug's fix can't be made green, revert it out
    of the phase rather than hold the merge.
@@ -311,6 +318,9 @@ I. Move on to the next phase.
 
 ## Discipline
 - A started phase never grows (see "Scope freeze"). When in doubt, file it and move on.
+- The full suite runs in exactly one place: the coordinator's gate (step F). Agents run
+  targeted checks only. Any brief the coordinator writes for agents must repeat step B's
+  rules without loosening them.
 - One cargo build at a time machine-wide; check `uptime` first.
 - Perf bugs run alone, measured at load < 4 against a main build from git archive
   into /tmp.
