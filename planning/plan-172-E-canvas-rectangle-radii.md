@@ -32,7 +32,7 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 |---|---|---|
 | plan-172-D complete and archived | `ls planning/plan-172-D-*` → no matches | NOT MET |
 | The placement helper exists | `grep -c 'FUNC __canvas_placement' src/codegen/builtins/canvas/helper_paint_defaults.rs` → 1 | NOT MET |
-| Open Decision 2 of 172-A is answered | `grep -c 'ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
+| Open Decision 2 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
 
 If plan-172-D is not complete, this letter cannot start, full stop.
 

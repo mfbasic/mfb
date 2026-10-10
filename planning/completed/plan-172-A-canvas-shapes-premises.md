@@ -340,7 +340,7 @@ Acceptance: §4 rows P1, P2 and P6 each carry a verdict, a probe path and observ
 output; a FALSIFIED row's alternative is written into 172-K (P1, P2) or 172-D/E/F (P6).
   Check: `grep -c 'CONFIRMED\|FALSIFIED' planning/plan-172-A-canvas-shapes-premises.md`
   → ≥ 3 (est. 1 min to check; the probes themselves est. 2 h).
-Commit: —
+Commit: 095e9150b
 
 ### Phase 2 — Package and thread premises (P3, P4, P5)
 
@@ -366,20 +366,20 @@ Acceptance: §4 rows P3, P4 and P5 each carry a verdict, a probe path and observ
 output, and the main checkout is untouched.
   Check: `git status --porcelain src tests examples tools scripts` → empty (est. 1 min;
   probes est. 3 h).
-Commit: —
+Commit: 095e9150b
 
 ### Phase 3 — Decisions recorded
 
 - [x] Put Open Decisions 1–5 below to the owner and record each answer in place.
-      → `grep -c 'ANSWER:' planning/plan-172-A-canvas-shapes-premises.md` → 5.
+      → `grep -c '\*\*ANSWER:' planning/plan-172-A-canvas-shapes-premises.md` → 5.
 - [x] Apply each answer to the letter it names.
       → 1: 172-D, E, F, L and new 172-N; 2: none needed; 3: 172-L; 4: plan-164-A;
         5: none needed.
 
 Acceptance: no Open Decision in this file is unanswered.
-  Check: `grep -c 'ANSWER:' planning/plan-172-A-canvas-shapes-premises.md` → 5
+  Check: `grep -c '\*\*ANSWER:' planning/plan-172-A-canvas-shapes-premises.md` → 5
   (est. 1 min).
-Commit: —
+Commit: a6b83735c
 
 ## Validation Plan
 
@@ -473,6 +473,10 @@ Commit: —
   appended (the alphabet is append-only) with the edge A → N → B.
 - **Open Decision 3 took the alternative.** The plan said polygon intersection was
   something "this plan does not build"; it now builds it, in 172-L.
+- **Phase 3's check counted itself.** `grep -c 'ANSWER:'` matches the check's own line
+  as well as the five answers, so it could never print 5. Strengthened to
+  `grep -c '\*\*ANSWER:'`, which matches only an answer's bold lead-in and prints 5;
+  the same command is corrected in the prerequisites of 172-D, E and L.
 - **`/tmp/plan-172-A/wt` was removed with `--force`.** The task's bare
   `git worktree remove` refuses a worktree with uncommitted changes, and the probe's
   changes were never meant to be committed.

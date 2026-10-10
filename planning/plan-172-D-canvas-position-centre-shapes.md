@@ -31,7 +31,7 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 |---|---|---|
 | plan-172-C complete and archived | `ls planning/plan-172-C-*` → no matches | NOT MET |
 | Every shape carries its own `transform` | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 10 | NOT MET |
-| Open Decision 1 of 172-A is answered | `grep -c 'ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
+| Open Decision 1 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
 
 If plan-172-C is not complete, this letter cannot start, full stop.
 

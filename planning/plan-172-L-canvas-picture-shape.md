@@ -33,7 +33,7 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 |---|---|---|
 | plan-172-K complete and archived | `ls planning/plan-172-K-*` → no matches | NOT MET |
 | `canvas::AutoShape` exists | `grep -c 'name: "AutoShape"' src/codegen/builtins/canvas/mod.rs` → 1 | NOT MET |
-| Open Decision 3 of 172-A is answered | `grep -c 'ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
+| Open Decision 3 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
 | The picture suites are green | `cargo test --test rt_canvas_picture --test rt_canvas_group_ownership` → pass | UNVERIFIED — run first |
 
 If plan-172-K is not complete, this letter cannot start, full stop.
