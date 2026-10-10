@@ -13,6 +13,7 @@
 ' The record cases are the point of the letter: a record is refined with `WITH`
 ' from its default, so every field the program does not name has to be a real,
 ' usable value -- including the enum ones, at any depth.
+IMPORT fs
 IMPORT io
 
 ENUM Mode
@@ -34,6 +35,18 @@ TYPE Outer
   inner AS Inner
   marks AS List OF Mode
   on AS Boolean
+END TYPE
+
+' Module state of an enum type, and of a record holding one: each starts at its
+' default before `main` runs.
+MUT moduleMode AS Mode
+MUT moduleOuter AS Outer
+
+' A resource's STATE payload must be defaultable. An enum-bearing record now is.
+' (A bare enum as STATE is not exercised: a STATE type must be a record, bug-1013.)
+TYPE Cursor
+  mode AS Mode
+  pos AS Integer
 END TYPE
 
 FUNC nameOf(m AS Mode) AS String
@@ -83,6 +96,20 @@ FUNC main() AS Integer
   MUT b AS Inner
   a = WITH a { mode := Mode.Off, weight := 2.5 }
   io::print("independent a=" & nameOf(a.mode) & " b=" & nameOf(b.mode) & " b.weight=" & toString(b.weight))
+
+  ' Module state.
+  io::print("module      mode=" & nameOf(moduleMode) & " outer=" & nameOf(moduleOuter.mode) & "/" & nameOf(moduleOuter.inner.mode))
+  moduleMode = Mode.Off
+  io::print("module set  mode=" & nameOf(moduleMode))
+
+  ' STATE: the payload default-initializes when the resource is produced, so its
+  ' enum field is the first variant until the program writes it.
+  fs::writeText("/tmp/mfb-enum-default-first-variant.txt", "x")
+  RES f AS fs::File STATE Cursor = fs::open("/tmp/mfb-enum-default-first-variant.txt", "read")
+  io::print("state       mode=" & nameOf(f.state.mode) & " pos=" & toString(f.state.pos))
+  f.state.mode = Mode.Slow
+  f.state.pos = 7
+  io::print("state set   mode=" & nameOf(f.state.mode) & " pos=" & toString(f.state.pos))
 
   RETURN 0
 END FUNC

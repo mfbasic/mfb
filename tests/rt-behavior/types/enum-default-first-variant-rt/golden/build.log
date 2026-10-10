@@ -14,4 +14,8 @@ with other  mode=Fast inner=Fast name=[n] on=TRUE
 with enum   mode=Slow inner=Fast
 source      mode=Fast name=[]
 independent a=Off b=Fast b.weight=0.00
+module      mode=Fast outer=Fast/Fast
+module set  mode=Off
+state       mode=Fast pos=0
+state set   mode=Slow pos=7
 [exit 0]

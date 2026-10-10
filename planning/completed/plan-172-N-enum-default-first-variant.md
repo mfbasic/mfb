@@ -121,20 +121,22 @@ answers for editing it are:
 
 ### Phase 1 — The rule, its tests and its spec
 
-- [ ] `src/ir/verify/resources.rs:is_defaultable`: an `ENUM` is defaultable.
-- [ ] Unit cases in `src/ir/verify/tests.rs`: a bare enum binding and a record with an
+- [x] `src/ir/verify/resources.rs:is_defaultable`: an `ENUM` is defaultable.
+      → `cargo test --bin mfb defaultable` → `19 passed; 0 failed`.
+- [x] Unit cases in `src/ir/verify/tests.rs`: a bare enum binding and a record with an
       enum field are accepted; a `UNION` binding and a record with a `UNION` field are
       still `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`.
-- [ ] Extend `tests/rt-behavior/types/default-values-rt`: a defaulted enum equals its
+- [x] ~~Extend `tests/rt-behavior/types/default-values-rt`~~ — done as a new fixture,
+      `tests/rt-behavior/types/enum-default-first-variant-rt` (see Corrections): a defaulted enum equals its
       first variant; a defaulted record's enum field does; `WITH` over the defaulted
       record sets another field and leaves the enum at its first variant.
-- [ ] `tests/syntax/types/mut-default-eligibility-invalid`: answer §3's four questions
+- [x] `tests/syntax/types/mut-default-eligibility-invalid`: answer §3's four questions
       from evidence in the commit message, then remove only the two enum diagnostics
       from `build.log`, after the full suite has run.
-- [ ] `src/docs/spec/language/04_types.md` §4.10: the table row, the prose list and the
+- [x] `src/docs/spec/language/04_types.md` §4.10: the table row, the prose list and the
       predicate paragraph say an `ENUM` defaults to its first variant;
       `src/docs/spec/language/05_bindings-and-scope.md` where it restates the list.
-- [ ] A canvas proof: `/tmp/plan-172-A/d1.mfb` builds and prints `default cap is ordinal
+- [x] A canvas proof: `/tmp/plan-172-A/d1.mfb` builds and prints `default cap is ordinal
       0` and `default kind is None`.
 
 Acceptance: the unit cases, the run-time fixture and the canvas probe pass, and no
@@ -142,7 +144,12 @@ golden other than the one named moves.
   Check: `cargo test --bin mfb defaultable` → pass; `scripts/artifact-gate.sh
   target/release/mfb types` → only `mut-default-eligibility-invalid` differs, in the two
   lines named (est. 10 min).
-Commit: —
+  → `sh /tmp/plan-172-A/run_d1.sh target/release/mfb` printed `default cap is ordinal 0`
+    and `default kind is None`. Full `scripts/test-accept.sh` at `fc530a22e`
+    (`/tmp/p172-suite-accept.log`, 1678 tests): three fixtures differ — the one named,
+    and two under `syntax/resources` (see Corrections).
+Commit: fc530a22e (rule, unit cases, spec §4.10); the golden, the fixture's module and
+`STATE`-record cases and the remaining doc sync in the commit after it
 
 ## Validation Plan
 
@@ -159,7 +166,28 @@ None. The one decision is the owner's, recorded in 172-A.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **A new fixture, not an extension of `default-values-rt`.** That fixture exists to
+  reach codegen's defaults through an inline `TRAP` and says so; adding `MUT` cases
+  would have re-baselined its 85 KB of `.ast` / `.ir` for a different purpose. Its
+  comment, which said the front end rejects an enum, is corrected in place (line-neutral).
+- **`rejects_mut_enum_not_defaultable` pinned the old rule.** Written in `b20ab6b56`
+  (plan-12 wave 2, one case per `is_defaultable` branch). It is now
+  `mut_single_variant_enum_is_defaultable`, asserting acceptance of the same program.
+- **The scoped check was swapped for the full suite**, run at `fc530a22e` in a detached
+  worktree (`/tmp/p172-suite`) because the golden edit needed it. It took about 100
+  minutes on a loaded machine.
+- **Two more fixtures moved, and they stay red: `syntax/resources/resource-state-invalid`
+  and `resource-return-state-invalid`.** Both use a bare enum as their example of an
+  illegal `STATE` type. `STATE`'s check is this same predicate, so a bare enum now passes
+  it and then fails in native lowering exactly as `STATE Integer` and `STATE Float`
+  already did on main. That is **bug-1013**, a pre-existing bug this letter widened by
+  one type. The owner ruled (2026-10-10) that a `STATE` must be a record, and that
+  plan-172 continues without fixing it; the two fixtures are correct as written and go
+  green, unedited, when bug-1013 lands. Their goldens are not touched here.
+- **Spec and man statements this letter also corrected:** §4.5 (an enum has a default),
+  `05_bindings-and-scope.md`, `15_resource-management.md` (an enum field does not block
+  a `STATE` record), and `mfb man variable` ("no enum or handle fields" → "no handle
+  fields").
 
 ## Summary
 

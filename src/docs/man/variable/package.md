@@ -353,7 +353,7 @@ and so on — and `mfb man thread` describes the resource channel that carries i
 
 A `RES` binding may carry a data value alongside the open thing, written with
 `STATE`. That value is an ordinary record that can be copied and has a default for
-every field — so no enum or handle fields — and it is the one place a field is
+every field — so no handle fields — and it is the one place a field is
 updated by assignment rather than with `WITH`:
 
 ```basic
