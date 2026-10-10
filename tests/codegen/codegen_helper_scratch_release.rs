@@ -515,6 +515,22 @@ const TLS_HELPERS_OPENSSL: &[(&str, Counts)] = &[
 /// `cert_scratch`/`key_scratch`); it is a hand-written compare+branch guard
 /// with a different label, verified by direct inspection of the emitted
 /// `.ncode` rather than by this test's label-matching.
+///
+/// **bug-984: `listen` is 8/7/5 and `closeListener` 0/1/0.** The 7/4/2 row pinned
+/// a leak: the two PEM buffers and the host block were allocated by `listen` and
+/// freed by nothing (`--debug`: `tls::listen` + `tls::close` left `live_bytes`
+/// 2,848 higher each cycle, `tcp` flat). `CFDataCreate` copies the bytes it is
+/// handed, so both PEM buffers are scratch and join the guarded release at `done`
+/// (+2 frees, +2 guarded). The host block is still the `Listener`'s, exactly as
+/// the 7/2/2 paragraph says, and it is still never released while the listener can
+/// be asked for its address: `listen` releases it at `done` only on the exits that
+/// built no listener (the success path nulls the scratch pointer as the record
+/// takes the block: +1 free, +1 guarded), and `closeListener` frees the one the
+/// record holds (0/0/0 -> 0/1/0), after which `tls::localAddress` refuses the
+/// closed record before it loads the word. The eighth allocation is the bind-all
+/// path's arena copy of `"0.0.0.0"`, so the record's word is always a block its
+/// close can free. `tls_local_address_reports_the_port_a_listener_bound_to` still
+/// guards the use-after-free the 7/2/2 paragraph describes.
 const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
     // bug-623 D: the connection and listener ctx blocks moved from the arena to the C
     // heap (`gen_macos::emit_ctx_calloc` / `emit_ctx_free`), so accept, connect and
@@ -522,13 +538,16 @@ const TLS_HELPERS_NETWORK_FRAMEWORK: &[(&str, Counts)] = &[
     // connect's failure exit free one fewer. No guarded scratch release changed.
     ("_mfb_rt_tls_tls_accept", (1, 0, 0)),
     ("_mfb_rt_tls_tls_close", (0, 1, 0)),
-    ("_mfb_rt_tls_tls_closeListener", (0, 0, 0)),
+    // bug-984: frees the bound-host block the record owns.
+    ("_mfb_rt_tls_tls_closeListener", (0, 1, 0)),
     ("_mfb_rt_tls_tls_connect", (3, 2, 2)),
     ("_mfb_rt_tls_tls_connectAddr", (3, 2, 2)),
     // bug-885: +1 alloc (RESOLVEDCSTR), +2 frees of it (both guarded non-NULL,
     // neither using the counted _scratch_kept_N convention) -- see the comment
     // above the table.
-    ("_mfb_rt_tls_tls_listen", (7, 4, 2)),
+    // bug-984: +1 alloc (the bind-all host copy), +3 guarded scratch releases
+    // (both PEM buffers, and the host block on the exits that built no listener).
+    ("_mfb_rt_tls_tls_listen", (8, 7, 5)),
     ("_mfb_rt_tls_tls_localAddress", (3, 2, 0)),
     // plan-132: `emit_address_from_host_and_port` allocates the scratch host
     // `String` and the record, and frees the scratch once the record holds it.
