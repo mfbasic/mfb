@@ -1,4 +1,4 @@
-# bug-1014: on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash)
+# bug-1017: on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash)
 
 Last updated: 2026-10-10
 Effort: small (<1h)

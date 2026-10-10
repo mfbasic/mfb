@@ -1,4 +1,4 @@
-# bug-1013: a user `TYPE Circle` or `TYPE Rectangle` breaks the canvas helpers (internal error)
+# bug-1016: a user `TYPE Circle` or `TYPE Rectangle` breaks the canvas helpers (internal error)
 
 Last updated: 2026-10-10
 Effort: small (<1h)
