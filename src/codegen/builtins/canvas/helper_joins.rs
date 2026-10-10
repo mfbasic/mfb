@@ -217,7 +217,7 @@ END FUNC
 
 ' Where each contributing ring of a polygon starts in its edge tail: the running sum of
 ' the lengths of the rings of at least 2 points (`__canvas_polygonEdges`).
-FUNC __canvas_ringStarts(rings AS List OF List OF Point) AS List OF Integer
+FUNC __canvas_ringStarts(rings AS List OF List OF vector::Float2) AS List OF Integer
   MUT out AS List OF Integer = []
   MUT at AS Integer = 0
   FOR EACH ring IN rings

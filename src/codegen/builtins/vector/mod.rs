@@ -105,6 +105,11 @@ const VEC4_TYPES: &[&str] = &["Float4", "Fixed4", "Integer4"];
 // callers whose extra error is specific to one element-type family (e.g. the
 // `Integer` overloads' final `math::round` back to `Integer`, or the `Fixed`/
 // `Integer` overloads' `math::abs` of the most-negative representable value).
+/// The registry identity of `vector::Float2`, for another builtin package that
+/// names it in a record prop or a signature (`canvas`, since plan-172-B) — the
+/// `color::COLOR_TYPE_ID` precedent.
+pub(crate) const FLOAT2_TYPE_ID: &str = "vector.Float2";
+
 /// Synthetic path/doc labels for the `vector` companion a late pass injects. The label
 /// is the one the generic pass derives (`<builtin-{import_name}>`), so the two passes
 /// name the same file and a program that imports `vector` itself is not injected twice.

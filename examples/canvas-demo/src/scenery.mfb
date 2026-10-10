@@ -6,6 +6,7 @@
 ' twice with one seed is the same tree.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -17,12 +18,12 @@ IMPORT math
 ' The outline of a pine standing on (cx, baseY), `h` tall and `w` across at its
 ' widest: a short trunk under tiers of drooping, ragged boughs that narrow
 ' towards a single tip.
-FUNC pineRing(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer) AS List OF canvas::Point
+FUNC pineRing(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer) AS List OF vector::Float2
   LET tiers AS Integer = 6 + seed MOD 3
   LET trunkH AS Float = h * 0.07
   LET trunkW AS Float = w * 0.06
   LET crownH AS Float = h - trunkH
-  MUT right AS List OF canvas::Point = []
+  MUT right AS List OF vector::Float2 = []
   ' Down the right-hand side, tier by tier: each tier flares out to a drooping
   ' bough tip, then tucks back in under it.
   FOR k = 0 TO tiers - 1
@@ -37,12 +38,12 @@ FUNC pineRing(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integ
     right = collections::append(right, pt(cx + reach, yTip + crownH * 0.006))
     IF k < tiers - 1 THEN right = collections::append(right, pt(cx + tuck, yTip - crownH * 0.022))
   NEXT
-  MUT ring AS List OF canvas::Point = [pt(cx, baseY - h)]
+  MUT ring AS List OF vector::Float2 = [pt(cx, baseY - h)]
   ring = collections::append(ring, right)
   ring = collections::append(ring, [pt(cx + trunkW, baseY - trunkH), pt(cx + trunkW, baseY), pt(cx - trunkW, baseY), pt(cx - trunkW, baseY - trunkH)])
   ' Up the left-hand side: the right side mirrored, with its own raggedness.
   FOR i = len(right) - 1 TO 0 STEP -1
-    LET p AS canvas::Point = collections::get(right, i)
+    LET p AS vector::Float2 = collections::get(right, i)
     LET jitter AS Float = hashRange(seed * 97 + i, 0.9, 1.08)
     ring = collections::append(ring, pt(cx - (p.x - cx) * jitter, p.y + (hash01(seed * 13 + i) - 0.5) * h * 0.012))
   NEXT
@@ -72,7 +73,7 @@ END FUNC
 ' A bird in flight seen from the side, in its own frame: beak towards +X, one
 ' unit from tail to beak. `flap` runs -1 (wings down) to 1 (wings up). The far
 ' wing is a little behind and darker, so a flapping bird reads as having two.
-FUNC birdNearWing(flap AS Float, broad AS Float) AS List OF canvas::Point
+FUNC birdNearWing(flap AS Float, broad AS Float) AS List OF vector::Float2
   LET lift AS Float = flap
   LET elbowX AS Float = 0.02
   LET elbowY AS Float = -0.36 * lift
@@ -81,7 +82,7 @@ FUNC birdNearWing(flap AS Float, broad AS Float) AS List OF canvas::Point
   RETURN [pt(0.16, -0.02), pt(elbowX + 0.06, elbowY - 0.04 * broad), pt(tipX, tipY), pt(tipX - 0.05 * broad, tipY + 0.07), pt(elbowX - 0.1 * broad, elbowY + 0.12 * broad), pt(-0.12, 0.04)]
 END FUNC
 
-FUNC birdBody AS List OF canvas::Point
+FUNC birdBody AS List OF vector::Float2
   RETURN [pt(0.5, 0.0), pt(0.4, -0.06), pt(0.3, -0.08), pt(0.1, -0.08), pt(-0.2, -0.04), pt(-0.48, -0.08), pt(-0.5, 0.06), pt(-0.22, 0.07), pt(0.1, 0.09), pt(0.32, 0.06), pt(0.42, 0.03)]
 END FUNC
 
@@ -104,17 +105,17 @@ END FUNC
 ' unit from tail to beak and two and a quarter from wing tip to wing tip. The
 ' wing tips split into primary feathers. `flap` runs -1..1: the wings
 ' foreshorten as they beat, which from below is how a wingbeat looks.
-FUNC raptorRing(flap AS Float) AS List OF canvas::Point
+FUNC raptorRing(flap AS Float) AS List OF vector::Float2
   LET span AS Float = 0.55 + 0.45 * math::cos(flap * 1.2)
   LET sweep AS Float = flap * 0.08
   ' Down the right wing (positive y) from the shoulder, out to the fingers and
   ' back along the trailing edge, then the tail, then the left wing mirrored.
-  LET wing AS List OF canvas::Point = [pt(0.2, 0.07), pt(0.2 + sweep, 0.35 * span), pt(0.12 + sweep, 0.62 * span), pt(0.06 + sweep, 0.9 * span), pt(-0.02 + sweep, 1.1 * span), pt(-0.07 + sweep, 0.98 * span), pt(-0.1 + sweep, 1.1 * span), pt(-0.15 + sweep, 0.96 * span), pt(-0.19 + sweep, 1.05 * span), pt(-0.22 + sweep, 0.9 * span), pt(-0.26 + sweep, 0.95 * span), pt(-0.27 + sweep, 0.78 * span), pt(-0.24, 0.5 * span), pt(-0.2, 0.25 * span), pt(-0.18, 0.08)]
-  MUT ring AS List OF canvas::Point = [pt(0.56, 0.0), pt(0.5, 0.05), pt(0.36, 0.08)]
+  LET wing AS List OF vector::Float2 = [pt(0.2, 0.07), pt(0.2 + sweep, 0.35 * span), pt(0.12 + sweep, 0.62 * span), pt(0.06 + sweep, 0.9 * span), pt(-0.02 + sweep, 1.1 * span), pt(-0.07 + sweep, 0.98 * span), pt(-0.1 + sweep, 1.1 * span), pt(-0.15 + sweep, 0.96 * span), pt(-0.19 + sweep, 1.05 * span), pt(-0.22 + sweep, 0.9 * span), pt(-0.26 + sweep, 0.95 * span), pt(-0.27 + sweep, 0.78 * span), pt(-0.24, 0.5 * span), pt(-0.2, 0.25 * span), pt(-0.18, 0.08)]
+  MUT ring AS List OF vector::Float2 = [pt(0.56, 0.0), pt(0.5, 0.05), pt(0.36, 0.08)]
   ring = collections::append(ring, wing)
   ring = collections::append(ring, [pt(-0.3, 0.07), pt(-0.55, 0.17), pt(-0.62, 0.09), pt(-0.64, 0.0), pt(-0.62, -0.09), pt(-0.55, -0.17), pt(-0.3, -0.07)])
   FOR i = len(wing) - 1 TO 0 STEP -1
-    LET p AS canvas::Point = collections::get(wing, i)
+    LET p AS vector::Float2 = collections::get(wing, i)
     ring = collections::append(ring, pt(p.x, -p.y))
   NEXT
   RETURN collections::append(ring, [pt(0.36, -0.08), pt(0.5, -0.05)])

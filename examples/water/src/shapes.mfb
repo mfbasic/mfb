@@ -15,6 +15,7 @@
 ' whatever size the object is.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -614,14 +615,14 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       LET half AS Float = TRIANGLE_HALF_BASE * s.scale
       LET below AS Float = TRIANGLE_BELOW * s.scale
       LET above AS Float = TRIANGLE_ABOVE * s.scale
-      LET points AS List OF canvas::Point = [turnedPoint(s, -half, below), turnedPoint(s, half, below), turnedPoint(s, 0.0, -above)]
+      LET points AS List OF vector::Float2 = [turnedPoint(s, -half, below), turnedPoint(s, half, below), turnedPoint(s, 0.0, -above)]
       RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]
     CASE ShapeKind.Circle
       RETURN canvas::Circle[x := s.x, y := s.y, radius := CIRCLE_RADIUS * s.scale, paint := paint]
     CASE ShapeKind.Ellipse
       RETURN canvas::Ellipse[x := s.x, y := s.y, radiusX := ELLIPSE_RADIUS_X * s.scale, radiusY := ELLIPSE_RADIUS_Y * s.scale, angle := s.angle, paint := paint]
     CASE ShapeKind.Star
-      MUT points AS List OF canvas::Point = []
+      MUT points AS List OF vector::Float2 = []
       FOR k = 0 TO STAR_POINTS * 2 - 1
         points = collections::append(points, turnedPoint(s, starCornerX(k) * s.scale, starCornerY(k) * s.scale))
       NEXT
@@ -630,10 +631,10 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
 END FUNC
 
 ' A point given in the object's own frame, where it lands in the window.
-FUNC turnedPoint(s AS Shape, lx AS Float, ly AS Float) AS canvas::Point
+FUNC turnedPoint(s AS Shape, lx AS Float, ly AS Float) AS vector::Float2
   LET c AS Float = math::cos(s.angle)
   LET n AS Float = math::sin(s.angle)
-  RETURN canvas::Point[x := s.x + c * lx - n * ly, y := s.y + n * lx + c * ly]
+  RETURN vector::Float2[x := s.x + c * lx - n * ly, y := s.y + n * lx + c * ly]
 END FUNC
 
 ' Every object, with the selected one - if any - outlined.

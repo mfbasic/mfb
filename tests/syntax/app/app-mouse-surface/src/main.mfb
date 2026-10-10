@@ -2,6 +2,7 @@ IMPORT app
 IMPORT canvas
 IMPORT io
 IMPORT term
+IMPORT vector
 
 ' plan-94-C/D/E: the mouse surface in app mode, so every backend's native mouse
 ' handlers land in this fixture's `.app.ncodesum` goldens.

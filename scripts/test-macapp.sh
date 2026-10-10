@@ -493,6 +493,7 @@ scaffold_project "$proj" canvasblit
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 FUNC main() AS Nothing
@@ -572,6 +573,7 @@ scaffold_project "$proj" canvasresize
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 FUNC main() AS Nothing
@@ -698,6 +700,7 @@ scaffold_project "$proj" canvasdirect
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT io
@@ -706,11 +709,11 @@ IMPORT os
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   ' Built first, so the second present is not waiting on the loop.
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < 262145
     LET a AS Float = toFloat(i) * 6.283185307179586 / 262145.0
-    points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
     i = i + 1
   END WHILE
   LET size AS canvas::Size = canvas::getSize()

@@ -2218,7 +2218,7 @@ fn fill_line(
 }
 
 /// The `x`/`y` offsets of a point in a polygon ring of type `ring_type`
-/// (`List OF Point`).
+/// (`List OF vector::Float2`).
 fn ring_point_offsets(
     builder: &CodeBuilder,
     ring_type: &ParameterType,

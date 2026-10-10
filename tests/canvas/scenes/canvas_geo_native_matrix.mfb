@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT io
@@ -10,7 +11,7 @@ FUNC paints() AS List OF canvas::Paint
   LET strokes AS List OF color::Color = [color::rgba(200, 100, 50, 255), color::rgba(1, 2, 3, 0)]
   LET widths AS List OF Float = [0.0, 1.0, 2.75, 0.0 - 1.5]
   LET modes AS List OF canvas::BlendMode = [canvas::BlendMode.Normal, canvas::BlendMode.Multiply, canvas::BlendMode.Screen, canvas::BlendMode.Add]
-  LET clips AS List OF List OF List OF canvas::Point = [[], [[canvas::Point[x := 5.5, y := 0.0 - 3.25], canvas::Point[x := 105.625, y := 0.0 - 3.25], canvas::Point[x := 105.625, y := 46.75], canvas::Point[x := 5.5, y := 46.75]]], [[canvas::Point[x := 10.0, y := 10.0], canvas::Point[x := 5.0, y := 10.0], canvas::Point[x := 5.0, y := 13.0], canvas::Point[x := 10.0, y := 13.0]]]]
+  LET clips AS List OF List OF List OF vector::Float2 = [[], [[vector::Float2[x := 5.5, y := 0.0 - 3.25], vector::Float2[x := 105.625, y := 0.0 - 3.25], vector::Float2[x := 105.625, y := 46.75], vector::Float2[x := 5.5, y := 46.75]]], [[vector::Float2[x := 10.0, y := 10.0], vector::Float2[x := 5.0, y := 10.0], vector::Float2[x := 5.0, y := 13.0], vector::Float2[x := 10.0, y := 13.0]]]]
   FOR EACH f IN fills
     FOR EACH s IN strokes
       FOR EACH w IN widths
@@ -24,8 +25,8 @@ FUNC paints() AS List OF canvas::Paint
   NEXT
   LET nz AS Float = 0.0 * (0.0 - 1.0)
   LET one AS canvas::GradientStop = canvas::GradientStop[offset := 0.25, color := color::rgb(9, 8, 7)]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 1.5, y := 2.5], endPoint := canvas::Point[x := 0.0 - 3.5, y := 4.25], stops := [one], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET flat AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 7.0, y := 8.0], endPoint := canvas::Point[x := 9.0, y := 10.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 1.5, y := 2.5], endPoint := vector::Float2[x := 0.0 - 3.5, y := 4.25], stops := [one], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET flat AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 7.0, y := 8.0], endPoint := vector::Float2[x := 9.0, y := 10.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   LET negZero AS canvas::Transform = canvas::Transform[a := nz, b := nz, c := nz, d := nz, tx := nz, ty := nz]
   out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { stroke := color::rgb(4, 5, 6), strokeWidth := 2.0, gradient := ramp })
   out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { gradient := flat, blend := canvas::BlendMode.Add })
@@ -57,19 +58,19 @@ FUNC paints() AS List OF canvas::Paint
   ' plan-163-C. Path clips, built natively: a triangle, a ring with a hole under NonZero, a
   ' rectangle as five points (not the rectangle fast path), a clip of rings too short to
   ' enclose anything, and a clip on a faded paint whose polyline colours fade too.
-  LET tri AS List OF canvas::Point = [canvas::Point[x := 3.5, y := 1.25], canvas::Point[x := 60.0, y := 0.0 - 4.0], canvas::Point[x := 20.75, y := 70.0]]
-  LET hole AS List OF canvas::Point = [canvas::Point[x := 10.0, y := 10.0], canvas::Point[x := 30.0, y := 10.0], canvas::Point[x := 30.0, y := 30.0], canvas::Point[x := 10.0, y := 30.0]]
-  LET box AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 50.0, y := 0.0], canvas::Point[x := 50.0, y := 40.0], canvas::Point[x := 0.0, y := 40.0], canvas::Point[x := 0.0, y := 40.0]]
+  LET tri AS List OF vector::Float2 = [vector::Float2[x := 3.5, y := 1.25], vector::Float2[x := 60.0, y := 0.0 - 4.0], vector::Float2[x := 20.75, y := 70.0]]
+  LET hole AS List OF vector::Float2 = [vector::Float2[x := 10.0, y := 10.0], vector::Float2[x := 30.0, y := 10.0], vector::Float2[x := 30.0, y := 30.0], vector::Float2[x := 10.0, y := 30.0]]
+  LET box AS List OF vector::Float2 = [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 50.0, y := 0.0], vector::Float2[x := 50.0, y := 40.0], vector::Float2[x := 0.0, y := 40.0], vector::Float2[x := 0.0, y := 40.0]]
   out = collections::append(out, WITH inked { clip := [tri] })
   out = collections::append(out, WITH inked { clip := [box, hole], clipRule := canvas::FillRule.NonZero })
   out = collections::append(out, WITH inked { clip := [box] })
-  out = collections::append(out, WITH inked { clip := [[canvas::Point[x := 1.0, y := 2.0]], []] })
+  out = collections::append(out, WITH inked { clip := [[vector::Float2[x := 1.0, y := 2.0]], []] })
   out = collections::append(out, WITH inked { clip := [tri], transparency := 0.3, dashes := [5.0, 2.5] })
   RETURN out
 END FUNC
 
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
 FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
@@ -104,7 +105,7 @@ FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
   LET sq AS canvas::Paint = WITH p { cap := canvas::CapStyle.Square }
   LET l7 AS canvas::DrawItem = canvas::Line[x1 := 1.5, y1 := 2.25, x2 := 300.0, y2 := 200.75, paint := sq]
   LET l8 AS canvas::DrawItem = canvas::Line[x1 := 5.0, y1 := 5.0, x2 := 5.0, y2 := 5.0, paint := sq]
-  LET none AS List OF canvas::Point = []
+  LET none AS List OF vector::Float2 = []
   LET g1 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
   LET g2 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(1.0, 2.0), pt(3.0, 4.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
   LET g3 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(1.0, 2.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
@@ -117,10 +118,10 @@ FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
   ' contributing ring is not ring 0, so the bounds seed from a later ring), no rings
   ' at all, only rings that contribute nothing, and a later ring that widens the
   ' bounds in every direction.
-  LET outer AS List OF canvas::Point = [pt(10.0, 10.0), pt(90.0, 10.0), pt(90.0, 90.0), pt(10.0, 90.0)]
-  LET innerCw AS List OF canvas::Point = [pt(30.0, 30.0), pt(70.0, 30.0), pt(70.0, 70.0), pt(30.0, 70.0)]
-  LET innerCcw AS List OF canvas::Point = [pt(30.0, 30.0), pt(30.0, 70.0), pt(70.0, 70.0), pt(70.0, 30.0)]
-  LET noRings AS List OF List OF canvas::Point = []
+  LET outer AS List OF vector::Float2 = [pt(10.0, 10.0), pt(90.0, 10.0), pt(90.0, 90.0), pt(10.0, 90.0)]
+  LET innerCw AS List OF vector::Float2 = [pt(30.0, 30.0), pt(70.0, 30.0), pt(70.0, 70.0), pt(30.0, 70.0)]
+  LET innerCcw AS List OF vector::Float2 = [pt(30.0, 30.0), pt(30.0, 70.0), pt(70.0, 70.0), pt(70.0, 30.0)]
+  LET noRings AS List OF List OF vector::Float2 = []
   LET g8 AS canvas::DrawItem = canvas::Polygon[contours := [outer, innerCw], rule := canvas::FillRule.EvenOdd, paint := p]
   LET g9 AS canvas::DrawItem = canvas::Polygon[contours := [outer, innerCcw], rule := canvas::FillRule.NonZero, paint := p]
   LET g10 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(500.0, 500.0)], none, [pt(1.5, 2.5), pt(3.0, 4.0)], innerCw, none], rule := canvas::FillRule.NonZero, paint := p]
@@ -159,7 +160,7 @@ FUNC main() AS Nothing
   LET t AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 3.5, ty := 0.0]
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]]
   LET moved AS canvas::DrawItem = canvas::Rectangle[x := 1.0, y := 2.0, w := 3.0, h := 4.0, paint := WITH canvas::fill(color::rgb(1, 2, 3)) { transform := t }]
-  LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 10.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 10.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   LET gradPaint AS canvas::Paint = WITH canvas::fill(color::rgb(1, 2, 3)) { gradient := grad }
   LET ramp AS canvas::DrawItem = canvas::Circle[x := 50.0, y := 50.0, radius := 9.0, paint := gradPaint]
   LET oval AS canvas::DrawItem = canvas::Ellipse[x := 40.0, y := 40.0, radiusX := 10.0, radiusY := 5.0, angle := 0.5, paint := canvas::fill(color::rgb(9, 9, 9))]

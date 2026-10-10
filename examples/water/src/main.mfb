@@ -37,6 +37,7 @@
 
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT errorCode
@@ -277,7 +278,7 @@ FUNC main AS Integer
     DO WHILE TRUE
       LET mouse AS canvas::MouseEvent = canvas::pollMouse()
       IF mouse.kind = canvas::MouseKind.None THEN EXIT DO
-      LET at AS canvas::Point = mouse.position
+      LET at AS vector::Float2 = mouse.position
 
       IF mouse.kind = canvas::MouseKind.Down AND mouse.button = canvas::MouseButton.Left THEN
         gesture = WITH NO_GESTURE { startX := at.x, startY := at.y }

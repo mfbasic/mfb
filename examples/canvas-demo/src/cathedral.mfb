@@ -15,12 +15,13 @@
 ' glass; R re-leads the whole window in new colours.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
 
 TYPE Pane
-  ring AS List OF canvas::Point    ' relative to the window's centre, in units of its radius
+  ring AS List OF vector::Float2    ' relative to the window's centre, in units of its radius
   hue AS Integer
 END TYPE
 
@@ -47,8 +48,8 @@ FUNC glassColor(i AS Integer) AS color::Color
 END FUNC
 
 ' An arc of points at radius r from angle a0 to a1.
-FUNC arcRing(r AS Float, a0 AS Float, a1 AS Float, n AS Integer) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC arcRing(r AS Float, a0 AS Float, a1 AS Float, n AS Integer) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 0 TO n
     LET a AS Float = a0 + (a1 - a0) * toFloat(i) / toFloat(n)
     out = collections::append(out, pt(math::cos(a) * r, math::sin(a) * r))
@@ -64,7 +65,7 @@ FUNC rosePanes AS List OF Pane
   FOR k = 0 TO 5
     LET a0 AS Float = toFloat(k) * TAU / 6.0 + gap - math::pi / 2.0
     LET a1 AS Float = toFloat(k + 1) * TAU / 6.0 - gap - math::pi / 2.0
-    LET ring AS List OF canvas::Point = collections::append(arcRing(0.25, a0 + 0.03, a1 - 0.03, 8), collections::transform(collections::take(arcRing(0.52, a1, a0, 10), 11), LAMBDA(p AS canvas::Point) -> p))
+    LET ring AS List OF vector::Float2 = collections::append(arcRing(0.25, a0 + 0.03, a1 - 0.03, 8), collections::transform(collections::take(arcRing(0.52, a1, a0, 10), 11), LAMBDA(p AS vector::Float2) -> p))
     out = collections::append(out, Pane[ring := ring, hue := k MOD 2 + 0])
   NEXT
   FOR k = 0 TO 11
@@ -73,7 +74,7 @@ FUNC rosePanes AS List OF Pane
     LET half AS Float = TAU / 24.0 - gap * 0.7
     LET ca AS Float = math::cos(mid)
     LET sa AS Float = math::sin(mid)
-    MUT ring AS List OF canvas::Point = arcRing(0.56, mid - half, mid + half, 6)
+    MUT ring AS List OF vector::Float2 = arcRing(0.56, mid - half, mid + half, 6)
     ' Up the right side to the point, and back down the left.
     LET rBase AS Float = 0.56
     LET rTip AS Float = 0.9
@@ -105,13 +106,13 @@ END FUNC
 
 ' Is the point inside the ring? A ray to the right crosses an odd number of
 ' edges exactly when it is.
-FUNC insideRing(ring AS List OF canvas::Point, x AS Float, y AS Float) AS Boolean
+FUNC insideRing(ring AS List OF vector::Float2, x AS Float, y AS Float) AS Boolean
   MUT inside AS Boolean = FALSE
   LET n AS Integer = len(ring)
   MUT j AS Integer = n - 1
   FOR i = 0 TO n - 1
-    LET a AS canvas::Point = collections::get(ring, i)
-    LET b AS canvas::Point = collections::get(ring, j)
+    LET a AS vector::Float2 = collections::get(ring, i)
+    LET b AS vector::Float2 = collections::get(ring, j)
     IF (a.y > y) <> (b.y > y) THEN
       IF x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x THEN inside = NOT inside
     END IF
@@ -213,7 +214,7 @@ FUNC cathedralDraw(s AS CathedralState, f AS Fonts, w AS Float, h AS Float) AS L
   LET poolY AS Float = floorY + (h - floorY) * (0.35 + 0.35 * s.sunY)
   LET onFloor AS canvas::Transform = canvas::Transform[a := rose.r * 1.15, b := 0.0, c := shear * rose.r, d := rose.r * squash, tx := poolX, ty := poolY]
   ' The shaft between the window and the floor: a soft quad, added on.
-  LET shaft AS List OF canvas::Point = [pt(rose.cx - rose.r * 0.9, rose.cy), pt(rose.cx + rose.r * 0.9, rose.cy), pt(poolX + rose.r * 1.1 + shear * rose.r * 0.3, poolY), pt(poolX - rose.r * 1.1 - shear * rose.r * 0.3, poolY)]
+  LET shaft AS List OF vector::Float2 = [pt(rose.cx - rose.r * 0.9, rose.cy), pt(rose.cx + rose.r * 0.9, rose.cy), pt(poolX + rose.r * 1.1 + shear * rose.r * 0.3, poolY), pt(poolX - rose.r * 1.1 - shear * rose.r * 0.3, poolY)]
   out = collections::append(out, poly(shaft, WITH glowP(color::white) { gradient := linear(0.0, rose.cy, 0.0, poolY, [gstop(0.0, fade(light, 0.12 * strength)), gstop(1.0, fade(light, 0.05 * strength))]) }))
   FOR EACH p IN s.panes
     out = collections::append(out, poly(mapRing(p.ring, onFloor), glowP(fade(glassColor(p.hue), 0.42 * strength))))
@@ -240,7 +241,7 @@ FUNC cathedralDraw(s AS CathedralState, f AS Fonts, w AS Float, h AS Float) AS L
     IF i = s.flashPane OR s.flashPane < 0 THEN lit = math::min(1.0, lit + s.flash * 0.5)
     ' The pane is placed by mapping its unit ring into window pixels, so its
     ' gradients are given in window pixels too.
-    LET ring AS List OF canvas::Point = mapRing(p.ring, winT)
+    LET ring AS List OF vector::Float2 = mapRing(p.ring, winT)
     out = collections::append(out, poly(ring, glassPaint(glassColor(p.hue), i + 7, rose, lit)))
     ' The bloom: light pooling in the glass towards the sun.
     out = collections::append(out, poly(ring, WITH glowP(color::white) { gradient := WITH radial(rose.cx, rose.cy, rose.r, [gstop(0.0, fade(light, 0.35 * lit)), gstop(0.6, fade(glassColor(p.hue), 0.12 * lit)), gstop(1.0, rgba(0, 0, 0, 0))]) { focalOffset := pt(s.sunX * 0.5 * rose.r, -0.3 * rose.r) } }))

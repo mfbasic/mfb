@@ -14,6 +14,7 @@
 ' contour of every shape, outlined.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT fs
@@ -275,7 +276,7 @@ FUNC rightPage(f AS Fonts, b AS Book, img AS SvgImage, index AS Integer, zoom AS
   LET size AS Float = math::min(pw, fh) * 0.82 * zoom
   LET bob AS Float = math::sin(t * 1.2) * 3.0
   LET view AS canvas::Transform = compose(place(cx, cy + bob, 0.0, size / math::max(img.vw, img.vh)), translate(-img.vx - img.vw / 2.0, -img.vy - img.vh / 2.0))
-  LET clip AS List OF List OF canvas::Point = [rectRing(px + 9.0, fy + 9.0, pw - 18.0, fh - 18.0)]
+  LET clip AS List OF List OF vector::Float2 = [rectRing(px + 9.0, fy + 9.0, pw - 18.0, fh - 18.0)]
   ' A shadow under it on the page.
   out = collections::append(out, ellipse(px + pw / 2.0 + panX, cy + size * 0.46, size * 0.3, size * 0.035, 0.0, WITH fillP(rgba(90, 60, 30, 50)) { clip := clip }))
   ' Every item of the creature gets the frame's clip. The clip is in window
@@ -291,7 +292,7 @@ END FUNC
 ' Clip a picture to a ring given in window coordinates. Each item's clip is
 ' in its own coordinates, so the ring goes through the inverse of the item's
 ' transform.
-FUNC clipItems(items AS List OF canvas::DrawItem, ring AS List OF List OF canvas::Point) AS List OF canvas::DrawItem
+FUNC clipItems(items AS List OF canvas::DrawItem, ring AS List OF List OF vector::Float2) AS List OF canvas::DrawItem
   RETURN collections::transform(items, LAMBDA(d AS canvas::DrawItem) -> clipItem(d, ring))
 END FUNC
 
@@ -306,12 +307,12 @@ FUNC invert(t0 AS canvas::Transform) AS canvas::Transform
   RETURN canvas::Transform[a := ia, b := ib, c := ic, d := id, tx := -(ia * t.tx + ic * t.ty), ty := -(ib * t.tx + id * t.ty)]
 END FUNC
 
-FUNC localRing(ring AS List OF List OF canvas::Point, t AS canvas::Transform) AS List OF List OF canvas::Point
+FUNC localRing(ring AS List OF List OF vector::Float2, t AS canvas::Transform) AS List OF List OF vector::Float2
   LET inv AS canvas::Transform = invert(t)
-  RETURN collections::transform(ring, LAMBDA(r AS List OF canvas::Point) -> collections::transform(r, LAMBDA(p AS canvas::Point) -> applyT(inv, p)))
+  RETURN collections::transform(ring, LAMBDA(r AS List OF vector::Float2) -> collections::transform(r, LAMBDA(p AS vector::Float2) -> applyT(inv, p)))
 END FUNC
 
-FUNC clipItem(d AS canvas::DrawItem, ring AS List OF List OF canvas::Point) AS canvas::DrawItem
+FUNC clipItem(d AS canvas::DrawItem, ring AS List OF List OF vector::Float2) AS canvas::DrawItem
   MATCH d
     CASE canvas::Polygon(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.paint.transform) } }
     CASE canvas::PolyLine(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.paint.transform) } }

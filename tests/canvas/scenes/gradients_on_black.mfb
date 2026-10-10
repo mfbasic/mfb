@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' plan-163-D: gradients over the default opaque-black surface -- a linear ramp turned by
@@ -17,19 +18,19 @@ FUNC stops() AS List OF canvas::GradientStop
   RETURN [canvas::GradientStop[offset := 0.0, color := color::rgb(250, 80, 60)], canvas::GradientStop[offset := 0.5, color := color::rgb(250, 220, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(60, 120, 250)]]
 END FUNC
 
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
 FUNC id() AS canvas::Transform
   RETURN canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0]
 END FUNC
 
-FUNC linear(a AS canvas::Point, b AS canvas::Point, spread AS canvas::GradientSpread, t AS canvas::Transform, apply AS canvas::GradientApply) AS canvas::Gradient
+FUNC linear(a AS vector::Float2, b AS vector::Float2, spread AS canvas::GradientSpread, t AS canvas::Transform, apply AS canvas::GradientApply) AS canvas::Gradient
   RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := a, endPoint := b, stops := stops(), spread := spread, transform := t, focalOffset := pt(0.0, 0.0), focalRadius := 0.0, strokeApply := apply]
 END FUNC
 
-FUNC radial(c AS canvas::Point, r AS Float, t AS canvas::Transform, o AS canvas::Point, fr AS Float) AS canvas::Gradient
+FUNC radial(c AS vector::Float2, r AS Float, t AS canvas::Transform, o AS vector::Float2, fr AS Float) AS canvas::Gradient
   RETURN canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := c, endPoint := pt(c.x + r, c.y), stops := stops(), spread := canvas::GradientSpread.Pad, transform := t, focalOffset := o, focalRadius := fr, strokeApply := canvas::GradientApply.FillOnly]
 END FUNC
 

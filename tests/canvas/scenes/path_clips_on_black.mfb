@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -13,17 +14,17 @@ IMPORT math
 '
 ' rt_canvas_metal.rs compares the Metal frame against the software oracle, and
 ' scripts/test-canvas-gpu-rows.sh (row `pathclips`) the Vulkan one.
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
-FUNC box(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF canvas::Point
+FUNC box(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF vector::Float2
   RETURN [pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]
 END FUNC
 
 ' A star of `n` points (2n edges) about (cx, cy), alternating radii `r` and `r / 2`.
-FUNC star(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  MUT points AS List OF canvas::Point = []
+FUNC star(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < n * 2
     LET a AS Float = toFloat(i) * 3.141592653589793 / toFloat(n) + 0.1
@@ -31,7 +32,7 @@ FUNC star(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas:
     IF i MOD 2 = 1 THEN
       rr = r * 0.5
     END IF
-    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
     i = i + 1
   END WHILE
   RETURN points

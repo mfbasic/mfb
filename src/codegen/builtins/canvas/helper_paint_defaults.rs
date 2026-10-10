@@ -163,7 +163,7 @@ END FUNC"#;
 /// No clip rings, which means "no clip" (plan-163-C).
 #[rustfmt::skip]
 const NO_CLIP: &str =
-r#"FUNC __canvas_noClip() AS List OF List OF Point
+r#"FUNC __canvas_noClip() AS List OF List OF vector::Float2
   RETURN []
 END FUNC"#;
 
@@ -177,7 +177,7 @@ END FUNC"#;
 #[rustfmt::skip]
 const NO_GRADIENT: &str =
 r#"FUNC __canvas_noGradient() AS Gradient
-  RETURN Gradient[kind := GradientKind.Linear, startPoint := Point[x := 0.0, y := 0.0], endPoint := Point[x := 0.0, y := 0.0], stops := [], spread := GradientSpread.Pad, transform := __canvas_noTransform(), focalOffset := Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := GradientApply.FillOnly]
+  RETURN Gradient[kind := GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 0.0, y := 0.0], stops := [], spread := GradientSpread.Pad, transform := __canvas_noTransform(), focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := GradientApply.FillOnly]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

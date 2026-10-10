@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' plan-163-B: Square caps over the default opaque-black surface, at fractional
@@ -24,8 +25,8 @@ FUNC main() AS Nothing
   LET a1 AS canvas::DrawItem = canvas::Arc[x := 160.4, y := 380.6, radius := 90.3, startAngle := 0.3, endAngle := 2.8, paint := warm]
   LET a2 AS canvas::DrawItem = canvas::Arc[x := 400.2, y := 380.1, radius := 70.7, startAngle := 3.6, endAngle := 8.7, paint := cool]
   LET a3 AS canvas::DrawItem = canvas::Arc[x := 400.2, y := 380.1, radius := 110.4, startAngle := 1.0, endAngle := 4.9, paint := warm]
-  LET p1 AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 560.3, y := 260.4], canvas::Point[x := 700.7, y := 300.2], canvas::Point[x := 650.1, y := 420.9], canvas::Point[x := 820.6, y := 470.3]], colors := [], paint := warm]
-  LET p2 AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 600.5, y := 540.5], canvas::Point[x := 600.5, y := 540.5], canvas::Point[x := 760.2, y := 580.8], canvas::Point[x := 760.2, y := 580.8]], colors := [color::rgb(255, 80, 80), color::rgb(255, 80, 80), color::rgb(80, 255, 120), color::rgb(80, 120, 255)], paint := cool]
+  LET p1 AS canvas::DrawItem = canvas::PolyLine[points := [vector::Float2[x := 560.3, y := 260.4], vector::Float2[x := 700.7, y := 300.2], vector::Float2[x := 650.1, y := 420.9], vector::Float2[x := 820.6, y := 470.3]], colors := [], paint := warm]
+  LET p2 AS canvas::DrawItem = canvas::PolyLine[points := [vector::Float2[x := 600.5, y := 540.5], vector::Float2[x := 600.5, y := 540.5], vector::Float2[x := 760.2, y := 580.8], vector::Float2[x := 760.2, y := 580.8]], colors := [color::rgb(255, 80, 80), color::rgb(255, 80, 80), color::rgb(80, 255, 120), color::rgb(80, 120, 255)], paint := cool]
   LET t AS canvas::Transform = canvas::Transform[a := 0.8, b := 0.6, c := 0.0 - 0.6, d := 0.8, tx := 180.0, ty := 560.0]
   LET l7 AS canvas::DrawItem = canvas::Line[x1 := 0.0 - 70.0, y1 := 0.0, x2 := 70.0, y2 := 0.0, paint := WITH warm { transform := t }]
   canvas::present([l1, l2, l3, l4, l5, l6, a1, a2, a3, p1, p2, l7])

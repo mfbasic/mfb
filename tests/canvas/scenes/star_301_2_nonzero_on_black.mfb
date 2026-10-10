@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
@@ -11,12 +12,12 @@ IMPORT math
 ' Radius 180. {301/2} winds twice round its centre, so the centre that even-odd
 ' leaves as a hole is filled here, and the GPUs' signed winding count over its 301
 ' short edges is compared against the oracle's.
-FUNC star(n AS Integer, k AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  MUT points AS List OF canvas::Point = []
+FUNC star(n AS Integer, k AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < n
     LET a AS Float = toFloat((i * k) MOD n) * 6.283185307179586 / toFloat(n)
-    points = collections::append(points, canvas::Point[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
     i = i + 1
   END WHILE
   RETURN points

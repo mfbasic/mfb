@@ -12,6 +12,7 @@
 ' outline carried through its own transform (kit.mfb's mapRing).
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -190,7 +191,7 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 ' A leaf in its own frame: pointed at both ends, one unit long.
-FUNC leafRing AS List OF canvas::Point
+FUNC leafRing AS List OF vector::Float2
   RETURN [pt(0.5, 0.0), pt(0.25, -0.2), pt(0.0, -0.24), pt(-0.25, -0.18), pt(-0.5, 0.0), pt(-0.25, 0.18), pt(0.0, 0.24), pt(0.25, 0.2)]
 END FUNC
 
@@ -251,7 +252,7 @@ FUNC canopyDraw(s AS CanopyState, w AS Float, h AS Float) AS List OF canvas::Dra
     LET y0 AS Float = h * hashRange(i + 80, 0.08, 0.75)
     LET speed AS Float = wv * hashRange(i + 90, 0.8, 1.4)
     LET x0 AS Float = fract(hash01(i + 100) + t * speed / (w + 600.0)) * (w + 600.0) - 300.0
-    MUT pts AS List OF canvas::Point = []
+    MUT pts AS List OF vector::Float2 = []
     MUT cols AS List OF color::Color = []
     LET len_ AS Float = h * hashRange(i + 110, 0.2, 0.45) * clampF(math::abs(wv) / 80.0, 0.3, 2.0)
     FOR j = 0 TO 12
@@ -286,14 +287,14 @@ FUNC canopyDraw(s AS CanopyState, w AS Float, h AS Float) AS List OF canvas::Dra
     out = collections::append(out, path([pt(gx, groundY + 2.0), pt(gx + lean * 0.4, groundY - gh * 0.5), pt(gx + lean, groundY - gh)], strokeP(mixC(hex("#6a4a3a"), hex("#b0805a"), hash01(i + 1220)), 1.6)))
   NEXT
   ' The leaves: each one tumbling, its X scaled by the cosine of its flip.
-  LET ring AS List OF canvas::Point = leafRing()
+  LET ring AS List OF vector::Float2 = leafRing()
   FOR EACH l IN s.leaves
     LET sx AS Float = math::cos(l.flip)
     LET tr AS canvas::Transform = place2(l.x, l.y, l.angle, l.size * 2.0 * (0.15 + 0.85 * math::abs(sx)), l.size * 2.0)
     MUT c AS color::Color = leafColor(l.hue)
     IF sx < 0.0 THEN c = mixC(c, hex("#5a2a1e"), 0.3)
     out = collections::append(out, poly(mapRing(ring, tr), fillP(c)))
-    LET vein AS List OF canvas::Point = mapRing([pt(-0.45, 0.0), pt(0.45, 0.0)], tr)
+    LET vein AS List OF vector::Float2 = mapRing([pt(-0.45, 0.0), pt(0.45, 0.0)], tr)
     out = collections::append(out, path(vein, strokeP(mixC(c, hex("#3a1a10"), 0.5), math::max(0.8, l.size * 0.08))))
   NEXT
 

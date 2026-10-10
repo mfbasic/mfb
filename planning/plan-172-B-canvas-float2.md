@@ -162,34 +162,43 @@ its executable grew by the amount P3 recorded (+330,236 bytes on macOS aarch64:
 2,666,000 → 2,996,236 for an empty `present`).
   Check: `cargo test --test rt_canvas_debug_hooks` → pass (est. 3 min).
   → `test result: ok. 2 passed; 0 failed` (107.78s).
-Commit: —
+Commit: 2708400a9
 
 ### Phase 2 — The type swap and the port
 
 One phase, because the tree does not compile between the two halves.
 
-- [ ] Add `pub(crate) const FLOAT2_TYPE_ID: &str = "vector.Float2"` to
+- [x] Add `pub(crate) const FLOAT2_TYPE_ID: &str = "vector.Float2"` to
       `src/codegen/builtins/vector/mod.rs` (moved from Phase 1).
-- [ ] Retype the seven props in `mod.rs` to `ParameterType::named(vector::FLOAT2_TYPE_ID)`
+      → `cargo build --bin mfb` → no warning.
+- [x] Retype the seven props in `mod.rs` to `ParameterType::named(vector::FLOAT2_TYPE_ID)`
       and delete the `Point` record.
-- [ ] Replace the 44 `Point` mentions in the companion source
+      → `grep -c 'named("Point")' src/codegen/builtins/canvas/mod.rs` → 0; `mfb man canvas types | grep -c vector::Float2` → 7.
+- [x] Replace the 44 `Point` mentions in the companion source
       (`src/codegen/builtins/canvas/*.rs`) with `vector::Float2`.
-- [ ] Remove the `"Point"` entry from `canvas_types_are_builtin_types`, citing §3 in the
+      → 37 replaced by the edit script (the 44 counted 7 `canvas::Point[` in registry examples, which the port codemod took); `grep -rnE '\b(AS|OF) Point\b|\bPoint\[' src/codegen/builtins/canvas` → 0.
+- [x] Remove the `"Point"` entry from `canvas_types_are_builtin_types`, citing §3 in the
       commit message.
-- [ ] Update the test-only `FIELD_KIND_TABLE`
+      → `cargo test --bin mfb canvas` → `113 passed; 0 failed`.
+- [x] Update the test-only `FIELD_KIND_TABLE`
       (`src/codegen/collection/assign/self_update.rs`) and regenerate
       `tests/runtime/inplace_self_update/field_kinds.tsv` from `field_kinds_gen.py`.
-- [ ] Port `tests/` (491), `examples/` (202), `tools/` (18), `scripts/` (32) and the
+      → row removed; the `.tsv` hand-corrected, not regenerated (see Corrections, bug-1014); `cargo test --bin mfb field_kind` → 1 passed; `cargo test --test inplace_self_update_census` → 2 passed.
+- [x] Port `tests/` (491), `examples/` (202), `tools/` (18), `scripts/` (32) and the
       registry example strings in `src/` (16): replace the token, add `IMPORT vector`
       where missing.
-- [ ] Regenerate the two IR-embedding fixtures' goldens with
+      → `python3 /tmp/plan-172-A/codemod_b.py <root>` → `76 file(s), 745 token(s), 108 IMPORT vector added`; plus `IMPORT vector` in `examples/canvas-demo/src/main.mfb` and `tests/syntax/app/app-mouse-surface/src/main.mfb`, which read `.x` without naming the type.
+- [x] Regenerate the two IR-embedding fixtures' goldens with
       `scripts/sync-goldens.sh` and `scripts/regen-native-goldens.sh` per
       `.ai/testing-gates.md`, after the full canvas suites are green.
-- [ ] Add `tests/syntax/canvas/canvas_point_removed_invalid/` — a program naming
+      → `sync-goldens.sh` → `synced 9 golden file(s) across 3 test(s)`; `regen-native-goldens.sh` → `6 golden(s) rewritten, 0 failure(s)`; `artifact-gate.sh target/release/mfb all` → `2306 golden(s) checked, 0 diff(s)`.
+- [x] Add `tests/syntax/canvas/canvas_point_removed_invalid/` — a program naming
       `canvas::Point`, with its `build.log` golden, on the
       `canvas_color_type_removed_invalid` precedent.
-- [ ] Update `src/docs/spec/app/06_canvas.md` and
+      → its `build.log` carries `Built-in package `canvas` does not export `canvas.Point`` twice.
+- [x] Update `src/docs/spec/app/06_canvas.md` and
       `src/docs/spec/language/18_builtin-functions.md` where they name `canvas::Point`.
+      → new section "Coordinates are `vector::Float2`"; `cargo test --bin mfb spec` → 46 passed.
 
 Acceptance: no `canvas::Point` remains in the tree outside the removed-type fixture, and
 every canvas pixel test passes with no PNG regenerated.
@@ -197,6 +206,8 @@ every canvas pixel test passes with no PNG regenerated.
   canvas_point_removed_invalid` → 0, and `cargo test --test rt_canvas_golden --test
   rt_canvas_rasteriser --test rt_canvas_picture --test rt_canvas_font` → pass
   (est. 10 min), and `git status --porcelain tests/golden/canvas` → empty.
+  → grep → 0; all sixteen `rt_canvas_*` suites pass (golden 22, rasteriser 86, metal 45,
+    picture 33, font 17, and eleven more; 0 failed); `tests/golden/canvas` unchanged.
 Commit: —
 
 ## Validation Plan
@@ -221,6 +232,22 @@ None. P3 decides the only fork, in 172-A.
 
 - **From 172-A, P3 FALSIFIED:** the late injection pass is required, not conditional.
   Phase 1's first task and its acceptance are rewritten above with the measured cost.
+- **`field_kinds.tsv` was corrected by hand, not regenerated.** The generator's output
+  already differs from the committed file on 35 lines that have nothing to do with
+  canvas (measured at `fc530a22e`); regenerating would have re-baselined them. Filed as
+  bug-1014. The four canvas rows were edited in place: the `canvas::Point` row removed,
+  `canvas::Point[` replaced in three constructors.
+- **Two files read a pair's `.x` / `.y` without naming the type**, as 172-A's finding 1
+  predicted: `examples/canvas-demo/src/main.mfb` and `app-mouse-surface`. Found by
+  building every canvas-importing project in the tree
+  (`/tmp/plan-172-A/build_canvas_projects.sh`: 15 projects, the only failures left are
+  the four `-invalid` fixtures).
+- **The run-time proof could not use `examples/weather`.** It animates and has no end:
+  two dumps of the *unchanged* tree, each killed after 20 s, differ
+  (`2b132c12…` and `ddd143cc…`), so a before/after comparison of it proves nothing. The
+  proof is the exact-match golden suite instead, which includes the transform scene.
+- **The plan's check named `--test rt_canvas_picture --test rt_canvas_font` beside two
+  others; all sixteen canvas suites were run**, because the port touched 39 test files.
 - **No generic-injection skip.** The task said to add one "on the `color` precedent".
   `.ai/resources-packages.md` ("Wiring a builtin source companion") says not to when
   direct importers have goldens: the skip moves a directly imported package's source

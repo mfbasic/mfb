@@ -15,6 +15,7 @@
 ' against exactly the button and track that were last drawn.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT datetime
@@ -114,7 +115,7 @@ FUNC hoursAt(t AS Track, p AS Playback, x AS Float) AS Float
   RETURN math::clamp((x - t.left) / span * p.totalHours, 0.0, p.loadedHours)
 END FUNC
 
-FUNC onButton(t AS Track, at AS canvas::Point) AS Boolean
+FUNC onButton(t AS Track, at AS vector::Float2) AS Boolean
   LET dx AS Float = at.x - t.buttonX
   LET dy AS Float = at.y - t.buttonY
   LET reach AS Float = t.radius * 1.25
@@ -123,7 +124,7 @@ END FUNC
 
 ' The track is thin, so it answers to a band a caption high around it, and a
 ' little way past each end so that the very first and last hours can be hit.
-FUNC onTrack(t AS Track, at AS canvas::Point) AS Boolean
+FUNC onTrack(t AS Track, at AS vector::Float2) AS Boolean
   IF at.x < t.left - t.text OR at.x > t.right + t.text THEN RETURN FALSE
   RETURN math::abs(at.y - t.y) <= t.text
 END FUNC
@@ -167,7 +168,7 @@ FUNC buttonItems(t AS Track, p AS Playback) AS List OF canvas::DrawItem
     items = collections::append(items, stop)
   ELSE
     ' Nudged right of centre, where a triangle's own centre of mass sits.
-    LET points AS List OF canvas::Point = [canvas::Point[x := cx - r * 0.28, y := cy - r * 0.42], canvas::Point[x := cx - r * 0.28, y := cy + r * 0.42], canvas::Point[x := cx + r * 0.44, y := cy]]
+    LET points AS List OF vector::Float2 = [vector::Float2[x := cx - r * 0.28, y := cy - r * 0.42], vector::Float2[x := cx - r * 0.28, y := cy + r * 0.42], vector::Float2[x := cx + r * 0.44, y := cy]]
     LET play AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(white(iconAlpha))]
     items = collections::append(items, play)
   END IF

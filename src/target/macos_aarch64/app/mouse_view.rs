@@ -22,7 +22,7 @@
 //! every event on the wrong half of the window. `MFBCanvasView` overrides only
 //! `acceptsFirstResponder`, `keyDown:` and `setFrameSize:` — **not** `isFlipped`
 //! — so it inherits NSView's bottom-left origin and does need the flip, to reach
-//! the top-left origin `canvas::Point` documents. See plan-94-C Corrections.
+//! the top-left origin `vector::Float2` documents. See plan-94-C Corrections.
 //!
 //! **No new event queue**: the bytes go into the pipe the two `keyDown:` IMPs
 //! already write to, and the worker's stdin decoder turns them back into events.
@@ -391,7 +391,7 @@ fn emit_to_surface_coords(asm: &mut Asm, imp: &MouseImp, done: &str) {
             //
             // But it does need the Y-flip. `MFBCanvasView` does not override
             // `isFlipped` (unlike `TermView`), so `convertPoint:` hands back
-            // NSView's bottom-left origin, while `canvas::Point` is documented
+            // NSView's bottom-left origin, while `vector::Float2` is documented
             // top-left with Y increasing downward — the origin every `DrawItem`
             // and every hit test uses. Without the flip a click near the top of
             // the window would be reported near the bottom of the scene.

@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' plan-163-B: dashed strokes over the default opaque-black surface, at fractional
@@ -10,11 +11,11 @@ IMPORT color
 '
 ' rt_canvas_metal.rs compares the Metal frame against the software oracle, and
 ' scripts/test-canvas-gpu-rows.sh (row `dashes`) the Vulkan one.
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
-FUNC box(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point
+FUNC box(x AS Float, y AS Float, s AS Float) AS List OF vector::Float2
   RETURN [pt(x, y), pt(x + s, y), pt(x + s, y + s), pt(x, y + s)]
 END FUNC
 

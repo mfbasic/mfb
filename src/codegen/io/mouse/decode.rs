@@ -570,7 +570,7 @@ fn emit_parse_and_enqueue(
 
     // The wire order is `b;x;y` where x is the COLUMN and y is the ROW. The ring's
     // `coord_a`/`coord_b` are row-then-column in cells and x-then-y in pixels,
-    // matching `term::MouseEvent { row, column }` and `canvas::Point { x, y }`
+    // matching `term::MouseEvent { row, column }` and `vector::Float2 { x, y }`
     // respectively — so in cells the pair swaps here and in pixels it does not.
     // Both consumers read `coord_a` first, so the swap belongs in exactly one
     // place: here, where the wire order is known.

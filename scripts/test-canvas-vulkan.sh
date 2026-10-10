@@ -103,6 +103,7 @@ TTF
 cat > "$proj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT os
@@ -121,8 +122,8 @@ FUNC main() AS Nothing
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
   LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := WITH canvas::stroke(color::rgb(255, 128, 0), 9.0) { cap := canvas::CapStyle.Round }]
   LET faint AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 40.0, w := 120.0, h := 80.0, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
-  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 620.0, y := 200.0], canvas::Point[x := 740.0, y := 200.0], canvas::Point[x := 680.0, y := 300.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 0, 200))]
-  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(0, 180, 180), color::rgb(20, 20, 20), 6.0)]
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 620.0, y := 200.0], vector::Float2[x := 740.0, y := 200.0], vector::Float2[x := 680.0, y := 300.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 0, 200))]
+  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 60.0, y := 400.0], vector::Float2[x := 160.0, y := 400.0], vector::Float2[x := 160.0, y := 360.0], vector::Float2[x := 230.0, y := 430.0], vector::Float2[x := 160.0, y := 500.0], vector::Float2[x := 160.0, y := 460.0], vector::Float2[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(0, 180, 180), color::rgb(20, 20, 20), 6.0)]
   ' TRANSLUCENT, deliberately (plan-116-A). The fixture glyph is an axis-aligned opaque
   ' square, so its coverage is binary -- and compositing an opaque square over itself is
   ' idempotent, which means a renderer that drew every glyph TWICE produced a
@@ -169,7 +170,7 @@ FUNC main() AS Nothing
   LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
   LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 300.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
   LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 300.0, radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
-  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 460.25, y := 240.0], canvas::Point[x := 660.75, y := 240.0], canvas::Point[x := 660.75, y := 300.0], canvas::Point[x := 460.25, y := 300.0]]] }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 240.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 460.25, y := 240.0], vector::Float2[x := 660.75, y := 240.0], vector::Float2[x := 660.75, y := 300.0], vector::Float2[x := 460.25, y := 300.0]]] }]
   ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
   ' Without these the frame never sets hasTransform and the whole of this letter's
   ' shader work would go unexercised while the suite still reported success.
@@ -216,13 +217,13 @@ FUNC main() AS Nothing
   ' with a single one, a per-item first-stop index of zero would pass whether or not it
   ' was ever written.
   LET rampStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
-  LET gLin AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 430.0, y := 100.0], endPoint := canvas::Point[x := 580.0, y := 160.0], stops := rampStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET gLin AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 430.0, y := 100.0], endPoint := vector::Float2[x := 580.0, y := 160.0], stops := rampStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   LET gradBar AS canvas::DrawItem = canvas::Rectangle[x := 430.0, y := 100.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := gLin }]
   LET orbStops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 244, 214)], canvas::GradientStop[offset := 1.0, color := color::rgb(90, 30, 120)]]
-  LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 820.0, y := 300.0], endPoint := canvas::Point[x := 865.0, y := 300.0], stops := orbStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET gRad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 820.0, y := 300.0], endPoint := vector::Float2[x := 865.0, y := 300.0], stops := orbStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   LET gradOrb AS canvas::DrawItem = canvas::Circle[x := 820.0, y := 300.0, radius := 42.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := gRad }]
-  LET gPoly AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 40.0, y := 120.0], endPoint := canvas::Point[x := 40.0, y := 210.0], stops := rampStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET gradTri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 20.0, y := 120.0], canvas::Point[x := 120.0, y := 120.0], canvas::Point[x := 70.0, y := 210.0]]], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := gPoly }]
+  LET gPoly AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 40.0, y := 120.0], endPoint := vector::Float2[x := 40.0, y := 210.0], stops := rampStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET gradTri AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 20.0, y := 120.0], vector::Float2[x := 120.0, y := 120.0], vector::Float2[x := 70.0, y := 210.0]]], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := gPoly }]
   ' bug-484: pictures. Their texels ride the glyph region one packed RGBA word each, and
   ' each block names its own slice -- so there are several, placed AFTER the text so their
   ' slices start past the glyphs' (a base never written, or a cursor the two kinds do not
@@ -237,7 +238,7 @@ FUNC main() AS Nothing
   LET picStrip AS canvas::DrawItem = canvas::Picture[x := 775.0, y := 510.0, w := 90.0, h := 30.0, image := stripImg, paint := canvas::fill(color::rgb(255, 255, 255))]
   LET picHalf AS canvas::Transform = canvas::Transform[a := 0.5, b := 0.0, c := 0.0, d := 0.5, tx := 840.0, ty := 548.0]
   LET picScaled AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 128, 0)) { transform := picHalf }]
-  LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 705.0, y := 578.0], canvas::Point[x := 741.0, y := 578.0], canvas::Point[x := 741.0, y := 638.0], canvas::Point[x := 705.0, y := 638.0]]] }]
+  LET picEdge AS canvas::DrawItem = canvas::Picture[x := 705.5, y := 578.25, w := 50.5, h := 50.3, image := quadImg, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 705.0, y := 578.0], vector::Float2[x := 741.0, y := 578.0], vector::Float2[x := 741.0, y := 638.0], vector::Float2[x := 705.0, y := 638.0]]] }]
   ' plan-163-C: the tint's strength is the fill's alpha (half-strength red here), and a
   ' picture fades through `transparency`, the item block's `clipPath.w`.
   LET picTint AS canvas::DrawItem = canvas::Picture[x := 765.0, y := 550.0, w := 30.0, h := 30.0, image := quadImg, paint := canvas::fill(color::rgba(255, 0, 0, 128))]

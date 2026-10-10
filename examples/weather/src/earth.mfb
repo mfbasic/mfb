@@ -40,6 +40,7 @@
 ' equal-area; only the shapes on it bend.
 
 IMPORT canvas
+IMPORT vector
 IMPORT math
 
 ' A place on the world.
@@ -259,8 +260,8 @@ END FUNC
 
 ' Where a plane point lands in the window. The y axis flips: north is up on the
 ' map and down the screen.
-FUNC toScreen(v AS View, p AS Plane) AS canvas::Point
-  RETURN canvas::Point[x := v.width * 0.5 + (p.x - v.cx) * v.scale, y := v.height * 0.5 - (p.y - v.cy) * v.scale]
+FUNC toScreen(v AS View, p AS Plane) AS vector::Float2
+  RETURN vector::Float2[x := v.width * 0.5 + (p.x - v.cx) * v.scale, y := v.height * 0.5 - (p.y - v.cy) * v.scale]
 END FUNC
 
 ' Which plane point a window pixel is - the inverse of toScreen, used to scatter

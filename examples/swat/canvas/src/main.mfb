@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT datetime
@@ -258,8 +259,8 @@ END FUNC
 ' lists of them, drawn in order.
 ' ---------------------------------------------------------------------------
 
-FUNC pt(px AS Float, py AS Float) AS canvas::Point
-  RETURN canvas::Point[x := px, y := py]
+FUNC pt(px AS Float, py AS Float) AS vector::Float2
+  RETURN vector::Float2[x := px, y := py]
 END FUNC
 
 FUNC circ(px AS Float, py AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
@@ -274,7 +275,7 @@ FUNC seg(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, w AS Float, c AS co
   RETURN canvas::Line[x1 := x1, y1 := y1, x2 := x2, y2 := y2, paint := WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round }]
 END FUNC
 
-FUNC poly(points AS List OF canvas::Point, c AS color::Color) AS canvas::DrawItem
+FUNC poly(points AS List OF vector::Float2, c AS color::Color) AS canvas::DrawItem
   RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c)]
 END FUNC
 
@@ -285,7 +286,7 @@ END FUNC
 ' A star of `points` spikes: alternating outer and inner radii, the first spike
 ' pointing along `turn`.
 FUNC star(cx AS Float, cy AS Float, outer AS Float, inner AS Float, points AS Integer, turn AS Float, c AS color::Color) AS canvas::DrawItem
-  MUT corners AS List OF canvas::Point = []
+  MUT corners AS List OF vector::Float2 = []
   FOR i = 0 TO points * 2 - 1
     LET a AS Float = turn + toFloat(i) * math::pi / toFloat(points)
     MUT r AS Float = outer

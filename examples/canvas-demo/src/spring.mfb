@@ -13,6 +13,7 @@
 ' moves, each layer slides by a different amount, the near ones most.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -60,7 +61,7 @@ TYPE SpringState
   sy AS Float
   svx AS Float
   svy AS Float
-  trail AS List OF canvas::Point
+  trail AS List OF vector::Float2
   diving AS Boolean
   diveT AS Float       ' seconds into the dive
   diveX AS Float       ' where the dive began
@@ -109,7 +110,7 @@ LET SPRING_NEAR AS Float = 80.0
 ' rooted at (x, y) and leaning by `lean`.
 FUNC fern(x AS Float, y AS Float, size AS Float, lean AS Float, seed AS Integer, c AS color::Color) AS List OF canvas::DrawItem
   MUT out AS List OF canvas::DrawItem = []
-  MUT stem AS List OF canvas::Point = []
+  MUT stem AS List OF vector::Float2 = []
   LET n AS Integer = 14
   FOR i = 0 TO n
     LET u AS Float = toFloat(i) / toFloat(n)
@@ -118,8 +119,8 @@ FUNC fern(x AS Float, y AS Float, size AS Float, lean AS Float, seed AS Integer,
   NEXT
   out = collections::append(out, path(stem, strokeP(mixC(c, color::black, 0.3), size * 0.018)))
   FOR i = 1 TO n - 1
-    LET p AS canvas::Point = collections::get(stem, i)
-    LET q AS canvas::Point = collections::get(stem, i + 1)
+    LET p AS vector::Float2 = collections::get(stem, i)
+    LET q AS vector::Float2 = collections::get(stem, i + 1)
     LET dir AS Float = math::atan2(q.y - p.y, q.x - p.x)
     LET len_ AS Float = size * 0.2 * (1.0 - toFloat(i) / toFloat(n)) * hashRange(seed * 7 + i, 0.8, 1.1)
     FOR side = -1 TO 1 STEP 2
@@ -244,7 +245,7 @@ FUNC springStep(s AS SpringState, inp AS Input, dt AS Float) AS SpringState
     sx = sx + svx * dt
     sy = sy + svy * dt
   END IF
-  MUT trail AS List OF canvas::Point = collections::prepend(s.trail, pt(sx, sy))
+  MUT trail AS List OF vector::Float2 = collections::prepend(s.trail, pt(sx, sy))
   IF len(trail) > 26 THEN trail = collections::take(trail, 26)
 
   MUT drops AS List OF Drop = []
@@ -340,7 +341,7 @@ FUNC fountainStone(f AS Fountain, h AS Float, t AS Float, surge AS Float) AS Lis
   LET rimH AS Float = f.ry * 0.9
   MUT out AS List OF canvas::DrawItem = []
   ' The basin wall: the front half of an elliptical band.
-  MUT wall AS List OF canvas::Point = []
+  MUT wall AS List OF vector::Float2 = []
   FOR i = 0 TO 32
     LET a AS Float = toFloat(i) / 32.0 * math::pi
     wall = collections::append(wall, pt(f.cx + math::cos(a) * f.rx * 1.06, f.poolY + math::sin(a) * f.ry * 1.06 - rimH * 0.15))
@@ -418,7 +419,7 @@ FUNC springDraw(s AS SpringState, w AS Float, h AS Float) AS List OF canvas::Dra
     LET ox AS Float = wx + h * (-0.22 + 0.48 * u) + hashRange(i + 520, -0.01, 0.01) * h
     LET oy AS Float = wy - h * 0.5 + math::pow(math::abs(u - 0.45) * 2.0, 2.0) * h * 0.12
     LET len_ AS Float = h * hashRange(i + 500, 0.2, 0.42)
-    MUT pts AS List OF canvas::Point = []
+    MUT pts AS List OF vector::Float2 = []
     MUT cols AS List OF color::Color = []
     LET tint AS Float = hash01(i + 530)
     FOR j = 0 TO 10
@@ -435,7 +436,7 @@ FUNC springDraw(s AS SpringState, w AS Float, h AS Float) AS List OF canvas::Dra
   out = collections::append(out, fountainStone(f, h, t, s.surge))
   ' The water: a deep ellipse with a lighter rim, the moon and the guardian
   ' reflected in it, and the ripples - all clipped to the pool.
-  LET pool AS List OF List OF canvas::Point = [ovalRing(f.cx, f.poolY, f.rx * 0.97, f.ry * 0.95, 48, 0.0)]
+  LET pool AS List OF List OF vector::Float2 = [ovalRing(f.cx, f.poolY, f.rx * 0.97, f.ry * 0.95, 48, 0.0)]
   out = collections::append(out, ellipse(f.cx, f.poolY, f.rx * 0.97, f.ry * 0.95, 0.0, gradP(WITH radial(0.0, 0.0, 1.0, [gstop(0.0, hex("#0f3f4a")), gstop(0.7, hex("#1b6470")), gstop(1.0, hex("#47a4a8"))]) { transform := place2(f.cx, f.poolY, 0.0, f.rx, f.ry) })))
   out = collections::append(out, ellipse(f.cx + f.rx * 0.45, f.poolY + f.ry * 0.25, f.rx * 0.08, f.ry * 0.5, 0.0, WITH glowP(color::white) { clip := pool, gradient := WITH radial(0.0, 0.0, 1.0, [gstop(0.0, rgba(220, 240, 255, 70)), gstop(1.0, rgba(220, 240, 255, 0))]) { transform := place2(f.cx + f.rx * 0.45, f.poolY + f.ry * 0.25, 0.0, f.rx * 0.08, f.ry * 0.5) } }))
   out = collections::append(out, ellipse(s.sx, f.poolY + (f.poolY - s.sy) * 0.08, f.rx * 0.12, f.ry * 0.3, 0.0, WITH glowP(color::white) { clip := pool, gradient := WITH radial(0.0, 0.0, 1.0, [gstop(0.0, rgba(180, 255, 240, 120)), gstop(1.0, rgba(180, 255, 240, 0))]) { transform := place2(s.sx, f.poolY + (f.poolY - s.sy) * 0.08, 0.0, f.rx * 0.12, f.ry * 0.3) } }))

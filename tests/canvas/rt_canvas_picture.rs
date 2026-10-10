@@ -83,7 +83,7 @@ fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
 
 fn scene(body: &str) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT collections\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT collections\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND FUNC\n"
     )
 }
@@ -233,7 +233,7 @@ fn the_fill_is_a_tint_and_transparency_is_the_opacity() {
             name,
             &scene(&format!(
                 "  RES img AS canvas::Image = canvas::createImage(1, 1, {texel})\n  \
-                 LET zero AS canvas::Paint = canvas::Paint[fill := color::rgba(0, 0, 0, 0), stroke := color::rgba(0, 0, 0, 0), strokeWidth := 0.0, blend := canvas::BlendMode.Normal, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], clip := [], clipRule := canvas::FillRule.EvenOdd, gradient := canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 0.0, y := 0.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly], cap := canvas::CapStyle.Butt, join := canvas::JoinStyle.Round, miterLimit := 0.0, dashes := [], dashOffset := 0.0, transparency := 0.0]\n  \
+                 LET zero AS canvas::Paint = canvas::Paint[fill := color::rgba(0, 0, 0, 0), stroke := color::rgba(0, 0, 0, 0), strokeWidth := 0.0, blend := canvas::BlendMode.Normal, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], clip := [], clipRule := canvas::FillRule.EvenOdd, gradient := canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 0.0, y := 0.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly], cap := canvas::CapStyle.Butt, join := canvas::JoinStyle.Round, miterLimit := 0.0, dashes := [], dashOffset := 0.0, transparency := 0.0]\n  \
                  LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := {paint}]\n  \
                  canvas::present([a])\n"
             )),
@@ -308,7 +308,7 @@ fn clip_blend_and_transform_apply_to_a_picture() {
             "  RES g AS canvas::Image = canvas::createImage(1, 1, {green})\n  \
              RES y AS canvas::Image = canvas::createImage(1, 1, {yellow})\n  \
              RES rb AS canvas::Image = canvas::createImage(2, 1, {red_blue})\n  \
-             LET clipped AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ clip := [[canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 16.0, y := 0.0], canvas::Point[x := 16.0, y := 640.0], canvas::Point[x := 0.0, y := 640.0]]] }}\n  \
+             LET clipped AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 16.0, y := 0.0], vector::Float2[x := 16.0, y := 640.0], vector::Float2[x := 0.0, y := 640.0]]] }}\n  \
              LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 32.0, h := 32.0, image := g, paint := clipped]\n  \
              LET under AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 0.0, w := 32.0, h := 32.0, paint := canvas::fill(color::rgb(0, 255, 255))]\n  \
              LET mul AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ blend := canvas::BlendMode.Multiply }}\n  \

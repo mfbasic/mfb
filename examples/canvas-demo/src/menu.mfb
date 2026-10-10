@@ -3,6 +3,7 @@
 ' its scene, and Quit (or Q) leaves.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -130,7 +131,7 @@ END FUNC
 ' A curtain of aurora: a wide additive PolyLine whose colour runs along it, its
 ' points rippling with time.
 FUNC aurora(w AS Float, y AS Float, amp AS Float, t AS Float, seed AS Float, a AS color::Color, b AS color::Color, width AS Float) AS canvas::DrawItem
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   MUT colors AS List OF color::Color = []
   FOR i = 0 TO 20
     LET u AS Float = toFloat(i) / 20.0
@@ -225,7 +226,7 @@ FUNC card(f AS Fonts, info AS DemoInfo, text AS CardText, badge AS Tracked, b AS
   ' The emblem: a round window onto a small picture of the scene, clipped to
   ' its circle.
   out = collections::append(out, circle(cx, ey, er + 5.0, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.25 + 0.5 * hover), strokeWidth := 1.0 }))
-  LET clipRing AS List OF List OF canvas::Point = [ovalRing(cx, ey, er, er, 40, 0.0)]
+  LET clipRing AS List OF List OF vector::Float2 = [ovalRing(cx, ey, er, er, 40, 0.0)]
   out = collections::append(out, emblem(index, cx, ey, er, t, hover, clipRing, sigil))
   out = collections::append(out, circle(cx, ey, er, WITH fillP(rgba(0, 0, 0, 0)) { stroke := alpha(gold(), 0.75), strokeWidth := 1.5 }))
   MUT ty AS Float = ey + er + 22.0
@@ -253,7 +254,7 @@ END FUNC
 
 ' A small living picture of each scene for its card, clipped to the round
 ' window `clip`.
-FUNC emblem(index AS Integer, cx AS Float, cy AS Float, r AS Float, t AS Float, hover AS Float, clip AS List OF List OF canvas::Point, sigil AS SvgImage) AS List OF canvas::DrawItem
+FUNC emblem(index AS Integer, cx AS Float, cy AS Float, r AS Float, t AS Float, hover AS Float, clip AS List OF List OF vector::Float2, sigil AS SvgImage) AS List OF canvas::DrawItem
   LET c AS canvas::Paint = WITH fillP(color::white) { clip := clip }
   LET add AS canvas::Paint = WITH c { blend := canvas::BlendMode.Add }
   LET speed AS Float = 1.0 + hover * 1.5
@@ -330,7 +331,7 @@ FUNC emblem(index AS Integer, cx AS Float, cy AS Float, r AS Float, t AS Float, 
     CASE 6
       ' The scribe: a rune carving itself, ember-bright.
       out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { gradient := radial(cx, cy, r, [gstop(0.0, hex("#5a5650")), gstop(1.0, hex("#26252a"))]) }))
-      LET rune_ AS List OF canvas::Point = [pt(cx - r * 0.3, cy + r * 0.55), pt(cx - r * 0.3, cy - r * 0.55), pt(cx + r * 0.3, cy), pt(cx - r * 0.3, cy + r * 0.0)]
+      LET rune_ AS List OF vector::Float2 = [pt(cx - r * 0.3, cy + r * 0.55), pt(cx - r * 0.3, cy - r * 0.55), pt(cx + r * 0.3, cy), pt(cx - r * 0.3, cy + r * 0.0)]
       LET len_ AS Float = r * 3.0
       LET shown AS Float = len_ * clamp01(fract(t * 0.3 * speed) * 1.4)
       out = collections::append(out, path(rune_, WITH c { stroke := hex("#1a1a1e"), strokeWidth := r * 0.12, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashes := [shown + 0.1, len_] }))
@@ -347,7 +348,7 @@ FUNC emblem(index AS Integer, cx AS Float, cy AS Float, r AS Float, t AS Float, 
       out = collections::append(out, rect(cx - r, cy - r, r * 2.0, r * 2.0, WITH c { fill := hex("#140f12") }))
       FOR k = 0 TO 7
         LET a AS Float = toFloat(k) * TAU / 8.0 + t * 0.15 * speed
-        LET ring AS List OF canvas::Point = [pt(cx, cy), pt(cx + math::cos(a - 0.36) * r * 0.85, cy + math::sin(a - 0.36) * r * 0.85), pt(cx + math::cos(a) * r * 0.95, cy + math::sin(a) * r * 0.95), pt(cx + math::cos(a + 0.36) * r * 0.85, cy + math::sin(a + 0.36) * r * 0.85)]
+        LET ring AS List OF vector::Float2 = [pt(cx, cy), pt(cx + math::cos(a - 0.36) * r * 0.85, cy + math::sin(a - 0.36) * r * 0.85), pt(cx + math::cos(a) * r * 0.95, cy + math::sin(a) * r * 0.95), pt(cx + math::cos(a + 0.36) * r * 0.85, cy + math::sin(a + 0.36) * r * 0.85)]
         out = collections::append(out, poly(ring, WITH c { fill := glassColor(k), stroke := hex("#141010"), strokeWidth := 2.5 }))
       NEXT
       out = collections::append(out, circle(cx, cy, r * 0.25, WITH c { fill := glassColor(2), stroke := hex("#141010"), strokeWidth := 2.5 }))
@@ -367,7 +368,7 @@ FUNC emblem(index AS Integer, cx AS Float, cy AS Float, r AS Float, t AS Float, 
 END FUNC
 
 ' An item with its paint's clip set: `clip` in the item's own coordinates.
-FUNC clipped(d AS canvas::DrawItem, clip AS List OF List OF canvas::Point) AS canvas::DrawItem
+FUNC clipped(d AS canvas::DrawItem, clip AS List OF List OF vector::Float2) AS canvas::DrawItem
   MATCH d
     CASE canvas::Polygon(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }
     CASE canvas::PolyLine(v) : RETURN WITH v { paint := WITH v.paint { clip := clip } }

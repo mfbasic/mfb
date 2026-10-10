@@ -5,6 +5,22 @@ The 2D drawing surface `app::setMode(Mode.Canvas)` presents, and the model the
 is, what installing one guarantees, and how images live; the per-call API is
 `./mfb man canvas`, and the mode itself is `./mfb spec app presentation-mode`.
 
+## Coordinates are `vector::Float2`
+
+Every coordinate pair in the package — a gradient's `startPoint`, `endPoint` and
+`focalOffset`, a `Paint.clip` ring, a `Polygon`'s contours, a `PolyLine`'s points and
+`MouseEvent.position` — is a `vector::Float2`, the two-`Float` record `x`, `y` owned by
+`vector`. The package's own `Point` record is gone; naming it is `SYMBOL_UNKNOWN_IDENTIFIER`.
+[[src/codegen/builtins/vector/mod.rs:FLOAT2_TYPE_ID]]
+
+`canvas` imports `vector` itself, and `vector`'s source is injected by its own late
+pass, so a program that imports only `canvas` still builds.
+[[src/codegen/builtins/vector/mod.rs:augmented_project]] Imports are not transitive,
+though: a program that constructs a pair, or reads `.x` / `.y` from one, must write
+`IMPORT vector` (`./mfb spec language modules-and-packages`). The import brings in the
+whole of `vector`'s source; for a program that presents an empty scene that is 330,236
+bytes of executable on macOS aarch64.
+
 ## Retained, not immediate
 
 `canvas` is a **retained scene**: a program builds a `List OF DrawItem` and
@@ -477,7 +493,7 @@ outline's position rather than its coordinates'.
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dashedStroke]]
 
 **A `Polygon` is one or more closed rings filled under its `rule`.** `contours` is a
-`List OF List OF Point`; each ring closes from its own last point back to its own first.
+`List OF List OF vector::Float2`; each ring closes from its own last point back to its own first.
 A ring of fewer than 2 points contributes no edge and no bounds; a 2-point ring
 contributes its two coincident edges, so it has no area and draws only its stroke; an
 item none of whose rings contributes builds the empty header and draws nothing. Every
@@ -617,7 +633,7 @@ texels.
 [[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
 **`Paint.clip` restricts an item to the area its rings enclose.** `clip` is a
-`List OF List OF Point`, each inner list a closed ring exactly as a `Polygon`'s
+`List OF List OF vector::Float2`, each inner list a closed ring exactly as a `Polygon`'s
 `contours` are, and `Paint.clipRule` decides which points the rings enclose as a
 polygon's `rule` decides its fill (`EvenOdd`, the zero value, or `NonZero`). The empty
 list, the zero value, is no clip. A clip that is not empty but encloses nothing — every

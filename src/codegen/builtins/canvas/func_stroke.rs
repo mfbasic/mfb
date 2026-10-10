@@ -31,6 +31,7 @@ const EX: &str = r#"A smile — the lower half of a circle, stroked. Angles are 
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -48,18 +49,19 @@ the paint's own colour, so the paint here only sets the width:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   MUT colors AS List OF color::Color = []
   MUT k AS Integer = 0
   WHILE k < 8
     LET x AS Float = 60.0 + toFloat(k) * 40.0
     LET y AS Float = 200.0 + toFloat((k MOD 2) * 60)
-    points = collections::append(points, canvas::Point[x := x, y := y])
+    points = collections::append(points, vector::Float2[x := x, y := y])
     colors = collections::append(colors, color::rgba(255, 140, 40, 255 - (k * 255) / 7))
     k = k + 1
   END WHILE

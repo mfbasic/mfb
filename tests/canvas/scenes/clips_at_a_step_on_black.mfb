@@ -1,16 +1,17 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
 
-FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  MUT points AS List OF canvas::Point = []
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < n
     LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
     LET rr AS Float = r + 3.0 * math::sin(a * 5.0)
-    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
     i = i + 1
   END WHILE
   RETURN points
@@ -38,7 +39,7 @@ FUNC main() AS Nothing
     LET top AS Float = toFloat((k / 14) * 60 + 12) + 0.5 + e + eps2
     LET right AS Float = toFloat((k MOD 14) * 60 + 40 + k MOD 5) + 0.5 - e - eps2
     LET bottom AS Float = toFloat((k / 14) * 60 + 40 + k MOD 3) + 0.5 - e - eps
-    LET d AS canvas::DrawItem = canvas::Rectangle[x := left - 5.0, y := top - 5.0, w := right - left + 10.0, h := bottom - top + 10.0, paint := WITH canvas::fill(c) { clip := [[canvas::Point[x := left, y := top], canvas::Point[x := left + (right - left), y := top], canvas::Point[x := left + (right - left), y := top + (bottom - top)], canvas::Point[x := left, y := top + (bottom - top)]]] }]
+    LET d AS canvas::DrawItem = canvas::Rectangle[x := left - 5.0, y := top - 5.0, w := right - left + 10.0, h := bottom - top + 10.0, paint := WITH canvas::fill(c) { clip := [[vector::Float2[x := left, y := top], vector::Float2[x := left + (right - left), y := top], vector::Float2[x := left + (right - left), y := top + (bottom - top)], vector::Float2[x := left, y := top + (bottom - top)]]] }]
     scene = collections::append(scene, d)
     k = k + 1
   END WHILE

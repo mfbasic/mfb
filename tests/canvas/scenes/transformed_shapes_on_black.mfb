@@ -1,16 +1,17 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
 
-FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  MUT points AS List OF canvas::Point = []
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < n
     LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
     LET rr AS Float = r + 3.0 * math::sin(a * 5.0)
-    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
     i = i + 1
   END WHILE
   RETURN points
@@ -40,9 +41,9 @@ FUNC main() AS Nothing
     LET tc AS Float = 0.0 - 0.28 + toFloat(k MOD 4) * 0.05
     LET td AS Float = 1.07 - toFloat(k MOD 7) * 0.029
     LET tf AS canvas::Transform = canvas::Transform[a := ta, b := tb, c := tc, d := td, tx := x - (ta * x + tc * y), ty := y - (tb * x + td * y)]
-    MUT cl AS List OF List OF canvas::Point = []
+    MUT cl AS List OF List OF vector::Float2 = []
     IF k MOD 2 = 1 THEN
-      cl = [[canvas::Point[x := x - 17.3, y := y - 21.7], canvas::Point[x := x - 17.3 + 31.1, y := y - 21.7], canvas::Point[x := x - 17.3 + 31.1, y := y - 21.7 + 38.9], canvas::Point[x := x - 17.3, y := y - 21.7 + 38.9]]]
+      cl = [[vector::Float2[x := x - 17.3, y := y - 21.7], vector::Float2[x := x - 17.3 + 31.1, y := y - 21.7], vector::Float2[x := x - 17.3 + 31.1, y := y - 21.7 + 38.9], vector::Float2[x := x - 17.3, y := y - 21.7 + 38.9]]]
     END IF
     MUT d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Butt }]
     IF k MOD 6 = 1 THEN

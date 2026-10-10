@@ -545,20 +545,20 @@ END FUNC
 ' A clip of one ring of four points that is an axis-aligned rectangle (its sides
 ' alternate horizontal and vertical, from either), as [x0, y0, x1, y1]; [] for any other
 ' clip.
-FUNC __canvas_clipRect(rings AS List OF List OF Point) AS List OF Float
+FUNC __canvas_clipRect(rings AS List OF List OF vector::Float2) AS List OF Float
   IF len(rings) <> 1 THEN
     RETURN []
   END IF
-  LET origin AS Point = Point[x := 0.0, y := 0.0]
-  LET none AS List OF Point = []
-  LET ring AS List OF Point = collections::getOr(rings, 0, none)
+  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
+  LET none AS List OF vector::Float2 = []
+  LET ring AS List OF vector::Float2 = collections::getOr(rings, 0, none)
   IF len(ring) <> 4 THEN
     RETURN []
   END IF
-  LET a AS Point = collections::getOr(ring, 0, origin)
-  LET b AS Point = collections::getOr(ring, 1, origin)
-  LET c AS Point = collections::getOr(ring, 2, origin)
-  LET d AS Point = collections::getOr(ring, 3, origin)
+  LET a AS vector::Float2 = collections::getOr(ring, 0, origin)
+  LET b AS vector::Float2 = collections::getOr(ring, 1, origin)
+  LET c AS vector::Float2 = collections::getOr(ring, 2, origin)
+  LET d AS vector::Float2 = collections::getOr(ring, 3, origin)
   LET across AS Boolean = a.y = b.y AND b.x = c.x AND c.y = d.y AND d.x = a.x
   LET down AS Boolean = a.x = b.x AND b.y = c.y AND c.x = d.x AND d.y = a.y
   IF NOT across AND NOT down THEN
@@ -650,7 +650,7 @@ FUNC __canvas_clipHeader(h AS List OF Float, paint AS Paint) AS List OF Float
 END FUNC
 
 ' plan-163-C: an item's clip rings, whatever its kind; none for a group.
-FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF Point
+FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
   MATCH item
     CASE Rectangle(r)
       RETURN r.paint.clip
@@ -945,8 +945,8 @@ END FUNC
 ' minF/maxF over every later point in order -- for one ring exactly the walk this had
 ' before rings, so a single-ring EvenOdd polygon's header is unchanged (slot 21 is 0 for
 ' EvenOdd). `func_geo_build.rs:fill_polygon` is the native twin, in the same order.
-FUNC __canvas_polygonHeader(rings AS List OF List OF Point, rule AS FillRule, paint AS Paint) AS List OF Float
-  LET origin AS Point = Point[x := 0.0, y := 0.0]
+FUNC __canvas_polygonHeader(rings AS List OF List OF vector::Float2, rule AS FillRule, paint AS Paint) AS List OF Float
+  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
   MUT count AS Integer = 0
   MUT minX AS Float = 0.0
   MUT maxX AS Float = 0.0
@@ -957,7 +957,7 @@ FUNC __canvas_polygonHeader(rings AS List OF List OF Point, rule AS FillRule, pa
     IF n >= 2 THEN
       MUT i AS Integer = 0
       IF count = 0 THEN
-        LET first AS Point = collections::getOr(ring, 0, origin)
+        LET first AS vector::Float2 = collections::getOr(ring, 0, origin)
         minX = first.x
         maxX = first.x
         minY = first.y
@@ -965,7 +965,7 @@ FUNC __canvas_polygonHeader(rings AS List OF List OF Point, rule AS FillRule, pa
         i = 1
       END IF
       WHILE i < n
-        LET q AS Point = collections::getOr(ring, i, origin)
+        LET q AS vector::Float2 = collections::getOr(ring, i, origin)
         minX = __canvas_minF(minX, q.x)
         maxX = __canvas_maxF(maxX, q.x)
         minY = __canvas_minF(minY, q.y)
@@ -1029,8 +1029,8 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   IF half <= 0.0 THEN
     RETURN __canvas_emptyHeader()
   END IF
-  LET origin AS Point = Point[x := 0.0, y := 0.0]
-  LET start AS Point = collections::getOr(p.points, 0, origin)
+  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
+  LET start AS vector::Float2 = collections::getOr(p.points, 0, origin)
   MUT minX AS Float = start.x
   MUT maxX AS Float = start.x
   MUT minY AS Float = start.y
@@ -1039,8 +1039,8 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   MUT last AS Integer = 0 - 1
   MUT i AS Integer = 0
   WHILE i + 1 < count
-    LET a AS Point = collections::getOr(p.points, i, origin)
-    LET b AS Point = collections::getOr(p.points, i + 1, origin)
+    LET a AS vector::Float2 = collections::getOr(p.points, i, origin)
+    LET b AS vector::Float2 = collections::getOr(p.points, i + 1, origin)
     LET dx AS Float = b.x - a.x
     LET dy AS Float = b.y - a.y
     IF dx * dx + dy * dy > 0.0 THEN
@@ -1099,16 +1099,16 @@ r#"' plan-163-A: every contributing ring's edges, one ring after another, each r
 ' fill sums crossings over all edges and the stroke is a min over all of them, so
 ' neither needs to know where a ring ends (the stroked-text precedent,
 ' `__canvas_textEdges`). A ring of fewer than 2 points adds nothing, as the header says.
-FUNC __canvas_polygonEdges(rings AS List OF List OF Point) AS List OF Float
+FUNC __canvas_polygonEdges(rings AS List OF List OF vector::Float2) AS List OF Float
   MUT out AS List OF Float = []
-  LET origin AS Point = Point[x := 0.0, y := 0.0]
+  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
   FOR EACH points IN rings
     LET count AS Integer = len(points)
     IF count >= 2 THEN
       MUT i AS Integer = 0
       WHILE i < count
-        LET a AS Point = collections::getOr(points, i, origin)
-        LET b AS Point = collections::getOr(points, (i + 1) MOD count, origin)
+        LET a AS vector::Float2 = collections::getOr(points, i, origin)
+        LET b AS vector::Float2 = collections::getOr(points, (i + 1) MOD count, origin)
         LET dx AS Float = b.x - a.x
         LET dy AS Float = b.y - a.y
         LET lenSq AS Float = dx * dx + dy * dy
@@ -1163,11 +1163,11 @@ FUNC __canvas_polylineSegments(p AS PolyLine) AS List OF Float
   IF count < 2 THEN
     RETURN out
   END IF
-  LET origin AS Point = Point[x := 0.0, y := 0.0]
+  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
   MUT i AS Integer = 0
   WHILE i + 1 < count
-    LET a AS Point = collections::getOr(p.points, i, origin)
-    LET b AS Point = collections::getOr(p.points, i + 1, origin)
+    LET a AS vector::Float2 = collections::getOr(p.points, i, origin)
+    LET b AS vector::Float2 = collections::getOr(p.points, i + 1, origin)
     LET dx AS Float = b.x - a.x
     LET dy AS Float = b.y - a.y
     LET lenSq AS Float = dx * dx + dy * dy
@@ -1622,7 +1622,7 @@ FUNC __canvas_hashStart(tag AS Integer) AS Integer
   RETURN __canvas_hashStep(2166136261, tag)
 END FUNC
 
-FUNC __canvas_hashPoint(acc AS Integer, p AS Point) AS Integer
+FUNC __canvas_hashPoint(acc AS Integer, p AS vector::Float2) AS Integer
   RETURN __canvas_hashFloat(__canvas_hashFloat(acc, p.x), p.y)
 END FUNC
 

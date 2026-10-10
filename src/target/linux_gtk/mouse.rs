@@ -365,7 +365,7 @@ fn emit_translate_and_convert(asm: &mut Asm, done: &str, uses_canvas: bool) -> R
     asm.push(abi::branch("mouse_converted"));
 
     // Pixels: the translated point already is the surface point, and GTK's origin
-    // is top-left like `canvas::Point`'s, so there is no flip. Clamp-check against
+    // is top-left like `vector::Float2`'s, so there is no flip. Clamp-check against
     // the published surface extent, which is what the program draws against.
     asm.push(abi::label(convert_pixels));
     // The pixel surface's extent lives in the canvas graphics state, a data object

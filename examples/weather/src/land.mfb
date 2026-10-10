@@ -29,6 +29,7 @@
 ' appended to flat lists.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT errorCode
 IMPORT color
@@ -583,7 +584,7 @@ FUNC planeItems(plane AS List OF Plane, v AS View, clip AS Box, paint AS canvas:
   IF len(plane) < 3 THEN RETURN []
   LET cut AS List OF Plane = clipToBox(plane, clip)
   IF len(cut) < 3 THEN RETURN []
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   FOR EACH p IN cut
     points = collections::append(points, toScreen(v, p))
   NEXT

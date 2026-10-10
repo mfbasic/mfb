@@ -21,18 +21,19 @@ J
 cat > "$DIR/src/main.mfb" <<M
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT datetime
 IMPORT io
 IMPORT math
 
-FUNC ring(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  MUT points AS List OF canvas::Point = []
+FUNC ring(cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < $POINTS
     LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat($POINTS)
-    points = collections::append(points, canvas::Point[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
     i = i + 1
   END WHILE
   RETURN points

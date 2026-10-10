@@ -6,6 +6,7 @@
 ' falls instead of hanging as one perfect line of beads.
 
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT math
 
@@ -40,7 +41,7 @@ END FUNC
 
 ' Whether a point is on the pipe. The mouth is its widest part, so the whole
 ' pipe answers to a band that wide, with a few pixels to spare below.
-FUNC onPipe(p AS Pipe, at AS canvas::Point) AS Boolean
+FUNC onPipe(p AS Pipe, at AS vector::Float2) AS Boolean
   RETURN math::abs(at.x - p.x) <= MOUTH_HALF_WIDTH AND at.y >= 0.0 AND at.y <= mouthBottom() + 4.0
 END FUNC
 

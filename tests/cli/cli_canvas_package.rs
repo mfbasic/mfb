@@ -40,7 +40,7 @@ fn build(name: &str, source: &str, app: bool) -> (PathBuf, bool, String) {
 /// colour constructors, exercised from source. Exit codes name what failed so a
 /// regression says which property broke rather than just "non-zero".
 const SURFACE_SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      IMPORT io\n\
      FUNC main AS Integer\n\
@@ -59,7 +59,7 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20 IF clamped.green <> toByte(0) THEN\n\
     \x20   RETURN 4\n\
     \x20 END IF\n\
-    \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 1.0, y := 0.0]]\n\
+    \x20 LET pts AS List OF vector::Float2 = [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 1.0, y := 0.0]]\n\
     \x20 LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(255)]\n\
     \x20 RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)\n\
     \x20   RETURN 30\n\
@@ -76,7 +76,7 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20 LET g AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green)]\n\
     \x20 LET h AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fillStroke(yellow, green, 1.0)]\n\
     \x20 LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := yellow], canvas::GradientStop[offset := 1.0, color := green]]\n\
-    \x20 LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 8.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n\
+    \x20 LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 8.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n\
     \x20 LET gradPaint AS canvas::Paint = WITH canvas::fill(yellow) { gradient := grad }\n\
     \x20 IF len(gradPaint.gradient.stops) <> 2 THEN\n\
     \x20   RETURN 7\n\
@@ -113,7 +113,7 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
 /// axis for every canvas change.
 #[cfg(target_os = "macos")]
 const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      FUNC main AS Integer\n\
     \x20 LET red AS color::Color = color::rgb(255, 0, 0)\n\
@@ -160,7 +160,7 @@ const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
 
 /// `canvas` draws on a window surface a console binary does not have, so importing
 /// it outside an `--app` build is a compile error — the same gate `app` has.
-const CONSOLE_IMPORT_SOURCE: &str = "IMPORT canvas\n\
+const CONSOLE_IMPORT_SOURCE: &str = "IMPORT canvas\nIMPORT vector\n\
      IMPORT color\n\
      FUNC main AS Integer\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
@@ -253,7 +253,7 @@ fn macos_canvas_surface_runs() {
 /// the byte comparison has to short-circuit rather than read past.
 #[cfg(target_os = "macos")]
 const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      FUNC one(r AS Float, f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS color::Color = color::rgb(10, 20, 30)\n\
@@ -299,7 +299,7 @@ fn macos_repeated_and_changed_presents_are_sound() {
 /// is a valid scene rather than a degenerate one.
 #[cfg(target_os = "macos")]
 const PRESENT_LAYERS_SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      IMPORT errorCode\n\
      FUNC layers(r AS Float) AS List OF canvas::DrawLayer\n\

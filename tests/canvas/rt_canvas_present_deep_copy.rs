@@ -123,11 +123,11 @@ const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 /// A scene built entirely inside a callee's frame, so nothing it names outlives
 /// the function that made it.
 const SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      FUNC scene(f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
-    \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
+    \x20 LET pts AS List OF vector::Float2 = [vector::Float2[x := 1.0, y := 2.0]]\n\
     \x20 LET a AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c)]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := f, size := 9.0, paint := canvas::fill(c)]\n\
     \x20 RETURN [a, b]\n\
@@ -303,7 +303,7 @@ const SET_GROUP: &str = "_mfb_rt_canvas_canvas_setGroup";
 
 /// A program that installs a group and then removes one that was never installed.
 const GROUP_SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
@@ -480,12 +480,12 @@ fn the_group_table_is_absent_from_a_program_that_does_not_use_canvas() {
 #[test]
 fn published_polygon_rings_are_copied_not_aliased() {
     let source = "IMPORT app\n\
-         IMPORT canvas\n\
+         IMPORT canvas\n         IMPORT vector\n\
          IMPORT color\n\
          IMPORT collections\n\
          IMPORT io\n\
-         FUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n\
-        \x20 RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x + s, y := y], canvas::Point[x := x + s, y := y + s], canvas::Point[x := x, y := y + s]]\n\
+         FUNC sq(x AS Float, y AS Float, s AS Float) AS List OF vector::Float2\n\
+        \x20 RETURN [vector::Float2[x := x, y := y], vector::Float2[x := x + s, y := y], vector::Float2[x := x + s, y := y + s], vector::Float2[x := x, y := y + s]]\n\
          END FUNC\n\
          FUNC layer() AS canvas::DrawLayer\n\
         \x20 LET p AS canvas::DrawItem = canvas::Polygon[contours := [sq(500.0, 100.0, 200.0), sq(550.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n\

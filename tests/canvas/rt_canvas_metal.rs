@@ -42,6 +42,7 @@ const HEIGHT: u32 = 640;
 /// the chain moves them.
 const RECTANGLES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -74,6 +75,7 @@ END FUNC
 /// for the first time.)
 const PRIMITIVES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -90,13 +92,13 @@ FUNC main() AS Nothing
   LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
   LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := WITH canvas::stroke(color::rgb(255, 128, 0), 9.0) { cap := canvas::CapStyle.Round }]
   ' plan-154-B: a PolyLine, with a colour per point.
-  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }]
-  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET path AS canvas::DrawItem = canvas::PolyLine[points := [vector::Float2[x := 720.0, y := 180.0], vector::Float2[x := 800.0, y := 240.0], vector::Float2[x := 740.0, y := 300.0], vector::Float2[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }]
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 600.0, y := 40.0], vector::Float2[x := 700.0, y := 40.0], vector::Float2[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
   ' nearest-edge magnitude on a shape that is not convex -- so a wrong base here shows as
   ' a wrong FILL, not merely a shifted outline.
-  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 180, 180, 200))]
+  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 60.0, y := 400.0], vector::Float2[x := 160.0, y := 400.0], vector::Float2[x := 160.0, y := 360.0], vector::Float2[x := 230.0, y := 430.0], vector::Float2[x := 160.0, y := 500.0], vector::Float2[x := 160.0, y := 460.0], vector::Float2[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 180, 180, 200))]
 
   ' plan-116-B: one item per non-Normal BlendMode, and one clipped item.
   '
@@ -120,7 +122,7 @@ FUNC main() AS Nothing
   LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
   LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
   LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 460.0, radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
-  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 460.25, y := 400.0], canvas::Point[x := 660.75, y := 400.0], canvas::Point[x := 660.75, y := 460.0], canvas::Point[x := 460.25, y := 460.0]]] }]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 460.25, y := 400.0], vector::Float2[x := 660.75, y := 400.0], vector::Float2[x := 660.75, y := 460.0], vector::Float2[x := 460.25, y := 460.0]]] }]
 
   ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
   ' A rotation exercises the gradient correction on a curved edge; the non-uniform
@@ -159,6 +161,7 @@ END FUNC
 /// nothing, and prove nothing.
 const GROUPS: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
@@ -184,13 +187,13 @@ FUNC main() AS Nothing
 
   ' 5. a CLIPPED item inside a translated group -- the clip is evaluated in SURFACE
   '    space while the shape is evaluated in shape space (section 4.2)
-  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 40.25, y := 0.0], canvas::Point[x := 240.75, y := 0.0], canvas::Point[x := 240.75, y := 60.0], canvas::Point[x := 40.25, y := 60.0]]] }]]
+  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 40.25, y := 0.0], vector::Float2[x := 240.75, y := 0.0], vector::Float2[x := 240.75, y := 60.0], vector::Float2[x := 40.25, y := 60.0]]] }]]
   canvas::setGroup("clipped", clipped)
 
   ' 6. a GRADIENT-filled item inside a translated group -- the ramp is sampled from
   '    the shape-space point, so a missing fragment offset shows as a shifted ramp
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 150.0, y := 60.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 150.0, y := 60.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   LET grad AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }]]
   canvas::setGroup("grad", grad)
 
@@ -206,6 +209,7 @@ END FUNC
 /// longhand at the same absolute coordinates and uses no group at all.
 const DIAMOND_GROUPED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
@@ -220,6 +224,7 @@ END FUNC
 /// coordinates the group offsets would have put them.
 const DIAMOND_FLAT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
@@ -234,6 +239,7 @@ END FUNC
 /// A scene whose only item names a group that was never installed.
 const ABSENT_GROUP: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::present([canvas::Group[name := "neverInstalled", dx := 40.0, dy := 60.0]])
@@ -243,6 +249,7 @@ END FUNC
 /// The same scene with nothing in it at all — the control for `ABSENT_GROUP`.
 const EMPTY_SCENE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::present([])
@@ -259,17 +266,18 @@ END FUNC
 /// is the decline this proves. 6 px across, so the software oracle stays quick.
 const TOO_MANY_EDGES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < 262145
     LET a AS Float = toFloat(i) * 6.283185307179586 / 262145.0
-    points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
     i = i + 1
   END WHILE
   LET ring AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 200, 255))]
@@ -296,6 +304,7 @@ const TOO_MANY_FRAME_EDGES: &str = include_str!("scenes/forty_thousand_edges.mfb
 /// being blank.
 const PAST_THE_FRAME_EDGE_REGION: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
@@ -307,11 +316,11 @@ FUNC main() AS Nothing
   WHILE ring < 1025
     LET cx AS Float = 20.0 + toFloat((ring MOD 70) * 12)
     LET cy AS Float = 80.0 + toFloat((ring / 70) * 12)
-    MUT points AS List OF canvas::Point = []
+    MUT points AS List OF vector::Float2 = []
     MUT i AS Integer = 0
     WHILE i < 256
       LET a AS Float = toFloat(i) * 6.283185307179586 / 256.0
-      points = collections::append(points, canvas::Point[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
+      points = collections::append(points, vector::Float2[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
       i = i + 1
     END WHILE
     LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
@@ -505,21 +514,22 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
 /// exercised, and it doubles back across its own rows.
 const POLYLINES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
-  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 18.0) { cap := canvas::CapStyle.Round }]
-  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], paint := WITH canvas::stroke(color::rgb(255, 214, 92), 12.0) { cap := canvas::CapStyle.Butt }]
-  MUT wave AS List OF canvas::Point = []
+  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 600.0, y := 40.0], vector::Float2[x := 700.0, y := 40.0], vector::Float2[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [vector::Float2[x := 60.0, y := 300.0], vector::Float2[x := 160.0, y := 200.0], vector::Float2[x := 260.0, y := 300.0], vector::Float2[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 18.0) { cap := canvas::CapStyle.Round }]
+  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [vector::Float2[x := 460.0, y := 500.0], vector::Float2[x := 600.0, y := 420.0], vector::Float2[x := 760.0, y := 520.0]], colors := [], paint := WITH canvas::stroke(color::rgb(255, 214, 92), 12.0) { cap := canvas::CapStyle.Butt }]
+  MUT wave AS List OF vector::Float2 = []
   MUT hues AS List OF color::Color = []
   MUT k AS Integer = 0
   WHILE k <= 40
     LET x AS Float = 80.0 + toFloat(k) * 18.0
     LET y AS Float = 420.0 + toFloat((k MOD 4) * 22) - toFloat(k) * 2.5
-    wave = collections::append(wave, canvas::Point[x := x, y := y])
+    wave = collections::append(wave, vector::Float2[x := x, y := y])
     hues = collections::append(hues, color::rgba(40 + k * 5, 200 - k * 4, 255, 255 - k * 5))
     k = k + 1
   END WHILE
@@ -772,6 +782,7 @@ fn a_group_naming_an_absent_group_draws_nothing_on_the_gpu() {
 /// what hid the bug below.
 const TEXT_LINE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -842,6 +853,7 @@ fn every_glyph_of_a_text_run_draws_its_own_bitmap() {
 /// offset, and a destination on fractional coordinates for the antialiased edge.
 const PICTURES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -860,7 +872,7 @@ FUNC main() AS Nothing
   LET translucent AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 10.0, w := 90.0, h := 30.0, image := thin, paint := white]
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 10.0]
   LET rotated AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 60.0, image := img, paint := WITH white { transform := t }]
-  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := [[canvas::Point[x := 420.0, y := 10.0], canvas::Point[x := 460.0, y := 10.0], canvas::Point[x := 460.0, y := 90.0], canvas::Point[x := 420.0, y := 90.0]]] }]
+  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := [[vector::Float2[x := 420.0, y := 10.0], vector::Float2[x := 460.0, y := 10.0], vector::Float2[x := 460.0, y := 90.0], vector::Float2[x := 420.0, y := 90.0]]] }]
   LET blended AS canvas::DrawItem = canvas::Picture[x := 520.0, y := 10.0, w := 60.0, h := 60.0, image := img, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
   LET fractional AS canvas::DrawItem = canvas::Picture[x := 700.5, y := 10.25, w := 50.5, h := 33.3, image := thin, paint := white]
   LET inner AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 40.0, h := 40.0, image := grouped, paint := white]
@@ -930,6 +942,7 @@ fn every_picture_path_matches_the_software_oracle() {
 /// invisible there.
 const SPACE_THEN_SHAPES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing

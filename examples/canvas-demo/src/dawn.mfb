@@ -11,6 +11,7 @@
 ' Drag anywhere (or turn the wheel) to scrub the time of day.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -109,11 +110,11 @@ END FUNC
 
 ' The ruin's outline and its opening, as two rings: drawn under EvenOdd the
 ' opening is a hole, and the same two rings clip the mortar lines to the stone.
-FUNC archOuter(cx AS Float, baseY AS Float, s AS Float) AS List OF canvas::Point
+FUNC archOuter(cx AS Float, baseY AS Float, s AS Float) AS List OF vector::Float2
   LET hw AS Float = s * 0.5
   LET top AS Float = baseY - s * 1.02
   ' Broken top edge: a run of uneven stones, with the right-hand corner fallen.
-  MUT ring AS List OF canvas::Point = [pt(cx - hw, baseY), pt(cx - hw, top + s * 0.12), pt(cx - hw + s * 0.04, top + s * 0.1), pt(cx - hw + s * 0.05, top + s * 0.04)]
+  MUT ring AS List OF vector::Float2 = [pt(cx - hw, baseY), pt(cx - hw, top + s * 0.12), pt(cx - hw + s * 0.04, top + s * 0.1), pt(cx - hw + s * 0.05, top + s * 0.04)]
   FOR i = 0 TO 8
     LET u AS Float = toFloat(i) / 8.0
     LET x AS Float = cx - hw + s * 0.06 + u * (s * 0.8)
@@ -125,10 +126,10 @@ FUNC archOuter(cx AS Float, baseY AS Float, s AS Float) AS List OF canvas::Point
 END FUNC
 
 ' The opening, wound the other way round: a round arch on two straight jambs.
-FUNC archInner(cx AS Float, baseY AS Float, s AS Float) AS List OF canvas::Point
+FUNC archInner(cx AS Float, baseY AS Float, s AS Float) AS List OF vector::Float2
   LET iw AS Float = s * 0.3
   LET springY AS Float = baseY - s * 0.58
-  MUT ring AS List OF canvas::Point = [pt(cx + iw, baseY + 2.0), pt(cx + iw, springY)]
+  MUT ring AS List OF vector::Float2 = [pt(cx + iw, baseY + 2.0), pt(cx + iw, springY)]
   FOR i = 1 TO 23
     LET a AS Float = toFloat(i) / 24.0 * math::pi
     ring = collections::append(ring, pt(cx + iw * math::cos(a), springY - iw * 1.05 * math::sin(a)))
@@ -137,9 +138,9 @@ FUNC archInner(cx AS Float, baseY AS Float, s AS Float) AS List OF canvas::Point
 END FUNC
 
 FUNC archway(cx AS Float, baseY AS Float, s AS Float, clock AS Float, sx AS Float) AS List OF canvas::DrawItem
-  LET outer AS List OF canvas::Point = archOuter(cx, baseY, s)
-  LET inner AS List OF canvas::Point = archInner(cx, baseY, s)
-  LET rings AS List OF List OF canvas::Point = [outer, inner]
+  LET outer AS List OF vector::Float2 = archOuter(cx, baseY, s)
+  LET inner AS List OF vector::Float2 = archInner(cx, baseY, s)
+  LET rings AS List OF List OF vector::Float2 = [outer, inner]
   ' The lit face is the one towards the sun.
   MUT litLeft AS Float = 1.0
   IF sx > cx THEN litLeft = 0.0
@@ -190,14 +191,14 @@ FUNC archway(cx AS Float, baseY AS Float, s AS Float, clock AS Float, sx AS Floa
     LET mx AS Float = cx - s * 0.46 + u * s * 0.82
     out = collections::append(out, ellipse(mx, baseY - s * 1.02 + hashRange(i + 70, -0.01, 0.02) * s, s * hashRange(i + 90, 0.04, 0.07), s * 0.022, 0.0, fillP(mixC(hex("#3f6a2c"), hex("#6f9a3c"), hash01(i + 5)))))
   NEXT
-  MUT ivy AS List OF canvas::Point = []
+  MUT ivy AS List OF vector::Float2 = []
   FOR i = 0 TO 14
     LET u AS Float = toFloat(i) / 14.0
     ivy = collections::append(ivy, pt(cx - s * 0.43 + math::sin(u * 7.0) * s * 0.03, baseY - s * 1.0 + u * s * 0.62))
   NEXT
   out = collections::append(out, path(ivy, strokeP(hex("#2f5424"), 2.5)))
   FOR i = 0 TO 13
-    LET p AS canvas::Point = collections::get(ivy, i)
+    LET p AS vector::Float2 = collections::get(ivy, i)
     out = collections::append(out, ellipse(p.x + hashRange(i + 300, -6.0, 6.0), p.y, s * 0.022, s * 0.013, hashRange(i + 310, -1.0, 1.0), fillP(mixC(hex("#3d7a2c"), hex("#7cae48"), hash01(i + 320)))))
   NEXT
   RETURN out
@@ -208,7 +209,7 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 ' Where the songbirds can sit.
-FUNC dawnPerches(w AS Float, h AS Float) AS List OF canvas::Point
+FUNC dawnPerches(w AS Float, h AS Float) AS List OF vector::Float2
   LET s AS Float = h * 0.36
   LET ax AS Float = w * 0.6
   LET ay AS Float = h * 0.86
@@ -219,16 +220,16 @@ END FUNC
 ' quadratic Bezier arc to the next perch. Returns the items to draw. The
 ' schedule is pure arithmetic on `t`, so no state is kept for it.
 FUNC songbirdAt(w AS Float, h AS Float, t AS Float, index AS Integer, back AS color::Color, breast AS color::Color) AS List OF canvas::DrawItem
-  LET perches AS List OF canvas::Point = dawnPerches(w, h)
+  LET perches AS List OF vector::Float2 = dawnPerches(w, h)
   LET n AS Integer = len(perches)
   LET cycle AS Float = 7.0 + toFloat(index) * 1.3
   LET flight AS Float = 1.6
   LET local AS Float = t + toFloat(index) * 2.7
   LET k AS Integer = math::floor(local / cycle)
   LET u AS Float = local - toFloat(k) * cycle
-  LET pa AS canvas::Point = collections::get(perches, math::floor(hash01(k * 7 + index * 131) * toFloat(n)) MOD n)
+  LET pa AS vector::Float2 = collections::get(perches, math::floor(hash01(k * 7 + index * 131) * toFloat(n)) MOD n)
   MUT toIdx AS Integer = math::floor(hash01((k + 1) * 7 + index * 131) * toFloat(n)) MOD n
-  LET pb AS canvas::Point = collections::get(perches, toIdx)
+  LET pb AS vector::Float2 = collections::get(perches, toIdx)
   LET size AS Float = h * 0.03
   IF u < cycle - flight THEN
     ' Perched: an occasional hop and a cock of the head.
@@ -274,7 +275,7 @@ FUNC branch(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, h AS Float) AS L
   LET bark AS color::Color = hex("#2a1d14")
   LET mx AS Float = (x0 + x1) / 2.0
   LET my AS Float = (y0 + y1) / 2.0 + h * 0.02
-  MUT pts AS List OF canvas::Point = [pt(x0, y0)]
+  MUT pts AS List OF vector::Float2 = [pt(x0, y0)]
   pts = collections::append(pts, quadPts(x0, y0, mx, my, x1, y1, 10))
   LET tx AS Float = x0 + (x1 - x0) * 0.6
   LET ty AS Float = y0 + (y1 - y0) * 0.6 + h * 0.012
@@ -282,7 +283,7 @@ FUNC branch(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, h AS Float) AS L
 END FUNC
 
 FUNC rimmedPine(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer, body AS color::Color, rim AS color::Color, dx AS Float) AS List OF canvas::DrawItem
-  LET ring AS List OF canvas::Point = pineRing(cx, baseY, h, w, seed)
+  LET ring AS List OF vector::Float2 = pineRing(cx, baseY, h, w, seed)
   RETURN [poly(shiftPts(ring, dx, -1.0), fillP(rim)), poly(ring, fillP(body))]
 END FUNC
 

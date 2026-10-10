@@ -108,7 +108,7 @@ mod scene_base;
 /// `term::` is `Mode.Console`-gated and `canvas::` is `Mode.Canvas`-gated, so a
 /// canvas program must never have to `IMPORT term` to ask where the mouse is. The
 /// two differ in their coordinate prop: `term`'s is `row`/`column` cells, this one's
-/// is a `position AS Point` in surface pixels.
+/// is a `position AS vector::Float2` in surface pixels.
 pub(crate) const MOUSE_EVENT_TYPE: &str = "MouseEvent";
 
 /// The `Image` resource's bare type name, and the package-qualified id members
@@ -270,36 +270,6 @@ pub(crate) fn register(r: &mut Registry) {
     // `net.Address`, and every canvas internal that reads `paint.fill.red` is
     // unchanged. Colour construction lives in `color` and needs no `Mode.Canvas`.
     pkg.add_record(RegistryRecord {
-        name: "Point",
-        export: true,
-        description: "A point in canvas pixels, top-left origin, Y increasing downward.",
-        props: vec![
-            RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The horizontal coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The vertical coordinate in pixels, increasing downward.",
-            },
-        ],
-    });
-
-    // plan-94-A: the mouse surface, in canvas pixels. `term::` carries an
-    // independent set of the same three types, and deliberately so: `term::` traps
-    // outside `Mode.Console` and `canvas::` outside `Mode.Canvas`, so a canvas
-    // program must never be made to `IMPORT term` to ask where the mouse is. Two
-    // small type sets cost a little duplication and keep `IMPORT` at zero bytes —
-    // the shape `term::didResize` / `canvas::didResize` already have.
-    //
-    // `position` is a `Point` rather than two bare `Float`s so an event hands
-    // straight to a hit test, and so every canvas coordinate is the same type.
-    // Being a record makes it an INLINED prop (its slot holds a block-relative
-    // offset, and the `Point` sub-block follows the fixed slots) — see
-    // `func_poll_mouse.rs`, which has to build that layout by hand.
-    pkg.add_record(RegistryRecord {
         name: MOUSE_EVENT_TYPE,
         export: true,
         description: "One thing the mouse did, as reported by `canvas::pollMouse`. \
@@ -321,7 +291,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "position",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Where the mouse was, in surface pixels — the same \
                               top-left-origin coordinates every `canvas::DrawItem` \
                               uses, so it hands straight to a hit test.",
@@ -851,12 +821,12 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "startPoint",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Linear: where the ramp starts. Radial: the centre.",
             },
             RecordProp {
                 name: "endPoint",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Linear: where the ramp ends. Radial: a point on the \
                               outer circle. Giving the same point as `startPoint` \
                               leaves the first stop's colour everywhere, rather than \
@@ -887,7 +857,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "focalOffset",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Radial only: where the ramp starts, as an offset from \
                               `startPoint` — an off-centre highlight on a sphere. The \
                               zero value starts it at the centre. An offset that would \
@@ -982,7 +952,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "clip",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID))),
                 description: "Restricts drawing to the area these rings enclose, \
                               under `clipRule` — each ring a closed path of points, \
                               as a `canvas::Polygon`'s `contours` are. The empty list, \
@@ -1163,7 +1133,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "contours",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID))),
                 description: "The rings, each a list of vertices in order. Every \
                               ring closes from its own last point back to its own \
                               first point automatically. The direction a ring runs \
@@ -1463,7 +1433,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "points",
-                ty: ParameterType::list_of(ParameterType::named("Point")),
+                ty: ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID)),
                 description: "The points in order. The path does not close — use \
                               `canvas::Polygon` for a closed shape. A point repeated \
                               in place adds nothing; if every point is the same one, \
@@ -2000,7 +1970,6 @@ mod tests {
             "DrawItem",
             "DrawLayer",
             "Paint",
-            "Point",
             "Size",
             "FillRule",
             "JoinStyle",

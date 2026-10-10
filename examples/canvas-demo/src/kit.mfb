@@ -7,6 +7,7 @@
 ' field matters to what the scene is showing.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -137,8 +138,8 @@ END FUNC
 ' Points, transforms and paints
 ' ---------------------------------------------------------------------------
 
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
 FUNC identity AS canvas::Transform
@@ -232,19 +233,19 @@ FUNC arc(x AS Float, y AS Float, r AS Float, a0 AS Float, a1 AS Float, p AS canv
   RETURN canvas::Arc[x := x, y := y, radius := r, startAngle := a0, endAngle := a1, paint := p]
 END FUNC
 
-FUNC poly(points AS List OF canvas::Point, p AS canvas::Paint) AS canvas::DrawItem
+FUNC poly(points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
   RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.NonZero, paint := p]
 END FUNC
 
-FUNC shape(rings AS List OF List OF canvas::Point, rule AS canvas::FillRule, p AS canvas::Paint) AS canvas::DrawItem
+FUNC shape(rings AS List OF List OF vector::Float2, rule AS canvas::FillRule, p AS canvas::Paint) AS canvas::DrawItem
   RETURN canvas::Polygon[contours := rings, rule := rule, paint := p]
 END FUNC
 
-FUNC path(points AS List OF canvas::Point, p AS canvas::Paint) AS canvas::DrawItem
+FUNC path(points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
   RETURN canvas::PolyLine[points := points, colors := [], paint := p]
 END FUNC
 
-FUNC trail(points AS List OF canvas::Point, colors AS List OF color::Color, p AS canvas::Paint) AS canvas::DrawItem
+FUNC trail(points AS List OF vector::Float2, colors AS List OF color::Color, p AS canvas::Paint) AS canvas::DrawItem
   RETURN canvas::PolyLine[points := points, colors := colors, paint := p]
 END FUNC
 
@@ -267,8 +268,8 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 ' `n` points around an ellipse, starting at angle `a0`, clockwise.
-FUNC ovalRing(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC ovalRing(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 0 TO n - 1
     LET a AS Float = a0 + TAU * toFloat(i) / toFloat(n)
     out = collections::append(out, pt(cx + rx * math::cos(a), cy + ry * math::sin(a)))
@@ -278,8 +279,8 @@ END FUNC
 
 ' The same, running anticlockwise: under FillRule.NonZero a ring wound against
 ' the one around it cuts a hole.
-FUNC ovalRingCcw(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC ovalRingCcw(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 0 TO n - 1
     LET a AS Float = a0 - TAU * toFloat(i) / toFloat(n)
     out = collections::append(out, pt(cx + rx * math::cos(a), cy + ry * math::sin(a)))
@@ -287,14 +288,14 @@ FUNC ovalRingCcw(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Intege
   RETURN out
 END FUNC
 
-FUNC rectRing(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF canvas::Point
+FUNC rectRing(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF vector::Float2
   RETURN [pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]
 END FUNC
 
 ' Points along a quadratic Bezier from p0 to p2 bending towards p1, excluding
 ' the first point (so consecutive curves join without repeating a vertex).
-FUNC quadPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, n AS Integer) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC quadPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, n AS Integer) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 1 TO n
     LET t AS Float = toFloat(i) / toFloat(n)
     LET u AS Float = 1.0 - t
@@ -304,8 +305,8 @@ FUNC quadPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2
 END FUNC
 
 ' Points along a cubic Bezier, excluding the first point.
-FUNC cubicPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float, n AS Integer) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC cubicPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float, n AS Integer) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 1 TO n
     LET t AS Float = toFloat(i) / toFloat(n)
     LET u AS Float = 1.0 - t
@@ -319,15 +320,15 @@ FUNC cubicPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y
 END FUNC
 
 ' Every point moved by (dx, dy).
-FUNC shiftPts(points AS List OF canvas::Point, dx AS Float, dy AS Float) AS List OF canvas::Point
-  RETURN collections::transform(points, LAMBDA(p AS canvas::Point) -> pt(p.x + dx, p.y + dy))
+FUNC shiftPts(points AS List OF vector::Float2, dx AS Float, dy AS Float) AS List OF vector::Float2
+  RETURN collections::transform(points, LAMBDA(p AS vector::Float2) -> pt(p.x + dx, p.y + dy))
 END FUNC
 
 ' A ridge line across the width `w`: a mountain range or a hill crest, as the
 ' top edge of a polygon closed along `baseY`. `seed` picks the ridge; `rough`
 ' is how jagged it is.
-FUNC ridge(w AS Float, baseY AS Float, topY AS Float, amp AS Float, seed AS Integer, rough AS Float, steps AS Integer) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = [pt(-20.0, baseY)]
+FUNC ridge(w AS Float, baseY AS Float, topY AS Float, amp AS Float, seed AS Integer, rough AS Float, steps AS Integer) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = [pt(-20.0, baseY)]
   FOR i = 0 TO steps
     LET u AS Float = toFloat(i) / toFloat(steps)
     LET s AS Float = toFloat(seed)
@@ -370,6 +371,6 @@ END FUNC
 ' its transform, which makes a polygon scaled up a hundredfold cost the GPU
 ' several times what the same polygon costs given in pixels (bug-991). Single
 ' showcase items still use Paint.transform.
-FUNC mapRing(ring AS List OF canvas::Point, t AS canvas::Transform) AS List OF canvas::Point
-  RETURN collections::transform(ring, LAMBDA(q AS canvas::Point) -> pt(t.a * q.x + t.c * q.y + t.tx, t.b * q.x + t.d * q.y + t.ty))
+FUNC mapRing(ring AS List OF vector::Float2, t AS canvas::Transform) AS List OF vector::Float2
+  RETURN collections::transform(ring, LAMBDA(q AS vector::Float2) -> pt(t.a * q.x + t.c * q.y + t.tx, t.b * q.x + t.d * q.y + t.ty))
 END FUNC

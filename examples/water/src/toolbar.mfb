@@ -6,6 +6,7 @@
 ' same layout answers the clicks.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -30,12 +31,12 @@ FUNC buttonTop(k AS Integer) AS Float
   RETURN BUTTON_GAP + toFloat(k) * (BUTTON_SIZE + BUTTON_GAP)
 END FUNC
 
-FUNC onToolbar(width AS Float, at AS canvas::Point) AS Boolean
+FUNC onToolbar(width AS Float, at AS vector::Float2) AS Boolean
   RETURN at.x >= playWidth(width)
 END FUNC
 
 ' The button under a point, or -1 when it is between buttons or off the toolbar.
-FUNC buttonAt(width AS Float, at AS canvas::Point) AS Integer
+FUNC buttonAt(width AS Float, at AS vector::Float2) AS Integer
   LET left AS Float = buttonLeft(width)
   IF at.x < left OR at.x > left + BUTTON_SIZE THEN RETURN -1
   FOR k = 0 TO len(TOOL_KINDS) - 1

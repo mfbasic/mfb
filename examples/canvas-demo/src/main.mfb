@@ -42,6 +42,7 @@ IMPORT io
 IMPORT math
 IMPORT os
 IMPORT thread
+IMPORT vector
 
 ' How long a fade to or from black takes, in seconds.
 LET FADE_SECONDS AS Float = 0.35

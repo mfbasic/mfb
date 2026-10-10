@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' plan-163-A: both FillRules on the shapes where they differ, over the default
@@ -13,16 +14,16 @@ IMPORT color
 '
 ' rt_canvas_metal.rs compares the Metal frame against the software oracle, and
 ' scripts/test-canvas-gpu-rows.sh (row `fillrules`) the Vulkan one.
-FUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point
-  RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x + s, y := y], canvas::Point[x := x + s, y := y + s], canvas::Point[x := x, y := y + s]]
+FUNC sq(x AS Float, y AS Float, s AS Float) AS List OF vector::Float2
+  RETURN [vector::Float2[x := x, y := y], vector::Float2[x := x + s, y := y], vector::Float2[x := x + s, y := y + s], vector::Float2[x := x, y := y + s]]
 END FUNC
 
-FUNC sqCcw(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point
-  RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x, y := y + s], canvas::Point[x := x + s, y := y + s], canvas::Point[x := x + s, y := y]]
+FUNC sqCcw(x AS Float, y AS Float, s AS Float) AS List OF vector::Float2
+  RETURN [vector::Float2[x := x, y := y], vector::Float2[x := x, y := y + s], vector::Float2[x := x + s, y := y + s], vector::Float2[x := x + s, y := y]]
 END FUNC
 
-FUNC star(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  RETURN [canvas::Point[x := cx, y := cy - r], canvas::Point[x := cx + 0.587785 * r, y := cy + 0.809017 * r], canvas::Point[x := cx - 0.951057 * r, y := cy - 0.309017 * r], canvas::Point[x := cx + 0.951057 * r, y := cy - 0.309017 * r], canvas::Point[x := cx - 0.587785 * r, y := cy + 0.809017 * r]]
+FUNC star(cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  RETURN [vector::Float2[x := cx, y := cy - r], vector::Float2[x := cx + 0.587785 * r, y := cy + 0.809017 * r], vector::Float2[x := cx - 0.951057 * r, y := cy - 0.309017 * r], vector::Float2[x := cx + 0.951057 * r, y := cy - 0.309017 * r], vector::Float2[x := cx - 0.587785 * r, y := cy + 0.809017 * r]]
 END FUNC
 
 FUNC main() AS Nothing

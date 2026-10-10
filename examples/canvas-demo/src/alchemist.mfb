@@ -14,6 +14,7 @@
 ' as dashed strokes whose dash offset advances.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -107,7 +108,7 @@ FUNC cauldronAt(w AS Float, h AS Float) AS Cauldron
 END FUNC
 
 ' Where bottle i stands at rest: its base centre, and its size.
-FUNC bottleHome(i AS Integer, w AS Float, h AS Float) AS canvas::Point
+FUNC bottleHome(i AS Integer, w AS Float, h AS Float) AS vector::Float2
   LET xs AS List OF Float = [0.12, 0.25, 0.75, 0.88, 0.18]
   LET ys AS List OF Float = [0.86, 0.9, 0.9, 0.86, 0.66]
   IF i = 4 THEN RETURN pt(w * 0.86, h * 0.64)
@@ -121,10 +122,10 @@ END FUNC
 ' A bottle's outline in its own frame, base centre at (0, 0), one unit tall,
 ' Y up being negative. Five shapes: a round flask, a tall vial, a conical
 ' flask, a square bottle and a heart.
-FUNC bottleShape(i AS Integer) AS List OF canvas::Point
+FUNC bottleShape(i AS Integer) AS List OF vector::Float2
   MATCH i
     CASE 0
-      MUT ring AS List OF canvas::Point = [pt(-0.07, -1.0), pt(0.07, -1.0), pt(0.07, -0.72)]
+      MUT ring AS List OF vector::Float2 = [pt(-0.07, -1.0), pt(0.07, -1.0), pt(0.07, -0.72)]
       FOR k = 0 TO 28
         LET a AS Float = -math::pi / 2.0 + 0.32 + toFloat(k) / 28.0 * (TAU - 0.64)
         ring = collections::append(ring, pt(math::cos(a) * 0.34, -0.34 + math::sin(a) * 0.34))
@@ -137,7 +138,7 @@ FUNC bottleShape(i AS Integer) AS List OF canvas::Point
     CASE 3
       RETURN [pt(-0.07, -1.0), pt(0.07, -1.0), pt(0.07, -0.86), pt(0.2, -0.78), pt(0.24, -0.72), pt(0.24, -0.03), pt(0.21, 0.0), pt(-0.21, 0.0), pt(-0.24, -0.03), pt(-0.24, -0.72), pt(-0.2, -0.78), pt(-0.07, -0.86)]
     CASE ELSE
-      MUT ring AS List OF canvas::Point = [pt(-0.06, -1.0), pt(0.06, -1.0), pt(0.06, -0.78)]
+      MUT ring AS List OF vector::Float2 = [pt(-0.06, -1.0), pt(0.06, -1.0), pt(0.06, -0.78)]
       ' A heart: two lobes and a point, by its usual parametric curve.
       FOR k = 0 TO 40
         LET a AS Float = toFloat(k) / 40.0 * TAU
@@ -159,11 +160,11 @@ TYPE BottlePose
 END TYPE
 
 FUNC bottlePose(i AS Integer, s AS AlchemistState, w AS Float, h AS Float) AS BottlePose
-  LET home AS canvas::Point = bottleHome(i, w, h)
+  LET home AS vector::Float2 = bottleHome(i, w, h)
   IF s.pour.bottle <> i THEN RETURN BottlePose[x := home.x, y := home.y, tilt := 0.0, pouring := FALSE]
   LET c AS Cauldron = cauldronAt(w, h)
   LET side AS Float = math::max(-1.0, math::min(1.0, (home.x - c.cx) / math::abs(home.x - c.cx + 0.001)))
-  LET at AS canvas::Point = pt(c.cx + side * c.rx * 0.55, c.rimY - h * 0.12)
+  LET at AS vector::Float2 = pt(c.cx + side * c.rx * 0.55, c.rimY - h * 0.12)
   LET a AS Float = s.pour.age
   IF a < 0.8 THEN
     LET u AS Float = easeInOut(a / 0.8)
@@ -178,7 +179,7 @@ FUNC bottlePose(i AS Integer, s AS AlchemistState, w AS Float, h AS Float) AS Bo
 END FUNC
 
 FUNC overBottle(i AS Integer, w AS Float, h AS Float, mx AS Float, my AS Float) AS Boolean
-  LET home AS canvas::Point = bottleHome(i, w, h)
+  LET home AS vector::Float2 = bottleHome(i, w, h)
   LET s AS Float = bottleSize(h)
   RETURN mx > home.x - s * 0.4 AND mx < home.x + s * 0.4 AND my > home.y - s * 1.05 AND my < home.y + 4.0
 END FUNC
@@ -272,7 +273,7 @@ END FUNC
 
 ' A potion bottle at (x, y) - its base centre - `size` tall, tilted.
 FUNC bottle(i AS Integer, x AS Float, y AS Float, size AS Float, tilt AS Float, level AS Float, hover AS Float, t AS Float) AS List OF canvas::DrawItem
-  LET ring AS List OF canvas::Point = bottleShape(i)
+  LET ring AS List OF vector::Float2 = bottleShape(i)
   LET tr AS canvas::Transform = place(x, y, tilt, size)
   LET liquid AS color::Color = potionColor(i)
   MUT out AS List OF canvas::DrawItem = []
@@ -283,17 +284,17 @@ FUNC bottle(i AS Integer, x AS Float, y AS Float, size AS Float, tilt AS Float, 
   ' bottle's outline. The surface stays level as the bottle tips, so its wave
   ' is drawn in the window's frame and only the clip turns with the bottle.
   LET surfaceY AS Float = y - size * level * 0.9
-  MUT top AS List OF canvas::Point = []
+  MUT top AS List OF vector::Float2 = []
   FOR k = 0 TO 16
     LET u AS Float = toFloat(k) / 16.0
     LET lx AS Float = x - size * 0.8 + u * size * 1.6
     top = collections::append(top, pt(lx, surfaceY + math::sin(u * 9.0 + t * 3.0 + toFloat(i)) * size * 0.015))
   NEXT
-  LET body AS List OF canvas::Point = collections::append(top, [pt(x + size * 0.8, y + size * 0.8), pt(x - size * 0.8, y + size * 0.8)])
+  LET body AS List OF vector::Float2 = collections::append(top, [pt(x + size * 0.8, y + size * 0.8), pt(x - size * 0.8, y + size * 0.8)])
   ' The clip is the bottle ring in window coordinates: transform its points.
   LET co AS Float = math::cos(tilt) * size
   LET si AS Float = math::sin(tilt) * size
-  LET clipRing AS List OF canvas::Point = collections::transform(ring, LAMBDA(p AS canvas::Point) -> pt(x + p.x * co - p.y * si, y + p.x * si + p.y * co))
+  LET clipRing AS List OF vector::Float2 = collections::transform(ring, LAMBDA(p AS vector::Float2) -> pt(x + p.x * co - p.y * si, y + p.x * si + p.y * co))
   out = collections::append(out, poly(body, WITH gradP(linear(0.0, surfaceY, 0.0, y, [gstop(0.0, mixC(liquid, color::white, 0.25)), gstop(1.0, mixC(liquid, color::black, 0.45))])) { clip := [clipRing] }))
   out = collections::append(out, poly(top, WITH strokeP(mixC(liquid, color::white, 0.6), 1.2) { clip := [clipRing] }))
   ' Light inside the liquid.
@@ -332,7 +333,7 @@ END FUNC
 ' at its tip, outlined as a tapering polygon either side of it.
 FUNC vine(x AS Float, y AS Float, angle AS Float, length AS Float, width AS Float, t AS Float, seed AS Float, c AS color::Color) AS List OF canvas::DrawItem
   LET n AS Integer = 24
-  MUT spine AS List OF canvas::Point = []
+  MUT spine AS List OF vector::Float2 = []
   MUT a AS Float = angle
   MUT px AS Float = x
   MUT py AS Float = y
@@ -343,12 +344,12 @@ FUNC vine(x AS Float, y AS Float, angle AS Float, length AS Float, width AS Floa
     px = px + math::cos(a) * length / toFloat(n)
     py = py + math::sin(a) * length / toFloat(n)
   NEXT
-  MUT leftSide AS List OF canvas::Point = []
-  MUT rightSide AS List OF canvas::Point = []
+  MUT leftSide AS List OF vector::Float2 = []
+  MUT rightSide AS List OF vector::Float2 = []
   FOR i = 0 TO n
-    LET p AS canvas::Point = collections::get(spine, i)
-    LET q AS canvas::Point = collections::get(spine, math::min(i + 1, n))
-    LET r AS canvas::Point = collections::get(spine, math::max(i - 1, 0))
+    LET p AS vector::Float2 = collections::get(spine, i)
+    LET q AS vector::Float2 = collections::get(spine, math::min(i + 1, n))
+    LET r AS vector::Float2 = collections::get(spine, math::max(i - 1, 0))
     LET d AS Float = math::atan2(q.y - r.y, q.x - r.x)
     LET hw AS Float = width * (1.0 - toFloat(i) / toFloat(n)) + 0.6
     leftSide = collections::append(leftSide, pt(p.x - math::sin(d) * hw, p.y + math::cos(d) * hw))
@@ -357,7 +358,7 @@ FUNC vine(x AS Float, y AS Float, angle AS Float, length AS Float, width AS Floa
   MUT out AS List OF canvas::DrawItem = [poly(collections::append(leftSide, rightSide), gradP(linear(x, y, px, py, [gstop(0.0, mixC(c, color::black, 0.4)), gstop(1.0, c)])))]
   ' Leaves along it.
   FOR i = 3 TO n - 2 STEP 3
-    LET p AS canvas::Point = collections::get(spine, i)
+    LET p AS vector::Float2 = collections::get(spine, i)
     LET side AS Float = toFloat((i / 3) MOD 2) * 2.0 - 1.0
     out = collections::append(out, ellipse(p.x + side * width * 0.9, p.y, width * 1.1, width * 0.45, side * 0.7 + math::sin(t + toFloat(i)) * 0.2, fillP(mixC(c, hex("#9ad86a"), 0.35))))
   NEXT
@@ -418,7 +419,7 @@ FUNC alchemistDraw(s AS AlchemistState, f AS Fonts, w AS Float, h AS Float) AS L
   FOR k = -1 TO 1
     out = collections::append(out, poly([pt(c.cx + toFloat(k) * c.rx * 0.6 - c.rx * 0.08, bodyBottom - c.rx * 0.2), pt(c.cx + toFloat(k) * c.rx * 0.7 - c.rx * 0.06, h * 0.82), pt(c.cx + toFloat(k) * c.rx * 0.7 + c.rx * 0.08, h * 0.82), pt(c.cx + toFloat(k) * c.rx * 0.6 + c.rx * 0.1, bodyBottom - c.rx * 0.2)], fillP(hex("#1c2224"))))
   NEXT
-  MUT bowl AS List OF canvas::Point = []
+  MUT bowl AS List OF vector::Float2 = []
   FOR k = 0 TO 32
     LET a AS Float = toFloat(k) / 32.0 * math::pi
     bowl = collections::append(bowl, pt(c.cx + math::cos(a) * c.rx * 1.02, bodyTop + math::sin(a) * (bodyBottom - bodyTop)))
@@ -428,7 +429,7 @@ FUNC alchemistDraw(s AS AlchemistState, f AS Fonts, w AS Float, h AS Float) AS L
   out = collections::append(out, arc(c.cx, bodyTop, c.rx * 0.92, 0.25, math::pi - 0.25, WITH canvas::stroke(fade(brew, 0.5 + 0.4 * s.flare), 2.0) { dashes := [8.0, 5.0, 2.0, 5.0], cap := canvas::CapStyle.Round }))
   ' The brew's surface, and its bubbles.
   out = collections::append(out, ellipse(c.cx, c.rimY, c.rx * 0.95, c.ry * 0.9, 0.0, gradP(WITH radial(0.0, 0.0, 1.0, [gstop(0.0, mixC(brew, color::white, 0.45)), gstop(0.6, brew), gstop(1.0, mixC(brew, color::black, 0.4))]) { transform := place2(c.cx, c.rimY, 0.0, c.rx * 0.95, c.ry * 0.9) })))
-  LET surface AS List OF List OF canvas::Point = [ovalRing(c.cx, c.rimY, c.rx * 0.95, c.ry * 0.9, 48, 0.0)]
+  LET surface AS List OF List OF vector::Float2 = [ovalRing(c.cx, c.rimY, c.rx * 0.95, c.ry * 0.9, 48, 0.0)]
   FOR EACH b IN s.bubbles
     LET r AS Float = c.rx * b.size * math::sin(clamp01(b.age / 0.9) * math::pi)
     LET bx AS Float = c.cx + b.x * c.rx * 0.8
@@ -459,7 +460,7 @@ FUNC alchemistDraw(s AS AlchemistState, f AS Fonts, w AS Float, h AS Float) AS L
       ' The pour: a stream from the bottle's mouth down into the brew.
       LET mouthX AS Float = pose.x + math::sin(pose.tilt) * size
       LET mouthY AS Float = pose.y - math::cos(pose.tilt) * size
-      MUT stream AS List OF canvas::Point = []
+      MUT stream AS List OF vector::Float2 = []
       FOR k = 0 TO 10
         LET u AS Float = toFloat(k) / 10.0
         stream = collections::append(stream, pt(lerp(mouthX, c.cx + (mouthX - c.cx) * 0.4, u) + math::sin(t * 20.0 + u * 6.0) * 1.5, lerp(mouthY, c.rimY, u * u)))
@@ -470,7 +471,7 @@ FUNC alchemistDraw(s AS AlchemistState, f AS Fonts, w AS Float, h AS Float) AS L
     ' The potion's name under the mouse.
     LET hv AS Float = collections::get(s.hover, i)
     IF hv > 0.05 THEN
-      LET home AS canvas::Point = bottleHome(i, w, h)
+      LET home AS vector::Float2 = bottleHome(i, w, h)
       out = collections::append(out, centered(f.italic, 15.0, potionName(i), home.x, home.y + 24.0, fillP(fade(mixC(potionColor(i), color::white, 0.6), hv))))
     END IF
   NEXT

@@ -10,18 +10,19 @@ J
 cat > "$DIR/src/main.mfb" <<M
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < $N
     LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat($N)
     LET r AS Float = 200.0 + 30.0 * math::sin(a * 7.0)
-    points = collections::append(points, canvas::Point[x := 450.0 + r * math::cos(a), y := 320.0 + r * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := 450.0 + r * math::cos(a), y := 320.0 + r * math::sin(a)])
     i = i + 1
   END WHILE
   LET ring AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 200, 255))]

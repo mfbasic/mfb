@@ -41,7 +41,7 @@ a tenth of a second is dropped rather than queued up, so a program that spends a
 long frame rendering resumes with where the mouse is now rather than replaying
 where it has been.
 
-`position` is a `canvas::Point` in the same pixel coordinates every
+`position` is a `vector::Float2` in the same pixel coordinates every
 `canvas::DrawItem` uses — top-left origin, Y increasing downward — so an event
 position can be handed straight to a hit test against the items just presented,
 with no conversion. `shift`, `ctrl` and `alt` report which modifier keys were
@@ -56,6 +56,7 @@ const EX: &str = r#"Poll for an event and ignore the idle answer:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
@@ -72,6 +73,7 @@ Report where a click landed, in surface pixels:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing
@@ -93,7 +95,7 @@ END FUNC
 /// value slot each is the 48-byte fixed region, and `position` is a **record**, so
 /// it is an *inlined* field: its slot holds the block-relative byte offset of the
 /// sub-block rather than a value, and the sub-block follows the fixed region. A
-/// `Point` is two `Float`s = 16 bytes, so the whole block is 48 + 16 = 64.
+/// `vector::Float2` is two `Float`s = 16 bytes, so the whole block is 48 + 16 = 64.
 ///
 /// (Measured against what the compiler itself emits for a hand-written record of
 /// the identical shape: fixed = `8 * fields.len()`, the inlined field's slot holds
@@ -101,7 +103,7 @@ END FUNC
 /// — `emit_record_block_size_to_slot`.)
 const MOUSE_EVENT_BLOCK_BYTES: usize = 64;
 /// Byte offset of the `position` slot — prop index 2, so `8 * 2`. It holds an
-/// OFFSET, not a `Point` pointer.
+/// OFFSET, not a `vector::Float2` pointer.
 const MOUSE_EVENT_POSITION_SLOT: usize = 16;
 /// The block-relative byte offset the `position` slot points at: immediately past
 /// the six fixed slots, which is already 8-aligned.
@@ -111,7 +113,7 @@ const MOUSE_EVENT_POSITION_INLINE_OFFSET: usize = 48;
 ///
 /// Zero is not arbitrary filler for the idle answer: `MouseKind.None` and
 /// `MouseButton.None` are declared first in their enums and so take ordinal 0, an
-/// all-zero `Point` is `(0.0, 0.0)` because IEEE-754 zero is all-zero bits, and a
+/// all-zero `vector::Float2` is `(0.0, 0.0)` because IEEE-754 zero is all-zero bits, and a
 /// zero `Boolean` is `FALSE`. So the zeroed block already reads as "nothing
 /// pending, no button, at the origin, no modifiers", and only a real event has to
 /// write anything.
@@ -192,7 +194,7 @@ pub(crate) fn lower_poll_mouse(
         builder.emit(abi::store_u64(&value, &event, offset));
     }
 
-    // `position` is an INLINED `Point`, so its slot carries the block-relative
+    // `position` is an INLINED `vector::Float2`, so its slot carries the block-relative
     // offset of the sub-block rather than a value, and `0` there would mean
     // "absent" (plan-94-A Corrections C5).
     builder.emit(abi::move_immediate(
@@ -202,11 +204,11 @@ pub(crate) fn lower_poll_mouse(
     ));
     builder.emit(abi::store_u64(&value, &event, MOUSE_EVENT_POSITION_SLOT));
 
-    // The ring's coordinates are integers; `Point` is two `Float`s.
+    // The ring's coordinates are integers; `vector::Float2` is two `Float`s.
     //
     // **The pair transposes here.** The decoder stores the wire's `y` in
     // `coord_a` and its `x` in `coord_b`, because `term::MouseEvent` is
-    // row-then-column. `canvas::Point` is x-then-y, so `position.x` reads
+    // row-then-column. `vector::Float2` is x-then-y, so `position.x` reads
     // `coord_b` and `position.y` reads `coord_a` — the one place the two
     // packages' field orders disagree, resolved where both are in view.
     let coord = builder.temporary_fp_vreg();

@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
@@ -22,12 +23,12 @@ FUNC main() AS Nothing
   WHILE ring < 200
     LET cx AS Float = 25.0 + toFloat((ring MOD 20) * 44)
     LET cy AS Float = 30.0 + toFloat((ring / 20) * 62)
-    MUT points AS List OF canvas::Point = []
+    MUT points AS List OF vector::Float2 = []
     MUT i AS Integer = 0
     WHILE i < 200
       LET a AS Float = toFloat(i) * 6.283185307179586 / 200.0
       LET r AS Float = 20.0 + 3.0 * math::sin(a * 5.0)
-      points = collections::append(points, canvas::Point[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
+      points = collections::append(points, vector::Float2[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
       i = i + 1
     END WHILE
     LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(60 + ring, 255 - ring, 120))]

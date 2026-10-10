@@ -13,6 +13,7 @@ J
 cat > "$DIR/src/main.mfb" <<M
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT datetime
@@ -26,7 +27,7 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET n AS Integer = 10000
   LET paint AS canvas::Paint = canvas::fill(color::rgba(0, 200, 255, 160))
-  LET quad AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 8.0, y := 0.0], canvas::Point[x := 8.0, y := 8.0], canvas::Point[x := 0.0, y := 8.0]]
+  LET quad AS List OF vector::Float2 = [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 8.0, y := 0.0], vector::Float2[x := 8.0, y := 8.0], vector::Float2[x := 0.0, y := 8.0]]
   MUT rep AS Integer = 0
   WHILE rep < 3
     MUT t AS Integer = datetime::monotonicNanos()
@@ -48,10 +49,10 @@ FUNC main() AS Nothing
     END WHILE
     io::print("build 10k 4-pt polygons (shared points): " & ms(t))
     t = datetime::monotonicNanos()
-    MUT pts AS List OF canvas::Point = []
+    MUT pts AS List OF vector::Float2 = []
     k = 0
     WHILE k < 40000
-      pts = collections::append(pts, canvas::Point[x := toFloat(k MOD 880), y := 1.0])
+      pts = collections::append(pts, vector::Float2[x := toFloat(k MOD 880), y := 1.0])
       k = k + 1
     END WHILE
     io::print("build 40k points: " & ms(t))
