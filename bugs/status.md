@@ -76,7 +76,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 ## New bugs filed since the plan
 
 **P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; in progress)
-Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 and 988's reduce part. Round 2: agent K on the leaks; then 856 and 1012. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
+Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 and 988's reduce part. Round 2: agent K on the leaks. Round 3 (next free slots): 1013 + 998 (the two STATE rules, one agent), 1012, 856. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
 [~] 982 + 993: mouse callbacks (and the graphics-thread entry, thread trampoline, OpenSSL verify callback) keep callee-saved registers; reviewed, merged into staging (2226: click/move/scroll rc 139 → 0)
 [~] 994: Win64 frames save the callee-saved xmm registers they write; reviewed, merged into staging (206: `20.00` no longer becomes `-0.09` / `4294967296.00`)
 [~] 990: fixed, reviewed, merged into staging (a variant from a call/field/get/WITH is now wrapped everywhere)
@@ -86,7 +86,7 @@ Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 an
 [~] 983: `fs::pathJoin` heap overrun after an absolute component; reviewed, merged into staging (rc 138 → `403` at -O0..-O3)
 [ ] (agent K, in progress) 992, 984, 1000, 1001: leaks (`graphemesCount` list; macOS TLS listener 2.8 KB; owned-list drain I/O buffer; union drop leaks read and write buffers, up to 16 KiB per drop)
 [ ] (agent K, in progress) 999: an inline aggregate of resources is never closed (`len(mkList())`)
-[ ] 1013 (HIGH, filed by the plan-172 session, in its worktree, not on main yet): a `STATE` type that is not a record is accepted, then fails to build (scalar) or crashes (`String`). Owner ruling: **a STATE must always be a record**; anything else is a compile error (`TYPE_STATE_INVALID`) at every position a `STATE` clause can appear. Pairs with 998 (STATE on a non-resource parameter → `TYPE_STATE_REQUIRES_RESOURCE`).
+[ ] 1013 (HIGH, filed by the plan-172 session; doc cherry-picked to main as bf619ab10; taken over by the coordinator at the owner's request; repros confirmed: `Integer` → internal build error, `String` → rc 138, `List` works today): a `STATE` type that is not a record is accepted, then fails to build (scalar) or crashes (`String`). Owner ruling: **a STATE must always be a record**; anything else is a compile error (`TYPE_STATE_INVALID`) at every position a `STATE` clause can appear. Pairs with 998 (STATE on a non-resource parameter → `TYPE_STATE_REQUIRES_RESOURCE`).
 [ ] 1012 (HIGH): a resource-union box has no owner outside a binding (record-field use-after-free, exit 139; 16 B leak); found by agent J, crash reproduced by the coordinator
 [ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
 
