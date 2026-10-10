@@ -359,6 +359,25 @@ Commit: —
   (and siblings') man prose.
 - Full suite: the repo's full gate per `.ai/testing-gates.md`.
 
+## Owner decision (2026-10-10, after review): the bucket fixes `T`; it never widens to fit the item
+
+"In general for UNIONs: you can fit a member type into a UNION bucket. You can't fit a UNION into a
+member bucket." For `append(List OF T, T)`, **`T` must match**: the collection argument is the
+bucket and fixes `T`.
+- `append(shapes, aSquare)` works: `T` is `Shape`, and a `Square` is wrapped into it.
+- `append(squares, aShape)` is a **compile error** (as on main), whatever the `Shape` holds. The
+  programmer narrows with `MATCH` and appends in the `Square` arm. There is no implicit run-time
+  narrowing (option A; the owner considered and declined a run-time "wrong type" check).
+- The result type is never changed to the union to make the call fit. The bs18-agent-j build that
+  typed `append(squares, aShape)` as `List OF Shape` (measured by the coordinator:
+  `typeName(r) = List OF Shape, len = 2`) is wrong and must be undone.
+- The same holds for every member where one argument is the collection being added to or searched
+  (`prepend`, `insert`, `set`, `contains`, `find`, `getOr`'s default, map `set`, …): a type
+  variable bound from a collection argument's element (or key/value) type is never rebound to a
+  union by a later argument.
+- `reduce`/`reduceRight` are unchanged by this: there the accumulator the callback declares is the
+  bucket, so a variant initial value fits a union accumulator (decision below).
+
 ## Owner decision (2026-10-10): `reduce`/`reduceRight` with a variant initial value works
 
 It follows from the bug-989 decision (a variant is accepted wherever its union is expected): when
