@@ -303,6 +303,18 @@ maintaining a two-field state machine — `state_bc` (boundclass) and `state_icb
 to break before this scalar, and how to fold it into the running state.
 [[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
 
+Only `strings::graphemes` materializes the clusters. It runs the machine twice: a
+count pass that sizes the result `List OF String`, then a write pass that fills
+one entry per cluster.
+`strings::graphemesCount` runs the count pass alone and allocates nothing, so it
+cannot fail.
+[[src/codegen/builtins/strings/gen_graphemes.rs:emit_grapheme_count_pass]]
+`strings::graphemeAt` walks to the wanted cluster inside the string's own bytes,
+stops there, and copies that one span out as its result; its only allocation is
+that result. An index that is negative, or at or past the cluster count, raises
+`ErrIndexOutOfRange` from the walk.
+[[src/codegen/builtins/strings/gen_graphemes.rs:grapheme_at_window]]
+
 `emit_grapheme_break_branch` is the boundary decision, encoding the UAX #29 rules
 in order: GB3 (CR×LF no-break), GB4/GB5 (control boundaries), GB6/GB7/GB8 (Hangul
 L/V/T jamo sequences), GB9/GB9a/GB9b (Extend, ZWJ, SpacingMark, Prepend),

@@ -597,12 +597,38 @@ pub(crate) fn lower_out(
         builder.emit(abi::add_immediate(&scratch28, &base, 8));
         builder.emit(abi::branch(&result_join));
     }
+    // bug-992: the scalar array (`temp_slot`, `scalarCount * 8` bytes) is this
+    // lowering's own scratch and nothing else names it. The copying lowering
+    // allocated it and never freed it, so every `normalizeNfc` of a non-ASCII
+    // string leaked 8 bytes per scalar. It is freed once the result is encoded,
+    // and on the two exits below that raise before then. (The in-place arm's
+    // array lives in the function's self-update scratch and is not freed here.)
+    let free_scalar_array = |builder: &mut CodeBuilder| {
+        if !matches!(out, StringOut::Block) {
+            return;
+        }
+        let count = builder.temporary_vreg();
+        builder.emit(abi::load_u64(
+            count,
+            abi::stack_pointer(),
+            scalar_count_slot,
+        ));
+        builder.emit(abi::shift_left_immediate(abi::c_arg(1), count, 3));
+        builder.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            temp_slot,
+        ));
+        builder.emit_arena_free_call();
+    };
     builder.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
     builder.emit_arena_alloc_call();
     builder.emit(abi::branch_eq(&result_alloc_ok));
+    free_scalar_array(builder);
     builder.raise_error_bare("ErrOutOfMemory")?;
     builder.emit(abi::label(&size_overflow));
+    free_scalar_array(builder);
     builder.raise_error_bare("ErrOutOfMemory")?;
     builder.emit(abi::label(&result_alloc_ok));
     builder.emit(abi::store_u64(
@@ -650,6 +676,7 @@ pub(crate) fn lower_out(
     builder.emit_write_cursor_assert(&scratch28, &scratch10, "strings_nfc");
     builder.emit(abi::move_immediate(&scratch10, "Integer", "0"));
     builder.emit(abi::store_u8(&scratch10, &scratch28, 0));
+    free_scalar_array(builder);
 
     builder.emit(abi::label(&nfc_done));
     let result = builder.allocate_register();

@@ -1,10 +1,9 @@
 //! `strings.graphemesCount` — descriptor + clean-room native lowering.
 
 // --- codegen tier imports (migration) ---
-use super::gen_graphemes::lower_strings_graphemes;
+use super::gen_graphemes::{emit_grapheme_count_pass, GraphemeCountLabels, GraphemeCountRegs};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -38,7 +37,7 @@ grows with its length — when you need both the clusters and their count, call
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors). `ErrOutOfMemory` means the program ran out of memory."#;
+errors)."#;
 
 const EX: &str = r#"Count user-perceived characters:
 
@@ -78,12 +77,30 @@ pub(crate) fn lower(
     }
     let value = &args[0];
 
-    let scratch16 = builder.temporary_vreg();
-    let list = lower_strings_graphemes(builder, value)?;
-    let list_slot = builder.spill_to_slot("strings_graphemes_count_list", &list.location);
+    // bug-992: the count pass alone. It reads the string and allocates nothing;
+    // building the whole `List OF String` to read its count word left that list
+    // with no owner, one block per call.
+    builder.require_string("strings.graphemesCount value", value)?;
+    let value_slot = builder.spill_to_slot("strings_graphemes_count_value", &value.location);
+    let regs = GraphemeCountRegs {
+        value: builder.temporary_vreg(),
+        byte_len: builder.temporary_vreg(),
+        bytes: builder.temporary_vreg(),
+        count: builder.temporary_vreg(),
+        scalar: builder.temporary_vreg(),
+        width: builder.temporary_vreg(),
+        props: builder.temporary_vreg(),
+        prev_bc: builder.temporary_vreg(),
+        prev_icb: builder.temporary_vreg(),
+        cursor: builder.temporary_vreg(),
+        scan: builder.temporary_vreg(),
+        bc: builder.temporary_vreg(),
+        icb: builder.temporary_vreg(),
+    };
+    let labels = GraphemeCountLabels::mint(builder);
+    emit_grapheme_count_pass(builder, value_slot, &regs, &labels);
     let result = builder.allocate_register();
-    builder.emit(abi::load_u64(&scratch16, abi::stack_pointer(), list_slot));
-    builder.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::move_register(&result, &regs.count));
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Integer,
@@ -109,7 +126,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Integer,
-            errors: vec!["ErrOutOfMemory"],
+            // bug-992: the count pass allocates nothing, so nothing can fail.
+            errors: vec![],
             body: Body::abi_inline(lower),
         }],
     });
