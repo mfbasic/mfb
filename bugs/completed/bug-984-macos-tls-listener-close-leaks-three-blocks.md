@@ -168,8 +168,20 @@ does not resolve), each balanced.
 
 ## Golden impact
 
-`.ncode`/`.ncodesum` for `macos-aarch64` move for the fixtures that emit
-`_mfb_rt_tls_tls_listen` or `_mfb_rt_tls_tls_closeListener` (the `tls`
-byte-identity cover fixture and any program that calls `tls::listen` or drops a
-`tls::Listener`). Linux and Windows TLS are untouched. The fixtures the artifact
-gate reports are listed in the commit message.
+Measured with `scripts/artifact-gate.sh <mfb> all` on this branch and on its base
+commit `821806278` (built in a detached worktree): the base already reports 33
+diffs it inherited (goldens not regenerated in this batch), and this branch
+reports 39. The per-function comparison below is `mfb build -ncode` from the two
+compilers.
+
+Two goldens, `macos-aarch64` only. In both, exactly two functions differ from the
+base commit's: `_mfb_rt_tls_tls_listen` (1,042 → 1,099 instructions) and
+`_mfb_rt_tls_tls_closeListener` (152 → 171).
+
+- `tests/byte-identity/tls`: `tls_codegen_cover_rt.macos-aarch64.ncode` (a new
+  diff on this branch).
+- `tests/byte-identity/http`: `http_codegen_cover_rt.macos-aarch64.ncode` (already
+  differs at the base commit).
+
+Linux and Windows TLS are untouched: every function of the `tls` and `http` cover
+fixtures on those targets is identical to the base commit's.
