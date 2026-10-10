@@ -1047,6 +1047,10 @@ name = "rt_inline_trap_union_bind"
 path = "tests/runtime/rt_inline_trap_union_bind.rs"
 
 [[test]]
+name = "rt_resource_drop_reclaims"
+path = "tests/runtime/rt_resource_drop_reclaims.rs"
+
+[[test]]
 name = "rt_resource_temporary_close"
 path = "tests/runtime/rt_resource_temporary_close.rs"
 
