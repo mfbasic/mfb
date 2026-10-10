@@ -18,7 +18,7 @@ IMPORT math
 ' near black is where fp32 flips a coverage step past tolerance (bug-687).
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 640.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   MUT ring AS Integer = 0
   WHILE ring < 200
     LET cx AS Float = 25.0 + toFloat((ring MOD 20) * 44)

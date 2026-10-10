@@ -225,12 +225,12 @@ END FUNC
 ' A full-window message on the void colour - the loading screen, and the one
 ' that says why there is nothing to show.
 FUNC noticeScene(size AS canvas::Size, face AS canvas::Font, headline AS String, detail AS String) AS List OF canvas::DrawItem
-  LET width AS Float = toFloat(size.width)
-  LET height AS Float = toFloat(size.height)
+  LET width AS Float = size.width
+  LET height AS Float = size.height
   LET big AS Float = math::clamp(height * 0.030, 14.0, 24.0)
   LET small AS Float = big * 0.75
 
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(VOID_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(VOID_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
 
   LET headlineWidth AS Float = canvas::measureText(face, big, headline).width
   items = collections::append(items, textItem(face, (width - headlineWidth) / 2.0, height / 2.0, big, CAPTION_COLOR, headline))
@@ -287,8 +287,11 @@ FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::Dr
   ELSEIF layer = Layer.Temperature THEN
     LET stemWidth AS Float = r * 0.26
     LET stemHeight AS Float = r * 0.92
-    LET stem AS canvas::DrawItem = canvas::RoundedRect[id := "", x := cx - stemWidth / 2.0, y := cy - r * 0.62, w := stemWidth, h := stemHeight, cornerRadius := stemWidth / 2.0, paint := canvas::fill(color::rgb(230, 238, 244)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-    LET mercury AS canvas::DrawItem = canvas::RoundedRect[id := "", x := cx - stemWidth * 0.18, y := cy - r * 0.32, w := stemWidth * 0.36, h := r * 0.66, cornerRadius := stemWidth * 0.18, paint := canvas::fill(color::rgb(235, 65, 45)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET stem AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := cx - stemWidth / 2.0, y := cy - r * 0.62], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := stemWidth, height := stemHeight], radiusTL := stemWidth / 2.0, radiusTR := stemWidth / 2.0, radiusBL := stemWidth / 2.0, radiusBR := stemWidth / 2.0, paint := canvas::fill(color::rgb(230, 238, 244)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    ' A radius of 1 or less would read as a fraction of the half size, not
+    ' pixels; the corner is clamped to half the width anyway.
+    LET mercuryRadius AS Float = math::max(stemWidth * 0.18, 1.01)
+    LET mercury AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := cx - stemWidth * 0.18, y := cy - r * 0.32], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := stemWidth * 0.36, height := r * 0.66], radiusTL := mercuryRadius, radiusTR := mercuryRadius, radiusBL := mercuryRadius, radiusBR := mercuryRadius, paint := canvas::fill(color::rgb(235, 65, 45)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     LET bulb AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := cx, y := cy + r * 0.38], radius := r * 0.28, paint := canvas::fill(color::rgb(235, 65, 45)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, [stem, mercury, bulb])
   ELSE
@@ -591,7 +594,7 @@ FUNC main AS Integer
     MUT rasterItems AS List OF canvas::DrawItem = []
     IF layer <> Layer.Wind THEN
       canvas::setBytes(layerImage, rasterPixels(layer, earlierWinds, laterWinds, mix, view))
-      rasterItems = [canvas::Picture[id := "", x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 1.0 - toFloat(rasterOpacity(layer)) / 255.0 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+      rasterItems = [canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := view.width, height := view.height], image := layerImage, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 1.0 - toFloat(rasterOpacity(layer)) / 255.0 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
     END IF
     MUT scene AS List OF canvas::DrawItem = frameScene(world, view, rasterItems, layer, face, size, captions)
     FOR EACH item IN timelineItems(track, playback, days, face)

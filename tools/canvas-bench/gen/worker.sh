@@ -34,7 +34,7 @@ FUNC main() AS Nothing
     MUT rects AS List OF canvas::DrawItem = []
     MUT k AS Integer = 0
     WHILE k < n
-      LET it AS canvas::DrawItem = canvas::Rectangle[id := "", x := toFloat(k MOD 880), y := toFloat(k MOD 620), w := 8.0, h := 8.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      LET it AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(k MOD 880), y := toFloat(k MOD 620)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       rects = collections::append(rects, it)
       k = k + 1
     END WHILE

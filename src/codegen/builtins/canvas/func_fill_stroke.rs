@@ -41,10 +41,10 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-The same paint turned 45°. Give the item coordinates around `(0, 0)` and put its
-position in `tx` and `ty`, because a rotation turns about the item's own origin —
-the diamond below is centred at 220, 120. The two squares are drawn with one paint
-apart from the transform, so the difference in the picture is the transform's alone:
+The same paint on a square turned 45°. A transform turns a rectangle about the point
+its `position` names, so the diamond below is bound by its centre — `BindTo.Center` —
+and spins in place at 220, 120. The two squares share one paint, so the difference in
+the picture is the transform's alone:
 
 ```
 IMPORT app
@@ -60,10 +60,10 @@ FUNC main() AS Nothing
   LET look AS canvas::Paint = canvas::fillStroke(body, edge, 4.0)
 
   LET turn AS Float = math::pi / 4.0
-  LET spin AS canvas::Transform = canvas::Transform[a := math::cos(turn), b := math::sin(turn), c := 0.0 - math::sin(turn), d := math::cos(turn), tx := 220.0, ty := 120.0]
+  LET spin AS canvas::Transform = canvas::Transform[a := math::cos(turn), b := math::sin(turn), c := 0.0 - math::sin(turn), d := math::cos(turn), tx := 0.0, ty := 0.0]
 
-  LET upright AS canvas::DrawItem = canvas::Rectangle[id := "", x := 40.0, y := 80.0, w := 80.0, h := 80.0, paint := look, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET diamond AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0 - 40.0, y := 0.0 - 40.0, w := 80.0, h := 80.0, paint := look, transform := spin]
+  LET upright AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 80.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := look, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET diamond AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 220.0, y := 120.0], bind := canvas::BindTo.Center, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := look, transform := spin]
 
   canvas::present([upright, diamond])
 END FUNC

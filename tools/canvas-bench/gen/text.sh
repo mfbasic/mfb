@@ -44,7 +44,7 @@ FUNC main() AS Nothing
   MUT again AS Boolean = TRUE
   DO WHILE again
     MUT scene AS List OF canvas::DrawItem = text
-    LET cur AS canvas::DrawItem = canvas::Rectangle[id := "", x := toFloat(frame MOD 800), y := 600.0, w := 8.0, h := 16.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET cur AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(frame MOD 800), y := 600.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 16.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, cur)
     canvas::present(scene)
     frame = frame + 1

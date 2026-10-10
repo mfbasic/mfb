@@ -407,11 +407,12 @@ fn macos_canvas_readraw_returns_bytes_in_order_then_eof() {
 #[cfg(target_os = "macos")]
 const GROUPS_TRAP_OUTSIDE_CANVAS_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT vector\n\
      IMPORT color\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
-    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 canvas::setGroup(\"panel\", [a]) TRAP(err)\n\
     \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 60\n\
@@ -472,12 +473,13 @@ fn macos_group_members_trap_wrong_mode_outside_canvas() {
 #[cfg(target_os = "macos")]
 const GROUP_LIMIT_SOURCE: &str = "IMPORT app\n\
      IMPORT canvas\n\
+     IMPORT vector\n\
      IMPORT color\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
-    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 MUT i AS Integer = 0\n\
     \x20 WHILE i < 256\n\
     \x20   canvas::setGroup(toString(i), [a]) TRAP(early)\n\

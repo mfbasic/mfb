@@ -1,6 +1,6 @@
 //! Shape rasterisation: one signed-distance loop, five primitives.
 //!
-//! Rectangle, RoundedRect, Circle, Arc and Line are all drawn by the *same* routine
+//! Rectangle (square or rounded), Circle, Arc and Line are all drawn by the *same* routine
 //! over a bounding box, differing only in the distance function evaluated per pixel.
 //! That is not a shortcut — it is the design the GPU backends will use ("one
 //! pipeline, many shapes"), so the software oracle predicting their output means
@@ -40,7 +40,7 @@ END FUNC"#;
 /// Signed distance from a point to an axis-aligned rectangle, negative inside.
 ///
 /// The standard formulation: fold the point into the first quadrant relative to the
-/// rectangle's centre, then measure to the corner. `RoundedRect` is the same function
+/// rectangle's centre, then measure to the corner. A rounded rectangle is the same function
 /// with the radius subtracted, which is why there is no separate rounded-rect
 /// distance.
 #[rustfmt::skip]
@@ -430,7 +430,184 @@ r#"FUNC __canvas_arcInSweep(dx AS Float, dy AS Float, sx AS Float, sy AS Float, 
   RETURN afterStart AND beforeEnd
 END FUNC"#;
 
+/// plan-172-E: a rectangle's corners.
+///
+/// One radius value has two meanings, chosen by its size (`planning/new_canvas.md`):
+///
+/// * `0.0` or less — a square corner;
+/// * above `0.0` through `1.0` — a fraction of the half-size, so the corner is an
+///   ellipse quadrant `r * width / 2` across and `r * height / 2` down;
+/// * above `1.0` — pixels, a circular corner no larger than half the shorter side.
+///
+/// The jump at 1 is intended: `1.0` is the full pill and `1.01` a one-pixel corner.
+///
+/// `__canvas_uniformRadius` answers the question the builder asks: do all four corners
+/// resolve to ONE circular radius? If so the rectangle is the exact rounded-rectangle
+/// record (a box distance less that radius, on all three renderers) and the answer is
+/// the radius — `0.0` for four square corners. If not it answers `-1.0` and the outline
+/// is flattened to a ring (`__canvas_rrectRing`).
+///
+/// For four EQUAL pixel radii the answer is the radius as given, not clamped: the
+/// header builder clamps it to half the shorter side, exactly as it always clamped
+/// `RoundedRect.cornerRadius`, and the native builder does the same arithmetic on the
+/// same value. Clamping here as well would be harmless, and one clamp is one place.
+#[rustfmt::skip]
+const CORNERS: &str =
+r#"FUNC __canvas_cornerRadii(w AS Float, h AS Float, r AS Float) AS vector::Float2
+  IF r <= 0.0 THEN
+    RETURN vector::Float2[x := 0.0, y := 0.0]
+  END IF
+  IF r <= 1.0 THEN
+    RETURN vector::Float2[x := r * w / 2.0, y := r * h / 2.0]
+  END IF
+  LET c AS Float = __canvas_minF(r, __canvas_minF(w / 2.0, h / 2.0))
+  RETURN vector::Float2[x := c, y := c]
+END FUNC
+
+FUNC __canvas_uniformRadius(w AS Float, h AS Float, tl AS Float, tr AS Float, bl AS Float, br AS Float) AS Float
+  IF tl = tr AND tl = bl AND tl = br THEN
+    IF tl <= 0.0 THEN
+      RETURN 0.0
+    END IF
+    IF tl > 1.0 THEN
+      RETURN tl
+    END IF
+  END IF
+  LET a AS vector::Float2 = __canvas_cornerRadii(w, h, tl)
+  LET b AS vector::Float2 = __canvas_cornerRadii(w, h, tr)
+  LET c AS vector::Float2 = __canvas_cornerRadii(w, h, bl)
+  LET d AS vector::Float2 = __canvas_cornerRadii(w, h, br)
+  IF a.x = a.y AND b.x = a.x AND b.y = a.x AND c.x = a.x AND c.y = a.x AND d.x = a.x AND d.y = a.x THEN
+    RETURN a.x
+  END IF
+  RETURN 0.0 - 1.0
+END FUNC
+
+' Where the bind point sits relative to the rectangle's top-left corner, negated: the
+' local x (or y) of the top-left corner. `TopLeft` is the local origin; `Center` puts
+' the origin at the middle, so the corner is half the extent back.
+FUNC __canvas_bindOffset(bind AS BindTo, extent AS Float) AS Float
+  IF bind = BindTo.Center THEN
+    RETURN 0.0 - extent / 2.0
+  END IF
+  RETURN 0.0
+END FUNC"#;
+
+/// plan-172-E: a rectangle's outline as one clockwise ring, for the corners that are
+/// not one circular radius.
+///
+/// The ring starts on the top edge where it leaves the top-left corner — where a
+/// rounded rectangle's dash pattern has always started — and goes clockwise: top edge,
+/// top-right corner, right edge, bottom-right, bottom edge, bottom-left, left edge,
+/// top-left corner. A square corner is its one point. A rounded corner is an ellipse
+/// quadrant flattened to segments: the count is the smallest for which a chord of a
+/// circle of the corner's LARGER radius stays within 0.05 px of the arc, clamped to
+/// 4..32. A chord subtending `t` radians of a circle of radius `R` lies at most
+/// `R * (1 - cos(t / 2))` inside it, which is at most `R * t * t / 8`; so `t =
+/// sqrt(0.4 / R)` keeps it within 0.05. No inverse cosine is needed, which matters:
+/// this package computes its own sine and cosine so that every platform flattens to
+/// the same points. Past a radius of about 166 px the 32-segment cap is what binds and
+/// the error grows past 0.05 px (0.3 px at 1,000) — the same bound a circle of that
+/// size would need 80 segments to keep.
+///
+/// Corners are resolved against each other first: two corners sharing a side whose
+/// radii along it sum to more than the side would overlap, so both are scaled back by
+/// the same factor, as CSS does.
+#[rustfmt::skip]
+const RRECT_RING: &str =
+r#"FUNC __canvas_cornerSegments(rx AS Float, ry AS Float) AS Integer
+  LET big AS Float = __canvas_maxF(rx, ry)
+  IF big <= 0.0 THEN
+    RETURN 0
+  END IF
+  LET turn AS Float = math::sqrt(0.4 / big)
+  MUT n AS Integer = toInt(1.5707963267948966 / turn) + 1
+  IF n < 4 THEN
+    n = 4
+  END IF
+  IF n > 32 THEN
+    n = 32
+  END IF
+  RETURN n
+END FUNC
+
+' The points of one corner, appended to `ring`. (cx, cy) is the corner ellipse's
+' centre; the quadrant runs clockwise from `startAngle` (radians, clockwise from +X)
+' for a quarter turn. The first point is included and the last is not: the next piece
+' of the outline supplies it, so no point is repeated.
+FUNC __canvas_cornerPoints(ring AS List OF vector::Float2, cx AS Float, cy AS Float, rx AS Float, ry AS Float, startAngle AS Float, cornerX AS Float, cornerY AS Float) AS List OF vector::Float2
+  LET n AS Integer = __canvas_cornerSegments(rx, ry)
+  IF n = 0 OR rx <= 0.0 OR ry <= 0.0 THEN
+    RETURN collections::append(ring, vector::Float2[x := cornerX, y := cornerY])
+  END IF
+  MUT out AS List OF vector::Float2 = ring
+  MUT k AS Integer = 0
+  WHILE k < n
+    LET a AS Float = startAngle + 1.5707963267948966 * toFloat(k) / toFloat(n)
+    out = collections::append(out, vector::Float2[x := cx + rx * __canvas_cos(a), y := cy + ry * __canvas_sin(a)])
+    k = k + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' `x0`, `y0` is the top-left corner in the record's own coordinates.
+FUNC __canvas_rrectRing(x0 AS Float, y0 AS Float, w AS Float, h AS Float, tl AS Float, tr AS Float, bl AS Float, br AS Float) AS List OF vector::Float2
+  MUT a AS vector::Float2 = __canvas_cornerRadii(w, h, tl)
+  MUT b AS vector::Float2 = __canvas_cornerRadii(w, h, tr)
+  MUT c AS vector::Float2 = __canvas_cornerRadii(w, h, br)
+  MUT d AS vector::Float2 = __canvas_cornerRadii(w, h, bl)
+  ' Two corners on one side may not together be longer than the side.
+  MUT f AS Float = 1.0
+  IF a.x + b.x > w THEN
+    f = __canvas_minF(f, w / (a.x + b.x))
+  END IF
+  IF d.x + c.x > w THEN
+    f = __canvas_minF(f, w / (d.x + c.x))
+  END IF
+  IF a.y + d.y > h THEN
+    f = __canvas_minF(f, h / (a.y + d.y))
+  END IF
+  IF b.y + c.y > h THEN
+    f = __canvas_minF(f, h / (b.y + c.y))
+  END IF
+  IF f < 1.0 THEN
+    a = vector::Float2[x := a.x * f, y := a.y * f]
+    b = vector::Float2[x := b.x * f, y := b.y * f]
+    c = vector::Float2[x := c.x * f, y := c.y * f]
+    d = vector::Float2[x := d.x * f, y := d.y * f]
+  END IF
+  LET x1 AS Float = x0 + w
+  LET y1 AS Float = y0 + h
+  ' The start: the top edge where it leaves the top-left corner -- the corner itself
+  ' when that corner is square.
+  MUT ring AS List OF vector::Float2 = [vector::Float2[x := x0 + a.x, y := y0]]
+  ' Top-right: from the top edge (angle -90 deg) round to the right edge (0 deg).
+  ring = __canvas_cornerPoints(ring, x1 - b.x, y0 + b.y, b.x, b.y, 0.0 - 1.5707963267948966, x1, y0)
+  ' Bottom-right: from the right edge (0 deg) to the bottom edge (90 deg).
+  IF b.x > 0.0 AND b.y > 0.0 THEN
+    ring = collections::append(ring, vector::Float2[x := x1, y := y0 + b.y])
+  END IF
+  ring = __canvas_cornerPoints(ring, x1 - c.x, y1 - c.y, c.x, c.y, 0.0, x1, y1)
+  ' Bottom-left: from the bottom edge (90 deg) to the left edge (180 deg).
+  IF c.x > 0.0 AND c.y > 0.0 THEN
+    ring = collections::append(ring, vector::Float2[x := x1 - c.x, y := y1])
+  END IF
+  ring = __canvas_cornerPoints(ring, x0 + d.x, y1 - d.y, d.x, d.y, 1.5707963267948966, x0, y1)
+  ' Top-left: from the left edge (180 deg) back to the top edge (270 deg).
+  IF d.x > 0.0 AND d.y > 0.0 THEN
+    ring = collections::append(ring, vector::Float2[x := x0, y := y1 - d.y])
+  END IF
+  ' A square top-left corner is the start point already; a rounded one ends just short
+  ' of it.
+  IF a.x > 0.0 AND a.y > 0.0 THEN
+    ring = __canvas_cornerPoints(ring, x0 + a.x, y0 + a.y, a.x, a.y, 3.141592653589793, x0, y0)
+  END IF
+  RETURN ring
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_helper(RegistryHelper::always("canvas_cornerRadii", CORNERS));
+    pkg.add_helper(RegistryHelper::always("canvas_rrectRing", RRECT_RING));
     pkg.add_helper(RegistryHelper::always("canvas_floatUtil", FLOAT_UTIL));
     pkg.add_helper(RegistryHelper::always("canvas_coverage", COVERAGE));
     pkg.add_helper(RegistryHelper::always("canvas_rectDistance", RECT_DISTANCE));

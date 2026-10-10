@@ -1,8 +1,8 @@
 $ mfb build -ast -ir tests/syntax/resources/canvas-setgroup-consumes-items
-  41 | 
-  42 |   ' `img` was moved into the group above. Naming it again is the use-after-move.
-  43 |   LET b AS canvas::DrawItem = canvas::Picture[id := "", x := 9.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  42 | 
+  43 |   ' `img` was moved into the group above. Naming it again is the use-after-move.
+  44 |   LET b AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 9.0, y := 0.0], size := canvas::Size[width := 8.0, height := 8.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
      | ^
-tests/syntax/resources/canvas-setgroup-consumes-items/src/main.mfb:43 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+tests/syntax/resources/canvas-setgroup-consumes-items/src/main.mfb:44 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
                Binding `img` was moved and cannot be used again.
 [exit 1]

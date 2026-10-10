@@ -78,7 +78,7 @@ fn program(body: &str) -> String {
 }
 
 const ONE_BOX: &str =
-    "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n";
+    "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n";
 
 /// A program that presents and returns immediately still gets its frame drawn.
 ///
@@ -231,9 +231,9 @@ fn an_identical_re_present_draws_no_second_frame() {
 fn sync_mode_gives_one_frame_per_changed_present() {
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
-         LET two AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 80.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET two AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 80.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two])\n  \
-         LET three AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 150.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET three AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 150.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
     let (_, frames) = run("canvas_gfx_sync", &program(&body), true);
@@ -266,9 +266,9 @@ fn the_metal_path_gives_one_completed_frame_per_changed_present() {
     }
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
-         LET two AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 80.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET two AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 80.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two])\n  \
-         LET three AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 150.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET three AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 150.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
     let (out, frames) = run_with("canvas_gfx_sync_metal", &program(&body), true, true);
@@ -434,11 +434,11 @@ fn stat_field(line: &str, name: &str) -> String {
 #[test]
 #[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
-    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
          LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
          canvas::present([node])\n  \
-         LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 700.0, y := 500.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [b])\n  \
          canvas::present([node])\n  io::print(\"done\")\n";
     let (_, frames) = run("canvas_group_revision", &program(body), true);
@@ -476,7 +476,7 @@ fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
 #[test]
 #[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn two_identical_presents_of_an_unchanged_group_draw_one_frame() {
-    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
          LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
          canvas::present([node])\n  \
@@ -504,7 +504,7 @@ fn picture_frame(name: &str, body: &str, env: &[(&str, &str)]) -> Vec<u8> {
         "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT os\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])\n  \
-         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
          {body}END FUNC\n"
     );

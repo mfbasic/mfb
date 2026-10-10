@@ -109,7 +109,7 @@ fn a_picture_draws_its_image_into_its_rectangle() {
         "canvas_picture_basic",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([tile])\n",
             pixels(&[(0, 255, 0, 255)])
         )),
@@ -136,8 +136,8 @@ fn scaling_samples_the_nearest_texel() {
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(2, 1, {})\n  \
              RES clear AS canvas::Image = canvas::createImage(2, 1, {})\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 64.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", x := 200.0, y := 0.0, w := 64.0, h := 32.0, image := clear, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 64.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 200.0, y := 0.0], size := canvas::Size[width := 64.0, height := 32.0], image := clear, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a, b])\n",
             pixels(&[(255, 0, 0, 255), (0, 0, 255, 255)]),
             pixels(&[(0, 255, 0, 255), (255, 255, 255, 0)])
@@ -187,7 +187,7 @@ fn the_fill_tints_the_image() {
         "canvas_picture_tint",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 16.0, height := 16.0], image := img, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n",
             pixels(&[(255, 255, 255, 255)])
         )),
@@ -198,7 +198,7 @@ fn the_fill_tints_the_image() {
         "canvas_picture_opacity",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := WITH canvas::fill(color::rgb(255, 255, 255)) {{ transparency := 0.5 }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 16.0, height := 16.0], image := img, paint := WITH canvas::fill(color::rgb(255, 255, 255)) {{ transparency := 0.5 }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n",
             pixels(&[(0, 255, 0, 255)])
         )),
@@ -234,7 +234,7 @@ fn the_fill_is_a_tint_and_transparency_is_the_opacity() {
             &scene(&format!(
                 "  RES img AS canvas::Image = canvas::createImage(1, 1, {texel})\n  \
                  LET zero AS canvas::Paint = canvas::Paint[fill := color::rgba(0, 0, 0, 0), stroke := color::rgba(0, 0, 0, 0), strokeWidth := 0.0, blend := canvas::BlendMode.Normal, clip := [], clipRule := canvas::FillRule.EvenOdd, gradient := canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 0.0, y := 0.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly], cap := canvas::CapStyle.Butt, join := canvas::JoinStyle.Round, miterLimit := 0.0, dashes := [], dashOffset := 0.0, transparency := 0.0]\n  \
-                 LET a AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+                 LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 16.0, height := 16.0], image := img, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
                  canvas::present([a])\n"
             )),
         )
@@ -284,7 +284,7 @@ fn the_fill_is_a_tint_and_transparency_is_the_opacity() {
     );
     let spelled = render(
         "canvas_tint_spelled",
-        &scene("  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 16.0, h := 16.0, paint := canvas::fill(color::rgba(200, 100, 50, 127)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([a])\n"),
+        &scene("  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 16.0, height := 16.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(200, 100, 50, 127)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([a])\n"),
     )
     .0;
     assert_eq!(
@@ -309,13 +309,13 @@ fn clip_blend_and_transform_apply_to_a_picture() {
              RES y AS canvas::Image = canvas::createImage(1, 1, {yellow})\n  \
              RES rb AS canvas::Image = canvas::createImage(2, 1, {red_blue})\n  \
              LET clipped AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 16.0, y := 0.0], vector::Float2[x := 16.0, y := 640.0], vector::Float2[x := 0.0, y := 640.0]]] }}\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 32.0, h := 32.0, image := g, paint := clipped, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET under AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 0.0, w := 32.0, h := 32.0, paint := canvas::fill(color::rgb(0, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 32.0, height := 32.0], image := g, paint := clipped, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET under AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET mul AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ blend := canvas::BlendMode.Multiply }}\n  \
-             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 0.0, w := 32.0, h := 32.0, image := y, paint := mul, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 0.0], size := canvas::Size[width := 32.0, height := 32.0], image := y, paint := mul, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 100.0]\n  \
              LET rot AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
-             LET c AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 200.0, h := 40.0, image := rb, paint := rot, transform := t]\n  \
+             LET c AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 200.0, height := 40.0], image := rb, paint := rot, transform := t]\n  \
              canvas::present([a, under, b, c])\n"
         )),
     );
@@ -360,7 +360,7 @@ fn a_picture_in_a_group_moves_with_it() {
         "canvas_picture_group",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(2, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 64.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 64.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"g\", [tile])\n  \
              LET node AS canvas::DrawItem = canvas::Group[name := \"g\", dx := 300.0, dy := 200.0]\n  \
              canvas::present([node])\n",
@@ -392,8 +392,8 @@ fn a_destroyed_image_draws_nothing() {
         "canvas_picture_destroyed",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET mark AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 300.0, y := 100.0, w := 32.0, h := 32.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET mark AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 300.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::destroyImage(img)\n  \
              canvas::present([tile, mark])\n",
             pixels(&[(0, 255, 0, 255)])
@@ -424,7 +424,7 @@ fn set_bytes_on_a_presented_image_repaints() {
         "canvas_picture_set_bytes",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([tile])\n  \
              canvas::setBytes(img, {})\n",
             pixels(&[(255, 0, 0, 255)]),
@@ -449,7 +449,7 @@ fn set_bytes_on_a_presented_image_repaints() {
 fn set_bytes_repaints_under_damage_tracking() {
     let source = scene(&format!(
         "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([tile])\n  \
          canvas::setBytes(img, {})\n",
         pixels(&[(255, 0, 0, 255)]),
@@ -490,7 +490,7 @@ fn set_bytes_on_an_undrawn_image_does_not_repaint() {
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
              RES other AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([tile])\n  \
              canvas::setBytes(other, {})\n",
             pixels(&[(0, 255, 0, 255)]),
@@ -516,7 +516,7 @@ fn set_bytes_on_an_undrawn_image_does_not_repaint() {
 fn set_bytes_twice_between_frames_shows_the_last() {
     let source = scene(&format!(
         "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([tile])\n  \
          canvas::setBytes(img, {})\n  \
          canvas::setBytes(img, {})\n  \

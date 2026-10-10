@@ -195,7 +195,7 @@ FUNC hintItem(face AS canvas::Font, height AS Float, p AS Pipe) AS canvas::DrawI
 END FUNC
 
 FUNC frameScene(width AS Float, height AS Float, p AS Pipe, selected AS Integer) AS List OF canvas::DrawItem
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   FOR EACH item IN shapeItems(selected)
     items = collections::append(items, item)
   NEXT
@@ -239,15 +239,15 @@ FUNC main AS Integer
   canvas::enableMouse(TRUE)
 
   MUT size AS canvas::Size = canvas::getSize()
-  MUT pipe AS Pipe = Pipe[x := playWidth(toFloat(size.width)) / 2.0, on := TRUE, owed := 0.0]
+  MUT pipe AS Pipe = Pipe[x := playWidth(size.width) / 2.0, on := TRUE, owed := 0.0]
   MUT selected AS Integer = -1
   MUT gesture AS Gesture = NO_GESTURE
   MUT running AS Boolean = TRUE
 
   DO WHILE running
     IF canvas::didResize() THEN size = canvas::getSize()
-    LET width AS Float = toFloat(size.width)
-    LET height AS Float = toFloat(size.height)
+    LET width AS Float = size.width
+    LET height AS Float = size.height
     LET play AS Float = playWidth(width)
     pipe = pipeWithin(pipe, play)
     clampShapes(play, height)

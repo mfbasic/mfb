@@ -499,10 +499,10 @@ IMPORT io
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET size AS canvas::Size = canvas::getSize()
-  LET w AS Float = toFloat(size.width)
-  LET h AS Float = toFloat(size.height)
-  LET left AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET right AS canvas::DrawItem = canvas::Rectangle[id := "", x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET w AS Float = size.width
+  LET h AS Float = size.height
+  LET left AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w / 2.0, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET right AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := w / 2.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w / 2.0, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([left, right])
   io::print("BLIT_PRESENTED")
   io::flush()
@@ -578,7 +578,7 @@ IMPORT color
 IMPORT io
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET mark AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET mark AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([mark])
   io::print("RESIZE_READY")
   io::flush()
@@ -717,15 +717,15 @@ FUNC main() AS Nothing
     i = i + 1
   END WHILE
   LET size AS canvas::Size = canvas::getSize()
-  LET w AS Float = toFloat(size.width)
-  LET h AS Float = toFloat(size.height)
-  LET left AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET right AS canvas::DrawItem = canvas::Rectangle[id := "", x := w / 2.0, y := 0.0, w := w / 2.0, h := h, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET w AS Float = size.width
+  LET h AS Float = size.height
+  LET left AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w / 2.0, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET right AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := w / 2.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w / 2.0, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([left, right])
   io::print("GPU_PRESENTED")
   io::flush()
   os::sleep(4000)
-  LET green AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := w, h := h, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET green AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET ring AS canvas::DrawItem = canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([green, ring])
   io::print("SOFTWARE_PRESENTED")

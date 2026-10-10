@@ -257,7 +257,7 @@ FUNC main AS Integer
   app::setTitle("Fractals / Image Buffer")
 
   RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
-  LET empty AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET empty AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.0, height := 0.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   scene = collections::repeat(scene, empty, 4)
   MUT pixels AS List OF Byte = []
   pixels = collections::repeat(pixels, toByte(255), PIXEL_COUNT * 4)
@@ -267,8 +267,8 @@ FUNC main AS Integer
 
   DO WHILE NOT quitPressed()
     IF canvas::didResize() THEN size = canvas::getSize()
-    LET width AS Float = toFloat(size.width)
-    LET height AS Float = toFloat(size.height)
+    LET width AS Float = size.width
+    LET height AS Float = size.height
     LET aspect AS Float = width / height
 
     LET elapsed AS Integer = datetime::monotonicNanos() - started
@@ -302,7 +302,7 @@ FUNC main AS Integer
     NEXT
 
     canvas::setBytes(picture, pixels)
-    LET imageItem AS canvas::DrawItem = canvas::Picture[id := "", x := 0.0, y := 0.0, w := width, h := height, image := picture, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET imageItem AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := width, height := height], image := picture, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::set(scene, 0, imageItem)
 
     MUT title AS String = fractalName(current)

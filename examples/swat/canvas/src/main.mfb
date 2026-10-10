@@ -174,8 +174,8 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 FUNC layoutFor(surface AS canvas::Size) AS Layout
-  LET w AS Float = toFloat(surface.width)
-  LET h AS Float = toFloat(surface.height)
+  LET w AS Float = surface.width
+  LET h AS Float = surface.height
   LET margin AS Float = 14.0
   LET bar AS Float = 48.0
   LET fx AS Float = margin
@@ -279,8 +279,12 @@ FUNC poly(points AS List OF vector::Float2, c AS color::Color) AS canvas::DrawIt
   RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
+' A radius of a pixel or less would read as a fraction of the half size, so
+' it is drawn square: a corner that small is not visible.
 FUNC slab(px AS Float, py AS Float, w AS Float, h AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::RoundedRect[id := "", x := px, y := py, w := w, h := h, cornerRadius := r, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  MUT corner AS Float = r
+  IF r <= 1.0 THEN corner = 0.0
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := px, y := py], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := corner, radiusTR := corner, radiusBL := corner, radiusBR := corner, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A star of `points` spikes: alternating outer and inner radii, the first spike
@@ -569,7 +573,7 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 FUNC edgeRect(px AS Float, py AS Float, w AS Float, h AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Rectangle[id := "", x := px, y := py, w := w, h := h, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := px, y := py], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC padNumber(n AS Integer, width AS Integer) AS String
@@ -591,7 +595,7 @@ FUNC banner(lay AS Layout, face AS canvas::Font, title AS String, hint AS String
   LET hintSize AS Float = 18.0
   LET tm AS canvas::TextMetrics = canvas::measureText(face, titleSize, title)
   LET hm AS canvas::TextMetrics = canvas::measureText(face, hintSize, hint)
-  RETURN [canvas::Rectangle[id := "", x := lay.fieldX, y := lay.fieldY, w := lay.fieldW, h := lay.fieldH, paint := canvas::fill(color::rgba(0, 0, 0, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::RoundedRect[id := "", x := x, y := y, w := w, h := h, cornerRadius := 16.0, paint := canvas::fillStroke(fill, color::rgba(255, 255, 255, 180), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], label(face, titleSize, title, x + (w - tm.width) / 2.0, y + 62.0, color::rgb(255, 255, 255)), label(face, hintSize, hint, x + (w - hm.width) / 2.0, y + 112.0, color::rgb(235, 240, 255))]
+  RETURN [canvas::Rectangle[id := "", position := vector::Float2[x := lay.fieldX, y := lay.fieldY], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := lay.fieldW, height := lay.fieldH], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(0, 0, 0, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 16.0, radiusTR := 16.0, radiusBL := 16.0, radiusBR := 16.0, paint := canvas::fillStroke(fill, color::rgba(255, 255, 255, 180), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], label(face, titleSize, title, x + (w - tm.width) / 2.0, y + 62.0, color::rgb(255, 255, 255)), label(face, hintSize, hint, x + (w - hm.width) / 2.0, y + 112.0, color::rgb(235, 240, 255))]
 END FUNC
 
 FUNC sceneFor(lay AS Layout, face AS canvas::Font, level AS Integer, score AS Integer, grass AS List OF Plant, bug AS Slot, bugTheme AS Integer, bugVisible AS Boolean, effects AS List OF Effect, now AS Integer, gameOver AS Boolean, paused AS Boolean) AS List OF canvas::DrawItem
@@ -604,8 +608,8 @@ FUNC sceneFor(lay AS Layout, face AS canvas::Font, level AS Integer, score AS In
   ' everything else. (A full-window backdrop under a separate field, or the field
   ' as a gradient-filled or stroked rounded rectangle, each cost a whole-surface
   ' pass per frame; together they held the game to about two frames a second.)
-  LET barStrip AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := lay.width, h := lay.barHeight, paint := canvas::fill(color::rgb(20, 24, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET field AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := lay.barHeight, w := lay.width, h := lay.height - lay.barHeight, paint := canvas::fill(ground), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET barStrip AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := lay.width, height := lay.barHeight], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(20, 24, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET field AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := lay.barHeight], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := lay.width, height := lay.height - lay.barHeight], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(ground), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   MUT scene AS List OF canvas::DrawItem = [barStrip, field]
   ' A faint grid, then the frame as four thin edges.
   LET line AS color::Color = color::rgba(255, 255, 255, 12)

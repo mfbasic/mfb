@@ -603,13 +603,13 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
 
   MATCH s.kind
     CASE ShapeKind.Rectangle
-      ' Drawn about (0, 0) and put in place by the transform, which is what
-      ' turns it about its centre.
+      ' Centred on the shape's position; the transform turns it about that
+      ' centre.
       LET c AS Float = math::cos(s.angle)
       LET n AS Float = math::sin(s.angle)
       LET hx AS Float = RECT_HALF_WIDTH * s.scale
       LET hy AS Float = RECT_HALF_HEIGHT * s.scale
-      RETURN canvas::Rectangle[id := "", x := -hx, y := -hy, w := hx * 2.0, h := hy * 2.0, paint := paint, transform := canvas::Transform[a := c, b := n, c := -n, d := c, tx := s.x, ty := s.y]]
+      RETURN canvas::Rectangle[id := "", position := vector::Float2[x := s.x, y := s.y], bind := canvas::BindTo.Center, size := canvas::Size[width := hx * 2.0, height := hy * 2.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[a := c, b := n, c := -n, d := c, tx := 0.0, ty := 0.0]]
     CASE ShapeKind.Triangle
       LET half AS Float = TRIANGLE_HALF_BASE * s.scale
       LET below AS Float = TRIANGLE_BELOW * s.scale

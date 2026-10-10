@@ -131,6 +131,7 @@ strokedblack|stroked_shapes_on_black|render
 rectstepblack|rectangles_at_a_step_on_black|render
 clipstepblack|clips_at_a_step_on_black|render
 xformblack|transformed_shapes_on_black|render
+cornersblack|rect_corners_on_black|render
 hairline|blended_hairline_stroke|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo

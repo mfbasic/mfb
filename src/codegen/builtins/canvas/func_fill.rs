@@ -53,8 +53,8 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 40.0, y := 0.0], endPoint := vector::Float2[x := 360.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := ramp }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 320.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 40.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 320.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := ramp }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' The same stops, radial. `startPoint` is the centre and `endPoint` a point on the
   ' outer circle, so this ramp is circular whatever shape it fills. A circle's
@@ -66,9 +66,10 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-The ramp is measured in surface pixels, from its own two points and not from the
-shape's bounds — which is why `bar`'s axis names 40 and 360 rather than 0 and 1, and why
-moving the rectangle without moving the gradient slides the shape along the ramp."#;
+The ramp is measured in pixels from the shape's `position`, between its own two points
+and not across the shape's bounds — which is why `bar`'s axis names 0 and 320, its own
+width, rather than 0 and 1. A gradient moves with its shape: change `position` and the
+ramp goes too."#;
 
 #[rustfmt::skip]
 const BODY: &str =

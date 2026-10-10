@@ -50,13 +50,14 @@ FUNC temperaturePixel(celsius AS Float) AS List OF Byte
   RETURN [shade.red, shade.green, shade.blue, toByte(255)]
 END FUNC
 
-FUNC temperatureGradient(bottom AS Float, top AS Float) AS canvas::Gradient
+' Coordinates are offsets from the bar's top left corner (originX, originY).
+FUNC temperatureGradient(originX AS Float, originY AS Float, bottom AS Float, top AS Float) AS canvas::Gradient
   MUT stops AS List OF canvas::GradientStop = []
   FOR k = 0 TO len(HEAT_DEGREES) - 1
     LET stop AS canvas::GradientStop = canvas::GradientStop[offset := heatPosition(collections::get(HEAT_DEGREES, k)), color := collections::get(HEAT_COLORS, k)]
     stops = collections::append(stops, stop)
   NEXT
-  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := bottom], endPoint := vector::Float2[x := 0.0, y := top], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0 - originX, y := bottom - originY], endPoint := vector::Float2[x := 0.0 - originX, y := top - originY], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
 END FUNC
 
 ' The key, in a panel whose top left corner is at (left, top), drawn at a
@@ -85,13 +86,13 @@ FUNC temperatureKey(face AS canvas::Font, size AS Float, left AS Float, top AS F
   LET barBottom AS Float = barTop + barHeight
   LET height AS Float = barBottom + labelSize * 0.5 + pad - top
 
-  MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[id := "", x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := left, y := top], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := size * 0.7, radiusTR := size * 0.7, radiusBL := size * 0.7, radiusBR := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   LET heading AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8], text := title, font := face, fontSize := titleSize, paint := canvas::fill(KEY_TITLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET divider AS canvas::DrawItem = canvas::Line[id := "", x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, [heading, divider])
 
   LET barLeft AS Float = left + pad
-  LET bar AS canvas::DrawItem = canvas::RoundedRect[id := "", x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(HEAT_COLORS, 0)) { gradient := temperatureGradient(barBottom, barTop) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := barLeft, y := barTop], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := barWidth, height := barHeight], radiusTL := barWidth / 2.0, radiusTR := barWidth / 2.0, radiusBL := barWidth / 2.0, radiusBR := barWidth / 2.0, paint := WITH canvas::fill(collections::get(HEAT_COLORS, 0)) { gradient := temperatureGradient(barLeft, barTop, barBottom, barTop) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, bar)
 
   FOR k = 0 TO len(HEAT_LABELS) - 1

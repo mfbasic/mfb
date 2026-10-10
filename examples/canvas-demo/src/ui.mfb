@@ -203,14 +203,13 @@ END FUNC
 
 FUNC restyleItem(d AS canvas::DrawItem, t AS canvas::Transform, fadeBy AS Float) AS canvas::DrawItem
   MATCH d
-    CASE canvas::Picture(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
-    CASE canvas::Rectangle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Picture(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Rectangle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Line(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
     CASE canvas::Polygon(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
     CASE canvas::Circle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Arc(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Text(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
-    CASE canvas::RoundedRect(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
     CASE canvas::Ellipse(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Group(v) : RETURN v
     CASE canvas::PolyLine(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }

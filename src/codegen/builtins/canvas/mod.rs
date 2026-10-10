@@ -394,16 +394,19 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Size",
         export: true,
-        description: "A pixel extent — the dimensions of the canvas surface or of an image.",
+        description: "A pixel extent — the dimensions of the canvas surface, of an \
+                      image, or of a `canvas::Rectangle` or `canvas::Picture`. The two \
+                      are `Float`s because a shape's extent may be a fraction of a \
+                      pixel; the surface's and an image's are always whole numbers.",
         props: vec![
             RecordProp {
                 name: "width",
-                ty: ParameterType::Integer,
+                ty: ParameterType::Float,
                 description: "The width in pixels.",
             },
             RecordProp {
                 name: "height",
-                ty: ParameterType::Integer,
+                ty: ParameterType::Float,
                 description: "The height in pixels.",
             },
         ],
@@ -931,7 +934,9 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "clip",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID))),
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
+                ))),
                 description: "Restricts drawing to the area these rings enclose, \
                               under `clipRule` — each ring a closed path of points, \
                               as a `canvas::Polygon`'s `contours` are. The empty list, \
@@ -1014,9 +1019,9 @@ pub(crate) fn register(r: &mut Registry) {
                               start: a `canvas::Line`'s first point, a \
                               `canvas::PolyLine`'s first point, an `canvas::Arc`'s \
                               `startAngle`, each `canvas::Polygon` ring's own first \
-                              point, a `canvas::Rectangle`'s top-left corner, a \
-                              `canvas::RoundedRect`'s top edge where it leaves the \
-                              corner, and a `canvas::Circle`'s or `canvas::Ellipse`'s \
+                              point, a `canvas::Rectangle`'s top-left corner — or, when \
+                              that corner is rounded, its top edge where it leaves the \
+                              corner — and a `canvas::Circle`'s or `canvas::Ellipse`'s \
                               rightmost point (before its `transform`) — going clockwise \
                               round every closed shape.",
             },
@@ -1043,30 +1048,87 @@ pub(crate) fn register(r: &mut Registry) {
 
     // ---- The `DrawItem` variants (a CLOSED set) ---------------------------
 
-    pkg.add_record(RegistryRecord {
-        name: "Rectangle",
+    pkg.add_enum(RegistryEnum {
+        name: "BindTo",
         export: true,
-        description: "An axis-aligned rectangle.",
-        props: rect_props("The rectangle"),
+        variants: vec![
+            EnumVariant {
+                name: "TopLeft",
+                description: "`position` is the rectangle's top-left corner. The zero \
+                              value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Center",
+                description: "`position` is the rectangle's centre, so a rotation \
+                              spins it in place.",
+                advisory: None,
+            },
+        ],
     });
 
     pkg.add_record(RegistryRecord {
-        name: "RoundedRect",
+        name: "Rectangle",
         export: true,
-        description: "An axis-aligned rectangle with rounded corners.",
-        props: {
-            let mut props = rect_props("The rectangle");
-            props.insert(
-                5,
-                RecordProp {
-                    name: "cornerRadius",
-                    ty: ParameterType::Float,
-                    description: "The corner radius in pixels, clamped to half the \
-                                  shorter side.",
-                },
-            );
-            props
-        },
+        description: "A rectangle, with a radius for each corner. `position` places \
+                      it by the point `bind` names — its top-left corner, or its \
+                      centre — and its `transform` turns it about that same point: a \
+                      `Center` rectangle spins in place, a `TopLeft` one swings about \
+                      its corner. Every field has a usable default, so the short way to \
+                      make one is to declare it and set what you need: \
+                      `MUT box AS canvas::Rectangle`, then `WITH box { position := \
+                      vector::Float2[x := 20.0, y := 20.0], size := canvas::Size[width \
+                      := 120.0, height := 80.0], paint := canvas::fill(ink) }` — it \
+                      binds top-left, has four square corners, no `id` and the \
+                      identity transform.",
+        props: vec![
+            id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the rectangle is, in pixels: the point `bind` \
+                              names. The transform turns the rectangle about it.",
+            },
+            RecordProp {
+                name: "bind",
+                ty: ParameterType::named("BindTo"),
+                description: "Which point of the rectangle `position` is.",
+            },
+            RecordProp {
+                name: "size",
+                ty: ParameterType::named("Size"),
+                description: "The width and height in pixels. A rectangle with no \
+                              width or no height draws nothing.",
+            },
+            RecordProp {
+                name: "radiusTL",
+                ty: ParameterType::Float,
+                description: "The top-left corner's radius. `0.0` or less is a square corner. Above `0.0` through \
+                              `1.0` it is a fraction of the half-size, so the corner is \
+                              an ellipse quadrant: `radiusTL * width / 2` across and \
+                              `radiusTL * height / 2` down. Above `1.0` it is pixels, and \
+                              the corner is circular, no larger than half the shorter \
+                              side. `1.0` is the full pill and `1.01` is a one-pixel \
+                              corner, so a radius animated in pixels starts above `1.0`.",
+            },
+            RecordProp {
+                name: "radiusTR",
+                ty: ParameterType::Float,
+                description: "The top-right corner's radius. See `radiusTL` for how its size chooses its meaning.",
+            },
+            RecordProp {
+                name: "radiusBL",
+                ty: ParameterType::Float,
+                description: "The bottom-left corner's radius. See `radiusTL` for how its size chooses its meaning.",
+            },
+            RecordProp {
+                name: "radiusBR",
+                ty: ParameterType::Float,
+                description: "The bottom-right corner's radius. See `radiusTL` for how its size chooses its meaning.",
+            },
+            paint_prop(),
+            transform_prop(),
+        ],
     });
 
     pkg.add_record(RegistryRecord {
@@ -1115,7 +1177,9 @@ pub(crate) fn register(r: &mut Registry) {
             id_prop(),
             RecordProp {
                 name: "contours",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID))),
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
+                ))),
                 description: "The rings, each a list of vertices in order. Every \
                               ring closes from its own last point back to its own \
                               first point automatically. The direction a ring runs \
@@ -1176,7 +1240,8 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "position",
                 ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
-                description: "The centre of the circle the arc lies on, in pixels. The transform turns \
+                description:
+                    "The centre of the circle the arc lies on, in pixels. The transform turns \
                               the arc about it.",
             },
             RecordProp {
@@ -1210,7 +1275,8 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "position",
                 ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
-                description: "Where the baseline starts, in pixels: its left end. The transform turns \
+                description:
+                    "Where the baseline starts, in pixels: its left end. The transform turns \
                               the text about it.",
             },
             RecordProp {
@@ -1252,21 +1318,32 @@ pub(crate) fn register(r: &mut Registry) {
                       `canvas::Rectangle`. Named `canvas::Picture` rather than `Image` \
                       because `Image` is the resource type this variant *names* — the two \
                       would collide.",
-        props: {
-            let mut props = rect_props("The destination rectangle");
-            props.insert(
-                5,
-                RecordProp {
-                    name: "image",
-                    ty: ParameterType::res(ParameterType::named("canvas.Image")),
-                    description: "The image to draw. The item holds the image \
-                                  itself — you still close it, and closing it while \
-                                  a scene still names it draws nothing rather than \
-                                  failing.",
-                },
-            );
-            props
-        },
+        props: vec![
+            id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The top-left corner of the rectangle the image is \
+                              drawn into, in pixels. The transform turns the picture \
+                              about it.",
+            },
+            RecordProp {
+                name: "size",
+                ty: ParameterType::named("Size"),
+                description: "The destination width and height in pixels; the image \
+                              is scaled to them.",
+            },
+            RecordProp {
+                name: "image",
+                ty: ParameterType::res(ParameterType::named("canvas.Image")),
+                description: "The image to draw. The item holds the image \
+                              itself — you still close it, and closing it while \
+                              a scene still names it draws nothing rather than \
+                              failing.",
+            },
+            paint_prop(),
+            transform_prop(),
+        ],
     });
 
     pkg.add_union(RegistryUnion {
@@ -1279,7 +1356,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             UnionVariant {
                 name: "Rectangle",
-                description: "An axis-aligned rectangle.",
+                description: "A rectangle, with a radius for each corner.",
             },
             UnionVariant {
                 name: "Line",
@@ -1301,13 +1378,9 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "Text",
                 description: "A run of text.",
             },
-            UnionVariant {
-                name: "RoundedRect",
-                description: "A rectangle with rounded corners.",
-            },
             // plan-116-E. Appended LAST deliberately: the order fixes each variant's
             // tag, so inserting `Ellipse` beside `Circle` where it reads better would
-            // renumber `Arc`, `Text` and `RoundedRect`.
+            // renumber `Arc` and `Text`.
             UnionVariant {
                 name: "Ellipse",
                 description: "An ellipse, optionally rotated.",
@@ -1417,7 +1490,9 @@ pub(crate) fn register(r: &mut Registry) {
             id_prop(),
             RecordProp {
                 name: "points",
-                ty: ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID)),
+                ty: ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
+                )),
                 description: "The points in order. The path does not close — use \
                               `canvas::Polygon` for a closed shape. A point repeated \
                               in place adds nothing; if every point is the same one, \
@@ -1578,45 +1653,6 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-/// The `x`/`y`/`w`/`h` prefix shared by every rectangle-shaped item, plus the
-/// trailing `paint`. Callers that need an extra field (`cornerRadius`, `image`)
-/// insert it at index 5, between the extent and the paint (index 0 is `id`).
-fn rect_props(what: &'static str) -> Vec<RecordProp> {
-    vec![
-        id_prop(),
-        RecordProp {
-            name: "x",
-            ty: ParameterType::Float,
-            description: "The left edge in pixels.",
-        },
-        RecordProp {
-            name: "y",
-            ty: ParameterType::Float,
-            description: "The top edge in pixels.",
-        },
-        RecordProp {
-            name: "w",
-            ty: ParameterType::Float,
-            description: if what.starts_with("The destination") {
-                "The destination width in pixels; the image is scaled to it."
-            } else {
-                "The width in pixels."
-            },
-        },
-        RecordProp {
-            name: "h",
-            ty: ParameterType::Float,
-            description: if what.starts_with("The destination") {
-                "The destination height in pixels; the image is scaled to it."
-            } else {
-                "The height in pixels."
-            },
-        },
-        paint_prop(),
-        transform_prop(),
-    ]
-}
-
 /// The `paint` field every drawn `DrawItem` variant carries.
 fn paint_prop() -> RecordProp {
     RecordProp {
@@ -1701,7 +1737,6 @@ mod tests {
                 "Circle",
                 "Arc",
                 "Text",
-                "RoundedRect",
                 "Ellipse",
                 "Group",
                 "PolyLine",

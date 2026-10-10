@@ -121,16 +121,20 @@ changing item type.
 
 ### Placement
 
-`Circle`, `Ellipse`, `Arc` and `Text` are placed by `position`: the centre for the first
-three, the left end of the baseline for text. Their geometry is **local** — it has its
-origin at that reference point — and a local point `p` reaches the surface at
+`Circle`, `Ellipse`, `Arc`, `Text`, `Rectangle` and `Picture` are placed by `position`:
+the centre for the first three, the left end of the baseline for text, the top-left
+corner for a picture, and for a rectangle the point its `bind` names — its top-left
+corner (`BindTo.TopLeft`, the zero value) or its centre (`BindTo.Center`). Their
+geometry is **local** — it has its origin at that reference point — and a local point
+`p` reaches the surface at
 
     position + transform(p)
 
 before any enclosing group's translation. So the transform **pivots about the reference
-point**: a rotation turns a circle, an ellipse or an arc about its centre and a text
-about the start of its baseline; and `transform.tx` / `ty` add to `position`. (The other
-shapes are not yet placed this way and are still transformed about the surface origin.)
+point**: a rotation turns a circle, an ellipse or an arc about its centre, a text about
+the start of its baseline, a `Center` rectangle in place and a `TopLeft` one about that
+corner; and `transform.tx` / `ty` add to `position`. (`Line`, `Polygon` and `PolyLine`
+are not yet placed this way and are still transformed about the surface origin.)
 
 `paint.clip` rings and a gradient's `startPoint` and `endPoint` are in the same local
 space, so a shape moves whole when only its `position` changes — its clip and its ramp
@@ -156,6 +160,53 @@ all-zero, so for it the offset is always `position`; it adds that to every clip 
 as the MFBASIC builder does, including when it is zero.
 [[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
 [[src/codegen/builtins/canvas/func_geo_build.rs:clip_point]]
+
+### A rectangle's corners
+
+A `Rectangle` has a radius for each corner, and one value has two meanings chosen by
+its size:
+
+| Radius `r` | Corner |
+|---|---|
+| `r <= 0` | square |
+| `0 < r <= 1` | a fraction of the half-size: an ellipse quadrant `r * width / 2` across and `r * height / 2` down |
+| `r > 1` | pixels: a circular corner of radius `min(r, width / 2, height / 2)` |
+
+The jump at 1 is intended: `1.0` is the full pill and `1.01` a one-pixel corner, so a
+radius animated in pixels starts above 1. A circular corner under one pixel cannot be
+written. [[src/codegen/builtins/canvas/helper_shapes.rs:CORNERS]]
+
+How the outline is built depends only on what the four corners resolve to, and is one
+of three paths:
+
+1. **Four square corners** — the rectangle record (kind 0, radius 0).
+2. **Four corners that are one circular radius** — the same record with that radius in
+   slot 6: a box distance less the radius, exact on all three renderers. This is every
+   rectangle that was a `RoundedRect`, byte for byte. Four equal fractional radii on a
+   square rectangle are this path too, since the ellipse they describe is a circle.
+3. **Anything else** — per-corner radii, or an elliptical corner. The outline is
+   flattened to one clockwise ring and the item is a polygon record (kind 4), so it
+   strokes, joins, dashes and clips as a polygon does, with no new geometry kind and no
+   shader change. The ring starts on the top edge where it leaves the top-left corner —
+   where a rounded rectangle's dashes have always started — so a dashed outline begins
+   at the same place on every path. Each rounded corner is a quadrant cut into the
+   fewest segments, between 4 and 32, for which a chord of a circle of the corner's
+   larger radius stays within 0.05 px of the arc; the bound holds up to a radius of
+   about 166 px and grows with the radius beyond it (0.3 px at 1,000). Two corners
+   whose radii along a shared side sum to more than the side are scaled back together.
+   The error is in local pixels: a transform or group that scales the shape scales it.
+   [[src/codegen/builtins/canvas/helper_shapes.rs:RRECT_RING]]
+
+The native builder draws paths 1 and 2 only when the four radii are equal and are
+either all `<= 0` or all `> 1`; every other rectangle is built by the MFBASIC builder.
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_rect_inputs]]
+
+A `Picture` binds top-left and has no radii: it always takes path 1, which is what
+keeps its sampling rectangle readable from the record's own slots.
+
+`canvas::Size` — a rectangle's and a picture's `size`, and what `canvas::getSize`
+returns — is two `Float`s. A shape's extent may be a fraction of a pixel; the
+surface's and an image's are whole numbers held as Floats.
 
 ## Rendering conventions
 
@@ -423,8 +474,9 @@ The cap travels as header slot 34 (0 `Butt`, 1 `Round`, 2 `Square`), written by 
 [[src/codegen/runtime/canvas/mod.rs:emit_square_cap_reach]]
 
 **`join` shapes the corners**: every vertex where two edges of a `Polygon` ring or a
-`PolyLine` meet, and a `Rectangle`'s or `Picture`'s four corners. A `RoundedRect` has
-none.
+`PolyLine` meet, and a `Rectangle`'s or `Picture`'s four corners when they are square. A rectangle with
+one circular radius has no corners to join; one drawn from a flattened ring (above)
+is joined at every vertex of the ring.
 
 * `Round` is the distance field's own corner: the stroke is `|d| − half` of the outline's
   distance, and the distance to a corner is round. An undashed `Round` stroke builds no
@@ -473,7 +525,7 @@ outline starts, taken modulo the pattern's length (and may be negative).
   from `(x1, y1)`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
   `Polygon` ring from its own first point (each ring restarts the pattern, as SVG
   restarts it per subpath); a `Rectangle` or `Picture` from its top-left corner,
-  clockwise (towards +X under Y-down); a `RoundedRect` from the left end of its top
+  clockwise (towards +X under Y-down); a rounded `Rectangle` from the left end of its top
   straight side, clockwise; a `Circle` or `Ellipse` from angle 0 (+X in its own frame),
   the way angles increase.
 * **An outline of edges is cut edge by edge.** A pixel's position on an edge is its
@@ -487,7 +539,7 @@ outline starts, taken modulo the pattern's length (and may be negative).
   *nearest* outline point instead would be discontinuous on a corner's inner side, where
   the nearest edge is the second one while the first edge's band, still inside its dash,
   is what covers the pixel in SVG.
-* **A curve is cut at its nearest point.** A `Circle`, `Arc`, `Ellipse` or `RoundedRect`
+* **A curve is cut at its nearest point.** A `Circle`, `Arc`, `Ellipse` or a `Rectangle` with one circular radius
   has no corner: its `s` is the perimeter position of the pixel's nearest outline point,
   and `along` is measured in outline length there, so a dash end is cut along the
   outline's normal to within the band's curvature (`half / radius` of the antialiasing
@@ -632,7 +684,8 @@ and a rotated label is a rotated label on every backend.
 
 **A `Picture` is a rectangle whose fill colour is its image.** Its coverage, its
 antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, its `transform` and a
-group's translation are exactly those of a `Rectangle` with the same `x, y, w, h` —
+group's translation are exactly those of a square-cornered `Rectangle` with the same
+`position` and `size` —
 the geometry is built as one and re-kinded. Only the fill colour differs: at each pixel
 the image is sampled at the shape-space point (the inverse-mapped point under a
 transform, the group-relative one inside a group), **nearest**, as texel

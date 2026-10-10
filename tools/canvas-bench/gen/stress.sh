@@ -68,7 +68,7 @@ FUNC main() AS Nothing
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT scene AS List OF canvas::DrawItem = still
     IF $MOVING = 1 THEN scene = bulk(toFloat(frame MOD 7))
-    LET mover AS canvas::DrawItem = canvas::Rectangle[id := "", x := toFloat(frame MOD 800), y := 600.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET mover AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(frame MOD 800), y := 600.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, mover)
     buildNanos = buildNanos + (datetime::monotonicNanos() - t0)
     LET t1 AS Integer = datetime::monotonicNanos()

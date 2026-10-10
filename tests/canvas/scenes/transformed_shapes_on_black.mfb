@@ -66,7 +66,11 @@ FUNC main() AS Nothing
       LET turned AS canvas::Transform = canvas::Transform[a := ta * ec + tc * es, b := tb * ec + td * es, c := tc * ec - ta * es, d := td * ec - tb * es, tx := 0.0, ty := 0.0]
       d = canvas::Ellipse[id := "", position := vector::Float2[x := x, y := y], radiusX := r, radiusY := r * 0.61, paint := WITH canvas::fillStroke(c, c2, w) { clip := clHere }, transform := turned]
     ELSEIF k MOD 6 = 4 THEN
-      d = canvas::RoundedRect[id := "", x := x - r, y := y - r * 0.6, w := r * 1.9, h := r * 1.3, cornerRadius := r * 0.3, paint := WITH canvas::fillStroke(c, c2, w) { clip := cl }, transform := tf]
+      ' plan-172-E: the rectangle's `position` is its top-left corner (x - r, y - r * 0.6), so
+      ' `tf` (turning about (x, y)) gets that pivot folded into its translation. `cl` is empty
+      ' here (k MOD 6 = 4 means k is even), so the clip needs no offset.
+      LET tfRect AS canvas::Transform = WITH tf { tx := r - ta * r - tc * (r * 0.6), ty := r * 0.6 - tb * r - td * (r * 0.6) }
+      d = canvas::Rectangle[id := "", position := vector::Float2[x := x - r, y := y - r * 0.6], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := r * 1.9, height := r * 1.3], radiusTL := r * 0.3, radiusTR := r * 0.3, radiusBL := r * 0.3, radiusBR := r * 0.3, paint := WITH canvas::fillStroke(c, c2, w) { clip := cl }, transform := tfRect]
     ELSEIF k MOD 6 = 5 THEN
       d = canvas::PolyLine[id := "", points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Butt }, transform := tf]
     END IF

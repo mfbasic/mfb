@@ -5,8 +5,8 @@ IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET a AS canvas::DrawItem = canvas::Rectangle[id := "", x := 50.0, y := 50.0, w := 200.0, h := 100.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET a AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 50.0, y := 50.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET b AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 400.0, y := 300.0], radius := 80.0, paint := canvas::fill(color::rgb(0, 200, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET c AS canvas::DrawItem = canvas::Rectangle[id := "", x := 360.0, y := 280.0, w := 120.0, h := 40.0, paint := canvas::fill(color::rgba(255, 255, 0, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET c AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 360.0, y := 280.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(255, 255, 0, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::presentLayers([canvas::DrawLayer[items := [a]], canvas::DrawLayer[items := [b, c]]])
 END FUNC

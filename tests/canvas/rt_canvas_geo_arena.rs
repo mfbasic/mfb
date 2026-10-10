@@ -226,7 +226,7 @@ fn static_bulk(count: usize, frames: usize) -> String {
          MUT bulk AS List OF canvas::DrawItem = []\n  \
          MUT i AS Integer = 0\n  \
          WHILE i < {count}\n    \
-         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat((i * 37) MOD 880), y := toFloat((i * 53) MOD 620), w := 6.0, h := 6.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat((i * 37) MOD 880), y := toFloat((i * 53) MOD 620)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 6.0, height := 6.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          bulk = collections::append(bulk, r)\n    \
          i = i + 1\n  \
          END WHILE\n  \

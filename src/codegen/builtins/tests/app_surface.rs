@@ -105,6 +105,7 @@ fn the_resource_path_base_suffix_lowers_where_the_base_has_one() {
 const CANVAS_GROUP: &str = "\
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
@@ -114,7 +115,7 @@ FUNC main() AS Integer
   RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)
     RETURN 1
   END TRAP
-  LET a AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 8.0, height := 8.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup(\"one\", [a])
   io::print(\"grouped\")
   RETURN 0
@@ -125,6 +126,7 @@ END FUNC
 const CANVAS_SURFACE: &str = "\
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT io
 

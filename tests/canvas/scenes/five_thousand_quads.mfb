@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 
@@ -8,7 +9,7 @@ FUNC main() AS Nothing
   MUT scene AS List OF canvas::DrawItem = []
   MUT k AS Integer = 0
   WHILE k < 5000
-    LET r AS canvas::DrawItem = canvas::Rectangle[id := "", x := toFloat((k MOD 100) * 9), y := toFloat((k / 100) * 12), w := 7.0, h := 9.0, paint := canvas::fill(color::rgb((k * 7) MOD 256, (k * 13) MOD 256, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET r AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat((k MOD 100) * 9), y := toFloat((k / 100) * 12)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 7.0, height := 9.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb((k * 7) MOD 256, (k * 13) MOD 256, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, r)
     k = k + 1
   END WHILE

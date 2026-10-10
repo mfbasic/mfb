@@ -11,7 +11,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const SURFACE_SIZE: &str =
 r#"FUNC __canvas_surfaceSize() AS Size
-  RETURN Size[width := canvas::surfaceWidth(), height := canvas::surfaceHeight()]
+  RETURN Size[width := toFloat(canvas::surfaceWidth()), height := toFloat(canvas::surfaceHeight())]
 END FUNC"#;
 
 /// Hand a finished frame to the surface: the platform window blit.

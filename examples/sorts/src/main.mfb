@@ -556,7 +556,7 @@ FUNC main AS Integer
 
   LET dots AS List OF Dot = makeDots()
   setUp()
-  LET background AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET background AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.0, height := 0.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   placed = collections::repeat(placed, rotate(0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0), DOT_COUNT)
   ' Two table cells per sort follow the dots and the five stats lines.
   scene = collections::repeat(scene, background, DOT_COUNT + 6 + 2 * ALGORITHM_COUNT)
@@ -575,8 +575,8 @@ FUNC main AS Integer
 
   DO WHILE NOT quitPressed()
     IF canvas::didResize() THEN size = canvas::getSize()
-    LET width AS Float = toFloat(size.width)
-    LET height AS Float = toFloat(size.height)
+    LET width AS Float = size.width
+    LET height AS Float = size.height
     LET cx AS Float = width / 2.0
     LET cy AS Float = height / 2.0
     ' The visible outline spans 90% of the shorter side. Perspective draws the
@@ -664,7 +664,7 @@ FUNC main AS Integer
     NEXT
     placed = collections::sortBy(placed, farthestFirst)
 
-    LET back AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET back AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::set(scene, 0, back)
     FOR i = 0 TO DOT_COUNT - 1
       LET p AS Placed = collections::get(placed, i)

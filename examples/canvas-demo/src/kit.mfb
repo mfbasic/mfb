@@ -243,8 +243,9 @@ END FUNC
 ' turn), so a figure built at the origin can be moved into place as a whole.
 FUNC placed(d AS canvas::DrawItem, t AS canvas::Transform) AS canvas::DrawItem
   MATCH d
-    CASE canvas::Rectangle(v) : RETURN WITH v { transform := t }
-    CASE canvas::RoundedRect(v) : RETURN WITH v { transform := t }
+    CASE canvas::Rectangle(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Circle(v) :
       IF isZero(t) AND isZero(v.transform) THEN RETURN d
       RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
@@ -260,17 +261,37 @@ FUNC placed(d AS canvas::DrawItem, t AS canvas::Transform) AS canvas::DrawItem
     CASE canvas::Text(v) :
       IF isZero(t) AND isZero(v.transform) THEN RETURN d
       RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
-    CASE canvas::Picture(v) : RETURN WITH v { transform := t }
+    CASE canvas::Picture(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Group(v) : RETURN v
   END MATCH
 END FUNC
 
 FUNC rect(x AS Float, y AS Float, w AS Float, h AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Rectangle[id := "", x := x, y := y, w := w, h := h, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
+' A rounded rectangle. A radius above one is pixels, which a rectangle takes
+' as it is; a smaller one (a figure built at unit scale and put in place by a
+' transform) would read as a fraction of the half size, so it is drawn as the
+' outline of the same rectangle with circular corners.
 FUNC rrect(x AS Float, y AS Float, w AS Float, h AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::RoundedRect[id := "", x := x, y := y, w := w, h := h, cornerRadius := r, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  IF r <= 0.0 OR r > 1.0 THEN RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := r, radiusTR := r, radiusBL := r, radiusBR := r, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET q AS Float = math::min(r, math::min(w, h) / 2.0)
+  LET steps AS Integer = 8
+  MUT ring AS List OF vector::Float2 = []
+  FOR corner = 0 TO 3
+    MUT cx AS Float = x + q
+    MUT cy AS Float = y + q
+    IF corner = 1 OR corner = 2 THEN cx = x + w - q
+    IF corner = 2 OR corner = 3 THEN cy = y + h - q
+    FOR i = 0 TO steps
+      LET a AS Float = TAU * (0.5 + 0.25 * toFloat(corner) + 0.25 * toFloat(i) / toFloat(steps))
+      ring = collections::append(ring, pt(cx + q * math::cos(a), cy + q * math::sin(a)))
+    NEXT
+  NEXT
+  RETURN canvas::Polygon[id := "", contours := [ring], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC circle(x AS Float, y AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem

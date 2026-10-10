@@ -44,13 +44,14 @@ whose directory component does not exist, or that is otherwise malformed, raises
 const EX: &str = r#"```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES logo AS canvas::Image = canvas::loadImage("logo.png")
   LET size AS canvas::Size = canvas::getSize(logo)
-  LET art AS canvas::DrawItem = canvas::Picture[id := "", x := 20.0, y := 20.0, w := toFloat(size.width), h := toFloat(size.height), image := logo, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET art AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 20.0, y := 20.0], size := size, image := logo, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([art])
 END FUNC
 ```"#;

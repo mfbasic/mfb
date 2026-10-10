@@ -257,15 +257,15 @@ FUNC main AS Integer
   app::setTitle("Fractals")
 
   RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
-  LET empty AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET empty AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.0, height := 0.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   scene = collections::repeat(scene, empty, DOT_COUNT + 4)
   MUT size AS canvas::Size = canvas::getSize()
   LET started AS Integer = datetime::monotonicNanos()
 
   DO WHILE NOT quitPressed()
     IF canvas::didResize() THEN size = canvas::getSize()
-    LET width AS Float = toFloat(size.width)
-    LET height AS Float = toFloat(size.height)
+    LET width AS Float = size.width
+    LET height AS Float = size.height
     LET cellW AS Float = width / toFloat(DOT_COLUMNS)
     LET cellH AS Float = height / toFloat(DOT_ROWS)
     LET radius AS Float = math::min(cellW, cellH) * 0.39
@@ -284,7 +284,7 @@ FUNC main AS Integer
       fade = smoothstep(toFloat(localNanos - (VIEW_NANOS - FADE_NANOS)) / toFloat(FADE_NANOS))
     END IF
 
-    LET back AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET back AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::set(scene, 0, back)
     FOR i = 0 TO DOT_COUNT - 1
       LET column AS Integer = i MOD DOT_COLUMNS

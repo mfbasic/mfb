@@ -240,13 +240,13 @@ END TYPE
 ' The scale at which the whole world just fits the window, with a little air
 ' around it.
 FUNC fitScale(size AS canvas::Size) AS Float
-  LET byWidth AS Float = toFloat(size.width) / (2.0 * PLANE_HALF_WIDTH)
-  LET byHeight AS Float = toFloat(size.height) / (2.0 * PLANE_HALF_HEIGHT)
+  LET byWidth AS Float = size.width / (2.0 * PLANE_HALF_WIDTH)
+  LET byHeight AS Float = size.height / (2.0 * PLANE_HALF_HEIGHT)
   RETURN math::min(byWidth, byHeight) * 0.94
 END FUNC
 
 FUNC wholeWorld(size AS canvas::Size) AS View
-  RETURN View[scale := fitScale(size), cx := 0.0, cy := 0.0, width := toFloat(size.width), height := toFloat(size.height), lon0 := 0.0, tilt := 0.0]
+  RETURN View[scale := fitScale(size), cx := 0.0, cy := 0.0, width := size.width, height := size.height, lon0 := 0.0, tilt := 0.0]
 END FUNC
 
 ' The same view on a window of a new shape. The centre and the zoom are kept -
@@ -254,7 +254,7 @@ END FUNC
 ' is nudged up if the window grew past what the old one filled, and the centre
 ' re-clamped against the new extent.
 FUNC resized(v AS View, size AS canvas::Size) AS View
-  LET grown AS View = WITH v { width := toFloat(size.width), height := toFloat(size.height) }
+  LET grown AS View = WITH v { width := size.width, height := size.height }
   RETURN clampedView(WITH grown { scale := math::max(grown.scale, fitScale(size)) })
 END FUNC
 

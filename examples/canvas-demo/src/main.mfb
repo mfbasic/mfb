@@ -122,8 +122,8 @@ FUNC main AS Integer
     IF dt <= 0.0 THEN dt = 1.0 / 60.0
     clock = clock + dt
     LET size AS canvas::Size = canvas::getSize()
-    LET w AS Float = toFloat(size.width)
-    LET h AS Float = toFloat(size.height)
+    LET w AS Float = size.width
+    LET h AS Float = size.height
     ' The scenes are composed for a window of at least 720 by 480; a smaller
     ' one (Windows opens new windows at 400 by 300) goes full screen, once,
     ' as soon as the surface has a size to measure.

@@ -657,9 +657,7 @@ END FUNC
 FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
   MATCH item
     CASE Rectangle(r)
-      RETURN __canvas_placedClip(r.paint.clip, 0.0, 0.0)
-    CASE RoundedRect(rr)
-      RETURN __canvas_placedClip(rr.paint.clip, 0.0, 0.0)
+      RETURN __canvas_placedClip(r.paint.clip, __canvas_buildX(r.position, r.transform), __canvas_buildY(r.position, r.transform))
     CASE Circle(c)
       RETURN __canvas_placedClip(c.paint.clip, __canvas_buildX(c.position, c.transform), __canvas_buildY(c.position, c.transform))
     CASE Line(l)
@@ -669,7 +667,7 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
     CASE Polygon(p)
       RETURN __canvas_placedClip(p.paint.clip, 0.0, 0.0)
     CASE Picture(pic)
-      RETURN __canvas_placedClip(pic.paint.clip, 0.0, 0.0)
+      RETURN __canvas_placedClip(pic.paint.clip, __canvas_buildX(pic.position, pic.transform), __canvas_buildY(pic.position, pic.transform))
     CASE Ellipse(e)
       RETURN __canvas_placedClip(e.paint.clip, __canvas_buildX(e.position, e.transform), __canvas_buildY(e.position, e.transform))
     CASE Text(t)
@@ -767,7 +765,7 @@ FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, max
   RETURN out
 END FUNC
 
-FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerRadius AS Float, paint AS Paint, transform AS Transform) AS List OF Float
+FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerRadius AS Float, paint AS Paint, transform AS Transform, ox AS Float, oy AS Float) AS List OF Float
   MUT out AS List OF Float = __canvas_blankHeader()
   IF w <= 0.0 THEN
     RETURN __canvas_emptyHeader()
@@ -784,7 +782,7 @@ FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerR
   out = collections::set(out, 4, w / 2.0 - radius)
   out = collections::set(out, 5, h / 2.0 - radius)
   out = collections::set(out, 6, radius)
-  out = __canvas_paintHeader(out, paint, transform, 0.0, 0.0)
+  out = __canvas_paintHeader(out, paint, transform, ox, oy)
   LET pad AS Float = __canvas_strokePad(paint)
   RETURN __canvas_boundsHeader(out, x - pad, y - pad, x + w + pad, y + h + pad)
 END FUNC
@@ -802,6 +800,36 @@ END FUNC
 ' The shadow address being IN the header is what makes a `setBytes` visible: it swaps a
 ' fresh block in, so the header differs, the cache confirmation fails, and the damage
 ' diff sees a changed item -- although nothing in the scene the program wrote changed.
+' plan-172-E: a rectangle's corners as ONE circular radius, or -1.0 when they are not
+' one (`__canvas_uniformRadius`), in which case it is drawn from `__canvas_rectRing`.
+FUNC __canvas_rectRadius(r AS Rectangle) AS Float
+  RETURN __canvas_uniformRadius(r.size.width, r.size.height, r.radiusTL, r.radiusTR, r.radiusBL, r.radiusBR)
+END FUNC
+
+' The top-left corner of a rectangle's record: the build origin (`position`, or the
+' local origin when its transform is in effect) plus where `bind` puts that corner.
+FUNC __canvas_rectLeft(r AS Rectangle) AS Float
+  RETURN __canvas_buildX(r.position, r.transform) + __canvas_bindOffset(r.bind, r.size.width)
+END FUNC
+
+FUNC __canvas_rectTop(r AS Rectangle) AS Float
+  RETURN __canvas_buildY(r.position, r.transform) + __canvas_bindOffset(r.bind, r.size.height)
+END FUNC
+
+' The exact record: four square corners, or one circular radius.
+FUNC __canvas_rectItem(r AS Rectangle, radius AS Float) AS List OF Float
+  RETURN __canvas_rectHeader(__canvas_rectLeft(r), __canvas_rectTop(r), r.size.width, r.size.height, radius, r.paint, __canvas_placement(r.position, r.transform), __canvas_buildX(r.position, r.transform), __canvas_buildY(r.position, r.transform))
+END FUNC
+
+' The flattened outline, for corners that are not one circular radius. A rectangle with
+' no width or no height has none: it draws nothing, as the exact record does.
+FUNC __canvas_rectRing(r AS Rectangle) AS List OF List OF vector::Float2
+  IF r.size.width <= 0.0 OR r.size.height <= 0.0 THEN
+    RETURN []
+  END IF
+  RETURN [__canvas_rrectRing(__canvas_rectLeft(r), __canvas_rectTop(r), r.size.width, r.size.height, r.radiusTL, r.radiusTR, r.radiusBL, r.radiusBR)]
+END FUNC
+
 FUNC __canvas_pictureHeader(pic AS Picture) AS List OF Float
   LET shadow AS Integer = canvas::imageShadow(pic.image)
   LET iw AS Integer = canvas::imageWidthOf(pic.image)
@@ -809,7 +837,9 @@ FUNC __canvas_pictureHeader(pic AS Picture) AS List OF Float
   IF shadow = 0 OR iw <= 0 OR ih <= 0 THEN
     RETURN __canvas_emptyHeader()
   END IF
-  LET base AS List OF Float = __canvas_rectHeader(pic.x, pic.y, pic.w, pic.h, 0.0, pic.paint, pic.transform)
+  LET bx AS Float = __canvas_buildX(pic.position, pic.transform)
+  LET by AS Float = __canvas_buildY(pic.position, pic.transform)
+  LET base AS List OF Float = __canvas_rectHeader(bx, by, pic.size.width, pic.size.height, 0.0, pic.paint, __canvas_placement(pic.position, pic.transform), bx, by)
   IF toInt(collections::getOr(base, 0, 0.0)) <> __CANVAS_KIND_RECT THEN
     RETURN base
   END IF
@@ -980,7 +1010,7 @@ END FUNC
 ' minF/maxF over every later point in order -- for one ring exactly the walk this had
 ' before rings, so a single-ring EvenOdd polygon's header is unchanged (slot 21 is 0 for
 ' EvenOdd). `func_geo_build.rs:fill_polygon` is the native twin, in the same order.
-FUNC __canvas_polygonHeader(rings AS List OF List OF vector::Float2, rule AS FillRule, paint AS Paint, transform AS Transform) AS List OF Float
+FUNC __canvas_polygonHeader(rings AS List OF List OF vector::Float2, rule AS FillRule, paint AS Paint, transform AS Transform, ox AS Float, oy AS Float) AS List OF Float
   LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
   MUT count AS Integer = 0
   MUT minX AS Float = 0.0
@@ -1016,7 +1046,7 @@ FUNC __canvas_polygonHeader(rings AS List OF List OF vector::Float2, rule AS Fil
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYGON))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + count * 5))
-  out = __canvas_paintHeader(out, paint, transform, 0.0, 0.0)
+  out = __canvas_paintHeader(out, paint, transform, ox, oy)
   out = collections::set(out, 20, toFloat(count))
   IF rule = FillRule.NonZero THEN
     out = collections::set(out, __CANVAS_GEO_POLYGON_RULE, 1.0)
@@ -1510,17 +1540,26 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   MUT header AS List OF Float = []
   MATCH item
     CASE Rectangle(r)
-      header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint, r.transform)
-      LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
-      LET dashes AS List OF Float = __canvas_rectDashes(header, r.paint)
-      tail = __canvas_appendGradientTail(collections::append(joins, dashes), r.paint)
-      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
-    CASE RoundedRect(rr)
-      header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint, rr.transform)
-      LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
-      LET dashes AS List OF Float = __canvas_rectDashes(header, rr.paint)
-      tail = __canvas_appendGradientTail(collections::append(joins, dashes), rr.paint)
-      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint)), dashes, rr.paint)
+      LET radius AS Float = __canvas_rectRadius(r)
+      IF radius >= 0.0 THEN
+        header = __canvas_rectItem(r, radius)
+        LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
+        LET dashes AS List OF Float = __canvas_rectDashes(header, r.paint)
+        tail = __canvas_appendGradientTail(collections::append(joins, dashes), r.paint)
+        header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
+      ELSE
+        ' plan-172-E: corners that are not one circular radius. The outline is a polygon
+        ' ring, so the rest is the polygon's own arm: edges, joins, dashes, stops.
+        LET ring AS List OF List OF vector::Float2 = __canvas_rectRing(r)
+        LET edges AS List OF Float = __canvas_polygonEdges(ring)
+        LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(ring), TRUE, __canvas_strokeHalf(r.paint), r.paint)
+        header = __canvas_polygonHeader(ring, FillRule.EvenOdd, r.paint, __canvas_placement(r.position, r.transform), __canvas_buildX(r.position, r.transform), __canvas_buildY(r.position, r.transform))
+        LET dashes AS List OF Float = __canvas_edgeDashes(header, r.paint, __canvas_strokeHalf(r.paint), edges, __canvas_ringStarts(ring), TRUE)
+        IF len(edges) > 0 THEN
+          tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), r.paint)
+        END IF
+        header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
+      END IF
     CASE Circle(c)
       header = __canvas_circleItem(c)
       LET dashes AS List OF Float = __canvas_roundDashes(header, c.paint)
@@ -1539,7 +1578,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
       LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
-      header = __canvas_polygonHeader(p.contours, p.rule, p.paint, p.transform)
+      header = __canvas_polygonHeader(p.contours, p.rule, p.paint, p.transform, 0.0, 0.0)
       LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(p.contours), TRUE)
       IF len(edges) > 0 THEN
         tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), p.paint)
@@ -1800,28 +1839,27 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
   MATCH item
     CASE Rectangle(r)
       MUT h AS Integer = __canvas_hashStart(1)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, r.x), r.y), r.w), r.h)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, r.position.x), r.position.y), r.size.width), r.size.height)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, r.radiusTL), r.radiusTR), r.radiusBL), r.radiusBR)
+      IF r.bind = BindTo.Center THEN
+        h = __canvas_hashStep(h, 1)
+      END IF
       RETURN __canvas_hashPaint(h, r.paint, r.transform)
-    CASE RoundedRect(rr)
-      MUT h AS Integer = __canvas_hashStart(2)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, rr.x), rr.y), rr.w), rr.h)
-      h = __canvas_hashFloat(h, rr.cornerRadius)
-      RETURN __canvas_hashPaint(h, rr.paint, rr.transform)
     CASE Circle(c)
-      MUT h AS Integer = __canvas_hashStart(3)
+      MUT h AS Integer = __canvas_hashStart(2)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, c.position.x), c.position.y), c.radius)
       RETURN __canvas_hashPaint(h, c.paint, c.transform)
     CASE Line(l)
-      MUT h AS Integer = __canvas_hashStart(4)
+      MUT h AS Integer = __canvas_hashStart(3)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, l.x1), l.y1), l.x2), l.y2)
       RETURN __canvas_hashPaint(h, l.paint, l.transform)
     CASE Arc(a)
-      MUT h AS Integer = __canvas_hashStart(5)
+      MUT h AS Integer = __canvas_hashStart(4)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, a.position.x), a.position.y), a.radius)
       h = __canvas_hashFloat(__canvas_hashFloat(h, a.startAngle), a.endAngle)
       RETURN __canvas_hashPaint(h, a.paint, a.transform)
     CASE Polygon(p)
-      MUT h AS Integer = __canvas_hashStart(6)
+      MUT h AS Integer = __canvas_hashStart(5)
       h = __canvas_hashStep(h, len(p.contours))
       FOR EACH ring IN p.contours
         h = __canvas_hashStep(h, len(ring))
@@ -1840,34 +1878,34 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       ' changes and its geometry is rebuilt as the empty header it now is. A `setBytes`
       ' does NOT change this key -- the pixel block is re-read on every frame instead
       ' (`canvas::sceneResolve`, `__canvas_pictureIsCurrent`).
-      MUT h AS Integer = __canvas_hashStart(7)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, pic.x), pic.y), pic.w), pic.h)
+      MUT h AS Integer = __canvas_hashStart(6)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, pic.position.x), pic.position.y), pic.size.width), pic.size.height)
       h = __canvas_hashStep(h, canvas::imageHandle(pic.image))
       RETURN __canvas_hashPaint(h, pic.paint, pic.transform)
     CASE Text(t)
       ' The font id is a resource HANDLE -- an address -- and must be folded in as the
       ' integer it is, never through `__canvas_hashFloat`, whose `value * 65536.0`
       ' overflows `toInt` for a 48-bit address. `__canvas_hashStep` reduces it first.
-      MUT h AS Integer = __canvas_hashStart(8)
+      MUT h AS Integer = __canvas_hashStart(7)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.position.x), t.position.y), t.fontSize)
       h = __canvas_hashStep(h, canvas::fontHandle(t.font))
       h = __canvas_hashText(h, t.text)
       h = __canvas_hashText(h, t.id)
       RETURN __canvas_hashPaint(h, t.paint, t.transform)
     CASE Ellipse(e)
-      MUT h AS Integer = __canvas_hashStart(9)
+      MUT h AS Integer = __canvas_hashStart(8)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, e.position.x), e.position.y), e.radiusX), e.radiusY)
       RETURN __canvas_hashPaint(h, e.paint, e.transform)
     ' plan-116-G: a group node is its name and its offset. Two nodes naming different
     ' groups at the same offset must not collide, and neither must one group at two.
     CASE Group(g)
-      MUT h AS Integer = __canvas_hashStart(10)
+      MUT h AS Integer = __canvas_hashStart(9)
       h = __canvas_hashFloat(__canvas_hashFloat(h, g.dx), g.dy)
       RETURN __canvas_hashText(h, g.name)
     ' plan-154-A. Hashed natively (`func_item_hash.rs`), so this arm is what keeps the
     ' MATCH exhaustive; it folds the same fields in case that ever changes.
     CASE PolyLine(pl)
-      MUT h AS Integer = __canvas_hashStart(11)
+      MUT h AS Integer = __canvas_hashStart(10)
       h = __canvas_hashStep(h, len(pl.points))
       FOR EACH q IN pl.points
         h = __canvas_hashPoint(h, q)
@@ -1928,17 +1966,26 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
   MUT header AS List OF Float = []
   MATCH item
     CASE Rectangle(r)
-      header = __canvas_rectHeader(r.x, r.y, r.w, r.h, 0.0, r.paint, r.transform)
-      LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
-      LET dashes AS List OF Float = __canvas_rectDashes(header, r.paint)
-      tail = __canvas_appendGradientTail(collections::append(joins, dashes), r.paint)
-      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
-    CASE RoundedRect(rr)
-      header = __canvas_rectHeader(rr.x, rr.y, rr.w, rr.h, rr.cornerRadius, rr.paint, rr.transform)
-      LET joins AS List OF Float = __canvas_rectJoins(header, rr.paint)
-      LET dashes AS List OF Float = __canvas_rectDashes(header, rr.paint)
-      tail = __canvas_appendGradientTail(collections::append(joins, dashes), rr.paint)
-      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint)), dashes, rr.paint)
+      LET radius AS Float = __canvas_rectRadius(r)
+      IF radius >= 0.0 THEN
+        header = __canvas_rectItem(r, radius)
+        LET joins AS List OF Float = __canvas_rectJoins(header, r.paint)
+        LET dashes AS List OF Float = __canvas_rectDashes(header, r.paint)
+        tail = __canvas_appendGradientTail(collections::append(joins, dashes), r.paint)
+        header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
+      ELSE
+        ' plan-172-E: corners that are not one circular radius. The outline is a polygon
+        ' ring, so the rest is the polygon's own arm: edges, joins, dashes, stops.
+        LET ring AS List OF List OF vector::Float2 = __canvas_rectRing(r)
+        LET edges AS List OF Float = __canvas_polygonEdges(ring)
+        LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(ring), TRUE, __canvas_strokeHalf(r.paint), r.paint)
+        header = __canvas_polygonHeader(ring, FillRule.EvenOdd, r.paint, __canvas_placement(r.position, r.transform), __canvas_buildX(r.position, r.transform), __canvas_buildY(r.position, r.transform))
+        LET dashes AS List OF Float = __canvas_edgeDashes(header, r.paint, __canvas_strokeHalf(r.paint), edges, __canvas_ringStarts(ring), TRUE)
+        IF len(edges) > 0 THEN
+          tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), r.paint)
+        END IF
+        header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(r.paint), r.paint)), dashes, r.paint)
+      END IF
     CASE Circle(c)
       header = __canvas_circleItem(c)
       LET dashes AS List OF Float = __canvas_roundDashes(header, c.paint)
@@ -1952,7 +1999,7 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
     CASE Polygon(p)
       LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
       LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
-      header = __canvas_polygonHeader(p.contours, p.rule, p.paint, p.transform)
+      header = __canvas_polygonHeader(p.contours, p.rule, p.paint, p.transform, 0.0, 0.0)
       LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(p.contours), TRUE)
       IF len(edges) > 0 THEN
         tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), p.paint)

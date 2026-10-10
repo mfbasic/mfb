@@ -1,6 +1,6 @@
 //! The per-pixel distance functions the one rasterisation loop switches on.
 //!
-//! Every primitive is a signed distance field. Rectangle, RoundedRect, Circle, Line,
+//! Every primitive is a signed distance field. Rectangle (square or rounded), Circle, Line,
 //! Arc and Polygon differ only in the function evaluated per pixel and in the radius
 //! subtracted from it — which is what turns a rectangle into a rounded one and a
 //! segment into a stroked line, rather than being six code paths.

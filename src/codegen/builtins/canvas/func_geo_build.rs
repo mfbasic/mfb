@@ -9,7 +9,7 @@
 //! Every one of those costs is per call and per record, not arithmetic.
 //!
 //! `geoBuild` answers the 51-float header followed by its tail for a `Rectangle`,
-//! `RoundedRect`, `Circle`, `Line`, `Polygon` or `PolyLine` whose paint has the all-zero
+//! `Circle`, `Line`, `Polygon` or `PolyLine` whose paint has the all-zero
 //! (identity) transform and fewer than two gradient stops — what an ordinary animated
 //! item is. For
 //! anything else it answers an EMPTY list and `__canvas_geometryFor` runs the MFBASIC
@@ -485,8 +485,8 @@ fn clip_point(
     (fadd(builder, &x, &ox), fadd(builder, &y, &oy))
 }
 
-/// Fill the build-offset slots for an item of `kind` at `rec`: a circle's is its
-/// `position` (the native builder only takes an item whose transform is all-zero, so
+/// Fill the build-offset slots for an item of `kind` at `rec`: a circle's and a
+/// rectangle's is its `position` (the native builder only takes an item whose transform is all-zero, so
 /// it is always built at its position); every kind not positioned yet has none.
 fn emit_build_offset(
     builder: &mut CodeBuilder,
@@ -495,11 +495,19 @@ fn emit_build_offset(
     record: &ParameterType,
     offset: (usize, usize),
 ) -> Result<(), String> {
-    if kind == Kind::Circle {
+    if kind == Kind::Circle || kind == Kind::Rect {
         let position = builder.temporary_vreg();
         let position_type = emit_field_block(builder, &position, rec, record, "position")?;
-        let x = fload(builder, &position, scalar_offset(builder, &position_type, "x")?);
-        let y = fload(builder, &position, scalar_offset(builder, &position_type, "y")?);
+        let x = fload(
+            builder,
+            &position,
+            scalar_offset(builder, &position_type, "x")?,
+        );
+        let y = fload(
+            builder,
+            &position,
+            scalar_offset(builder, &position_type, "y")?,
+        );
         builder.emit(abi::store_double(&x, abi::stack_pointer(), offset.0));
         builder.emit(abi::store_double(&y, abi::stack_pointer(), offset.1));
     } else {
@@ -1569,20 +1577,9 @@ fn emit_rect_joined(
     rec: &VirtualRegister,
     record: &ParameterType,
     view: &PaintView,
-    rounded: bool,
     none: &str,
 ) -> Result<(), String> {
-    let w = fload(builder, rec, scalar_offset(builder, record, "w")?);
-    let h = fload(builder, rec, scalar_offset(builder, record, "h")?);
-    let corner = if rounded {
-        fload(
-            builder,
-            rec,
-            scalar_offset(builder, record, "cornerRadius")?,
-        )
-    } else {
-        fconst(builder, 0.0)
-    };
+    let RectInputs { w, h, corner, .. } = emit_rect_inputs(builder, rec, record, None)?;
     branch_if_not_positive(builder, &w, none);
     branch_if_not_positive(builder, &h, none);
     let two = fconst(builder, 2.0);
@@ -1607,27 +1604,16 @@ fn emit_rect_dash_size(
     rec: &VirtualRegister,
     record: &ParameterType,
     view: &PaintView,
-    rounded: bool,
     solid: &str,
     n: &VirtualRegister,
 ) -> Result<(), String> {
-    let w = fload(builder, rec, scalar_offset(builder, record, "w")?);
-    let h = fload(builder, rec, scalar_offset(builder, record, "h")?);
+    let RectInputs { w, h, corner, .. } = emit_rect_inputs(builder, rec, record, None)?;
     branch_if_not_positive(builder, &w, solid);
     branch_if_not_positive(builder, &h, solid);
     let half = emit_stroke_half(builder, view)?;
     let pattern = emit_dash_pattern(builder, view, &half, solid)?;
     let data = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&data, "Integer", "0"));
-    let corner = if rounded {
-        fload(
-            builder,
-            rec,
-            scalar_offset(builder, record, "cornerRadius")?,
-        )
-    } else {
-        fconst(builder, 0.0)
-    };
     let two = fconst(builder, 2.0);
     let zero = fconst(builder, 0.0);
     let wh = fmin(builder, &w, &h);
@@ -1982,7 +1968,6 @@ fn emit_record_end(builder: &mut CodeBuilder, out: &VirtualRegister) -> VirtualR
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Rect,
-    Rounded,
     Circle,
     Line,
     Polygon,
@@ -1990,9 +1975,8 @@ enum Kind {
 }
 
 impl Kind {
-    const ALL: [Kind; 6] = [
+    const ALL: [Kind; 5] = [
         Kind::Rect,
-        Kind::Rounded,
         Kind::Circle,
         Kind::Line,
         Kind::Polygon,
@@ -2002,7 +1986,6 @@ impl Kind {
     fn variant(self) -> &'static str {
         match self {
             Kind::Rect => "Rectangle",
-            Kind::Rounded => "RoundedRect",
             Kind::Circle => "Circle",
             Kind::Line => "Line",
             Kind::Polygon => "Polygon",
@@ -2017,30 +2000,17 @@ fn put_empty(builder: &mut CodeBuilder, out: &VirtualRegister) {
     put_const(builder, out, 1, GEO_HEADER as f64);
 }
 
-/// `__canvas_rectHeader` (a `Rectangle` passes `cornerRadius = 0.0`).
+/// `__canvas_rectHeader` (four square corners pass `cornerRadius = 0.0`).
 fn fill_rect(
     builder: &mut CodeBuilder,
     out: &VirtualRegister,
     rec: &VirtualRegister,
     record: &ParameterType,
     view: &PaintView,
-    rounded: bool,
     done: &str,
 ) -> Result<(), String> {
     let empty = builder.label("canvas_geo_rect_empty");
-    let x = fload(builder, rec, scalar_offset(builder, record, "x")?);
-    let y = fload(builder, rec, scalar_offset(builder, record, "y")?);
-    let w = fload(builder, rec, scalar_offset(builder, record, "w")?);
-    let h = fload(builder, rec, scalar_offset(builder, record, "h")?);
-    let corner = if rounded {
-        fload(
-            builder,
-            rec,
-            scalar_offset(builder, record, "cornerRadius")?,
-        )
-    } else {
-        fconst(builder, 0.0)
-    };
+    let RectInputs { x, y, w, h, corner } = emit_rect_inputs(builder, rec, record, None)?;
     branch_if_not_positive(builder, &w, &empty);
     branch_if_not_positive(builder, &h, &empty);
     let two = fconst(builder, 2.0);
@@ -2137,6 +2107,100 @@ fn fill_rect(
     Ok(())
 }
 
+/// A rectangle's geometry inputs: its top-left corner, its extent and its corner
+/// radius, as `__canvas_rectItem` hands them to `__canvas_rectHeader`.
+struct RectInputs {
+    x: VirtualRegister,
+    y: VirtualRegister,
+    w: VirtualRegister,
+    h: VirtualRegister,
+    corner: VirtualRegister,
+}
+
+/// plan-172-E: read a `Rectangle`'s inputs.
+///
+/// The top-left corner is `position` plus where `bind` puts that corner
+/// (`__canvas_bindOffset`): `0.0` for `TopLeft`, `0.0 - extent / 2.0` for `Center`. The
+/// add happens for both, as it does in MFBASIC, so a `-0.0` coordinate comes out the
+/// same.
+///
+/// This builder draws only the exact record, and only the cases whose radius needs
+/// no resolving: **four equal radii that are either all `<= 0.0` or all `> 1.0`**. The
+/// value is passed on as it is and the caller clamps it to half the shorter side —
+/// the arithmetic `RoundedRect.cornerRadius` always had. Anything else (unequal
+/// radii, or a fraction of the half-size) branches to `decline`, and the MFBASIC
+/// builder resolves it. The size pass passes `decline`; the fill pass, which runs only
+/// for an item the size pass took, passes `None`.
+fn emit_rect_inputs(
+    builder: &mut CodeBuilder,
+    rec: &VirtualRegister,
+    record: &ParameterType,
+    decline: Option<&str>,
+) -> Result<RectInputs, String> {
+    let position = builder.temporary_vreg();
+    let position_type = emit_field_block(builder, &position, rec, record, "position")?;
+    let px = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "x")?,
+    );
+    let py = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "y")?,
+    );
+    let size = builder.temporary_vreg();
+    let size_type = emit_field_block(builder, &size, rec, record, "size")?;
+    let w = fload(builder, &size, scalar_offset(builder, &size_type, "width")?);
+    let h = fload(
+        builder,
+        &size,
+        scalar_offset(builder, &size_type, "height")?,
+    );
+
+    let (bind_index, bind_type) = field(builder, record, "bind")?;
+    let center = enum_ordinal(builder, &bind_type, "Center")?;
+    let bind = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&bind, rec, 8 * bind_index));
+    let lx = builder.temporary_fp_vreg();
+    let ly = builder.temporary_fp_vreg();
+    let zero = fconst(builder, 0.0);
+    builder.emit(abi::float_move_d_from_d(&lx, &zero));
+    builder.emit(abi::float_move_d_from_d(&ly, &zero));
+    let top_left = builder.label("canvas_geo_rect_top_left");
+    builder.emit(abi::compare_immediate(&bind, &center.to_string()));
+    builder.emit(abi::branch_ne(&top_left));
+    let two = fconst(builder, 2.0);
+    let half_w = fdiv(builder, &w, &two);
+    let back_x = fsub(builder, &zero, &half_w);
+    builder.emit(abi::float_move_d_from_d(&lx, &back_x));
+    let half_h = fdiv(builder, &h, &two);
+    let back_y = fsub(builder, &zero, &half_h);
+    builder.emit(abi::float_move_d_from_d(&ly, &back_y));
+    builder.emit(abi::label(&top_left));
+    let x = fadd(builder, &px, &lx);
+    let y = fadd(builder, &py, &ly);
+
+    let corner = fload(builder, rec, scalar_offset(builder, record, "radiusTL")?);
+    if let Some(decline) = decline {
+        for other in ["radiusTR", "radiusBL", "radiusBR"] {
+            let v = fload(builder, rec, scalar_offset(builder, record, other)?);
+            builder.emit(abi::float_compare_d(&corner, &v));
+            builder.emit(abi::branch_ne(decline));
+        }
+        // `0 < r <= 1` is a fraction of the half-size: an elliptical corner unless the
+        // rectangle is square. Not this builder's.
+        let exact = builder.label("canvas_geo_rect_radius_exact");
+        branch_if_not_positive(builder, &corner, &exact);
+        let one = fconst(builder, 1.0);
+        builder.emit(abi::float_compare_d(&corner, &one));
+        builder.emit(abi::branch_gt(&exact));
+        builder.emit(abi::branch(decline));
+        builder.emit(abi::label(&exact));
+    }
+    Ok(RectInputs { x, y, w, h, corner })
+}
+
 /// `__canvas_circleHeader`.
 fn fill_circle(
     builder: &mut CodeBuilder,
@@ -2151,8 +2215,16 @@ fn fill_circle(
     // circle is built at it.
     let position = builder.temporary_vreg();
     let position_type = emit_field_block(builder, &position, rec, record, "position")?;
-    let x = fload(builder, &position, scalar_offset(builder, &position_type, "x")?);
-    let y = fload(builder, &position, scalar_offset(builder, &position_type, "y")?);
+    let x = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "x")?,
+    );
+    let y = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "y")?,
+    );
     let radius = fload(builder, rec, scalar_offset(builder, record, "radius")?);
     branch_if_not_positive(builder, &radius, &empty);
     put_const(builder, out, 0, KIND_CIRCLE);
@@ -3030,6 +3102,9 @@ pub(super) fn emit_record_size(
             offset,
         };
         emit_paint_supported(builder, &view, &rec, record, &unsupported)?;
+        if *kind == Kind::Rect {
+            emit_rect_inputs(builder, &rec, record, Some(&unsupported))?;
+        }
         builder.emit(abi::move_immediate(n, "Integer", &GEO_HEADER.to_string()));
         // plan-163-A: five floats per point of every ring of at least 2 points.
         if *kind == Kind::Polygon {
@@ -3125,28 +3200,13 @@ pub(super) fn emit_record_size(
             builder.emit(abi::label(&solid));
         }
         // plan-163-B: a sharp-cornered rectangle's four join records, and its dash tail.
-        if *kind == Kind::Rect || *kind == Kind::Rounded {
+        if *kind == Kind::Rect {
             let no_joins = builder.label("canvas_geo_size_rect_no_joins");
-            emit_rect_joined(
-                builder,
-                &rec,
-                record,
-                &view,
-                *kind == Kind::Rounded,
-                &no_joins,
-            )?;
+            emit_rect_joined(builder, &rec, record, &view, &no_joins)?;
             builder.emit(abi::add_immediate(n, n, 4 * JOIN_FLOATS));
             builder.emit(abi::label(&no_joins));
             let solid = builder.label("canvas_geo_size_rect_solid");
-            emit_rect_dash_size(
-                builder,
-                &rec,
-                record,
-                &view,
-                *kind == Kind::Rounded,
-                &solid,
-                n,
-            )?;
+            emit_rect_dash_size(builder, &rec, record, &view, &solid, n)?;
             builder.emit(abi::label(&solid));
         }
         // plan-163-B: a circle's and a line's dash tails.
@@ -3208,9 +3268,8 @@ pub(super) fn emit_record_size(
         // already left for `sized` when its header is empty.
         let unclipped = builder.label("canvas_geo_size_unclipped");
         match kind {
-            Kind::Rect | Kind::Rounded => {
-                let w = fload(builder, &rec, scalar_offset(builder, record, "w")?);
-                let h = fload(builder, &rec, scalar_offset(builder, record, "h")?);
+            Kind::Rect => {
+                let RectInputs { w, h, .. } = emit_rect_inputs(builder, &rec, record, None)?;
                 branch_if_not_positive(builder, &w, &unclipped);
                 branch_if_not_positive(builder, &h, &unclipped);
             }
@@ -3287,8 +3346,7 @@ pub(super) fn emit_fill_record(
             offset,
         };
         match kind {
-            Kind::Rect => fill_rect(builder, out, &rec, record, &view, false, &done)?,
-            Kind::Rounded => fill_rect(builder, out, &rec, record, &view, true, &done)?,
+            Kind::Rect => fill_rect(builder, out, &rec, record, &view, &done)?,
             Kind::Circle => fill_circle(builder, out, &rec, record, &view, &done)?,
             Kind::Line => fill_line(builder, out, &rec, record, &view, &done)?,
             Kind::Polygon => fill_polygon(builder, out, &rec, record, &view, &done)?,

@@ -73,9 +73,9 @@ FUNC pipeItems(p AS Pipe) AS List OF canvas::DrawItem
   END IF
   LET edge AS color::Color = color::rgba(0, 0, 0, 90)
 
-  LET body AS canvas::DrawItem = canvas::Rectangle[id := "", x := p.x - PIPE_HALF_WIDTH, y := -2.0, w := PIPE_HALF_WIDTH * 2.0, h := PIPE_LENGTH + 2.0, paint := canvas::fillStroke(metal, edge, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET mouth AS canvas::DrawItem = canvas::RoundedRect[id := "", x := p.x - MOUTH_HALF_WIDTH, y := PIPE_LENGTH, w := MOUTH_HALF_WIDTH * 2.0, h := MOUTH_HEIGHT, cornerRadius := 3.0, paint := canvas::fillStroke(metal, edge, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET opening AS canvas::DrawItem = canvas::Rectangle[id := "", x := p.x - PIPE_HALF_WIDTH + 3.0, y := mouthBottom() - 3.0, w := PIPE_HALF_WIDTH * 2.0 - 6.0, h := 3.0, paint := canvas::fill(color::rgb(20, 24, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET body AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := p.x - PIPE_HALF_WIDTH, y := -2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := PIPE_HALF_WIDTH * 2.0, height := PIPE_LENGTH + 2.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fillStroke(metal, edge, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET mouth AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := p.x - MOUTH_HALF_WIDTH, y := PIPE_LENGTH], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := MOUTH_HALF_WIDTH * 2.0, height := MOUTH_HEIGHT], radiusTL := 3.0, radiusTR := 3.0, radiusBL := 3.0, radiusBR := 3.0, paint := canvas::fillStroke(metal, edge, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET opening AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := p.x - PIPE_HALF_WIDTH + 3.0, y := mouthBottom() - 3.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := PIPE_HALF_WIDTH * 2.0 - 6.0, height := 3.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(20, 24, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET handle AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := p.x, y := PIPE_LENGTH * 0.45], radius := 6.0, paint := canvas::fillStroke(valve, edge, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   RETURN [body, mouth, opening, handle]
 END FUNC

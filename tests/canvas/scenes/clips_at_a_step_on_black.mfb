@@ -39,7 +39,7 @@ FUNC main() AS Nothing
     LET top AS Float = toFloat((k / 14) * 60 + 12) + 0.5 + e + eps2
     LET right AS Float = toFloat((k MOD 14) * 60 + 40 + k MOD 5) + 0.5 - e - eps2
     LET bottom AS Float = toFloat((k / 14) * 60 + 40 + k MOD 3) + 0.5 - e - eps
-    LET d AS canvas::DrawItem = canvas::Rectangle[id := "", x := left - 5.0, y := top - 5.0, w := right - left + 10.0, h := bottom - top + 10.0, paint := WITH canvas::fill(c) { clip := [[vector::Float2[x := left, y := top], vector::Float2[x := left + (right - left), y := top], vector::Float2[x := left + (right - left), y := top + (bottom - top)], vector::Float2[x := left, y := top + (bottom - top)]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET d AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := left - 5.0, y := top - 5.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := right - left + 10.0, height := bottom - top + 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(c) { clip := [[vector::Float2[x := 5.0, y := 5.0], vector::Float2[x := 5.0 + (right - left), y := 5.0], vector::Float2[x := 5.0 + (right - left), y := 5.0 + (bottom - top)], vector::Float2[x := 5.0, y := 5.0 + (bottom - top)]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, d)
     k = k + 1
   END WHILE

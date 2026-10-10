@@ -138,7 +138,7 @@ FUNC white(alpha AS Integer) AS color::Color
 END FUNC
 
 FUNC bar(t AS Track, fromX AS Float, toX AS Float, tint AS color::Color) AS canvas::DrawItem
-  RETURN canvas::RoundedRect[id := "", x := fromX, y := t.y - TRACK_THICKNESS / 2.0, w := math::max(toX - fromX, 0.0), h := TRACK_THICKNESS, cornerRadius := TRACK_THICKNESS / 2.0, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := fromX, y := t.y - TRACK_THICKNESS / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := math::max(toX - fromX, 0.0), height := TRACK_THICKNESS], radiusTL := TRACK_THICKNESS / 2.0, radiusTR := TRACK_THICKNESS / 2.0, radiusBL := TRACK_THICKNESS / 2.0, radiusBR := TRACK_THICKNESS / 2.0, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC tick(x AS Float, y AS Float, reach AS Float, tint AS color::Color) AS canvas::DrawItem
@@ -164,7 +164,10 @@ FUNC buttonItems(t AS Track, p AS Playback) AS List OF canvas::DrawItem
   MUT items AS List OF canvas::DrawItem = [canvas::Circle[id := "", position := vector::Float2[x := cx, y := cy], radius := r, paint := canvas::fillStroke(white(30), white(90), 1.2), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   IF p.playing THEN
     LET side AS Float = r * 0.62
-    LET stop AS canvas::DrawItem = canvas::RoundedRect[id := "", x := cx - side / 2.0, y := cy - side / 2.0, w := side, h := side, cornerRadius := side * 0.12, paint := canvas::fill(white(iconAlpha)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    ' At least a pixel: a radius of 1 or less would read as a fraction of the
+    ' half size instead.
+    LET stopRadius AS Float = math::max(side * 0.12, 1.01)
+    LET stop AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := cx - side / 2.0, y := cy - side / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := side, height := side], radiusTL := stopRadius, radiusTR := stopRadius, radiusBL := stopRadius, radiusBR := stopRadius, paint := canvas::fill(white(iconAlpha)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, stop)
   ELSE
     ' Nudged right of centre, where a triangle's own centre of mass sits.

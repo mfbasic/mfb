@@ -48,6 +48,7 @@ travels at the same speed whatever the frame rate, and reports its rates at the 
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT math
@@ -60,7 +61,7 @@ FUNC main() AS Nothing
   WHILE i < 30
     LET s AS canvas::FrameStats = canvas::getFrameStats()
     x = x + 120.0 * math::min(s.dt, 0.05)
-    LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := x, y := 40.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(240, 160, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET box AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := x, y := 40.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(240, 160, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::present([box])
     os::sleep(10)
     i = i + 1

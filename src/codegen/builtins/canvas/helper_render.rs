@@ -1208,7 +1208,10 @@ FUNC __canvas_renderFrame() AS Nothing
   ' Not drawn until a backend says so: the skip below returns with these unchanged.
   __CANVAS_LAST_DREW = FALSE
   __CANVAS_LAST_RENDERER = 0
-  LET size AS Size = __canvas_surfaceSize()
+  ' plan-172-E: `canvas::Size` holds Floats, for a shape's extent. The surface is whole
+  ' pixels and every consumer below wants them as Integers, so they are read directly.
+  LET surfaceW AS Integer = canvas::surfaceWidth()
+  LET surfaceH AS Integer = canvas::surfaceHeight()
   __canvas_phaseMark(0)
   ' The geometry is built once, here, and the offsets are then handed to whichever
   ' backend draws them. It has to happen before the damage diff rather than inside the
@@ -1250,7 +1253,7 @@ FUNC __canvas_renderFrame() AS Nothing
   ' scene would silently never take the partial path. For a group-free scene this list
   ' is `installedHashes()` passed through unchanged.
   LET hashes AS List OF Integer = __CANVAS_DRAW_HASHES
-  LET damage AS List OF Integer = __canvas_damageFor(hashes, offsets, size.width, size.height)
+  LET damage AS List OF Integer = __canvas_damageFor(hashes, offsets, surfaceW, surfaceH)
   __CANVAS_DAMAGE = damage
   __canvas_phaseMark(3)
   IF len(damage) = 0 THEN
@@ -1267,7 +1270,7 @@ macro_rules! render_loop_tail {
         r#"    RETURN
   END IF
   __CANVAS_FRAMES = __CANVAS_FRAMES + 1
-  IF NOT __canvas_damageIsFull(damage, size.width, size.height) THEN
+  IF NOT __canvas_damageIsFull(damage, surfaceW, surfaceH) THEN
     __CANVAS_PARTIAL = __CANVAS_PARTIAL + 1
   END IF
   __canvas_rememberScene(hashes, offsets)
@@ -1282,7 +1285,7 @@ macro_rules! render_loop_tail {
   ' plan-155-B: the renderer ordinals are `canvas::Renderer`'s -- 0 Software, 1 Metal,
   ' 2 Vulkan. A GPU arm that declines leaves them for the next arm to set.
   IF canvas::useGpu() AND canvas::metalReady() THEN
-    IF __canvas_renderMetal(offsets, size.width, size.height) THEN
+    IF __canvas_renderMetal(offsets, surfaceW, surfaceH) THEN
       __CANVAS_LAST_DREW = TRUE
       __CANVAS_LAST_RENDERER = 1
       __canvas_phaseMark(4)
@@ -1290,14 +1293,14 @@ macro_rules! render_loop_tail {
     END IF
   END IF
   IF canvas::useGpu() AND canvas::vulkanReady() THEN
-    IF __canvas_renderVulkan(offsets, size.width, size.height) THEN
+    IF __canvas_renderVulkan(offsets, surfaceW, surfaceH) THEN
       __CANVAS_LAST_DREW = TRUE
       __CANVAS_LAST_RENDERER = 2
       __canvas_phaseMark(4)
       RETURN
     END IF
   END IF
-  __canvas_renderScene(offsets, damage, size.width, size.height)
+  __canvas_renderScene(offsets, damage, surfaceW, surfaceH)
   __CANVAS_LAST_DREW = TRUE
   __CANVAS_LAST_RENDERER = 0
   __canvas_phaseMark(4)
