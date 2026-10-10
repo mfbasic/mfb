@@ -693,14 +693,14 @@ impl CodeBuilder<'_> {
         ) {
             let owned = self.temporary_vreg();
             let result_is_fresh = self.label("reduce_result_fresh");
-            self.emit(abi::load_u64(&owned, abi::stack_pointer(), acc_owned_slot));
-            self.emit(abi::compare_immediate(&owned, "0"));
+            self.emit(abi::load_u64(owned, abi::stack_pointer(), acc_owned_slot));
+            self.emit(abi::compare_immediate(owned, "0"));
             self.emit(abi::branch_ne(&result_is_fresh));
             let seed = self.temporary_vreg();
-            self.emit(abi::load_u64(&seed, abi::stack_pointer(), accumulator_slot));
-            let copied = self.copy_flat_block(&initial.type_, &seed)?;
+            self.emit(abi::load_u64(seed, abi::stack_pointer(), accumulator_slot));
+            let copied = self.copy_flat_block(&initial.type_, seed)?;
             self.emit(abi::store_u64(
-                &copied,
+                copied,
                 abi::stack_pointer(),
                 accumulator_slot,
             ));
