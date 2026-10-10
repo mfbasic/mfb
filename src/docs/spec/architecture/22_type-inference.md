@@ -125,8 +125,22 @@ the same membership lowering wraps by.
   and `collections::append(shapes, squares)` (`squares AS List OF Square`) both
   resolve `T = Shape` with `shapes AS List OF Shape`, so the argument's expected
   type is `Shape` (it is wrapped) or `List OF Shape` (it is converted).
-- Never the reverse: a variable bound to a variant does not accept its union,
-  and a union never satisfies a variant.
+- A variable whose every occurrence so far was `Subsuming`, bound to a variant
+  form, is rebound to a union form a later occurrence brings.
+  `collections::reduce(shapes, Square[1.0], f)` with `f AS FUNC(Shape, Shape) AS
+  Shape` binds `U = Square` from the initial value and then `U = Shape` from the
+  callback, so the initial value's expected type is `Shape`. A variable that has
+  been matched at an `Invariant` position is pinned and never widens.
+- Never the reverse: a variable bound to a variant does not accept its union at
+  an `Invariant` position, and a union never satisfies a variant.
+  `collections::reduce(squares, aShape, f)` with `f AS FUNC(Square, Square) AS
+  Square` is a `TYPE_CALL_ARGUMENT_MISMATCH`.
+
+An `Arg(n)` return (`append` returns its first parameter's type) echoes the
+argument's type, except when that argument was accepted by conversion: then the
+call's type is the parameter's resolved type. `collections::append(squares,
+aShape)` is `T = Shape` and has type `List OF Shape`, which a `List OF Square`
+binding then refuses.
 
 `resolved_parameter_type` lets the ARGUMENTS decide first, as the call's own type
 is decided, and consults the call's expected type only to break a tie or fill an

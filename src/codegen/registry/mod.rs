@@ -605,6 +605,22 @@ impl RegistryFunction {
             }
 
             if let Some(return_type) = substitute(&implementation.return_type, &bindings) {
+                // bug-989: an `Arg(n)` return echoes the caller's n-th argument type.
+                // When that argument is accepted only by conversion to its union
+                // form (`append(squares, aShape)`, `T = Shape`), the call returns
+                // the CONVERTED collection, so its type is the parameter's, not the
+                // argument's — otherwise the call would be typed `List OF Square`
+                // while holding a `Shape`.
+                let return_type = match return_type {
+                    ParameterType::Arg(n) => implementation
+                        .params
+                        .get(n)
+                        .and_then(|param| substitute(&param.ty, &bindings))
+                        .zip(call.args.get(n))
+                        .filter(|(param, arg)| converts_to_union_form(kinds, arg, param))
+                        .map_or(ParameterType::Arg(n), |(param, _)| param),
+                    other => other,
+                };
                 return Some(Selection {
                     implementation,
                     return_type,
@@ -2755,7 +2771,12 @@ fn unify_with_kinds(
 /// thread slot. No conversion exists there, so only the bound type itself matches.
 ///
 /// The reverse never holds: a variable bound to a VARIANT does not accept its union
-/// (a `Shape` is not a `Square`).
+/// (a `Shape` is not a `Square`). The one widening of a binding is for a variable
+/// whose every occurrence so far was `Subsuming` (it is not in `pinned`): a later
+/// occurrence that is a union accepting the bound variant rebinds it to that union,
+/// because every value seen so far can still be converted. That is `reduce(shapes,
+/// Square[1.0], LAMBDA(acc AS Shape, s AS Shape) -> acc)`: `U` is `Square` from the
+/// initial value, then `Shape` from the callback, so the initial value is wrapped.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum VarPosition {
     Subsuming,
@@ -2911,6 +2932,18 @@ fn unify_at(
                     if at.var == VarPosition::Subsuming
                         && converts_to_union_form(at.kinds, concrete, bound) =>
                 {
+                    true
+                }
+                // The other order: every occurrence so far was convertible, and this
+                // one is the union form of what they bound, so the variable IS the
+                // union and the earlier values convert (`reduce`'s variant initial
+                // value). Never the reverse: a union does not become its variant.
+                Some(bound)
+                    if !at.pinned.borrow().contains(name)
+                        && converts_to_union_form(at.kinds, bound, concrete) =>
+                {
+                    bindings.insert(*name, concrete.clone());
+                    at.pin_if_invariant(*name);
                     true
                 }
                 Some(_) => false,
@@ -6293,17 +6326,83 @@ mod tests {
             ),
             Some(draw_items),
         );
-        // One direction only: a variable bound to the VARIANT does not accept the
-        // union.
+        // The other order: `T` is `V` from the list, then the item is the union.
+        // Every occurrence so far was convertible, so `T` is the union, the list is
+        // converted, and the call returns the CONVERTED list's type, not `Arg(0)`'s.
         assert_eq!(
             resolve_call_typed_with_kinds(
                 "collections.append",
-                &[list_of(variant), union],
+                &[list_of(variant.clone()), union.clone()],
                 true,
                 &UnionUOverV,
             ),
-            None,
+            Some(union_list.clone()),
         );
+        assert_eq!(
+            resolved_parameter_type(
+                "collections.append",
+                0,
+                &[list_of(variant.clone()), union.clone()],
+                None,
+                &UnionUOverV,
+            ),
+            Some(union_list.clone()),
+        );
+    }
+
+    #[test]
+    fn reduce_widens_a_variant_initial_value_and_never_narrows_a_union() {
+        let union = ParameterType::named("U");
+        let variant = ParameterType::named("V");
+        let union_list = list_of(union.clone());
+        let fold = |accumulator: &ParameterType, item: &ParameterType| {
+            ParameterType::func(vec![accumulator.clone(), item.clone()], accumulator.clone())
+        };
+        for member in ["collections.reduce", "collections.reduceRight"] {
+            // bug-988: `U` is the variant from the initial value, then the union
+            // from the callback: the accumulator is the union, and the initial
+            // value's expected type is the union, so it is wrapped.
+            let args = [union_list.clone(), variant.clone(), fold(&union, &union)];
+            assert_eq!(
+                resolve_call_typed_with_kinds(member, &args, true, &UnionUOverV),
+                Some(union.clone()),
+                "{member}"
+            );
+            assert_eq!(
+                resolved_parameter_type(member, 1, &args, None, &UnionUOverV),
+                Some(union.clone()),
+                "{member}"
+            );
+            // One direction only: a union initial value with a variant accumulator
+            // is rejected, over a variant list and over a union list.
+            for list in [list_of(variant.clone()), union_list.clone()] {
+                let args = [list, union.clone(), fold(&variant, &variant)];
+                assert_eq!(
+                    resolve_call_typed_with_kinds(member, &args, true, &UnionUOverV),
+                    None,
+                    "{member}"
+                );
+                assert_eq!(
+                    resolve_call_typed_with_kinds(member, &args, false, &UnionUOverV),
+                    None,
+                    "{member}"
+                );
+            }
+            // A callback that RETURNS the variant for a union accumulator is not a
+            // `FUNC(U, T) AS U`: callable types do not convert.
+            let narrowing =
+                ParameterType::func(vec![union.clone(), union.clone()], variant.clone());
+            assert_eq!(
+                resolve_call_typed_with_kinds(
+                    member,
+                    &[union_list.clone(), variant.clone(), narrowing],
+                    true,
+                    &UnionUOverV,
+                ),
+                None,
+                "{member}"
+            );
+        }
     }
 
     #[test]

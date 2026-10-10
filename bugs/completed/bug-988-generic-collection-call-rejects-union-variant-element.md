@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open — fixed (bs18-agent-j) except `reduce`/`reduceRight`, now decided by the owner (see below)
-Regression Test: tests/rt-behavior/collections/union-variant-element-insert-rt, tests/syntax/collections/func_collection_append_union_list_var_invalid, `codegen::registry::tests::a_top_level_variable_bound_to_a_union_accepts_its_variant`
+Status: Fixed (bs18-agent-j), including `reduce`/`reduceRight` (owner decision 2026-10-10)
+Regression Test: tests/rt-behavior/collections/union-variant-element-insert-rt, tests/syntax/collections/func_collection_append_union_list_var_invalid, `codegen::registry::tests::a_top_level_variable_bound_to_a_union_accepts_its_variant`, tests/rt-behavior/collections/union-variant-reduce-rt, `codegen::registry::tests::reduce_widens_a_variant_initial_value_and_never_narrows_a_union`
 
 A generic collections member whose element slot is a bare type variable `T` rejects a value of a
 union's **variant** type when the collection's element type is that union. With
@@ -493,3 +493,58 @@ separately (see its own commit).
   lands with the fix, not in the RED commit: it calls the oracle-taking entry points
   the fix adds. The RED proof is the rt fixture (main: `TYPE_CALL_ARGUMENT_MISMATCH` on
   every call).
+
+## Resolution, part 2 (2026-10-10): `reduce`/`reduceRight`, and one rule with bug-989
+
+Two things in the resolution above are superseded:
+
+- **The list-literal relaxation is gone.** bug-989 (convert) makes a `List` element a
+  convertible position, so `append(shapes, [Square[2.0], Circle[3.0]])` is accepted by
+  the same rule that accepts `append(shapes, squares)`, and the literal is lowered
+  against the union's list. `union_literal_relaxed_arg_types` /
+  `union_literal_call_types` are deleted (bug-989's commit). The fixture's IR is
+  byte-identical before and after.
+- **"A nested `T` never accepts a variant" is now "a `T` at a position lowering
+  cannot convert never does".** `VarPosition::{Subsuming, Invariant}` in
+  `src/codegen/registry/mod.rs`.
+
+`reduce(List OF T, U, FUNC(U, T) AS U)` with a variant initial value binds `U` to the
+variant first and meets the union in the callback, which is an `Invariant` position.
+The unifier now keeps a `pinned` set per overload attempt: a variable is pinned once
+it has been bound or matched at an `Invariant` position. A variable that is NOT
+pinned (every occurrence so far was convertible) and is bound to a variant form is
+rebound to a union form a later occurrence brings; the earlier values then convert.
+So `U = Shape`, rule 3 answers `Shape` for the initial value, and it lowers wrapped.
+
+One direction only. A variable bound to the union never accepts the variant at an
+`Invariant` position, and a pinned variable never widens:
+`reduce(squares, aShape, FUNC(Square, Square) AS Square)` and the same over a `List OF
+Shape` are `TYPE_CALL_ARGUMENT_MISMATCH` (unit test, and the one-way syntax fixture).
+A callback that returns the variant for a union accumulator is rejected too (callable
+types do not convert).
+
+The same rule makes `collections::append(squares, aShape)` type-check as `T = Shape`:
+the list is converted and the call's type is `List OF Shape`. An `Arg(n)` return now
+reports the parameter's resolved type when argument `n` was accepted by conversion;
+echoing the argument's type would have typed that call `List OF Square` while it
+held a `Shape`. Storing it back into `squares` is `TYPE_ASSIGNMENT_MISMATCH` (pinned
+in the one-way fixture).
+
+### Runtime proof
+
+- `tests/rt-behavior/collections/union-variant-reduce-rt`: `reduce` and `reduceRight`
+  over a `List OF Shape` with a `Square` initial value (constructor and call result),
+  named and `LAMBDA` reducers, bound, unannotated and empty-list forms; each result
+  `MATCH`es the right arm with the right payload. Passes at the default level,
+  `MFB_OPT=0` and `MFB_OPT=3`. Before: every call `TYPE_CALL_ARGUMENT_MISMATCH`.
+- `--debug` on that program: 98 allocs / 98 frees / 0 live / `double_free_skips 0`.
+- It needed the separate `reduce` fix on this branch (`4d7d92c37`): on main a bound
+  `reduce` result that is still the initial value is a freed block, whatever the
+  types, and a variant initial value is always a fresh temporary.
+
+## Golden impact (part 2)
+
+- `scripts/artifact-gate.sh <mfb> all`: 0 diffs; `diag-set-diff.sh`: all SAME (run on
+  the combined tree).
+- New goldens: `union-variant-reduce-rt`; two more lines in
+  `types-union-subsumption-one-way-invalid`.
