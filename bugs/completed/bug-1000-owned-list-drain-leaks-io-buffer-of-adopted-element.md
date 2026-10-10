@@ -255,9 +255,22 @@ cannot pass).
 
 ## Golden impact
 
-The ownership verdict changes which drains free and which collections get a block
-free, so `.ncode`/`.ncodesum` move for fixtures that (a) read a `List OF RES` (or
-other resource-reaching collection) through `collections::get`/`getOr` in an
-argument position, (b) `FOR EACH` over one, or (c) bind a call result that reaches
-resources (every adopting push gains the owner test). The fixtures the artifact
-gate reports are listed in the commit message.
+Measured with `scripts/artifact-gate.sh <mfb> all` on this branch and on its base
+commit `821806278` (built in a detached worktree): the base already reports 33
+diffs it inherited (goldens not regenerated in this batch), and this branch
+reports 39. The per-function comparison below is `mfb build -ncode` from the two
+compilers.
+
+One fixture, four goldens, all of which already differ at the base commit (so the
+gate's diff count does not move for them):
+
+- `tests/syntax/app/app-mouse-surface`: `app_mouse_surface.{macos-aarch64,
+  linux-aarch64,linux-x86_64,windows-x86_64}.app.ncodesum`. Against the base
+  commit's output exactly three functions differ, each by +22 instructions:
+  `_mfb_ifn_canvas_5FflatScene`, `_mfb_ifn_canvas_5FsceneDrawsWalk` and
+  `_mfb_ifn_canvas_5FsceneOffsets`. Each binds a call result that reaches a
+  resource (`MUT out = canvas::snapshotItems()`, `LET none = __canvas_noItem()`),
+  and the 22 instructions are the adopting push's owner test.
+
+No other golden moves: no fixture with a native golden reads a `List OF RES`
+through `get`, iterates one, or hands one to a keeping callback.
