@@ -47,6 +47,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] Numbers: 831, 931, 932, 934, 845
 [ ] Text and formats: 1005 (`strings::repeat` on an empty string still loops `times` times), 827, 828, 829, 869, 871, 863, 905, 906, 879, 888
 [ ] I/O and OS: 891, 892, 893, 886
+[ ] Collections/strings capacity (filed on main 2026-10-07): 1005, 1006, 1007, 1008, 1009, 1010, 1011
 
 **P8: App, terminal and canvas**
 [ ] 966 → 965, 964, 969, 970, 971, 968
@@ -75,7 +76,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 ## New bugs filed since the plan
 
 **P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; in progress)
-Round 1: agent I on 982+993, 994, 983; agent J on 990, 989, 988. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
+Round 1: agent I on 982+993 (done in branch), 994, 983; agent J on 990 + 988 (done in branch), 989. Both resumed 2026-10-10 after a usage-limit stop. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
 [ ] 982 + 993: mouse callbacks overwrite callee-saved `x19` (GTK aarch64 / macOS app); same mistake, fix together
 [ ] 994: Win64 functions overwrite `xmm6`/`xmm7` without saving them (silent wrong Float); prove on 206
 [ ] 989 + 990 + 988: union-variant values not union-wrapped (crash / garbage / `MATCH` takes no arm); one agent
