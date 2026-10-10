@@ -157,8 +157,14 @@ buffer, the 112 B record and the 16 B box, each once.
 
 ## Golden impact
 
-Every fixture that drops a resource-union binding whose union has an `fs::File`
-variant, or drains an owning list of such unions, gains the two guarded buffer
-frees in that drop (`.ncode`/`.ncodesum` on every target). Nothing else moves:
-a union with no `File` variant has an empty `io_buffer_tags` and emits what it did.
-The fixtures the artifact gate reports are listed in the commit message.
+Measured with `scripts/artifact-gate.sh <mfb> all` on this branch and on its base
+commit `821806278` (built in a detached worktree): the base already reports 33
+diffs it inherited (goldens not regenerated in this batch), and this branch
+reports 39. The per-function comparison below is `mfb build -ncode` from the two
+compilers.
+
+**No golden moves for this bug.** No fixture with a native golden drops a
+resource-union binding whose union has an `fs::File` variant, or drains an owning
+list of such unions: every function of every already-diffing fixture is identical
+to the base commit's except the ones bug-984 and bug-1000 account for. A union
+with no `File` variant has an empty `io_buffer_tags` and emits what it did.
