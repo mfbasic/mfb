@@ -1,0 +1,87 @@
+{
+  "project": "vector_native_inline_call_arg_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 20 },
+    { "module": "io", "line": 21 },
+    { "module": "vector", "line": 22 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 24,
+      "params": [
+      { "name": "p", "type": "vector.Float2", "default": null, "line": 24 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "(" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "x" }] } }, "right": { "kind": "string", "value": ", " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "y" }] } }, "right": { "kind": "string", "value": ")" } }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "appended",
+      "line": 29,
+      "params": [
+      { "name": "ring", "type": "List OF vector.Float2", "default": null, "line": 29 },
+      { "name": "x", "type": "Float", "default": null, "line": 29 }
+      ],
+      "returnType": "List OF vector.Float2",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "ring" }, { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "identifier", "value": "x" } }, { "kind": "named", "name": "y", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "2.0" } } }] }] }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "prepended",
+      "line": 33,
+      "params": [
+      { "name": "ring", "type": "List OF vector.Float2", "default": null, "line": 33 },
+      { "name": "x", "type": "Float", "default": null, "line": 33 }
+      ],
+      "returnType": "List OF vector.Float2",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "ring" }, { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "identifier", "value": "x" } }, { "kind": "named", "name": "y", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "identifier", "value": "x" } } }] }] }, "line": 34 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 37,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "none", "type": "List OF vector.Float2", "value": { "kind": "list", "values": [] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "zero", "type": "vector.Float2", "value": { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "0.0" } }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "one", "type": "List OF vector.Float2", "value": { "kind": "call", "callee": "appended", "arguments": [{ "kind": "identifier", "value": "none" }, { "kind": "number", "value": "1.5" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "return append   len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "one" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "one" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "zero" }] }] } }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "two", "type": "List OF vector.Float2", "value": { "kind": "call", "callee": "prepended", "arguments": [{ "kind": "identifier", "value": "one" }, { "kind": "number", "value": "4.0" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "return prepend  len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "two" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "two" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "zero" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "two" }, { "kind": "number", "value": "1" }, { "kind": "identifier", "value": "zero" }] }] } }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "three", "type": "List OF vector.Float2", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "two" }, { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "7.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "8.0" } }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bound append    len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "three" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "three" }, { "kind": "number", "value": "2" }, { "kind": "identifier", "value": "zero" }] }] } }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "source kept     len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "two" }] }] } }] }, "line": 50 },
+      { "kind": "binding", "mutable": false, "name": "swapped", "type": "List OF vector.Float2", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "three" }, { "kind": "number", "value": "1" }, { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "0.25" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "0.5" } }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bound set       " }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "swapped" }, { "kind": "number", "value": "1" }, { "kind": "identifier", "value": "zero" }] }] } }, "right": { "kind": "string", "value": " was " } }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "three" }, { "kind": "number", "value": "1" }, { "kind": "identifier", "value": "zero" }] }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "getOr default   " }, "right": { "kind": "call", "callee": "show", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "three" }, { "kind": "number", "value": "99" }, { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "3.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "4.0" } }] }] }] } }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "deep", "type": "List OF vector.Float3", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "list", "values": [{ "kind": "constructor", "type": "vector.Float3", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "1.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "2.0" } }, { "kind": "named", "name": "z", "value": { "kind": "number", "value": "3.0" } }] }] }, { "kind": "constructor", "type": "vector.Float3", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "4.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "5.0" } }, { "kind": "named", "name": "z", "value": { "kind": "number", "value": "6.0" } }] }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "vector.Float3", "value": { "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "deep" }, { "kind": "number", "value": "1" }, { "kind": "constructor", "type": "vector.Float3", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "z", "value": { "kind": "number", "value": "0.0" } }] }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "float3 append   len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "deep" }] }] } }, "right": { "kind": "string", "value": " (" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "x" }] } }, "right": { "kind": "string", "value": ", " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "y" }] } }, "right": { "kind": "string", "value": ", " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "z" }] } }, "right": { "kind": "string", "value": ")" } }] }, "line": 62 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 63 }
+      ]
+    }
+    ]
+  }
+  ]
+}

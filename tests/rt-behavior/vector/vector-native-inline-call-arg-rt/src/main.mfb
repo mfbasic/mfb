@@ -1,0 +1,64 @@
+' A vector built in place as an argument of an inline collection builtin.
+'
+' A `vector::Float2` constructor is carried in registers -- one per lane -- until
+' something needs it as a record. An inline builtin with two or more arguments spills
+' each argument to a frame slot before it lowers the next, and a slot is one word: the
+' lanes have to become a record block first. They were not, and the compiler itself
+' stopped (found while writing plan-172-E):
+'
+'     `%%vecnative:0` is not a register operand
+'
+' That is not a diagnostic. No program text was wrong; `mfb build` panicked.
+'
+' The shape that reached it is a call whose result is not assigned back to the list
+' it was given: a `RETURN` of it, a fresh binding of it, an argument made of it. The
+' self-update `xs = collections::append(xs, v)` takes a different path and always
+' worked, which is why nothing had hit this -- it is the form every loop uses.
+'
+' Each line prints the VALUES that came back, not merely that the build finished: a
+' block built from the wrong lanes would build just as happily.
+IMPORT collections
+IMPORT io
+IMPORT vector
+
+FUNC show(p AS vector::Float2) AS String
+  RETURN "(" & toString(p.x) & ", " & toString(p.y) & ")"
+END FUNC
+
+' RETURN of the call: the shape that was found.
+FUNC appended(ring AS List OF vector::Float2, x AS Float) AS List OF vector::Float2
+  RETURN collections::append(ring, vector::Float2[x := x, y := x * 2.0])
+END FUNC
+
+FUNC prepended(ring AS List OF vector::Float2, x AS Float) AS List OF vector::Float2
+  RETURN collections::prepend(ring, vector::Float2[x := x, y := 0.0 - x])
+END FUNC
+
+FUNC main() AS Integer
+  LET none AS List OF vector::Float2 = []
+  LET zero AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
+
+  LET one AS List OF vector::Float2 = appended(none, 1.5)
+  io::print("return append   len=" & toString(len(one)) & " " & show(collections::getOr(one, 0, zero)))
+
+  LET two AS List OF vector::Float2 = prepended(one, 4.0)
+  io::print("return prepend  len=" & toString(len(two)) & " " & show(collections::getOr(two, 0, zero)) & " " & show(collections::getOr(two, 1, zero)))
+
+  ' A fresh binding of the call, not a self-update.
+  LET three AS List OF vector::Float2 = collections::append(two, vector::Float2[x := 7.0, y := 8.0])
+  io::print("bound append    len=" & toString(len(three)) & " " & show(collections::getOr(three, 2, zero)))
+  io::print("source kept     len=" & toString(len(two)))
+
+  ' Three arguments, the vector last.
+  LET swapped AS List OF vector::Float2 = collections::set(three, 1, vector::Float2[x := 0.25, y := 0.5])
+  io::print("bound set       " & show(collections::getOr(swapped, 1, zero)) & " was " & show(collections::getOr(three, 1, zero)))
+
+  ' A default that is built in place, read back because the index is past the end.
+  io::print("getOr default   " & show(collections::getOr(three, 99, vector::Float2[x := 3.0, y := 4.0])))
+
+  ' The 3- and 4-lane records take the same path.
+  LET deep AS List OF vector::Float3 = collections::append([vector::Float3[x := 1.0, y := 2.0, z := 3.0]], vector::Float3[x := 4.0, y := 5.0, z := 6.0])
+  LET d AS vector::Float3 = collections::getOr(deep, 1, vector::Float3[x := 0.0, y := 0.0, z := 0.0])
+  io::print("float3 append   len=" & toString(len(deep)) & " (" & toString(d.x) & ", " & toString(d.y) & ", " & toString(d.z) & ")")
+  RETURN 0
+END FUNC
