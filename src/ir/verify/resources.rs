@@ -1423,10 +1423,15 @@ impl TypeEnv {
         {
             return false;
         }
-        if self.is_resource_base(type_)
-            || self.unions.contains_key(type_)
-            || self.enums.contains_key(type_)
-        {
+        // plan-172-N: an `ENUM` defaults to its FIRST declared variant. Its run-time
+        // value is its ordinal, so the default is ordinal 0 — which codegen
+        // (`lower_default_value_inner`'s enum arm) already materializes for the
+        // temporary an inline `TRAP` binds. Ahead of the union/resource rejection
+        // because an enum is neither.
+        if self.enums.contains_key(type_) {
+            return true;
+        }
+        if self.is_resource_base(type_) || self.unions.contains_key(type_) {
             return false;
         }
         if !seen.insert(type_.clone()) {

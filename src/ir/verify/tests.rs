@@ -6775,6 +6775,70 @@ fn rejects_mut_set_of_resource_ownership_and_comparable() {
     );
 }
 
+// plan-172-N: an `ENUM` defaults to its first variant, so it is defaultable, and
+// so is a record whose only obstacle was an enum field.
+#[test]
+fn mut_enum_is_defaultable() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("m", "Mode", None, true, true)],
+    );
+    accept(&project(
+        vec![f],
+        vec![enum_type("Mode", &["Fast", "Off", "Slow"])],
+    ));
+}
+
+#[test]
+fn mut_record_with_an_enum_field_is_defaultable() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("o", "Outer", None, true, true)],
+    );
+    accept(&project(
+        vec![f],
+        vec![
+            enum_type("Mode", &["Fast", "Off"]),
+            record_typed("Inner", &[("mode", "Mode"), ("weight", "Float")]),
+            record_typed(
+                "Outer",
+                &[("name", "String"), ("mode", "Mode"), ("inner", "Inner")],
+            ),
+        ],
+    ));
+}
+
+// The control for the two above: the enum arm must not have widened the rule for
+// its neighbours. A union still has no default, bare or as a record's field —
+// including in a record that ALSO holds an enum, where a predicate that returned
+// early on the first defaultable field would wrongly accept.
+#[test]
+fn rejects_mut_record_with_a_union_field_beside_an_enum_field() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("h", "Holder", None, true, true)],
+    );
+    expect_rule(
+        &project(
+            vec![f],
+            vec![
+                enum_type("Mode", &["Fast", "Off"]),
+                record("Circle", &["r"]),
+                record("Square", &["s"]),
+                union("Shape", &["Circle", "Square"]),
+                record_typed("Holder", &[("mode", "Mode"), ("shape", "Shape")]),
+            ],
+        ),
+        "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+    );
+}
+
 #[test]
 fn rejects_mut_func_not_defaultable() {
     let f = func_returns(
@@ -6789,18 +6853,19 @@ fn rejects_mut_func_not_defaultable() {
     );
 }
 
+// Was `rejects_mut_enum_not_defaultable` (b20ab6b56, plan-12 wave 2: one case per
+// `is_defaultable` branch as the predicate then stood). plan-172-N reverses that
+// branch — an enum defaults to its first variant — so the same program is now
+// accepted. A one-variant enum, where "first" is the only choice.
 #[test]
-fn rejects_mut_enum_not_defaultable() {
+fn mut_single_variant_enum_is_defaultable() {
     let f = func_returns(
         "run",
         "Nothing",
         vec![],
         vec![bind("c", "Color", None, true, true)],
     );
-    expect_rule(
-        &project(vec![f], vec![enum_type("Color", &["Red"])]),
-        "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
-    );
+    accept(&project(vec![f], vec![enum_type("Color", &["Red"])]));
 }
 
 #[test]

@@ -1,0 +1,192 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "enum_default_first_variant_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 18,
+    "visibility": "public",
+    "name": "Mode",
+    "members": [
+    { "name": "Fast" },
+    { "name": "Off" },
+    { "name": "Slow" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "public",
+    "name": "Single",
+    "members": [
+    { "name": "Only" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 26,
+    "visibility": "public",
+    "name": "Inner",
+    "fields": [
+    { "visibility": null, "line": 27, "name": "mode", "type": "Mode" },
+    { "visibility": null, "line": 28, "name": "weight", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 31,
+    "visibility": "public",
+    "name": "Outer",
+    "fields": [
+    { "visibility": null, "line": 32, "name": "name", "type": "String" },
+    { "visibility": null, "line": 33, "name": "mode", "type": "Mode" },
+    { "visibility": null, "line": 34, "name": "inner", "type": "Inner" },
+    { "visibility": null, "line": 35, "name": "marks", "type": "List OF Mode" },
+    { "visibility": null, "line": 36, "name": "on", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "nameOf",
+    "line": 39,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "m", "line": 39, "type": "Mode", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 40, "mutable": false, "name": "$match0", "type": "Mode", "value": { "kind": "local", "name": "m" } },
+    {
+      "op": "match",
+      "line": 40,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 41,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Fast" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 42, "value": { "kind": "const", "type": "String", "value": "Fast" } }
+        ]
+      },
+      {
+        "line": 43,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Off" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 44, "value": { "kind": "const", "type": "String", "value": "Off" } }
+        ]
+      },
+      {
+        "line": 45,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Slow" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 46, "value": { "kind": "const", "type": "String", "value": "Slow" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 50,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 52, "mutable": true, "name": "m", "type": "Mode", "value": null },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "bare        " }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "local", "name": "m" }] } }, "right": { "kind": "const", "type": "String", "value": " first=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "m" }, "right": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Fast" } }] } }, "right": { "kind": "const", "type": "String", "value": " second=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "m" }, "right": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Off" } }] } }] } },
+    { "op": "bind", "line": 56, "mutable": true, "name": "s", "type": "Single", "value": null },
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "single      " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "s" }, "right": { "kind": "memberAccess", "type": "Single", "target": { "kind": "local", "name": "Single" }, "member": "Only" } }] } }] } },
+    { "op": "assign", "line": 60, "name": "m", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Slow" } },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "reassigned  " }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "local", "name": "m" }] } }] } },
+    { "op": "bind", "line": 64, "mutable": true, "name": "o", "type": "Outer", "value": null },
+    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "record      mode=" }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "o" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " inner=" } }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "o" }, "member": "inner" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " name=[" } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "o" }, "member": "name" } }, "right": { "kind": "const", "type": "String", "value": "] marks=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Mode", "target": { "kind": "local", "name": "o" }, "member": "marks" }] }] } }, "right": { "kind": "const", "type": "String", "value": " on=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Boolean", "target": { "kind": "local", "name": "o" }, "member": "on" }] } }, "right": { "kind": "const", "type": "String", "value": " weight=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "o" }, "member": "inner" }, "member": "weight" }] } }] } },
+    { "op": "bind", "line": 70, "mutable": false, "name": "named", "type": "Outer", "value": { "kind": "with", "type": "Outer", "target": { "kind": "local", "name": "o" }, "updates": [{ "field": "name", "value": { "kind": "const", "type": "String", "value": "n" } }, { "field": "on", "value": { "kind": "const", "type": "Boolean", "value": "true" } }] } },
+    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "with other  mode=" }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "named" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " inner=" } }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "named" }, "member": "inner" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " name=[" } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "named" }, "member": "name" } }, "right": { "kind": "const", "type": "String", "value": "] on=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Boolean", "target": { "kind": "local", "name": "named" }, "member": "on" }] } }] } },
+    { "op": "bind", "line": 75, "mutable": false, "name": "slowed", "type": "Outer", "value": { "kind": "with", "type": "Outer", "target": { "kind": "local", "name": "o" }, "updates": [{ "field": "mode", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Slow" } }] } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "with enum   mode=" }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "slowed" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " inner=" } }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "slowed" }, "member": "inner" }, "member": "mode" }] } }] } },
+    { "op": "eval", "line": 79, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "source      mode=" }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "o" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " name=[" } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "o" }, "member": "name" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "bind", "line": 82, "mutable": true, "name": "a", "type": "Inner", "value": null },
+    { "op": "bind", "line": 83, "mutable": true, "name": "b", "type": "Inner", "value": null },
+    { "op": "assign", "line": 84, "name": "a", "value": { "kind": "with", "type": "Inner", "target": { "kind": "local", "name": "a" }, "updates": [{ "field": "mode", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Off" } }, { "field": "weight", "value": { "kind": "const", "type": "Float", "value": "2.5" } }] } },
+    { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "independent a=" }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "a" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " b=" } }, "right": { "kind": "call", "type": "String", "target": "nameOf", "args": [{ "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "b" }, "member": "mode" }] } }, "right": { "kind": "const", "type": "String", "value": " b.weight=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "b" }, "member": "weight" }] } }] } },
+    { "op": "return", "line": 87, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
