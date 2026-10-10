@@ -137,7 +137,11 @@ fn allocator_preserved(target: &str) -> BTreeSet<String> {
             .map(|s| s.to_string())
             .chain((0..=11).map(|i| format!("fs{i}")))
             .collect(),
-        "linux-x86_64" | "windows-x86_64" => vec!["r12".to_string(), "r14".to_string()],
+        "linux-x86_64" => vec!["r12".to_string(), "r14".to_string()],
+        "windows-x86_64" => ["r12".to_string(), "r14".to_string()]
+            .into_iter()
+            .chain((6..=14).map(|i| format!("xmm{i}")))
+            .collect(),
         other => panic!("no allocator table for {other}"),
     };
     names.into_iter().collect()
@@ -158,9 +162,12 @@ fn callee_saved(target: &str) -> BTreeSet<String> {
             .iter()
             .map(|s| s.to_string())
             .collect(),
+        // `xmm15` is left out: it is the encoder's private SSE scratch, written
+        // inside instruction encodings and so invisible in the dump (bug-994).
         "windows-x86_64" => ["rbx", "rbp", "rdi", "rsi", "r12", "r13", "r14", "r15"]
             .iter()
             .map(|s| s.to_string())
+            .chain((6..=14).map(|i| format!("xmm{i}")))
             .collect(),
         other => panic!("no ABI table for {other}"),
     };

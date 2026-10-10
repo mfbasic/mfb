@@ -309,6 +309,16 @@ test that catches it (`rt_native_regex_parser_depth`) sorts *after*
 `rt_native_io_runtime`, so the windows CI row never reached it while an earlier
 binary was red. Use `--no-fail-fast`.
 
+### `FP_SCRATCH[6..7]` / `VEC_SCRATCH[6..7]` are callee-saved `xmm6`/`xmm7` on Win64 (bug-994)
+
+The fixed FP scratch tokens realize to `xmm{n}` on both x86 ABIs, and only Win64 makes
+`xmm6`+ callee-saved. The frame save set used to hold only allocator-chosen registers, so a
+callee that inlined `math::sin`/`pow` or a `Fixed`→`Float` conversion returned with the
+caller's `Float` replaced (`20.00` printed as `-0.09` or `4294967296.00`): no trap, Windows
+only. `linear_scan::fixed_callee_saved_writes` now adds every callee-saved FP register the
+stream writes by fixed name. `xmm15` (the encoder's scratch) is still unsaved: harmless to
+MFB callers, a latent ABI gap toward a foreign caller of FP-running MFB code.
+
 ### Hand-written x86 helpers that name ABI registers directly alias the Win64 argument bank
 
 Allocated code is immune; hand-written emitter code naming `abi::c_arg(n)` / `abi::SCRATCH[n]` is not, and both traps are invisible until the Windows box runs the binary:

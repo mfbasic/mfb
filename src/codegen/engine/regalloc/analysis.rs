@@ -86,6 +86,11 @@ pub(crate) fn is_register_field(name: &str) -> bool {
     DEF_FIELDS.contains(&name) || USE_FIELDS.contains(&name)
 }
 
+/// Whether `name` is a field naming a register the instruction writes.
+pub(crate) fn is_def_field(name: &str) -> bool {
+    DEF_FIELDS.contains(&name)
+}
+
 /// Per-register-class hooks the allocator core queries: which operand strings are
 /// this class's virtual registers, and which are its physical registers. The Int
 /// class matches `%vN` / `x0`–`x30`; the Fp class matches `%fN` / `d0`–`d31`. A
