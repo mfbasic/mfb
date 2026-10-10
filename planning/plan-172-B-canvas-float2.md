@@ -27,8 +27,8 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-A complete and archived | `ls planning/plan-172-A-*` → no matches | NOT MET |
-| Premise P3 has a verdict | `grep -c 'P3.*\(CONFIRMED\|FALSIFIED\)' planning/completed/plan-172-A-*.md` → ≥ 1 | NOT MET |
+| plan-172-A complete and archived | `ls planning/plan-172-A-*` → no matches | MET — `no matches found` |
+| Premise P3 has a verdict | `grep -c 'P3.*\(CONFIRMED\|FALSIFIED\)' planning/completed/plan-172-A-*.md` → ≥ 1 | MET — measured 2 |
 
 If plan-172-A is not complete, this letter cannot start, full stop.
 
@@ -142,25 +142,34 @@ removed, and `Size` and the others stay.
 
 ### Phase 1 — The import
 
-- [ ] Add `vector::augmented_project` (and its test-only `augmented_hir_project`) on the
-      `color` precedent, call them after `color`'s in `src/ir/lower.rs` and at both
-      sites in `src/resolver/mod.rs`, and add the generic-injection skip in
-      `src/codegen/registry/mod.rs`. Unconditional: P3 was FALSIFIED (172-A §4 Results).
-- [ ] Add `pub(crate) const FLOAT2_TYPE_ID: &str = "vector.Float2"` to
-      `src/codegen/builtins/vector/mod.rs`.
-- [ ] Add `"vector"` to `pkg.add_imports` in `src/codegen/builtins/canvas/mod.rs`, and
+- [x] Add `vector::augmented_project` (and its test-only `augmented_hir_project`), and
+      call them last in `src/ir/lower.rs` and at both sites in `src/resolver/mod.rs`.
+      Unconditional: P3 was FALSIFIED (172-A §4 Results). On the `compress` precedent,
+      not `color`'s: **no** generic-injection skip (see Corrections).
+      → `/tmp/plan-172-A/mk.sh target/debug/mfb empty_b1 /tmp/plan-172-A/empty.mfb` →
+        `Wrote executable`; run headless → exit 0.
+- [x] ~~Add `pub(crate) const FLOAT2_TYPE_ID: &str = "vector.Float2"` to
+      `src/codegen/builtins/vector/mod.rs`.~~ — moved to Phase 2, not dropped: the
+      constant's first user is Phase 2's retyping, and landing it here is a
+      `constant FLOAT2_TYPE_ID is never used` warning in this phase's commit
+      (`cargo build --bin mfb` printed exactly that).
+- [x] Add `"vector"` to `pkg.add_imports` in `src/codegen/builtins/canvas/mod.rs`, and
       extend the import-cost comment there with the measured byte cost from P3.
+      → `ls -l` of the empty program's executable: 2,996,236 bytes (2,666,000 before).
 
 Acceptance: a canvas program that names no `vector::` type still builds and runs, and
 its executable grew by the amount P3 recorded (+330,236 bytes on macOS aarch64:
 2,666,000 → 2,996,236 for an empty `present`).
   Check: `cargo test --test rt_canvas_debug_hooks` → pass (est. 3 min).
+  → `test result: ok. 2 passed; 0 failed` (107.78s).
 Commit: —
 
 ### Phase 2 — The type swap and the port
 
 One phase, because the tree does not compile between the two halves.
 
+- [ ] Add `pub(crate) const FLOAT2_TYPE_ID: &str = "vector.Float2"` to
+      `src/codegen/builtins/vector/mod.rs` (moved from Phase 1).
 - [ ] Retype the seven props in `mod.rs` to `ParameterType::named(vector::FLOAT2_TYPE_ID)`
       and delete the `Point` record.
 - [ ] Replace the 44 `Point` mentions in the companion source
@@ -212,6 +221,18 @@ None. P3 decides the only fork, in 172-A.
 
 - **From 172-A, P3 FALSIFIED:** the late injection pass is required, not conditional.
   Phase 1's first task and its acceptance are rewritten above with the measured cost.
+- **No generic-injection skip.** The task said to add one "on the `color` precedent".
+  `.ai/resources-packages.md` ("Wiring a builtin source companion") says not to when
+  direct importers have goldens: the skip moves a directly imported package's source
+  behind the later late passes, reordering functions in every importer's `.ir` and
+  changing every `.ncodesum` with no content change (it measured 6 such diffs for
+  `compress`). `vector` has direct importers with goldens, so it follows `compress`:
+  the generic pass still injects it for a program that imports it, and the late pass
+  adds it only when it is absent (`registry::inject_late_pass` skips a file whose path
+  is present; both passes label it `<builtin-vector>`). The 172-A probe had used the
+  skip; the empty program is the same 2,996,236 bytes either way.
+- **`src/ir/lower.rs`'s chain is `#[cfg(test)]`.** It is wired for the in-process tests;
+  the build path is `resolver::augment_project`.
 - **From 172-A, finding 1:** a program that reads a `vector::Float2`'s fields must
   `IMPORT vector` itself — `e.position.x` without it is `TYPE_UNKNOWN_VALUE`. Phase 2's
   port therefore adds `IMPORT vector` to every file that reads a coordinate pair's

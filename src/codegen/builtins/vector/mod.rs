@@ -105,6 +105,36 @@ const VEC4_TYPES: &[&str] = &["Float4", "Fixed4", "Integer4"];
 // callers whose extra error is specific to one element-type family (e.g. the
 // `Integer` overloads' final `math::round` back to `Integer`, or the `Fixed`/
 // `Integer` overloads' `math::abs` of the most-negative representable value).
+/// Synthetic path/doc labels for the `vector` companion a late pass injects. The label
+/// is the one the generic pass derives (`<builtin-{import_name}>`), so the two passes
+/// name the same file and a program that imports `vector` itself is not injected twice.
+const SOURCE_LABEL: &str = "<builtin-vector>";
+const SOURCE_DOC: &str = "builtins/vector.mfb";
+
+/// Inject `vector`'s source when **another injected built-in** imports it.
+///
+/// `canvas`'s companion carries `IMPORT vector` and its records name `vector::Float2`
+/// (plan-172-B). A canvas program may write only `IMPORT canvas`, and the generic
+/// `registry::augment_project` examines the pre-injection AST, so it never sees that
+/// import: without this pass the companion's own `g.startPoint.x` is
+/// `TYPE_UNKNOWN_VALUE` (plan-172-A, premise P3). Like `compress`'s and unlike
+/// `color`'s, it is not skipped by the generic pass: a program that imports `vector`
+/// itself keeps the source the generic pass injects, in the same position, and this
+/// pass adds nothing (`registry::inject_late_pass` skips a file already present).
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    crate::codegen::registry::inject_late_pass(ast, "vector", SOURCE_LABEL, SOURCE_DOC)
+}
+
+/// The same injection onto the elaborated project the in-process tests consume.
+#[cfg(test)] // the HIR-domain chain serves the in-process tests only (plan-107-D)
+pub(crate) fn augmented_hir_project(
+    hir: &crate::hir::HirProject,
+) -> Result<crate::hir::HirProject, ()> {
+    crate::codegen::registry::inject_late_pass_hir(hir, "vector", SOURCE_LABEL, SOURCE_DOC)
+}
+
 pub(crate) const INTEGER_TYPES: &[&str] = &["Integer2", "Integer3", "Integer4"];
 pub(crate) const FIXED_TYPES: &[&str] = &["Fixed2", "Fixed3", "Fixed4"];
 

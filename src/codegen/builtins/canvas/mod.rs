@@ -252,6 +252,14 @@ pub(crate) fn register(r: &mut Registry) {
         "fs",
         "encoding",
         "bits",
+        // plan-172-B: every coordinate pair is a `vector::Float2`. Injected by
+        // `vector`'s late pass, because a canvas program need not import it. This is
+        // the largest import here by far: `vector` has no gated helpers, so its whole
+        // companion — nine types and every overload — comes with it. Measured on
+        // macOS aarch64 for a program that presents an empty scene: 2,666,000 bytes
+        // without it, 2,996,236 with (+330,236), the same size a program that
+        // imports `vector` itself already was.
+        "vector",
     ]);
 
     // ---- Value types the items are built from -----------------------------

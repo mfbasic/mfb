@@ -202,6 +202,9 @@ pub fn lower_project_with_external_functions(
     // (plan-137-C).
     let augmented = crate::codegen::builtins::compress::augmented_project(&augmented)
         .expect("built-in compress package source must parse");
+    // `vector` after it: canvas's injected companion imports it (plan-172-B).
+    let augmented = crate::codegen::builtins::vector::augmented_project(&augmented)
+        .expect("built-in vector package source must parse");
     let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
