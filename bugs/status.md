@@ -95,8 +95,9 @@ Into existing phases:
 [ ] Flakes: 1003 (http::pump example hangs on a stalled remote), 1004 (cli_dbg threaded-arena test timing)
 [ ] P5: 1002 (TYPE_COLLECTION_OWNERSHIP_VIOLATION reported twice)
 [ ] P5: 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
-[ ] P8: 985 (setMode window has no mouse controllers; after 982), 991, 995, 996, 997
+[ ] P8: 1015 (GTK `pollMouse` sees nothing without a stdin read; owner decided: events come from the window like macOS/Windows) → then 985 (setMode window has no mouse controllers)
+[ ] P8: 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject), 988 reduce (works).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
