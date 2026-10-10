@@ -258,8 +258,6 @@ END FUNC
 
    `N=10`: exit 139. (`N=1` at `-O0` exits 0.)
 
-Because of 1, bug-1000 and bug-999 deliberately do not widen ownership for a
-collection that reaches a resource-union box
-(`record_ownership.rs:block_held_elsewhere_strict`,
-`builder_values.rs:adopt_exclusive_temp`). Once a box has an owner outside a
-binding, both exclusions can go.
+Because of 1, bug-1000 deliberately does not widen ownership for a collection that
+reaches a resource-union box (`record_ownership.rs:block_held_elsewhere_strict`).
+Once a box has an owner outside a binding, that exclusion can go.
