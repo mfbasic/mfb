@@ -1,9 +1,9 @@
 # plan-150-A: Particle systems — types, the analytic model, and expansion
 
-Last updated: 2026-09-22
+Last updated: 2026-10-10
 Overall Effort: x-large (1d–3d)
 Effort: large (3h–1d)
-Depends on: nothing
+Depends on: plan-172 (all of A–M; see Prerequisites)
 
 `canvas::ParticleSystem` becomes the **eleventh `DrawItem` variant**: one scene item
 that expands into N drawn particles, each an instance of an arbitrary template
@@ -54,11 +54,36 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| The `DrawItem` union has exactly ten variants | `cargo test -p mfb draw_item_variant_set_is_frozen` → pass | MET |
-| `canvas::Transform` is a field of `Paint` | `grep -n 'ty: ParameterType::named("Transform")' src/codegen/builtins/canvas/mod.rs` → line 711 | MET |
+| plan-172 (the canvas shape model) is complete and archived, every letter A–M | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | NOT MET |
+| The `DrawItem` union is plan-172's eleven variants, ending `AutoPaint`, `Picture`, `Group` | `cargo test --bin mfb draw_item_variant_set_is_frozen` → pass against that list | NOT MET |
+| Every shape carries its own `transform`, and `Paint` has none | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 8, and `mfb man canvas types` shows no `transform` under `Paint` | NOT MET |
+| `canvas::Shape` exists, for `emitter AS canvas::Shape` | `grep -c 'name: "Shape"' src/codegen/builtins/canvas/mod.rs` → 1 | NOT MET |
 | The canvas suite is green before any edit | `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser` → pass | UNVERIFIED — run first |
 
+If plan-172 is not complete, this plan cannot start, full stop. plan-150-B and plan-150-C
+inherit this gate through their dependency on this letter.
+
 Everything below is written against the world where these hold.
+
+**This document predates plan-172 and must be re-derived against it before Phase 1.**
+The prerequisite is a gate, not a rewrite of this plan, so the statements below are
+known to be stale and are corrected as this plan's first act, each with its command:
+
+- `ParticleSystem` is the **twelfth** `DrawItem` variant, not the eleventh, and it is
+  appended to `DrawItem`'s own members beside `Picture` and `Group`.
+- The per-particle affine goes in the template item's own `transform` and `position`,
+  not in `paint.transform`, which no longer exists (§3, §6, Verified properties).
+- `position AS Point` is `position AS vector::Float2`.
+- The emitter is `canvas::Shape` (§4's listing); the `Emitter` union and the `Emit*`
+  records in §4's prose, §5's spawn table and Phase 2 are superseded by it.
+- A template that is an `AutoPaint` draws its default paint; particles are never
+  hit-tested (`planning/new_canvas.md`, "Particles - plan 150").
+- Re-measure before relying on them: `ITEM_BLOCK_SIZE` (this document says 208;
+  `grep -n 'const ITEM_BLOCK_SIZE' src/codegen/runtime/canvas/mod.rs` → 368 on
+  2026-10-10), the draw-entry width (says 8 words; plan-172-G makes it 16), the highest
+  error code (says 77050024; `grep -rhoE '7705[0-9]{4}' src build.rs | sort -u | tail
+  -1` → 77050027 on 2026-10-10, so 77050025 and 77050026 are taken), `Paint`'s field
+  count, and every `file:line` citation.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
@@ -227,19 +252,14 @@ All registry data in `src/codegen/builtins/canvas/mod.rs`.
 
 ```
 canvas::ParticleSystem                    ' the 11th DrawItem variant — a CONTAINER, no paint
+    position    AS Point                  ' emitter Reference Point
     item        AS canvas::DrawItem       ' the template drawn once per live particle
-    emitter     AS canvas::Emitter
+    emitter     AS canvas::Shape
     emission    AS canvas::Emission
     motion      AS canvas::Motion
     appearance  AS canvas::Appearance
     seed        AS Integer                ' fixes every per-particle random draw
     time        AS Float                  ' the program's clock in seconds; the program advances it
-
-canvas::Emitter                           ' a CLOSED union — where particles are born
-    EmitPoint   [x, y]
-    EmitLine    [x1, y1, x2, y2]
-    EmitRect    [x, y, w, h]
-    EmitCircle  [x, y, radius, innerRadius]   ' innerRadius 0 = filled disc, >0 = ring
 
 canvas::EmissionMode                      ' enum
     Continuous | Burst
