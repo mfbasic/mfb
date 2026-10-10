@@ -488,7 +488,7 @@ call results and `List OF RES U` elements take the same (correct-arm) path, so t
 the same 16 B instead of misrouting. Freeing the box at statement end is NOT safe as it
 stands: a `RES U` record field stores the box by pointer with no owner, and on main
 `RETURN keep(u)` (`keep(h AS Handle) AS HB` = `HB[h]`) already dereferences a freed box
-(SIGSEGV, exit 139). Both are filed as bug-1005, with repros.
+(SIGSEGV, exit 139). Both are filed as bug-1012, with repros.
 
 ## Golden impact
 

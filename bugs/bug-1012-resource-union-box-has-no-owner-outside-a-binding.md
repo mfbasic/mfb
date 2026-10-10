@@ -1,4 +1,4 @@
-# bug-1005: a resource-union `{tag, record-ptr}` box has no owner outside a binding — a `RES U` record field keeps a freed box (SIGSEGV), and a wrap at an argument, list element or field leaks 16 B
+# bug-1012: a resource-union `{tag, record-ptr}` box has no owner outside a binding — a `RES U` record field keeps a freed box (SIGSEGV), and a wrap at an argument, list element or field leaks 16 B
 
 Last updated: 2026-10-07
 Effort: large (3h–1d)

@@ -465,7 +465,7 @@ Open Decisions:
   `unionWrap(canvas.DrawItem <- canvas.Circle / canvas.Rectangle)` in the IR; main
   rejects both. Not run (needs a window). `examples/canvas-demo` builds.
 - A resource-union variant (`append(hs AS List OF RES Handle, openOne())`) works (both
-  elements `MATCH` `fs::File` and are writable) and leaks the 16 B box bug-1005
+  elements `MATCH` `fs::File` and are writable) and leaks the 16 B box bug-1012
   describes (272 B live vs 240 B for the bound-union form on main and here).
 
 ### Found on the way (not this bug)
