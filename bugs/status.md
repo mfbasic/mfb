@@ -76,13 +76,17 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 ## New bugs filed since the plan
 
 **P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; in progress)
-Round 1: agent I on 982+993 (done in branch), 994, 983; agent J on 990 + 988 (done in branch), 989. Both resumed 2026-10-10 after a usage-limit stop. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
+Round 1: agent I on 982+993 and 983 (done in its branch, not yet reviewed), 994 in progress; agent J on 989 and 988's reduce part. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
 [ ] 982 + 993: mouse callbacks overwrite callee-saved `x19` (GTK aarch64 / macOS app); same mistake, fix together
 [ ] 994: Win64 functions overwrite `xmm6`/`xmm7` without saving them (silent wrong Float); prove on 206
-[ ] 989 + 990 + 988: union-variant values not union-wrapped (crash / garbage / `MATCH` takes no arm); one agent
+[~] 990: fixed, reviewed, merged into staging (a variant from a call/field/get/WITH is now wrapped everywhere)
+[~] 988: `append`/`insert`/`set`/… accept a variant (merged into staging); `reduce` with a variant initial value: owner decided it works → agent J
+[ ] 989: owner decided CONVERT (a `List OF Square` given as `List OF Shape` is copied and each element tagged; same for Set/Map values/nested) → agent J
+[~] 1013: a user `TYPE Circle`/`Rectangle` broke the canvas helpers; found and fixed by agent J, merged into staging
 [ ] 983: string freed wrongly after an absolute `fs::pathJoin` (`http::respondPath("//etc/hosts")` crashes)
 [ ] 992, 984, 1000, 1001: leaks (`graphemesCount` list; macOS TLS listener 2.8 KB; owned-list drain I/O buffer; union drop leaks read and write buffers, up to 16 KiB per drop)
 [ ] 999: an inline aggregate of resources is never closed (`len(mkList())`)
+[ ] 1012: a resource-union box has no owner outside a binding (record-field use-after-free, 16 B leak); found by agent J, not yet reproduced by the coordinator
 [ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
 
 Into existing phases:
@@ -93,5 +97,5 @@ Into existing phases:
 [ ] P8: 985 (setMode window has no mouse controllers; after 982), 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject), 988 reduce (works).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
