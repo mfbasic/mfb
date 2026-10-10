@@ -1351,6 +1351,10 @@ name = "rt_app_fd_write_failure"
 path = "tests/runtime/rt_app_fd_write_failure.rs"
 
 [[test]]
+name = "rt_strings_unowned_blocks"
+path = "tests/runtime/rt_strings_unowned_blocks.rs"
+
+[[test]]
 name = "rt_scalar_seam_alloc"
 path = "tests/runtime/rt_scalar_seam_alloc.rs"
 
