@@ -22,8 +22,9 @@ with `shapes AS List OF Shape`, `collections::append(shapes, Square[2.0])` adds 
 `Shape` that `MATCH` sees as a `Square`. A list of members is accepted the same
 way, as a literal (`[Square[2.0], Circle[1.0]]`) or as a `List OF Square`
 variable: each of its elements is added as a `Shape`. The other direction is a
-compile-time error: a `Shape`, or a `List OF Shape`, cannot be appended to a
-`List OF Square` and stored back as one.
+compile-time error: the list being appended to decides the element type, so a
+`Shape`, or a `List OF Shape`, cannot be appended to a `List OF Square`. Use
+`MATCH` to pick out the `Square` values first.
 
 Both forms behave the same way: existing elements keep their relative order, and
 the appended content is placed after all of them, in its own order.

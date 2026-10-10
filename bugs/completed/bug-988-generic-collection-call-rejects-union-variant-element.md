@@ -567,3 +567,68 @@ in the one-way fixture).
   the combined tree).
 - New goldens: `union-variant-reduce-rt`; two more lines in
   `types-union-subsumption-one-way-invalid`.
+
+## Resolution, part 3 (2026-10-10): the bucket fixes `T`
+
+Part 2's rebinding was too wide: it let ANY not-yet-invariant variable widen, so
+`append(squares, aShape)` bound `T = Square` from the list, rebound it to `Shape` from
+the item, converted the list and typed the call `List OF Shape`. Undone per the owner
+decision above.
+
+`VarPosition` now has three values (`src/codegen/registry/mod.rs`): `Value` (the
+variable is the whole parameter), `Element` (a `List` element or `Map` value type, at
+any depth) and `Invariant`. A variable bound or matched at an `Element` or `Invariant`
+position is **pinned**: the collection argument is the bucket. Only a variable bound
+solely from `Value` occurrences can be rebound to a union a later occurrence brings
+(`reduce`'s initial value). A union bucket still accepts a member at a `Value` or
+`Element` position (`append(shapes, aSquare)`, `append(shapes, squares)`).
+
+- `tests/syntax/collections/func_collection_union_into_variant_bucket_invalid`:
+  `append`, `prepend`, `insert`, `set` (list and map), `getOr` (list and map), `repeat`,
+  `contains`, `find` of a `Shape` into/over a collection of `Square`, and
+  `append(squares, shapes)`. Its golden is main f6b4099c9's own output, byte for byte:
+  eleven `TYPE_CALL_ARGUMENT_MISMATCH`. Before this part nine of them type-checked.
+- The `TYPE_ASSIGNMENT_MISMATCH` store-back line is removed from
+  `types-union-subsumption-one-way-invalid`: the call itself is the error now.
+- `/tmp/bs18-rev/ap` (`LET r = collections::append(squares, aTriangle)`) is
+  `TYPE_CALL_ARGUMENT_MISMATCH` again.
+- Unit test `a_top_level_variable_bound_to_a_union_accepts_its_variant` asserts the
+  rejection for each member, strict and lenient.
+
+### Every other member, main vs this branch (`/tmp/bs18j/pr/run.sh`, one call per program)
+
+Changed, all intended by bug-988/989:
+
+| Call | main f6b4099c9 | branch |
+| --- | --- | --- |
+| `append(shapes, squares)` | mismatch | `List OF Shape` |
+| `append(shapes, aSquare)`, `getOr(shapes, 0, aSquare)`, `getOr(shapeMap, "z", aSquare)`, `set(shapeMap, "k", aSquare)` | mismatch | works, union-typed result |
+| `reduce(shapes, aSquare, FUNC(Shape, Shape) AS Shape)` | mismatch | `Shape` |
+| `reduce(squares, aSquare, FUNC(Shape, Square) AS Shape)` | mismatch | `Shape` (same rule: `U` from the initial value, then the callback's `Shape`) |
+| `replace(shapes, aSquare, aSquare)`, `contains(shapes, aSquare)` | mismatch | `TYPE_REQUIRES_COMPARABLE` |
+
+Unchanged (same result on both): `append(squares, shapes)`, `append(squares, aShape)`,
+`replace(squares, aShape, aSquare)`, `filter(squares, isShape)`, `filter(shapes,
+isSquare)`, `any`, `transform`, `sortBy`, `findIndex` with a callback over the other
+form (all mismatch: a callback is an `Invariant` position), `reduce(squares, aShape,
+FUNC(Shape, Square) AS Shape)` (works), `reduce(squares, aSquare, FUNC(Shape, Shape) AS
+Shape)` (mismatch: the list fixes `T`), `zip(squares, shapes)` (works, two variables).
+
+### Not decided here (owner's call)
+
+These go through monomorphization's own unifier (`monomorph::helpers::unify_type`),
+which this bug did not touch. They are rejected on main and on the branch, in BOTH
+argument orders, so nothing regressed, but they are now inconsistent with `append`:
+
+- `collections::merge(shapeMap, squareMap, TRUE)` and `merge(squareMap, shapeMap,
+  TRUE)`: `TYPE_CALL_ARGUMENT_MISMATCH` ("cannot infer template arguments"). `merge`
+  is a source-companion template, not a registry-native member. By the bucket rule
+  the first map would be the bucket: `merge(shapeMap, squareMap)` would work and
+  `merge(squareMap, shapeMap)` would not.
+- User templates: `pick OF T(x AS T, xs AS List OF T)` with `pick(aSquare, shapes)`,
+  and `both OF T(n, a AS List OF T, b AS List OF T)` with `both(1, shapes, squares)`:
+  mismatch in every order. `pick(aShape, shapes)` works.
+
+Proposal: a follow-up that gives `unify_type` the same three-position rule, so a
+template call behaves like a registry member. Until then a template never accepts a
+variant for its union, which is the safe side.

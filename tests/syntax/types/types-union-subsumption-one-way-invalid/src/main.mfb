@@ -68,10 +68,8 @@ FUNC main AS Integer
   LET cs AS List OF Square = circles
   LET cn AS Integer = total(circles)
 
-  ' A generic call opens no reverse path: the union is not accepted at a
-  ' variable bound to the variant by an invariant position, and appending a
-  ' union to a variant list yields the union's list, which is not the variant's.
+  ' A generic call opens no reverse path: the union is not accepted where the
+  ' callback fixed the accumulator as the variant.
   LET folded AS Square = collections::reduce(squares, s, LAMBDA(acc AS Square, x AS Square) -> acc)
-  squares = collections::append(squares, s)
   RETURN n
 END FUNC

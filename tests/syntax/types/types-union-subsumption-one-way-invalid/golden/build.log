@@ -23,17 +23,17 @@ tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:67 error
      | ^
 tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:69 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Argument 1 for `total` has type List OF Circle, expected List OF Square.
-  72 |   ' variable bound to the variant by an invariant position, and appending a
-  73 |   ' union to a variant list yields the union's list, which is not the variant's.
-  74 |   LET folded AS Square = collections::reduce(squares, s, LAMBDA(acc AS Square, x AS Square) -> acc)
+  71 |   ' A generic call opens no reverse path: the union is not accepted where the
+  72 |   ' callback fixed the accumulator as the variant.
+  73 |   LET folded AS Square = collections::reduce(squares, s, LAMBDA(acc AS Square, x AS Square) -> acc)
      | ^
-tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:74 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:73 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `collections.reduce` has argument type(s) (List OF Square, Shape, FUNC(Square, Square) AS Square), expected List OF T, U, FUNC(U, T) AS U.
-  72 |   ' variable bound to the variant by an invariant position, and appending a
-  73 |   ' union to a variant list yields the union's list, which is not the variant's.
-  74 |   LET folded AS Square = collections::reduce(squares, s, LAMBDA(acc AS Square, x AS Square) -> acc)
+  71 |   ' A generic call opens no reverse path: the union is not accepted where the
+  72 |   ' callback fixed the accumulator as the variant.
+  73 |   LET folded AS Square = collections::reduce(squares, s, LAMBDA(acc AS Square, x AS Square) -> acc)
      | ^
-tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:74 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:73 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `folded` does not have a known type.
   34 | 
   35 | FUNC narrowed(s AS Shape) AS Square
@@ -101,10 +101,4 @@ tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:64 error
      | ^
 tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:68 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
                Binding `cs` has initializer type List OF Circle, expected List OF Square.
-  73 |   ' union to a variant list yields the union's list, which is not the variant's.
-  74 |   LET folded AS Square = collections::reduce(squares, s, LAMBDA(acc AS Square, x AS Square) -> acc)
-  75 |   squares = collections::append(squares, s)
-     | ^
-tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:75 error[2-203-0008 TYPE_ASSIGNMENT_MISMATCH]: assignment value type does not match binding type
-               Assignment to `squares` has type List OF Shape, expected List OF Square.
 [exit 1]

@@ -116,8 +116,9 @@ Where a helper takes an element or value of a collection whose element type is a
 value of `reduce` and `reduceRight`), a value of any of the union's member types
 is accepted as that union, exactly as in `LET s AS Shape = Square[2.0]`. A list
 of members is likewise accepted where a list of the union is expected. It never
-works the other way: a union value is not one of its members until `MATCH` says
-which.
+works the other way: the collection you pass decides the element type, and a
+union value does not fit a collection of one of its members until `MATCH` says
+which member it is.
 
 Predicates and other function arguments are passed as function values: a named
 `FUNC`, a `LAMBDA`, or a general built-in predicate such as `isEven`,

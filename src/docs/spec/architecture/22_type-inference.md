@@ -111,36 +111,38 @@ type. Without it the literal lowers as `List OF Unknown` and the collections
 lowering has no element type to check the item against.
 
 Rule 3 also carries union-variant subsumption into a generic call, in the one
-direction it goes (variant to union). The registry's unifier knows, for each
-position of a parameter, whether lowering can convert a value there
-(`VarPosition`): a whole argument, a `List` element and a `Map` value are
-`Subsuming`; a `Set` element, a `Map` key, a callable's parameters and result, a
-`Result`, a user generic's argument and a thread slot are `Invariant`. It asks the
-caller's declared-type oracle (`TypeKinds::union_accepts`) for union membership,
-the same membership lowering wraps by.
+direction it goes: a member type fits a union bucket, a union never fits a member
+bucket. The registry's unifier knows where in a parameter each type variable is
+met (`VarPosition`): `Value` when the variable is the whole parameter (`append`'s
+item `T`), `Element` when it is a `List` element or `Map` value type at any depth
+(`append`'s `List OF T`), and `Invariant` everywhere else (a `Set` element, a
+`Map` key, a callable's parameters and result, a `Result`, a user generic's
+argument, a thread slot). It asks the caller's declared-type oracle
+(`TypeKinds::union_accepts`) for union membership, the same membership lowering
+wraps by.
 [[src/codegen/registry/mod.rs:unify_with_kinds]] [[src/codegen/registry/mod.rs:VarPosition]] [[src/codegen/builtins/mod.rs:TypeKinds]]
 
-- A variable bound to a union form accepts its variant form at a `Subsuming`
-  position and stays bound to the union. `collections::append(shapes, Square[2.0])`
-  and `collections::append(shapes, squares)` (`squares AS List OF Square`) both
-  resolve `T = Shape` with `shapes AS List OF Shape`, so the argument's expected
-  type is `Shape` (it is wrapped) or `List OF Shape` (it is converted).
-- A variable whose every occurrence so far was `Subsuming`, bound to a variant
-  form, is rebound to a union form a later occurrence brings.
-  `collections::reduce(shapes, Square[1.0], f)` with `f AS FUNC(Shape, Shape) AS
-  Shape` binds `U = Square` from the initial value and then `U = Shape` from the
-  callback, so the initial value's expected type is `Shape`. A variable that has
-  been matched at an `Invariant` position is pinned and never widens.
-- Never the reverse: a variable bound to a variant does not accept its union at
-  an `Invariant` position, and a union never satisfies a variant.
-  `collections::reduce(squares, aShape, f)` with `f AS FUNC(Square, Square) AS
-  Square` is a `TYPE_CALL_ARGUMENT_MISMATCH`.
-
-An `Arg(n)` return (`append` returns its first parameter's type) echoes the
-argument's type, except when that argument was accepted by conversion: then the
-call's type is the parameter's resolved type. `collections::append(squares,
-aShape)` is `T = Shape` and has type `List OF Shape`, which a `List OF Square`
-binding then refuses.
+- **A union bucket accepts a member.** A variable bound to a union form accepts
+  its variant form at a `Value` or `Element` position and stays bound to the
+  union. `collections::append(shapes, Square[2.0])` and `collections::append(shapes,
+  squares)` (`squares AS List OF Square`) both resolve `T = Shape` with `shapes AS
+  List OF Shape`, so the argument's expected type is `Shape` (it is wrapped) or
+  `List OF Shape` (it is converted).
+- **The collection argument is the bucket and fixes its variable.** A variable
+  bound or matched at an `Element` or `Invariant` position is pinned, and a pinned
+  variable never widens. `collections::append(squares, aShape)` binds `T = Square`
+  from the list, and the `Shape` item does not fit: `TYPE_CALL_ARGUMENT_MISMATCH`,
+  whatever the value holds. The call is never re-typed `List OF Shape`. The same
+  holds for `prepend`, `insert`, `set`, `getOr`'s default, `repeat`, `contains`,
+  `find`, and for the two-collection form: `append(squares, shapes)` is a
+  mismatch, `append(shapes, squares)` is not.
+- **A variable bound only from whole values widens to a later union.** It is not
+  pinned, so a later occurrence that is a union accepting the bound variant
+  rebinds it. `collections::reduce(shapes, Square[1.0], f)` with `f AS FUNC(Shape,
+  Shape) AS Shape` binds `U = Square` from the initial value and then `U = Shape`
+  from the callback, which is the bucket; the initial value's expected type is
+  `Shape`. The reverse is rejected: `collections::reduce(squares, aShape, f)` with
+  `f AS FUNC(Square, Square) AS Square` is a `TYPE_CALL_ARGUMENT_MISMATCH`.
 
 `resolved_parameter_type` lets the ARGUMENTS decide first, as the call's own type
 is decided, and consults the call's expected type only to break a tie or fill an

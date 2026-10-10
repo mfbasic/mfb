@@ -606,11 +606,12 @@ impl RegistryFunction {
 
             if let Some(return_type) = substitute(&implementation.return_type, &bindings) {
                 // bug-989: an `Arg(n)` return echoes the caller's n-th argument type.
-                // When that argument is accepted only by conversion to its union
-                // form (`append(squares, aShape)`, `T = Shape`), the call returns
-                // the CONVERTED collection, so its type is the parameter's, not the
-                // argument's — otherwise the call would be typed `List OF Square`
-                // while holding a `Shape`.
+                // If that argument is accepted only by CONVERSION to its union form
+                // (a variant collection where the parameter resolved to the union's),
+                // the call returns the converted collection, so its type is the
+                // parameter's, not the argument's. No collections member reaches
+                // this today — a collection parameter is the bucket and fixes its
+                // variable — but echoing the argument there would mistype the call.
                 let return_type = match return_type {
                     ParameterType::Arg(n) => implementation
                         .params
@@ -2748,44 +2749,55 @@ fn unify_with_kinds(
         NothingBinding::Allowed,
         Position {
             kinds,
-            var: VarPosition::Subsuming,
+            var: VarPosition::Value,
             pinned,
         },
     )
 }
 
-/// Whether a value met at this position of a parameter can be converted to its
-/// union by lowering (bug-988, bug-989).
+/// Where in a parameter a type variable is met, which decides what
+/// union-variant subsumption may do there (bug-988, bug-989).
 ///
-/// Union-variant subsumption goes one way, variant to union, and lowering realizes
-/// it at exactly these positions: a whole argument is wrapped (`UnionWrap`), and a
-/// `List` element or `Map` value is wrapped in a converted copy of the collection,
-/// at every nesting level (`ir::lower::union_conversion`). So a type variable met at
-/// a `Subsuming` position (`append`'s item `T`, or the `T` of its `List OF T`) and
-/// already bound to a union accepts a variant of it and stays bound to the union:
-/// the argument's expected type is then the union form and lowering converts it.
+/// Subsumption goes one way, variant to union — a member type fits a union
+/// bucket, a union never fits a member bucket — and lowering realizes it by
+/// wrapping a whole argument (`UnionWrap`) or converting a `List`'s elements or a
+/// `Map`'s values in a copy (`ir::lower::union_conversion`).
 ///
-/// Everywhere else a variable is `Invariant`: a `Set` element or `Map` key (a union
-/// is not comparable, so no union form exists), a callable's parameters and result
-/// (callable types are invariant), a `Result`, a user generic's argument and a
-/// thread slot. No conversion exists there, so only the bound type itself matches.
+/// * `Value`: the variable is the whole parameter (`append`'s item `T`, `reduce`'s
+///   initial `U`). One value arrives here, and it can be wrapped.
+/// * `Element`: the variable is a `List` element or `Map` value type, at any depth
+///   (`append`'s `List OF T`). The collection can be converted.
+/// * `Invariant`: everywhere else — a `Set` element or `Map` key (a union is not
+///   comparable, so no union form exists), a callable's parameters and result, a
+///   `Result`, a user generic's argument, a thread slot. Nothing converts here.
 ///
-/// The reverse never holds: a variable bound to a VARIANT does not accept its union
-/// (a `Shape` is not a `Square`). The one widening of a binding is for a variable
-/// whose every occurrence so far was `Subsuming` (it is not in `pinned`): a later
-/// occurrence that is a union accepting the bound variant rebinds it to that union,
-/// because every value seen so far can still be converted. That is `reduce(shapes,
-/// Square[1.0], LAMBDA(acc AS Shape, s AS Shape) -> acc)`: `U` is `Square` from the
-/// initial value, then `Shape` from the callback, so the initial value is wrapped.
+/// Two rules follow, and no others:
+///
+/// 1. A variable already bound to a union form accepts its VARIANT form at a
+///    `Value` or `Element` position and stays bound to the union. The bucket is a
+///    union; the member fits: `append(shapes, Square[1.0])` and `append(shapes,
+///    squares)` are `T = Shape`.
+/// 2. A variable bound ONLY from `Value` occurrences (it is not in `pinned`), to a
+///    variant, is rebound to a union a later occurrence brings. The earlier values
+///    were single values, so they are wrapped: `reduce(shapes, Square[1.0],
+///    LAMBDA(acc AS Shape, s AS Shape) -> acc)` binds `U = Square` from the initial
+///    value and then `U = Shape` from the callback, which is the bucket.
+///
+/// A variable bound from a collection argument is the BUCKET and is pinned at
+/// once: it never widens to fit a later argument. `append(squares, aShape)` is
+/// `T = Square` from the list, and the `Shape` item does not fit — a mismatch,
+/// never `T = Shape` with the list converted (owner decision 2026-10-10: "`T`
+/// *must* match"). An `Invariant` occurrence pins the same way.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum VarPosition {
-    Subsuming,
+    Value,
+    Element,
     Invariant,
 }
 
-/// The per-position context [`unify_at`] threads: the declared-type oracle, whether
-/// a variable met here is at a convertible position, and the variables that have had
-/// an `Invariant` occurrence.
+/// The per-position context [`unify_at`] threads: the declared-type oracle, where
+/// in the parameter a variable met here sits, and the variables that are pinned
+/// (bound or matched anywhere but a `Value` position).
 #[derive(Clone, Copy)]
 struct Position<'k> {
     kinds: &'k dyn TypeKinds,
@@ -2794,9 +2806,16 @@ struct Position<'k> {
 }
 
 impl<'k> Position<'k> {
-    /// A `List` element or `Map` value: as convertible as its collection is.
+    /// A `List` element or `Map` value of this position: convertible when the
+    /// collection itself sits at a convertible position.
     fn element(self) -> Position<'k> {
-        self
+        Position {
+            var: match self.var {
+                VarPosition::Value | VarPosition::Element => VarPosition::Element,
+                VarPosition::Invariant => VarPosition::Invariant,
+            },
+            ..self
+        }
     }
 
     fn nested(self) -> Position<'k> {
@@ -2806,10 +2825,15 @@ impl<'k> Position<'k> {
         }
     }
 
-    /// Record that `name` has now been bound or matched at an `Invariant`
-    /// position, so its binding can no longer be widened to a union.
-    fn pin_if_invariant(self, name: Symbol) {
-        if self.var == VarPosition::Invariant {
+    /// Whether a variant form is accepted here for a variable bound to its union.
+    fn subsumes(self) -> bool {
+        self.var != VarPosition::Invariant
+    }
+
+    /// Record that `name` has now been bound or matched somewhere other than a
+    /// `Value` position, so its binding is fixed and never widens to a union.
+    fn pin_unless_value(self, name: Symbol) {
+        if self.var != VarPosition::Value {
             self.pinned.borrow_mut().insert(name);
         }
     }
@@ -2912,7 +2936,7 @@ fn unify_at(
                 // message arg, instead of failing `resource_base_eq(Unknown, Integer)`.
                 Some(ParameterType::Unknown) => {
                     bindings.insert(*name, concrete.clone());
-                    at.pin_if_invariant(*name);
+                    at.pin_unless_value(*name);
                     true
                 }
                 // A re-occurring variable must match its binding — but resource element
@@ -2920,7 +2944,7 @@ fn unify_at(
                 // `Handle STATE Cursor` accepts an item spelled `Handle`
                 // (`resource_base_eq`, plain `==` for every non-resource type).
                 Some(bound) if resource_base_eq(bound, concrete) => {
-                    at.pin_if_invariant(*name);
+                    at.pin_unless_value(*name);
                     true
                 }
                 // bug-988 / bug-989: at a convertible position, a variable bound to a
@@ -2929,27 +2953,29 @@ fn unify_at(
                 // Square)` are both `T = Shape`. The argument's expected type is then
                 // the union form, and lowering converts it ([`VarPosition`]).
                 Some(bound)
-                    if at.var == VarPosition::Subsuming
-                        && converts_to_union_form(at.kinds, concrete, bound) =>
+                    if at.subsumes() && converts_to_union_form(at.kinds, concrete, bound) =>
                 {
                     true
                 }
-                // The other order: every occurrence so far was convertible, and this
-                // one is the union form of what they bound, so the variable IS the
-                // union and the earlier values convert (`reduce`'s variant initial
-                // value). Never the reverse: a union does not become its variant.
+                // The other order, for a variable bound only from whole VALUES so far
+                // (not pinned): this occurrence is the union form of what they bound,
+                // so the variable IS the union and those values are wrapped
+                // (`reduce`'s variant initial value). A variable bound from a
+                // collection argument is the bucket, is pinned, and never gets here:
+                // `append(squares, aShape)` is a mismatch. Never the reverse either: a
+                // union does not become its variant.
                 Some(bound)
                     if !at.pinned.borrow().contains(name)
                         && converts_to_union_form(at.kinds, bound, concrete) =>
                 {
                     bindings.insert(*name, concrete.clone());
-                    at.pin_if_invariant(*name);
+                    at.pin_unless_value(*name);
                     true
                 }
                 Some(_) => false,
                 None => {
                     bindings.insert(*name, concrete.clone());
-                    at.pin_if_invariant(*name);
+                    at.pin_unless_value(*name);
                     true
                 }
             }
@@ -6326,18 +6352,22 @@ mod tests {
             ),
             Some(draw_items),
         );
-        // The other order: `T` is `V` from the list, then the item is the union.
-        // Every occurrence so far was convertible, so `T` is the union, the list is
-        // converted, and the call returns the CONVERTED list's type, not `Arg(0)`'s.
-        assert_eq!(
-            resolve_call_typed_with_kinds(
-                "collections.append",
-                &[list_of(variant.clone()), union.clone()],
-                true,
-                &UnionUOverV,
-            ),
-            Some(union_list.clone()),
-        );
+        // The bucket fixes `T` (owner decision): `T` is `V` from the list, and the
+        // union item does not fit it. Never `T = U` with the list converted — in any
+        // mode, for the item form and the two-list form.
+        for strict in [true, false] {
+            for item in [union.clone(), union_list.clone()] {
+                assert_eq!(
+                    resolve_call_typed_with_kinds(
+                        "collections.append",
+                        &[list_of(variant.clone()), item],
+                        strict,
+                        &UnionUOverV,
+                    ),
+                    None,
+                );
+            }
+        }
         assert_eq!(
             resolved_parameter_type(
                 "collections.append",
@@ -6346,8 +6376,56 @@ mod tests {
                 None,
                 &UnionUOverV,
             ),
-            Some(union_list.clone()),
+            None,
         );
+        // The same for every member whose first argument is the collection.
+        let index = ParameterType::Integer;
+        let variant_list = list_of(variant.clone());
+        let variant_map = map_of(ParameterType::String, variant.clone());
+        let calls: Vec<(&str, Vec<ParameterType>)> = vec![
+            (
+                "collections.prepend",
+                vec![variant_list.clone(), union.clone()],
+            ),
+            (
+                "collections.insert",
+                vec![variant_list.clone(), index.clone(), union.clone()],
+            ),
+            (
+                "collections.set",
+                vec![variant_list.clone(), index.clone(), union.clone()],
+            ),
+            (
+                "collections.set",
+                vec![variant_map.clone(), ParameterType::String, union.clone()],
+            ),
+            (
+                "collections.getOr",
+                vec![variant_list.clone(), index.clone(), union.clone()],
+            ),
+            (
+                "collections.getOr",
+                vec![variant_map, ParameterType::String, union.clone()],
+            ),
+            (
+                "collections.repeat",
+                vec![variant_list.clone(), union.clone(), index],
+            ),
+            (
+                "collections.contains",
+                vec![variant_list.clone(), union.clone()],
+            ),
+            ("collections.find", vec![variant_list, union.clone()]),
+        ];
+        for (member, args) in calls {
+            for strict in [true, false] {
+                assert_eq!(
+                    resolve_call_typed_with_kinds(member, &args, strict, &UnionUOverV),
+                    None,
+                    "{member} strict={strict}"
+                );
+            }
+        }
     }
 
     #[test]
