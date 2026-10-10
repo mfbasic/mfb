@@ -175,7 +175,7 @@ Acceptance: the seven cases pass, including the jump between `1.0` and `1.01`.
   unit to call; the seven cases run through the compiled helper instead (Corrections).
   `cargo test --test rt_canvas_rasteriser corner_rule` → `7 passed; 0 failed`, of which
   `corner_rule_every_meaning_of_a_radius_draws_the_corner_it_names` is the seven cases.
-Commit: —
+Commit: e276126c4
 
 ### Phase 2 — Records, the two exact build paths, and the port
 
@@ -222,7 +222,7 @@ included.
   each; all 25 canvas-embedding targets and `cargo test --bin mfb canvas` (113 passed)
   green. `git status --porcelain tests/golden/canvas` → `?? tests/golden/canvas/corners.png`
   only, which is Phase 3's new reference; no existing PNG changed.
-Commit: —
+Commit: e276126c4
 
 ### Phase 3 — The flattened path, `Center`, and their proof
 
@@ -250,7 +250,7 @@ matches it within `Tolerance::GPU_DEFAULT`.
   `corners_match_the_software_oracle_on_metal` passed. Flattening error measured by
   `corner_rule_the_flattened_outline_is_within_its_bound_of_the_exact_one`:
   `656 pixels differ, worst coverage delta 0.0499`.
-Commit: —
+Commit: e276126c4
 
 ## Validation Plan
 
