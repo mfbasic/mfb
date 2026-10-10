@@ -42,11 +42,12 @@ use std::process::Command;
 /// what makes the caller stage an eighth argument.
 const SOURCE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 400.0], radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([dot])
 END FUNC
 "#;

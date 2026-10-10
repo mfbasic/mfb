@@ -29,11 +29,12 @@ use crate::testutil::{app_code_cached, code_function, CodeTarget};
 const PRESENT_SRC: &str = "\
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC scene(r AS Float) AS List OF canvas::DrawItem
   LET c AS color::Color = color::rgb(10, 20, 30)
-  LET a AS canvas::DrawItem = canvas::Circle[id := \"\", x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET a AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 1.0, y := 2.0], radius := r, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   RETURN [a]
 END FUNC
 

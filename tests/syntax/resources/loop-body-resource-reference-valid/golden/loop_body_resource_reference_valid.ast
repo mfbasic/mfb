@@ -8,26 +8,27 @@
     { "module": "fs", "line": 2 },
     { "module": "collections", "line": 3 },
     { "module": "canvas", "line": 4 },
-    { "module": "color", "line": 5 }
+    { "module": "vector", "line": 5 },
+    { "module": "color", "line": 6 }
     ],
     "items": [
     {
       "kind": "type",
       "visibility": "public",
       "name": "Holder",
-      "line": 14,
+      "line": 15,
       "fields": [
-      { "visibility": null, "name": "handle", "type": "RES fs.File", "line": 15 }
+      { "visibility": null, "name": "handle", "type": "RES fs.File", "line": 16 }
       ]
     },
     {
       "kind": "union",
       "visibility": "public",
       "name": "Slot",
-      "line": 18,
+      "line": 19,
       "includes": [],
       "variants": [
-      { "name": "Holder", "line": 19 }
+      { "name": "Holder", "line": 20 }
       ]
     },
     {
@@ -35,13 +36,13 @@
       "visibility": "public",
       "isolated": false,
       "name": "use",
-      "line": 22,
+      "line": 23,
       "params": [
-      { "name": "f", "type": "fs.File", "default": null, "line": 22 }
+      { "name": "f", "type": "fs.File", "default": null, "line": 23 }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 23 }
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 24 }
       ]
     },
     {
@@ -49,37 +50,37 @@
       "visibility": "public",
       "isolated": false,
       "name": "placements",
-      "line": 26,
+      "line": 27,
       "params": [
-      { "name": "p", "type": "String", "default": null, "line": 26 }
+      { "name": "p", "type": "String", "default": null, "line": 27 }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 27 },
-      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 28 },
-      { "kind": "binding", "mutable": true, "name": "m", "type": "Map OF String TO RES fs.File", "value": { "kind": "map", "keyType": "String", "valueType": "RES fs.File", "entries": [] }, "line": 29 },
-      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 30 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 28 },
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "m", "type": "Map OF String TO RES fs.File", "value": { "kind": "map", "keyType": "String", "valueType": "RES fs.File", "entries": [] }, "line": 30 },
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 31 },
       {
         "kind": "for",
         "name": "i",
         "start": { "kind": "number", "value": "1" },
         "end": { "kind": "number", "value": "3" },
         "step": null,
-        "line": 31,
+        "line": 32,
         "body": [
-        { "kind": "binding", "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 32 },
-        { "kind": "binding", "mutable": false, "name": "s", "type": "Slot", "value": { "kind": "identifier", "value": "h" }, "line": 33 },
-        { "kind": "binding", "mutable": false, "name": "lit", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "f" }] }, "line": 34 },
-        { "kind": "binding", "mutable": false, "name": "mlit", "type": "Map OF String TO RES fs.File", "value": { "kind": "map", "keyType": "String", "valueType": "RES fs.File", "entries": [{ "key": { "kind": "string", "value": "k" }, "value": { "kind": "identifier", "value": "f" } }] }, "line": 35 },
-        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "f" }] }, "line": 36 },
-        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "f" }] }, "line": 37 },
-        { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] }, { "kind": "identifier", "value": "f" }] }, "line": 38 },
-        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "call", "callee": "use", "arguments": [{ "kind": "identifier", "value": "f" }] } }, "right": { "kind": "call", "callee": "use", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "handle" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "lit" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "mlit" }] } }, "line": 39 },
-        { "kind": "binding", "mutable": false, "name": "g", "type": null, "value": { "kind": "lambda", "params": [], "body": { "kind": "call", "callee": "use", "arguments": [{ "kind": "identifier", "value": "f" }] } }, "line": 40 },
-        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "call", "callee": "g", "arguments": [] } }, "line": 41 }
+        { "kind": "binding", "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 33 },
+        { "kind": "binding", "mutable": false, "name": "s", "type": "Slot", "value": { "kind": "identifier", "value": "h" }, "line": 34 },
+        { "kind": "binding", "mutable": false, "name": "lit", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "f" }] }, "line": 35 },
+        { "kind": "binding", "mutable": false, "name": "mlit", "type": "Map OF String TO RES fs.File", "value": { "kind": "map", "keyType": "String", "valueType": "RES fs.File", "entries": [{ "key": { "kind": "string", "value": "k" }, "value": { "kind": "identifier", "value": "f" } }] }, "line": 36 },
+        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "f" }] }, "line": 37 },
+        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }, { "kind": "identifier", "value": "f" }] }, "line": 38 },
+        { "kind": "assignment", "name": "m", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] }, { "kind": "identifier", "value": "f" }] }, "line": 39 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "call", "callee": "use", "arguments": [{ "kind": "identifier", "value": "f" }] } }, "right": { "kind": "call", "callee": "use", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "handle" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "lit" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "mlit" }] } }, "line": 40 },
+        { "kind": "binding", "mutable": false, "name": "g", "type": null, "value": { "kind": "lambda", "params": [], "body": { "kind": "call", "callee": "use", "arguments": [{ "kind": "identifier", "value": "f" }] } }, "line": 41 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "call", "callee": "g", "arguments": [] } }, "line": 42 }
         ]
       },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m" }] } }, "line": 43 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m" }] } }, "line": 44 }
       ]
     },
     {
@@ -87,7 +88,7 @@
       "visibility": "public",
       "isolated": false,
       "name": "frames",
-      "line": 47,
+      "line": 48,
       "params": [
       ],
       "returnType": "Integer",
@@ -95,25 +96,25 @@
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "face", "type": "canvas.Font", "value": {
         "kind": "trapped",
         "binding": "e",
-        "line": 48,
+        "line": 49,
         "expression": { "kind": "call", "callee": "canvas.loadFont", "arguments": [{ "kind": "string", "value": "fixture.ttf" }] },
         "handler": [
-        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 50 }
         ]
-      }, "line": 48 },
+      }, "line": 49 },
       {
         "kind": "for",
         "name": "i",
         "start": { "kind": "number", "value": "1" },
         "end": { "kind": "number", "value": "6" },
         "step": null,
-        "line": 51,
+        "line": 52,
         "body": [
-        { "kind": "binding", "mutable": false, "name": "tag", "type": "canvas.DrawItem", "value": { "kind": "constructor", "type": "canvas.Text", "arguments": [{ "kind": "named", "name": "id", "value": { "kind": "string", "value": "" } }, { "kind": "named", "name": "x", "value": { "kind": "number", "value": "40.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "120.0" } }, { "kind": "named", "name": "text", "value": { "kind": "string", "value": "AA" } }, { "kind": "named", "name": "font", "value": { "kind": "identifier", "value": "face" } }, { "kind": "named", "name": "size", "value": { "kind": "number", "value": "64.0" } }, { "kind": "named", "name": "paint", "value": { "kind": "call", "callee": "canvas.fill", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "230" }, { "kind": "number", "value": "60" }, { "kind": "number", "value": "170" }] }] } }, { "kind": "named", "name": "transform", "value": { "kind": "constructor", "type": "canvas.Transform", "arguments": [{ "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }] } }] }, "line": 52 },
-        { "kind": "expression", "expression": { "kind": "call", "callee": "canvas.setGroup", "arguments": [{ "kind": "string", "value": "panel" }, { "kind": "list", "values": [{ "kind": "identifier", "value": "tag" }] }] }, "line": 53 }
+        { "kind": "binding", "mutable": false, "name": "tag", "type": "canvas.DrawItem", "value": { "kind": "constructor", "type": "canvas.Text", "arguments": [{ "kind": "named", "name": "id", "value": { "kind": "string", "value": "" } }, { "kind": "named", "name": "position", "value": { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "40.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "120.0" } }] } }, { "kind": "named", "name": "text", "value": { "kind": "string", "value": "AA" } }, { "kind": "named", "name": "font", "value": { "kind": "identifier", "value": "face" } }, { "kind": "named", "name": "fontSize", "value": { "kind": "number", "value": "64.0" } }, { "kind": "named", "name": "paint", "value": { "kind": "call", "callee": "canvas.fill", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "230" }, { "kind": "number", "value": "60" }, { "kind": "number", "value": "170" }] }] } }, { "kind": "named", "name": "transform", "value": { "kind": "constructor", "type": "canvas.Transform", "arguments": [{ "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }] } }] }, "line": 53 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "canvas.setGroup", "arguments": [{ "kind": "string", "value": "panel" }, { "kind": "list", "values": [{ "kind": "identifier", "value": "tag" }] }] }, "line": 54 }
         ]
       },
-      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 55 }
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 56 }
       ]
     },
     {
@@ -121,13 +122,13 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 58,
+      "line": 59,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "placements", "arguments": [{ "kind": "string", "value": "in.txt" }] }, "right": { "kind": "call", "callee": "frames", "arguments": [] } }] }] }, "line": 59 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 60 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "placements", "arguments": [{ "kind": "string", "value": "in.txt" }] }, "right": { "kind": "call", "callee": "frames", "arguments": [] } }] }] }, "line": 60 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 61 }
       ]
     }
     ]

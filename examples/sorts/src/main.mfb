@@ -43,6 +43,7 @@
 
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT datetime
@@ -533,11 +534,11 @@ FUNC grouped(n AS Integer) AS String
 END FUNC
 
 FUNC tableItem(face AS canvas::Font, x AS Float, y AS Float, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", x := x, y := y, text := text, font := face, size := TABLE_SIZE, paint := canvas::fill(TABLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, font := face, fontSize := TABLE_SIZE, paint := canvas::fill(TABLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, line AS Integer, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", x := x, y := STATS_MARGIN + STATS_SIZE * (1.0 + 1.3 * toFloat(line)), text := text, font := face, size := STATS_SIZE, paint := canvas::fill(STATS_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := STATS_MARGIN + STATS_SIZE * (1.0 + 1.3 * toFloat(line))], text := text, font := face, fontSize := STATS_SIZE, paint := canvas::fill(STATS_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -673,7 +674,7 @@ FUNC main AS Integer
       LET depth AS Float = math::clamp(p.z, -1.0, 1.0)
       LET light AS Float = 0.35 + 0.65 * (1.0 - (depth + 1.0) / 2.0)
       LET c AS color::Color = color::rgb(shade(d.r, light), shade(d.g, light), shade(d.b, light))
-      LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := cx + p.x * radius * perspective, y := cy + p.y * radius * perspective, radius := dotSize * perspective, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := cx + p.x * radius * perspective, y := cy + p.y * radius * perspective], radius := dotSize * perspective, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::set(scene, i + 1, dot)
     NEXT
 

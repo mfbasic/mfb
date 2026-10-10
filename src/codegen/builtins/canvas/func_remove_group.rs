@@ -31,6 +31,7 @@ panel was:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT os
 
@@ -40,7 +41,7 @@ FUNC main() AS Nothing
   canvas::setGroup("panel", [body])
 
   LET node AS canvas::DrawItem = canvas::Group[dx := 40.0, dy := 40.0, name := "panel"]
-  LET marker AS canvas::DrawItem = canvas::Circle[id := "", x := 400.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(255, 80, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET marker AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 400.0, y := 300.0], radius := 20.0, paint := canvas::fill(color::rgb(255, 80, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([node, marker])
   os::sleep(500)
 
@@ -56,6 +57,7 @@ no-op:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)

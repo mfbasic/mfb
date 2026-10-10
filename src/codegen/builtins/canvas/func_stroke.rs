@@ -37,7 +37,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET green AS color::Color = color::rgb(0, 160, 0)
-  LET smile AS canvas::DrawItem = canvas::Arc[id := "", x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET smile AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 200.0, y := 215.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([smile])
 END FUNC
 ```

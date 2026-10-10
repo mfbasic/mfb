@@ -29,10 +29,10 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-C complete and archived | `ls planning/plan-172-C-*` → no matches | NOT MET |
-| Every shape carries its own `transform` | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 10 | NOT MET |
-| plan-172-N complete and archived (an `ENUM` has a default) | `ls planning/plan-172-N-*` → no matches | NOT MET |
-| Open Decision 1 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
+| plan-172-C complete and archived | `ls planning/plan-172-C-*` → no matches | MET — `no matches found` |
+| Every shape carries its own `transform` | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 10 | MET by meaning — the command prints 9: seven records call it and `rect_props` once for three more, plus the definition. `mfb man canvas types` shows `transform` on all ten |
+| plan-172-N complete and archived (an `ENUM` has a default) | `ls planning/plan-172-N-*` → no matches | MET — `no matches found` |
+| Open Decision 1 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | MET — measured 5 |
 
 If plan-172-C is not complete, this letter cannot start, full stop.
 
@@ -149,11 +149,13 @@ pivot), which gets its own test.
 
 ### Phase 1 — The placement helper, behind a test
 
-- [ ] Add `__canvas_placement` to `helper_paint_defaults.rs` beside
+- [x] Add `__canvas_placement` to `helper_paint_defaults.rs` beside
       `__canvas_invertTransform`.
-- [ ] Add helper unit tests beside it: all-zero transform returns the offset and an
+      → three helpers: `__canvas_transformActive` (the one test for "is this transform in effect"), `__canvas_placement` (the effective affine) and `__canvas_placedPaint` / `__canvas_placedClip` (clip and gradient points moved to the build origin).
+- [x] Add helper unit tests beside it: all-zero transform returns the offset and an
       all-zero affine; a rotation returns translation `P + t`; a no-area transform is
       treated as all-zero.
+      → as four rasteriser cases named `placement_*` (see Corrections: a companion helper cannot be run from a unit test). `cargo test --test rt_canvas_rasteriser placement` → `4 passed`.
 
 Acceptance: the helper's three cases pass.
   Check: `cargo test --bin mfb canvas_placement` → pass (est. 3 min).
@@ -161,23 +163,30 @@ Commit: —
 
 ### Phase 2 — Records, builders and the port
 
-- [ ] `mod.rs`: `Circle`, `Ellipse`, `Arc`, `Text` take `position`; `Text.size` →
+- [x] `mod.rs`: `Circle`, `Ellipse`, `Arc`, `Text` take `position`; `Text.size` →
       `fontSize`; rewrite the `Transform` description's pivot sentence.
-- [ ] `helper_geometry.rs`: the four header builders call `__canvas_placement`; clip and
+      → `mfb man canvas types` shows `position` on the four and `fontSize` on `Text`.
+- [x] `helper_geometry.rs`: the four header builders call `__canvas_placement`; clip and
       gradient points are offset in the all-zero branch.
-- [ ] `func_geo_build.rs`: the circle, ellipse and arc native builders read `position`
+      → and the offset is an argument of `__canvas_paintHeader` for every kind (zero for the kinds not positioned yet).
+- [x] `func_geo_build.rs`: the circle, ellipse and arc native builders read `position`
       and add it.
-- [ ] `func_measure_text.rs` and the glyph path read `fontSize`.
+      → only the circle is built natively; it reads `position`, and every clip point is read through `clip_point`, which adds the build offset. `cargo test --test rt_canvas_geo_native` passes.
+- [x] `func_measure_text.rs` and the glyph path read `fontSize`.
+      → 8 reads in `helper_geometry.rs`; `func_measure_text.rs` takes its size as a parameter and needed nothing. `cargo test --test rt_canvas_font` → `33 passed`.
 - [x] ~~Add the four constructor functions (`func_circle.rs`, `func_ellipse.rs`,
       `func_arc.rs`, `func_text.rs`), each with a man example, and register them.~~ —
       moot: Open Decision 1 of 172-A was answered "no constructor functions"
       (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
       → 1).
-- [ ] Rewrite the registry examples of `Circle`, `Ellipse` and `Arc` to the defaulted
+- [x] Rewrite the registry examples of `Circle`, `Ellipse` and `Arc` to the defaulted
       `MUT` + `WITH` form, and render each with `mfb man canvas <Type>`.
-- [ ] Port the 266 sites. For each file, list the sites whose item is transformed and
+      → the three record descriptions show the `MUT` + `WITH` form; `/tmp/plan-172-A/idiom.mfb` builds it and draws all three; `canvas::present`'s example turns its ellipses with a plain rotation.
+- [x] Port the 266 sites. For each file, list the sites whose item is transformed and
       not at the origin, record the count in Corrections, and rewrite each matrix per §3.
-- [ ] `FIELD_KIND_TABLE` and its generated `.tsv`; the IR-embedding goldens.
+      → `codemod_d.py` → `266 constructor(s) in 63 file(s)`. Transformed and not at the origin: 15 listed, of which 6 needed a new translation (see Corrections).
+- [x] `FIELD_KIND_TABLE` and its generated `.tsv`; the IR-embedding goldens.
+      → no table change; four `.tsv` rows read `before.id` instead of the removed `before.x`.
 
 Acceptance: every canvas pixel test passes with no PNG regenerated.
   Check: `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser --test
@@ -187,14 +196,18 @@ Commit: —
 
 ### Phase 3 — The pivot, proved
 
-- [ ] Add to `tests/canvas/rt_canvas_rasteriser.rs`: an ellipse at `position (300, 200)`
+- [x] Add to `tests/canvas/rt_canvas_rasteriser.rs`: an ellipse at `position (300, 200)`
       with a quarter-turn `transform`, asserting the pixels at the ends of its long
       axis are above and below (300, 200).
-- [ ] Add: a circle with a two-stop linear gradient and a `position` moved by 100
+      → `placement_a_transform_turns_a_shape_about_its_position`, plus `placement_a_transforms_translation_adds_to_the_position`.
+- [x] Add: a circle with a two-stop linear gradient and a `position` moved by 100
       pixels between two renders, asserting the two frames are equal under that shift.
-- [ ] Add a Metal parity case for the first scene in `tests/canvas/rt_canvas_metal.rs`.
-- [ ] `src/docs/spec/app/06_canvas.md`: add "Placement" under "Coordinates and angles"
+      → `placement_a_clipped_gradient_shape_moves_whole_with_its_position`: gradient and clip, 40,000 pixels compared exactly under a 100 px shift.
+- [x] Add a Metal parity case for the first scene in `tests/canvas/rt_canvas_metal.rs`.
+      → `shapes_turned_about_their_position_match_the_software_oracle`; `cargo test --test rt_canvas_metal` → `46 passed`.
+- [x] `src/docs/spec/app/06_canvas.md`: add "Placement" under "Coordinates and angles"
       stating the rule and the pivot, with `[[…:__canvas_placement]]`.
+      → `### Placement`, citing `TRANSFORM_ACTIVE`, `PLACEMENT`, `PLACED_PAINT` and `clip_point`.
 
 Acceptance: the pivot is the reference point, and a clipped or gradient-filled shape
 moves whole when only `position` changes.
@@ -218,6 +231,43 @@ None beyond 172-A's Open Decision 1.
 
 ## Corrections
 
+- **Phase 1's unit tests are rasteriser cases.** `cargo test --bin mfb canvas_placement`
+  cannot exist: the bin tests lower programs and never run them, and
+  `__canvas_placement` is MFBASIC inside the package, callable from no test. Its three
+  cases are proved by what they draw — `placement_*` in `rt_canvas_rasteriser.rs` —
+  which is a stronger check than the one named, and they landed with Phase 2 because
+  the helper is unreachable until a record has a `position`.
+- **The three phases landed as one commit**, for the reason 172-C's did.
+- **The offset is an argument of `__canvas_paintHeader`, for every kind.** §3 had each
+  builder offset its own clip and gradient points. One place is fewer chances to
+  disagree, and it had to cover the unpositioned kinds too: the native builder adds the
+  offset to every clip point unconditionally, `-0.0 + 0.0` is `+0.0`, and a builder
+  that skipped the add for a zero offset would differ from it in a sign bit.
+- **A gradient's points are moved only when it has two stops.** With fewer it is not a
+  gradient, and the native builder — which takes exactly those items — copies the raw
+  points into the header as it always did.
+- **`clip` and gradient points had to be made local at the sites, which §3 did not
+  say.** Moving the points at build time means every existing clip ring and gradient
+  point on these four kinds was `position` too far out. Five tests failed and named
+  them (`a_clip_cuts_a_circle_in_half`, `a_clip_larger_than_the_item_changes_nothing`,
+  `a_radial_gradient_runs_outward_from_its_centre`, and the two gradient goldens);
+  seven more sites that no exact-pixel test covers were found by listing every
+  positioned constructor with its paint (`/tmp/plan-172-A/list_d_paints.py`).
+  `canvas_geo_native_matrix.mfb` was left alone: it compares the two builders' records,
+  not a picture, and a clip that is now offset exercises the new path.
+- **Transformed sites not at the origin: 15 listed, 6 rewritten.** A 2× scale of a
+  circle at (150, 150) gained the translation (150, 150); a quarter-turned text at
+  (40, 60) went from translation (500, 100) to (400, 80); three shapes in
+  `transformed_shapes_on_black.mfb` and the turned-ellipse test lost a translation that
+  existed only to pivot about their own centre. The other 9 carry a transform that is
+  all-zero at run time. The 17 ellipse rotations 172-C wrote became plain rotations.
+- **Every program that builds one of the four needs `IMPORT vector`.** 75 import blocks
+  gained it (`/tmp/plan-172-A/add_vector_import.py`); 19 font tests failed to build
+  until they did.
+- **The examples were ported by a sub-agent** (the `canvas-demo` kit's helpers take
+  paints in surface coordinates and now localize them; its `placed` and `restyleItem`
+  account for the pivot). They build; they are not pixel-tested.
+- **No reference image changed.** `git status --porcelain tests/golden/canvas` is empty.
 - **From 172-A, Open Decision 1:** no constructor functions. The task is struck as moot
   and replaced by a task that shows the `MUT` + `WITH` idiom in the three records'
   examples; §1, §3 and Compatibility are corrected to match.

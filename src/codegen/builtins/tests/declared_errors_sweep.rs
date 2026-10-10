@@ -229,10 +229,10 @@ const PROGRAM_FIXTURES: &[(&str, &str, crate::target::NativeBuildMode)] = &[
     ),
     (
         "canvas",
-        "IMPORT app\nIMPORT canvas\nIMPORT color\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\n\n\
          FUNC main() AS Integer\n  app::setMode(app::Mode.Canvas)\n  \
          LET c AS color::Color = color::rgb(10, 20, 30)\n  \
-         canvas::present([canvas::Circle[id := \"\", x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
+         canvas::present([canvas::Circle[id := \"\", position := vector::Float2[x := 1.0, y := 2.0], radius := 3.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
          RETURN 0\nEND FUNC\n",
         crate::target::NativeBuildMode::MacApp,
     ),

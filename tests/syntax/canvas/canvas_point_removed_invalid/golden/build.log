@@ -1,14 +1,14 @@
 $ mfb build -ast -ir tests/syntax/canvas/canvas_point_removed_invalid
-  21 | FUNC main AS Integer
-  22 |   app::setMode(app::Mode.Canvas)
-  23 |   LET corner AS canvas::Point = canvas::Point[x := 1.0, y := 2.0]
+  22 | FUNC main AS Integer
+  23 |   app::setMode(app::Mode.Canvas)
+  24 |   LET corner AS canvas::Point = canvas::Point[x := 1.0, y := 2.0]
      | ^
-tests/syntax/canvas/canvas_point_removed_invalid/src/main.mfb:23 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+tests/syntax/canvas/canvas_point_removed_invalid/src/main.mfb:24 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
                Built-in package `canvas` does not export `canvas.Point`.
-  21 | FUNC main AS Integer
-  22 |   app::setMode(app::Mode.Canvas)
-  23 |   LET corner AS canvas::Point = canvas::Point[x := 1.0, y := 2.0]
+  22 | FUNC main AS Integer
+  23 |   app::setMode(app::Mode.Canvas)
+  24 |   LET corner AS canvas::Point = canvas::Point[x := 1.0, y := 2.0]
      | ^
-tests/syntax/canvas/canvas_point_removed_invalid/src/main.mfb:23 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+tests/syntax/canvas/canvas_point_removed_invalid/src/main.mfb:24 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
                Built-in package `canvas` does not export `canvas.Point`.
 [exit 1]

@@ -41,6 +41,7 @@ list rather than failing."#;
 const LIST_EX: &str = r#"```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing
@@ -85,6 +86,7 @@ const LOAD_EX: &str = r#"Draw with the first font this machine lists, or say the
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT io
@@ -97,7 +99,7 @@ FUNC main() AS Nothing
     RETURN
   END IF
   RES face AS canvas::Font = canvas::loadSystemFont(collections::getOr(names, 0, ""))
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 20.0, y := 60.0, text := "hello", font := face, size := 32.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 20.0, y := 60.0], text := "hello", font := face, fontSize := 32.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 ```
@@ -107,6 +109,7 @@ A name the machine does not have is `ErrNotFound`:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing

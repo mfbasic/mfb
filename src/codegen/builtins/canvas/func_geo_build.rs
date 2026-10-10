@@ -460,6 +460,54 @@ fn put_field(
 struct PaintView {
     paint: VirtualRegister,
     paint_type: ParameterType,
+    /// plan-172-D: two frame slots holding the item's build offset as doubles —
+    /// where its record puts the local origin. `paint.clip` is in local space, so
+    /// every clip point is read through [`clip_point`], which adds it. A kind that
+    /// is not positioned yet stores zeros; the add still happens, as it does in
+    /// `__canvas_placedClip`, so the two builders agree on a `-0.0` coordinate.
+    offset: (usize, usize),
+}
+
+/// The clip point at `q`, moved by the view's build offset: `(q.x + ox, q.y + oy)`.
+fn clip_point(
+    builder: &mut CodeBuilder,
+    view: &PaintView,
+    q: &VirtualRegister,
+    xo: usize,
+    yo: usize,
+) -> (VirtualRegister, VirtualRegister) {
+    let x = fload(builder, q, xo);
+    let y = fload(builder, q, yo);
+    let ox = builder.temporary_fp_vreg();
+    let oy = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(&ox, abi::stack_pointer(), view.offset.0));
+    builder.emit(abi::load_double(&oy, abi::stack_pointer(), view.offset.1));
+    (fadd(builder, &x, &ox), fadd(builder, &y, &oy))
+}
+
+/// Fill the build-offset slots for an item of `kind` at `rec`: a circle's is its
+/// `position` (the native builder only takes an item whose transform is all-zero, so
+/// it is always built at its position); every kind not positioned yet has none.
+fn emit_build_offset(
+    builder: &mut CodeBuilder,
+    kind: Kind,
+    rec: &VirtualRegister,
+    record: &ParameterType,
+    offset: (usize, usize),
+) -> Result<(), String> {
+    if kind == Kind::Circle {
+        let position = builder.temporary_vreg();
+        let position_type = emit_field_block(builder, &position, rec, record, "position")?;
+        let x = fload(builder, &position, scalar_offset(builder, &position_type, "x")?);
+        let y = fload(builder, &position, scalar_offset(builder, &position_type, "y")?);
+        builder.emit(abi::store_double(&x, abi::stack_pointer(), offset.0));
+        builder.emit(abi::store_double(&y, abi::stack_pointer(), offset.1));
+    } else {
+        let zero = fconst(builder, 0.0);
+        builder.emit(abi::store_double(&zero, abi::stack_pointer(), offset.0));
+        builder.emit(abi::store_double(&zero, abi::stack_pointer(), offset.1));
+    }
+    Ok(())
 }
 
 /// `__canvas_strokeHalf(paint)`: `-1.0` when the stroke's alpha is 0 or the width is
@@ -599,8 +647,7 @@ fn emit_clip_shape(builder: &mut CodeBuilder, view: &PaintView) -> Result<ClipSh
         builder.emit(abi::move_immediate(&idx, "Integer", &k.to_string()));
         let q = builder.temporary_vreg();
         emit_list_element(builder, &q, &list, &idx);
-        let x = fload(builder, &q, xo);
-        let y = fload(builder, &q, yo);
+        let (x, y) = clip_point(builder, view, &q, xo, yo);
         builder.emit(abi::float_move_d_from_d(&xs[k], &x));
         builder.emit(abi::float_move_d_from_d(&ys[k], &y));
     }
@@ -742,10 +789,8 @@ fn emit_clip_edges(
         builder.emit(abi::label(&wrap));
         emit_list_element(builder, &a, list, &i);
         emit_list_element(builder, &b, list, &j);
-        let ax = fload(builder, &a, xo);
-        let ay = fload(builder, &a, yo);
-        let bx = fload(builder, &b, xo);
-        let by = fload(builder, &b, yo);
+        let (ax, ay) = clip_point(builder, view, &a, xo, yo);
+        let (bx, by) = clip_point(builder, view, &b, xo, yo);
         let dx = fsub(builder, &bx, &ax);
         let dy = fsub(builder, &by, &ay);
         let len_sq = fused_len_sq(builder, &dx, &dy);
@@ -849,8 +894,7 @@ fn emit_paint_header(
         builder.emit(abi::compare_registers(&i, n));
         builder.emit(abi::branch_ge(&done));
         emit_list_element(builder, &q, list, &i);
-        let x = fload(builder, &q, xo);
-        let y = fload(builder, &q, yo);
+        let (x, y) = clip_point(builder, view, &q, xo, yo);
         builder.emit(abi::compare_immediate(&seen, "0"));
         builder.emit(abi::branch_ne(&seeded));
         builder.emit(abi::float_move_d_from_d(&bounds[0], &x));
@@ -2103,8 +2147,12 @@ fn fill_circle(
     done: &str,
 ) -> Result<(), String> {
     let empty = builder.label("canvas_geo_circle_empty");
-    let x = fload(builder, rec, scalar_offset(builder, record, "x")?);
-    let y = fload(builder, rec, scalar_offset(builder, record, "y")?);
+    // plan-172-D: the centre is `position`; the transform is all-zero here, so the
+    // circle is built at it.
+    let position = builder.temporary_vreg();
+    let position_type = emit_field_block(builder, &position, rec, record, "position")?;
+    let x = fload(builder, &position, scalar_offset(builder, &position_type, "x")?);
+    let y = fload(builder, &position, scalar_offset(builder, &position_type, "y")?);
     let radius = fload(builder, rec, scalar_offset(builder, record, "radius")?);
     branch_if_not_positive(builder, &radius, &empty);
     put_const(builder, out, 0, KIND_CIRCLE);
@@ -2958,6 +3006,10 @@ pub(super) fn emit_record_size(
     builder.emit(abi::add_immediate(&rec, item, 16));
     let unsupported = builder.label("canvas_geo_unsupported");
     let sized = builder.label("canvas_geo_sized");
+    let offset = (
+        builder.allocate_stack_object("canvas_geo_size_ox", 8),
+        builder.allocate_stack_object("canvas_geo_size_oy", 8),
+    );
     let size_labels: Vec<String> = kinds
         .iter()
         .map(|_| builder.label("canvas_geo_size_kind"))
@@ -2971,9 +3023,11 @@ pub(super) fn emit_record_size(
         builder.emit(abi::label(label));
         let paint = builder.temporary_vreg();
         emit_field_block(builder, &paint, &rec, record, "paint")?;
+        emit_build_offset(builder, *kind, &rec, record, offset)?;
         let view = PaintView {
             paint,
             paint_type: paint_type.clone(),
+            offset,
         };
         emit_paint_supported(builder, &view, &rec, record, &unsupported)?;
         builder.emit(abi::move_immediate(n, "Integer", &GEO_HEADER.to_string()));
@@ -3202,6 +3256,12 @@ pub(super) fn emit_fill_record(
     }
     // plan-163-C: the item's paint, for its path-clip edges once the kind is written.
     let paint_slot = builder.allocate_stack_object("canvas_geo_fill_paint", 8);
+    // plan-172-D: the item's build offset, filled by its kind's arm and read by every
+    // clip point after it, the path-clip edges written past `done` included.
+    let offset = (
+        builder.allocate_stack_object("canvas_geo_fill_ox", 8),
+        builder.allocate_stack_object("canvas_geo_fill_oy", 8),
+    );
     let tag = builder.temporary_vreg();
     let rec = builder.temporary_vreg();
     builder.emit(abi::load_u64(&tag, item, 0));
@@ -3220,9 +3280,11 @@ pub(super) fn emit_fill_record(
         let paint = builder.temporary_vreg();
         emit_field_block(builder, &paint, &rec, record, "paint")?;
         builder.emit(abi::store_u64(&paint, abi::stack_pointer(), paint_slot));
+        emit_build_offset(builder, *kind, &rec, record, offset)?;
         let view = PaintView {
             paint,
             paint_type: paint_type.clone(),
+            offset,
         };
         match kind {
             Kind::Rect => fill_rect(builder, out, &rec, record, &view, false, &done)?,
@@ -3247,9 +3309,11 @@ pub(super) fn emit_fill_record(
     builder.emit(abi::branch_ne(&clipped));
     let paint = builder.temporary_vreg();
     builder.emit(abi::load_u64(&paint, abi::stack_pointer(), paint_slot));
+    // The offset slots still hold what this item's own arm stored.
     let view = PaintView {
         paint,
         paint_type: paint_type.clone(),
+        offset,
     };
     let cursor = emit_record_end(builder, out);
     emit_clip_edges(builder, out, &view, &cursor)?;

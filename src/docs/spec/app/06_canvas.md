@@ -119,6 +119,44 @@ are written as the identity rotation, 1 and 0.
 renders identically to the `Circle` of that radius, so squashing a circle does not mean
 changing item type.
 
+### Placement
+
+`Circle`, `Ellipse`, `Arc` and `Text` are placed by `position`: the centre for the first
+three, the left end of the baseline for text. Their geometry is **local** — it has its
+origin at that reference point — and a local point `p` reaches the surface at
+
+    position + transform(p)
+
+before any enclosing group's translation. So the transform **pivots about the reference
+point**: a rotation turns a circle, an ellipse or an arc about its centre and a text
+about the start of its baseline; and `transform.tx` / `ty` add to `position`. (The other
+shapes are not yet placed this way and are still transformed about the surface origin.)
+
+`paint.clip` rings and a gradient's `startPoint` and `endPoint` are in the same local
+space, so a shape moves whole when only its `position` changes — its clip and its ramp
+go with it. `focalOffset` was always an offset from `startPoint` and is unchanged.
+
+The builders do not apply that formula uniformly, and the difference is not observable:
+
+* **A transform that is not in effect** — all-zero, or with no area (`|a·d − b·c| <
+  1e-12`), the two cases that are the identity — builds the shape **at** `position`.
+  The geometry record holds surface coordinates, the clip rings and gradient points
+  have `position` added as the record is built, and `hasTransform` stays 0. This is the
+  record an item at those surface coordinates has always had, so it keeps the native
+  builder, the rectangular clip and direct antialiasing.
+  [[src/codegen/builtins/canvas/helper_paint_defaults.rs:TRANSFORM_ACTIVE]]
+* **A transform in effect** builds the shape at the local origin, leaves the clip and
+  gradient points local, and carries all of it by the affine with the transform's linear
+  part and the translation `position + (tx, ty)`.
+  [[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACEMENT]]
+
+Building every positioned shape the second way would send each one down the transformed
+path to draw the same pixels. The native builder takes only items whose transform is
+all-zero, so for it the offset is always `position`; it adds that to every clip point,
+as the MFBASIC builder does, including when it is zero.
+[[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:clip_point]]
+
 ## Rendering conventions
 
 These are the observable contract a backend must meet, not implementation notes.
@@ -948,7 +986,7 @@ program does not close it:
 ```
 FUNC installPanel() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", font := face, fontSize := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [label])
 END FUNC
 ```

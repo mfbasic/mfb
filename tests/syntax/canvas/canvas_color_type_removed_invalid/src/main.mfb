@@ -26,11 +26,12 @@
 ' is refused.
 IMPORT app
 IMPORT canvas
+IMPORT vector
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   LET ink AS canvas::Color = canvas::Color[red := toByte(1), green := toByte(2), blue := toByte(3), alpha := toByte(255)]
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 8.0, y := 8.0, radius := 4.0, paint := canvas::fill(ink), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 8.0, y := 8.0], radius := 4.0, paint := canvas::fill(ink), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([dot])
   RETURN 0
 END FUNC

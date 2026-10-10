@@ -1,8 +1,8 @@
 $ mfb build -ast -ir tests/syntax/canvas/canvas_color_surface_removed_invalid
-  36 | FUNC main AS Integer
-  37 |   app::setMode(app::Mode.Canvas)
-  38 |   LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 8.0, y := 8.0, radius := 4.0, paint := canvas::fill(canvas::rgb(1, 2, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  37 | FUNC main AS Integer
+  38 |   app::setMode(app::Mode.Canvas)
+  39 |   LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 8.0, y := 8.0], radius := 4.0, paint := canvas::fill(canvas::rgb(1, 2, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
      | ^
-tests/syntax/canvas/canvas_color_surface_removed_invalid/src/main.mfb:38 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+tests/syntax/canvas/canvas_color_surface_removed_invalid/src/main.mfb:39 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
                Built-in package `canvas` does not export `canvas.rgb`.
 [exit 1]

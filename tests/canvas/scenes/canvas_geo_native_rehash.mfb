@@ -23,7 +23,7 @@ FUNC scene(frame AS Integer, grown AS Boolean) AS List OF canvas::DrawItem
     items = collections::append(items, box)
     i = i + 1
   END WHILE
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := toFloat(frame) * 4.0 + 10.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := toFloat(frame) * 4.0 + 10.0, y := 300.0], radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, dot)
   RETURN items
 END FUNC

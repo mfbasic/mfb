@@ -12,16 +12,17 @@
 ' THE MIGRATION: add `IMPORT vector` and write `vector::Float2`. It has the same
 ' two `Float` fields, `x` and `y`, in the same order.
 '
-' Do not "fix" this fixture by importing `vector`. The point is that the OLD
-' spelling is refused.
+' `vector` is imported because the circle below needs a real `vector::Float2` for
+' its `position`. The point is that the OLD spelling is still refused beside it.
 IMPORT app
 IMPORT canvas
 IMPORT color
+IMPORT vector
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   LET corner AS canvas::Point = canvas::Point[x := 1.0, y := 2.0]
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := corner.x, y := corner.y, radius := 4.0, paint := canvas::fill(color::rgb(1, 2, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 1.0, y := 2.0], radius := 4.0, paint := canvas::fill(color::rgb(1, 2, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([dot])
   RETURN 0
 END FUNC

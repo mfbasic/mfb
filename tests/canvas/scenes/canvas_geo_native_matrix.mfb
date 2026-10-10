@@ -87,11 +87,11 @@ FUNC shapes(p AS canvas::Paint, t AS canvas::Transform) AS List OF canvas::DrawI
   LET q3 AS canvas::DrawItem = canvas::RoundedRect[id := "", x := 10.0, y := 10.0, w := 40.0, h := 20.0, cornerRadius := 0.0 - 3.0, paint := p, transform := t]
   LET q4 AS canvas::DrawItem = canvas::RoundedRect[id := "", x := 0.0 - 3.3, y := 7.7, w := 0.5, h := 8.25, cornerRadius := 0.2, paint := p, transform := t]
   LET q5 AS canvas::DrawItem = canvas::RoundedRect[id := "", x := 1.0, y := 1.0, w := 0.0, h := 8.0, cornerRadius := 2.0, paint := p, transform := t]
-  LET c1 AS canvas::DrawItem = canvas::Circle[id := "", x := 100.5, y := 50.25, radius := 20.0, paint := p, transform := t]
-  LET c2 AS canvas::DrawItem = canvas::Circle[id := "", x := 0.0 - 7.0, y := 0.0 - 8.0, radius := 0.5, paint := p, transform := t]
-  LET c3 AS canvas::DrawItem = canvas::Circle[id := "", x := 300000.0, y := 1.5, radius := 12345.678, paint := p, transform := t]
-  LET c4 AS canvas::DrawItem = canvas::Circle[id := "", x := 3.0, y := 3.0, radius := 0.0, paint := p, transform := t]
-  LET c5 AS canvas::DrawItem = canvas::Circle[id := "", x := 3.0, y := 3.0, radius := 0.0 - 1.0, paint := p, transform := t]
+  LET c1 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.5, y := 50.25], radius := 20.0, paint := p, transform := t]
+  LET c2 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0 - 7.0, y := 0.0 - 8.0], radius := 0.5, paint := p, transform := t]
+  LET c3 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 300000.0, y := 1.5], radius := 12345.678, paint := p, transform := t]
+  LET c4 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 3.0, y := 3.0], radius := 0.0, paint := p, transform := t]
+  LET c5 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 3.0, y := 3.0], radius := 0.0 - 1.0, paint := p, transform := t]
   LET l1 AS canvas::DrawItem = canvas::Line[id := "", x1 := 1.0, y1 := 2.0, x2 := 300.0, y2 := 200.0, paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
   LET l2 AS canvas::DrawItem = canvas::Line[id := "", x1 := 1.0, y1 := 2.0, x2 := 300.0, y2 := 200.0, paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
   LET l3 AS canvas::DrawItem = canvas::Line[id := "", x1 := 5.0, y1 := 5.0, x2 := 5.0, y2 := 5.0, paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
@@ -166,9 +166,9 @@ FUNC main() AS Nothing
   LET moved AS canvas::DrawItem = canvas::Rectangle[id := "", x := 1.0, y := 2.0, w := 3.0, h := 4.0, paint := canvas::fill(color::rgb(1, 2, 3)), transform := t]
   LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 10.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   LET gradPaint AS canvas::Paint = WITH canvas::fill(color::rgb(1, 2, 3)) { gradient := grad }
-  LET ramp AS canvas::DrawItem = canvas::Circle[id := "", x := 50.0, y := 50.0, radius := 9.0, paint := gradPaint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET oval AS canvas::DrawItem = canvas::Ellipse[id := "", x := 40.0, y := 40.0, radiusX := 10.0, radiusY := 5.0, paint := canvas::fill(color::rgb(9, 9, 9)), transform := canvas::Transform[a := math::cos(0.5), b := math::sin(0.5), c := 0.0 - math::sin(0.5), d := math::cos(0.5), tx := (40.0) - (math::cos(0.5) * (40.0) - math::sin(0.5) * (40.0)), ty := (40.0) - (math::sin(0.5) * (40.0) + math::cos(0.5) * (40.0))]]
-  LET bow AS canvas::DrawItem = canvas::Arc[id := "", x := 40.0, y := 40.0, radius := 10.0, startAngle := 0.0, endAngle := 2.0, paint := WITH canvas::stroke(color::rgb(9, 9, 9), 2.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET ramp AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 50.0, y := 50.0], radius := 9.0, paint := gradPaint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET oval AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 40.0, y := 40.0], radiusX := 10.0, radiusY := 5.0, paint := canvas::fill(color::rgb(9, 9, 9)), transform := canvas::Transform[a := math::cos(0.5), b := math::sin(0.5), c := 0.0 - math::sin(0.5), d := math::cos(0.5), tx := 0.0, ty := 0.0]]
+  LET bow AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 40.0, y := 40.0], radius := 10.0, startAngle := 0.0, endAngle := 2.0, paint := WITH canvas::stroke(color::rgb(9, 9, 9), 2.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([moved, ramp, oval, bow])
   io::print("rendered")
 END FUNC

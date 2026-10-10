@@ -10,6 +10,7 @@
 
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT datetime
@@ -247,7 +248,7 @@ FUNC quitPressed AS Boolean
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, text AS String, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, font := face, fontSize := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC main AS Integer

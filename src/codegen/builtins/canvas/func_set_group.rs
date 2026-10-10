@@ -66,12 +66,13 @@ const EX: &str = r#"A panel installed once and drawn at two positions:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET body AS canvas::DrawItem = canvas::RoundedRect[id := "", x := 0.0, y := 0.0, w := 160.0, h := 90.0, cornerRadius := 12.0, paint := canvas::fillStroke(color::rgb(40, 60, 90), color::rgb(120, 170, 230), 3.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 24.0, y := 24.0, radius := 8.0, paint := canvas::fill(color::rgb(255, 200, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 24.0, y := 24.0], radius := 8.0, paint := canvas::fill(color::rgb(255, 200, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [body, dot])
 
   LET left AS canvas::DrawItem = canvas::Group[dx := 40.0, dy := 40.0, name := "panel"]
@@ -86,6 +87,7 @@ exactly what it was handed before — the redraw happens because the group chang
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT os
 
@@ -93,12 +95,12 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "light"]
 
-  LET off AS canvas::DrawItem = canvas::Circle[id := "", x := 0.0, y := 0.0, radius := 30.0, paint := canvas::fill(color::rgb(60, 60, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET off AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 30.0, paint := canvas::fill(color::rgb(60, 60, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("light", [off])
   canvas::present([node])
   os::sleep(500)
 
-  LET on AS canvas::DrawItem = canvas::Circle[id := "", x := 0.0, y := 0.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 220, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET on AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 220, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("light", [on])
   canvas::present([node])
 END FUNC

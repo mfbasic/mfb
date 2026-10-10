@@ -4,6 +4,7 @@
 ' shows, and sceneFor lays the sprites out in draw order.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -226,7 +227,7 @@ FUNC playerFigure(v AS View, c AS ViewCell) AS List OF canvas::DrawItem
   LET s AS Float = v.scale
   LET cx AS Float = spriteX(v, c) + tileWidth() / 2.0 * s
   LET cy AS Float = spriteY(v, c) + floorCentreY() * s
-  RETURN [canvas::Ellipse[id := "", x := cx, y := cy, radiusX := 44.0 * s, radiusY := 22.0 * s, paint := canvas::fill(color::rgba(0, 0, 0, 110)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Ellipse[id := "", x := cx, y := cy - 40.0 * s, radiusX := 30.0 * s, radiusY := 44.0 * s, paint := canvas::fill(color::rgb(190, 40, 36)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Circle[id := "", x := cx, y := cy - 100.0 * s, radius := 24.0 * s, paint := canvas::fill(color::rgb(236, 196, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+  RETURN [canvas::Ellipse[id := "", position := vector::Float2[x := cx, y := cy], radiusX := 44.0 * s, radiusY := 22.0 * s, paint := canvas::fill(color::rgba(0, 0, 0, 110)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Ellipse[id := "", position := vector::Float2[x := cx, y := cy - 40.0 * s], radiusX := 30.0 * s, radiusY := 44.0 * s, paint := canvas::fill(color::rgb(190, 40, 36)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Circle[id := "", position := vector::Float2[x := cx, y := cy - 100.0 * s], radius := 24.0 * s, paint := canvas::fill(color::rgb(236, 196, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
 END FUNC
 
 ' Whether a wall piece would hide the player, who stands in view cell p: a

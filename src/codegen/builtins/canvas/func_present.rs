@@ -46,6 +46,7 @@ a list literal does not span source lines:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -53,11 +54,11 @@ FUNC main() AS Nothing
   LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET green AS color::Color = color::rgb(0, 160, 0)
 
-  LET face AS canvas::DrawItem = canvas::Circle[id := "", x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET eyeL AS canvas::DrawItem = canvas::Circle[id := "", x := 150.0, y := 160.0, radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET eyeR AS canvas::DrawItem = canvas::Circle[id := "", x := 250.0, y := 160.0, radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET face AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 200.0, y := 200.0], radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeL AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 150.0, y := 160.0], radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeR AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 250.0, y := 160.0], radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' 0 -> PI sweeps downward under a Y-down origin, so this is a smile.
-  LET smile AS canvas::DrawItem = canvas::Arc[id := "", x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET smile AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 200.0, y := 215.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([face, eyeL, eyeR, smile])
 END FUNC
@@ -65,20 +66,21 @@ END FUNC
 
 The eyes as ellipses instead, half-closed and tilted — the case a `canvas::Circle`
 cannot express and a `canvas::Polygon` would only approximate. Each is turned by its
-`transform`: a rotation, clockwise from +X, about the eye's own centre, so the two lean
-towards each other. A transform turns about the surface origin, which is why `turnAbout`
-adds the translation that puts the centre back where it was:
+`transform`: a rotation, clockwise from +X. A transform turns a shape about its
+`position`, which for an ellipse is its centre, so the two eyes lean towards each other
+without moving:
 
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT math
 
-FUNC turnAbout(angle AS Float, cx AS Float, cy AS Float) AS canvas::Transform
+FUNC turn(angle AS Float) AS canvas::Transform
   LET co AS Float = math::cos(angle)
   LET si AS Float = math::sin(angle)
-  RETURN canvas::Transform[a := co, b := si, c := 0.0 - si, d := co, tx := cx - (co * cx - si * cy), ty := cy - (si * cx + co * cy)]
+  RETURN canvas::Transform[a := co, b := si, c := 0.0 - si, d := co, tx := 0.0, ty := 0.0]
 END FUNC
 
 FUNC main() AS Nothing
@@ -86,10 +88,10 @@ FUNC main() AS Nothing
   LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET green AS color::Color = color::rgb(0, 160, 0)
 
-  LET face AS canvas::DrawItem = canvas::Circle[id := "", x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET eyeL AS canvas::DrawItem = canvas::Ellipse[id := "", x := 150.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, paint := canvas::fill(green), transform := turnAbout(0.0 - 0.35, 150.0, 160.0)]
-  LET eyeR AS canvas::DrawItem = canvas::Ellipse[id := "", x := 250.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, paint := canvas::fill(green), transform := turnAbout(0.35, 250.0, 160.0)]
-  LET smile AS canvas::DrawItem = canvas::Arc[id := "", x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET face AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 200.0, y := 200.0], radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeL AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 150.0, y := 160.0], radiusX := 30.0, radiusY := 12.0, paint := canvas::fill(green), transform := turn(0.0 - 0.35)]
+  LET eyeR AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 250.0, y := 160.0], radiusX := 30.0, radiusY := 12.0, paint := canvas::fill(green), transform := turn(0.35)]
+  LET smile AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 200.0, y := 215.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([face, eyeL, eyeR, smile])
 END FUNC

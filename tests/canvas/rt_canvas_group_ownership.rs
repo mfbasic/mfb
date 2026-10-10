@@ -27,13 +27,14 @@ use std::process::Command;
 /// closes the font here and the group's text draws no glyphs.
 const DROPS_ITS_BINDING: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC install() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
 END FUNC
 
@@ -49,6 +50,7 @@ END FUNC
 /// group is drawn while the caller still owns the font either way.
 const KEEPS_ITS_BINDING: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main AS Integer
@@ -56,7 +58,7 @@ FUNC main AS Integer
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN 1
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
   canvas::present([canvas::Group[name := "held", dx := 0.0, dy := 0.0]])
   RETURN 0
@@ -152,6 +154,7 @@ fn field(stats: &str, name: &str) -> u64 {
 /// it is why the free path closes only what no LIVE buffer names.
 const REBUILDS_EACH_FRAME: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main AS Integer
@@ -160,7 +163,7 @@ FUNC main AS Integer
     RETURN 1
   END TRAP
   FOR i = 1 TO 6
-    LET tag AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::setGroup("panel", [tag])
     canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[id := "", x := 0.0, y := toFloat(i), w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   NEXT
@@ -178,6 +181,7 @@ END FUNC
 /// file descriptor to watch.
 const REPLACED_THEN_DROPPED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
@@ -226,6 +230,7 @@ END FUNC
 /// replacing slot's.
 const GROUP_AND_SCENE_SHARE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
@@ -385,6 +390,7 @@ fn ownership_does_not_change_what_is_drawn() {
 /// point and `closed` at the second, which a close that fired early or never would break.
 const REMOVE_MID_FRAME: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT os
@@ -401,7 +407,7 @@ FUNC main AS Integer
   install(img)
 
   LET node AS canvas::DrawItem = canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]
-  LET mark AS canvas::DrawItem = canvas::Circle[id := "", x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET mark AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([mark, node])
 
   os::sleep(120)
@@ -446,12 +452,13 @@ END FUNC
 /// descriptor to watch either.
 const REMOVE_FONT_MID_FRAME: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT os
 
 FUNC install(face AS canvas::Font) AS Nothing
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [tag])
 END FUNC
 
@@ -464,7 +471,7 @@ FUNC main AS Integer
   install(face)
 
   LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := "panel"]
-  LET mark AS canvas::DrawItem = canvas::Circle[id := "", x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET mark AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([mark, node])
 
   os::sleep(120)
@@ -536,6 +543,7 @@ fn removing_a_group_mid_frame_keeps_the_font_until_the_frame_completes() {
 /// a green run that could not have failed.
 const CHURN_200: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 

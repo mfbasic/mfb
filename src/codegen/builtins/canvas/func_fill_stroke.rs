@@ -29,13 +29,14 @@ const EX: &str = r#"A filled circle with a contrasting outline:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET body AS color::Color = color::rgb(255, 220, 0)
   LET edge AS color::Color = color::rgb(80, 60, 0)
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.0, y := 100.0], radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([dot])
 END FUNC
 ```
@@ -48,6 +49,7 @@ apart from the transform, so the difference in the picture is the transform's al
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT math
 

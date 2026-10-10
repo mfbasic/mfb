@@ -72,7 +72,7 @@ fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (Strin
 /// A program body, wrapped in the canvas-mode boilerplate.
 fn program(body: &str) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n{body}END FUNC\n"
     )
 }
@@ -501,11 +501,11 @@ const FRAME_H: usize = 640;
 /// Build a picture program, run it headless with `env`, and return the last dumped frame.
 fn picture_frame(name: &str, body: &str, env: &[(&str, &str)]) -> Vec<u8> {
     let source = format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT os\n\nFUNC main() AS Nothing\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT os\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])\n  \
          LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+         LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
          {body}END FUNC\n"
     );
     let project = common::temp_project(name, &source);
@@ -580,7 +580,7 @@ fn the_frame_after_a_destroy_skips_the_picture() {
     let frame = picture_frame(
         "canvas_picture_r2",
         "  canvas::present([tile, mark])\n  os::sleep(120)\n  canvas::destroyImage(img)\n  os::sleep(1200)\n  \
-         LET moved AS canvas::DrawItem = canvas::Circle[id := \"\", x := 600.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET moved AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 600.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([tile, moved])\n  os::sleep(1200)\n",
         &[("MFB_CANVAS_FRAME_HOLD_MS", "600")],
     );
@@ -605,7 +605,7 @@ fn set_bytes_then_destroy_then_a_frame_draws_nothing() {
         "  canvas::present([tile, mark])\n  \
          canvas::setBytes(img, [toByte(0), toByte(0), toByte(255), toByte(255)])\n  \
          canvas::destroyImage(img)\n  \
-         LET moved AS canvas::DrawItem = canvas::Circle[id := \"\", x := 600.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET moved AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 600.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([tile, moved])\n",
         &[("MFB_CANVAS_SYNC", "1")],
     );

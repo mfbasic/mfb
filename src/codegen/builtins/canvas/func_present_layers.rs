@@ -40,6 +40,7 @@ backdrop's geometry untouched:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -48,7 +49,7 @@ FUNC main() AS Nothing
   LET dot AS color::Color = color::rgb(255, 200, 0)
 
   LET backdrop AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET marker AS canvas::DrawItem = canvas::Circle[id := "", x := 100.0, y := 150.0, radius := 12.0, paint := canvas::fill(dot), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET marker AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.0, y := 150.0], radius := 12.0, paint := canvas::fill(dot), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]
   LET front AS canvas::DrawLayer = canvas::DrawLayer[items := [marker]]

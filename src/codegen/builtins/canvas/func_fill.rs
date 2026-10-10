@@ -35,7 +35,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET yellow AS color::Color = color::rgb(255, 255, 0)
-  LET face AS canvas::DrawItem = canvas::Circle[id := "", x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET face AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 200.0, y := 200.0], radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([face])
 END FUNC
 ```
@@ -57,9 +57,10 @@ FUNC main() AS Nothing
   LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := ramp }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' The same stops, radial. `startPoint` is the centre and `endPoint` a point on the
-  ' outer circle, so this ramp is circular whatever shape it fills.
-  LET glow AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 200.0, y := 300.0], endPoint := vector::Float2[x := 290.0, y := 300.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET orb AS canvas::DrawItem = canvas::Circle[id := "", x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := glow }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  ' outer circle, so this ramp is circular whatever shape it fills. A circle's
+  ' gradient points are offsets from its `position`, so the centre is (0, 0).
+  LET glow AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 90.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET orb AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 200.0, y := 300.0], radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := glow }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([bar, orb])
 END FUNC

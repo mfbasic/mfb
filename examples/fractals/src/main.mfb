@@ -10,6 +10,7 @@
 
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT datetime
@@ -247,7 +248,7 @@ FUNC quitPressed AS Boolean
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, text AS String, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, font := face, fontSize := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC main AS Integer
@@ -296,7 +297,7 @@ FUNC main AS Integer
         LET b AS Rgb = palette(following, sampleAt(following, u * aspect, v, 1.0), phase)
         shown = mixRgb(a, b, fade)
       END IF
-      LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := (toFloat(column) + 0.5) * cellW, y := (toFloat(row) + 0.5) * cellH, radius := radius, paint := canvas::fill(color::rgb(shown.r, shown.g, shown.b)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := (toFloat(column) + 0.5) * cellW, y := (toFloat(row) + 0.5) * cellH], radius := radius, paint := canvas::fill(color::rgb(shown.r, shown.g, shown.b)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::set(scene, i + 1, dot)
     NEXT
 

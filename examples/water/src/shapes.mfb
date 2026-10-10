@@ -617,9 +617,9 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       LET points AS List OF vector::Float2 = [turnedPoint(s, -half, below), turnedPoint(s, half, below), turnedPoint(s, 0.0, -above)]
       RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     CASE ShapeKind.Circle
-      RETURN canvas::Circle[id := "", x := s.x, y := s.y, radius := CIRCLE_RADIUS * s.scale, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      RETURN canvas::Circle[id := "", position := vector::Float2[x := s.x, y := s.y], radius := CIRCLE_RADIUS * s.scale, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     CASE ShapeKind.Ellipse
-      RETURN canvas::Ellipse[id := "", x := s.x, y := s.y, radiusX := ELLIPSE_RADIUS_X * s.scale, radiusY := ELLIPSE_RADIUS_Y * s.scale, paint := paint, transform := canvas::Transform[a := math::cos(s.angle), b := math::sin(s.angle), c := 0.0 - math::sin(s.angle), d := math::cos(s.angle), tx := (s.x) - (math::cos(s.angle) * (s.x) - math::sin(s.angle) * (s.y)), ty := (s.y) - (math::sin(s.angle) * (s.x) + math::cos(s.angle) * (s.y))]]
+      RETURN canvas::Ellipse[id := "", position := vector::Float2[x := s.x, y := s.y], radiusX := ELLIPSE_RADIUS_X * s.scale, radiusY := ELLIPSE_RADIUS_Y * s.scale, paint := paint, transform := canvas::Transform[a := math::cos(s.angle), b := math::sin(s.angle), c := 0.0 - math::sin(s.angle), d := math::cos(s.angle), tx := 0.0, ty := 0.0]]
     CASE ShapeKind.Star
       MUT points AS List OF vector::Float2 = []
       FOR k = 0 TO STAR_POINTS * 2 - 1

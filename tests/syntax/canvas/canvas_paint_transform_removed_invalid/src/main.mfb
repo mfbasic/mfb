@@ -22,6 +22,7 @@
 IMPORT app
 IMPORT canvas
 IMPORT color
+IMPORT vector
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -29,7 +30,7 @@ FUNC main AS Integer
   LET ink AS canvas::Paint = canvas::fill(color::rgb(1, 2, 3))
   LET turned AS canvas::Paint = WITH ink { transform := none }
   LET seen AS canvas::Transform = ink.transform
-  LET egg AS canvas::DrawItem = canvas::Ellipse[id := "", x := 8.0, y := 8.0, radiusX := 4.0, radiusY := 2.0, angle := 0.5, paint := ink, transform := none]
+  LET egg AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 8.0, y := 8.0], radiusX := 4.0, radiusY := 2.0, angle := 0.5, paint := ink, transform := none]
   canvas::present([egg])
   RETURN 0
 END FUNC

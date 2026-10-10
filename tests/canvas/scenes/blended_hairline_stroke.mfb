@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' bug-735: a blended (Multiply) filled rectangle stroked 1e-5 px wide -- a half-width
@@ -17,7 +18,7 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET ground AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET blended AS canvas::DrawItem = canvas::Rectangle[id := "", x := 100.25, y := 100.5, w := 100.0, h := 50.0, paint := WITH canvas::fillStroke(color::rgb(250, 200, 100), color::rgb(20, 40, 200), 0.00001) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET after1 AS canvas::DrawItem = canvas::Circle[id := "", x := 500.0, y := 300.0, radius := 80.0, paint := canvas::fill(color::rgb(40, 200, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET after1 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 500.0, y := 300.0], radius := 80.0, paint := canvas::fill(color::rgb(40, 200, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET after2 AS canvas::DrawItem = canvas::Rectangle[id := "", x := 600.0, y := 450.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(220, 60, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([ground, blended, after1, after2])
 END FUNC

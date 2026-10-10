@@ -86,7 +86,7 @@ FUNC temperatureKey(face AS canvas::Font, size AS Float, left AS Float, top AS F
   LET height AS Float = barBottom + labelSize * 0.5 + pad - top
 
   MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[id := "", x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
-  LET heading AS canvas::DrawItem = canvas::Text[id := "", x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET heading AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8], text := title, font := face, fontSize := titleSize, paint := canvas::fill(KEY_TITLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET divider AS canvas::DrawItem = canvas::Line[id := "", x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, [heading, divider])
 
@@ -96,7 +96,7 @@ FUNC temperatureKey(face AS canvas::Font, size AS Float, left AS Float, top AS F
 
   FOR k = 0 TO len(HEAT_LABELS) - 1
     LET y AS Float = barBottom - heatPosition(collections::get(HEAT_DEGREES, k)) * barHeight
-    LET label AS canvas::DrawItem = canvas::Text[id := "", x := barLeft + barWidth + gap, y := y + labelSize * 0.35, text := collections::get(HEAT_LABELS, k), font := face, size := labelSize, paint := canvas::fill(KEY_LABEL_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := barLeft + barWidth + gap, y := y + labelSize * 0.35], text := collections::get(HEAT_LABELS, k), font := face, fontSize := labelSize, paint := canvas::fill(KEY_LABEL_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, label)
   NEXT
 

@@ -301,7 +301,11 @@ FUNC __canvas_gradientStopBase(offset AS Integer) AS Integer
   RETURN offset + length - count * 5
 END FUNC
 
-FUNC __canvas_paintHeader(h AS List OF Float, paint AS Paint, transform AS Transform) AS List OF Float
+FUNC __canvas_paintHeader(h AS List OF Float, rawPaint AS Paint, transform AS Transform, ox AS Float, oy AS Float) AS List OF Float
+  ' plan-172-D: `paint.clip` and a gradient's two points are in the shape's local
+  ' space, and (ox, oy) is where this record's geometry puts the local origin. Moved
+  ' once here, so everything below reads them in the geometry's own coordinates.
+  LET paint AS Paint = __canvas_placedPaint(rawPaint, ox, oy)
   MUT out AS List OF Float = h
   out = collections::set(out, 7, __canvas_strokeHalf(paint))
   out = collections::set(out, 8, toFloat(toInt(paint.fill.red)))
@@ -653,25 +657,25 @@ END FUNC
 FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
   MATCH item
     CASE Rectangle(r)
-      RETURN r.paint.clip
+      RETURN __canvas_placedClip(r.paint.clip, 0.0, 0.0)
     CASE RoundedRect(rr)
-      RETURN rr.paint.clip
+      RETURN __canvas_placedClip(rr.paint.clip, 0.0, 0.0)
     CASE Circle(c)
-      RETURN c.paint.clip
+      RETURN __canvas_placedClip(c.paint.clip, __canvas_buildX(c.position, c.transform), __canvas_buildY(c.position, c.transform))
     CASE Line(l)
-      RETURN l.paint.clip
+      RETURN __canvas_placedClip(l.paint.clip, 0.0, 0.0)
     CASE Arc(a)
-      RETURN a.paint.clip
+      RETURN __canvas_placedClip(a.paint.clip, __canvas_buildX(a.position, a.transform), __canvas_buildY(a.position, a.transform))
     CASE Polygon(p)
-      RETURN p.paint.clip
+      RETURN __canvas_placedClip(p.paint.clip, 0.0, 0.0)
     CASE Picture(pic)
-      RETURN pic.paint.clip
+      RETURN __canvas_placedClip(pic.paint.clip, 0.0, 0.0)
     CASE Ellipse(e)
-      RETURN e.paint.clip
+      RETURN __canvas_placedClip(e.paint.clip, __canvas_buildX(e.position, e.transform), __canvas_buildY(e.position, e.transform))
     CASE Text(t)
-      RETURN t.paint.clip
+      RETURN __canvas_placedClip(t.paint.clip, __canvas_buildX(t.position, t.transform), __canvas_buildY(t.position, t.transform))
     CASE PolyLine(pl)
-      RETURN pl.paint.clip
+      RETURN __canvas_placedClip(pl.paint.clip, 0.0, 0.0)
     CASE Group(g)
       RETURN []
   END MATCH
@@ -780,7 +784,7 @@ FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerR
   out = collections::set(out, 4, w / 2.0 - radius)
   out = collections::set(out, 5, h / 2.0 - radius)
   out = collections::set(out, 6, radius)
-  out = __canvas_paintHeader(out, paint, transform)
+  out = __canvas_paintHeader(out, paint, transform, 0.0, 0.0)
   LET pad AS Float = __canvas_strokePad(paint)
   RETURN __canvas_boundsHeader(out, x - pad, y - pad, x + w + pad, y + h + pad)
 END FUNC
@@ -839,7 +843,7 @@ FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Pai
   out = collections::set(out, 2, x)
   out = collections::set(out, 3, y)
   out = collections::set(out, 4, radius)
-  out = __canvas_paintHeader(out, paint, transform)
+  out = __canvas_paintHeader(out, paint, transform, x, y)
   LET reach AS Float = radius + __canvas_dashCapReach(__canvas_maxF(__canvas_strokeHalf(paint), 0.0), paint) + 1.0
   RETURN __canvas_boundsHeader(out, x - reach, y - reach, x + reach, y + reach)
 END FUNC
@@ -857,7 +861,32 @@ END FUNC
 ' Bounds: the axis-aligned hull of a rotated ellipse is
 ' `hx = sqrt((rx*cos)^2 + (ry*sin)^2)`, `hy = sqrt((rx*sin)^2 + (ry*cos)^2)` -- exact,
 ' and `sqrt`-only, so it costs the reproducibility rule nothing.
+FUNC __canvas_circleItem(c AS Circle) AS List OF Float
+  LET bx AS Float = __canvas_buildX(c.position, c.transform)
+  LET by AS Float = __canvas_buildY(c.position, c.transform)
+  RETURN __canvas_circleHeader(bx, by, c.radius, c.paint, __canvas_placement(c.position, c.transform))
+END FUNC
+
+' plan-172-D: a text's build origin and carried transform. The glyph run,
+' the outline edges and both headers each need them, so they are functions of the item
+' rather than four locals repeated in five builders.
+FUNC __canvas_textX(t AS Text) AS Float
+  RETURN __canvas_buildX(t.position, t.transform)
+END FUNC
+
+FUNC __canvas_textY(t AS Text) AS Float
+  RETURN __canvas_buildY(t.position, t.transform)
+END FUNC
+
+FUNC __canvas_textTransform(t AS Text) AS Transform
+  RETURN __canvas_placement(t.position, t.transform)
+END FUNC
+
 FUNC __canvas_ellipseHeader(e AS Ellipse) AS List OF Float
+  LET bx AS Float = __canvas_buildX(e.position, e.transform)
+  LET by AS Float = __canvas_buildY(e.position, e.transform)
+  LET placed AS Paint = e.paint
+  LET carried AS Transform = __canvas_placement(e.position, e.transform)
   IF e.radiusX <= 0.0 THEN
     RETURN __canvas_emptyHeader()
   END IF
@@ -871,21 +900,21 @@ FUNC __canvas_ellipseHeader(e AS Ellipse) AS List OF Float
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_ELLIPSE))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
-  out = collections::set(out, 2, e.x)
-  out = collections::set(out, 3, e.y)
+  out = collections::set(out, 2, bx)
+  out = collections::set(out, 3, by)
   out = collections::set(out, 4, e.radiusX)
   out = collections::set(out, 5, e.radiusY)
   out = collections::set(out, __CANVAS_GEO_ELLIPSE_COS, ca)
   out = collections::set(out, __CANVAS_GEO_ELLIPSE_SIN, sa)
-  out = __canvas_paintHeader(out, e.paint, e.transform)
-  LET pad AS Float = __canvas_dashCapReach(__canvas_maxF(__canvas_strokeHalf(e.paint), 0.0), e.paint) + 1.0
+  out = __canvas_paintHeader(out, placed, carried, bx, by)
+  LET pad AS Float = __canvas_dashCapReach(__canvas_maxF(__canvas_strokeHalf(placed), 0.0), placed) + 1.0
   LET ex AS Float = e.radiusX * ca
   LET ey AS Float = e.radiusY * sa
   LET fx AS Float = e.radiusX * sa
   LET fy AS Float = e.radiusY * ca
   LET hx AS Float = math::sqrt(ex * ex + ey * ey) + pad
   LET hy AS Float = math::sqrt(fx * fx + fy * fy) + pad
-  RETURN __canvas_boundsHeader(out, e.x - hx, e.y - hy, e.x + hx, e.y + hy)
+  RETURN __canvas_boundsHeader(out, bx - hx, by - hy, bx + hx, by + hy)
 END FUNC
 
 FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, cap AS Integer, paint AS Paint, transform AS Transform) AS List OF Float
@@ -902,14 +931,18 @@ FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, 
   out = collections::set(out, 5, y2)
   out = collections::set(out, 6, half)
   out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
-  out = __canvas_paintHeader(out, paint, transform)
+  out = __canvas_paintHeader(out, paint, transform, 0.0, 0.0)
   out = __canvas_strokeAsFill(out)
   LET pad AS Float = __canvas_capReach(half, cap) + 1.0
   RETURN __canvas_boundsHeader(out, __canvas_minF(x1, x2) - pad, __canvas_minF(y1, y2) - pad, __canvas_maxF(x1, x2) + pad, __canvas_maxF(y1, y2) + pad)
 END FUNC
 
 FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
-  LET half AS Float = __canvas_strokeHalf(a.paint)
+  LET bx AS Float = __canvas_buildX(a.position, a.transform)
+  LET by AS Float = __canvas_buildY(a.position, a.transform)
+  LET placed AS Paint = a.paint
+  LET carried AS Transform = __canvas_placement(a.position, a.transform)
+  LET half AS Float = __canvas_strokeHalf(placed)
   IF half <= 0.0 THEN
     RETURN __canvas_emptyHeader()
   END IF
@@ -919,26 +952,26 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_ARC))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
-  out = collections::set(out, 2, a.x)
-  out = collections::set(out, 3, a.y)
+  out = collections::set(out, 2, bx)
+  out = collections::set(out, 3, by)
   out = collections::set(out, 4, a.radius)
   out = collections::set(out, 6, half)
-  out = __canvas_paintHeader(out, a.paint, a.transform)
+  out = __canvas_paintHeader(out, placed, carried, bx, by)
   out = __canvas_strokeAsFill(out)
   out = collections::set(out, 20, a.startAngle)
   out = collections::set(out, 21, a.endAngle)
-  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(__canvas_capTag(a.paint.cap)))
+  out = collections::set(out, __CANVAS_GEO_CAP, toFloat(__canvas_capTag(placed.cap)))
   ' plan-116-D: the two sweep endpoints, in surface pixels. Per-shape constants, so
   ' they are computed ONCE here rather than per pixel in each of three renderers --
   ' which is the same reason the sweep vectors are turned into sin/cos here. The two
   ' extra multiply-adds ride on `__canvas_cos`/`__canvas_sin` calls the arc already
   ' makes, so a round-capped arc costs no extra transcendental.
-  out = collections::set(out, __CANVAS_GEO_CAPSTARTX, a.x + a.radius * __canvas_cos(a.startAngle))
-  out = collections::set(out, __CANVAS_GEO_CAPSTARTY, a.y + a.radius * __canvas_sin(a.startAngle))
-  out = collections::set(out, __CANVAS_GEO_CAPENDX, a.x + a.radius * __canvas_cos(a.endAngle))
-  out = collections::set(out, __CANVAS_GEO_CAPENDY, a.y + a.radius * __canvas_sin(a.endAngle))
-  LET reach AS Float = a.radius + __canvas_capReach(half, __canvas_capTag(a.paint.cap)) + 1.0
-  RETURN __canvas_boundsHeader(out, a.x - reach, a.y - reach, a.x + reach, a.y + reach)
+  out = collections::set(out, __CANVAS_GEO_CAPSTARTX, bx + a.radius * __canvas_cos(a.startAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPSTARTY, by + a.radius * __canvas_sin(a.startAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPENDX, bx + a.radius * __canvas_cos(a.endAngle))
+  out = collections::set(out, __CANVAS_GEO_CAPENDY, by + a.radius * __canvas_sin(a.endAngle))
+  LET reach AS Float = a.radius + __canvas_capReach(half, __canvas_capTag(placed.cap)) + 1.0
+  RETURN __canvas_boundsHeader(out, bx - reach, by - reach, bx + reach, by + reach)
 END FUNC
 
 ' plan-163-A: a polygon's rings. A ring of fewer than 2 points contributes no edge and
@@ -983,7 +1016,7 @@ FUNC __canvas_polygonHeader(rings AS List OF List OF vector::Float2, rule AS Fil
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYGON))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + count * 5))
-  out = __canvas_paintHeader(out, paint, transform)
+  out = __canvas_paintHeader(out, paint, transform, 0.0, 0.0)
   out = collections::set(out, 20, toFloat(count))
   IF rule = FillRule.NonZero THEN
     out = collections::set(out, __CANVAS_GEO_POLYGON_RULE, 1.0)
@@ -1073,7 +1106,7 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYLINE))
   out = collections::set(out, 6, half)
   out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
-  out = __canvas_paintHeader(out, p.paint, p.transform)
+  out = __canvas_paintHeader(out, p.paint, p.transform, 0.0, 0.0)
   out = __canvas_strokeAsFill(out)
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + (count - 1) * 5 + stops * 5))
   out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, toFloat(stops))
@@ -1272,7 +1305,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   IF upem <= 0 THEN
     RETURN []
   END IF
-  LET scale AS Float = t.size / toFloat(upem)
+  LET scale AS Float = t.fontSize / toFloat(upem)
   ' Shaped once, before pass one. The run is a plain local list of glyph ids and
   ' advances, and it holds no cache index, so the eviction pass one can trigger -- which
   ' renumbers entries, see below -- cannot make it stale.
@@ -1301,19 +1334,19 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
     ' `append(__CANVAS_GLYPH_PINS, __canvas_glyphEntry(...))` appends to whichever list
     ' the argument evaluation had already resolved, which is the one eviction just
     ' replaced.
-    LET entry AS Integer = __canvas_glyphEntry(b, font, gid, t.size, scale)
+    LET entry AS Integer = __canvas_glyphEntry(b, font, gid, t.fontSize, scale)
     __CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, entry)
     c = c + 1
   END WHILE
 
   ' Pass two reads the entries back, after any renumbering.
   MUT run AS List OF Float = []
-  MUT pen AS Float = t.x
+  MUT pen AS Float = __canvas_textX(t)
   c = 0
   WHILE c < chars
     run = collections::append(run, toFloat(collections::getOr(__CANVAS_GLYPH_PINS, c, 0 - 1)))
     run = collections::append(run, toFloat(toInt(pen + 0.5)))
-    run = collections::append(run, toFloat(toInt(t.y + 0.5)))
+    run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
     pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE
@@ -1333,14 +1366,14 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
   IF upem <= 0 THEN
     RETURN []
   END IF
-  LET scale AS Float = t.size / toFloat(upem)
+  LET scale AS Float = t.fontSize / toFloat(upem)
   LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
   MUT edges AS List OF Float = []
-  MUT pen AS Float = t.x
+  MUT pen AS Float = __canvas_textX(t)
   MUT c AS Integer = 0
   __CANVAS_RING_MARKING = TRUE
   WHILE c * 3 < len(shaped)
-    edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * 3 + 1, 0), scale, pen, t.y, edges)
+    edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * 3 + 1, 0), scale, pen, __canvas_textY(t), edges)
     pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE
@@ -1359,7 +1392,7 @@ FUNC __canvas_textHeader(t AS Text, tail AS List OF Float) AS List OF Float
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYGON))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + tailLen))
-  out = __canvas_paintHeader(out, t.paint, t.transform)
+  out = __canvas_paintHeader(out, t.paint, __canvas_textTransform(t), __canvas_textX(t), __canvas_textY(t))
   ' plan-116-F Correction F18. `__canvas_paintHeader` decides "has this kind an
   ' interior?" by reading slot 0 -- and by the time it runs here, slot 0 says POLYGON,
   ' because a stroked text IS lowered to one. So its `Text` skip does not fire, and it
@@ -1489,7 +1522,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       tail = __canvas_appendGradientTail(collections::append(joins, dashes), rr.paint)
       header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint)), dashes, rr.paint)
     CASE Circle(c)
-      header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint, c.transform)
+      header = __canvas_circleItem(c)
       LET dashes AS List OF Float = __canvas_roundDashes(header, c.paint)
       tail = __canvas_appendGradientTail(dashes, c.paint)
       header = __canvas_withDashes(header, dashes, c.paint)
@@ -1581,11 +1614,11 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_TEXT))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + len(run)))
-  out = __canvas_paintHeader(out, t.paint, t.transform)
+  out = __canvas_paintHeader(out, t.paint, __canvas_textTransform(t), __canvas_textX(t), __canvas_textY(t))
   ' Slots 2 and 3 carry the font handle and the em size: a glyph run needs both to
   ' rasterise, and they are the shape parameters no other kind uses for text.
   out = collections::set(out, 2, toFloat(canvas::fontHandle(t.font)))
-  out = collections::set(out, 3, t.size)
+  out = collections::set(out, 3, t.fontSize)
   out = collections::set(out, 20, toFloat(glyphs))
   ' The ink box comes from the metrics rather than from the outlines: this header is
   ' built on a cache miss, when the glyphs have not been rasterised yet, and an
@@ -1594,10 +1627,10 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   ' would clip the glyphs it was meant to bound.
   LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
   LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  LET scale AS Float = t.size / toFloat(__canvas_maxI(upem, 1))
+  LET scale AS Float = t.fontSize / toFloat(__canvas_maxI(upem, 1))
   LET ascent AS Float = toFloat(__canvas_fontAscent(b)) * scale
   LET descent AS Float = toFloat(0 - __canvas_fontDescent(b)) * scale
-  MUT minX AS Float = collections::getOr(run, 1, t.x)
+  MUT minX AS Float = collections::getOr(run, 1, __canvas_textX(t))
   MUT maxX AS Float = minX
   MUT i AS Integer = 0
   WHILE i < len(run)
@@ -1606,8 +1639,8 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
     maxX = __canvas_maxF(maxX, px)
     i = i + 3
   END WHILE
-  LET advance AS Float = t.size * 2.0
-  RETURN __canvas_boundsHeader(out, minX - advance, t.y - ascent - 2.0, maxX + advance, t.y + descent + 2.0)
+  LET advance AS Float = t.fontSize * 2.0
+  RETURN __canvas_boundsHeader(out, minX - advance, __canvas_textY(t) - ascent - 2.0, maxX + advance, __canvas_textY(t) + descent + 2.0)
 END FUNC
 
 ' bug-686: every item's hash is folded from its own FIELDS, kind by kind. It used to be
@@ -1776,7 +1809,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       RETURN __canvas_hashPaint(h, rr.paint, rr.transform)
     CASE Circle(c)
       MUT h AS Integer = __canvas_hashStart(3)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, c.x), c.y), c.radius)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, c.position.x), c.position.y), c.radius)
       RETURN __canvas_hashPaint(h, c.paint, c.transform)
     CASE Line(l)
       MUT h AS Integer = __canvas_hashStart(4)
@@ -1784,7 +1817,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       RETURN __canvas_hashPaint(h, l.paint, l.transform)
     CASE Arc(a)
       MUT h AS Integer = __canvas_hashStart(5)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, a.x), a.y), a.radius)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, a.position.x), a.position.y), a.radius)
       h = __canvas_hashFloat(__canvas_hashFloat(h, a.startAngle), a.endAngle)
       RETURN __canvas_hashPaint(h, a.paint, a.transform)
     CASE Polygon(p)
@@ -1816,14 +1849,14 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       ' integer it is, never through `__canvas_hashFloat`, whose `value * 65536.0`
       ' overflows `toInt` for a 48-bit address. `__canvas_hashStep` reduces it first.
       MUT h AS Integer = __canvas_hashStart(8)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.x), t.y), t.size)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.position.x), t.position.y), t.fontSize)
       h = __canvas_hashStep(h, canvas::fontHandle(t.font))
       h = __canvas_hashText(h, t.text)
       h = __canvas_hashText(h, t.id)
       RETURN __canvas_hashPaint(h, t.paint, t.transform)
     CASE Ellipse(e)
       MUT h AS Integer = __canvas_hashStart(9)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, e.x), e.y), e.radiusX), e.radiusY)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, e.position.x), e.position.y), e.radiusX), e.radiusY)
       RETURN __canvas_hashPaint(h, e.paint, e.transform)
     ' plan-116-G: a group node is its name and its offset. Two nodes naming different
     ' groups at the same offset must not collide, and neither must one group at two.
@@ -1907,7 +1940,7 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       tail = __canvas_appendGradientTail(collections::append(joins, dashes), rr.paint)
       header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(rr.paint), rr.paint)), dashes, rr.paint)
     CASE Circle(c)
-      header = __canvas_circleHeader(c.x, c.y, c.radius, c.paint, c.transform)
+      header = __canvas_circleItem(c)
       LET dashes AS List OF Float = __canvas_roundDashes(header, c.paint)
       tail = __canvas_appendGradientTail(dashes, c.paint)
       header = __canvas_withDashes(header, dashes, c.paint)
@@ -1981,23 +2014,23 @@ FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
   IF upem <= 0 THEN
     RETURN []
   END IF
-  LET scale AS Float = t.size / toFloat(upem)
+  LET scale AS Float = t.fontSize / toFloat(upem)
   LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
   MUT run AS List OF Float = []
-  MUT pen AS Float = t.x
+  MUT pen AS Float = __canvas_textX(t)
   MUT c AS Integer = 0
   WHILE c * 3 < len(shaped)
     LET gid AS Integer = collections::getOr(shaped, c * 3 + 1, 0)
     MUT entry AS Integer = 0 - 2
     IF offset >= 0 THEN
       LET stored AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + c * 3, 0.0 - 2.0))
-      IF stored >= 0 AND collections::getOr(__CANVAS_GLYPH_KEYS, stored, 0 - 1) = __canvas_glyphKey(font, __canvas_sizeQ(t.size), gid) THEN
+      IF stored >= 0 AND collections::getOr(__CANVAS_GLYPH_KEYS, stored, 0 - 1) = __canvas_glyphKey(font, __canvas_sizeQ(t.fontSize), gid) THEN
         entry = stored
       END IF
     END IF
     run = collections::append(run, toFloat(entry))
     run = collections::append(run, toFloat(toInt(pen + 0.5)))
-    run = collections::append(run, toFloat(toInt(t.y + 0.5)))
+    run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
     pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE

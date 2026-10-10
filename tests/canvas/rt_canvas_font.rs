@@ -62,6 +62,7 @@ fn run_files(name: &str, source: &str, files: &[(&str, Vec<u8>)]) -> Vec<String>
 /// test would pass without testing the version check at all.
 const PROGRAM: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT fs
 IMPORT io
@@ -161,6 +162,7 @@ fn a_missing_path_is_not_reported_as_a_bad_font() {
         "canvas_font_missing",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing
@@ -197,6 +199,7 @@ fn a_second_destroy_font_raises_resource_closed() {
         "canvas_font_double_close",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC closeIt(f AS canvas::Font) AS Nothing
@@ -445,6 +448,7 @@ fn run_with_font_frame(name: &str, source: &str) -> Vec<u8> {
 fn text_inside_a_translated_group_draws_at_the_offset() {
     const SOURCE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
@@ -454,7 +458,7 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "A", font := face, fontSize := 200.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("label", [label])
   canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
   io::print("done")
@@ -514,6 +518,7 @@ fn transparency_fades_text_and_stroked_text() {
         format!(
             r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
@@ -523,8 +528,8 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET filled AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::fill({fill}){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET outlined AS canvas::DrawItem = canvas::Text[id := "", x := 400.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::stroke({stroke}, 6.0){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 220.0], text := "A", font := face, fontSize := 200.0, paint := WITH canvas::fill({fill}){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 400.0, y := 220.0], text := "A", font := face, fontSize := 200.0, paint := WITH canvas::stroke({stroke}, 6.0){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([filled, outlined])
   io::print("done")
 END FUNC
@@ -545,6 +550,7 @@ END FUNC
 
 const MEASURE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing
@@ -598,6 +604,7 @@ fn descent_is_reported_positive_though_the_file_stores_it_negative() {
         "canvas_measure_descent",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing
@@ -726,6 +733,7 @@ fn a_glyph_outline_renders_where_its_own_coordinates_put_it() {
         "canvas_glyph_render",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -733,7 +741,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -800,6 +808,7 @@ fn a_composite_glyph_draws_every_placed_component() {
         "canvas_glyph_composite",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -807,7 +816,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("composite.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "B", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "B", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -860,6 +869,7 @@ fn a_string_advances_the_pen_between_glyphs() {
         "canvas_glyph_advance",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -867,7 +877,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AA", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -905,13 +915,13 @@ const WALK_PENS: [&str; 2] = ["100.25", "152.75"];
 fn walk_scene(paint: &str, whole_string: bool) -> String {
     let items = if whole_string {
         format!(
-            "[canvas::Text[id := \"\", x := {}, y := 200.0, text := \"{WALK_TEXT}\", font := face, size := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]",
+            "[canvas::Text[id := \"\", position := vector::Float2[x := {}, y := 200.0], text := \"{WALK_TEXT}\", font := face, fontSize := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]",
             WALK_PENS[0]
         )
     } else {
         let one = |x: &str| {
             format!(
-                "canvas::Text[id := \"\", x := {x}, y := 200.0, text := \"A\", font := face, size := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", font := face, fontSize := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         format!("[{}, {}]", one(WALK_PENS[0]), one(WALK_PENS[1]))
@@ -919,6 +929,7 @@ fn walk_scene(paint: &str, whole_string: bool) -> String {
     format!(
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -969,6 +980,7 @@ fn measure_text_sums_a_mixed_run_in_font_units_then_scales_once() {
         "canvas_measure_walk",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing
@@ -1008,6 +1020,7 @@ fn measuring_a_closed_font_raises_resource_closed() {
         "canvas_measure_closed",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC closeIt(f AS canvas::Font) AS Nothing
@@ -1036,7 +1049,7 @@ END FUNC
 #[test]
 fn a_font_past_the_renderers_table_still_measures() {
     let mut source = String::from(
-        "IMPORT app\nIMPORT canvas\nIMPORT io\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT io\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
     );
     for i in 1..=17 {
         source.push_str(&format!(
@@ -1064,7 +1077,7 @@ fn a_font_past_the_renderers_table_still_measures() {
 fn every_live_font_draws_however_many_are_loaded() {
     let scene = |left: &str, right: &str| {
         let mut source = String::from(
-            "IMPORT app\nIMPORT canvas\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
+            "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
         );
         for i in 1..=40 {
             source.push_str(&format!(
@@ -1073,7 +1086,7 @@ fn every_live_font_draws_however_many_are_loaded() {
         }
         let text = |x: &str, font: &str| {
             format!(
-                "canvas::Text[id := \"\", x := {x}, y := 200.0, text := \"A\", font := {font}, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", font := {font}, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         source.push_str(&format!(
@@ -1167,6 +1180,7 @@ fn text_whose_font_was_destroyed_draws_nothing() {
         "canvas_glyph_no_font",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -1174,7 +1188,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
   ' already gone — the ordering the guard exists for.
   canvas::destroyFont(face)
@@ -1199,6 +1213,7 @@ END FUNC
 /// inside both.
 const GPU_TEXT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -1206,7 +1221,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgb(220, 40, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", font := face, fontSize := 120.0, paint := canvas::fill(color::rgb(220, 40, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1271,6 +1286,7 @@ fn text_on_the_gpu_matches_the_software_oracle() {
 /// final flush is always empty and the ordering is never exercised.
 const GPU_TEXT_THEN_SHAPE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -1279,8 +1295,8 @@ FUNC main() AS Nothing
     RETURN
   END TRAP
   LET under AS canvas::DrawItem = canvas::Rectangle[id := "", x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(color::rgb(40, 60, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET tail AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", font := face, fontSize := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tail AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 200.0], radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([under, label, tail])
 END FUNC
 "#;
@@ -1335,6 +1351,7 @@ fn a_shape_after_a_glyph_run_matches_the_software_oracle() {
 /// cheap while the bitmaps — 6x6 up to 36x36 — add up to far more than the forced budget.
 const EVICTION: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 
@@ -1346,7 +1363,7 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
     LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
-    LET glyph AS canvas::DrawItem = canvas::Text[id := "", x := x, y := y, text := "A", font := face, size := size, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET glyph AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := "A", font := face, fontSize := size, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
@@ -1442,6 +1459,7 @@ fn eviction_frees_unpinned_glyphs_and_changes_no_pixel() {
 /// and the transformed per-glyph bounds, not the sampling filter.
 const ROTATED_TEXT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -1449,9 +1467,9 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 100.0]
+  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 80.0]
   LET p AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := p, transform := t]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", font := face, fontSize := 60.0, paint := p, transform := t]
   canvas::present([label])
 END FUNC
 "#;
@@ -1459,6 +1477,7 @@ END FUNC
 /// The same run with no transform, so the two can be compared as pictures.
 const UPRIGHT_TEXT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -1466,7 +1485,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", font := face, fontSize := 60.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1612,6 +1631,7 @@ fn two_hundred_presents_through_one_font_leave_the_glyph_cache_where_they_found_
         "canvas_font_present_churn",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
@@ -1625,7 +1645,7 @@ FUNC main() AS Nothing
   WHILE i < 200
     ' The x moves each frame so the scene differs and the present is not skipped —
     ' a skipped present would exercise nothing.
-    LET label AS canvas::DrawItem = canvas::Text[id := "", x := 10.0 + toFloat(i), y := 40.0, text := "A", font := face, size := 24.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0 + toFloat(i), y := 40.0], text := "A", font := face, fontSize := 24.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::present([label])
     i = i + 1
   END WHILE
@@ -1740,6 +1760,7 @@ fn draw_a(size: &str) -> String {
     format!(
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
@@ -1749,7 +1770,7 @@ FUNC main() AS Nothing
     io::print("load failed " & toString(e.code))
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 600.0, text := "A", font := face, size := {size}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 600.0], text := "A", font := face, fontSize := {size}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
   io::print("presented")
 END FUNC
@@ -1854,6 +1875,7 @@ fn a_units_per_em_outside_the_formats_range_is_refused_at_load() {
     // A file with no `head` at all stays accepted: it has no scale to poison.
     const SOURCE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing
@@ -2006,12 +2028,13 @@ fn collection(faces: &[Vec<u8>]) -> Vec<u8> {
 
 const DRAW_A: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("FONTFILE")
-  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "AB", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AB", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -2067,6 +2090,7 @@ fn a_collection_that_runs_past_its_end_is_refused() {
         "canvas_ttc_past_end",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC attempt(label AS String, path AS String) AS Nothing
@@ -2195,6 +2219,7 @@ fn load_font_chooses_a_collection_face_by_name() {
         "canvas_font_face_by_name",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC attempt(label AS String, path AS String, face AS String) AS Nothing
@@ -2238,6 +2263,7 @@ fn a_system_collection_face_loads_by_post_script_name() {
         "canvas_font_helvetica_bold",
         r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main() AS Nothing

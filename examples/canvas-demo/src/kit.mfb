@@ -209,19 +209,57 @@ FUNC item(d AS canvas::DrawItem) AS canvas::DrawItem
   RETURN d
 END FUNC
 
+' True for the all-zero transform, which means "no transform".
+FUNC isZero(t AS canvas::Transform) AS Boolean
+  RETURN t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0
+END FUNC
+
+' `composed` is a surface-space transform `t` laid over an item's own transform;
+' an item turns about its position, so the translation also has to carry the
+' position through `t`'s matrix: t(position) - position.
+FUNC pivoted(composed AS canvas::Transform, t AS canvas::Transform, position AS vector::Float2) AS canvas::Transform
+  LET m AS canvas::Transform = concrete(t)
+  RETURN WITH composed { tx := composed.tx + m.a * position.x + m.c * position.y - position.x, ty := composed.ty + m.b * position.x + m.d * position.y - position.y }
+END FUNC
+
+' A paint given in surface coordinates, moved to be offsets from (x, y): the
+' clip rings and the gradient's two end points. A circle, ellipse, arc or text
+' takes those relative to its position.
+FUNC localPaint(p AS canvas::Paint, x AS Float, y AS Float) AS canvas::Paint
+  IF len(p.clip) = 0 AND len(p.gradient.stops) < 2 THEN RETURN p
+  MUT rings AS List OF List OF vector::Float2 = []
+  FOR EACH ring IN p.clip
+    MUT moved AS List OF vector::Float2 = []
+    FOR EACH q IN ring
+      moved = collections::append(moved, pt(q.x - x, q.y - y))
+    NEXT
+    rings = collections::append(rings, moved)
+  NEXT
+  IF len(p.gradient.stops) < 2 THEN RETURN WITH p { clip := rings }
+  RETURN WITH p { clip := rings, gradient := WITH p.gradient { startPoint := pt(p.gradient.startPoint.x - x, p.gradient.startPoint.y - y), endPoint := pt(p.gradient.endPoint.x - x, p.gradient.endPoint.y - y) } }
+END FUNC
+
 ' Gives an item the transform `t` after any it already carries (an ellipse's
 ' turn), so a figure built at the origin can be moved into place as a whole.
 FUNC placed(d AS canvas::DrawItem, t AS canvas::Transform) AS canvas::DrawItem
   MATCH d
     CASE canvas::Rectangle(v) : RETURN WITH v { transform := t }
     CASE canvas::RoundedRect(v) : RETURN WITH v { transform := t }
-    CASE canvas::Circle(v) : RETURN WITH v { transform := t }
-    CASE canvas::Ellipse(v) : RETURN WITH v { transform := compose(t, v.transform) }
+    CASE canvas::Circle(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Ellipse(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Line(v) : RETURN WITH v { transform := t }
-    CASE canvas::Arc(v) : RETURN WITH v { transform := t }
+    CASE canvas::Arc(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Polygon(v) : RETURN WITH v { transform := t }
     CASE canvas::PolyLine(v) : RETURN WITH v { transform := t }
-    CASE canvas::Text(v) : RETURN WITH v { transform := t }
+    CASE canvas::Text(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Picture(v) : RETURN WITH v { transform := t }
     CASE canvas::Group(v) : RETURN v
   END MATCH
@@ -236,11 +274,11 @@ FUNC rrect(x AS Float, y AS Float, w AS Float, h AS Float, r AS Float, p AS canv
 END FUNC
 
 FUNC circle(x AS Float, y AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Circle[id := "", x := x, y := y, radius := r, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Circle[id := "", position := vector::Float2[x := x, y := y], radius := r, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC ellipse(x AS Float, y AS Float, rx AS Float, ry AS Float, angle AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Ellipse[id := "", x := x, y := y, radiusX := rx, radiusY := ry, paint := p, transform := canvas::Transform[a := math::cos(angle), b := math::sin(angle), c := 0.0 - math::sin(angle), d := math::cos(angle), tx := (x) - (math::cos(angle) * (x) - math::sin(angle) * (y)), ty := (y) - (math::sin(angle) * (x) + math::cos(angle) * (y))]]
+  RETURN canvas::Ellipse[id := "", position := vector::Float2[x := x, y := y], radiusX := rx, radiusY := ry, paint := localPaint(p, x, y), transform := canvas::Transform[a := math::cos(angle), b := math::sin(angle), c := 0.0 - math::sin(angle), d := math::cos(angle), tx := 0.0, ty := 0.0]]
 END FUNC
 
 FUNC line(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, p AS canvas::Paint) AS canvas::DrawItem
@@ -248,7 +286,7 @@ FUNC line(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, p AS canvas::Paint
 END FUNC
 
 FUNC arc(x AS Float, y AS Float, r AS Float, a0 AS Float, a1 AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Arc[id := "", x := x, y := y, radius := r, startAngle := a0, endAngle := a1, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Arc[id := "", position := vector::Float2[x := x, y := y], radius := r, startAngle := a0, endAngle := a1, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC poly(points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
@@ -268,17 +306,17 @@ FUNC trail(points AS List OF vector::Float2, colors AS List OF color::Color, p A
 END FUNC
 
 FUNC label(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", x := x, y := baseline, text := text, font := font, size := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := baseline], text := text, font := font, fontSize := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC labelP(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", x := x, y := baseline, text := text, font := font, size := size, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := baseline], text := text, font := font, fontSize := size, paint := localPaint(p, x, baseline), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A soft round glow: a disc whose radial ramp falls away quickly from `c` and
 ' then slowly to nothing, as light does, added onto what is beneath it.
 FUNC glow(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Circle[id := "", x := x, y := y, radius := r, paint := WITH glowP(color::white) { gradient := radial(x, y, r, [gstop(0.0, c), gstop(0.2, fade(c, 0.5)), gstop(0.5, fade(c, 0.15)), gstop(1.0, fade(c, 0.0))]) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Circle[id := "", position := vector::Float2[x := x, y := y], radius := r, paint := localPaint(WITH glowP(color::white) { gradient := radial(x, y, r, [gstop(0.0, c), gstop(0.2, fade(c, 0.5)), gstop(0.5, fade(c, 0.15)), gstop(1.0, fade(c, 0.0))]) }, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' ---------------------------------------------------------------------------

@@ -716,10 +716,12 @@ pub(crate) fn register(r: &mut Registry) {
                       unset `transform` leave an item untransformed. \
                       A rotation by θ is `a := cos(θ), b := sin(θ), c := -sin(θ), \
                       d := cos(θ)`; a scale is `a := sx, d := sy` with `b` and `c` \
-                      zero; an X shear is `c := tan(θ)`. Rotation and shear turn about \
-                      the item's own origin, so give the item coordinates around \
-                      `(0, 0)` and put the position in `tx` and `ty` — that is what \
-                      makes the transform readable as \"where\" plus \"how turned\".",
+                      zero; an X shear is `c := tan(θ)`. A shape that has a `position` — \
+                      `canvas::Circle`, `canvas::Ellipse`, `canvas::Arc` and \
+                      `canvas::Text` — is turned and scaled about that position, so a \
+                      rotation spins it in place, and `tx` and `ty` move it from \
+                      there. The other shapes are still turned about the surface's \
+                      top-left corner.",
         props: vec![
             RecordProp {
                 name: "a",
@@ -1135,18 +1137,18 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Circle",
         export: true,
-        description: "A circle given by its centre and radius.",
+        description: "A circle given by its centre and radius. Every field has a usable \
+                      default, so the short way to make one is to declare it and set \
+                      what you need: `MUT dot AS canvas::Circle`, then \
+                      `WITH dot { position := vector::Float2[x := 80.0, y := 60.0], \
+                      radius := 20.0, paint := canvas::fill(ink) }`. `id` stays empty \
+                      and `transform` stays the identity.",
         props: vec![
             id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The centre's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The centre's Y coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The centre, in pixels. The transform turns the circle about it.",
             },
             RecordProp {
                 name: "radius",
@@ -1166,18 +1168,16 @@ pub(crate) fn register(r: &mut Registry) {
                       because Y increases downward, a `0.0`..`PI` arc sweeps below \
                       its centre (so that is the smile, not the frown). An arc has \
                       no interior, so it is drawn from `paint.stroke`; `paint.cap` \
-                      shapes its two ends.",
+                      shapes its two ends. It is shortest made from its default: \
+                      `MUT bow AS canvas::Arc`, then `WITH bow { position := …, \
+                      radius := …, startAngle := …, endAngle := …, paint := … }`.",
         props: vec![
             id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The centre's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The centre's Y coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The centre of the circle the arc lies on, in pixels. The transform turns \
+                              the arc about it.",
             },
             RecordProp {
                 name: "radius",
@@ -1202,20 +1202,16 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Text",
         export: true,
-        description: "A run of text drawn in a font at a size. `x`/`y` place the \
+        description: "A run of text drawn in a font at a size. `position` is the \
                       start of the baseline, not the top-left corner — use \
                       `canvas::measureText` to lay text out without drawing it.",
         props: vec![
             id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The X coordinate of the baseline's start, in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The Y coordinate of the baseline, in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the baseline starts, in pixels: its left end. The transform turns \
+                              the text about it.",
             },
             RecordProp {
                 name: "text",
@@ -1231,7 +1227,7 @@ pub(crate) fn register(r: &mut Registry) {
                               failing.",
             },
             RecordProp {
-                name: "size",
+                name: "fontSize",
                 ty: ParameterType::Float,
                 description: "The em size in pixels.",
             },
@@ -1376,18 +1372,15 @@ pub(crate) fn register(r: &mut Registry) {
                       `canvas::Circle` of that radius — so an animation that squashes \
                       a circle can use one item type throughout. To tilt it, give it \
                       a rotation in `transform`. A radius of `0.0` or less draws \
-                      nothing, the same rule `canvas::Circle` follows.",
+                      nothing, the same rule `canvas::Circle` follows. Like a circle, it is \
+                      shortest made from its default: `MUT egg AS canvas::Ellipse`, then \
+                      `WITH egg { position := …, radiusX := …, radiusY := …, paint := … }`.",
         props: vec![
             id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The centre's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The centre's Y coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The centre, in pixels. The transform turns the ellipse about it.",
             },
             RecordProp {
                 name: "radiusX",

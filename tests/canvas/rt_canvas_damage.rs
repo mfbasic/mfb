@@ -96,13 +96,14 @@ fn number(lines: &[String], key: &str) -> i64 {
 /// `skipped=0`, which is indistinguishable from damage not working at all.
 const UNCHANGED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 400.0], radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, dot])
@@ -115,14 +116,15 @@ END FUNC
 /// The same scene, except that the second present moves the circle a long way.
 const MOVED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET moved AS canvas::DrawItem = canvas::Circle[id := "", x := 700.0, y := 420.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 400.0], radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET moved AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 700.0, y := 420.0], radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, moved])
@@ -235,6 +237,7 @@ fn a_moved_item_repaints_its_own_rectangle_and_not_the_window() {
 /// assertions below are about the sequence of answers rather than about a fixed count.
 const RESIZE_POLL: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT os
@@ -314,6 +317,7 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
 /// without them.
 const GROUP_REPLACED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -389,6 +393,7 @@ fn replacing_a_group_damages_where_the_group_draws() {
 /// an implementation keying damage off the geometry would see nothing changed.
 const GROUP_MOVED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing

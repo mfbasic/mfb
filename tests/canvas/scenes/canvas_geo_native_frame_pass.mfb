@@ -14,7 +14,7 @@ FUNC shapes(frame AS Integer) AS List OF canvas::DrawItem
     LET x AS Float = toFloat((k * 37) MOD 700) + toFloat(frame) * 1.25
     LET y AS Float = toFloat((k * 53) MOD 500)
     LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := x, y := y, w := 6.0, h := 4.5, paint := canvas::fillStroke(color::rgba(k, 100, 200, 180), color::rgb(1, 2, 3), 1.5), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-    LET blended AS canvas::DrawItem = canvas::Circle[id := "", x := x, y := y + 9.0, radius := 3.0, paint := WITH canvas::fillStroke(color::rgb(9, 9, 9), color::rgb(200, 1, 1), 2.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET blended AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := x, y := y + 9.0], radius := 3.0, paint := WITH canvas::fillStroke(color::rgb(9, 9, 9), color::rgb(200, 1, 1), 2.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     LET seg AS canvas::DrawItem = canvas::Line[id := "", x1 := x, y1 := y, x2 := x + 10.0, y2 := y + 3.0, paint := WITH canvas::stroke(color::rgb(255, 255, 0), 1.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     LET tri AS canvas::DrawItem = canvas::Polygon[id := "", contours := [[vector::Float2[x := x, y := y], vector::Float2[x := x + 8.0, y := y + 1.0], vector::Float2[x := x + 3.0, y := y + 7.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, box)
@@ -23,7 +23,7 @@ FUNC shapes(frame AS Integer) AS List OF canvas::DrawItem
     items = collections::append(items, tri)
     IF k MOD 30 = 0 THEN
       LET moved AS canvas::DrawItem = canvas::Rectangle[id := "", x := x, y := y, w := 5.0, h := 5.0, paint := canvas::fill(color::rgb(1, 2, 3)), transform := t]
-      LET oval AS canvas::DrawItem = canvas::Ellipse[id := "", x := x, y := y, radiusX := 6.0, radiusY := 3.0, paint := canvas::fill(color::rgb(9, 9, 200)), transform := canvas::Transform[a := math::cos(0.25), b := math::sin(0.25), c := 0.0 - math::sin(0.25), d := math::cos(0.25), tx := (x) - (math::cos(0.25) * (x) - math::sin(0.25) * (y)), ty := (y) - (math::sin(0.25) * (x) + math::cos(0.25) * (y))]]
+      LET oval AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := x, y := y], radiusX := 6.0, radiusY := 3.0, paint := canvas::fill(color::rgb(9, 9, 200)), transform := canvas::Transform[a := math::cos(0.25), b := math::sin(0.25), c := 0.0 - math::sin(0.25), d := math::cos(0.25), tx := 0.0, ty := 0.0]]
       items = collections::append(items, moved)
       items = collections::append(items, oval)
     END IF

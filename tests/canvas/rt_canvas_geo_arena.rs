@@ -100,7 +100,7 @@ fn field(line: &str, name: &str) -> i64 {
 /// `ITEMS` lines whose endpoints move every frame, presented `FRAMES` times.
 fn animating() -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 1.0) {{ cap := canvas::CapStyle.Butt }}\n  \
@@ -182,7 +182,7 @@ fn a_changing_scene_holds_a_bounded_geometry_arena() {
 #[test]
 fn an_all_hit_scene_never_pays_for_reclamation() {
     let source = format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 1.0) {{ cap := canvas::CapStyle.Butt }}\n  \
@@ -195,7 +195,7 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \
-         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := toFloat(frame) * 4.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := toFloat(frame) * 4.0, y := 300.0], radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, dot)\n    \
          canvas::present(items)\n    \
          frame = frame + 1\n  \
@@ -219,7 +219,7 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
 /// every one renders, while only one item's geometry actually changed.
 fn static_bulk(count: usize, frames: usize) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(0, 200, 255))\n  \
@@ -233,7 +233,7 @@ fn static_bulk(count: usize, frames: usize) -> String {
          MUT frame AS Integer = 0\n  \
          WHILE frame < {frames}\n    \
          MUT items AS List OF canvas::DrawItem = bulk\n    \
-         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := toFloat(frame) * 4.0 + 10.0, y := 630.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := toFloat(frame) * 4.0 + 10.0, y := 630.0], radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, dot)\n    \
          canvas::present(items)\n    \
          frame = frame + 1\n  \

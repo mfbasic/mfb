@@ -140,6 +140,7 @@ scaffold_project "$cproj" wincanvas
 cat > "$cproj/src/main.mfb" <<'MFB'
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT os
@@ -151,7 +152,7 @@ FUNC main() AS Nothing
   ' so every assertion after this point — the canvas frame, the whole Vulkan
   ' section, and both resize runs — had silently not run since the rename.
   LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 400.0], radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box, dot])
   io::print("canvas presented")
   ' The scripted resize runs on the MAIN thread and waits for the first frame before

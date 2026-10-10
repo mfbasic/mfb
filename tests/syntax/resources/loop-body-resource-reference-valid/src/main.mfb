@@ -2,6 +2,7 @@ IMPORT io
 IMPORT fs
 IMPORT collections
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' bug-852's loop back-edge rule carries only real moves of an outer resource round
@@ -49,7 +50,7 @@ FUNC frames() AS Integer
     RETURN 0
   END TRAP
   FOR i = 1 TO 6
-    LET tag AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::setGroup("panel", [tag])
   NEXT
   RETURN 1
