@@ -35,7 +35,7 @@ IMPORT canvas
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 8.0, y := 8.0, radius := 4.0, paint := canvas::fill(canvas::rgb(1, 2, 3))]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 8.0, y := 8.0, radius := 4.0, paint := canvas::fill(canvas::rgb(1, 2, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([dot])
   RETURN 0
 END FUNC

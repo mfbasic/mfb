@@ -330,7 +330,7 @@ FUNC waterItems AS List OF canvas::DrawItem
     LET vx AS Float = collections::get(dropVX, i)
     LET vy AS Float = collections::get(dropVY, i)
     LET paint AS canvas::Paint = canvas::fill(dropColor(math::sqrt(vx * vx + vy * vy)))
-    LET drop AS canvas::DrawItem = canvas::Circle[x := collections::get(dropX, i), y := collections::get(dropY, i), radius := DROP_RADIUS, paint := paint]
+    LET drop AS canvas::DrawItem = canvas::Circle[id := "", x := collections::get(dropX, i), y := collections::get(dropY, i), radius := DROP_RADIUS, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, drop)
   NEXT
   RETURN items

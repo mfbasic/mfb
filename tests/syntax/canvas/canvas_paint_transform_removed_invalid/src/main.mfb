@@ -1,0 +1,35 @@
+' plan-172-C: `canvas::Paint` has no `transform`, and `canvas::Ellipse` has no
+' `angle`. Both removals are tested contracts, on the
+' `canvas_color_type_removed_invalid` precedent.
+'
+' The transform belongs to the ITEM now -- every drawn item carries `transform` as
+' its last field -- so a paint is a description of ink and nothing else, and one
+' paint can be shared by items that are placed differently.
+'
+' The failure mode worth naming: a `transform` field left on `Paint` beside the
+' item's would give one item two transforms and no rule for their order. Each line
+' below is refused BY NAME instead:
+'
+'   - updating a paint's `transform` with `WITH`,
+'   - reading it,
+'   - and giving an ellipse an `angle`.
+'
+' THE MIGRATION: put the transform on the item (`transform := t`), and turn an
+' ellipse with a rotation in that same field.
+'
+' Do not "fix" this fixture by moving the transform. The point is that the OLD
+' spelling is refused.
+IMPORT app
+IMPORT canvas
+IMPORT color
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET ink AS canvas::Paint = canvas::fill(color::rgb(1, 2, 3))
+  LET turned AS canvas::Paint = WITH ink { transform := none }
+  LET seen AS canvas::Transform = ink.transform
+  LET egg AS canvas::DrawItem = canvas::Ellipse[id := "", x := 8.0, y := 8.0, radiusX := 4.0, radiusY := 2.0, angle := 0.5, paint := ink, transform := none]
+  canvas::present([egg])
+  RETURN 0
+END FUNC

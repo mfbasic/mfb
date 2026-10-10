@@ -247,7 +247,7 @@ FUNC quitPressed AS Boolean
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, text AS String, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c)]
+  RETURN canvas::Text[id := "", x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC main AS Integer
@@ -256,7 +256,7 @@ FUNC main AS Integer
   app::setTitle("Fractals / Image Buffer")
 
   RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
-  LET empty AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
+  LET empty AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   scene = collections::repeat(scene, empty, 4)
   MUT pixels AS List OF Byte = []
   pixels = collections::repeat(pixels, toByte(255), PIXEL_COUNT * 4)
@@ -301,7 +301,7 @@ FUNC main AS Integer
     NEXT
 
     canvas::setBytes(picture, pixels)
-    LET imageItem AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := width, h := height, image := picture, paint := canvas::fill(color::rgb(255, 255, 255))]
+    LET imageItem AS canvas::DrawItem = canvas::Picture[id := "", x := 0.0, y := 0.0, w := width, h := height, image := picture, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::set(scene, 0, imageItem)
 
     MUT title AS String = fractalName(current)

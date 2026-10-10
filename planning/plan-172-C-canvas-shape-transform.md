@@ -29,8 +29,8 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-B complete and archived | `ls planning/plan-172-B-*` → no matches | NOT MET |
-| `canvas::Point` is gone | `grep -c 'name: "Point"' src/codegen/builtins/canvas/mod.rs` → 0 | NOT MET |
+| plan-172-B complete and archived | `ls planning/plan-172-B-*` → no matches | MET — `no matches found` |
+| `canvas::Point` is gone | `grep -c 'name: "Point"' src/codegen/builtins/canvas/mod.rs` → 0 | MET — measured 0 |
 
 If plan-172-B is not complete, this letter cannot start, full stop.
 
@@ -147,17 +147,22 @@ commit shows the per-pixel delta.
 
 ### Phase 1 — Measure, then the registry and builders
 
-- [ ] `mod.rs`: add `id_prop()` and `transform_prop()`; add both to the ten records;
+- [x] `mod.rs`: add `id_prop()` and `transform_prop()`; add both to the ten records;
       delete `Paint.transform` and `Ellipse.angle`; rewrite the `Transform` record's
       description, which says "an unset `canvas::Paint.transform`".
-- [ ] `helper_geometry.rs`: `__canvas_paintHeader(h, paint, transform)`; update every
+      → `mfb man canvas types`: `id` first and `transform` last on the ten records; none on `Paint`.
+- [x] `helper_geometry.rs`: `__canvas_paintHeader(h, paint, transform)`; update every
       caller; `__canvas_hashPaint` drops the transform; the Text arm of
       `__canvas_hashItem` folds `id` and `transform`.
-- [ ] `func_geo_build.rs:emit_paint_supported`: read the six transform fields from the
+      → 9 header call sites, 11 builder call sites and 10 hash call sites rewritten (`/tmp/plan-172-A/edit_c1.py`); `hashPaint` keeps folding the transform, now passed in, so the MFBASIC arms hash what they hashed.
+- [x] `func_geo_build.rs:emit_paint_supported`: read the six transform fields from the
       record, not the paint.
-- [ ] `helper_paint_defaults.rs`: `canvas::fill` / `stroke` / `fillStroke` no longer
+      → reads `transform` from the item record; `cargo test --test rt_canvas_geo_native` passes (the native path still takes untransformed items).
+- [x] `helper_paint_defaults.rs`: `canvas::fill` / `stroke` / `fillStroke` no longer
       zero a transform.
-- [ ] `self_update.rs:FIELD_KIND_TABLE` and `field_kinds_gen.py` / `.tsv`.
+      → the constructor is in `func_fill_stroke.rs`; `transform := __canvas_noTransform()` removed from it.
+- [x] `self_update.rs:FIELD_KIND_TABLE` and `field_kinds_gen.py` / `.tsv`.
+      → no table row changes (every shape was already `SIZE_VARIES`); the `.tsv` and generator constructors were ported by the codemod; `cargo test --bin mfb field_kind` passes.
 
 Acceptance: the compiler builds and the registry tests pass.
   Check: `cargo test --bin mfb canvas` → pass (est. 4 min).
@@ -165,10 +170,14 @@ Commit: —
 
 ### Phase 2 — Port every site but the ellipses
 
-- [ ] Move each of the 148 `transform :=` from the paint expression to its item.
-- [ ] Add `id := ""` and an all-zero `transform` to each constructor that sets none.
-- [ ] Remove `transform` from the 4 `canvas::Paint[...]` built by name.
-- [ ] Regenerate the IR-embedding fixtures' goldens per `.ai/testing-gates.md`.
+- [x] Move each of the 148 `transform :=` from the paint expression to its item.
+      → 146 measured on entry, 35 of them `Gradient`'s own (which stay). Inline ones moved by `/tmp/plan-172-A/codemod_c.py`; 57 carried by a paint value moved by hand, by `port_paintvar.py`, or by a sub-agent (the two example programs).
+- [x] Add `id := ""` and an all-zero `transform` to each constructor that sets none.
+      → `codemod_c.py` → `849 constructor(s) in 112 file(s)`; `grep` for a drawn constructor without `id` → the spec example only, fixed by hand.
+- [x] Remove `transform` from the 4 `canvas::Paint[...]` built by name.
+      → 1 real constructor (`rt_canvas_picture.rs`); the other three matches are prose.
+- [x] Regenerate the IR-embedding fixtures' goldens per `.ai/testing-gates.md`.
+      → see the gate line under Phase 3.
 
 Acceptance: every canvas suite except the ellipse cases passes with no PNG regenerated.
   Check: `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser --test
@@ -178,11 +187,14 @@ Commit: —
 
 ### Phase 3 — The ellipses
 
-- [ ] Port the 28 `angle :=` sites to the matrix in §3.4.
-- [ ] Add a case to `tests/canvas/rt_canvas_rasteriser.rs`: an ellipse turned by 0.5
+- [x] Port the 28 `angle :=` sites to the matrix in §3.4.
+      → 28 sites: 10 were `angle := 0.0` (dropped), 17 became a rotation about the centre, 1 had both an angle and a transform and was composed by hand (`transformed_shapes_on_black.mfb`).
+- [x] Add a case to `tests/canvas/rt_canvas_rasteriser.rs`: an ellipse turned by 0.5
       radians through `transform`, asserting the pixels at the two ends of its long axis.
-- [ ] Update `src/docs/spec/app/06_canvas.md`: every `Paint.transform` becomes the
+      → `an_ellipse_is_turned_by_its_transform`: two ends of the long axis, the centre, and a control pixel that only an unturned ellipse covers.
+- [x] Update `src/docs/spec/app/06_canvas.md`: every `Paint.transform` becomes the
       shape's `transform`; the ellipse paragraph loses `angle`.
+      → 7 mentions rewritten; the ellipse paragraph rewritten; `cargo test --bin mfb spec` passes.
 
 Acceptance: `ellipses.png` matches unregenerated, or §3's four-question procedure was
 followed and the commit carries the per-pixel proof.
@@ -208,7 +220,63 @@ None.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **The three phases landed as one commit.** The tree does not compile between Phase 1
+  and Phase 2 (the in-process tests embed canvas programs, and ten of them failed with
+  `TYPE_CONSTRUCTOR_ARITY_MISMATCH` after Phase 1 alone), and the ellipse port is the
+  same codemod pass as the rest. Phase 1's own check, `cargo test --bin mfb canvas`,
+  is `113 passed` on the ported tree.
+- **The native item hash could not fold a `String`.** Verified property 1 said it
+  "needs no per-field edit". It did: `canvas::itemHash: 'Rectangle.id' has type
+  'String', which the structural hash does not fold`. `func_item_hash.rs:fold_field`
+  gained a `String` arm (length, then each byte).
+- **`__canvas_hashPaint` still folds the transform, passed as an argument.** The task
+  said it "drops the transform". Dropping it would have required every MFBASIC hash arm
+  to fold the six fields itself; keeping the parameter leaves each arm's hash what it
+  was.
+- **Counts.** `transform :=`: 146 on entry, not 148, of which 35 are `Gradient`'s own.
+  Constructors that gained `id` and `transform`: 849 by the codemod plus one spec
+  example by hand, against the 853 predicted. `canvas::Paint[` built by name: 1 real
+  site, not 4.
+- **57 transforms were carried by a paint value, not written inline**, and each needed
+  the item that used the paint found: 10 in the test and registry files (by hand and by
+  `/tmp/plan-172-A/port_paintvar.py`), the rest in `examples/canvas-demo` and
+  `examples/water` (a sub-agent, both examples built afterwards). `examples/canvas-demo`
+  gained a helper, `placed(item, transform)`, because its scenes build an item first
+  and position it later. The examples are not pixel-tested; the sub-agent's report
+  names the ellipse sites it could not verify by rendering.
+- **`canvas_geo_native_matrix.mfb` was restructured, not just ported.** One entry of its
+  paint list carried a negative-zero transform, to prove that still builds natively.
+  `shapes` now takes the transform as a second argument and `main` calls it once more
+  with the negative-zero one, so the same items are built, in a different order.
+- **`ellipses.png` moved, as §3 predicted, and was re-derived.** 13 of 576,000 pixels
+  differ, each by one step in one or more channels, all on the antialiased edge of the
+  two rotated ellipses: ten on `thinTurned` (x 781–818) and three on `hollow`
+  (`/tmp/plan-172-A/png_diff.py` lists them). The four answers: the reference was
+  added by `71bf744b6` (plan-116-E Phase 4); it protects the ellipse's exact rendering,
+  rotated cases included; only `rt_canvas_golden.rs` reads it (two tests, the second
+  within GPU tolerance); and it is wrong because it records the output of
+  `Ellipse.angle`, which rotated the query point by a double-precision cosine and sine
+  in header slots 39–40 — a field the owner removed. A turned ellipse now goes through
+  the item transform, whose inverse is stored as float32 bit patterns (slots 27–32), as
+  every other transformed shape's already was. No program can produce the old pixels.
+  The unrotated ellipses and `tilted` did not move.
+- **A regression this letter introduced and fixed: identical re-presents drew a frame
+  every time.** `rt_canvas_frame_stats::identical_presents_count_as_presents_not_frames`
+  failed with `frames=10`, expected 5. `canvas::present`'s frame skip compares bytes,
+  and every item now begins with a string: a string sub-block is `length + 9` bytes, so
+  up to seven bytes before the next inlined field were whatever the arena held.
+  Measured with `/tmp/plan-172-A/run_skip.sh`: `frames=10` for an `id` of length 0 and
+  3, `frames=5` only for length 7. Fixed in
+  `builder_collection_layout.rs:emit_build_inlined_record`, which now zeroes the last
+  word a sub-block reaches before copying it. That is a change to how **every** record
+  with an inlined field is built, so the per-target native goldens across the tree were
+  regenerated (`scripts/regen-native-goldens.sh`, then `artifact-gate.sh … all` → 0
+  diffs). New test: `identical_presents_are_skipped_whatever_the_id_length`. The same
+  weakness was latent before this plan for any item with a string ahead of its paint
+  (`canvas::Text`).
+- **`canvas::Ellipse`'s man example gained a `turnAbout` helper.** A transform pivots
+  about the surface origin until 172-D, so tilting an ellipse in place needs a
+  translation; written inline it was unreadable.
 
 ## Summary
 

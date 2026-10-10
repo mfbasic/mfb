@@ -18,7 +18,7 @@ IMPORT math
 ' near black is where fp32 flips a coverage step past tolerance (bug-687).
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]]
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   MUT ring AS Integer = 0
   WHILE ring < 200
     LET cx AS Float = 25.0 + toFloat((ring MOD 20) * 44)
@@ -31,7 +31,7 @@ FUNC main() AS Nothing
       points = collections::append(points, vector::Float2[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
       i = i + 1
     END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(60 + ring, 255 - ring, 120))]
+    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(60 + ring, 255 - ring, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE

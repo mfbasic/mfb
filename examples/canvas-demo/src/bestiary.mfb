@@ -314,8 +314,8 @@ END FUNC
 
 FUNC clipItem(d AS canvas::DrawItem, ring AS List OF List OF vector::Float2) AS canvas::DrawItem
   MATCH d
-    CASE canvas::Polygon(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.paint.transform) } }
-    CASE canvas::PolyLine(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.paint.transform) } }
+    CASE canvas::Polygon(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.transform) } }
+    CASE canvas::PolyLine(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.transform) } }
     CASE ELSE : RETURN d
   END MATCH
 END FUNC

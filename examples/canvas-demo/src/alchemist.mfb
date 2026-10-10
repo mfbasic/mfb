@@ -279,7 +279,7 @@ FUNC bottle(i AS Integer, x AS Float, y AS Float, size AS Float, tilt AS Float, 
   MUT out AS List OF canvas::DrawItem = []
   IF hover > 0.01 THEN out = collections::append(out, glow(x, y - size * 0.4, size * 0.9, fade(liquid, 0.45 * hover)))
   ' Glass back: dark and faintly tinted.
-  out = collections::append(out, poly(ring, WITH fillP(rgba(20, 24, 40, 150)) { transform := tr }))
+  out = collections::append(out, placed(poly(ring, fillP(rgba(20, 24, 40, 150))), tr))
   ' The liquid: a block with a wavy top, in the bottle's frame, clipped to the
   ' bottle's outline. The surface stays level as the bottle tips, so its wave
   ' is drawn in the window's frame and only the clip turns with the bottle.
@@ -302,9 +302,9 @@ FUNC bottle(i AS Integer, x AS Float, y AS Float, size AS Float, tilt AS Float, 
   ' The glass: a radial ramp with its focus pulled up-left for the highlight,
   ' outline and all (FillAndStroke).
   LET glass AS canvas::Gradient = WITH focal(0.0, -0.4, 0.6, -0.18, -0.22, [gstop(0.0, rgba(255, 255, 255, 140)), gstop(0.25, rgba(220, 240, 255, 40)), gstop(0.8, rgba(180, 210, 255, 20)), gstop(1.0, rgba(200, 230, 255, 120))]) { strokeApply := canvas::GradientApply.FillAndStroke }
-  out = collections::append(out, poly(ring, WITH gradP(glass) { transform := tr, stroke := rgba(255, 255, 255, 0), strokeWidth := 0.022, join := canvas::JoinStyle.Round }))
+  out = collections::append(out, placed(poly(ring, WITH gradP(glass) { stroke := rgba(255, 255, 255, 0), strokeWidth := 0.022, join := canvas::JoinStyle.Round }), tr))
   ' Cork.
-  out = collections::append(out, rrect(-0.075, -1.1, 0.15, 0.13, 0.03, WITH fillP(hex("#9a6a3e")) { transform := tr, stroke := hex("#5a3a1e"), strokeWidth := 0.01 }))
+  out = collections::append(out, placed(rrect(-0.075, -1.1, 0.15, 0.13, 0.03, WITH fillP(hex("#9a6a3e")) { stroke := hex("#5a3a1e"), strokeWidth := 0.01 }), tr))
   RETURN out
 END FUNC
 
@@ -317,15 +317,15 @@ FUNC hummingbird(x AS Float, y AS Float, s AS Float, face AS Float, t AS Float, 
   LET throat AS color::Color = mixC(hex("#ff2e6a"), hex("#ffa02e"), shimmer)
   LET beat AS Float = math::sin(t * 70.0 + seed)
   RETURN [
-    ellipse(-0.05, -0.18, 0.42, 0.08 + 0.1 * math::abs(beat), -0.9 + beat * 0.5, WITH fillP(rgba(200, 230, 255, 70)) { transform := tr }),
-    poly([pt(-0.3, 0.02), pt(-0.62, 0.12), pt(-0.6, 0.0), pt(-0.3, -0.04)], WITH fillP(mixC(back, color::black, 0.4)) { transform := tr }),
-    ellipse(0.0, 0.0, 0.32, 0.14, -0.2, WITH gradP(linear(-0.3, -0.1, 0.3, 0.1, [gstop(0.0, back), gstop(1.0, mixC(back, color::white, 0.25))])) { transform := tr }),
-    ellipse(0.06, 0.06, 0.18, 0.08, -0.2, WITH fillP(hex("#e8eef0")) { transform := tr }),
-    circle(0.3, -0.08, 0.11, WITH fillP(back) { transform := tr }),
-    ellipse(0.28, 0.0, 0.08, 0.05, 0.3, WITH fillP(throat) { transform := tr }),
-    line(0.4, -0.08, 0.78, -0.02, WITH strokeP(hex("#1a1a1a"), 0.03) { transform := tr }),
-    circle(0.34, -0.11, 0.025, WITH fillP(hex("#0a0a0a")) { transform := tr }),
-    ellipse(0.05, -0.2, 0.36, 0.06 + 0.08 * math::abs(beat), -1.2 - beat * 0.4, WITH fillP(rgba(220, 240, 255, 110)) { transform := tr })
+    placed(ellipse(-0.05, -0.18, 0.42, 0.08 + 0.1 * math::abs(beat), -0.9 + beat * 0.5, fillP(rgba(200, 230, 255, 70))), tr),
+    placed(poly([pt(-0.3, 0.02), pt(-0.62, 0.12), pt(-0.6, 0.0), pt(-0.3, -0.04)], fillP(mixC(back, color::black, 0.4))), tr),
+    placed(ellipse(0.0, 0.0, 0.32, 0.14, -0.2, gradP(linear(-0.3, -0.1, 0.3, 0.1, [gstop(0.0, back), gstop(1.0, mixC(back, color::white, 0.25))]))), tr),
+    placed(ellipse(0.06, 0.06, 0.18, 0.08, -0.2, fillP(hex("#e8eef0"))), tr),
+    placed(circle(0.3, -0.08, 0.11, fillP(back)), tr),
+    placed(ellipse(0.28, 0.0, 0.08, 0.05, 0.3, fillP(throat)), tr),
+    placed(line(0.4, -0.08, 0.78, -0.02, strokeP(hex("#1a1a1a"), 0.03)), tr),
+    placed(circle(0.34, -0.11, 0.025, fillP(hex("#0a0a0a"))), tr),
+    placed(ellipse(0.05, -0.2, 0.36, 0.06 + 0.08 * math::abs(beat), -1.2 - beat * 0.4, fillP(rgba(220, 240, 255, 110))), tr)
   ]
 END FUNC
 

@@ -257,7 +257,7 @@ r#"' plan-116-G: `gdx`/`gdy` are the accumulated translation of the groups this 
 ' them. The item's BOUNDS move by +(gdx, gdy), because that is where it lands on the
 ' surface. The QUERY POINT moves by -(gdx, gdy), because a distance field is translated
 ' by evaluating it at the inverse-translated point -- the same mechanism plan-116-C
-' established for `Paint.transform`, specialised to a translation, so no distance
+' established for the item's `transform`, specialised to a translation, so no distance
 ' function changes.
 '
 ' `px`/`py` below are therefore the SHAPE-space point and every distance call keeps
@@ -306,7 +306,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       '
       ' `gx`/`gy` stay the glyph's own origin, deliberately. Adding the group offset
       ' here would be right for the untransformed blit and WRONG for the transformed
-      ' one, which forward-maps this box through `Paint.transform` -- the translation
+      ' one, which forward-maps this box through the item's `transform` -- the translation
       ' would be rotated and scaled with the glyph. The composition is
       ' `surface = groupOffset + transform(shape)`, so each path applies the offset on
       ' its own side of the map: see `gsx`/`gsy` below and the AABB.
@@ -346,7 +346,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         LET bx1 AS Float = toFloat(gx + gw)
         LET by1 AS Float = toFloat(gy + gh)
         ' The group offset is added AFTER the forward map, never through it: it is a
-        ' surface translation, and passing it through `Paint.transform` would rotate
+        ' surface translation, and passing it through the item's `transform` would rotate
         ' and scale it with the glyph.
         LET cx0 AS Float = fa * bx0 + fc * by0 + ftx + gdx
         LET cy0 AS Float = fb * bx0 + fd * by0 + fty + gdy
@@ -680,7 +680,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' plan-116-F: the gradient replaces the fill COLOUR and nothing else -- the
       ' shape's distance, its coverage and its stroke are untouched, which is what
       ' keeps a gradient-filled shape's edge identical to a flat-filled one's.
-      ' plan-163-D: `t` is computed at the SHAPE-space point `q`, so `Paint.transform`
+      ' plan-163-D: `t` is computed at the SHAPE-space point `q`, so the item's `transform`
       ' and the group offset carry the ramp with the item (a linear gradient's own
       ' transform is already folded into its points), and the spread is applied before
       ' the stop lookup.

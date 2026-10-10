@@ -454,7 +454,7 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(color::rgb(255, 255, 0))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 120.0, text := "A", font := face, size := 200.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("label", [label])
   canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
   io::print("done")
@@ -523,8 +523,8 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET filled AS canvas::DrawItem = canvas::Text[x := 40.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::fill({fill}){t}]
-  LET outlined AS canvas::DrawItem = canvas::Text[x := 400.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::stroke({stroke}, 6.0){t}]
+  LET filled AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::fill({fill}){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET outlined AS canvas::DrawItem = canvas::Text[id := "", x := 400.0, y := 220.0, text := "A", font := face, size := 200.0, paint := WITH canvas::stroke({stroke}, 6.0){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([filled, outlined])
   io::print("done")
 END FUNC
@@ -733,7 +733,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -807,7 +807,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("composite.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "B", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "B", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -867,7 +867,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "AA", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -905,13 +905,13 @@ const WALK_PENS: [&str; 2] = ["100.25", "152.75"];
 fn walk_scene(paint: &str, whole_string: bool) -> String {
     let items = if whole_string {
         format!(
-            "[canvas::Text[x := {}, y := 200.0, text := \"{WALK_TEXT}\", font := face, size := {WALK_SIZE}, paint := {paint}]]",
+            "[canvas::Text[id := \"\", x := {}, y := 200.0, text := \"{WALK_TEXT}\", font := face, size := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]",
             WALK_PENS[0]
         )
     } else {
         let one = |x: &str| {
             format!(
-                "canvas::Text[x := {x}, y := 200.0, text := \"A\", font := face, size := {WALK_SIZE}, paint := {paint}]"
+                "canvas::Text[id := \"\", x := {x}, y := 200.0, text := \"A\", font := face, size := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         format!("[{}, {}]", one(WALK_PENS[0]), one(WALK_PENS[1]))
@@ -1073,7 +1073,7 @@ fn every_live_font_draws_however_many_are_loaded() {
         }
         let text = |x: &str, font: &str| {
             format!(
-                "canvas::Text[x := {x}, y := 200.0, text := \"A\", font := {font}, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]"
+                "canvas::Text[id := \"\", x := {x}, y := 200.0, text := \"A\", font := {font}, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         source.push_str(&format!(
@@ -1174,7 +1174,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "A", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
   ' already gone — the ordering the guard exists for.
   canvas::destroyFont(face)
@@ -1206,7 +1206,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgb(220, 40, 160))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgb(220, 40, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1278,9 +1278,9 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET under AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(color::rgb(40, 60, 90))]
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150))]
-  LET tail AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60))]
+  LET under AS canvas::DrawItem = canvas::Rectangle[id := "", x := 80.0, y := 150.0, w := 300.0, h := 200.0, paint := canvas::fill(color::rgb(40, 60, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 300.0, text := "AAAA", font := face, size := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tail AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 200.0, radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([under, label, tail])
 END FUNC
 "#;
@@ -1346,7 +1346,7 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
     LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
-    LET glyph AS canvas::DrawItem = canvas::Text[x := x, y := y, text := "A", font := face, size := size, paint := white]
+    LET glyph AS canvas::DrawItem = canvas::Text[id := "", x := x, y := y, text := "A", font := face, size := size, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
@@ -1450,8 +1450,8 @@ FUNC main() AS Nothing
     RETURN
   END TRAP
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 100.0]
-  LET p AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) { transform := t }
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := p]
+  LET p AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := p, transform := t]
   canvas::present([label])
 END FUNC
 "#;
@@ -1466,7 +1466,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 40.0, y := 60.0, text := "AAAA", font := face, size := 60.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1625,7 +1625,7 @@ FUNC main() AS Nothing
   WHILE i < 200
     ' The x moves each frame so the scene differs and the present is not skipped —
     ' a skipped present would exercise nothing.
-    LET label AS canvas::DrawItem = canvas::Text[x := 10.0 + toFloat(i), y := 40.0, text := "A", font := face, size := 24.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+    LET label AS canvas::DrawItem = canvas::Text[id := "", x := 10.0 + toFloat(i), y := 40.0, text := "A", font := face, size := 24.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::present([label])
     i = i + 1
   END WHILE
@@ -1749,7 +1749,7 @@ FUNC main() AS Nothing
     io::print("load failed " & toString(e.code))
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 600.0, text := "A", font := face, size := {size}, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 600.0, text := "A", font := face, size := {size}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
   io::print("presented")
 END FUNC
@@ -2011,7 +2011,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("FONTFILE")
-  LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := "AB", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 100.0, y := 200.0, text := "AB", font := face, size := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;

@@ -33,7 +33,7 @@ IMPORT color
 
 FUNC scene(r AS Float) AS List OF canvas::DrawItem
   LET c AS color::Color = color::rgb(10, 20, 30)
-  LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]
+  LET a AS canvas::DrawItem = canvas::Circle[id := \"\", x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   RETURN [a]
 END FUNC
 

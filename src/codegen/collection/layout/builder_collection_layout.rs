@@ -1217,6 +1217,33 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     block_size_slot,
                 ));
+                // plan-172-C: zero the last 8-byte word the sub-block reaches BEFORE
+                // copying it, so the bytes between its end and the next 8-aligned
+                // offset are zero rather than whatever the arena handed out. A
+                // `String` sub-block is `length + 9` bytes, so a record with a string
+                // ahead of another inlined field has up to seven such bytes, and two
+                // records built from equal values otherwise differ in them. Nothing
+                // reads them as a value; `canvas::present`'s frame skip and
+                // `canvas::carriedHashes` compare an item's BYTES, and every drawn item
+                // now starts with a string (`id`). The word lies inside the
+                // allocation: `dest` is 8-aligned and the arena rounds every request
+                // up to 16 (`mfb spec memory arenas`). An empty sub-block has no last
+                // word and is skipped.
+                let no_pad = self.label("record_inline_no_pad");
+                let last_word = self.temporary_vreg();
+                let word_mask = self.temporary_vreg();
+                self.emit(abi::compare_immediate(&scratch13, "0"));
+                self.emit(abi::branch_eq(&no_pad));
+                self.emit(abi::subtract_immediate(&last_word, &scratch13, 1));
+                self.emit(abi::move_immediate(
+                    &word_mask,
+                    "Integer",
+                    &(!7u64).to_string(),
+                ));
+                self.emit(abi::and_registers(&last_word, &last_word, &word_mask));
+                self.emit(abi::add_registers(&last_word, &scratch11, &last_word));
+                self.emit(abi::store_u64(abi::ZERO, &last_word, 0));
+                self.emit(abi::label(&no_pad));
                 self.emit_copy_bytes(&scratch11, &scratch12, &scratch13, "record_inline_block");
                 // Advance the cursor by the same block length.
                 self.emit(abi::load_u64(

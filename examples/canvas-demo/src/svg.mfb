@@ -880,22 +880,22 @@ FUNC svgItems(img AS SvgImage, view AS canvas::Transform, outline AS Boolean, t 
   FOR EACH s IN img.shapes
     LET tr AS canvas::Transform = compose(view, s.transform)
     IF outline THEN
-      out = collections::append(out, shape(s.contours, s.paint.rule, WITH canvas::stroke(rgba(120, 220, 255, 200), 0.35) { transform := tr, join := canvas::JoinStyle.Round }))
+      out = collections::append(out, placed(shape(s.contours, s.paint.rule, WITH canvas::stroke(rgba(120, 220, 255, 200), 0.35) { join := canvas::JoinStyle.Round }), tr))
     ELSE
-      IF s.hasFill THEN out = collections::append(out, shape(s.contours, s.paint.rule, WITH s.fill { transform := tr }))
+      IF s.hasFill THEN out = collections::append(out, placed(shape(s.contours, s.paint.rule, s.fill), tr))
       IF s.hasStroke THEN
         ' The outline: closed rings as one stroked, unfilled Polygon; each open
         ' subpath as a PolyLine, so it is not closed back to its start.
-        LET sp AS canvas::Paint = WITH s.stroke { transform := tr }
+        LET sp AS canvas::Paint = s.stroke
         MUT shut AS List OF List OF vector::Float2 = []
         FOR k = 0 TO len(s.contours) - 1
           IF collections::get(s.closed, k) THEN
             shut = collections::append(shut, [collections::get(s.contours, k)])
           ELSE
-            out = collections::append(out, path(collections::get(s.contours, k), sp))
+            out = collections::append(out, placed(path(collections::get(s.contours, k), sp), tr))
           END IF
         NEXT
-        IF len(shut) > 0 THEN out = collections::append(out, shape(shut, s.paint.rule, sp))
+        IF len(shut) > 0 THEN out = collections::append(out, placed(shape(shut, s.paint.rule, sp), tr))
       END IF
     END IF
   NEXT

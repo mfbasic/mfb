@@ -713,7 +713,7 @@ pub(crate) fn register(r: &mut Registry) {
                       `x' = a*x + c*y + tx`, `y' = b*x + d*y + ty`. **The all-zero \
                       value means the identity**, not the degenerate matrix that \
                       collapses every point to the origin — which is what lets an \
-                      unset `canvas::Paint.transform` leave an item untransformed. \
+                      unset `transform` leave an item untransformed. \
                       A rotation by θ is `a := cos(θ), b := sin(θ), c := -sin(θ), \
                       d := cos(θ)`; a scale is `a := sx, d := sy` with `b` and `c` \
                       zero; an X shear is `c := tan(θ)`. Rotation and shear turn about \
@@ -767,7 +767,7 @@ pub(crate) fn register(r: &mut Registry) {
     // draws nothing exactly as a zero handle did.
     //
     // What changed for a caller is that the compiler now knows a scene names a
-    // resource. That is the point: `canvas::Picture[image := imageRef(img)]` could
+    // resource. That is the point: `canvas::Picture[id := "", image := imageRef(img), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]` could
     // outlive `img` silently, and `image := img` cannot.
 
     pkg.add_record(RegistryRecord {
@@ -807,7 +807,7 @@ pub(crate) fn register(r: &mut Registry) {
                       The ramp is placed in the item's own coordinates, from its own \
                       two points and never from the shape's bounds: the gradient's \
                       `transform` maps it first, then the item's \
-                      `canvas::Paint.transform` and a group's translation, so a \
+                      the item's `transform` and a group's translation, so a \
                       rotated or moved item carries its ramp with it. Colours between \
                       two stops are mixed in **linear light**, the same space \
                       everything else on the surface is blended in, so a \
@@ -848,12 +848,12 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "transform",
                 ty: ParameterType::named("Transform"),
                 description: "Maps the ramp before the item's own \
-                              `canvas::Paint.transform` does: scale, turn or shear the \
+                              an item's `transform` does: scale, turn or shear the \
                               gradient without touching the shape. Scaling a radial \
                               gradient by different amounts in x and y makes it \
                               elliptical. The all-zero value is the identity, and a \
                               transform that flattens the ramp to a line is treated as \
-                              the identity, as for `canvas::Paint.transform`.",
+                              the identity, as for an item's `transform`.",
             },
             RecordProp {
                 name: "focalOffset",
@@ -928,29 +928,6 @@ pub(crate) fn register(r: &mut Registry) {
                               beneath, then the outline onto that.",
             },
             RecordProp {
-                name: "transform",
-                ty: ParameterType::named("Transform"),
-                description: "The affine transform applied to the item's geometry. \
-                              The all-zero value is the identity, so an item you \
-                              never set this on draws where its own coordinates put \
-                              it. Set it and the item's coordinates become a space of \
-                              their own: a `canvas::Circle` at `x := 0, y := 0` with \
-                              `tx := 200, ty := 380` draws centred at 200, 380. \
-                              Edges stay smooth after the transform — a rotated \
-                              square's sides are as clean as an upright one's. \
-                              A stroke is transformed with the shape it outlines \
-                              rather than held at a fixed pixel width, so scaling an \
-                              item by 2 draws its 4-pixel outline 8 pixels wide; \
-                              divide the width you ask for by the scale if you want \
-                              it to stay put. A transform that flattens the item to a \
-                              line or a point — a zero row, or one whose determinant \
-                              is smaller than 1e-12 — is treated as the identity \
-                              instead, because there is no sensible picture of a \
-                              shape with no area and silently drawing nothing is the \
-                              worse answer. It applies to `canvas::Paint.clip` and \
-                              `canvas::Paint.gradient` as well as to the item.",
-            },
-            RecordProp {
                 name: "clip",
                 ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID))),
                 description: "Restricts drawing to the area these rings enclose, \
@@ -959,7 +936,7 @@ pub(crate) fn register(r: &mut Registry) {
                               the zero value, means no clipping. A clip that encloses \
                               nothing, such as rings of fewer than two points, hides \
                               the whole item. The rings are in the item's own \
-                              coordinates: `canvas::Paint.transform` and a group's \
+                              coordinates: the item's `transform` and a group's \
                               translation apply to the clip as well as to the item, \
                               so a clipped item moves with its clip. Its edges may \
                               fall between pixels, and a partly-covered pixel is \
@@ -1038,7 +1015,7 @@ pub(crate) fn register(r: &mut Registry) {
                               point, a `canvas::Rectangle`'s top-left corner, a \
                               `canvas::RoundedRect`'s top edge where it leaves the \
                               corner, and a `canvas::Circle`'s or `canvas::Ellipse`'s \
-                              rightmost point (before `angle`) — going clockwise \
+                              rightmost point (before its `transform`) — going clockwise \
                               round every closed shape.",
             },
             RecordProp {
@@ -1078,7 +1055,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: {
             let mut props = rect_props("The rectangle");
             props.insert(
-                4,
+                5,
                 RecordProp {
                     name: "cornerRadius",
                     ty: ParameterType::Float,
@@ -1097,6 +1074,7 @@ pub(crate) fn register(r: &mut Registry) {
                       interior, so it is drawn from `paint.stroke`/`paint.strokeWidth` \
                       and ignores `paint.fill`; `paint.cap` shapes its two ends.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "x1",
                 ty: ParameterType::Float,
@@ -1118,6 +1096,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "The ending point's Y coordinate in pixels.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1131,6 +1110,7 @@ pub(crate) fn register(r: &mut Registry) {
                       fewer than three points has no area and adds only its \
                       stroke; a ring of fewer than two adds nothing.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "contours",
                 ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID))),
@@ -1148,6 +1128,7 @@ pub(crate) fn register(r: &mut Registry) {
                               opposite way to the ring around it.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1156,6 +1137,7 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "A circle given by its centre and radius.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "x",
                 ty: ParameterType::Float,
@@ -1172,6 +1154,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "The radius in pixels.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1185,6 +1168,7 @@ pub(crate) fn register(r: &mut Registry) {
                       no interior, so it is drawn from `paint.stroke`; `paint.cap` \
                       shapes its two ends.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "x",
                 ty: ParameterType::Float,
@@ -1211,6 +1195,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "Where the arc ends, in radians clockwise from +X.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1221,6 +1206,7 @@ pub(crate) fn register(r: &mut Registry) {
                       start of the baseline, not the top-left corner — use \
                       `canvas::measureText` to lay text out without drawing it.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "x",
                 ty: ParameterType::Float,
@@ -1250,6 +1236,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "The em size in pixels.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1272,7 +1259,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: {
             let mut props = rect_props("The destination rectangle");
             props.insert(
-                4,
+                5,
                 RecordProp {
                     name: "image",
                     ty: ParameterType::res(ParameterType::named("canvas.Image")),
@@ -1384,8 +1371,14 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Ellipse",
         export: true,
-        description: "An ellipse given by its centre, two radii and a rotation.                       `radiusX = radiusY` with `angle := 0.0` is a circle, and draws                       identically to `canvas::Circle` of that radius — so an                       animation that squashes a circle can use one item type                       throughout. Rotation is about the centre, so an ellipse is                       placed by `x`/`y` and oriented by `angle` independently. A                       radius of `0.0` or less draws nothing, the same rule                       `canvas::Circle` follows.",
+        description: "An ellipse given by its centre and two radii, along the X and Y \
+                      axes. `radiusX = radiusY` is a circle, and draws identically to \
+                      `canvas::Circle` of that radius — so an animation that squashes \
+                      a circle can use one item type throughout. To tilt it, give it \
+                      a rotation in `transform`. A radius of `0.0` or less draws \
+                      nothing, the same rule `canvas::Circle` follows.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "x",
                 ty: ParameterType::Float,
@@ -1399,19 +1392,16 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "radiusX",
                 ty: ParameterType::Float,
-                description: "The radius along the ellipse's own X axis, in pixels —                               before `angle` rotates it.",
+                description: "The radius along the X axis, in pixels, before `transform` \
+                              turns it.",
             },
             RecordProp {
                 name: "radiusY",
                 ty: ParameterType::Float,
-                description: "The radius along the ellipse's own Y axis, in pixels.",
-            },
-            RecordProp {
-                name: "angle",
-                ty: ParameterType::Float,
-                description: "Rotation about the centre, in radians clockwise from                               +X. `0.0` leaves the radii axis-aligned. Because Y                               grows downward, a positive angle turns the long axis                               towards the bottom-right.",
+                description: "The radius along the Y axis, in pixels.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1431,6 +1421,7 @@ pub(crate) fn register(r: &mut Registry) {
                       `paint.strokeWidth` and ignores `paint.fill` and \
                       `paint.gradient`. Fewer than two points draws nothing.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "points",
                 ty: ParameterType::list_of(ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID)),
@@ -1454,6 +1445,7 @@ pub(crate) fn register(r: &mut Registry) {
                               draws even when `paint.stroke` is transparent.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1595,9 +1587,10 @@ pub(crate) fn register(r: &mut Registry) {
 
 /// The `x`/`y`/`w`/`h` prefix shared by every rectangle-shaped item, plus the
 /// trailing `paint`. Callers that need an extra field (`cornerRadius`, `image`)
-/// insert it at index 4, between the extent and the paint.
+/// insert it at index 5, between the extent and the paint (index 0 is `id`).
 fn rect_props(what: &'static str) -> Vec<RecordProp> {
     vec![
+        id_prop(),
         RecordProp {
             name: "x",
             ty: ParameterType::Float,
@@ -1627,15 +1620,44 @@ fn rect_props(what: &'static str) -> Vec<RecordProp> {
             },
         },
         paint_prop(),
+        transform_prop(),
     ]
 }
 
-/// The `paint` field every `DrawItem` variant carries.
+/// The `paint` field every drawn `DrawItem` variant carries.
 fn paint_prop() -> RecordProp {
     RecordProp {
         name: "paint",
         ty: ParameterType::named("Paint"),
-        description: "How to fill, stroke, blend, transform and clip the item.",
+        description: "How to fill, stroke, blend and clip the item.",
+    }
+}
+
+/// The `id` field every drawn `DrawItem` variant carries, first (plan-172-C).
+fn id_prop() -> RecordProp {
+    RecordProp {
+        name: "id",
+        ty: ParameterType::String,
+        description: "A name for this item, of your choosing. `\"\"` is no name. It \
+                      draws nothing and changes nothing about how the item looks; it \
+                      is how a program tells its own items apart. Two items may \
+                      share one.",
+    }
+}
+
+/// The `transform` field every drawn `DrawItem` variant carries, last (plan-172-C).
+fn transform_prop() -> RecordProp {
+    RecordProp {
+        name: "transform",
+        ty: ParameterType::named("Transform"),
+        description: "The affine transform applied to this item: its geometry, its \
+                      stroke, its `paint.clip` and its `paint.gradient` together. The \
+                      all-zero value is the identity, so an item you never set this \
+                      on draws where its own coordinates put it. Edges stay smooth \
+                      after the transform — a rotated square's sides are as clean as \
+                      an upright one's. A transform with no area (a zero row, or \
+                      `a*d - b*c` within `1e-12` of zero) is treated as the identity \
+                      rather than collapsing the item to nothing.",
     }
 }
 

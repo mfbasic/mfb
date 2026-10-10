@@ -15,8 +15,7 @@ use std::process::Command;
 const ONE_FRAME: &str =
     "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
      app::setMode(app::Mode.Canvas)\n  \
-     canvas::present([canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, \
-     paint := canvas::fill(color::rgb(255, 0, 0))]])\n  \
+     canvas::present([canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
      io::print(\"presented\")\nEND FUNC\n";
 
 /// Run `binary` headless with both hooks pointed into `project`; return the two paths.

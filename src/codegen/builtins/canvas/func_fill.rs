@@ -10,19 +10,19 @@ const INTRO: &str =
 
 const DESC: &str = r#"`fill` is the common case: a solid shape with no outline. Every other `canvas::Paint`
 field is left at its no-op value — a transparent stroke, zero stroke width,
-`Normal` blend, the identity transform, no clip, no gradient, `Butt` ends, `Round`
+`Normal` blend, no clip, no gradient, `Butt` ends, `Round`
 corners, no dashes and opaque — with a `miterLimit` of `4.0`.
 
 Use `canvas::stroke` for the outline-only case and `canvas::fillStroke` for both.
-To set blend, transform or clip, update the result:
+To set blend or clip, update the result:
 
 ```
-LET spun AS Paint = WITH canvas::fill(color::rgb(220, 40, 40)) { transform := tilt }
+LET soft AS Paint = WITH canvas::fill(color::rgb(220, 40, 40)) { blend := canvas::BlendMode.Multiply }
 ```
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[fill := c]` is a constructor-arity error, not a partial record — so
-without them every item would have to spell out all fourteen `canvas::Paint` fields."#;
+without them every item would have to spell out all thirteen `canvas::Paint` fields."#;
 
 const EX: &str = r#"A solid yellow disc:
 
@@ -35,7 +35,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET yellow AS color::Color = color::rgb(255, 255, 0)
-  LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
+  LET face AS canvas::DrawItem = canvas::Circle[id := "", x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([face])
 END FUNC
 ```
@@ -54,12 +54,12 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
   LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 40.0, y := 0.0], endPoint := vector::Float2[x := 360.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET bar AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := ramp }]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", x := 40.0, y := 40.0, w := 320.0, h := 120.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := ramp }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' The same stops, radial. `startPoint` is the centre and `endPoint` a point on the
   ' outer circle, so this ramp is circular whatever shape it fills.
   LET glow AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 200.0, y := 300.0], endPoint := vector::Float2[x := 290.0, y := 300.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET orb AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := glow }]
+  LET orb AS canvas::DrawItem = canvas::Circle[id := "", x := 200.0, y := 300.0, radius := 90.0, paint := WITH canvas::fill(color::rgb(255, 64, 32)) { gradient := glow }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([bar, orb])
 END FUNC

@@ -11,19 +11,19 @@ const INTRO: &str =
 const DESC: &str = r#"`stroke` is the outline-only case — an unfilled shape, and the only sensible
 `canvas::Paint` for the three items that have no interior at all, `canvas::Line`,
 `canvas::Arc` and `canvas::PolyLine`. Every
-other field is left at its no-op value: a transparent fill, `Normal` blend, the
-identity transform, no clip, no gradient, `Butt` ends, `Round` corners, no dashes and opaque —
+other field is left at its no-op value: a transparent fill, `Normal` blend,
+no clip, no gradient, `Butt` ends, `Round` corners, no dashes and opaque —
 with a `miterLimit` of `4.0`. A `canvas::Line` that should end round says so with
 `WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round }`.
 
 A `width` of `0.0` draws nothing, since the stroke has no thickness.
 
 Use `canvas::fill` for the fill-only case and `canvas::fillStroke` for both. To
-set blend, transform or clip, update the result with `WITH`.
+set blend or clip, update the result with `WITH`.
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[stroke := c]` is a constructor-arity error, not a partial record —
-so without them every item would have to spell out all fourteen `canvas::Paint` fields."#;
+so without them every item would have to spell out all thirteen `canvas::Paint` fields."#;
 
 const EX: &str = r#"A smile — the lower half of a circle, stroked. Angles are radians clockwise from
 +X, and Y increases downward, so `0.0`..`PI` sweeps *below* the centre:
@@ -37,7 +37,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET green AS color::Color = color::rgb(0, 160, 0)
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }]
+  LET smile AS canvas::DrawItem = canvas::Arc[id := "", x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([smile])
 END FUNC
 ```
@@ -65,7 +65,7 @@ FUNC main() AS Nothing
     colors = collections::append(colors, color::rgba(255, 140, 40, 255 - (k * 255) / 7))
     k = k + 1
   END WHILE
-  LET trail AS canvas::DrawItem = canvas::PolyLine[points := points, colors := colors, paint := WITH canvas::stroke(color::rgb(255, 140, 40), 12.0) { cap := canvas::CapStyle.Round }]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[id := "", points := points, colors := colors, paint := WITH canvas::stroke(color::rgb(255, 140, 40), 12.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([trail])
 END FUNC
 ```"#;

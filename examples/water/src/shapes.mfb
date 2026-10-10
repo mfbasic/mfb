@@ -609,24 +609,23 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       LET n AS Float = math::sin(s.angle)
       LET hx AS Float = RECT_HALF_WIDTH * s.scale
       LET hy AS Float = RECT_HALF_HEIGHT * s.scale
-      LET turned AS canvas::Paint = WITH paint { transform := canvas::Transform[a := c, b := n, c := -n, d := c, tx := s.x, ty := s.y] }
-      RETURN canvas::Rectangle[x := -hx, y := -hy, w := hx * 2.0, h := hy * 2.0, paint := turned]
+      RETURN canvas::Rectangle[id := "", x := -hx, y := -hy, w := hx * 2.0, h := hy * 2.0, paint := paint, transform := canvas::Transform[a := c, b := n, c := -n, d := c, tx := s.x, ty := s.y]]
     CASE ShapeKind.Triangle
       LET half AS Float = TRIANGLE_HALF_BASE * s.scale
       LET below AS Float = TRIANGLE_BELOW * s.scale
       LET above AS Float = TRIANGLE_ABOVE * s.scale
       LET points AS List OF vector::Float2 = [turnedPoint(s, -half, below), turnedPoint(s, half, below), turnedPoint(s, 0.0, -above)]
-      RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]
+      RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     CASE ShapeKind.Circle
-      RETURN canvas::Circle[x := s.x, y := s.y, radius := CIRCLE_RADIUS * s.scale, paint := paint]
+      RETURN canvas::Circle[id := "", x := s.x, y := s.y, radius := CIRCLE_RADIUS * s.scale, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     CASE ShapeKind.Ellipse
-      RETURN canvas::Ellipse[x := s.x, y := s.y, radiusX := ELLIPSE_RADIUS_X * s.scale, radiusY := ELLIPSE_RADIUS_Y * s.scale, angle := s.angle, paint := paint]
+      RETURN canvas::Ellipse[id := "", x := s.x, y := s.y, radiusX := ELLIPSE_RADIUS_X * s.scale, radiusY := ELLIPSE_RADIUS_Y * s.scale, paint := paint, transform := canvas::Transform[a := math::cos(s.angle), b := math::sin(s.angle), c := 0.0 - math::sin(s.angle), d := math::cos(s.angle), tx := (s.x) - (math::cos(s.angle) * (s.x) - math::sin(s.angle) * (s.y)), ty := (s.y) - (math::sin(s.angle) * (s.x) + math::cos(s.angle) * (s.y))]]
     CASE ShapeKind.Star
       MUT points AS List OF vector::Float2 = []
       FOR k = 0 TO STAR_POINTS * 2 - 1
         points = collections::append(points, turnedPoint(s, starCornerX(k) * s.scale, starCornerY(k) * s.scale))
       NEXT
-      RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]
+      RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   END MATCH
 END FUNC
 

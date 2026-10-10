@@ -23,9 +23,9 @@ FUNC main() AS Nothing
   ' step is several sRGB levels, and fp32 against the f64 oracle flips a step where a
   ' distance lands on a quantisation boundary (bug-687) -- measured as max delta 3 on
   ' this polygon over black, on Metal, independent of the band index.
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 170.0, w := 300.0, h := 300.0, paint := canvas::fill(color::rgb(128, 128, 128))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[id := "", x := 300.0, y := 170.0, w := 300.0, h := 300.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' Small on purpose: the software oracle walks every edge per covered pixel, so the
   ' reference costs edges x area -- 64,000 edges over a 500-px polygon took 15 minutes.
-  LET coast AS canvas::DrawItem = canvas::Polygon[contours := [ring(64000, 450.0, 320.0, 50.0, 6.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(40, 160, 90), color::rgb(240, 240, 200), 2.0)]
+  LET coast AS canvas::DrawItem = canvas::Polygon[id := "", contours := [ring(64000, 450.0, 320.0, 50.0, 6.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(40, 160, 90), color::rgb(240, 240, 200), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([ground, coast])
 END FUNC

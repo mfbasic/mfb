@@ -60,7 +60,7 @@ FUNC main() AS Nothing
   WHILE i < 30
     LET s AS canvas::FrameStats = canvas::getFrameStats()
     x = x + 120.0 * math::min(s.dt, 0.05)
-    LET box AS canvas::DrawItem = canvas::Rectangle[x := x, y := 40.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(240, 160, 0))]
+    LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := x, y := 40.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(240, 160, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::present([box])
     os::sleep(10)
     i = i + 1

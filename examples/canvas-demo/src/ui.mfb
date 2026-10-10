@@ -190,8 +190,8 @@ FUNC compose(outer AS canvas::Transform, inner AS canvas::Transform) AS canvas::
   RETURN canvas::Transform[a := o.a * i.a + o.c * i.b, b := o.b * i.a + o.d * i.b, c := o.a * i.c + o.c * i.d, d := o.b * i.c + o.d * i.d, tx := o.a * i.tx + o.c * i.ty + o.tx, ty := o.b * i.tx + o.d * i.ty + o.ty]
 END FUNC
 
-FUNC restylePaint(p AS canvas::Paint, t AS canvas::Transform, fadeBy AS Float) AS canvas::Paint
-  RETURN WITH p { transform := compose(t, p.transform), transparency := 1.0 - (1.0 - clamp01(p.transparency)) * (1.0 - clamp01(fadeBy)) }
+FUNC restylePaint(p AS canvas::Paint, fadeBy AS Float) AS canvas::Paint
+  RETURN WITH p { transparency := 1.0 - (1.0 - clamp01(p.transparency)) * (1.0 - clamp01(fadeBy)) }
 END FUNC
 
 ' The same picture moved by `t` and faded by `fadeBy` (0 leaves it, 1 hides it)
@@ -203,17 +203,17 @@ END FUNC
 
 FUNC restyleItem(d AS canvas::DrawItem, t AS canvas::Transform, fadeBy AS Float) AS canvas::DrawItem
   MATCH d
-    CASE canvas::Picture(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Rectangle(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Line(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Polygon(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Circle(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Arc(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Text(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::RoundedRect(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Ellipse(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
+    CASE canvas::Picture(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Rectangle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Line(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Polygon(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Circle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Arc(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Text(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::RoundedRect(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Ellipse(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
     CASE canvas::Group(v) : RETURN v
-    CASE canvas::PolyLine(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
+    CASE canvas::PolyLine(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
   END MATCH
 END FUNC
 

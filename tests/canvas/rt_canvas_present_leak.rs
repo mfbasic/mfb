@@ -185,7 +185,7 @@ fn unchanged() -> String {
          MUT items AS List OF canvas::DrawItem = []\n  \
          MUT i AS Integer = 0\n  \
          WHILE i < {ITEMS}\n    \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n    \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat(i), y := 0.0, w := 10.0, h := 10.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, r)\n    \
          i = i + 1\n  \
          END WHILE\n  \
@@ -221,12 +221,12 @@ fn changing() -> String {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n      \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, r)\n      \
          i = i + 1\n    \
          END WHILE\n    \
          canvas::present(items)\n    \
-         LET extra AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint]\n    items = collections::append(items, extra)\n    \
+         LET extra AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    items = collections::append(items, extra)\n    \
          canvas::present(items)\n    os::sleep({FRAME_MS})\n    \
          frame = frame + 1\n  \
          END WHILE\n  \
@@ -248,13 +248,13 @@ fn changing_layers() -> String {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n      \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, r)\n      \
          i = i + 1\n    \
          END WHILE\n    \
          LET layer AS canvas::DrawLayer = canvas::DrawLayer[items := items]\n    \
          canvas::presentLayers([layer])\n    \
-         LET extra AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint]\n    items = collections::append(items, extra)\n    \
+         LET extra AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    items = collections::append(items, extra)\n    \
          canvas::presentLayers([canvas::DrawLayer[items := items]])\n    os::sleep({FRAME_MS})\n    \
          frame = frame + 1\n  \
          END WHILE\n  \
@@ -354,7 +354,7 @@ fn group_animated(vary: usize) -> String {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n      \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, r)\n      \
          i = i + 1\n    \
          END WHILE\n    \
@@ -362,7 +362,7 @@ fn group_animated(vary: usize) -> String {
          MUT scene AS List OF canvas::DrawItem = []\n    \
          MUT k AS Integer = 0\n    \
          WHILE k < {SCENE_ITEMS}\n      \
-         LET st AS canvas::DrawItem = canvas::Rectangle[x := toFloat(k), y := 50.0, w := 4.0, h := 4.0, paint := paint]\n      \
+         LET st AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat(k), y := 50.0, w := 4.0, h := 4.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          scene = collections::append(scene, st)\n      \
          k = k + 1\n    \
          END WHILE\n    \

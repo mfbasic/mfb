@@ -71,7 +71,7 @@ IMPORT term
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
-  canvas::present([canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80))]])
+  canvas::present([canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   LET b AS Byte = io::readRaw()
   app::setMode(app::Mode.Console)
   term::on()

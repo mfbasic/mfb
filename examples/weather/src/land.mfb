@@ -588,7 +588,7 @@ FUNC planeItems(plane AS List OF Plane, v AS View, clip AS Box, paint AS canvas:
   FOR EACH p IN cut
     points = collections::append(points, toScreen(v, p))
   NEXT
-  RETURN [canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]]
+  RETURN [canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
 END FUNC
 
 ' Closed ring r at one level of detail, as the copy `shift` degrees round the
@@ -720,7 +720,7 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
     threshold = tiltedDetailLevel(viewBox(v, 0.0), v)
   END IF
 
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(VOID_COLOR)]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(VOID_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   IF overlaps(world.bounds, clip) THEN
     items = collections::append(items, planeItems(world.points, v, clip, canvas::fill(OCEAN_COLOR)))
   END IF

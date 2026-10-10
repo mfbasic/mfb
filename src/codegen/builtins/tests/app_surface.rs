@@ -114,7 +114,7 @@ FUNC main() AS Integer
   RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)
     RETURN 1
   END TRAP
-  LET a AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET a AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup(\"one\", [a])
   io::print(\"grouped\")
   RETURN 0

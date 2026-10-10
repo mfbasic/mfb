@@ -34,17 +34,17 @@ FUNC main() AS Nothing
     LET c AS color::Color = color::rgb(250, 250, 120)
     LET w AS Float = 1.0 + toFloat(k MOD 7) * 0.3137
     LET c2 AS color::Color = color::rgb(250, 120, 250)
-    MUT d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { cap := canvas::CapStyle.Butt }]
+    MUT d AS canvas::DrawItem = canvas::Line[id := "", x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     IF k MOD 6 = 1 THEN
-      d = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, paint := WITH canvas::stroke(c2, w) { cap := canvas::CapStyle.Round }]
+      d = canvas::Arc[id := "", x := x, y := y, radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, paint := WITH canvas::stroke(c2, w) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     ELSEIF k MOD 6 = 2 THEN
-      d = canvas::Circle[x := x, y := y, radius := r, paint := canvas::fillStroke(c, c2, w)]
+      d = canvas::Circle[id := "", x := x, y := y, radius := r, paint := canvas::fillStroke(c, c2, w), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     ELSEIF k MOD 6 = 3 THEN
-      d = canvas::Ellipse[x := x, y := y, radiusX := r, radiusY := r * 0.61, angle := fx, paint := canvas::fillStroke(c, c2, w)]
+      d = canvas::Ellipse[id := "", x := x, y := y, radiusX := r, radiusY := r * 0.61, paint := canvas::fillStroke(c, c2, w), transform := canvas::Transform[a := math::cos(fx), b := math::sin(fx), c := 0.0 - math::sin(fx), d := math::cos(fx), tx := (x) - (math::cos(fx) * (x) - math::sin(fx) * (y)), ty := (y) - (math::sin(fx) * (x) + math::cos(fx) * (y))]]
     ELSEIF k MOD 6 = 4 THEN
-      d = canvas::RoundedRect[x := x - r, y := y - r * 0.6, w := r * 1.9, h := r * 1.3, cornerRadius := r * 0.3, paint := canvas::fillStroke(c, c2, w)]
+      d = canvas::RoundedRect[id := "", x := x - r, y := y - r * 0.6, w := r * 1.9, h := r * 1.3, cornerRadius := r * 0.3, paint := canvas::fillStroke(c, c2, w), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     ELSEIF k MOD 6 = 5 THEN
-      d = canvas::PolyLine[points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { cap := canvas::CapStyle.Butt }]
+      d = canvas::PolyLine[id := "", points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     END IF
     scene = collections::append(scene, d)
     k = k + 1

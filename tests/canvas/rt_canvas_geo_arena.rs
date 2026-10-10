@@ -110,7 +110,7 @@ fn animating() -> String {
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
          LET t AS Float = toFloat(frame * {ITEMS} + i)\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[x1 := t, y1 := toFloat(i), x2 := t + 10.0, y2 := toFloat(i) + 10.0, paint := paint]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", x1 := t, y1 := toFloat(i), x2 := t + 10.0, y2 := toFloat(i) + 10.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \
@@ -191,11 +191,11 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[x1 := toFloat(i), y1 := 0.0, x2 := toFloat(i), y2 := 100.0, paint := paint]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", x1 := toFloat(i), y1 := 0.0, x2 := toFloat(i), y2 := 100.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \
-         LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := toFloat(frame) * 4.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, dot)\n    \
          canvas::present(items)\n    \
          frame = frame + 1\n  \
@@ -226,14 +226,14 @@ fn static_bulk(count: usize, frames: usize) -> String {
          MUT bulk AS List OF canvas::DrawItem = []\n  \
          MUT i AS Integer = 0\n  \
          WHILE i < {count}\n    \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat((i * 37) MOD 880), y := toFloat((i * 53) MOD 620), w := 6.0, h := 6.0, paint := paint]\n    \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := toFloat((i * 37) MOD 880), y := toFloat((i * 53) MOD 620), w := 6.0, h := 6.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          bulk = collections::append(bulk, r)\n    \
          i = i + 1\n  \
          END WHILE\n  \
          MUT frame AS Integer = 0\n  \
          WHILE frame < {frames}\n    \
          MUT items AS List OF canvas::DrawItem = bulk\n    \
-         LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0 + 10.0, y := 630.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := toFloat(frame) * 4.0 + 10.0, y := 630.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, dot)\n    \
          canvas::present(items)\n    \
          frame = frame + 1\n  \

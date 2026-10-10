@@ -45,7 +45,7 @@ FUNC bulk(shift AS Float) AS List OF canvas::DrawItem
   WHILE k < $ITEMS
     LET cx AS Float = toFloat((k * 37) MOD 880) + ${CX:-10.0} + shift
     LET cy AS Float = toFloat((k * 53) MOD 620) + ${CY:-10.0}
-    LET it AS canvas::DrawItem = canvas::Polygon[contours := [ring(cx, cy, ${R:-8.0})], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
+    LET it AS canvas::DrawItem = canvas::Polygon[id := "", contours := [ring(cx, cy, ${R:-8.0})], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, it)
     k = k + 1
   END WHILE
@@ -68,7 +68,7 @@ FUNC main() AS Nothing
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT scene AS List OF canvas::DrawItem = still
     IF $MOVING = 1 THEN scene = bulk(toFloat(frame MOD 7))
-    LET mover AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame MOD 800), y := 600.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+    LET mover AS canvas::DrawItem = canvas::Rectangle[id := "", x := toFloat(frame MOD 800), y := 600.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, mover)
     buildNanos = buildNanos + (datetime::monotonicNanos() - t0)
     LET t1 AS Integer = datetime::monotonicNanos()

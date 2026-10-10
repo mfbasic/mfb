@@ -21,7 +21,7 @@ IMPORT color
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   LET corner AS canvas::Point = canvas::Point[x := 1.0, y := 2.0]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := corner.x, y := corner.y, radius := 4.0, paint := canvas::fill(color::rgb(1, 2, 3))]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := corner.x, y := corner.y, radius := 4.0, paint := canvas::fill(color::rgb(1, 2, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([dot])
   RETURN 0
 END FUNC

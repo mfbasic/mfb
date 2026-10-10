@@ -11,8 +11,8 @@ const DESC: &str = r#"`fillStroke` builds a `canvas::Paint` with both channels s
 `fill` and its outline is `width` pixels of `stroke`. `canvas::fill` and
 `canvas::stroke` are the one-channel forms.
 
-Blend, transform, clip, the fill gradient and the stroke's shape are left at their
-no-op values (`Normal`, the identity, unclipped, no stops, `Butt` ends, `Round`
+Blend, clip, the fill gradient and the stroke's shape are left at their
+no-op values (`Normal`, unclipped, no stops, `Butt` ends, `Round`
 corners, no dashes, opaque), with a `miterLimit` of `4.0`. To set one of those, update the
 result:
 
@@ -22,7 +22,7 @@ LET glow AS Paint = WITH canvas::fillStroke(core, halo, 2.0) { blend := BlendMod
 
 These constructors exist because MFBASIC named construction requires **every**
 field — `canvas::Paint[fill := c]` is a constructor-arity error, not a partial record — so
-without them every item would have to spell out all fourteen `canvas::Paint` fields."#;
+without them every item would have to spell out all thirteen `canvas::Paint` fields."#;
 
 const EX: &str = r#"A filled circle with a contrasting outline:
 
@@ -35,7 +35,7 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET body AS color::Color = color::rgb(255, 220, 0)
   LET edge AS color::Color = color::rgb(80, 60, 0)
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0)]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 100.0, y := 100.0, radius := 40.0, paint := canvas::fillStroke(body, edge, 3.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([dot])
 END FUNC
 ```
@@ -60,8 +60,8 @@ FUNC main() AS Nothing
   LET turn AS Float = math::pi / 4.0
   LET spin AS canvas::Transform = canvas::Transform[a := math::cos(turn), b := math::sin(turn), c := 0.0 - math::sin(turn), d := math::cos(turn), tx := 220.0, ty := 120.0]
 
-  LET upright AS canvas::DrawItem = canvas::Rectangle[x := 40.0, y := 80.0, w := 80.0, h := 80.0, paint := look]
-  LET diamond AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 40.0, y := 0.0 - 40.0, w := 80.0, h := 80.0, paint := WITH look { transform := spin }]
+  LET upright AS canvas::DrawItem = canvas::Rectangle[id := "", x := 40.0, y := 80.0, w := 80.0, h := 80.0, paint := look, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET diamond AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0 - 40.0, y := 0.0 - 40.0, w := 80.0, h := 80.0, paint := look, transform := spin]
 
   canvas::present([upright, diamond])
 END FUNC
@@ -75,7 +75,7 @@ want it to stay put."#;
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __canvas_fillStroke(fill AS color::Color, stroke AS color::Color, width AS Float) AS Paint
-  RETURN Paint[fill := fill, stroke := stroke, strokeWidth := width, blend := BlendMode.Normal, transform := __canvas_noTransform(), clip := __canvas_noClip(), clipRule := FillRule.EvenOdd, gradient := __canvas_noGradient(), cap := CapStyle.Butt, join := JoinStyle.Round, miterLimit := 4.0, dashes := [], dashOffset := 0.0, transparency := 0.0]
+  RETURN Paint[fill := fill, stroke := stroke, strokeWidth := width, blend := BlendMode.Normal, clip := __canvas_noClip(), clipRule := FillRule.EvenOdd, gradient := __canvas_noGradient(), cap := CapStyle.Butt, join := JoinStyle.Round, miterLimit := 4.0, dashes := [], dashOffset := 0.0, transparency := 0.0]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

@@ -1089,16 +1089,13 @@ fn polyline_pad(
 fn emit_paint_supported(
     builder: &mut CodeBuilder,
     view: &PaintView,
+    item: &VirtualRegister,
+    item_type: &ParameterType,
     unsupported: &str,
 ) -> Result<(), String> {
+    // plan-172-C: the transform is the item's own field, not the paint's.
     let transform = builder.temporary_vreg();
-    let transform_type = emit_field_block(
-        builder,
-        &transform,
-        &view.paint,
-        &view.paint_type,
-        "transform",
-    )?;
+    let transform_type = emit_field_block(builder, &transform, item, item_type, "transform")?;
     let zero = fconst(builder, 0.0);
     for name in ["a", "b", "c", "d", "tx", "ty"] {
         let v = fload(
@@ -2978,7 +2975,7 @@ pub(super) fn emit_record_size(
             paint,
             paint_type: paint_type.clone(),
         };
-        emit_paint_supported(builder, &view, &unsupported)?;
+        emit_paint_supported(builder, &view, &rec, record, &unsupported)?;
         builder.emit(abi::move_immediate(n, "Integer", &GEO_HEADER.to_string()));
         // plan-163-A: five floats per point of every ring of at least 2 points.
         if *kind == Kind::Polygon {

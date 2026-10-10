@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/canvas/canvas_paint_transform_removed_invalid
+  29 |   LET ink AS canvas::Paint = canvas::fill(color::rgb(1, 2, 3))
+  30 |   LET turned AS canvas::Paint = WITH ink { transform := none }
+  31 |   LET seen AS canvas::Transform = ink.transform
+     | ^
+tests/syntax/canvas/canvas_paint_transform_removed_invalid/src/main.mfb:31 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `seen` does not have a known type.
+  29 |   LET ink AS canvas::Paint = canvas::fill(color::rgb(1, 2, 3))
+  30 |   LET turned AS canvas::Paint = WITH ink { transform := none }
+  31 |   LET seen AS canvas::Transform = ink.transform
+     | ^
+tests/syntax/canvas/canvas_paint_transform_removed_invalid/src/main.mfb:31 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               record `canvas.Paint` has no member `transform`.
+[exit 1]

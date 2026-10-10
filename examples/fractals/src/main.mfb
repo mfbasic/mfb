@@ -247,7 +247,7 @@ FUNC quitPressed AS Boolean
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, text AS String, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c)]
+  RETURN canvas::Text[id := "", x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC main AS Integer
@@ -256,7 +256,7 @@ FUNC main AS Integer
   app::setTitle("Fractals")
 
   RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
-  LET empty AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
+  LET empty AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   scene = collections::repeat(scene, empty, DOT_COUNT + 4)
   MUT size AS canvas::Size = canvas::getSize()
   LET started AS Integer = datetime::monotonicNanos()
@@ -283,7 +283,7 @@ FUNC main AS Integer
       fade = smoothstep(toFloat(localNanos - (VIEW_NANOS - FADE_NANOS)) / toFloat(FADE_NANOS))
     END IF
 
-    LET back AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]
+    LET back AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::set(scene, 0, back)
     FOR i = 0 TO DOT_COUNT - 1
       LET column AS Integer = i MOD DOT_COLUMNS
@@ -296,7 +296,7 @@ FUNC main AS Integer
         LET b AS Rgb = palette(following, sampleAt(following, u * aspect, v, 1.0), phase)
         shown = mixRgb(a, b, fade)
       END IF
-      LET dot AS canvas::DrawItem = canvas::Circle[x := (toFloat(column) + 0.5) * cellW, y := (toFloat(row) + 0.5) * cellH, radius := radius, paint := canvas::fill(color::rgb(shown.r, shown.g, shown.b))]
+      LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := (toFloat(column) + 0.5) * cellW, y := (toFloat(row) + 0.5) * cellH, radius := radius, paint := canvas::fill(color::rgb(shown.r, shown.g, shown.b)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::set(scene, i + 1, dot)
     NEXT
 

@@ -40,7 +40,7 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET black AS List OF Byte = [toByte(0), toByte(0), toByte(0), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, black)
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[id := "", x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([tile])
 
   ' The scene is unchanged; only the pixels behind the id are.

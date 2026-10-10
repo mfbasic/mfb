@@ -45,17 +45,25 @@ FUNC main() AS Nothing
     IF k MOD 2 = 1 THEN
       cl = [[vector::Float2[x := x - 17.3, y := y - 21.7], vector::Float2[x := x - 17.3 + 31.1, y := y - 21.7], vector::Float2[x := x - 17.3 + 31.1, y := y - 21.7 + 38.9], vector::Float2[x := x - 17.3, y := y - 21.7 + 38.9]]]
     END IF
-    MUT d AS canvas::DrawItem = canvas::Line[x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Butt }]
+    MUT d AS canvas::DrawItem = canvas::Line[id := "", x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Butt }, transform := tf]
     IF k MOD 6 = 1 THEN
-      d = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Round }]
+      d = canvas::Arc[id := "", x := x, y := y, radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Round }, transform := tf]
     ELSEIF k MOD 6 = 2 THEN
-      d = canvas::Circle[x := x, y := y, radius := r, paint := WITH canvas::fillStroke(c, c2, w) { transform := tf, clip := cl }]
+      d = canvas::Circle[id := "", x := x, y := y, radius := r, paint := WITH canvas::fillStroke(c, c2, w) { clip := cl }, transform := tf]
     ELSEIF k MOD 6 = 3 THEN
-      d = canvas::Ellipse[x := x, y := y, radiusX := r, radiusY := r * 0.61, angle := fx, paint := WITH canvas::fillStroke(c, c2, w) { transform := tf, clip := cl }]
+      ' plan-172-C: this ellipse was turned by `angle := fx` about its centre and then
+      ' carried by `tf`. The item has one transform now, so it is the product tf * R,
+      ' where R turns by fx about (x, y).
+      LET ec AS Float = math::cos(fx)
+      LET es AS Float = math::sin(fx)
+      LET rtx AS Float = x - (ec * x - es * y)
+      LET rty AS Float = y - (es * x + ec * y)
+      LET turned AS canvas::Transform = canvas::Transform[a := ta * ec + tc * es, b := tb * ec + td * es, c := tc * ec - ta * es, d := td * ec - tb * es, tx := ta * rtx + tc * rty + tf.tx, ty := tb * rtx + td * rty + tf.ty]
+      d = canvas::Ellipse[id := "", x := x, y := y, radiusX := r, radiusY := r * 0.61, paint := WITH canvas::fillStroke(c, c2, w) { clip := cl }, transform := turned]
     ELSEIF k MOD 6 = 4 THEN
-      d = canvas::RoundedRect[x := x - r, y := y - r * 0.6, w := r * 1.9, h := r * 1.3, cornerRadius := r * 0.3, paint := WITH canvas::fillStroke(c, c2, w) { transform := tf, clip := cl }]
+      d = canvas::RoundedRect[id := "", x := x - r, y := y - r * 0.6, w := r * 1.9, h := r * 1.3, cornerRadius := r * 0.3, paint := WITH canvas::fillStroke(c, c2, w) { clip := cl }, transform := tf]
     ELSEIF k MOD 6 = 5 THEN
-      d = canvas::PolyLine[points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { transform := tf, clip := cl, cap := canvas::CapStyle.Butt }]
+      d = canvas::PolyLine[id := "", points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Butt }, transform := tf]
     END IF
     scene = collections::append(scene, d)
     k = k + 1

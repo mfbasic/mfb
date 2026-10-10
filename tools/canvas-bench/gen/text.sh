@@ -34,7 +34,7 @@ FUNC main() AS Nothing
   MUT text AS List OF canvas::DrawItem = []
   MUT r AS Integer = 0
   WHILE r < $L
-    LET t AS canvas::DrawItem = canvas::Text[x := 4.0, y := toFloat(r + 1) * toFloat($SZ) * 1.1, text := line, font := face, size := toFloat($SZ), paint := canvas::fill(color::rgb(230, 230, 230))]
+    LET t AS canvas::DrawItem = canvas::Text[id := "", x := 4.0, y := toFloat(r + 1) * toFloat($SZ) * 1.1, text := line, font := face, size := toFloat($SZ), paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     text = collections::append(text, t)
     r = r + 1
   END WHILE
@@ -43,7 +43,7 @@ FUNC main() AS Nothing
   MUT again AS Boolean = TRUE
   DO WHILE again
     MUT scene AS List OF canvas::DrawItem = text
-    LET cur AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame MOD 800), y := 600.0, w := 8.0, h := 16.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+    LET cur AS canvas::DrawItem = canvas::Rectangle[id := "", x := toFloat(frame MOD 800), y := 600.0, w := 8.0, h := 16.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, cur)
     canvas::present(scene)
     frame = frame + 1

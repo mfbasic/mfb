@@ -533,11 +533,11 @@ FUNC grouped(n AS Integer) AS String
 END FUNC
 
 FUNC tableItem(face AS canvas::Font, x AS Float, y AS Float, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := TABLE_SIZE, paint := canvas::fill(TABLE_COLOR)]
+  RETURN canvas::Text[id := "", x := x, y := y, text := text, font := face, size := TABLE_SIZE, paint := canvas::fill(TABLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, line AS Integer, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := STATS_MARGIN + STATS_SIZE * (1.0 + 1.3 * toFloat(line)), text := text, font := face, size := STATS_SIZE, paint := canvas::fill(STATS_COLOR)]
+  RETURN canvas::Text[id := "", x := x, y := STATS_MARGIN + STATS_SIZE * (1.0 + 1.3 * toFloat(line)), text := text, font := face, size := STATS_SIZE, paint := canvas::fill(STATS_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -555,7 +555,7 @@ FUNC main AS Integer
 
   LET dots AS List OF Dot = makeDots()
   setUp()
-  LET background AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
+  LET background AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   placed = collections::repeat(placed, rotate(0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0), DOT_COUNT)
   ' Two table cells per sort follow the dots and the five stats lines.
   scene = collections::repeat(scene, background, DOT_COUNT + 6 + 2 * ALGORITHM_COUNT)
@@ -663,7 +663,7 @@ FUNC main AS Integer
     NEXT
     placed = collections::sortBy(placed, farthestFirst)
 
-    LET back AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]
+    LET back AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::set(scene, 0, back)
     FOR i = 0 TO DOT_COUNT - 1
       LET p AS Placed = collections::get(placed, i)
@@ -673,7 +673,7 @@ FUNC main AS Integer
       LET depth AS Float = math::clamp(p.z, -1.0, 1.0)
       LET light AS Float = 0.35 + 0.65 * (1.0 - (depth + 1.0) / 2.0)
       LET c AS color::Color = color::rgb(shade(d.r, light), shade(d.g, light), shade(d.b, light))
-      LET dot AS canvas::DrawItem = canvas::Circle[x := cx + p.x * radius * perspective, y := cy + p.y * radius * perspective, radius := dotSize * perspective, paint := canvas::fill(c)]
+      LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := cx + p.x * radius * perspective, y := cy + p.y * radius * perspective, radius := dotSize * perspective, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::set(scene, i + 1, dot)
     NEXT
 

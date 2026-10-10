@@ -46,7 +46,7 @@ FUNC main() AS Nothing
   DO WHILE again
     MUT scene AS List OF canvas::DrawItem = []
     IF $BW > 0 THEN
-      LET b AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 900.0, h := 640.0, image := bg, paint := white]
+      LET b AS canvas::DrawItem = canvas::Picture[id := "", x := 0.0, y := 0.0, w := 900.0, h := 640.0, image := bg, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::append(scene, b)
     END IF
     MUT k AS Integer = 0
@@ -55,10 +55,10 @@ FUNC main() AS Nothing
       LET y AS Float = toFloat((k * 7) MOD 620)
       ' Two distinct tile images alternate, as a real tilemap's would.
       IF k MOD 2 = 0 THEN
-        LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := toFloat($T), h := toFloat($T), image := tile, paint := white]
+        LET p AS canvas::DrawItem = canvas::Picture[id := "", x := x, y := y, w := toFloat($T), h := toFloat($T), image := tile, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
         scene = collections::append(scene, p)
       ELSE
-        LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := toFloat($T), h := toFloat($T), image := tile2, paint := white]
+        LET p AS canvas::DrawItem = canvas::Picture[id := "", x := x, y := y, w := toFloat($T), h := toFloat($T), image := tile2, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
         scene = collections::append(scene, p)
       END IF
       k = k + 1

@@ -119,6 +119,34 @@ fn fold_field(
             fold_resource_handle(builder, &value, base, 8 * index);
             fold(builder, m, &value);
         }
+        // plan-172-C: every drawn item has an `id`. A `String` is a block of its byte
+        // length at +0 and its bytes from +8; a record holds it inlined (its slot is a
+        // block-relative offset) or by pointer. Folded as the length, then each byte —
+        // so `"ab"` + `"c"` in two fields cannot hash as `"a"` + `"bc"`.
+        ParameterType::String => {
+            let text = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&text, base, 8 * index));
+            if builder.record_field_is_inlined(ty) {
+                builder.emit(abi::add_registers(&text, base, &text));
+            }
+            let length = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&length, &text, 0));
+            fold(builder, m, &length);
+            let i = builder.temporary_vreg();
+            let at = builder.temporary_vreg();
+            let head = builder.label("canvas_hash_text");
+            let done = builder.label("canvas_hash_text_done");
+            builder.emit(abi::move_immediate(&i, "Integer", "0"));
+            builder.emit(abi::label(&head));
+            builder.emit(abi::compare_registers(&i, &length));
+            builder.emit(abi::branch_ge(&done));
+            builder.emit(abi::add_registers(&at, &text, &i));
+            builder.emit(abi::load_u8(&value, &at, 8));
+            fold(builder, m, &value);
+            builder.emit(abi::add_immediate(&i, &i, 1));
+            builder.emit(abi::branch(&head));
+            builder.emit(abi::label(&done));
+        }
         ParameterType::ListOf(_) => {
             let list = builder.temporary_vreg();
             let list_type = emit_field_block(builder, &list, base, record, name)?;

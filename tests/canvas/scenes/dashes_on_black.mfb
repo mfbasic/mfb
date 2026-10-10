@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT math
 IMPORT vector
 IMPORT color
 
@@ -22,23 +23,23 @@ END FUNC
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(250, 220, 120), 9.5) { dashes := [70.0, 22.5] }
-  LET a AS canvas::DrawItem = canvas::Polygon[contours := [box(40.3, 40.6, 110.0)], rule := canvas::FillRule.EvenOdd, paint := ink]
-  LET b AS canvas::DrawItem = canvas::Polygon[contours := [box(200.7, 40.2, 110.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }]
-  LET c AS canvas::DrawItem = canvas::Polygon[contours := [box(360.1, 40.9, 110.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }]
-  LET d AS canvas::DrawItem = canvas::Polygon[contours := [[pt(540.4, 40.2), pt(660.6, 70.8), pt(560.2, 150.3)]], rule := canvas::FillRule.EvenOdd, paint := WITH ink { join := canvas::JoinStyle.Miter, miterLimit := 10.0 }]
-  LET e AS canvas::DrawItem = canvas::Polygon[contours := [[pt(700.4, 40.2), pt(850.6, 70.8), pt(720.2, 150.3)]], rule := canvas::FillRule.EvenOdd, paint := WITH ink { join := canvas::JoinStyle.Bevel, dashes := [30.0, 8.0, 5.0], dashOffset := 17.25 }]
+  LET a AS canvas::DrawItem = canvas::Polygon[id := "", contours := [box(40.3, 40.6, 110.0)], rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b AS canvas::DrawItem = canvas::Polygon[id := "", contours := [box(200.7, 40.2, 110.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET c AS canvas::DrawItem = canvas::Polygon[id := "", contours := [box(360.1, 40.9, 110.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET d AS canvas::DrawItem = canvas::Polygon[id := "", contours := [[pt(540.4, 40.2), pt(660.6, 70.8), pt(560.2, 150.3)]], rule := canvas::FillRule.EvenOdd, paint := WITH ink { join := canvas::JoinStyle.Miter, miterLimit := 10.0 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET e AS canvas::DrawItem = canvas::Polygon[id := "", contours := [[pt(700.4, 40.2), pt(850.6, 70.8), pt(720.2, 150.3)]], rule := canvas::FillRule.EvenOdd, paint := WITH ink { join := canvas::JoinStyle.Bevel, dashes := [30.0, 8.0, 5.0], dashOffset := 17.25 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET pinkish AS canvas::Paint = WITH canvas::stroke(color::rgb(240, 120, 180), 7.25) { dashes := [25.0, 12.5], cap := canvas::CapStyle.Round }
-  LET f AS canvas::DrawItem = canvas::PolyLine[points := [pt(40.5, 220.5), pt(150.25, 200.75), pt(120.6, 300.4), pt(240.3, 290.1)], colors := [], paint := pinkish]
-  LET g AS canvas::DrawItem = canvas::PolyLine[points := [pt(270.5, 220.5), pt(380.25, 200.75), pt(350.6, 300.4), pt(470.3, 290.1)], colors := [], paint := WITH pinkish { join := canvas::JoinStyle.Miter, cap := canvas::CapStyle.Butt, dashOffset := 0.0 - 9.5 }]
-  LET h AS canvas::DrawItem = canvas::Line[x1 := 500.3, y1 := 210.6, x2 := 860.7, y2 := 230.4, paint := WITH canvas::stroke(color::rgb(120, 220, 250), 6.0) { dashes := [18.0, 9.0] }]
-  LET i AS canvas::DrawItem = canvas::Line[x1 := 500.3, y1 := 250.6, x2 := 860.7, y2 := 270.4, paint := WITH canvas::stroke(color::rgb(120, 220, 250), 6.0) { dashes := [18.0, 9.0], cap := canvas::CapStyle.Round }]
-  LET j AS canvas::DrawItem = canvas::Line[x1 := 500.3, y1 := 290.6, x2 := 860.7, y2 := 310.4, paint := WITH canvas::stroke(color::rgb(120, 220, 250), 6.0) { dashes := [18.0, 12.0], cap := canvas::CapStyle.Square }]
-  LET k AS canvas::DrawItem = canvas::Circle[x := 100.4, y := 420.7, radius := 60.3, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 6.5) { dashes := [20.0, 9.0], cap := canvas::CapStyle.Round }]
-  LET l AS canvas::DrawItem = canvas::Ellipse[x := 290.6, y := 420.2, radiusX := 100.4, radiusY := 45.7, angle := 0.4, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 6.5) { dashes := [26.0, 10.0] }]
-  LET m AS canvas::DrawItem = canvas::RoundedRect[x := 420.3, y := 360.8, w := 170.5, h := 110.2, cornerRadius := 28.4, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 6.5) { dashes := [33.0, 11.0], cap := canvas::CapStyle.Square }]
-  LET n AS canvas::DrawItem = canvas::Arc[x := 720.6, y := 420.3, radius := 70.2, startAngle := 0.5, endAngle := 4.6, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 7.5) { dashes := [24.0, 10.0], cap := canvas::CapStyle.Round }]
-  LET o AS canvas::DrawItem = canvas::Rectangle[x := 40.2, y := 520.6, w := 260.5, h := 90.3, paint := WITH canvas::fillStroke(color::rgb(40, 60, 120), color::rgb(250, 250, 250), 5.0) { dashes := [40.0, 15.0], join := canvas::JoinStyle.Miter }]
+  LET f AS canvas::DrawItem = canvas::PolyLine[id := "", points := [pt(40.5, 220.5), pt(150.25, 200.75), pt(120.6, 300.4), pt(240.3, 290.1)], colors := [], paint := pinkish, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET g AS canvas::DrawItem = canvas::PolyLine[id := "", points := [pt(270.5, 220.5), pt(380.25, 200.75), pt(350.6, 300.4), pt(470.3, 290.1)], colors := [], paint := WITH pinkish { join := canvas::JoinStyle.Miter, cap := canvas::CapStyle.Butt, dashOffset := 0.0 - 9.5 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET h AS canvas::DrawItem = canvas::Line[id := "", x1 := 500.3, y1 := 210.6, x2 := 860.7, y2 := 230.4, paint := WITH canvas::stroke(color::rgb(120, 220, 250), 6.0) { dashes := [18.0, 9.0] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET i AS canvas::DrawItem = canvas::Line[id := "", x1 := 500.3, y1 := 250.6, x2 := 860.7, y2 := 270.4, paint := WITH canvas::stroke(color::rgb(120, 220, 250), 6.0) { dashes := [18.0, 9.0], cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET j AS canvas::DrawItem = canvas::Line[id := "", x1 := 500.3, y1 := 290.6, x2 := 860.7, y2 := 310.4, paint := WITH canvas::stroke(color::rgb(120, 220, 250), 6.0) { dashes := [18.0, 12.0], cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET k AS canvas::DrawItem = canvas::Circle[id := "", x := 100.4, y := 420.7, radius := 60.3, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 6.5) { dashes := [20.0, 9.0], cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET l AS canvas::DrawItem = canvas::Ellipse[id := "", x := 290.6, y := 420.2, radiusX := 100.4, radiusY := 45.7, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 6.5) { dashes := [26.0, 10.0] }, transform := canvas::Transform[a := math::cos(0.4), b := math::sin(0.4), c := 0.0 - math::sin(0.4), d := math::cos(0.4), tx := (290.6) - (math::cos(0.4) * (290.6) - math::sin(0.4) * (420.2)), ty := (420.2) - (math::sin(0.4) * (290.6) + math::cos(0.4) * (420.2))]]
+  LET m AS canvas::DrawItem = canvas::RoundedRect[id := "", x := 420.3, y := 360.8, w := 170.5, h := 110.2, cornerRadius := 28.4, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 6.5) { dashes := [33.0, 11.0], cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET n AS canvas::DrawItem = canvas::Arc[id := "", x := 720.6, y := 420.3, radius := 70.2, startAngle := 0.5, endAngle := 4.6, paint := WITH canvas::stroke(color::rgb(160, 250, 140), 7.5) { dashes := [24.0, 10.0], cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET o AS canvas::DrawItem = canvas::Rectangle[id := "", x := 40.2, y := 520.6, w := 260.5, h := 90.3, paint := WITH canvas::fillStroke(color::rgb(40, 60, 120), color::rgb(250, 250, 250), 5.0) { dashes := [40.0, 15.0], join := canvas::JoinStyle.Miter }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET spin AS canvas::Transform = canvas::Transform[a := 0.8660254, b := 0.5, c := 0.0 - 0.5, d := 0.8660254, tx := 520.0, ty := 560.0]
-  LET p AS canvas::DrawItem = canvas::Polygon[contours := [box(0.0 - 45.0, 0.0 - 45.0, 90.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { transform := spin, dashes := [40.0, 15.0] }]
+  LET p AS canvas::DrawItem = canvas::Polygon[id := "", contours := [box(0.0 - 45.0, 0.0 - 45.0, 90.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { dashes := [40.0, 15.0] }, transform := spin]
   canvas::present([a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p])
 END FUNC

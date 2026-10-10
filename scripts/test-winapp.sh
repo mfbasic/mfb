@@ -150,8 +150,8 @@ FUNC main() AS Nothing
   ' program named it until 2026-09-05. `set -e` made that a hard stop at the BUILD,
   ' so every assertion after this point — the canvas frame, the whole Vulkan
   ' section, and both resize runs — had silently not run since the rename.
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box, dot])
   io::print("canvas presented")
   ' The scripted resize runs on the MAIN thread and waits for the first frame before

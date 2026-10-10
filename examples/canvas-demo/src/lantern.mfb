@@ -247,11 +247,11 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
 
   ' The lantern, swinging on its handle under the mouse.
   LET tr AS canvas::Transform = place(lx, ly - r * 0.02, s.swing, h * 0.05)
-  out = collections::append(out, arc(0.0, -1.1, 0.35, math::pi, TAU, WITH strokeP(hex("#2a2018"), 0.08) { transform := tr }))
-  out = collections::append(out, rrect(-0.45, -0.85, 0.9, 0.18, 0.06, WITH fillP(hex("#3a2a1c")) { transform := tr }))
-  out = collections::append(out, poly([pt(-0.38, -0.67), pt(0.38, -0.67), pt(0.32, 0.5), pt(-0.32, 0.5)], WITH gradP(radial(0.0, 0.0, 0.6, [gstop(0.0, hex("#fff6d0")), gstop(0.5, hex("#ffc060")), gstop(1.0, hex("#c06a20"))])) { transform := tr, stroke := hex("#2a2018"), strokeWidth := 0.06, join := canvas::JoinStyle.Miter }))
-  out = collections::append(out, line(0.0, -0.67, 0.0, 0.5, WITH strokeP(hex("#2a2018"), 0.05) { transform := tr }))
-  out = collections::append(out, rrect(-0.45, 0.5, 0.9, 0.18, 0.06, WITH fillP(hex("#3a2a1c")) { transform := tr }))
+  out = collections::append(out, placed(arc(0.0, -1.1, 0.35, math::pi, TAU, strokeP(hex("#2a2018"), 0.08)), tr))
+  out = collections::append(out, placed(rrect(-0.45, -0.85, 0.9, 0.18, 0.06, fillP(hex("#3a2a1c"))), tr))
+  out = collections::append(out, placed(poly([pt(-0.38, -0.67), pt(0.38, -0.67), pt(0.32, 0.5), pt(-0.32, 0.5)], WITH gradP(radial(0.0, 0.0, 0.6, [gstop(0.0, hex("#fff6d0")), gstop(0.5, hex("#ffc060")), gstop(1.0, hex("#c06a20"))])) { stroke := hex("#2a2018"), strokeWidth := 0.06, join := canvas::JoinStyle.Miter }), tr))
+  out = collections::append(out, placed(line(0.0, -0.67, 0.0, 0.5, strokeP(hex("#2a2018"), 0.05)), tr))
+  out = collections::append(out, placed(rrect(-0.45, 0.5, 0.9, 0.18, 0.06, fillP(hex("#3a2a1c"))), tr))
   out = collections::append(out, glow(lx, ly, h * 0.07, rgba(255, 220, 150, 200)))
 
   ' The tally.

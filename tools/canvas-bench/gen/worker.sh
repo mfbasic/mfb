@@ -34,7 +34,7 @@ FUNC main() AS Nothing
     MUT rects AS List OF canvas::DrawItem = []
     MUT k AS Integer = 0
     WHILE k < n
-      LET it AS canvas::DrawItem = canvas::Rectangle[x := toFloat(k MOD 880), y := toFloat(k MOD 620), w := 8.0, h := 8.0, paint := paint]
+      LET it AS canvas::DrawItem = canvas::Rectangle[id := "", x := toFloat(k MOD 880), y := toFloat(k MOD 620), w := 8.0, h := 8.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       rects = collections::append(rects, it)
       k = k + 1
     END WHILE
@@ -43,7 +43,7 @@ FUNC main() AS Nothing
     MUT polys AS List OF canvas::DrawItem = []
     k = 0
     WHILE k < n
-      LET it AS canvas::DrawItem = canvas::Polygon[contours := [quad], rule := canvas::FillRule.EvenOdd, paint := paint]
+      LET it AS canvas::DrawItem = canvas::Polygon[id := "", contours := [quad], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       polys = collections::append(polys, it)
       k = k + 1
     END WHILE

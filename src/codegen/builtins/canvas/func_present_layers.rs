@@ -47,8 +47,8 @@ FUNC main() AS Nothing
   LET sky AS color::Color = color::rgb(20, 30, 60)
   LET dot AS color::Color = color::rgb(255, 200, 0)
 
-  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]
-  LET marker AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 150.0, radius := 12.0, paint := canvas::fill(dot)]
+  LET backdrop AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET marker AS canvas::DrawItem = canvas::Circle[id := "", x := 100.0, y := 150.0, radius := 12.0, paint := canvas::fill(dot), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]
   LET front AS canvas::DrawLayer = canvas::DrawLayer[items := [marker]]

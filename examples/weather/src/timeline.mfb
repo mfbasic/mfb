@@ -138,17 +138,17 @@ FUNC white(alpha AS Integer) AS color::Color
 END FUNC
 
 FUNC bar(t AS Track, fromX AS Float, toX AS Float, tint AS color::Color) AS canvas::DrawItem
-  RETURN canvas::RoundedRect[x := fromX, y := t.y - TRACK_THICKNESS / 2.0, w := math::max(toX - fromX, 0.0), h := TRACK_THICKNESS, cornerRadius := TRACK_THICKNESS / 2.0, paint := canvas::fill(tint)]
+  RETURN canvas::RoundedRect[id := "", x := fromX, y := t.y - TRACK_THICKNESS / 2.0, w := math::max(toX - fromX, 0.0), h := TRACK_THICKNESS, cornerRadius := TRACK_THICKNESS / 2.0, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC tick(x AS Float, y AS Float, reach AS Float, tint AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Line[x1 := x, y1 := y - reach, x2 := x, y2 := y + reach, paint := WITH canvas::stroke(tint, 1.2) { cap := canvas::CapStyle.Round }]
+  RETURN canvas::Line[id := "", x1 := x, y1 := y - reach, x2 := x, y2 := y + reach, paint := WITH canvas::stroke(tint, 1.2) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' Text centred on x, with its baseline at y.
 FUNC centredText(face AS canvas::Font, x AS Float, y AS Float, size AS Float, tint AS color::Color, text AS String) AS canvas::DrawItem
   LET width AS Float = canvas::measureText(face, size, text).width
-  RETURN canvas::Text[x := x - width / 2.0, y := y, text := text, font := face, size := size, paint := canvas::fill(tint)]
+  RETURN canvas::Text[id := "", x := x - width / 2.0, y := y, text := text, font := face, size := size, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' The button: a triangle to play, a square to stop, dimmed while the forecast is
@@ -161,15 +161,15 @@ FUNC buttonItems(t AS Track, p AS Playback) AS List OF canvas::DrawItem
   MUT iconAlpha AS Integer = 235
   IF NOT ready THEN iconAlpha = 80
 
-  MUT items AS List OF canvas::DrawItem = [canvas::Circle[x := cx, y := cy, radius := r, paint := canvas::fillStroke(white(30), white(90), 1.2)]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Circle[id := "", x := cx, y := cy, radius := r, paint := canvas::fillStroke(white(30), white(90), 1.2), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   IF p.playing THEN
     LET side AS Float = r * 0.62
-    LET stop AS canvas::DrawItem = canvas::RoundedRect[x := cx - side / 2.0, y := cy - side / 2.0, w := side, h := side, cornerRadius := side * 0.12, paint := canvas::fill(white(iconAlpha))]
+    LET stop AS canvas::DrawItem = canvas::RoundedRect[id := "", x := cx - side / 2.0, y := cy - side / 2.0, w := side, h := side, cornerRadius := side * 0.12, paint := canvas::fill(white(iconAlpha)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, stop)
   ELSE
     ' Nudged right of centre, where a triangle's own centre of mass sits.
     LET points AS List OF vector::Float2 = [vector::Float2[x := cx - r * 0.28, y := cy - r * 0.42], vector::Float2[x := cx - r * 0.28, y := cy + r * 0.42], vector::Float2[x := cx + r * 0.44, y := cy]]
-    LET play AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(white(iconAlpha))]
+    LET play AS canvas::DrawItem = canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(white(iconAlpha)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, play)
   END IF
   RETURN items
@@ -214,8 +214,8 @@ FUNC timelineItems(t AS Track, p AS Playback, days AS List OF DayMark, face AS c
   NEXT
 
   ' The thumb, with a soft ring so it stands off the bright part of the line.
-  LET ring AS canvas::DrawItem = canvas::Circle[x := headX, y := t.y, radius := THUMB_RADIUS + 3.0, paint := canvas::fill(white(45))]
-  LET thumb AS canvas::DrawItem = canvas::Circle[x := headX, y := t.y, radius := THUMB_RADIUS, paint := canvas::fill(white(250))]
+  LET ring AS canvas::DrawItem = canvas::Circle[id := "", x := headX, y := t.y, radius := THUMB_RADIUS + 3.0, paint := canvas::fill(white(45)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET thumb AS canvas::DrawItem = canvas::Circle[id := "", x := headX, y := t.y, radius := THUMB_RADIUS, paint := canvas::fill(white(250)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, ring)
   items = collections::append(items, thumb)
 
@@ -227,7 +227,7 @@ FUNC timelineItems(t AS Track, p AS Playback, days AS List OF DayMark, face AS c
   IF p.status <> "" THEN
     LET statusWidth AS Float = canvas::measureText(face, labelSize, p.status).width
     statusLeft = t.right - statusWidth
-    LET status AS canvas::DrawItem = canvas::Text[x := statusLeft, y := aboveY, text := p.status, font := face, size := labelSize, paint := canvas::fill(HINT_COLOR)]
+    LET status AS canvas::DrawItem = canvas::Text[id := "", x := statusLeft, y := aboveY, text := p.status, font := face, size := labelSize, paint := canvas::fill(HINT_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, status)
   END IF
 

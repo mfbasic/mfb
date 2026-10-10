@@ -111,7 +111,7 @@ fn pixel(frame: &[u8], x: usize, y: usize) -> (u8, u8, u8, u8) {
 /// silent early exit cannot pass as a successful render.
 fn scene(body: &str) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\n\nFUNC main() AS Nothing\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT math\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND FUNC\n"
     )
 }
@@ -127,8 +127,7 @@ fn rectangle_fills_its_exact_span() {
     let (frame, _) = render(
         "canvas_rect",
         &scene(
-            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 20.0, w := 100.0, h := 50.0, \
-             paint := canvas::fill(color::rgb(255, 0, 0))]\n  canvas::present([box])\n",
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 20.0, w := 100.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([box])\n",
         ),
     );
 
@@ -175,9 +174,7 @@ fn an_arc_swept_to_pi_reaches_its_end_cap() {
     let (frame, _) = render(
         "canvas_arc_end_cap",
         &scene(
-            "  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, \
-             startAngle := 0.0, endAngle := 3.14159, \
-             paint := WITH canvas::stroke(color::rgb(0, 160, 0), 14.0) { cap := canvas::CapStyle.Butt }]\n  \
+            "  LET smile AS canvas::DrawItem = canvas::Arc[id := \"\", x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(0, 160, 0), 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([smile])\n",
         ),
     );
@@ -218,8 +215,7 @@ fn circle_is_round_and_antialiased() {
     let (frame, _) = render(
         "canvas_circle",
         &scene(
-            "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
-             paint := canvas::fill(color::rgb(255, 255, 0))]\n  canvas::present([disc])\n",
+            "  LET disc AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 200.0, radius := 80.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([disc])\n",
         ),
     );
 
@@ -265,9 +261,7 @@ fn arc_sweeps_clockwise_from_positive_x() {
     let (frame, _) = render(
         "canvas_arc",
         &scene(
-            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, \
-             startAngle := 0.0, endAngle := 3.14159, \
-             paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }]\n  canvas::present([a])\n",
+            "  LET a AS canvas::DrawItem = canvas::Arc[id := \"\", x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([a])\n",
         ),
     );
 
@@ -304,10 +298,8 @@ fn translucent_fill_blends_in_linear_space() {
     let (frame, _) = render(
         "canvas_blend",
         &scene(
-            "  LET under AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 200.0, h := 200.0, \
-             paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET over AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 100.0, h := 100.0, \
-             paint := canvas::fill(color::rgba(255, 255, 255, 128))]\n  \
+            "  LET under AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET over AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 50.0, y := 50.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgba(255, 255, 255, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([under, over])\n",
         ),
     );
@@ -345,8 +337,7 @@ fn polygon_fills_its_interior() {
              pts = collections::append(pts, vector::Float2[x := 100.0, y := 100.0])\n  \
              pts = collections::append(pts, vector::Float2[x := 300.0, y := 100.0])\n  \
              pts = collections::append(pts, vector::Float2[x := 200.0, y := 300.0])\n  \
-             LET tri AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, \
-             paint := canvas::fill(color::rgb(0, 0, 255))]\n  canvas::present([tri])\n",
+             LET tri AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([tri])\n",
         ),
     );
 
@@ -379,8 +370,7 @@ fn rounded_rect_corners_are_cut() {
     let (frame, _) = render(
         "canvas_rounded",
         &scene(
-            "  LET box AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 100.0, w := 200.0, h := 150.0, \
-             cornerRadius := 40.0, paint := canvas::fill(color::rgb(0, 200, 200))]\n  \
+            "  LET box AS canvas::DrawItem = canvas::RoundedRect[id := \"\", x := 100.0, y := 100.0, w := 200.0, h := 150.0, cornerRadius := 40.0, paint := canvas::fill(color::rgb(0, 200, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([box])\n",
         ),
     );
@@ -414,10 +404,8 @@ fn rounded_rect_corners_are_cut() {
 #[test]
 fn rendering_is_byte_reproducible() {
     let source = scene(
-        "  LET disc AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 80.0, \
-         paint := canvas::fill(color::rgb(255, 255, 0))]\n  \
-         LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, \
-         endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }]\n  \
+        "  LET disc AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 200.0, radius := 80.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET a AS canvas::DrawItem = canvas::Arc[id := \"\", x := 300.0, y := 210.0, radius := 50.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(0, 160, 0), 8.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([disc, a])\n",
     );
     let (first, _) = render("canvas_determinism_a", &source);
@@ -454,7 +442,7 @@ fn cache_hit_skips_geometry_generation() {
              pts = collections::append(pts, vector::Float2[x := x, y := 20.0])\n  \
              pts = collections::append(pts, vector::Float2[x := x + 60.0, y := 20.0])\n  \
              pts = collections::append(pts, vector::Float2[x := x + 30.0, y := 90.0])\n  \
-             RETURN canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 30, 30))]\n\
+             RETURN canvas::Polygon[id := \"\", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 30, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
              END FUNC\n"),
     );
 
@@ -497,10 +485,8 @@ fn polygons_sharing_a_header_keep_their_own_points() {
              up = collections::append(up, vector::Float2[x := 100.0, y := 300.0])\n  \
              up = collections::append(up, vector::Float2[x := 300.0, y := 300.0])\n  \
              up = collections::append(up, vector::Float2[x := 200.0, y := 100.0])\n  \
-             LET a AS canvas::DrawItem = canvas::Polygon[contours := [down], rule := canvas::FillRule.EvenOdd, \
-             paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
-             LET b AS canvas::DrawItem = canvas::Polygon[contours := [up], rule := canvas::FillRule.EvenOdd, \
-             paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+             LET a AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [down], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [up], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -567,18 +553,15 @@ fn a_polygon_draws_each_of_its_rings() {
     let (frame, _) = render(
         "canvas_polygon_rings",
         &(scene(
-            "  LET donut AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 100.0, 200.0), \
-             sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
-             LET pair AS canvas::DrawItem = canvas::Polygon[contours := [sq(400.0, 100.0, 50.0), \
-             sq(500.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
-             LET lone AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 700.0, y := 500.0]], \
-             sq(600.0, 400.0, 50.0)], rule := canvas::FillRule.EvenOdd, \
-             paint := canvas::fillStroke(color::rgb(255, 0, 0), color::rgb(255, 255, 255), 4.0)]\n  \
-             LET flat AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 100.0, y := 560.0], \
-             vector::Float2[x := 300.0, y := 560.0]]], rule := canvas::FillRule.EvenOdd, \
-             paint := canvas::fillStroke(color::rgb(255, 255, 0), color::rgb(255, 255, 255), 4.0)]\n  \
-             LET empty AS canvas::DrawItem = canvas::Polygon[contours := [], rule := canvas::FillRule.EvenOdd, \
-             paint := canvas::fillStroke(color::rgb(255, 0, 255), color::rgb(255, 0, 255), 4.0)]\n  \
+            "  LET donut AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(100.0, 100.0, 200.0), \
+             sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET pair AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(400.0, 100.0, 50.0), \
+             sq(500.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET lone AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 700.0, y := 500.0]], \
+             sq(600.0, 400.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 0, 0), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET flat AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 100.0, y := 560.0], \
+             vector::Float2[x := 300.0, y := 560.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 255, 0), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET empty AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 0, 255), color::rgb(255, 0, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([donut, pair, lone, flat, empty])\n",
         ) + RING_HELPERS),
     );
@@ -645,12 +628,9 @@ fn a_polygon_hash_covers_its_rings_and_rule() {
         &(scene(
             "  LET outer AS List OF vector::Float2 = sq(100.0, 100.0, 200.0)\n  \
              LET inner AS List OF vector::Float2 = sq(150.0, 150.0, 100.0)\n  \
-             canvas::present([canvas::Polygon[contours := [outer, inner], rule := canvas::FillRule.EvenOdd, \
-             paint := canvas::fill(color::rgb(0, 0, 255))]])\n  \
-             canvas::present([canvas::Polygon[contours := [outer, inner], rule := canvas::FillRule.NonZero, \
-             paint := canvas::fill(color::rgb(0, 0, 255))]])\n  \
-             canvas::present([canvas::Polygon[contours := [collections::flatten([outer, inner])], \
-             rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255))]])\n",
+             canvas::present([canvas::Polygon[id := \"\", contours := [outer, inner], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
+             canvas::present([canvas::Polygon[id := \"\", contours := [outer, inner], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
+             canvas::present([canvas::Polygon[id := \"\", contours := [collections::flatten([outer, inner])], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n",
         ) + RING_HELPERS),
     );
     let generations: Vec<i64> = stats
@@ -708,18 +688,12 @@ fn non_zero_fills_by_winding_and_even_odd_by_parity() {
         "canvas_polygon_nonzero",
         &(scene(
             "  LET blue AS canvas::Paint = canvas::fill(color::rgb(0, 0, 255))\n  \
-             LET same AS canvas::DrawItem = canvas::Polygon[contours := [sq(50.0, 50.0, 150.0), sq(100.0, 100.0, 50.0)], \
-             rule := canvas::FillRule.NonZero, paint := blue]\n  \
-             LET sameEo AS canvas::DrawItem = canvas::Polygon[contours := [sq(250.0, 50.0, 150.0), sq(300.0, 100.0, 50.0)], \
-             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
-             LET opposite AS canvas::DrawItem = canvas::Polygon[contours := [sq(450.0, 50.0, 150.0), sqCcw(500.0, 100.0, 50.0)], \
-             rule := canvas::FillRule.NonZero, paint := blue]\n  \
-             LET oppositeEo AS canvas::DrawItem = canvas::Polygon[contours := [sq(650.0, 50.0, 150.0), sqCcw(700.0, 100.0, 50.0)], \
-             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
-             LET starNz AS canvas::DrawItem = canvas::Polygon[contours := [star(225.0, 420.0)], \
-             rule := canvas::FillRule.NonZero, paint := blue]\n  \
-             LET starEo AS canvas::DrawItem = canvas::Polygon[contours := [star(575.0, 420.0)], \
-             rule := canvas::FillRule.EvenOdd, paint := blue]\n  \
+             LET same AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(50.0, 50.0, 150.0), sq(100.0, 100.0, 50.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET sameEo AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(250.0, 50.0, 150.0), sq(300.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET opposite AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(450.0, 50.0, 150.0), sqCcw(500.0, 100.0, 50.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET oppositeEo AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(650.0, 50.0, 150.0), sqCcw(700.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET starNz AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [star(225.0, 420.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET starEo AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [star(575.0, 420.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([same, sameEo, opposite, oppositeEo, starNz, starEo])\n",
         ) + RING_HELPERS
             + PENTAGRAM),
@@ -795,10 +769,8 @@ fn non_zero_fills_by_winding_and_even_odd_by_parity() {
 fn a_convex_ring_draws_the_same_under_both_rules() {
     let program = |rule: &str| {
         scene(&format!(
-            "  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 100.3, y := 120.7], \
-             vector::Float2[x := 610.9, y := 140.2], vector::Float2[x := 330.5, y := 560.1]]], \
-             rule := canvas::FillRule.{rule}, \
-             paint := canvas::fillStroke(color::rgba(30, 140, 250, 200), color::rgb(250, 250, 120), 3.5)]\n  \
+            "  LET tri AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 100.3, y := 120.7], \
+             vector::Float2[x := 610.9, y := 140.2], vector::Float2[x := 330.5, y := 560.1]]], rule := canvas::FillRule.{rule}, paint := canvas::fillStroke(color::rgba(30, 140, 250, 200), color::rgb(250, 250, 120), 3.5), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([tri])\n"
         ))
     };
@@ -859,13 +831,12 @@ fn a_square_cap_extends_the_stroke_square_past_each_end() {
         "canvas_square_caps",
         &scene(
             "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Square }\n  \
-             LET flat AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, x2 := 400.0, y2 := 300.0, paint := ink]\n  \
-             LET slant AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 100.0, x2 := 400.0, y2 := 200.0, paint := ink]\n  \
-             LET dot AS canvas::DrawItem = canvas::Line[x1 := 500.0, y1 := 500.0, x2 := 500.0, y2 := 500.0, paint := ink]\n  \
-             LET bow AS canvas::DrawItem = canvas::Arc[x := 650.0, y := 300.0, radius := 100.0, startAngle := 0.0, \
-             endAngle := 3.141592653589793, paint := ink]\n  \
-             LET bend AS canvas::DrawItem = canvas::PolyLine[points := [vector::Float2[x := 100.0, y := 500.0], \
-             vector::Float2[x := 200.0, y := 500.0], vector::Float2[x := 200.0, y := 600.0]], colors := [], paint := ink]\n  \
+             LET flat AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 200.0, y1 := 300.0, x2 := 400.0, y2 := 300.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET slant AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 300.0, y1 := 100.0, x2 := 400.0, y2 := 200.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET dot AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 500.0, y1 := 500.0, x2 := 500.0, y2 := 500.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET bow AS canvas::DrawItem = canvas::Arc[id := \"\", x := 650.0, y := 300.0, radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET bend AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := [vector::Float2[x := 100.0, y := 500.0], \
+             vector::Float2[x := 200.0, y := 500.0], vector::Float2[x := 200.0, y := 600.0]], colors := [], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([flat, slant, dot, bow, bend])\n",
         ),
     );
@@ -996,16 +967,16 @@ fn a_join_shapes_every_corner_of_a_stroke() {
         "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 20.0)\n  \
          LET miter AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Miter }}\n  \
          LET bevel AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Bevel }}\n  \
-         LET r1 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
-         LET r2 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter]\n  \
-         LET r3 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := bevel]\n  \
-         LET s4 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter]\n  \
-         LET s10 AS canvas::DrawItem = canvas::Polygon[contours := {}, rule := canvas::FillRule.EvenOdd, paint := WITH miter {{ miterLimit := 10.0 }}]\n  \
-         LET b1 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := ink]\n  \
-         LET b2 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := miter]\n  \
-         LET b3 AS canvas::DrawItem = canvas::PolyLine[points := {}, colors := [], paint := bevel]\n  \
-         LET q1 AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 100.0, w := 120.0, h := 120.0, paint := miter]\n  \
-         LET q2 AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 300.0, w := 120.0, h := 120.0, paint := bevel]\n  \
+         LET r1 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET r2 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET r3 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET s4 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET s10 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := WITH miter {{ miterLimit := 10.0 }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b1 AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := {}, colors := [], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b2 AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := {}, colors := [], paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b3 AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := {}, colors := [], paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET q1 AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 700.0, y := 100.0, w := 120.0, h := 120.0, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET q2 AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 700.0, y := 300.0, w := 120.0, h := 120.0, paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([r1, r2, r3, s4, s10, b1, b2, b3, q1, q2])\n",
         corners(100.0, 100.0),
         corners(300.0, 100.0),
@@ -1130,9 +1101,9 @@ fn a_dash_crossing_a_corner_stays_one_dash() {
         "canvas_dash_corners",
         &(scene(
             "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { dashes := [150.0, 30.0] }\n  \
-             LET butt AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
-             LET round AS canvas::DrawItem = canvas::Polygon[contours := [sq(300.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }]\n  \
-             LET square AS canvas::DrawItem = canvas::Polygon[contours := [sq(500.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }]\n  \
+             LET butt AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(100.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET round AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(300.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET square AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(500.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([butt, round, square])\n",
         ) + RING_HELPERS),
     );
@@ -1228,8 +1199,7 @@ fn a_dashed_ellipse_is_cut_by_arc_length() {
     let (frame, _) = render(
         "canvas_dash_ellipse",
         &scene(
-            "  LET e AS canvas::DrawItem = canvas::Ellipse[x := 450.0, y := 320.0, radiusX := 160.0, radiusY := 80.0, angle := 0.0, \
-             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [30.0, 15.0] }]\n  \
+            "  LET e AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 450.0, y := 320.0, radiusX := 160.0, radiusY := 80.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [30.0, 15.0] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([e])\n",
         ),
     );
@@ -1342,8 +1312,7 @@ fn a_dashed_line_draws_its_pattern() {
     let mut names = Vec::new();
     for (i, ((dashes, y), offset)) in rows.iter().zip(offsets).enumerate() {
         body.push_str(&format!(
-            "  LET l{i} AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := {y}.5, x2 := 300.0, y2 := {y}.5, \
-             paint := WITH ink {{ dashes := {dashes}, dashOffset := {offset} }}]\n"
+            "  LET l{i} AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := {y}.5, x2 := 300.0, y2 := {y}.5, paint := WITH ink {{ dashes := {dashes}, dashOffset := {offset} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n"
         ));
         names.push(format!("l{i}"));
     }
@@ -1390,9 +1359,9 @@ fn a_dash_end_takes_the_cap() {
         "canvas_dash_caps",
         &scene(
             "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [10.0, 10.0] }\n  \
-             LET butt AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 50.0, x2 := 300.0, y2 := 50.0, paint := ink]\n  \
-             LET round AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 100.0, x2 := 300.0, y2 := 100.0, paint := WITH ink { cap := canvas::CapStyle.Round }]\n  \
-             LET square AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 150.0, x2 := 300.0, y2 := 150.0, paint := WITH ink { cap := canvas::CapStyle.Square }]\n  \
+             LET butt AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 50.0, x2 := 300.0, y2 := 50.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET round AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 100.0, x2 := 300.0, y2 := 100.0, paint := WITH ink { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET square AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 150.0, x2 := 300.0, y2 := 150.0, paint := WITH ink { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([butt, round, square])\n",
         ),
     );
@@ -1448,8 +1417,8 @@ fn each_ring_restarts_the_pattern_and_a_circle_starts_at_plus_x() {
             "{}{RING_HELPERS}",
             scene(
                 "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 4.0) { dashes := [10.0, 10.0] }\n  \
-                 LET rings AS canvas::DrawItem = canvas::Polygon[contours := [sq(100.0, 300.0, 27.5), sq(200.0, 300.0, 27.5)], rule := canvas::FillRule.EvenOdd, paint := ink]\n  \
-                 LET disc AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 300.0, radius := 50.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 6.0) { dashes := [20.0, 300.0] }]\n  \
+                 LET rings AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(100.0, 300.0, 27.5), sq(200.0, 300.0, 27.5)], rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+                 LET disc AS canvas::DrawItem = canvas::Circle[id := \"\", x := 600.0, y := 300.0, radius := 50.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 6.0) { dashes := [20.0, 300.0] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
                  canvas::present([rings, disc])\n",
             )
         ),
@@ -1496,8 +1465,8 @@ fn a_rounded_rect_and_an_arc_start_their_dashes_where_the_contract_says() {
         "canvas_dash_starts",
         &scene(
             "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 4.0)\n  \
-             LET box AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 400.0, w := 200.0, h := 100.0, cornerRadius := 20.0, paint := WITH ink { dashes := [30.0, 400.0] }]\n  \
-             LET bow AS canvas::DrawItem = canvas::Arc[x := 600.0, y := 450.0, radius := 50.0, startAngle := 1.5707963267948966, endAngle := 3.141592653589793, paint := WITH ink { dashes := [20.0, 200.0] }]\n  \
+             LET box AS canvas::DrawItem = canvas::RoundedRect[id := \"\", x := 100.0, y := 400.0, w := 200.0, h := 100.0, cornerRadius := 20.0, paint := WITH ink { dashes := [30.0, 400.0] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET bow AS canvas::DrawItem = canvas::Arc[id := \"\", x := 600.0, y := 450.0, radius := 50.0, startAngle := 1.5707963267948966, endAngle := 3.141592653589793, paint := WITH ink { dashes := [20.0, 200.0] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([box, bow])\n",
         ),
     );
@@ -1544,7 +1513,7 @@ fn a_clip_cuts_a_circle_in_half() {
         &scene(
             "  LET c AS color::Color = color::rgb(255, 0, 0)\n  \
              LET p AS canvas::Paint = WITH canvas::fill(c) { clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 200.0, y := 0.0], vector::Float2[x := 200.0, y := 640.0], vector::Float2[x := 0.0, y := 640.0]]] }\n  \
-             LET dot AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 100.0, paint := p]\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := 200.0, y := 200.0, radius := 100.0, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([dot])\n",
         ),
     );
@@ -1582,7 +1551,7 @@ fn a_fractional_clip_edge_is_antialiased() {
         &scene(
             "  LET c AS color::Color = color::rgb(255, 255, 255)\n  \
              LET p AS canvas::Paint = WITH canvas::fill(c) { clip := [[vector::Float2[x := 100.25, y := 0.0], vector::Float2[x := 400.25, y := 0.0], vector::Float2[x := 400.25, y := 640.0], vector::Float2[x := 100.25, y := 640.0]]] }\n  \
-             LET box AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 500.0, h := 200.0, paint := p]\n  \
+             LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 500.0, h := 200.0, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([box])\n",
         ),
     );
@@ -1625,7 +1594,7 @@ fn an_empty_clip_is_no_clip_and_a_clip_enclosing_nothing_hides_the_item() {
         scene(&format!(
             "  LET c AS color::Color = color::rgb(0, 200, 255)\n  \
              LET p AS canvas::Paint = {clip}\n  \
-             LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 120.0, paint := p]\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 300.0, radius := 120.0, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([dot])\n"
         ))
     };
@@ -1684,8 +1653,8 @@ fn transparency_fades_fill_stroke_and_gradient_alphas() {
         scene(&format!(
             "  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 400.0, y := 0.0], endPoint := vector::Float2[x := 600.0, y := 0.0], \
              stops := [canvas::GradientStop[offset := 0.0, color := {s0}], canvas::GradientStop[offset := 1.0, color := {s1}]], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET a AS canvas::DrawItem = canvas::Rectangle[x := 50.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fillStroke({fill}, {stroke}, 12.0) {{{t} blend := canvas::BlendMode.Normal }}]\n  \
-             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fill(color::rgb(9, 9, 9)) {{{t} gradient := ramp }}]\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 50.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fillStroke({fill}, {stroke}, 12.0) {{{t} blend := canvas::BlendMode.Normal }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 400.0, y := 50.0, w := 200.0, h := 150.0, paint := WITH canvas::fill(color::rgb(9, 9, 9)) {{{t} gradient := ramp }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a, b])\n"
         ))
     };
@@ -1703,7 +1672,7 @@ fn transparency_fades_fill_stroke_and_gradient_alphas() {
 
     let item = |t: &str| {
         scene(&format!(
-            "  LET a AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) {{ transparency := {t} }}]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 300.0, radius := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) {{ transparency := {t} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n"
         ))
     };
@@ -1770,11 +1739,11 @@ fn a_path_clip_draws_only_inside_its_rings() {
     let body = |rule: &str| {
         scene(&format!(
             "  LET w AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
-             LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 380.0, h := 340.0, paint := WITH w {{ clip := [{tri}] }}]\n  \
-             LET b AS canvas::DrawItem = canvas::Rectangle[x := 380.0, y := 0.0, w := 260.0, h := 300.0, paint := WITH w {{ clip := [{outer}, {inner}], clipRule := canvas::FillRule.{rule} }}]\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 380.0, h := 340.0, paint := WITH w {{ clip := [{tri}] }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 380.0, y := 0.0, w := 260.0, h := 300.0, paint := WITH w {{ clip := [{outer}, {inner}], clipRule := canvas::FillRule.{rule} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET spin AS canvas::Transform = canvas::Transform[a := 0.8660254037844387, b := 0.5, c := 0.0 - 0.5, d := 0.8660254037844387, tx := 700.0, ty := 450.0]\n  \
-             LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH w {{ transform := spin, clip := [{half}] }}]\n  \
-             LET d AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{corner}] }}]\n  \
+             LET c AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{half}] }}, transform := spin]\n  \
+             LET d AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{corner}] }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"g\", [d])\n  \
              canvas::present([a, b, c, canvas::Group[dx := 300.0, dy := 400.0, name := \"g\"]])\n"
         ))
@@ -1822,18 +1791,18 @@ fn a_sheared_clip_edge_matches_a_sheared_shape_edge() {
     let body = |item: &str| {
         scene(&format!(
             "  LET shear AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5, d := 1.0, tx := 200.0, ty := 450.0]\n  \
-             LET w AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ transform := shear }}\n  \
+             LET w AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
              {item}\n  \
              canvas::present([s])\n"
         ))
     };
     let (clipped, _) = render(
         "canvas_shear_clip",
-        &body(&format!("LET s AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{half}] }}]")),
+        &body(&format!("LET s AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := WITH w {{ clip := [{half}] }}, transform := shear]")),
     );
     let (shape, _) = render(
         "canvas_shear_shape",
-        &body("LET s AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 50.0, h := 100.0, paint := w]"),
+        &body("LET s AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 50.0, h := 100.0, paint := w, transform := shear]"),
     );
     // Only around the clip's own edge, item x = 50, which lands at surface x =
     // 250 + 0.5 * (y + 0.5 - 450): the clip's left edge coincides with the shape's, where
@@ -1877,7 +1846,7 @@ fn a_rectangle_clip_draws_the_same_through_either_path() {
     ]);
     let body = |clip: &str| {
         scene(&format!(
-            "  LET a AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 160.0, radius := 120.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) {{ clip := [{clip}] }}]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Circle[id := \"\", x := 200.0, y := 160.0, radius := 120.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) {{ clip := [{clip}] }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n"
         ))
     };
@@ -1911,8 +1880,8 @@ fn a_clip_outside_the_item_draws_nothing() {
             "  LET red AS color::Color = color::rgb(255, 0, 0)\n  \
              LET green AS color::Color = color::rgb(0, 255, 0)\n  \
              LET p AS canvas::Paint = WITH canvas::fill(red) { clip := [[vector::Float2[x := 600.0, y := 400.0], vector::Float2[x := 700.0, y := 400.0], vector::Float2[x := 700.0, y := 500.0], vector::Float2[x := 600.0, y := 500.0]]] }\n  \
-             LET hidden AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 100.0, h := 100.0, paint := p]\n  \
-             LET shown AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(green)]\n  \
+             LET hidden AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 100.0, h := 100.0, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET shown AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 300.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([hidden, shown])\n",
         ),
     );
@@ -1941,7 +1910,7 @@ fn a_clip_larger_than_the_item_changes_nothing() {
         scene(&format!(
             "  LET c AS color::Color = color::rgb(255, 200, 0)\n  \
              LET p AS canvas::Paint = {clip}\n  \
-             LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 90.0, paint := p]\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 300.0, radius := 90.0, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([dot])\n"
         ))
     };
@@ -1983,13 +1952,11 @@ fn a_clip_larger_than_the_item_changes_nothing() {
 fn each_blend_mode_composites_to_its_own_values() {
     let over = |name: &str, mode: &str, x: f64| {
         format!(
-            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := {x:.1}, y := 60.0, w := 60.0, h := 60.0, \
-             paint := WITH canvas::fill(color::rgb(200, 100, 50)) {{ blend := canvas::BlendMode.{mode} }}]\n"
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := {x:.1}, y := 60.0, w := 60.0, h := 60.0, paint := WITH canvas::fill(color::rgb(200, 100, 50)) {{ blend := canvas::BlendMode.{mode} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n"
         )
     };
     let body = format!(
-        "  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 600.0, h := 200.0, \
-         paint := canvas::fill(color::rgb(128, 128, 128))]\n{}{}{}{}  \
+        "  LET ground AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 600.0, h := 200.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n{}{}{}{}  \
          canvas::present([ground, normal, multiply, screen, add])\n",
         over("normal", "Normal", 20.0),
         over("multiply", "Multiply", 120.0),
@@ -2035,9 +2002,8 @@ fn each_blend_mode_composites_to_its_own_values() {
 fn blend_mode_normal_is_identical_to_an_unset_blend() {
     let body = |paint: &str| {
         scene(&format!(
-            "  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 600.0, h := 400.0, \
-             paint := canvas::fill(color::rgb(128, 128, 128))]\n  \
-             LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 200.0, radius := 90.0, paint := {paint}]\n  \
+            "  LET ground AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 600.0, h := 400.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 200.0, radius := 90.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([ground, dot])\n"
         ))
     };
@@ -2204,8 +2170,8 @@ fn a_rotated_rectangle_lands_where_the_matrix_says() {
         "canvas_xform_rot",
         &scene(
             "  LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 100.0]\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(color::rgb(255, 0, 0)) { transform := t }\n  \
-             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 40.0, paint := p]\n  \
+             LET p AS canvas::Paint = canvas::fill(color::rgb(255, 0, 0))\n  \
+             LET bar AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 200.0, h := 40.0, paint := p, transform := t]\n  \
              canvas::present([bar])\n",
         ),
     );
@@ -2253,8 +2219,8 @@ fn a_uniform_scale_scales_the_shape_and_its_stroke() {
         "canvas_xform_scale",
         &scene(
             "  LET t AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 2.0, tx := 0.0, ty := 0.0]\n  \
-             LET p AS canvas::Paint = WITH canvas::stroke(color::rgb(0, 255, 0), 10.0) { transform := t }\n  \
-             LET ring AS canvas::DrawItem = canvas::Circle[x := 150.0, y := 150.0, radius := 50.0, paint := p]\n  \
+             LET p AS canvas::Paint = canvas::stroke(color::rgb(0, 255, 0), 10.0)\n  \
+             LET ring AS canvas::DrawItem = canvas::Circle[id := \"\", x := 150.0, y := 150.0, radius := 50.0, paint := p, transform := t]\n  \
              canvas::present([ring])\n",
         ),
     );
@@ -2295,20 +2261,20 @@ fn a_uniform_scale_scales_the_shape_and_its_stroke() {
 /// existing scene changing. Whole-frame equality, including the antialiased edge.
 #[test]
 fn an_all_zero_transform_is_identical_to_no_transform() {
-    let body = |paint: &str| {
+    let body = |transform: &str| {
         scene(&format!(
-            "  LET dot AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 90.0, paint := {paint}]\n  \
+            "  LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 300.0, radius := 90.0, paint := canvas::fill(color::rgb(255, 200, 0)), transform := {transform}]\n  \
              canvas::present([dot])\n"
         ))
     };
     let (unset, _) = render(
         "canvas_xform_unset",
-        &body("canvas::fill(color::rgb(255, 200, 0))"),
+        &body("canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"),
     );
     let (zero, _) = render(
         "canvas_xform_zero",
         &body(
-            "WITH canvas::fill(color::rgb(255, 200, 0)) { transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0] }",
+            "canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0]",
         ),
     );
     assert_eq!(
@@ -2328,20 +2294,20 @@ fn an_all_zero_transform_is_identical_to_no_transform() {
 /// `[1, 2, 2, 4]` has determinant zero — it collapses the plane onto a line.
 #[test]
 fn a_singular_transform_renders_untransformed() {
-    let body = |paint: &str| {
+    let body = |transform: &str| {
         scene(&format!(
-            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 120.0, h := 80.0, paint := {paint}]\n  \
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 120.0, h := 80.0, paint := canvas::fill(color::rgb(0, 200, 255)), transform := {transform}]\n  \
              canvas::present([box])\n"
         ))
     };
     let (plain, _) = render(
         "canvas_xform_plain",
-        &body("canvas::fill(color::rgb(0, 200, 255))"),
+        &body("canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]"),
     );
     let (singular, _) = render(
         "canvas_xform_singular",
         &body(
-            "WITH canvas::fill(color::rgb(0, 200, 255)) { transform := canvas::Transform[a := 1.0, b := 2.0, c := 2.0, d := 4.0, tx := 0.0, ty := 0.0] }",
+            "canvas::Transform[a := 1.0, b := 2.0, c := 2.0, d := 4.0, tx := 0.0, ty := 0.0]",
         ),
     );
     assert_eq!(
@@ -2364,8 +2330,8 @@ fn a_rotated_shape_is_not_clipped_to_its_untransformed_bounds() {
         &scene(
             "  LET k AS Float = 0.7071067811865476\n  \
              LET t AS canvas::Transform = canvas::Transform[a := k, b := k, c := 0.0 - k, d := k, tx := 300.0, ty := 300.0]\n  \
-             LET p AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) { transform := t }\n  \
-             LET sq AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 100.0, y := 0.0 - 100.0, w := 200.0, h := 200.0, paint := p]\n  \
+             LET p AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
+             LET sq AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0 - 100.0, y := 0.0 - 100.0, w := 200.0, h := 200.0, paint := p, transform := t]\n  \
              canvas::present([sq])\n",
         ),
     );
@@ -2405,9 +2371,7 @@ fn a_rotated_shape_is_not_clipped_to_its_untransformed_bounds() {
 fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
     let line = |cap: &str| {
         format!(
-            "  LET l AS canvas::DrawItem = canvas::Line[x1 := 200.0, y1 := 300.0, \
-             x2 := 400.0, y2 := 300.0, \
-             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
+            "  LET l AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 200.0, y1 := 300.0, x2 := 400.0, y2 := 300.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([l])\n"
         )
     };
@@ -2463,9 +2427,7 @@ fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
 fn a_zero_length_line_is_a_dot_only_when_round_capped() {
     let dot = |cap: &str| {
         format!(
-            "  LET l AS canvas::DrawItem = canvas::Line[x1 := 300.0, y1 := 300.0, \
-             x2 := 300.0, y2 := 300.0, \
-             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
+            "  LET l AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 300.0, y1 := 300.0, x2 := 300.0, y2 := 300.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([l])\n"
         )
     };
@@ -2507,9 +2469,7 @@ fn a_zero_length_line_is_a_dot_only_when_round_capped() {
 fn a_round_capped_arc_caps_its_sweep_ends_and_a_butt_one_does_not() {
     let arc = |cap: &str| {
         format!(
-            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
-             radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
-             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Arc[id := \"\", x := 300.0, y := 300.0, radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n"
         )
     };
@@ -2564,10 +2524,7 @@ fn a_round_arc_cap_at_the_bounds_extreme_is_not_clipped() {
     let (frame, _) = render(
         "canvas_arccap_bounds",
         &scene(
-            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
-             radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, \
-             \
-             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) { cap := canvas::CapStyle.Round }]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Arc[id := \"\", x := 300.0, y := 300.0, radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n",
         ),
     );
@@ -2590,9 +2547,7 @@ fn a_round_arc_cap_at_the_bounds_extreme_is_not_clipped() {
 fn a_full_circle_arc_is_identical_with_either_cap() {
     let ring = |cap: &str| {
         format!(
-            "  LET a AS canvas::DrawItem = canvas::Arc[x := 300.0, y := 300.0, \
-             radius := 100.0, startAngle := 0.0, endAngle := 6.283185307179586, \
-             paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Arc[id := \"\", x := 300.0, y := 300.0, radius := 100.0, startAngle := 0.0, endAngle := 6.283185307179586, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 24.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n"
         )
     };
@@ -2981,15 +2936,13 @@ fn an_ellipse_with_equal_radii_is_identical_to_a_circle() {
     let (circle, _) = render(
         "canvas_ellipse_as_circle_ref",
         &scene(&format!(
-            "  LET a AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, \
-             radius := 120.0, paint := {paint}]\n  canvas::present([a])\n"
+            "  LET a AS canvas::DrawItem = canvas::Circle[id := \"\", x := 400.0, y := 300.0, radius := 120.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([a])\n"
         )),
     );
     let (ellipse, _) = render(
         "canvas_ellipse_as_circle",
         &scene(&format!(
-            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
-             radiusX := 120.0, radiusY := 120.0, angle := 0.0, paint := {paint}]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 400.0, y := 300.0, radiusX := 120.0, radiusY := 120.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n"
         )),
     );
@@ -3016,9 +2969,7 @@ fn an_axis_aligned_ellipse_covers_its_extent() {
     let (frame, _) = render(
         "canvas_ellipse_axis",
         &scene(
-            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
-             radiusX := 300.0, radiusY := 100.0, angle := 0.0, \
-             paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 400.0, y := 300.0, radiusX := 300.0, radiusY := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n",
         ),
     );
@@ -3064,9 +3015,7 @@ fn an_axis_aligned_ellipse_covers_its_extent() {
 fn rotating_an_ellipse_by_a_quarter_turn_swaps_its_axes() {
     let ell = |rx: f64, ry: f64, angle: &str| {
         format!(
-            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
-             radiusX := {rx:.1}, radiusY := {ry:.1}, angle := {angle}, \
-             paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 400.0, y := 300.0, radiusX := {rx:.1}, radiusY := {ry:.1}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[a := math::cos({angle}), b := math::sin({angle}), c := 0.0 - math::sin({angle}), d := math::cos({angle}), tx := (400.0) - (math::cos({angle}) * (400.0) - math::sin({angle}) * (300.0)), ty := (300.0) - (math::sin({angle}) * (400.0) + math::cos({angle}) * (300.0))]]\n  \
              canvas::present([a])\n"
         )
     };
@@ -3125,6 +3074,48 @@ fn rotating_an_ellipse_by_a_quarter_turn_swaps_its_axes() {
     );
 }
 
+/// plan-172-C: an ellipse has no `angle`; it is turned by its `transform`.
+///
+/// A 100 x 20 ellipse at (300, 300) turned half a radian about its own centre. Its long
+/// axis now runs along (cos 0.5, sin 0.5) = (0.8776, 0.4794), so 92 px out along it is
+/// (380.7, 344.1) on one side and (219.3, 255.9) on the other — both well inside the
+/// ellipse. The control is the pixel 92 px out along +X, (392, 300): inside the ellipse
+/// had it NOT turned, and 44 px off the turned axis against a short radius of 20.
+#[test]
+fn an_ellipse_is_turned_by_its_transform() {
+    let (frame, _) = render(
+        "canvas_ellipse_turned",
+        &scene(
+            "  LET co AS Float = 0.8775825618903728\n  \
+             LET si AS Float = 0.479425538604203\n  \
+             LET turn AS canvas::Transform = canvas::Transform[a := co, b := si, c := 0.0 - si, d := co, tx := 300.0 - (co * 300.0 - si * 300.0), ty := 300.0 - (si * 300.0 + co * 300.0)]\n  \
+             LET egg AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 300.0, y := 300.0, radiusX := 100.0, radiusY := 20.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := turn]\n  \
+             canvas::present([egg])\n",
+        ),
+    );
+    assert_eq!(
+        pixel(&frame, 380, 344),
+        (255, 255, 255, 255),
+        "92 px along the turned long axis, towards the bottom-right"
+    );
+    assert_eq!(
+        pixel(&frame, 219, 255),
+        (255, 255, 255, 255),
+        "92 px along the turned long axis, towards the top-left"
+    );
+    assert_eq!(
+        pixel(&frame, 300, 300),
+        (255, 255, 255, 255),
+        "the centre does not move: the turn is about it"
+    );
+    assert_eq!(
+        pixel(&frame, 392, 300),
+        (0, 0, 0, 255),
+        "92 px along +X is inside the UNTURNED ellipse only; drawing here means the \
+         transform did not turn it"
+    );
+}
+
 /// A degenerate radius draws nothing, the same rule `Circle` follows.
 #[test]
 fn an_ellipse_with_a_zero_radius_draws_nothing() {
@@ -3136,9 +3127,7 @@ fn an_ellipse_with_a_zero_radius_draws_nothing() {
         let (frame, _) = render(
             name,
             &scene(&format!(
-                "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
-                 radiusX := {rx}, radiusY := {ry}, angle := 0.0, \
-                 paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
+                "  LET a AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 400.0, y := 300.0, radiusX := {rx}, radiusY := {ry}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
                  canvas::present([a])\n"
             )),
         );
@@ -3162,9 +3151,7 @@ fn a_stroked_ellipse_is_hollow() {
     let (frame, _) = render(
         "canvas_ellipse_stroked",
         &scene(
-            "  LET a AS canvas::DrawItem = canvas::Ellipse[x := 400.0, y := 300.0, \
-             radiusX := 200.0, radiusY := 100.0, angle := 0.0, \
-             paint := canvas::stroke(color::rgb(255, 255, 255), 20.0)]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 400.0, y := 300.0, radiusX := 200.0, radiusY := 100.0, paint := canvas::stroke(color::rgb(255, 255, 255), 20.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a])\n",
         ),
     );
@@ -3234,10 +3221,8 @@ fn gradients_sharing_a_header_keep_their_own_stops() {
              LET gB AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := vector::Float2[x := 100.0, y := 100.0], \
              endPoint := vector::Float2[x := 200.0, y := 100.0], stops := bStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) { gradient := gA }]\n  \
-             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 255)) { gradient := gB }]\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(255, 0, 0)) { gradient := gA }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 400.0, y := 100.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 255)) { gradient := gB }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -3283,8 +3268,7 @@ fn gradients_sharing_a_header_keep_their_own_stops() {
 fn a_gradient_with_fewer_than_two_stops_is_byte_identical_to_a_flat_fill() {
     let flat = |extra: &str| {
         format!(
-            "{extra}  LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, \
-             w := 200.0, h := 150.0, paint := {}]\n  canvas::present([a])\n",
+            "{extra}  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 200.0, h := 150.0, paint := {}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([a])\n",
             if extra.is_empty() {
                 "canvas::fill(color::rgb(220, 90, 40))".to_string()
             } else {
@@ -3335,8 +3319,7 @@ fn a_linear_gradient_interpolates_between_its_stops() {
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := vector::Float2[x := 100.0, y := 0.0], \
              endPoint := vector::Float2[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
-             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 400.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3386,8 +3369,7 @@ fn a_radial_gradient_runs_outward_from_its_centre() {
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, \
              startPoint := vector::Float2[x := 400.0, y := 300.0], \
              endPoint := vector::Float2[x := 520.0, y := 300.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET c AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, radius := 120.0, \
-             paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }]\n  \
+             LET c AS canvas::DrawItem = canvas::Circle[id := \"\", x := 400.0, y := 300.0, radius := 120.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) { gradient := g }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([c])\n",
         ),
     );
@@ -3448,10 +3430,8 @@ fn gradients_draw_their_own_ramps() {
              startPoint := vector::Float2[x := 100.0, y := 100.0], \
              endPoint := vector::Float2[x := 200.0, y := 100.0], stops := bStops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
              LET base AS canvas::Paint = canvas::fill(color::rgb(0, 255, 0))\n  \
-             LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH base { gradient := gA }]\n  \
-             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 100.0, w := 100.0, \
-             h := 100.0, paint := WITH base { gradient := gB }]\n  \
+             LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 100.0, h := 100.0, paint := WITH base { gradient := gA }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 400.0, y := 100.0, w := 100.0, h := 100.0, paint := WITH base { gradient := gB }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -3485,8 +3465,7 @@ fn a_zero_length_gradient_axis_takes_the_first_stops_colour() {
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := vector::Float2[x := 250.0, y := 250.0], \
              endPoint := vector::Float2[x := 250.0, y := 250.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 300.0, \
-             h := 200.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 300.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3521,8 +3500,7 @@ fn gradient_offsets_out_of_order_are_clamped_not_sorted() {
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := vector::Float2[x := 100.0, y := 0.0], \
              endPoint := vector::Float2[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
-             h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 400.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3573,9 +3551,8 @@ fn a_gradients_stroke_stays_a_flat_colour() {
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := vector::Float2[x := 100.0, y := 0.0], \
              endPoint := vector::Float2[x := 500.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET r AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 400.0, \
-             h := 200.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), \
-             color::rgb(255, 255, 0), 24.0) { gradient := g }]\n  \
+             LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 400.0, h := 200.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), \
+             color::rgb(255, 255, 0), 24.0) { gradient := g }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([r])\n",
         ),
     );
@@ -3625,12 +3602,8 @@ fn a_gradients_stroke_stays_a_flat_colour() {
 /// collide over — either way the frame must equal the no-gradient one.
 #[test]
 fn a_gradient_on_a_stroke_only_kind_is_ignored() {
-    const PLAIN: &str = "  LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
-         x2 := 360.0, y2 := 60.0, \
-         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { cap := canvas::CapStyle.Butt }]\n  \
-         LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
-         startAngle := 0.0, endAngle := 3.14159, \
-         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { cap := canvas::CapStyle.Butt }]\n  \
+    const PLAIN: &str = "  LET a AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 40.0, y1 := 60.0, x2 := 360.0, y2 := 60.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b AS canvas::DrawItem = canvas::Arc[id := \"\", x := 200.0, y := 260.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([a, b])\n";
 
     // The same two items, each carrying a DIFFERENT gradient. Different from each other
@@ -3648,12 +3621,8 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
          LET g2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
          startPoint := vector::Float2[x := 40.0, y := 0.0], \
          endPoint := vector::Float2[x := 360.0, y := 0.0], stops := s2, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-         LET a AS canvas::DrawItem = canvas::Line[x1 := 40.0, y1 := 60.0, \
-         x2 := 360.0, y2 := 60.0, \
-         paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { gradient := g1, cap := canvas::CapStyle.Butt }]\n  \
-         LET b AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 260.0, radius := 90.0, \
-         startAngle := 0.0, endAngle := 3.14159, \
-         paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { gradient := g2, cap := canvas::CapStyle.Butt }]\n  \
+         LET a AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 40.0, y1 := 60.0, x2 := 360.0, y2 := 60.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { gradient := g1, cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b AS canvas::DrawItem = canvas::Arc[id := \"\", x := 200.0, y := 260.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { gradient := g2, cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([a, b])\n";
 
     let (plain, _) = render("canvas_stroke_only_plain", &scene(PLAIN));
@@ -3708,13 +3677,11 @@ fn a_group_replaced_between_two_identical_presents_redraws_with_the_new_contents
     let (frame, stats) = render(
         "canvas_group_revision",
         &scene(
-            "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, \
-             paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"panel\", [a])\n  \
              LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
              canvas::present([node])\n  \
-             LET b AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 500.0, w := 50.0, h := 50.0, \
-             paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 700.0, y := 500.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"panel\", [b])\n  \
              canvas::present([node])\n",
         ),
@@ -3759,8 +3726,7 @@ fn three_identical_presents_of_an_unchanged_group_draw_one_frame() {
     let (_, stats) = render(
         "canvas_group_no_revision",
         &scene(
-            "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, \
-             paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"panel\", [a])\n  \
              LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
              canvas::present([node])\n  \
@@ -3814,9 +3780,9 @@ fn set_group_deep_copies_and_remove_group_frees_nothing_yet() {
     let (_, stats) = render(
         "canvas_group_deep_copy",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET green AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
-             LET blue AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET green AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 80.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET blue AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 150.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::removeGroup(\"absent\")\n  \
              canvas::present([red])\n  \
              MUT items AS List OF canvas::DrawItem = [red]\n  \
@@ -3883,7 +3849,7 @@ fn a_group_renders_at_its_offset_nested_diamond_and_absent() {
     let (frame, stats) = render(
         "canvas_group_offsets",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"leaf\", [red])\n  \
              canvas::setGroup(\"outer\", [canvas::Group[dx := 0.0, dy := 200.0, name := \"leaf\"]])\n  \
              LET a AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"leaf\"]\n  \
@@ -3956,7 +3922,7 @@ fn a_group_cycle_and_an_over_deep_chain_both_raise() {
     for (name, body) in [
         (
             "canvas_group_cycle",
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"self\", [red, canvas::Group[dx := 1.0, dy := 1.0, name := \"self\"]])\n  \
              canvas::present([canvas::Group[dx := 0.0, dy := 0.0, name := \"self\"]]) TRAP(e)\n  \
                io::print(\"raised \" & toString(e.code))\n  \
@@ -3966,7 +3932,7 @@ fn a_group_cycle_and_an_over_deep_chain_both_raise() {
         ),
         (
             "canvas_group_deep",
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"g0\", [red])\n  \
              MUT i AS Integer = 1\n  \
              WHILE i <= 70\n  \
@@ -4015,7 +3981,7 @@ fn a_gradient_inside_a_group_moves_with_the_group() {
         &scene(
             "  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]]\n  \
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 200.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET bar AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }]\n  \
+             LET bar AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 200.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := g }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"bar\", [bar])\n  \
              LET left AS canvas::DrawItem = canvas::Group[dx := 50.0, dy := 100.0, name := \"bar\"]\n  \
              LET right AS canvas::DrawItem = canvas::Group[dx := 400.0, dy := 300.0, name := \"bar\"]\n  \
@@ -4064,7 +4030,7 @@ fn a_clip_inside_a_translated_group_moves_with_it() {
     let (frame, _) = render(
         "canvas_group_clip",
         &scene(
-            "  LET clipped AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) { clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 100.0, y := 0.0], vector::Float2[x := 100.0, y := 200.0], vector::Float2[x := 0.0, y := 200.0]]] }]\n  \
+            "  LET clipped AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := WITH canvas::fill(color::rgb(0, 200, 255)) { clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 100.0, y := 0.0], vector::Float2[x := 100.0, y := 200.0], vector::Float2[x := 0.0, y := 200.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"g\", [clipped])\n  \
              canvas::present([canvas::Group[dx := 300.0, dy := 100.0, name := \"g\"]])\n",
         ),
@@ -4096,8 +4062,8 @@ fn a_removed_groups_buffer_is_retired_not_freed() {
     let (_, stats) = render(
         "canvas_group_retire",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET keep AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET keep AS canvas::DrawItem = canvas::Circle[id := \"\", x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"panel\", [red])\n  \
              LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"panel\"]\n  \
              canvas::present([keep, node])\n  \
@@ -4145,8 +4111,8 @@ fn the_group_drain_does_not_depend_on_the_scene_changing() {
     let (_, stats) = render(
         "canvas_group_drain_bound",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET keep AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET keep AS canvas::DrawItem = canvas::Circle[id := \"\", x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([keep])\n  \
              MUT i AS Integer = 0\n  \
              WHILE i < 200\n  \
@@ -4156,7 +4122,7 @@ fn the_group_drain_does_not_depend_on_the_scene_changing() {
                canvas::present([keep])\n  \
                i = i + 1\n  \
              END WHILE\n  \
-             LET last AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+             LET last AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([keep, last])\n",
         ),
     );
@@ -4192,8 +4158,8 @@ fn replacing_a_group_frees_only_the_displaced_buffer() {
     let (_, stats) = render(
         "canvas_group_replace_drain",
         &scene(
-            "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET b AS canvas::DrawItem = canvas::Circle[x := 10.0, y := 10.0, radius := 10.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Circle[id := \"\", x := 10.0, y := 10.0, radius := 10.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"panel\"]\n  \
              canvas::setGroup(\"one\", [a])\n  \
              canvas::present([canvas::Group[dx := 400.0, dy := 400.0, name := \"one\"]])\n  \
@@ -4252,8 +4218,8 @@ fn removing_a_group_a_parent_names_makes_the_parents_node_a_no_op() {
     let (frame, _) = render(
         "canvas_group_child_removed",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET mark AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 500.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET mark AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 700.0, y := 500.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"child\", [red])\n  \
              canvas::setGroup(\"parent\", [canvas::Group[dx := 0.0, dy := 0.0, name := \"child\"], mark])\n  \
              LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := \"parent\"]\n  \
@@ -4309,10 +4275,10 @@ fn removing_a_group_mid_frame_lets_the_frame_finish() {
     let project = common::temp_project(
         "canvas_group_race",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 80.0, h := 80.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 80.0, h := 80.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"panel\", [red])\n  \
              LET node AS canvas::DrawItem = canvas::Group[dx := 200.0, dy := 200.0, name := \"panel\"]\n  \
-             LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+             LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([mark, node])\n  \
              os::sleep(120)\n  \
              canvas::removeGroup(\"panel\")\n  \
@@ -4383,7 +4349,7 @@ fn exiting_while_a_frame_draws_a_group_is_clean() {
     let project = common::temp_project(
         "canvas_group_exit_race",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 80.0, h := 80.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 80.0, h := 80.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"panel\", [red])\n  \
              canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := \"panel\"]])\n",
         ),
@@ -4441,8 +4407,8 @@ fn a_group_offset_far_off_surface_draws_nothing_and_does_not_raise() {
     let (frame, stats) = render(
         "canvas_group_huge_offset",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET here AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET here AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 100.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"panel\", [red])\n  \
              LET huge AS canvas::DrawItem = canvas::Group[dx := 1.0e9, dy := 0.0 - 1.0e9, name := \"panel\"]\n  \
              LET big AS canvas::DrawItem = canvas::Group[dx := 100000.0, dy := 100000.0, name := \"panel\"]\n  \
@@ -4488,8 +4454,8 @@ fn a_polygon_inside_a_translated_group_draws_at_the_offset() {
     let (frame, stats) = render(
         "canvas_group_polygon",
         &scene(
-            "  LET up AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 100.0, y := 0.0], vector::Float2[x := 50.0, y := 100.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET down AS canvas::DrawItem = canvas::Polygon[contours := [[vector::Float2[x := 0.0, y := 100.0], vector::Float2[x := 100.0, y := 100.0], vector::Float2[x := 50.0, y := 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET up AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 100.0, y := 0.0], vector::Float2[x := 50.0, y := 100.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET down AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 0.0, y := 100.0], vector::Float2[x := 100.0, y := 100.0], vector::Float2[x := 50.0, y := 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"tri\", [up])\n  \
              canvas::setGroup(\"tri2\", [down])\n  \
              canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := \"tri\"], canvas::Group[dx := 500.0, dy := 200.0, name := \"tri2\"]])\n",
@@ -4570,8 +4536,8 @@ fn installing_and_removing_many_named_groups_does_not_grow_without_bound() {
     let (_, stats) = render(
         "canvas_group_name_churn",
         &scene(
-            "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
-             LET keep AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+            "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET keep AS canvas::DrawItem = canvas::Circle[id := \"\", x := 700.0, y := 500.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET pad AS String = \"a-deliberately-long-group-name-so-a-leaked-copy-is-worth-measuring-\"\n  \
              canvas::present([keep])\n  \
              MUT i AS Integer = 0\n  \
@@ -4585,7 +4551,7 @@ fn installing_and_removing_many_named_groups_does_not_grow_without_bound() {
                canvas::present([keep])\n  \
                i = i + 1\n  \
              END WHILE\n  \
-             LET last AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+             LET last AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([keep, last])\n",
         ),
     );
@@ -4634,11 +4600,11 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
         let line = stats.last().expect("a frame").clone();
         (stat(&line, "blocks="), stat(&line, "draws="))
     };
-    const RED: &str = "  LET red AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  ";
+    const RED: &str = "  LET red AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 40.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  ";
 
     // 1. A flat scene: one run, no offset.
     let (blocks, draws) = d(&format!(
-        "{RED}LET b AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  canvas::present([red, b])\n"
+        "{RED}LET b AS canvas::DrawItem = canvas::Circle[id := \"\", x := 300.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([red, b])\n"
     ));
     assert_eq!(
         (blocks.as_str(), draws.as_str()),
@@ -4714,7 +4680,7 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
     //    draw, so one draw spanning both would render whichever was bound: a wrong
     //    colour, not a missing shape.
     let (blocks, draws) = d(&format!(
-        "{RED}LET mul AS canvas::DrawItem = canvas::Circle[x := 20.0, y := 20.0, radius := 10.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ blend := canvas::BlendMode.Multiply }}]
+        "{RED}LET mul AS canvas::DrawItem = canvas::Circle[id := \"\", x := 20.0, y := 20.0, radius := 10.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ blend := canvas::BlendMode.Multiply }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
            canvas::setGroup(\"g\", [red, mul])
            canvas::present([canvas::Group[dx := 100.0, dy := 100.0, name := \"g\"]])
 "
@@ -4760,8 +4726,7 @@ fn an_image_destroyed_while_a_scene_names_it_renders_a_frame_and_does_not_raise(
              RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)\n  \
              RETURN\n  \
              END TRAP\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 10.0, w := 40.0, h := 40.0, \
-             image := img, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", x := 10.0, y := 10.0, w := 40.0, h := 40.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::destroyImage(img)\n  \
              canvas::present([tile])\n",
         ),
@@ -4802,10 +4767,8 @@ fn destroying_a_font_mid_frame_is_clean() {
             "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n  \
              RETURN\n  \
              END TRAP\n  \
-             LET label AS canvas::DrawItem = canvas::Text[x := 100.0, y := 200.0, text := \"AA\", \
-             font := face, size := 90.0, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
-             LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, \
-             paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+             LET label AS canvas::DrawItem = canvas::Text[id := \"\", x := 100.0, y := 200.0, text := \"AA\", font := face, size := 90.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([mark, label])\n  \
              os::sleep(120)\n  \
              canvas::destroyFont(face)\n  \
@@ -4893,8 +4856,8 @@ fn a_linear_gradient_turned_by_its_transform_runs_top_to_bottom() {
     let (frame, _) = render(
         "canvas_gradient_turned",
         &scene(&format!(
-            "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {turned} }}]\n  \
-             LET b AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {upright} }}]\n  \
+            "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {turned} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 400.0, y := 0.0, w := 200.0, h := 101.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {upright} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a, b])\n"
         )),
     );
@@ -4947,8 +4910,8 @@ fn a_linear_gradient_on_a_rotated_item_rotates_with_it() {
         "canvas_gradient_item_space",
         &scene(&format!(
             "  LET g AS canvas::Gradient = {g}\n  \
-             LET up AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g, transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 200.0, ty := 200.0] }}]\n  \
-             LET turned AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g, transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 200.0] }}]\n  \
+             LET up AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g }}, transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 200.0, ty := 200.0]]\n  \
+             LET turned AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0 - 50.0, y := 0.0 - 50.0, w := 100.0, h := 100.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := g }}, transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 500.0, ty := 200.0]]\n  \
              canvas::present([up, turned])\n"
         )),
     );
@@ -4977,7 +4940,7 @@ fn spread_pads_reflects_and_repeats_past_the_end() {
     let item = |name: &str, y: f64, spread: &str| {
         let g = ramp("Linear", (99.5, 0.0), (199.5, 0.0), spread, NO_T);
         format!(
-            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := {y:?}, w := 300.0, h := 40.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}]\n"
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := {y:?}, w := 300.0, h := 40.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n"
         )
     };
     let (frame, _) = render(
@@ -5037,7 +5000,7 @@ fn ramp_box(name: &str, g: &str) -> Vec<u8> {
     render(
         name,
         &scene(&format!(
-            "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}]\n  \
+            "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fill(color::rgb(0, 255, 0)) {{ gradient := {g} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([box])\n"
         )),
     )
@@ -5193,14 +5156,14 @@ fn stroke_ramp(apply: &str) -> String {
 fn fill_and_stroke_paints_the_outline_with_the_tinted_ramp() {
     let item = |name: &str, y: f64, stroke: &str| {
         format!(
-            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := {y:?}, w := 400.0, h := 150.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), {stroke}, 24.0) {{ gradient := {} }}]\n",
+            "  LET {name} AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := {y:?}, w := 400.0, h := 150.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), {stroke}, 24.0) {{ gradient := {} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n",
             stroke_ramp("FillAndStroke")
         )
     };
     let (frame, _) = render(
         "canvas_gradient_stroke_apply",
         &scene(&format!(
-            "{}{}{}  LET line AS canvas::DrawItem = canvas::Line[x1 := 100.0, y1 := 620.0, x2 := 500.0, y2 := 620.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ gradient := {} }}]\n  \
+            "{}{}{}  LET line AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 620.0, x2 := 500.0, y2 := 620.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ gradient := {} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([white, clear, red, line])\n",
             item("white", 30.0, "color::rgb(255, 255, 255)"),
             item("clear", 230.0, "color::rgba(255, 255, 255, 0)"),
@@ -5252,7 +5215,7 @@ fn degenerate_gradient_fields_draw_as_their_no_op_forms() {
     let pair = |name: &str, a: &str, b: &str| {
         let body = |g: &str| {
             scene(&format!(
-                "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), color::rgba(255, 255, 0, 0), 12.0) {{ gradient := {g} }}]\n  \
+                "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 100.0, y := 50.0, w := 450.0, h := 300.0, paint := WITH canvas::fillStroke(color::rgb(0, 255, 0), color::rgba(255, 255, 0, 0), 12.0) {{ gradient := {g} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
                  canvas::present([box])\n"
             ))
         };

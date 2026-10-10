@@ -56,8 +56,7 @@ fn program(body: &str) -> String {
          toString(s.frameSeconds) & \" presents=\" & toString(s.presents) & \" frames=\" & \
          toString(s.frames) & \" renderer=\" & r)\nEND FUNC\n\n\
          FUNC box(x AS Float) AS canvas::DrawItem\n  \
-         RETURN canvas::Rectangle[x := x, y := 10.0, w := 20.0, h := 20.0, \
-         paint := canvas::fill(color::rgb(255, 0, 0))]\nEND FUNC\n\n\
+         RETURN canvas::Rectangle[id := \"\", x := x, y := 10.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\nEND FUNC\n\n\
          FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n{body}END FUNC\n"
     )
 }
@@ -120,6 +119,36 @@ fn identical_presents_count_as_presents_not_frames() {
     );
     assert_eq!(number(&out, "after", "presents"), 10.0, "{out}");
     assert_eq!(number(&out, "after", "frames"), 5.0, "{out}");
+}
+
+/// plan-172-C: the skip compares an item's BYTES, and every drawn item now starts with
+/// an `id` string. A string sub-block is `length + 9` bytes, so a record with a string
+/// ahead of another inlined field has up to seven bytes between the string's end and
+/// the next 8-aligned offset. Left as whatever the arena handed out, they made two
+/// items built from equal values differ, and every identical re-present drew a frame
+/// (measured: `frames=10` for an `id` of length 0 and of length 3, `frames=5` only for
+/// length 7, where the string fills its last word). The record builder zeroes them.
+///
+/// Lengths 0, 3 and 7 leave seven, four and zero such bytes; 8 starts a new word.
+#[test]
+fn identical_presents_are_skipped_whatever_the_id_length() {
+    for id in ["", "abc", "abcdefg", "abcdefgh"] {
+        let source = format!(
+            "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\n\
+             FUNC named(x AS Float) AS canvas::DrawItem\n  \
+             RETURN canvas::Rectangle[id := \"{id}\", x := x, y := 10.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\nEND FUNC\n\n\
+             FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  \
+             MUT i AS Integer = 0\n  \
+             WHILE i < 5\n    canvas::present([named(toFloat(i) * 30.0)])\n    i = i + 1\n  END WHILE\n  \
+             i = 0\n  \
+             WHILE i < 5\n    canvas::present([named(120.0)])\n    i = i + 1\n  END WHILE\n  \
+             LET s AS canvas::FrameStats = canvas::getFrameStats()\n  \
+             io::print(\"after presents=\" & toString(s.presents) & \" frames=\" & toString(s.frames))\nEND FUNC\n"
+        );
+        let out = run("canvas_stats_id_length", &source, &[("MFB_CANVAS_SYNC", "1")]);
+        assert_eq!(number(&out, "after", "presents"), 10.0, "id {id:?}:\n{out}");
+        assert_eq!(number(&out, "after", "frames"), 5.0, "id {id:?}:\n{out}");
+    }
 }
 
 #[test]

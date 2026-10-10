@@ -40,6 +40,7 @@ fn build(name: &str, source: &str, app: bool) -> (PathBuf, bool, String) {
 /// colour constructors, exercised from source. Exit codes name what failed so a
 /// regression says which property broke rather than just "non-zero".
 const SURFACE_SOURCE: &str = "IMPORT app\n\
+     IMPORT math\n\
      IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      IMPORT io\n\
@@ -67,28 +68,28 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20 RES fnt AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n\
     \x20   RETURN 31\n\
     \x20 END TRAP\n\
-    \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(yellow)]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Arc[x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 4.0) { cap := canvas::CapStyle.Butt }]\n\
-    \x20 LET c AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 10.0, h := 10.0, paint := canvas::fill(green)]\n\
-    \x20 LET d AS canvas::DrawItem = canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, paint := WITH canvas::stroke(green, 1.0) { cap := canvas::CapStyle.Round }]\n\
-    \x20 LET e AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(yellow)]\n\
-    \x20 LET f AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 4.0, h := 4.0, cornerRadius := 1.0, paint := canvas::fill(yellow)]\n\
-    \x20 LET g AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green)]\n\
-    \x20 LET h AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fillStroke(yellow, green, 1.0)]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Circle[id := \"\", x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Arc[id := \"\", x := 1.0, y := 2.0, radius := 3.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 4.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET c AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 10.0, h := 10.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET d AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, paint := WITH canvas::stroke(green, 1.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET e AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET f AS canvas::DrawItem = canvas::RoundedRect[id := \"\", x := 0.0, y := 0.0, w := 4.0, h := 4.0, cornerRadius := 1.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET g AS canvas::DrawItem = canvas::Text[id := \"\", x := 0.0, y := 0.0, text := \"hi\", font := fnt, size := 12.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET h AS canvas::DrawItem = canvas::Picture[id := \"\", x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fillStroke(yellow, green, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := yellow], canvas::GradientStop[offset := 1.0, color := green]]\n\
     \x20 LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 8.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n\
     \x20 LET gradPaint AS canvas::Paint = WITH canvas::fill(yellow) { gradient := grad }\n\
     \x20 IF len(gradPaint.gradient.stops) <> 2 THEN\n\
     \x20   RETURN 7\n\
     \x20 END IF\n\
-    \x20 LET i AS canvas::DrawItem = canvas::Ellipse[x := 5.0, y := 5.0, radiusX := 4.0, radiusY := 2.0, angle := 0.3, paint := canvas::fill(yellow)]\n\
+    \x20 LET i AS canvas::DrawItem = canvas::Ellipse[id := \"\", x := 5.0, y := 5.0, radiusX := 4.0, radiusY := 2.0, paint := canvas::fill(yellow), transform := canvas::Transform[a := math::cos(0.3), b := math::sin(0.3), c := 0.0 - math::sin(0.3), d := math::cos(0.3), tx := (5.0) - (math::cos(0.3) * (5.0) - math::sin(0.3) * (5.0)), ty := (5.0) - (math::sin(0.3) * (5.0) + math::cos(0.3) * (5.0))]]\n\
     \x20 canvas::setGroup(\"panel\", [a, c])\n\
     \x20 LET grp AS canvas::Group = canvas::Group[dx := 3.0, dy := 4.0, name := \"panel\"]\n\
     \x20 IF grp.name <> \"panel\" OR grp.dx <> 3.0 THEN\n\
     \x20   RETURN 8\n\
     \x20 END IF\n\
     \x20 LET j AS canvas::DrawItem = grp\n\
-    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[points := pts, colors := [yellow, green], paint := WITH canvas::stroke(green, 2.0) { cap := canvas::CapStyle.Round }]\n\
+    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := pts, colors := [yellow, green], paint := WITH canvas::stroke(green, 2.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 canvas::removeGroup(\"panel\")\n\
     \x20 canvas::removeGroup(\"never-installed\")\n\
     \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i, j, k]\n\
@@ -257,8 +258,8 @@ const PRESENT_SKIP_SOURCE: &str = "IMPORT app\n\
      IMPORT color\n\
      FUNC one(r AS Float, f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS color::Color = color::rgb(10, 20, 30)\n\
-    \x20 LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"abc\", font := f, size := 8.0, paint := canvas::fill(c)]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Circle[id := \"\", x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Text[id := \"\", x := 0.0, y := 0.0, text := \"abc\", font := f, size := 8.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
      FUNC main AS Integer\n\
@@ -305,15 +306,15 @@ const PRESENT_LAYERS_SOURCE: &str = "IMPORT app\n\
      FUNC layers(r AS Float) AS List OF canvas::DrawLayer\n\
     \x20 LET sky AS color::Color = color::rgb(20, 30, 60)\n\
     \x20 LET dot AS color::Color = color::rgb(255, 200, 0)\n\
-    \x20 LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]\n\
-    \x20 LET marker AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 150.0, radius := r, paint := canvas::fill(dot)]\n\
+    \x20 LET backdrop AS canvas::DrawItem = canvas::Rectangle[id := \"\", x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET marker AS canvas::DrawItem = canvas::Circle[id := \"\", x := 100.0, y := 150.0, radius := r, paint := canvas::fill(dot), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]\n\
     \x20 LET front AS canvas::DrawLayer = canvas::DrawLayer[items := [marker]]\n\
     \x20 RETURN [back, front]\n\
      END FUNC\n\
      FUNC flat() AS List OF canvas::DrawItem\n\
     \x20 LET dot AS color::Color = color::rgb(255, 200, 0)\n\
-    \x20 LET marker AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(dot)]\n\
+    \x20 LET marker AS canvas::DrawItem = canvas::Circle[id := \"\", x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(dot), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 RETURN [marker]\n\
      END FUNC\n\
      FUNC main AS Integer\n\

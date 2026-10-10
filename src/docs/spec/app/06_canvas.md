@@ -111,12 +111,13 @@ direction that makes a `0`..`PI` arc sweep *below* its centre.
 The convention is stated because an arc is the one primitive where getting it
 wrong is silent: a smile renders as a frown rather than failing.
 
-`Ellipse.angle` follows the same rule: it rotates the ellipse about its own centre,
-clockwise from +X, so a positive angle turns the long axis towards the bottom-right.
-`0.0` leaves `radiusX` along the surface's X axis. An ellipse is therefore *placed* by
-`x`/`y` and *oriented* by `angle`, independently — and `radiusX = radiusY` with
-`angle := 0.0` renders identically to the `Circle` of that radius, so squashing a
-circle does not mean changing item type.
+An `Ellipse` has no angle of its own. `radiusX` lies along the X axis and `radiusY`
+along the Y axis, and it is turned, like every other item, by its `transform` (below);
+header slots 39 and 40, which carried the cosine and sine of the old `angle` field,
+are written as the identity rotation, 1 and 0.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]] `radiusX = radiusY`
+renders identically to the `Circle` of that radius, so squashing a circle does not mean
+changing item type.
 
 ## Rendering conventions
 
@@ -558,7 +559,7 @@ still comes from the round walk, so it stays continuous round a corner.
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
   is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
-**`Paint.transform` maps the item's coordinates onto the surface.** The item is
+**An item's `transform` maps its coordinates onto the surface.** Every drawn item — each `DrawItem` variant but `Group` — carries one as its last field, and an `id` as its first; `Paint` has none. The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
 b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that
 never sets one is unaffected.
@@ -592,7 +593,7 @@ coverage at its inverse-mapped point. The result is the same rule stated for sha
 and a rotated label is a rotated label on every backend.
 
 **A `Picture` is a rectangle whose fill colour is its image.** Its coverage, its
-antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, `Paint.transform` and a
+antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, its `transform` and a
 group's translation are exactly those of a `Rectangle` with the same `x, y, w, h` —
 the geometry is built as one and re-kinded. Only the fill colour differs: at each pixel
 the image is sampled at the shape-space point (the inverse-mapped point under a
@@ -640,7 +641,7 @@ list, the zero value, is no clip. A clip that is not empty but encloses nothing 
 ring under two points, or a rectangle of no area — **hides the item**: a clip the
 program wrote and that covers nothing is shown as such, never quietly dropped.
 
-**The clip is in the item's own coordinates.** `Paint.transform` maps it with the item,
+**The clip is in the item's own coordinates.** The item's `transform` maps it with the item,
 and a group's translation moves it with the item, so a clipped item and its clip move,
 turn and scale together. (Until plan-163-C the clip was a surface rectangle that a
 transform and a group left where it was; a clip that should stay on the surface is now
@@ -715,12 +716,12 @@ from its image.
 **The ramp is in the item's own coordinates** (plan-163-D, reversing plan-116-F's
 surface-anchored ramp by the user's 2026-09-28 decision). `t` is measured at the
 shape-space point `q`, the point the shape's distance is evaluated at: the pixel centre
-less the group's accumulated offset, mapped through the inverse of `Paint.transform`.
+less the group's accumulated offset, mapped through the inverse of the item's `transform`.
 The gradient's own `transform` `G` maps gradient space into item space first, so the
-order is SVG's — `Gradient.transform`, then `Paint.transform`, then the group's
+order is SVG's — `Gradient.transform`, then the item's `transform`, then the group's
 translation — and a rotated or moved item carries its ramp with it. `G⁻¹` is the
 inverse; the all-zero `G` and one with `|det| < 1e-12` are the identity, the
-`Paint.transform` rule. With `s = startPoint`, `e = endPoint` and `r = |e − s|`:
+the item's `transform` rule. With `s = startPoint`, `e = endPoint` and `r = |e − s|`:
 
 | `GradientKind` | `t` |
 |---|---|
@@ -894,7 +895,7 @@ installed or has since been removed. A scene may therefore reference a group bef
 built, and removing a group does not invalidate any scene that names it.
 
 **A group is translated, not transformed.** The node carries two offsets and no matrix.
-`Paint.transform` on the group's own items covers reshaping, and the two compose in the
+The item's `transform` on the group's own items covers reshaping, and the two compose in the
 order you would expect: the item is transformed in its own coordinates, then the group's
 translation places it. Two things travel with that translation because of what they are:
 
@@ -947,7 +948,7 @@ program does not close it:
 ```
 FUNC installPanel() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(color::rgb(230, 230, 230))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [label])
 END FUNC
 ```

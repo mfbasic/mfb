@@ -7,7 +7,7 @@ IMPORT math
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]]
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   MUT ring AS Integer = 0
   WHILE ring < 200
     MUT points AS List OF vector::Float2 = []
@@ -17,7 +17,7 @@ FUNC main() AS Nothing
       points = collections::append(points, vector::Float2[x := 450.0 + toFloat(ring) + 100.0 * math::cos(a), y := 320.0 + 100.0 * math::sin(a)])
       i = i + 1
     END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 60))]
+    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE

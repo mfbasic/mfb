@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT math
 IMPORT color
 IMPORT collections
 IMPORT io
@@ -14,10 +15,10 @@ FUNC scene(flip AS Boolean) AS List OF canvas::DrawItem
     LET py AS Float = toFloat((k * 53) MOD 620)
     LET qx AS Float = toFloat((k * 41) MOD 880) + 0.5
     LET qy AS Float = toFloat((k * 59) MOD 620) + 0.25
-    LET box AS canvas::DrawItem = canvas::Rectangle[x := px, y := py, w := 6.0, h := 4.0, paint := canvas::fill(color::rgb(0, 200, 255))]
-    LET dot AS canvas::DrawItem = canvas::Circle[x := qx, y := qy, radius := 3.0, paint := canvas::fill(color::rgb(255, 80, 0))]
-    LET oval AS canvas::DrawItem = canvas::Ellipse[x := qx, y := qy, radiusX := 5.0, radiusY := 2.0, angle := 0.5, paint := canvas::fill(color::rgb(9, 9, 200))]
-    LET moved AS canvas::DrawItem = canvas::Rectangle[x := px, y := py, w := 5.0, h := 5.0, paint := WITH canvas::fill(color::rgb(1, 200, 3)) { transform := t }]
+    LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := px, y := py, w := 6.0, h := 4.0, paint := canvas::fill(color::rgb(0, 200, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := qx, y := qy, radius := 3.0, paint := canvas::fill(color::rgb(255, 80, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET oval AS canvas::DrawItem = canvas::Ellipse[id := "", x := qx, y := qy, radiusX := 5.0, radiusY := 2.0, paint := canvas::fill(color::rgb(9, 9, 200)), transform := canvas::Transform[a := math::cos(0.5), b := math::sin(0.5), c := 0.0 - math::sin(0.5), d := math::cos(0.5), tx := (qx) - (math::cos(0.5) * (qx) - math::sin(0.5) * (qy)), ty := (qy) - (math::sin(0.5) * (qx) + math::cos(0.5) * (qy))]]
+    LET moved AS canvas::DrawItem = canvas::Rectangle[id := "", x := px, y := py, w := 5.0, h := 5.0, paint := canvas::fill(color::rgb(1, 200, 3)), transform := t]
     IF k MOD 10 = 0 THEN
       IF flip THEN
         items = collections::append(items, moved)

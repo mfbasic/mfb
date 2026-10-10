@@ -21,7 +21,7 @@ FUNC main() AS Nothing
   RES bg AS canvas::Image = canvas::createImage(1920, 1080, pattern(1920, 1080, 40))
   RES tile AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 1))
   LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
-  LET back AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 900.0, h := 640.0, image := bg, paint := white]
-  LET front AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 100.0, w := 64.0, h := 64.0, image := tile, paint := white]
+  LET back AS canvas::DrawItem = canvas::Picture[id := "", x := 0.0, y := 0.0, w := 900.0, h := 640.0, image := bg, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET front AS canvas::DrawItem = canvas::Picture[id := "", x := 100.0, y := 100.0, w := 64.0, h := 64.0, image := tile, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([back, front])
 END FUNC

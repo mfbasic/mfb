@@ -39,7 +39,7 @@ itself is reported, since a cycle is unbounded depth. Both need the same fix, so
 the same error.
 
 A group is **translated by `dx`/`dy`, not transformed.** There is no rotation or scale on
-the node; `canvas::Paint.transform` on the group's own items covers that, and it composes
+the node; the `transform` on each of the group's own items covers that, and it composes
 with the translation the way you would expect — the item is reshaped in place, then the
 group moves it.
 
@@ -70,8 +70,8 @@ IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET body AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 160.0, h := 90.0, cornerRadius := 12.0, paint := canvas::fillStroke(color::rgb(40, 60, 90), color::rgb(120, 170, 230), 3.0)]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 24.0, y := 24.0, radius := 8.0, paint := canvas::fill(color::rgb(255, 200, 60))]
+  LET body AS canvas::DrawItem = canvas::RoundedRect[id := "", x := 0.0, y := 0.0, w := 160.0, h := 90.0, cornerRadius := 12.0, paint := canvas::fillStroke(color::rgb(40, 60, 90), color::rgb(120, 170, 230), 3.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 24.0, y := 24.0, radius := 8.0, paint := canvas::fill(color::rgb(255, 200, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [body, dot])
 
   LET left AS canvas::DrawItem = canvas::Group[dx := 40.0, dy := 40.0, name := "panel"]
@@ -93,12 +93,12 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "light"]
 
-  LET off AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 30.0, paint := canvas::fill(color::rgb(60, 60, 60))]
+  LET off AS canvas::DrawItem = canvas::Circle[id := "", x := 0.0, y := 0.0, radius := 30.0, paint := canvas::fill(color::rgb(60, 60, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("light", [off])
   canvas::present([node])
   os::sleep(500)
 
-  LET on AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 220, 80))]
+  LET on AS canvas::DrawItem = canvas::Circle[id := "", x := 0.0, y := 0.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 220, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("light", [on])
   canvas::present([node])
 END FUNC

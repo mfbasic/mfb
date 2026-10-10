@@ -101,8 +101,8 @@ IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, dot])
@@ -120,9 +120,9 @@ IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40))]
-  LET dot AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
-  LET moved AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 420.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := 100.0, y := 100.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := 600.0, y := 400.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET moved AS canvas::DrawItem = canvas::Circle[id := "", x := 700.0, y := 420.0, radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box, dot])
   os::sleep(150)
   canvas::present([box, moved])
@@ -241,7 +241,7 @@ IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(200, 40, 40))]
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box])
   os::sleep(150)
   ' Before anything resizes: the surface has been its size since it existed, so there
@@ -318,9 +318,9 @@ IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET far AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 20.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(200, 40, 40))]
-  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120))]
-  LET b AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 120, 220))]
+  LET far AS canvas::DrawItem = canvas::Rectangle[id := "", x := 20.0, y := 20.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET a AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 120, 220)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [a])
   LET node AS canvas::DrawItem = canvas::Group[dx := 500.0, dy := 300.0, name := "panel"]
   canvas::present([far, node])
@@ -393,7 +393,7 @@ IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120))]
+  LET a AS canvas::DrawItem = canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 100.0, h := 100.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [a])
   LET here AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "panel"]
   LET there AS canvas::DrawItem = canvas::Group[dx := 600.0, dy := 400.0, name := "panel"]

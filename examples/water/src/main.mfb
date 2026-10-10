@@ -191,11 +191,11 @@ FUNC hintItem(face AS canvas::Font, height AS Float, p AS Pipe) AS canvas::DrawI
   MUT state AS String = "on"
   IF NOT p.on THEN state = "off"
   LET text AS String = "pipe " & state & "  \u{00B7}  " & toString(dropsOut()) & " of " & toString(POOL_SIZE) & " drops  \u{00B7}  drag the pipe, click it on/off  \u{00B7}  a d turn  \u{00B7}  q e spin  \u{00B7}  w s size  \u{00B7}  delete removes  \u{00B7}  esc quits"
-  RETURN canvas::Text[x := 12.0, y := height - 12.0, text := text, font := face, size := HINT_SIZE, paint := canvas::fill(HINT_COLOR)]
+  RETURN canvas::Text[id := "", x := 12.0, y := height - 12.0, text := text, font := face, size := HINT_SIZE, paint := canvas::fill(HINT_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC frameScene(width AS Float, height AS Float, p AS Pipe, selected AS Integer) AS List OF canvas::DrawItem
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   FOR EACH item IN shapeItems(selected)
     items = collections::append(items, item)
   NEXT

@@ -218,7 +218,7 @@ FUNC sprite(tiles AS Map OF String TO RES canvas::Image, v AS View, c AS ViewCel
   LET dy AS Float = insetY(inMap)
   LET x AS Float = spriteX(v, c) + (dx - dy) * tileWidth() / 2.0 * v.scale
   LET y AS Float = spriteY(v, c) + (dx + dy) * tileWidth() / 4.0 * v.scale
-  RETURN canvas::Picture[x := x, y := y, w := tileWidth() * v.scale, h := tileHeight() * v.scale, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  RETURN canvas::Picture[id := "", x := x, y := y, w := tileWidth() * v.scale, h := tileHeight() * v.scale, image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' The player: a red pawn with a shadow, standing in the middle of its cell.
@@ -226,7 +226,7 @@ FUNC playerFigure(v AS View, c AS ViewCell) AS List OF canvas::DrawItem
   LET s AS Float = v.scale
   LET cx AS Float = spriteX(v, c) + tileWidth() / 2.0 * s
   LET cy AS Float = spriteY(v, c) + floorCentreY() * s
-  RETURN [canvas::Ellipse[x := cx, y := cy, radiusX := 44.0 * s, radiusY := 22.0 * s, angle := 0.0, paint := canvas::fill(color::rgba(0, 0, 0, 110))], canvas::Ellipse[x := cx, y := cy - 40.0 * s, radiusX := 30.0 * s, radiusY := 44.0 * s, angle := 0.0, paint := canvas::fill(color::rgb(190, 40, 36))], canvas::Circle[x := cx, y := cy - 100.0 * s, radius := 24.0 * s, paint := canvas::fill(color::rgb(236, 196, 160))]]
+  RETURN [canvas::Ellipse[id := "", x := cx, y := cy, radiusX := 44.0 * s, radiusY := 22.0 * s, paint := canvas::fill(color::rgba(0, 0, 0, 110)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Ellipse[id := "", x := cx, y := cy - 40.0 * s, radiusX := 30.0 * s, radiusY := 44.0 * s, paint := canvas::fill(color::rgb(190, 40, 36)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Circle[id := "", x := cx, y := cy - 100.0 * s, radius := 24.0 * s, paint := canvas::fill(color::rgb(236, 196, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
 END FUNC
 
 ' Whether a wall piece would hide the player, who stands in view cell p: a

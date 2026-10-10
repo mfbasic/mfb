@@ -27,10 +27,10 @@ FUNC main() AS Nothing
     LET x AS Float = toFloat((k * 11) MOD 870)
     LET y AS Float = toFloat((k * 7) MOD 610)
     IF k MOD 2 = 0 THEN
-      LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := a, paint := white]
+      LET p AS canvas::DrawItem = canvas::Picture[id := "", x := x, y := y, w := 32.0, h := 32.0, image := a, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::append(scene, p)
     ELSE
-      LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := b, paint := white]
+      LET p AS canvas::DrawItem = canvas::Picture[id := "", x := x, y := y, w := 32.0, h := 32.0, image := b, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::append(scene, p)
     END IF
     k = k + 1

@@ -19,7 +19,7 @@ FUNC main AS Integer
   LET surface AS String = os::getEnvOr("KEYPROBE_SURFACE", "transcript")
   IF surface = "canvas" THEN
     app::setMode(app::Mode.Canvas)
-    canvas::present([canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80))]])
+    canvas::present([canvas::Rectangle[id := "", x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   ELSEIF surface = "tui" THEN
     ' A program that calls app::setMode starts windowless; the transcript and the
     ' TUI live in the Console window.

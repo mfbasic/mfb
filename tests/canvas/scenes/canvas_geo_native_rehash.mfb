@@ -17,13 +17,13 @@ FUNC scene(frame AS Integer, grown AS Boolean) AS List OF canvas::DrawItem
       pts = collections::append(pts, vector::Float2[x := x + 5.0, y := 9.0])
       pts = collections::append(pts, vector::Float2[x := x, y := 12.0])
     END IF
-    LET poly AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(i, 100, 200))]
-    LET box AS canvas::DrawItem = canvas::Rectangle[x := x, y := 40.0, w := 5.0, h := 5.0, paint := canvas::fillStroke(color::rgb(1, 2, 3), color::rgb(4, 5, 6), 1.5)]
+    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(i, 100, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET box AS canvas::DrawItem = canvas::Rectangle[id := "", x := x, y := 40.0, w := 5.0, h := 5.0, paint := canvas::fillStroke(color::rgb(1, 2, 3), color::rgb(4, 5, 6), 1.5), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, poly)
     items = collections::append(items, box)
     i = i + 1
   END WHILE
-  LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0 + 10.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", x := toFloat(frame) * 4.0 + 10.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, dot)
   RETURN items
 END FUNC
