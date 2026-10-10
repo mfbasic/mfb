@@ -6,6 +6,7 @@ Severity: HIGH
 Class: Memory-safety
 
 Status: Open
+Coordinator note (2026-10-10): the `rk` use-after-free reproduced by the coordinator on main's code (`/tmp/main-dbg-target/release/mfb`) — exit 139 at `-O 0` and `-O 2`, no output. The 16 B leak rows were measured by bs18-agent-j only.
 Regression Test: (proposed) tests/rt-behavior/resources/resource-union-box-owner-rt — the `rk` program below plus a `--debug` balance test over the `rw` loop
 
 A resource-union value (`UNION Handle  fs::File  tcp::Socket`) is a 16-byte
