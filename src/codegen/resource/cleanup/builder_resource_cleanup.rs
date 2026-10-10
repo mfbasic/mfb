@@ -145,6 +145,20 @@ impl CodeBuilder<'_> {
             .collect()
     }
 
+    /// bug-1001: the union variant tags whose record carries the two per-`File` I/O
+    /// buffer words ([`Self::resource_uses_io_buffers`]). Empty for a non-union.
+    pub(crate) fn resource_union_io_buffer_tags(&self, type_: &ParameterType) -> Vec<usize> {
+        let base = type_.without_state();
+        if !self.type_model.union_names.contains(&base) {
+            return Vec::new();
+        }
+        self.type_model
+            .variants_for_union(&base)
+            .filter(|variant| Self::resource_uses_io_buffers(variant))
+            .filter_map(|variant| self.type_model.union_variant_tags.get(variant).copied())
+            .collect()
+    }
+
     /// bug-623 B: whether a binding of `type_` can ever have a record freed at drop —
     /// the domain `record_ownership` resolves.
     pub(crate) fn record_freeable_type(&self, type_: &ParameterType) -> bool {
@@ -572,6 +586,7 @@ impl CodeBuilder<'_> {
                 &union_ptr,
                 &cleanup.variants,
                 cleanup.state_type.as_ref(),
+                &cleanup.io_buffer_tags,
                 &cleanup.record_free_tags,
                 &dropped,
             )?;
@@ -599,6 +614,14 @@ impl CodeBuilder<'_> {
     /// (plan-74); on a matched-and-closed variant control branches to
     /// `done_label`.
     ///
+    /// bug-1001: a variant in `io_buffer_tags` (a `File`) also has its output and
+    /// read buffers freed after the close, exactly as the concrete drop's
+    /// [`Self::emit_resource_block_reclaim`] frees them. The buffers are reachable
+    /// only through the record's two pointer words, which are nulled as they are
+    /// freed, so a record another binding still frees (`record_free_tags` empty)
+    /// loses its buffers once and that binding's own reclaim finds null words. An
+    /// owned-list drain passes the tags only when the list owns its elements.
+    ///
     /// Shared by the single-binding drop (`emit_resource_union_cleanup_call`) and
     /// the owned-list drain (`emit_owned_list_drain`, bug-429) so a
     /// `List OF RES <Union> STATE <S>` closes each floated element exactly as a
@@ -608,6 +631,7 @@ impl CodeBuilder<'_> {
         union_ptr: &VirtualRegister,
         variants: &[(usize, String)],
         state_type: Option<&ParameterType>,
+        io_buffer_tags: &[usize],
         record_free_tags: &[usize],
         done_label: &str,
     ) -> Result<(), String> {
@@ -658,6 +682,12 @@ impl CodeBuilder<'_> {
             // pointer `emit_free_resource_state_block` expects; it null-checks the
             // STATE pointer and zeroes it, so a re-drop is a no-op (no double-free).
             // Ordered after the close, mirroring the concrete resource path.
+            if io_buffer_tags.contains(tag) {
+                // bug-1001: the two `File` buffers, after the close's mandatory
+                // flush has drained the output one. The helper skips a moved
+                // record, whose buffers are the receiver's.
+                self.emit_resource_block_reclaim(payload_slot, None, true, false)?;
+            }
             if let Some(state_type) = state_type {
                 self.emit_free_resource_state_block(payload_slot, state_type)?;
             }
@@ -1132,6 +1162,7 @@ impl CodeBuilder<'_> {
             return Ok(OwnedListDrop::Union {
                 variants,
                 state_type: leaf.state(),
+                io_buffer_tags: self.resource_union_io_buffer_tags(leaf),
                 record_free_tags: self.resource_union_record_free_tags(leaf),
             });
         }

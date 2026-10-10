@@ -535,10 +535,12 @@ impl CodeBuilder<'_> {
             OwnedListDrop::Union {
                 variants,
                 state_type,
+                io_buffer_tags,
                 record_free_tags,
             } => {
                 let variants = variants.clone();
                 let state_type = state_type.clone();
+                let io_buffer_tags = io_buffer_tags.clone();
                 let record_free_tags = record_free_tags.clone();
                 let union_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&union_ptr, &scratch9, 0));
@@ -575,6 +577,12 @@ impl CodeBuilder<'_> {
                     &union_ptr,
                     &variants,
                     state_type.as_ref(),
+                    // bug-1001: the buffers go with the same proof as the record.
+                    if cleanup.owns_elements {
+                        &io_buffer_tags
+                    } else {
+                        &[]
+                    },
                     if cleanup.owns_elements {
                         &record_free_tags
                     } else {

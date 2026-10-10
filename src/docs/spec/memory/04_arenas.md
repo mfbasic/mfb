@@ -465,6 +465,12 @@ those blocks rather than risking a double free.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
 
+A resource union's drop reclaims what the concrete drop reclaims. After the
+tag-dispatched close it frees a `File` variant's output and read buffers, then the
+`STATE` block, then the record when the binding owns it, then its own box. An
+owned-list drain of union elements frees the buffers under the same proof as the
+record. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_union_tag_dispatch_drop]]
+
 The same rules cover a list of such collections (`List OF List OF RES T`), which
 holds each inner list by pointer, in its own block. Two further verdicts apply to
 every `RES`-block collection. A copying reassignment frees the block it replaces
