@@ -168,8 +168,15 @@ its aggregate block, as every resource temporary has since bug-842.
 
 ## Golden impact
 
-`.ncode`/`.ncodesum` move for every fixture with a call to a function with a body,
-nested in an expression, whose result reaches a resource: each gains a
-`resource_temp` slot and the statement-end close walk, and the tier-2 shapes gain
-the adoption and the drain. The fixtures the artifact gate reports are listed in
-the commit message.
+Measured with `scripts/artifact-gate.sh <mfb> all` on this branch and on its base
+commit `821806278` (built in a detached worktree): the base already reports 33
+diffs it inherited (goldens not regenerated in this batch), and this branch
+reports 39. The per-function comparison below is `mfb build -ncode` from the two
+compilers.
+
+**No golden moves for this bug.** No fixture with a native golden nests a call to
+a function with a body whose result reaches a resource. The one candidate in the
+builtin sources, the canvas renderer's `__canvas_hashScene(__canvas_frameItems(),
+[])`, returns a module-level binding and is a view (`function_returns_only_views`):
+`_mfb_ifn_canvas_5FsceneOffsets` differs from the base commit's only by bug-1000's
+22 instructions.
