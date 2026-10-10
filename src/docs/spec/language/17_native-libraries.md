@@ -225,18 +225,18 @@ The buffer's *capacity* deliberately stays at the full `SIZE` after truncation. 
 
 A `SIZE` that is negative, or larger than the project's buffer ceiling, raises `ErrInvalidArgument` **before anything is allocated**: the size comes from a wrapper parameter, so without a ceiling it is an unbounded allocation request driven by the caller.
 
-That ceiling is **64 MiB** by default and is set per project by the `maxBuffer` field in `project.json`, in MiB:
+That ceiling is **64 MiB** by default and is set per project by `options.maxBuffer` in `project.json`, in MiB:
 
 ```json
 {
   "name": "recorder",
-  "maxBuffer": 256
+  "options": { "maxBuffer": 256 }
 }
 ```
 
 Valid values are whole numbers from 1 to 4096 (MiB); anything else is `PROJECT_JSON_FIELD_TYPE`. The default of 64 MiB is ~5.8 minutes of stereo 48 kHz 16-bit audio.
 
-`maxBuffer` is the **consuming** project's setting, not the binding's. `LINK` thunks are emitted when an executable links, so the application that imports a binding decides how much memory one native read may claim — a binding cannot raise an application's ceiling on its behalf, and a package does not carry one.
+`options.maxBuffer` is the **consuming** project's setting, not the binding's. `LINK` thunks are emitted when an executable links, so the application that imports a binding decides how much memory one native read may claim — a binding cannot raise an application's ceiling on its behalf, and a package does not carry one.
 
 `BUFFER` capacities and `RETURN ... LENGTH` expressions are serialized with the native function and restored from compiled `.mfp` packages. Source and imported bindings use the same buffer marshaling. [[src/ir/binary.rs:encode_link_function]] [[src/ir/binary.rs:decode_link_function]]
 

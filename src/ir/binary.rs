@@ -396,7 +396,7 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     // per-field tags, so a field cannot be added without a version break.
     //
     // `max_buffer_bytes` is deliberately NOT here: the allocation ceiling is the
-    // CONSUMING project's project.json `maxBuffer`, since thunks are emitted when
+    // CONSUMING project's project.json `options.maxBuffer`, since thunks are emitted when
     // an executable links. A package carrying one would let a binding raise an
     // application's memory ceiling on its behalf.
     put_vec(out, &f.buffers, |o, b| {

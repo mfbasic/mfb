@@ -108,12 +108,14 @@ pub(crate) fn project_manifest(location: &Path) -> String {
             "  \"entry\": \"main\",\n",
             "  \"targets\": [\"native\"],\n",
             "  \"options\": {{\n",
-            "    \"stdinLogCap\": {}\n",
+            "    \"stdinLogCap\": {},\n",
+            "    \"maxBuffer\": {}\n",
             "  }}\n",
             "}}"
         ),
         name,
-        crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT
+        crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
+        crate::manifest::DEFAULT_MAX_BUFFER_MIB
     )
 }
 
@@ -141,12 +143,14 @@ fn package_project_manifest(location: &Path) -> String {
             "    }}\n",
             "  ],\n",
             "  \"options\": {{\n",
-            "    \"stdinLogCap\": {}\n",
+            "    \"stdinLogCap\": {},\n",
+            "    \"maxBuffer\": {}\n",
             "  }}\n",
             "}}"
         ),
         name,
-        crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT
+        crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
+        crate::manifest::DEFAULT_MAX_BUFFER_MIB
     )
 }
 

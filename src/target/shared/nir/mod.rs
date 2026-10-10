@@ -55,7 +55,7 @@ pub(crate) struct NirModule {
     /// from that binding's `.mfp` section 10 at codegen instead. Carried verbatim
     /// from the IR.
     pub(crate) native_libraries: crate::binary_repr::NativeLibraryTable,
-    /// The `OUT CBuffer` allocation ceiling in bytes (project.json `maxBuffer`,
+    /// The `OUT CBuffer` allocation ceiling in bytes (project.json `options.maxBuffer`,
     /// in MiB). See `IrProject::max_buffer_bytes`.
     pub(crate) max_buffer_bytes: u64,
 }

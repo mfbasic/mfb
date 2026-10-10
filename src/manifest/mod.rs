@@ -39,7 +39,7 @@ pub(crate) const DEFAULT_MAX_BUFFER_MIB: u64 = 64;
 /// size gate.
 pub(crate) const MAX_MAX_BUFFER_MIB: u64 = 4096;
 
-/// Read `maxBuffer` (in MiB) from a validated manifest, defaulting to
+/// Read `options.maxBuffer` (in MiB) from a validated manifest, defaulting to
 /// [`DEFAULT_MAX_BUFFER_MIB`].
 ///
 /// Returns bytes, which is what the codegen size gate compares against. The
@@ -52,7 +52,9 @@ pub(crate) const MAX_MAX_BUFFER_MIB: u64 = 4096;
 /// behalf.
 pub(crate) fn max_buffer_bytes(manifest: &HashMap<String, JsonValue>) -> u64 {
     manifest
-        .get("maxBuffer")
+        .get("options")
+        .and_then(|options| options.get::<HashMap<String, JsonValue>>())
+        .and_then(|options| options.get("maxBuffer"))
         .and_then(|value| value.get::<f64>())
         .map(|mib| *mib as u64)
         .unwrap_or(DEFAULT_MAX_BUFFER_MIB)
@@ -68,7 +70,11 @@ fn validate_max_buffer(
     project_path: &Path,
     contents: &str,
 ) -> bool {
-    let Some(value) = manifest.get("maxBuffer") else {
+    let options_value = manifest
+        .get("options")
+        .and_then(|options| options.get::<HashMap<String, JsonValue>>())
+        .and_then(|options| options.get("maxBuffer"));
+    let Some(value) = options_value else {
         return true;
     };
     let (line, column) = field_position(contents, "maxBuffer");
@@ -1264,7 +1270,7 @@ pub(crate) fn project_version(manifest: &HashMap<String, JsonValue>) -> Option<&
 }
 
 /// The stdin broadcast-log backpressure cap in bytes from the `project.json`
-/// `"options"` section's `stdinLogCap` (plan-15 D3, moved from `"config"` by
+/// `"options"` section's `stdinLogCap` (moved from `"config"` by
 /// plan-167-A), baked into the executable.
 /// Returns `None` (the runtime bakes `STDIN_LOG_CAP_DEFAULT` = 4 MiB) when the
 /// key is absent or not a positive integer of at least one read chunk (8 KiB) —
@@ -2387,7 +2393,7 @@ mod tests {
                     "  \"version\": \"0.1.0\",\n",
                     "  \"mfb\": \"1.0\",\n",
                     "  \"kind\": \"executable\",\n",
-                    "  \"maxBuffer\": {},\n",
+                    "  \"options\": {{ \"maxBuffer\": {} }},\n",
                     "  \"sources\": [{{ \"root\": \"src\" }}]\n",
                     "}}\n"
                 ),

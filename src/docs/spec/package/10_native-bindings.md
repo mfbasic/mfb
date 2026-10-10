@@ -101,7 +101,7 @@ free             optional (slot str, symbol str)  paired free/close for a return
 
 `buffers` records the `BUFFER <slot> SIZE <expr>` clauses sizing an `OUT CBuffer` slot, and `resultLength` the returned byte count. The decoder caps buffers at **16** per function. [[src/ir/binary.rs:MAX_LINK_BUFFERS]] [[src/ir/binary.rs:decode_link_function]]
 
-The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record. It is the consuming project's `maxBuffer` (./mfb spec tooling project-manifest), because `LINK` thunks are emitted when an executable links — so a package cannot raise an application's memory ceiling on its behalf.
+The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record. It is the consuming project's `options.maxBuffer` (./mfb spec tooling project-manifest), because `LINK` thunks are emitted when an executable links — so a package cannot raise an application's memory ceiling on its behalf.
 
 `free` records the paired deallocation/close symbol and the slot it applies to, so a returned native resource can be released by the generated lexical drop.
 

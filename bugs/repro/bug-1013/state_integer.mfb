@@ -1,0 +1,36 @@
+IMPORT fs
+IMPORT io
+
+ENUM Mode
+  Fast, Off, Slow
+END ENUM
+
+TYPE Inner
+  mode AS Mode
+  weight AS Float
+END TYPE
+
+TYPE Cursor
+  mode AS Mode
+  pos AS Integer
+END TYPE
+
+FUNC nameOf(m AS Mode) AS String
+  MATCH m
+    CASE Mode.Fast
+      RETURN "Fast"
+    CASE Mode.Off
+      RETURN "Off"
+    CASE Mode.Slow
+      RETURN "Slow"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  fs::writeText("/tmp/mfb-np.txt", "x")
+  RES g AS fs::File STATE Integer = fs::open("/tmp/mfb-np.txt", "read")
+  io::print("stateenum " & toString(g.state))
+  g.state = 5
+  io::print("stateenum set " & toString(g.state))
+  RETURN 0
+END FUNC
