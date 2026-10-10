@@ -557,6 +557,20 @@ impl TypeEnv {
     /// compatible; the `RES` ownership marker is stripped; container types
     /// recurse; a union accepts any of its variants.
     ///
+    /// bug-989: a union accepts its variant only as the WHOLE value, which lowering
+    /// tags (`UnionWrap`). Inside a collection the element types must already agree:
+    /// a `List OF Square` where a `List OF Shape` is expected is legal source, and
+    /// lowering converts it to a real `List OF Shape` (`union_conversion`), so a
+    /// `List OF Square` value still standing at a `List OF Shape` slot in the IR is
+    /// one nothing converted. Its elements have no tag, and accepting it here is
+    /// what let them be read as `{tag, size, data}` blocks. A source-lowered program
+    /// never contains one; a decoded package's might.
+    ///
+    /// One exception stays as it was: a collection of `RES` elements. No conversion
+    /// is emitted for a `List OF RES fs::File` at a `List OF RES Handle` slot yet
+    /// (its converted copy would have no owner to free it, bug-1012), so that form
+    /// is still accepted here, and still wrong at run time.
+    ///
     /// plan-106-B: structural. The prefix cascade
     /// (`strip_prefix("RES ")`/`("List OF ")`/`("Result OF ")` + `parse_map`)
     /// became variant matches; `ir::verify` holds no copy of the type grammar.
@@ -564,9 +578,27 @@ impl TypeEnv {
     /// nominal equality (`fs.File` ≡ `File`) and union-variant membership are
     /// lookups keyed by type NAME, which is what an import registers.
     pub(super) fn compatible(&self, expected: &ParameterType, actual: &ParameterType) -> bool {
+        self.compatible_at(expected, actual, true)
+    }
+
+    /// [`Self::compatible`], with `subsume` saying whether a union may accept its
+    /// variant at this position: the whole value, or an element of a collection of
+    /// `RES` elements.
+    fn compatible_at(
+        &self,
+        expected: &ParameterType,
+        actual: &ParameterType,
+        subsume: bool,
+    ) -> bool {
         if matches!(expected, ParameterType::Unknown) || matches!(actual, ParameterType::Unknown) {
             return true;
         }
+        // An element position keeps the union arm only for `RES` elements.
+        let element = |expected: &ParameterType, actual: &ParameterType| {
+            let resource = matches!(expected, ParameterType::Res(_))
+                || matches!(actual, ParameterType::Res(_));
+            self.compatible_at(expected, actual, resource)
+        };
         let expected = strip_res(expected);
         let actual = strip_res(actual);
         if expected == actual {
@@ -575,10 +607,10 @@ impl TypeEnv {
         match (expected, actual) {
             (ParameterType::ListOf(e), ParameterType::ListOf(a))
             | (ParameterType::ResultOf(e), ParameterType::ResultOf(a)) => {
-                return self.compatible(e, a);
+                return element(e, a);
             }
             (ParameterType::MapOf(ek, ev), ParameterType::MapOf(ak, av)) => {
-                return self.compatible(ek, ak) && self.compatible(ev, av);
+                return element(ek, ak) && element(ev, av);
             }
             // bug-752: the `RES` marker is stripped from a callable's parameters
             // too. A generic body instantiated for a `List OF RES File` declares its
@@ -638,6 +670,9 @@ impl TypeEnv {
         }
         // A union accepts any of its variants. A variant may be spelled qualified
         // (a package-scoped resource, `fs.File`) or bare, so match either form.
+        if !subsume {
+            return false;
+        }
         if let Some(variants) = self.union_variants(expected) {
             if variants.contains(actual_name.as_ref()) || variants.contains(actual_bare) {
                 return true;

@@ -1,0 +1,212 @@
+{
+  "project": "union_variant_reduce_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Circle",
+      "line": 8,
+      "fields": [
+      { "visibility": null, "name": "r", "type": "Float", "line": 9 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Square",
+      "line": 12,
+      "fields": [
+      { "visibility": null, "name": "side", "type": "Float", "line": 13 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Shape",
+      "line": 16,
+      "includes": [],
+      "variants": [
+      { "name": "Circle", "line": 17 },
+      { "name": "Square", "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "describe",
+      "line": 21,
+      "params": [
+      { "name": "s", "type": "Shape", "default": null, "line": 21 }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 22,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Circle", "binding": "c" },
+          "guard": null,
+          "line": 23,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "circle " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "r" }] } }, "line": 24 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Square", "binding": "q" },
+          "guard": null,
+          "line": 25,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "square " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "side" }] } }, "line": 26 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "size",
+      "line": 30,
+      "params": [
+      { "name": "s", "type": "Shape", "default": null, "line": 30 }
+      ],
+      "returnType": "Float",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 31,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Circle", "binding": "c" },
+          "guard": null,
+          "line": 32,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "r" }, "line": 33 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Square", "binding": "q" },
+          "guard": null,
+          "line": 34,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "side" }, "line": 35 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "larger",
+      "line": 39,
+      "params": [
+      { "name": "acc", "type": "Shape", "default": null, "line": 39 },
+      { "name": "s", "type": "Shape", "default": null, "line": 39 }
+      ],
+      "returnType": "Shape",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "size", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "call", "callee": "size", "arguments": [{ "kind": "identifier", "value": "acc" }] } },
+        "line": 40,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 41 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "acc" }, "line": 43 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "keep",
+      "line": 46,
+      "params": [
+      { "name": "acc", "type": "Shape", "default": null, "line": 46 },
+      { "name": "s", "type": "Shape", "default": null, "line": 46 }
+      ],
+      "returnType": "Shape",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "acc" }, "line": 47 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "last",
+      "line": 50,
+      "params": [
+      { "name": "acc", "type": "Shape", "default": null, "line": 50 },
+      { "name": "s", "type": "Shape", "default": null, "line": 50 }
+      ],
+      "returnType": "Shape",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 51 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "seed",
+      "line": 54,
+      "params": [
+      ],
+      "returnType": "Square",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "4.0" }] }, "line": 55 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 58,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "shapes", "type": "List OF Shape", "value": { "kind": "list", "values": [{ "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "1.0" }] }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "2.0" }] }, { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "3.0" }] }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "none", "type": "List OF Shape", "value": { "kind": "list", "values": [] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "none" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "9.0" }] }, { "kind": "identifier", "value": "larger" }] }] } }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "kept: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "shapes" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "9.0" }] }, { "kind": "identifier", "value": "keep" }] }] } }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "largest: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "shapes" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "0.5" }] }, { "kind": "identifier", "value": "larger" }] }] } }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "call initial: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "shapes" }, { "kind": "call", "callee": "seed", "arguments": [] }, { "kind": "identifier", "value": "keep" }] }] } }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "lambda: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "shapes" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "9.0" }] }, { "kind": "lambda", "params": [
+{ "name": "acc", "type": "Shape", "default": null, "line": 67 }, 
+{ "name": "s", "type": "Shape", "default": null, "line": 67 }], "body": { "kind": "identifier", "value": "acc" } }] }] } }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "name": "bound", "type": "Shape", "value": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "shapes" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "0.5" }] }, { "kind": "identifier", "value": "last" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bound: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "bound" }] } }] }, "line": 70 },
+      { "kind": "binding", "mutable": false, "name": "inferred", "type": null, "value": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "none" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "7.0" }] }, { "kind": "identifier", "value": "keep" }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "inferred: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "inferred" }] } }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "right empty: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "none" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "9.0" }] }, { "kind": "identifier", "value": "larger" }] }] } }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "right kept: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "shapes" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "9.0" }] }, { "kind": "identifier", "value": "keep" }] }] } }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "right last: " }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "shapes" }, { "kind": "constructor", "type": "Square", "arguments": [{ "kind": "number", "value": "0.5" }] }, { "kind": "identifier", "value": "last" }] }] } }] }, "line": 76 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 77 }
+      ]
+    }
+    ]
+  }
+  ]
+}

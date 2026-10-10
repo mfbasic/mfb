@@ -46,6 +46,10 @@ pub(super) struct LowerContext<'a> {
     pub(super) current_file: String,
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
+    /// bug-989: the synthesized converter for each `(actual, expected)` pair a
+    /// union-collection conversion needed, by the lifted function's name, so a
+    /// pair is emitted once however many positions convert it.
+    union_converters: HashMap<(ParameterType, ParameterType), String>,
     next_temp_id: usize,
     /// Declared return type of the function currently being lowered, used to
     /// implicitly wrap a `RETURN`ed member constructor into its union (so the
@@ -403,6 +407,7 @@ impl LowerFacts {
             bindings: Vec::new(),
             lambdas: Vec::new(),
             next_lambda_id: 0,
+            union_converters: HashMap::new(),
             next_temp_id: 0,
             current_return_type: None,
             recover_targets: Vec::new(),
@@ -2225,23 +2230,14 @@ fn wrap_trap_slot_value(
     value: IrValue,
     slot_type: &ParameterType,
     declared: Option<&ParameterType>,
-    context: &LowerContext<'_>,
+    context: &mut LowerContext<'_>,
 ) -> IrValue {
     let Some(declared) = declared else {
         return value;
     };
-    let union_type = declared.without_state();
-    if context
-        .type_index
-        .variant_belongs_to_union(slot_type, &union_type)
-    {
-        return IrValue::UnionWrap {
-            union_type,
-            member_type: slot_type.clone(),
-            value: Box::new(value),
-        };
-    }
-    value
+    // The same coercion every lowered expression gets: a variant is wrapped, and
+    // a collection of variants is converted (bug-989).
+    union_conversion(value, slot_type, &declared.without_state(), context)
 }
 
 /// One call lifted out of an inline-`TRAP` scrutinee (bug-457).
@@ -4409,13 +4405,7 @@ pub(super) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return generic_builtin_call_type(
-                    &canonical_callee,
-                    &normalized,
-                    &arg_types,
-                    locals,
-                    context,
-                );
+                return generic_builtin_call_type(&canonical_callee, &arg_types, context);
             }
             // The remaining builtin packages share one arg-typed dispatch
             // (bug-342 A1 — was 17 byte-identical is_*_call → resolve_call
@@ -4472,13 +4462,7 @@ pub(super) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return generic_builtin_call_type(
-                    &canonical_callee,
-                    &normalized,
-                    &arg_types,
-                    locals,
-                    context,
-                );
+                return generic_builtin_call_type(&canonical_callee, &arg_types, context);
             }
             builtins::call_return_type(&canonical_callee)
                 .or_else(|| context.function_returns.get(callee).cloned())
@@ -4660,15 +4644,12 @@ fn canonical_import_type(type_: &ParameterType, context: &LowerContext<'_>) -> P
 }
 
 /// The (lenient) return type of a built-in call resolved through the registry's
-/// generic matcher, with the declared types as its oracle, so a top-level `T`
-/// bound to a union accepts a variant of it (bug-988), and with a union-variant
-/// list literal relaxed when only that lets the call resolve
-/// ([`union_literal_call_types`]).
+/// generic matcher, with the declared types as its oracle, so union-variant
+/// subsumption reaches a generic call (bug-988, bug-989): `append(shapes,
+/// Square[2.0])` and `append(shapes, squares)` both type `List OF Shape`.
 fn generic_builtin_call_type(
     canonical_callee: &str,
-    normalized: &[&HirExpression],
     arg_types: &[ParameterType],
-    locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
 ) -> Option<ParameterType> {
     builtins::resolve_call_return_type_with_kinds(
@@ -4677,22 +4658,6 @@ fn generic_builtin_call_type(
         false,
         context.type_index,
     )
-    .or_else(|| {
-        let relaxed = union_literal_call_types(
-            canonical_callee,
-            normalized,
-            arg_types,
-            false,
-            locals,
-            context,
-        )?;
-        builtins::resolve_call_return_type_with_kinds(
-            canonical_callee,
-            &relaxed,
-            false,
-            context.type_index,
-        )
-    })
 }
 
 fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
@@ -4744,59 +4709,6 @@ fn resolved_generic_argument_type(
         index,
         &arg_types,
         expected_return,
-        context.type_index,
-    )
-    .or_else(|| {
-        // bug-988: a list literal of union variants at a `List OF T` position
-        // (`append(shapes, [Square[2.0]])`) gets the union's list as its expected
-        // type, so its elements lower wrapped — when the call accepts it at all.
-        let relaxed = union_literal_call_types(
-            canonical_callee,
-            &normalized,
-            &arg_types,
-            false,
-            locals,
-            context,
-        )?;
-        builtins::resolved_argument_type(
-            canonical_callee,
-            index,
-            &relaxed,
-            expected_return,
-            context.type_index,
-        )
-    })
-}
-
-/// bug-988: [`builtins::union_literal_relaxed_arg_types`] over a call's HIR
-/// arguments, typed with lowering's own oracle and the declared types' union
-/// membership — the one relaxation the shape pass, the return-type oracle and
-/// rule 3 of `call_argument_expected_type` all apply.
-pub(super) fn union_literal_call_types(
-    canonical_callee: &str,
-    arguments: &[&HirExpression],
-    arg_types: &[ParameterType],
-    strict: bool,
-    locals: &HashMap<String, ParameterType>,
-    context: &LowerContext<'_>,
-) -> Option<Vec<ParameterType>> {
-    let literal_elements: Vec<Option<Vec<Option<ParameterType>>>> = arguments
-        .iter()
-        .map(|argument| match argument {
-            HirExpression::ListLiteral(values) if !values.is_empty() => Some(
-                values
-                    .iter()
-                    .map(|value| expression_type(value, locals, context))
-                    .collect(),
-            ),
-            _ => None,
-        })
-        .collect();
-    builtins::union_literal_relaxed_arg_types(
-        canonical_callee,
-        arg_types,
-        &literal_elements,
-        strict,
         context.type_index,
     )
 }
@@ -5961,6 +5873,24 @@ fn lower_expression_unwrapped(
             value_type,
             entries,
         } => {
+            // bug-989: a map literal's type is its own annotation. When the
+            // position expects that map's UNION form (`Map OF String TO Square
+            // { … }` where a `Map OF String TO Shape` is expected) the entries
+            // lower against the annotation, so they match the type the literal
+            // carries, and the whole literal is then converted like any other
+            // map value. Lowered against the expected type instead, the entries
+            // were wrapped inside a literal still typed as the variant map.
+            let annotation = ParameterType::map_of(key_type.clone(), value_type.clone());
+            let expected = match expected {
+                Some(expected)
+                    if context
+                        .type_index
+                        .union_collection_converts(&annotation, expected) =>
+                {
+                    Some(&annotation)
+                }
+                other => other,
+            };
             let (expected_key, expected_value) = match expected {
                 Some(ParameterType::MapOf(key, value)) => {
                     (Some((**key).clone()), Some((**value).clone()))
@@ -6191,39 +6121,204 @@ fn wrap_union_value(
     expression: &HirExpression,
     expected: Option<&ParameterType>,
     locals: &HashMap<String, ParameterType>,
-    context: &LowerContext<'_>,
+    context: &mut LowerContext<'_>,
 ) -> IrValue {
-    let Some(union_type) = expected else {
+    let Some(expected) = expected else {
         return base;
-    };
-    // A `List OF RES Handle` element position expects `RES Handle`: the `RES`
-    // marks ownership, the union is `Handle`, exactly as a `RES h AS Handle`
-    // binding's lowered type is the bare `Handle`.
-    let union_type = match union_type {
-        ParameterType::Res(inner) => inner.as_ref(),
-        other => other,
     };
     // Avoid double-wrapping when the value's own lowering already wrapped it
     // (e.g. a variant constructor assigned to a union-typed binding).
     if matches!(base, IrValue::UnionWrap { .. }) {
         return base;
     }
-    let Some(actual_type) = expression_type(expression, locals, context) else {
-        return base;
+    // A list literal was lowered element by element against the expected element
+    // type, and a map literal against its own annotation, so each already HAS the
+    // type its lowering wrote; every other value has its expression's type.
+    let actual_type = match &base {
+        IrValue::ListLiteral { type_, .. }
+        | IrValue::SetLiteral { type_, .. }
+        | IrValue::MapLiteral { type_, .. } => type_.clone(),
+        _ => match expression_type(expression, locals, context) {
+            Some(type_) => type_,
+            None => return base,
+        },
     };
-    // The variant/union membership index is keyed by NAME (a type-declaration
-    // table), so both sides render for the lookup only.
+    union_conversion(base, &actual_type, expected, context)
+}
+
+/// The union form of `value` (of type `actual`) at a position expecting
+/// `expected`, or `value` unchanged when the two are not related by union-variant
+/// subsumption.
+///
+/// * A variant of the expected union is tagged in place: `UnionWrap`.
+/// * A `List` whose elements convert, or a `Map` whose values do, becomes a NEW
+///   collection with every element converted (bug-989, owner decision
+///   2026-10-10): a `List OF Square` where a `List OF Shape` is expected is the
+///   same subsumption as one `Square` where a `Shape` is expected, applied to each
+///   element, at every nesting level. Nothing rewraps a payload in place — an
+///   untagged record block and a `{tag, size, data}` block differ in size — so the
+///   conversion is one O(n) copy per position, made by an ordinary call that the
+///   statement frees like any other temporary. The source is not changed.
+///
+/// A collection already of the expected type is `value` itself: no call, no copy.
+fn union_conversion(
+    value: IrValue,
+    actual: &ParameterType,
+    expected: &ParameterType,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
+    // A `List OF RES Handle` element position expects `RES Handle`: the `RES`
+    // marks ownership, the union is `Handle`, exactly as a `RES h AS Handle`
+    // binding's lowered type is the bare `Handle`.
+    let union_type = match expected {
+        ParameterType::Res(inner) => inner.as_ref(),
+        other => other,
+    };
     if context
         .type_index
-        .variant_belongs_to_union(&actual_type, &union_type)
+        .variant_belongs_to_union(actual, union_type)
     {
         return IrValue::UnionWrap {
             union_type: union_type.clone(),
-            member_type: actual_type,
-            value: Box::new(base),
+            member_type: actual.clone(),
+            value: Box::new(value),
         };
     }
-    base
+    if !context
+        .type_index
+        .union_collection_converts(actual, expected)
+    {
+        return value;
+    }
+    let loc = context.current_loc;
+    match (actual, expected) {
+        (ParameterType::ListOf(from), ParameterType::ListOf(to)) => {
+            let converter = union_converter(from, to, context);
+            IrValue::Call {
+                target: "collections.transform".to_string(),
+                args: vec![
+                    value,
+                    IrValue::FunctionRef {
+                        name: converter,
+                        type_: ParameterType::func(vec![(**from).clone()], (**to).clone()),
+                    },
+                ],
+                type_: expected.clone(),
+                loc,
+            }
+        }
+        _ => IrValue::Call {
+            target: union_converter(actual, expected, context),
+            args: vec![value],
+            type_: expected.clone(),
+            loc,
+        },
+    }
+}
+
+/// The lifted function `(value AS actual) AS expected` that converts one value
+/// for [`union_conversion`], created on first use. Its body is the conversion
+/// itself: a wrap for a variant, a `collections::transform` for a list, and for a
+/// map a loop that sets each key to its converted value (a map has no native
+/// value-mapping call to lower to).
+fn union_converter(
+    actual: &ParameterType,
+    expected: &ParameterType,
+    context: &mut LowerContext<'_>,
+) -> String {
+    let key = (actual.clone(), expected.clone());
+    if let Some(name) = context.union_converters.get(&key) {
+        return name.clone();
+    }
+    let name = format!("$lambda{}", context.next_lambda_id);
+    context.next_lambda_id += 1;
+    context.union_converters.insert(key, name.clone());
+    let loc = context.current_loc;
+    let value = "value".to_string();
+    let body = match (actual, expected) {
+        (ParameterType::MapOf(key_type, from), ParameterType::MapOf(_, to)) => {
+            let converted = "converted".to_string();
+            let entry = "entry".to_string();
+            let item = union_conversion(
+                IrValue::MemberAccess {
+                    target: Box::new(IrValue::Local(entry.clone())),
+                    member: "value".to_string(),
+                    type_: (**from).clone(),
+                },
+                from,
+                to,
+                context,
+            );
+            vec![
+                IrOp::Bind {
+                    mutable: true,
+                    name: converted.clone(),
+                    type_: expected.clone(),
+                    value: Some(IrValue::MapLiteral {
+                        type_: expected.clone(),
+                        entries: Vec::new(),
+                    }),
+                    explicit_type: false,
+                    loc,
+                },
+                IrOp::ForEach {
+                    name: entry.clone(),
+                    type_: ParameterType::map_entry_of((**key_type).clone(), (**from).clone()),
+                    iterable: IrValue::Local(value.clone()),
+                    body: vec![IrOp::Assign {
+                        name: converted.clone(),
+                        value: IrValue::Call {
+                            target: "collections.set".to_string(),
+                            args: vec![
+                                IrValue::Local(converted.clone()),
+                                IrValue::MemberAccess {
+                                    target: Box::new(IrValue::Local(entry)),
+                                    member: "key".to_string(),
+                                    type_: (**key_type).clone(),
+                                },
+                                item,
+                            ],
+                            type_: expected.clone(),
+                            loc,
+                        },
+                        loc,
+                    }],
+                    loc,
+                },
+                IrOp::Return {
+                    value: Some(IrValue::Local(converted)),
+                    loc,
+                },
+            ]
+        }
+        _ => vec![IrOp::Return {
+            value: Some(union_conversion(
+                IrValue::Local(value.clone()),
+                actual,
+                expected,
+                context,
+            )),
+            loc,
+        }],
+    };
+    context.lambdas.push(IrFunction {
+        name: name.clone(),
+        visibility: "private".to_string(),
+        kind: "func".to_string(),
+        isolated: false,
+        params: vec![IrParam {
+            name: value,
+            type_: actual.clone(),
+            default: None,
+            loc,
+        }],
+        returns: expected.clone(),
+        body,
+        file: context.current_file.clone(),
+        loc,
+        resource_owners: HashMap::new(),
+    });
+    name
 }
 
 fn lower_constructor_args(
@@ -6700,6 +6795,29 @@ impl TypeIndex {
         self.variant_unions
             .get(variant)
             .is_some_and(|unions| unions.contains(union_type))
+    }
+
+    /// bug-989: whether a collection of type `actual` converts to `expected`
+    /// element by element — a `List` whose element, or a `Map` (same key type)
+    /// whose value, is a variant of the expected union or itself such a
+    /// collection. Equal types do not convert (there is nothing to do), and a
+    /// `Set` element or `Map` key never does: a union is not comparable, so no
+    /// `Set OF <union>` or union-keyed `Map` exists to convert to.
+    pub(super) fn union_collection_converts(
+        &self,
+        actual: &ParameterType,
+        expected: &ParameterType,
+    ) -> bool {
+        let part = |from: &ParameterType, to: &ParameterType| {
+            self.variant_belongs_to_union(from, to) || self.union_collection_converts(from, to)
+        };
+        match (actual, expected) {
+            (ParameterType::ListOf(from), ParameterType::ListOf(to)) => part(from, to),
+            (ParameterType::MapOf(from_key, from), ParameterType::MapOf(to_key, to)) => {
+                from_key == to_key && part(from, to)
+            }
+            _ => false,
+        }
     }
 }
 

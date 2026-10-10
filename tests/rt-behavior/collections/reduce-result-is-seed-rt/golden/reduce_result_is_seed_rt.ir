@@ -1,0 +1,171 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "reduce_result_is_seed_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 10,
+    "visibility": "public",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "line": 11, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 12, "name": "y", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "keep",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "acc", "line": 15, "type": "Point", "default": null },
+    { "name": "p", "line": 15, "type": "Point", "default": null }
+    ],
+    "returns": "Point",
+    "body": [
+    { "op": "return", "line": 16, "value": { "kind": "local", "name": "acc" } }
+    ]
+  },
+  {
+    "name": "show",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 19, "type": "String", "default": null },
+    { "name": "p", "line": 19, "type": "Point", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": ": " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "x" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "y" }] } }] } }
+    ]
+  },
+  {
+    "name": "churn",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 25, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "8" } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 26,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 26, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "bind", "line": 27, "mutable": false, "name": "junk", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "i" }, { "kind": "local", "name": "i" }, { "kind": "local", "name": "i" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 28, "mutable": false, "name": "p", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "900" }, "right": { "kind": "local", "name": "i" } }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "900" }, "right": { "kind": "local", "name": "i" } }] } },
+      { "op": "assign", "line": 29, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "junk" }] } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "x" } } }
+      ]
+    },
+    { "op": "return", "line": 31, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 34,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 35, "mutable": false, "name": "none", "type": "List OF Point", "value": { "kind": "list", "type": "List OF Point", "values": [] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "some", "type": "List OF Point", "value": { "kind": "list", "type": "List OF Point", "values": [{ "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "6" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "fromEmpty", "type": "Point", "value": { "kind": "call", "type": "Point", "target": "collections.reduce", "args": [{ "kind": "local", "name": "none" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "functionRef", "name": "keep", "type": "FUNC(Point, Point) AS Point" }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "kept", "type": "Point", "value": { "kind": "call", "type": "Point", "target": "collections.reduce", "args": [{ "kind": "local", "name": "some" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }, { "kind": "functionRef", "name": "keep", "type": "FUNC(Point, Point) AS Point" }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "rightEmpty", "type": "Point", "value": { "kind": "call", "type": "Point", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "none" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "11" }, { "kind": "const", "type": "Integer", "value": "12" }] }, { "kind": "functionRef", "name": "keep", "type": "FUNC(Point, Point) AS Point" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "rightKept", "type": "Point", "value": { "kind": "call", "type": "Point", "target": "collections.reduceRight", "args": [{ "kind": "local", "name": "some" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "13" }, { "kind": "const", "type": "Integer", "value": "14" }] }, { "kind": "functionRef", "name": "keep", "type": "FUNC(Point, Point) AS Point" }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "seed", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "21" }, { "kind": "const", "type": "Integer", "value": "22" }] } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "fromLocal", "type": "Point", "value": { "kind": "call", "type": "Point", "target": "collections.reduce", "args": [{ "kind": "local", "name": "none" }, { "kind": "local", "name": "seed" }, { "kind": "functionRef", "name": "keep", "type": "FUNC(Point, Point) AS Point" }] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "churn", "args": [] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "empty" }, { "kind": "local", "name": "fromEmpty" }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "kept" }, { "kind": "local", "name": "kept" }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "right empty" }, { "kind": "local", "name": "rightEmpty" }] } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "right kept" }, { "kind": "local", "name": "rightKept" }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "local seed" }, { "kind": "local", "name": "seed" }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "from local" }, { "kind": "local", "name": "fromLocal" }] } },
+    { "op": "return", "line": 52, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

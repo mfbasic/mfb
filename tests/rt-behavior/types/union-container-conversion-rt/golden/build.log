@@ -1,0 +1,30 @@
+$ mfb build -ast -ir tests/rt-behavior/types/union-container-conversion-rt
+Wrote AST to tests/rt-behavior/types/union-container-conversion-rt/union_container_conversion_rt.ast
+Wrote IR to tests/rt-behavior/types/union-container-conversion-rt/union_container_conversion_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/types/union-container-conversion-rt
+Wrote executable to tests/rt-behavior/types/union-container-conversion-rt/build/union_container_conversion_rt.out
+[exit 0]
+$ tests/rt-behavior/types/union-container-conversion-rt/build/union_container_conversion_rt.out
+let: [square 2.00] [square 3.00]
+assign: [square 2.00] [square 3.00]
+argument: [square 2.00] [square 3.00]
+argument call: [square 10.00] [square 11.00]
+return: [square 40.00] [square 41.00]
+return call: [square 42.00] [square 43.00]
+constructor: [square 2.00] [square 3.00]
+constructor named: [square 20.00] [square 21.00]
+with: [square 30.00] [square 31.00]
+global initializer: [square 70.00]
+global assign: [square 2.00] [square 3.00]
+element row 0: [square 2.00] [square 3.00]
+element row 1: [square 50.00] [square 51.00]
+nested row 0: [square 60.00] [square 61.00]
+nested row 1: [square 62.00]
+map: a=[square 80.00] b=[square 81.00]
+map argument: a=[square 80.00] b=[square 81.00]
+map of lists: [square 90.00] [square 91.00]
+append list: [circle 1.00] [square 2.00] [square 3.00]
+get: square 2.00
+source: 2 3.00 81.00
+[exit 0]

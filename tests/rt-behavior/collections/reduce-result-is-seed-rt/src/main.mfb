@@ -1,0 +1,53 @@
+IMPORT collections
+IMPORT io
+
+' The result of `reduce`/`reduceRight` is its own value even when it IS the
+' initial value: the list is empty, or the reducer hands the accumulator back.
+' It used to be the caller's initial-value block itself, so a binding of the
+' result held a block the statement had freed (or shared one with the local
+' the initial value was read from).
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+FUNC keep(acc AS Point, p AS Point) AS Point
+  RETURN acc
+END FUNC
+
+FUNC show(label AS String, p AS Point) AS Nothing
+  io::print(label & ": " & toString(p.x) & "," & toString(p.y))
+END FUNC
+
+FUNC churn AS Integer
+  ' Reuse whatever small blocks the statements above freed.
+  MUT n AS Integer = 0
+  FOR i = 1 TO 8
+    LET junk AS List OF Integer = [i, i, i, i]
+    LET p AS Point = Point[900 + i, 900 + i]
+    n = n + len(junk) + p.x
+  NEXT
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET none AS List OF Point = []
+  LET some AS List OF Point = [Point[5, 6], Point[7, 8]]
+
+  LET fromEmpty AS Point = collections::reduce(none, Point[1, 2], keep)
+  LET kept AS Point = collections::reduce(some, Point[3, 4], keep)
+  LET rightEmpty AS Point = collections::reduceRight(none, Point[11, 12], keep)
+  LET rightKept AS Point = collections::reduceRight(some, Point[13, 14], keep)
+  LET seed AS Point = Point[21, 22]
+  LET fromLocal AS Point = collections::reduce(none, seed, keep)
+  LET n AS Integer = churn()
+
+  show("empty", fromEmpty)
+  show("kept", kept)
+  show("right empty", rightEmpty)
+  show("right kept", rightKept)
+  show("local seed", seed)
+  show("from local", fromLocal)
+  RETURN 0
+END FUNC
