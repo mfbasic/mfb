@@ -451,12 +451,20 @@ the native slice) and the natively lowered `filter`, `append`, `prepend`, `inser
 call to a function whose every `RETURN` hands back such a block — a literal, one of those
 calls, or a local whose every store is fresh, that no call keeps and that is named
 nowhere but in its `RETURN`s (a parameter never qualifies: it is the caller's block); it
-is never named outside a call's argument position; no call keeps its block — it is never
+is never named outside a call's argument position, except as the iterable of a
+`FOR EACH` whose loop variable itself stays inside the loop (used only as an argument
+no call keeps); no call keeps its block — it is never
 a `collections::` member's non-receiver argument (`collections::append(out, piece)`
 stores `piece`'s block inside `out`), nor an argument a callee's body keeps by the same
-rules, a recursive callee counting as keeping; no `collections::get`/`getOr` (nor a
-`*::poll`) reads an element back out of it; and every element that floats into it is a
-fresh producer record that does not escape. Such a collection also frees the block a copying
+rules, a recursive callee counting as keeping, nor an argument of a call that reaches
+code the proof cannot read: a call through a function value, or a call handed a
+callback whose body keeps a parameter that can carry a reference (a callback held in a
+local counts as keeping); no element read back out of it by `collections::get`/`getOr`
+(or a `*::poll`) is kept — a read written straight into an argument of a call that does
+not keep it ends with that call, while one that is bound, returned, stored as an element
+or nested in another value disqualifies the collection; and every element that floats
+into it is a fresh producer record that does not escape and is not handed to code that
+keeps it. Such a collection also frees the block a copying
 reassignment replaces (`out = collections::append(out, x)` when the in-place append
 declines); the elements are references and are not touched. The intermediates a `collections` member builds for a `RES` collection (an
 element's singleton, `set`'s removed copy) are freed the same shallow way.
@@ -464,6 +472,14 @@ element's singleton, `set`'s removed copy) are freed the same shallow way.
 those blocks rather than risking a double free.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
+
+A binding that adopts a call's result lists only the records it takes. A record that
+is unowned when the call returns, or owned by a scope inside the binding's, is
+claimed for the binding's scope and listed. A record already owned at that scope or
+further out — a handle the caller passed in and got back, or one the container
+already lists — keeps its owner and is not listed again, so the owner alone closes
+and frees it.
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push_node]]
 
 A resource union's drop reclaims what the concrete drop reclaims. After the
 tag-dispatched close it frees a `File` variant's output and read buffers, then the
