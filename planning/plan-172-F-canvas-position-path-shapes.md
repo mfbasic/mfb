@@ -43,8 +43,8 @@ If plan-172-E is not complete, this letter cannot start, full stop.
 - `canvas::Polygon` and `canvas::PolyLine` gain `position`; their points are offsets
   from it.
 - No shape record carries a bare coordinate scalar.
-- `canvas::line`, `canvas::polygon` and `canvas::polyLine` constructor functions exist
-  (if Open Decision 1 of 172-A was answered yes).
+- `Line`, `Polygon` and `PolyLine` are built from a defaulted record with `WITH` (Open
+  Decision 1 of 172-A, answered: no constructor functions).
 
 ### Non-goals (explicit constraints)
 
@@ -113,7 +113,7 @@ for a polygon.
 
 - **Changed:** `Line`'s fields; `Polygon` and `PolyLine` gain `position`, and their
   points change meaning from surface coordinates to offsets.
-- **Added:** three constructor functions.
+- **Added:** nothing.
 - **Unchanged:** the edge tail layout, the geometry header, both shaders.
 
 ## Phases
@@ -132,7 +132,12 @@ for a polygon.
 - [ ] `func_geo_build.rs`: the three native builders read `position` and add it.
 - [ ] `helper_dashes.rs` and `helper_joins.rs`: confirm they read the tail, not the
       record's points, and so need no edit; say so in a comment at the builder.
-- [ ] Add `canvas::line`, `canvas::polygon`, `canvas::polyLine` with man examples.
+- [x] ~~Add `canvas::line`, `canvas::polygon`, `canvas::polyLine` with man examples.~~ —
+      moot: Open Decision 1 of 172-A was answered "no constructor functions"
+      (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
+      → 1).
+- [ ] Rewrite the registry examples of `Line`, `Polygon` and `PolyLine` to the defaulted
+      `MUT` + `WITH` form, and render each with `mfb man canvas <Type>`.
 - [ ] Port the 230 sites with `position` at the origin.
 - [ ] `FIELD_KIND_TABLE` and its `.tsv`; the IR-embedding goldens.
 
@@ -194,7 +199,8 @@ None.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-A, Open Decision 1:** no constructor functions; the task is struck as moot
+  and replaced by the `MUT` + `WITH` example task.
 
 ## Summary
 

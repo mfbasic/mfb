@@ -68,7 +68,8 @@ If plan-172-K is not complete, this letter cannot start, full stop.
   `the_resource_naming_variants_hold_the_resource_itself` and the group ownership rules
   are unchanged.
 - **`canvas::setBytes`, `destroyImage` and the closed-image rules are untouched.**
-- **No intersection of a shape outline with a second clip.** See Open Decision 3.
+- **No second clip slot.** The shape outline and `paint.clip` are intersected into one
+  edge set at expansion (Open Decision 3 of 172-A); the header keeps one clip.
 
 ## 2. Current State
 
@@ -142,10 +143,30 @@ are mapped forward through the shape's placement, `B` is their axis-aligned boun
 box, and the entry carries no transform. Enclosing groups apply to both through the
 draw entry's matrix.
 
-**`paint.clip` on a shaped picture** (Open Decision 3, as recommended): it applies to
-the outline entry; for the image entry the slot is the shape outline. `present` raises a
-new error, on the worker, when a `Picture` whose shape is not a plain rectangle also
-sets `paint.clip`.
+**`paint.clip` on a shaped picture** (Open Decision 3 of 172-A, answered: intersect).
+The image is visible where the shape outline **and** `paint.clip` both cover. The header
+has one clip slot, so the two ring sets are intersected into one edge set at expansion:
+
+- `__canvas_clipIntersect(ringsA, ruleA, ringsB, ruleB)` returns the boundary of
+  `A ∩ B` as edges under the even-odd rule. It works by horizontal bands. The band
+  boundaries are every vertex `y` of either set and every `y` at which two edges (of
+  the same set or of different sets) cross. Inside one band no two edges cross, so each
+  set's interior on any horizontal line through the band is a list of x-intervals
+  bounded by the same edges, found by sorting the band's edges at its mid-line and
+  applying that set's fill rule to the running winding count. The two interval lists
+  are intersected. Each surviving interval contributes its left and right bounding
+  edges, clipped to the band; and between two adjacent bands the horizontal boundary is
+  the symmetric difference of the lower band's intervals at its top with the upper
+  band's at its bottom. The result is the true outline of the intersection and nothing
+  else — no edge interior to the region — which matters because clip coverage is taken
+  from the distance to the nearest edge, and an interior edge would draw a seam.
+- The edges are a soup, not ordered rings. The clip's inside test is a crossing count
+  and its coverage a nearest-edge distance, and neither needs ring order; the even-odd
+  rule is correct for a boundary each point of which separates inside from outside.
+- The outline entry is the shape's stroke, and `paint.clip` clips it as it clips any
+  shape's stroke: that entry carries `paint.clip` alone.
+- An empty intersection draws no image entry.
+- A plain-rectangle picture never calls it: its `paint.clip` goes in the slot as today.
 
 **Gate class: new behaviour, with the plain-rectangle case pixel-neutral.**
 
@@ -156,14 +177,22 @@ sets `paint.clip`.
   shapes use, and a wider item block on both backends.
 - **Silently ignoring `paint.clip` on a shaped picture.** Rejected: a clip that does
   nothing with no diagnostic is the failure mode this package's raises exist to prevent.
+- **Raising when a shaped picture sets `paint.clip`.** This letter's original
+  recommendation; rejected by the owner in favour of intersecting (172-A Open
+  Decision 3).
+- **A second clip slot, coverages multiplied.** Rejected: it grows the geometry header
+  and the item block on both GPU backends, which this letter's first non-goal forbids.
+- **Intersecting by trapezoids emitted as separate rings.** Rejected: adjacent
+  trapezoids share edges inside the region, and nearest-edge coverage would dip to a
+  half along every one of them.
 - **Drawing the shape's fill behind the image.** Rejected by `planning/new_canvas.md`:
   `fill` on a picture is a tint.
 
 ## Compatibility / Format Impact
 
 - **Changed:** `canvas::Picture`'s fields.
-- **Added:** `canvas::PictureClip`, `canvas::PictureFit`, one error code, and
-  `canvas::picture(shape, image)`.
+- **Added:** `canvas::PictureClip`, `canvas::PictureFit`. No error code (the raise is
+  gone) and no `canvas::picture` constructor function (172-A Open Decisions 3 and 1).
 - **Unchanged:** the picture geometry kind and record, `ITEM_BLOCK_SIZE`, both shaders,
   the image resource and its ownership rules, every pixel of a plain-rectangle picture.
 
@@ -182,6 +211,15 @@ sets `paint.clip`.
 - [ ] Unit cases: `Stretch`, `Contain` and `Cover` for a wide image in a tall box and a
       tall image in a wide box, each centred; the outline of a circle has every vertex
       within 0.05 pixels of the radius; an open shape returns no rings.
+- [ ] `helper_shapes.rs`: `__canvas_clipIntersect(ringsA, ruleA, ringsB, ruleB)` per §3.
+- [ ] Unit cases for it, each checked by area (the shoelace sum over the edge soup,
+      which even-odd boundaries make well defined) and by point membership at fixed
+      probes: two overlapping squares give the overlap square; disjoint squares give no
+      edges; a square inside a circle outline gives the square; a five-point star under
+      even-odd against a square differs from the same star under non-zero by exactly
+      the star's inner pentagon; a ring with a hole against a bar crossing the hole
+      gives two pieces; and no returned edge has both neighbours inside (the no-seam
+      property), sampled 0.25 pixels either side of each edge's midpoint.
 
 Acceptance: the fit and outline cases pass.
   Check: `cargo test --bin mfb canvas_picture_fit` → pass (est. 3 min).
@@ -198,7 +236,11 @@ Commit: —
       `canvas::setBytes`'s live-scene check read `Picture.image` as before; confirm with
       the ownership suite.
 - [ ] `helper_hit.rs`: a picture is hit as its shape.
-- [ ] Add `canvas::picture(shape, image)` with a man example.
+- [x] ~~Add `canvas::picture(shape, image)` with a man example.~~ — moot: Open
+      Decision 1 of 172-A was answered "no constructor functions"
+      (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
+      → 1). A `Picture` holds a `UNION` and a `RES`, so it has no default and is built
+      with its four-field constructor.
 - [ ] Port the 71 sites to a `Rectangle` shape with `ClipOnly` and `Stretch`.
 - [ ] `FIELD_KIND_TABLE` and its `.tsv`; the IR-embedding goldens.
 
@@ -212,29 +254,42 @@ Commit: —
 
 - [ ] The two-entry path for `Circle`, `Ellipse`, `Polygon` and rounded `Rectangle`,
       both clip modes, all three fits.
-- [ ] The raise for `paint.clip` on a shaped picture: allocate the next free `7705xxxx`
+- [x] ~~The raise for `paint.clip` on a shaped picture: allocate the next free `7705xxxx`
       code, add it to `src/docs/spec/diagnostics/02_error-codes.md`'s Constant Registry
       and `src/codegen/builtins/errorcode/mod.rs`, and raise it from the worker-side
-      scene check in `func_present.rs` beside the group signature check.
+      scene check in `func_present.rs` beside the group signature check.~~ — moot: Open
+      Decision 3 of 172-A was answered "intersect the two clips"
+      (`grep -c 'ANSWER: intersect the two clips' planning/completed/plan-172-A-*.md`
+      → 1), so nothing is raised.
+- [ ] The image entry's clip for a shaped picture that sets `paint.clip` is
+      `__canvas_clipIntersect(outline, paint.clip)`; the outline entry carries
+      `paint.clip` alone; an empty intersection emits no image entry.
 - [ ] Scene `tests/canvas/scenes/picture_shapes_on_black.mfb` and golden
       `tests/golden/canvas/picture_shapes.png`: a picture in a circle, in a rounded
       rectangle, in a star polygon; `Contain` and `Cover` side by side; one shape
-      rotated under each clip mode; one translucent picture; one inside a scaled group.
+      rotated under each clip mode; one translucent picture; one inside a scaled group;
+      one picture in a circle with a star `paint.clip` (the intersection).
 - [ ] Runtime cases in `tests/canvas/rt_canvas_picture.rs`: a pixel just outside the
       circle is background; the stroke outlines the circle; a `Line` shape draws
       nothing; `setBytes` on the image repaints the shaped picture; an `AutoPaint` shape
-      under a scripted hover changes the tint.
+      under a scripted hover changes the tint; a circle picture with a half-plane
+      `paint.clip` shows image pixels only in the half inside both, is background in
+      the half inside the circle alone, and has no seam (no pixel inside the
+      intersection, more than 2 pixels from its boundary, differs from the unclipped
+      picture's pixel there).
 - [ ] Measure the clipped-circle edge against a filled circle and record the worst
       per-channel delta in Corrections.
-- [ ] A `tests/rt-error/canvas/` fixture for the new raise (the directory is new;
-      `ls tests/rt-error/canvas` → no such directory today).
+- [x] ~~A `tests/rt-error/canvas/` fixture for the new raise (the directory is new;
+      `ls tests/rt-error/canvas` → no such directory today).~~ — moot: there is no
+      raise (Open Decision 3 of 172-A, as above).
 - [ ] A Metal parity case; add the scene to `scripts/test-canvas-gpu-rows.sh`; run the
       Vulkan row on box 2226.
 - [ ] `src/docs/spec/app/06_canvas.md` "Images are named, not embedded": the two-entry
-      expansion, the fit rules, the two clip modes and the raise, each cited.
+      expansion, the fit rules, the two clip modes and the clip intersection, each cited.
 
 Acceptance: the new golden renders identically twice; Metal and Vulkan match it within
-`Tolerance::GPU_DEFAULT`; the raise fires from `present`.
+`Tolerance::GPU_DEFAULT`; a shaped picture with a `paint.clip` shows the image exactly
+where both cover, with no seam.
   Check: `cargo test --test rt_canvas_golden picture_shapes --test rt_canvas_picture
   --test rt_canvas_metal picture` → pass, and `scripts/test-canvas-vulkan.sh
   target/release/mfb --box 2226` → pass (est. 15 min).
@@ -242,16 +297,14 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: fit and outline unit cases; five runtime cases; one new golden with Metal and
-  Vulkan parity; one `rt-error` fixture; the error-code drift test
-  (`cargo test --bin mfb table_matches_registry`).
+- Tests: fit, outline and clip-intersection unit cases; six runtime cases; one new
+  golden with Metal and Vulkan parity.
 - Coverage check: the stats line for the new scene must show the GPU renderer on a GPU
   host — a shaped picture's clip edges count against the frame's edge cap, and a frame
   that silently declined would still match.
 - Runtime proof: `examples/fractals-image` with its picture placed in a circle, run
   headless and dumped.
-- Doc sync: `src/docs/spec/app/06_canvas.md`;
-  `src/docs/spec/diagnostics/02_error-codes.md`; `mfb man canvas types` rendered.
+- Doc sync: `src/docs/spec/app/06_canvas.md`; `mfb man canvas types` rendered.
 - Final gate: none in this letter; 172-M.
 
 ## Open Decisions
@@ -260,7 +313,13 @@ None beyond 172-A's Open Decision 3.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-A, Open Decision 3: intersect, not raise.** §1's non-goal, §3, the
+  rejected alternatives, Compatibility, Phase 1 (the intersection and its unit cases),
+  Phase 3 (the raise, its error code and its `rt-error` fixture struck as moot; the
+  intersection wired in; one more scene item and one more runtime case) and the
+  Validation Plan are rewritten. `src/docs/spec/diagnostics/02_error-codes.md` is no
+  longer touched by this letter.
+- **From 172-A, Open Decision 1:** no `canvas::picture` constructor function.
 
 ## Summary
 

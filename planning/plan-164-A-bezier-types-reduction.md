@@ -3,7 +3,7 @@
 Last updated: 2026-09-28
 Overall Effort: huge (>3d) — the whole plan-164 curve feature, split A–C below
 Effort: large (3h–1d)
-Depends on: plan-163 (all of A–D; see Prerequisites)
+Depends on: plan-163 (all of A–D) and plan-172 (all of A–N); see Prerequisites
 
 plan-164 gives the general canvas (not just SVG content) true curves: a `canvas::Path`
 of subpaths made of `canvas::BezierCurve`s. Supported curves are linear, quadratic,
@@ -61,6 +61,15 @@ This gate is the only hard stop for plan-164. Each row names the letters it gate
 | Must be true | Gates | Command | Status |
 |---|---|---|---|
 | plan-163-A..D all complete and archived | A–C | `ls planning/completed/plan-163-{A,B,C,D}-*` → 4 matches | NOT MET (2026-09-28: none started) |
+| plan-172 (the canvas shape model) is complete and archived, every letter A–N | A–C | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | NOT MET (2026-10-10: in progress) |
+
+If plan-172 is not complete, this plan cannot start, full stop (plan-172-A Open
+Decision 4, answered by the owner 2026-10-10). **This document predates plan-172 and
+must be re-derived against it before Phase 1**, as plan-150-A must: `canvas::Path` is
+appended to `DrawItem`'s own members beside `Picture` and `Group` and carries its own
+`id`, `position` and `transform`; every `canvas::Point` here is `vector::Float2`;
+there is no `Paint.transform`; and every `file:line` citation, the `DrawItem` variant
+count and the frozen-set test's list are re-measured.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > it before you continue and before you stop, and report it if you stop.

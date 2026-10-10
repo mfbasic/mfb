@@ -46,8 +46,9 @@ If plan-172-C is not complete, this letter cannot start, full stop.
 - For these four, the effective placement is `T(position) ∘ transform`: local geometry
   has its origin at the reference point, and `paint.clip` and `paint.gradient` are in
   that local space.
-- `canvas::circle`, `canvas::ellipse`, `canvas::arc` and `canvas::text` build a shape
-  from the fields that have no useful zero (if Open Decision 1 was answered yes).
+- `Circle`, `Ellipse` and `Arc` are built from a defaulted record with `WITH` (Open
+  Decision 1 of 172-A, answered: no constructor functions; 172-N makes the records
+  defaultable). `Text` holds a `RES` font and keeps its full constructor.
 
 ### Non-goals (explicit constraints)
 
@@ -112,11 +113,12 @@ it. The native builder's equivalent is one emitter helper beside `emit_paint_sup
 `t' = L·(x, y) + t − (x, y)`. Sites that followed the registry's advice (`x = y = 0`,
 position in `tx`/`ty`) port to `position = (tx, ty)` and a translation of zero.
 
-**Constructor functions** (Open Decision 1): `canvas::circle(position, radius, paint)`,
-`canvas::ellipse(position, radiusX, radiusY, paint)`,
-`canvas::arc(position, radius, startAngle, endAngle, paint)` and
-`canvas::text(position, text, font, fontSize, paint)`. Each is MFBASIC, returns the
-record with `id` empty and `transform` all-zero, and is the form the ported sites use.
+**No constructor functions** (Open Decision 1 of 172-A). A new program writes `MUT c AS
+canvas::Circle` and `WITH c { position := …, radius := …, paint := … }`, leaving `id`
+empty and `transform` all-zero; the man example for each of `Circle`, `Ellipse` and
+`Arc` shows that form. The ported sites keep their existing full constructors, with the
+fields renamed in place: a codemod of a constructor that already names every field is
+smaller and safer than rewriting 266 sites into a different statement shape.
 
 **Gate class: behaviour-preserving for ported scenes, plus one new behaviour** (the
 pivot), which gets its own test.
@@ -134,7 +136,7 @@ pivot), which gets its own test.
 - **Changed:** four records' placement fields; `Text.size` → `fontSize`.
 - **Changed meaning:** for these four, `paint.clip` and `paint.gradient` points are
   offsets from `position`; the transform pivots about `position`.
-- **Added:** four constructor functions.
+- **Added:** nothing.
 - **Unchanged:** the geometry header, both shaders, every pixel of a ported scene.
 
 ## Phases
@@ -165,8 +167,13 @@ Commit: —
 - [ ] `func_geo_build.rs`: the circle, ellipse and arc native builders read `position`
       and add it.
 - [ ] `func_measure_text.rs` and the glyph path read `fontSize`.
-- [ ] Add the four constructor functions (`func_circle.rs`, `func_ellipse.rs`,
-      `func_arc.rs`, `func_text.rs`), each with a man example, and register them.
+- [x] ~~Add the four constructor functions (`func_circle.rs`, `func_ellipse.rs`,
+      `func_arc.rs`, `func_text.rs`), each with a man example, and register them.~~ —
+      moot: Open Decision 1 of 172-A was answered "no constructor functions"
+      (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
+      → 1).
+- [ ] Rewrite the registry examples of `Circle`, `Ellipse` and `Arc` to the defaulted
+      `MUT` + `WITH` form, and render each with `mfb man canvas <Type>`.
 - [ ] Port the 266 sites. For each file, list the sites whose item is transformed and
       not at the origin, record the count in Corrections, and rewrite each matrix per §3.
 - [ ] `FIELD_KIND_TABLE` and its generated `.tsv`; the IR-embedding goldens.
@@ -210,7 +217,9 @@ None beyond 172-A's Open Decision 1.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-A, Open Decision 1:** no constructor functions. The task is struck as moot
+  and replaced by a task that shows the `MUT` + `WITH` idiom in the three records'
+  examples; §1, §3 and Compatibility are corrected to match.
 
 ## Summary
 

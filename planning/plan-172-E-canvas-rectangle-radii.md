@@ -148,8 +148,8 @@ and elliptical corners, `Center` binding), each with its own test and one new go
 
 ## Compatibility / Format Impact
 
-- **Added:** `canvas::BindTo`; `Rectangle`'s new fields; `canvas::rectangle` and
-  `canvas::picture` constructor functions.
+- **Added:** `canvas::BindTo`; `Rectangle`'s new fields. No constructor functions (Open
+  Decision 1 of 172-A).
 - **Removed:** `canvas::RoundedRect`; `x`/`y`/`w`/`h` on `Rectangle` and `Picture`.
 - **Unchanged:** every geometry kind, the header, the item block, both shaders.
 
@@ -188,7 +188,13 @@ Commit: —
       when the radii are not uniform.
 - [ ] `__canvas_hashItem`: drop the `RoundedRect` arm and renumber the literal start
       tags.
-- [ ] Add `canvas::rectangle` and `canvas::picture` with man examples.
+- [x] ~~Add `canvas::rectangle` and `canvas::picture` with man examples.~~ — moot: Open
+      Decision 1 of 172-A was answered "no constructor functions"
+      (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
+      → 1).
+- [ ] Rewrite `Rectangle`'s registry example to the defaulted `MUT` + `WITH` form (it
+      leaves `id`, `bind`, the four radii and `transform` at their zeros), and render it
+      with `mfb man canvas Rectangle`.
 - [ ] Port the 357 sites; each `RoundedRect` becomes a `Rectangle` with its
       `cornerRadius` in all four radii. A `cornerRadius` in `(0, 1]` is ported as the
       equivalent pixel value above 1 — or, where it is below 1 pixel, kept as a square
@@ -243,7 +249,9 @@ None beyond 172-A's Open Decision 2.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-A, Open Decision 1:** no constructor functions; the task is struck as moot
+  and replaced by the `MUT` + `WITH` example task.
+- **From 172-A, Open Decision 2:** answered as recommended; §3's flattening stands.
 
 ## Summary
 

@@ -16,7 +16,8 @@ Behavioral outcome of the whole plan: every type in `planning/new_canvas.md` abo
 `## Future` heading exists exactly as written there, every renderer (software, Metal,
 Vulkan) draws it, and every canvas program in the tree is ported to it.
 
-The letters are in implementation order:
+The letters are in implementation order, except N, which the alphabet appended and the
+dependency graph places second (A → N → B → C → … → M):
 
 | Letter | Delivers | Effort |
 |---|---|---|
@@ -33,6 +34,7 @@ The letters are in implementation order:
 | K | The `Shape` / `AutoShape` / `DrawItem` unions and `AutoPaint` | large |
 | L | `Picture` clipped to a shape; `PictureClip`, `PictureFit` | large |
 | M | Closeout: `.ai/canvas-threading.md`, cross-platform proof, the full gates | large |
+| **N** | An `ENUM` defaults to its first variant, so every shape record is defaultable and is built with `MUT` + `WITH` (Open Decision 1). Appended during execution; runs after A, before B | medium |
 
 This letter builds nothing. It runs the six cheapest experiments that could reshape the
 design, records what they found, and corrects the later letters where a premise fails.
@@ -368,8 +370,11 @@ Commit: —
 
 ### Phase 3 — Decisions recorded
 
-- [ ] Put Open Decisions 1–5 below to the owner and record each answer in place.
-- [ ] Apply each answer to the letter it names.
+- [x] Put Open Decisions 1–5 below to the owner and record each answer in place.
+      → `grep -c 'ANSWER:' planning/plan-172-A-canvas-shapes-premises.md` → 5.
+- [x] Apply each answer to the letter it names.
+      → 1: 172-D, E, F, L and new 172-N; 2: none needed; 3: 172-L; 4: plan-164-A;
+        5: none needed.
 
 Acceptance: no Open Decision in this file is unanswered.
   Check: `grep -c 'ANSWER:' planning/plan-172-A-canvas-shapes-premises.md` → 5
@@ -394,24 +399,53 @@ Commit: —
    `TopLeft`, radii `0.0` and `transform` all-zero, refined with `WITH`. This is the
    `canvas::fill` / `canvas::stroke` precedent for `Paint`. The alternative is no
    helpers, and every site lists every field. (172-D, E, F; depends on P6.)
+   **ANSWER: no constructor functions.** The owner, 2026-10-10: "all defaults should be
+   valid … a TopLeft is how it works now, a 0 is squared off … AutoPaint use* are all
+   false by default", and, on being told a constructor cannot omit a field, "YOU CAN!
+   USE WITH! ALL FIELDS HAVE DEFAULTS IN THE LANGUAGE!" The intended idiom is a
+   default-initialised record refined with `WITH`: `MUT r AS canvas::Rectangle`, then
+   `WITH r { position := …, size := …, paint := … }`. Measured against that
+   (`/tmp/plan-172-A/d1.mfb`, built with `mk.sh`): `MUT g AS canvas::Group` is accepted,
+   but `MUT blank AS canvas::Circle`, `MUT p AS canvas::Paint` and `MUT m AS
+   canvas::MouseEvent` are each `2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE … does
+   not have a defined default value`, because spec §4.10 gives an `ENUM` no default and
+   `Paint` holds enums (`src/ir/verify/resources.rs:is_defaultable`). So the statement
+   is true for scalars, strings, collections and records of them, and false for any
+   record holding an `ENUM`. **Applied:** the constructor-function tasks are struck from
+   172-D, E, F and L; new letter **172-N** makes an `ENUM` default to its first variant,
+   which makes `Paint`, `MouseEvent` and every shape record except `Text` defaultable. A
+   `UNION` and a `RES` handle keep having no default (there is no zero "which shape" or
+   "which font"), so `Text`, `AutoPaint` and `Picture` are built with their full
+   constructors; their other fields' zeros are still the valid ones.
 2. **Non-uniform and elliptical rectangle corners are flattened to a polygon.**
    Recommended (172-E). The outline is within 0.05 local pixels of the true curve, and a
    group or shape scale magnifies that error. The alternative is an exact field on three
    renderers with no closed-form dash length.
+   **ANSWER: flatten to a polygon, as recommended** (owner, 2026-10-10). 172-E stands as
+   written.
 3. **`paint.clip` on a `Picture` whose shape is not a plain rectangle.** The picture's
    one clip slot is taken by the shape outline. Recommended: `paint.clip` then applies to
    the shape's outline stroke only, and `present` raises a new error if such a picture
    also sets `paint.clip`, rather than silently ignoring it. The alternative is polygon
    intersection of two ring sets, which this plan does not build. (172-L.)
+   **ANSWER: intersect the two clips** (owner, 2026-10-10) — the alternative, not the
+   recommendation. **Applied:** 172-L now builds the intersection of the shape outline
+   and `paint.clip` as one edge set for the picture's clip slot; the raise, its error
+   code and its `rt-error` fixture are struck. See 172-L §3 and Corrections.
 4. **Ordering against plan-164 (`canvas::Path`) and plan-162 (text).** plan-164 appends
    a `DrawItem` variant and uses `canvas::Point`; it collides with this plan exactly as
    plan-150 does. Recommended: plan-164 takes plan-172 as a prerequisite, as plan-150 now
    does. plan-162 changes text shaping, not the item records, and can run either side.
+   **ANSWER: plan-164 takes plan-172 as a prerequisite, as recommended** (owner,
+   2026-10-10). **Applied:** a prerequisite row and a "re-derive against plan-172" note
+   are added to `planning/plan-164-A-bezier-types-reduction.md`.
 5. **`MouseEvent.overID` needs the worker's own geometry.** If P4 is confirmed the worker
    keeps a second geometry cache for the scene it last presented, built lazily on the
    first poll after a `present`. Recommended: accept that memory, and build it only when
    the mouse is enabled. The alternative is to resolve `overID` on the graphics thread
    and report the id as of the last rendered frame. (172-I.)
+   **ANSWER: the worker keeps its own geometry cache, as recommended** (owner,
+   2026-10-10). P4 is CONFIRMED, so 172-I stands as written.
 
 ## Corrections
 
@@ -432,6 +466,13 @@ Commit: —
   in `p2` (the `Probe` is installed in a group and presented each round). The `Probe`
   variant hashed through a companion `__canvas_hashItem` arm the probe added, not
   through a native arm; 172-K writes the real `AutoPaint` hash.
+- **Open Decision 1 was answered outside its two options, and its premise needed a
+  measurement.** The owner chose neither "helpers" nor "name every field": the idiom is
+  a defaulted record refined with `WITH`. That works today only for records with no
+  `ENUM` field (measured, see the ANSWER). No letter covered the gap, so **172-N** is
+  appended (the alphabet is append-only) with the edge A → N → B.
+- **Open Decision 3 took the alternative.** The plan said polygon intersection was
+  something "this plan does not build"; it now builds it, in 172-L.
 - **`/tmp/plan-172-A/wt` was removed with `--force`.** The task's bare
   `git worktree remove` refuses a worktree with uncommitted changes, and the probe's
   changes were never meant to be committed.
