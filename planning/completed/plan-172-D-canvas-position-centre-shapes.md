@@ -159,7 +159,7 @@ pivot), which gets its own test.
 
 Acceptance: the helper's three cases pass.
   Check: `cargo test --bin mfb canvas_placement` → pass (est. 3 min).
-Commit: —
+Commit: 9fdf1f57d
 
 ### Phase 2 — Records, builders and the port
 
@@ -192,7 +192,7 @@ Acceptance: every canvas pixel test passes with no PNG regenerated.
   Check: `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser --test
   rt_canvas_font --test rt_canvas_metal` → pass (est. 12 min); `git status --porcelain
   tests/golden/canvas` → empty.
-Commit: —
+Commit: 9fdf1f57d
 
 ### Phase 3 — The pivot, proved
 
@@ -212,7 +212,7 @@ Commit: —
 Acceptance: the pivot is the reference point, and a clipped or gradient-filled shape
 moves whole when only `position` changes.
   Check: `cargo test --test rt_canvas_rasteriser placement` → pass (est. 3 min).
-Commit: —
+Commit: 9fdf1f57d
 
 ## Validation Plan
 

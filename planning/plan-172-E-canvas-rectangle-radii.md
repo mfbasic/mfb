@@ -58,7 +58,9 @@ If plan-172-D is not complete, this letter cannot start, full stop.
 - **`Picture` keeps its own `id`, `paint` and `transform` and gets no `shape`, `clip`
   or `fit`.** That is 172-L.
 - **No new geometry kind and no shader change.** See §3.
-- **`canvas::Size` is unchanged.**
+- ~~**`canvas::Size` is unchanged.**~~ Corrected: `canvas::Size` becomes `width AS Float`,
+  `height AS Float` (owner's decision, 2026-10-10; see Corrections). Its two field
+  names and its use as `canvas::getSize`'s return type are unchanged.
 - **No pixel changes for a faithfully ported scene**, including every former
   `RoundedRect`.
 
@@ -173,6 +175,11 @@ Commit: —
 
 ### Phase 2 — Records, the two exact build paths, and the port
 
+- [ ] `canvas::Size` becomes Float: `mod.rs` (`width`, `height` as `Float`, description),
+      `func_get_size.rs` (both overloads write Floats), every program that reads
+      `getSize().width` / `.height` as an `Integer`, and the spec and man text that say
+      the size is whole pixels. A test that `canvas::getSize()` on a 900 × 640 surface
+      reads `900.0` and `640.0`.
 - [ ] `mod.rs`: add the `BindTo` enum; rebuild `Rectangle` and `Picture` without
       `rect_props`; delete `RoundedRect` and its `DrawItem` variant.
 - [ ] Amend `draw_item_variant_set_is_frozen` to the ten remaining names. The four
@@ -249,6 +256,15 @@ None beyond 172-A's Open Decision 2.
 
 ## Corrections
 
+- **`canvas::Size` held Integers, and a rectangle's size is fractional.** §1's non-goal
+  said `canvas::Size` is unchanged, and `planning/new_canvas.md` gives `Rectangle` and
+  `Picture` a `size AS canvas::Size`. But `Size` was `width AS Integer`, `height AS
+  Integer` (`grep -n 'name: "Size"' -A12 src/codegen/builtins/canvas/mod.rs`), the return
+  type of `canvas::getSize` and nothing else, while rectangles have Float extents that
+  the tree depends on (`7.25`, `9.125`, `0.001` in `canvas_geo_native_matrix.mfb`; the
+  "rectangles at a step" pixel scenes). Put to the owner on 2026-10-10 with three
+  options; the answer: **make `Size` Float**. `new_canvas.md` stands as written, there is
+  one size type, and `canvas::getSize` returns Floats. Phase 2 gains the task.
 - **From 172-A, Open Decision 1:** no constructor functions; the task is struck as moot
   and replaced by the `MUT` + `WITH` example task.
 - **From 172-A, Open Decision 2:** answered as recommended; §3's flattening stands.
