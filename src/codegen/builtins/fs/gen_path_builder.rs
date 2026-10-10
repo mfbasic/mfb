@@ -928,6 +928,11 @@ pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
     let part_byte = vregs.next();
     let last = vregs.next();
     let parts_data = vregs.next();
+    // bug-983: the index of the last absolute component (0 when there is none).
+    // Pass 2 starts there: everything before it is discarded by the absolute
+    // restart, and copying it first would write past an allocation sized for the
+    // final path alone.
+    let first = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&parts, abi::return_register()),
@@ -945,6 +950,7 @@ pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
         abi::add_immediate(&parts_data, &parts_data, COLLECTION_HEADER_SIZE),
         abi::move_immediate(&total, "Integer", "0"),
         abi::move_immediate(&last, "Integer", "0"),
+        abi::move_immediate(&first, "Integer", "0"),
         abi::move_immediate(&index, "Integer", "0"),
         abi::add_immediate(&entry, &parts, COLLECTION_HEADER_SIZE),
         abi::label(&length_loop),
@@ -966,6 +972,7 @@ pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
         abi::branch(&length_add),
         abi::label(&length_absolute),
         abi::move_immediate(&total, "Integer", "0"),
+        abi::move_register(&first, &index),
         abi::label(&length_add),
         abi::add_registers(&total, &total, &part_len),
         abi::add_registers(&part_base, &part_base, &part_len),
@@ -1007,10 +1014,15 @@ pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
         abi::move_immediate(&scratch, "Integer", &entry_size),
         abi::multiply_registers(&scratch, &capacity, &scratch),
         abi::add_registers(&data_base, &data_base, &scratch),
+        // Start at the last absolute component (bug-983). Pass 1 sized the block
+        // for the path from there on, so no earlier component may touch it.
+        abi::move_immediate(&scratch, "Integer", &entry_size),
+        abi::multiply_registers(&scratch, &first, &scratch),
         abi::add_immediate(&lookup, &parts, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&lookup, &lookup, &scratch),
         abi::add_immediate(&out_base, &result, 8),
         abi::move_register(&cursor, &out_base),
-        abi::move_immediate(&index, "Integer", "0"),
+        abi::move_register(&index, &first),
         abi::label(&build_loop),
         abi::compare_registers(&index, &count),
         abi::branch_ge(&build_done),
