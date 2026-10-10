@@ -1,9 +1,9 @@
 IMPORT collections
 
-' bug-988 guard: a generic `T` slot accepts a union VARIANT only at a
-' top-level `T` bound to that union. A `List OF Square` value at a nested
-' `List OF T` (no conversion exists), a variant of an unrelated record element
-' type, and a value of a different union all stay argument mismatches.
+' bug-988 guard: a generic `T` slot bound to a union accepts that union's
+' VARIANTS (and, since bug-989, a list of them). A variant of an unrelated
+' record element type and a value of a different union stay argument
+' mismatches.
 
 TYPE Circle
   r AS Float
@@ -24,11 +24,9 @@ END UNION
 
 FUNC main AS Integer
   LET shapes AS List OF Shape = [Circle[1.0]]
-  LET sq AS List OF Square = [Square[2.0]]
-  LET listVar AS List OF Shape = collections::append(shapes, sq)
   LET circles AS List OF Circle = [Circle[1.0]]
   LET notUnion AS List OF Circle = collections::append(circles, Square[2.0])
   LET b AS Boxy = Square[3.0]
   LET otherUnion AS List OF Shape = collections::append(shapes, b)
-  RETURN len(listVar) + len(notUnion) + len(otherUnion)
+  RETURN len(notUnion) + len(otherUnion)
 END FUNC

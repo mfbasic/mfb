@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: tests/syntax/types/types-union-container-covariance-invalid (new; name suggested), plus `TypeEnv::compatible` unit tests beside `resource_union_parameter_widening_is_directional` in `src/ir/verify/tests.rs`
+Status: Fixed (bs18-agent-j) by CONVERSION, per the owner decision below. Stopped, with evidence: `Set` (no `Set OF <union>` type exists) and collections of `RES` elements (unchanged, still wrong at run time)
+Regression Test: tests/rt-behavior/types/union-container-conversion-rt, tests/syntax/types/types-union-subsumption-one-way-invalid, `codegen::registry::tests::a_top_level_variable_bound_to_a_union_accepts_its_variant`
 
 A collection **value** whose element type is a union variant is accepted where the same
 collection over the union is expected, with no conversion. Take `UNION Shape  Circle  Square` and
@@ -480,3 +480,100 @@ only *because of* the leak (a literal's bottom-up type is `List OF <first varian
 reject valid programs. The IR-verifier change itself is small and mechanical. Top-level union
 subsumption, literals, resource single-handle widening, and every non-union compatibility rule are
 left untouched.
+
+## Resolution (convert, one direction)
+
+The "reject" Fix Design above is superseded by the owner decision. What shipped:
+
+- **Lowering converts.** `wrap_union_value` (the single coercion every expected-type
+  position gets since bug-990) now calls `union_conversion`. A variant is wrapped as
+  before. A `List` whose elements convert, or a `Map` (same key type) whose values do,
+  at any nesting depth (`TypeIndex::union_collection_converts`), becomes a call that
+  builds the union form: `collections.transform(value, $lambdaN)` for a list, where
+  `$lambdaN` is a lifted `(value AS Square) AS Shape` returning the `UnionWrap`; and
+  for a map a lifted function that sets each key to its converted value. One converter
+  is lifted per `(actual, expected)` pair (`LowerContext::union_converters`). The
+  inline-`TRAP` slot (`wrap_trap_slot_value`) uses the same function. A value already
+  of the expected type gets no call. A list literal is lowered against the expected
+  element type directly, and a map literal against its own annotation (it used to
+  wrap its entries inside a literal still typed as the variant map), so neither is
+  converted twice.
+- **One direction.** Nothing was added for union → variant. `tests/syntax/types/
+  types-union-subsumption-one-way-invalid` pins: a `Shape` at a `Square` parameter,
+  binding, assignment, constructor field and `RETURN`; a `List OF Shape`, `Map OF
+  String TO Shape` and `List OF List OF Shape` at the variant form's binding,
+  parameter, field, assignment and `RETURN`; and a sibling (`Circle` / `List OF
+  Circle` where `Square` / `List OF Square` is expected). Each is the position's
+  existing mismatch rule.
+- **The IR verifier no longer accepts an unconverted collection.**
+  `TypeEnv::compatible` applies the union arm to the whole value only; inside a
+  `List`/`Map`/`Result` the element types must already agree. A source-lowered
+  program always converts, so this only bites a decoded package that carries the old
+  untagged form. The shape pass keeps accepting the variant collection: that is now
+  the language rule.
+- **Generic calls: one rule (replaces bug-988's literal relaxation).** The registry
+  unifier marks each position of a parameter `Subsuming` (a whole argument, a `List`
+  element, a `Map` value — where lowering can convert) or `Invariant` (`Set` element,
+  `Map` key, callable, `Result`, user generic, thread slot). A variable bound to a
+  union form accepts its variant form at a `Subsuming` position:
+  `append(shapes, squares)` is `T = Shape`, the argument's expected type is `List OF
+  Shape`, and lowering converts it. `union_literal_relaxed_arg_types` and
+  `union_literal_call_types` are deleted: a list literal of variants is accepted by
+  the same rule and lowered against the union's list. `resolved_parameter_type` now
+  lets the arguments decide before the expected-return seed, as the call's own type
+  is decided; seeding first would have converted an argument for a call still typed
+  by its variant form, which the binding then converted again.
+
+### Stopped cases (evidence)
+
+- **`Set`.** No `Set OF <union>` can be declared: `LET su AS Set OF Shape = ss`
+  and `FUNC count(xs AS Set OF Shape)` are `2-203-0061 TYPE_REQUIRES_COMPARABLE`
+  ("Set element type requires a comparable type, got `Shape`"), on main and here
+  (`/tmp/bs18j/setf.mfb`). So there is no position that expects one, forward or
+  reverse. Nothing was changed.
+- **Collections of `RES` elements** (`List OF RES fs::File` where `List OF RES Handle`
+  is expected). Not converted; behavior is exactly main's (builds, `MATCH` fires no
+  arm: `/tmp/bug989/rescov`). I tried the conversion (peeling `RES` in
+  `union_conversion`): it is functionally right — `MATCH` takes the `fs::File` arm at
+  an argument and at a binding, the source list's handle stays open and writable, no
+  double close — but its temporaries are never freed: `/tmp/bs18j/resl.mfb`, 102
+  conversions, `--debug` 315 allocs / 110 frees / 16,560 B live, about 2 blocks and
+  160 B per conversion (the converted list, which no statement frees because an
+  aggregate of resources is not a temporary, bug-999; and each element's box,
+  bug-1012). It breaks the "free it like any other temporary" requirement, so it is
+  not shipped. The verifier keeps its union arm for `RES` elements so this form is not
+  newly rejected. Decision needed: ship the correct-but-leaking conversion now, or
+  wait for bug-999/bug-1012.
+
+### Runtime proof
+
+- `tests/rt-behavior/types/union-container-conversion-rt`: a `List OF Square`
+  variable and call result at `LET`, `MUT` assignment, argument, `RETURN`,
+  constructor field (positional and named), `WITH` field, list element, global
+  initializer and global assignment; `List OF List OF Square`; `Map OF String TO
+  Square` (binding and argument); `Map OF String TO List OF Square`; and
+  `append(shapes, squares)`. Every element `MATCH`es `Square` and prints its own
+  `side`; the sources are unchanged. Passes at `MFB_OPT=0` and `MFB_OPT=3`. Main: the
+  `append` is `TYPE_CALL_ARGUMENT_MISMATCH`, and without that line the program builds
+  and raises `ErrOutOfMemory` in `describe` (debugger: `be any`, `show error`).
+- `--debug` (`/tmp/bs18j/cv_*.mfb`, a 2-element list, N = 100 and 200 iterations),
+  allocs / frees / live: argument 504/504/0 and 1004/1004/0; `LET` the same;
+  assignment 507/507 and 1007/1007; `RETURN` 504/504 and 1004/1004; constructor
+  604/604 and 1204/1204; map 1404/1404 and 2804/2804; nested 2608/2608 and 5208/5208;
+  `append` 904/904 and 1804/1804. `double_free_skips 0` everywhere.
+- **No copy for a union-typed list:** the same loop passing a `List OF Shape` is 6
+  allocs / 6 frees at N = 100 and at N = 200.
+- Inline `TRAP` (`LET a AS List OF Shape = maybe(5) TRAP …`, success, `RECOVER` and
+  assignment forms), a template result (`idOf(squares(20.0))`), a `transform` result
+  and a `FOR EACH` over a converting `RETURN` all print the right arms
+  (`/tmp/bs18j/tp.mfb`).
+
+## Golden impact
+
+- `scripts/artifact-gate.sh <mfb> all`: 1655 tests, 2316 goldens, 0 diffs.
+  `scripts/diag-set-diff.sh`: 653 fixtures, all SAME.
+- `tests/syntax/collections/func_collection_append_union_list_var_invalid` (added by
+  bug-988 on this branch) pinned `append(shapes, squares)` as a mismatch. The owner
+  decision makes that call valid, so the line is removed from the fixture and its
+  golden; its other two cases are unchanged.
+- New goldens: the two new fixtures.

@@ -26,7 +26,8 @@
 //! struct literal plus a sidecar resolver.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 /// The context handed to a builder-driven `AbiLower` body (`AbiInline`/`AbiFunction`).
@@ -591,11 +592,14 @@ impl RegistryFunction {
             }
 
             let mut bindings = BTreeMap::new();
+            let pinned = RefCell::new(BTreeSet::new());
             let unifies = implementation
                 .params
                 .iter()
                 .zip(call.args.iter())
-                .all(|(param, arg)| unify_with_kinds(&param.ty, arg, &mut bindings, strict, kinds));
+                .all(|(param, arg)| {
+                    unify_with_kinds(&param.ty, arg, &mut bindings, strict, kinds, &pinned)
+                });
             if !unifies {
                 continue;
             }
@@ -2697,21 +2701,28 @@ fn unify(
     bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
 ) -> bool {
-    unify_with_kinds(pattern, concrete, bindings, strict, &NoTypeKinds)
+    unify_with_kinds(
+        pattern,
+        concrete,
+        bindings,
+        strict,
+        &NoTypeKinds,
+        &RefCell::new(BTreeSet::new()),
+    )
 }
 
-/// [`unify`] with the caller's declared-type oracle. `kinds` answers whether a union
-/// accepts a variant ([`TypeKinds::union_accepts`]): a type variable that occurs as a
-/// WHOLE parameter (`append`'s item `T`), already bound to a union, accepts a value of
-/// one of that union's variants and stays bound to the union, so the argument's expected
-/// type is the union and lowering wraps it (bug-988). Nowhere else — see
-/// [`VarPosition`].
+/// [`unify`] with the caller's declared-type oracle and the call's pinned-variable
+/// set. `kinds` answers whether a union accepts a variant
+/// ([`TypeKinds::union_accepts`]); `pinned` must be the same set for every parameter
+/// of one overload attempt, like `bindings`. Together they carry union-variant
+/// subsumption into a generic call, in ONE direction — see [`VarPosition`].
 fn unify_with_kinds(
     pattern: &ParameterType,
     concrete: &ParameterType,
     bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
     kinds: &dyn TypeKinds,
+    pinned: &RefCell<BTreeSet<Symbol>>,
 ) -> bool {
     unify_at(
         pattern,
@@ -2721,40 +2732,83 @@ fn unify_with_kinds(
         NothingBinding::Allowed,
         Position {
             kinds,
-            var: VarPosition::WholeParameter,
+            var: VarPosition::Subsuming,
+            pinned,
         },
     )
 }
 
-/// Where a type variable sits in the parameter being unified (bug-988).
+/// Whether a value met at this position of a parameter can be converted to its
+/// union by lowering (bug-988, bug-989).
 ///
-/// Union-variant subsumption is a per-VALUE conversion: lowering realizes it by
-/// wrapping that one value (`UnionWrap`). A variable that IS the whole parameter
-/// (`append(List OF T, T)`'s item) receives exactly one value, so a variant there can
-/// be wrapped into the union `T` is bound to. Inside a container or callable
-/// (`List OF T`, `FUNC(T) AS U`) the variant would have to be converted element by
-/// element, and no such conversion exists: accepting `append(shapes, squares)` with
-/// `squares AS List OF Square` stores untagged records in a `List OF Shape`.
+/// Union-variant subsumption goes one way, variant to union, and lowering realizes
+/// it at exactly these positions: a whole argument is wrapped (`UnionWrap`), and a
+/// `List` element or `Map` value is wrapped in a converted copy of the collection,
+/// at every nesting level (`ir::lower::union_conversion`). So a type variable met at
+/// a `Subsuming` position (`append`'s item `T`, or the `T` of its `List OF T`) and
+/// already bound to a union accepts a variant of it and stays bound to the union:
+/// the argument's expected type is then the union form and lowering converts it.
+///
+/// Everywhere else a variable is `Invariant`: a `Set` element or `Map` key (a union
+/// is not comparable, so no union form exists), a callable's parameters and result
+/// (callable types are invariant), a `Result`, a user generic's argument and a
+/// thread slot. No conversion exists there, so only the bound type itself matches.
+///
+/// The reverse never holds: a variable bound to a VARIANT does not accept its union
+/// (a `Shape` is not a `Square`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum VarPosition {
-    WholeParameter,
-    Nested,
+    Subsuming,
+    Invariant,
 }
 
-/// The per-position context [`unify_at`] threads: the declared-type oracle and
-/// whether a variable met here is the whole parameter.
+/// The per-position context [`unify_at`] threads: the declared-type oracle, whether
+/// a variable met here is at a convertible position, and the variables that have had
+/// an `Invariant` occurrence.
 #[derive(Clone, Copy)]
 struct Position<'k> {
     kinds: &'k dyn TypeKinds,
     var: VarPosition,
+    pinned: &'k RefCell<BTreeSet<Symbol>>,
 }
 
 impl<'k> Position<'k> {
+    /// A `List` element or `Map` value: as convertible as its collection is.
+    fn element(self) -> Position<'k> {
+        self
+    }
+
     fn nested(self) -> Position<'k> {
         Position {
-            var: VarPosition::Nested,
+            var: VarPosition::Invariant,
             ..self
         }
+    }
+
+    /// Record that `name` has now been bound or matched at an `Invariant`
+    /// position, so its binding can no longer be widened to a union.
+    fn pin_if_invariant(self, name: Symbol) {
+        if self.var == VarPosition::Invariant {
+            self.pinned.borrow_mut().insert(name);
+        }
+    }
+}
+
+/// Whether a value of type `from` converts to `to` by union-variant subsumption:
+/// `to` is a union with `from` among its variants, or both are `List`s (or `Map`s of
+/// one key type) whose elements (values) convert. One direction only, and never
+/// true for equal types.
+fn converts_to_union_form(kinds: &dyn TypeKinds, from: &ParameterType, to: &ParameterType) -> bool {
+    match (from, to) {
+        (ParameterType::ListOf(from), ParameterType::ListOf(to)) => {
+            converts_to_union_form(kinds, from, to)
+        }
+        (ParameterType::MapOf(from_key, from), ParameterType::MapOf(to_key, to)) => {
+            from_key == to_key && converts_to_union_form(kinds, from, to)
+        }
+        (ParameterType::Res(from), _) => converts_to_union_form(kinds, from, to),
+        (_, ParameterType::Res(to)) => converts_to_union_form(kinds, from, to),
+        _ => from != to && kinds.union_accepts(to, from),
     }
 }
 
@@ -2837,25 +2891,32 @@ fn unify_at(
                 // message arg, instead of failing `resource_base_eq(Unknown, Integer)`.
                 Some(ParameterType::Unknown) => {
                     bindings.insert(*name, concrete.clone());
+                    at.pin_if_invariant(*name);
                     true
                 }
                 // A re-occurring variable must match its binding — but resource element
                 // types compare STATE/ownership-agnostically (bug-427): a bound element
                 // `Handle STATE Cursor` accepts an item spelled `Handle`
                 // (`resource_base_eq`, plain `==` for every non-resource type).
-                //
-                // bug-988: a variable that is the whole parameter, bound to a union,
-                // also accepts a value of one of its variants, and stays bound to the
-                // union — `append(List OF Shape, Square)` is `T = Shape`, so the item's
-                // expected type is `Shape` and lowering wraps it. Never in a nested
-                // position ([`VarPosition`]).
-                Some(bound) => {
-                    resource_base_eq(bound, concrete)
-                        || (at.var == VarPosition::WholeParameter
-                            && at.kinds.union_accepts(bound, concrete))
+                Some(bound) if resource_base_eq(bound, concrete) => {
+                    at.pin_if_invariant(*name);
+                    true
                 }
+                // bug-988 / bug-989: at a convertible position, a variable bound to a
+                // union form accepts its variant form and stays bound to the union —
+                // `append(List OF Shape, Square)` and `append(List OF Shape, List OF
+                // Square)` are both `T = Shape`. The argument's expected type is then
+                // the union form, and lowering converts it ([`VarPosition`]).
+                Some(bound)
+                    if at.var == VarPosition::Subsuming
+                        && converts_to_union_form(at.kinds, concrete, bound) =>
+                {
+                    true
+                }
+                Some(_) => false,
                 None => {
                     bindings.insert(*name, concrete.clone());
+                    at.pin_if_invariant(*name);
                     true
                 }
             }
@@ -2866,7 +2927,7 @@ fn unify_at(
             bindings,
             strict,
             NothingBinding::Allowed,
-            at.nested(),
+            at.element(),
         ),
         (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => unify_at(
             elem,
@@ -2890,7 +2951,7 @@ fn unify_at(
                 bindings,
                 strict,
                 NothingBinding::Allowed,
-                at.nested(),
+                at.element(),
             )
         }
         (
@@ -3733,6 +3794,33 @@ pub(crate) fn resolved_parameter_type(
     kinds: &dyn TypeKinds,
 ) -> Option<ParameterType> {
     let function = registry().resolve_func(qualified)?.function;
+    // bug-989: the ARGUMENTS decide first, exactly as the call's own type is
+    // decided (the return-type oracle is never seeded). The seed only breaks a tie
+    // or fills an unresolved variable. Seeding first let a declared union form
+    // re-type an argument the call's type still described by its variant form —
+    // `LET xs AS List OF Shape = append(squares, Square[1.0])` would have converted
+    // `squares` for a call still typed `List OF Square`, which the binding then
+    // converted a second time.
+    let unseeded = resolved_parameter_type_seeded(function, index, arg_types, None, kinds);
+    if unseeded
+        .as_ref()
+        .is_some_and(|type_| !contains_unknown(type_))
+    {
+        return unseeded;
+    }
+    if expected_return.is_none() {
+        return unseeded;
+    }
+    resolved_parameter_type_seeded(function, index, arg_types, expected_return, kinds)
+}
+
+fn resolved_parameter_type_seeded(
+    function: &RegistryFunction,
+    index: usize,
+    arg_types: &[ParameterType],
+    seed: Option<&ParameterType>,
+    kinds: &dyn TypeKinds,
+) -> Option<ParameterType> {
     let mut agreed: Option<ParameterType> = None;
     for implementation in &function.implementations {
         let required = implementation
@@ -3744,13 +3832,14 @@ pub(crate) fn resolved_parameter_type(
             continue;
         }
         let mut bindings = BTreeMap::new();
-        if let Some(expected) = expected_return {
+        let pinned = RefCell::new(BTreeSet::new());
+        if let Some(expected) = seed {
             let pattern = match &implementation.return_type {
                 ParameterType::Arg(n) => implementation.params.get(*n).map(|param| &param.ty),
                 other => Some(other),
             };
             if let Some(pattern) = pattern {
-                if !unify_with_kinds(pattern, expected, &mut bindings, false, kinds) {
+                if !unify_with_kinds(pattern, expected, &mut bindings, false, kinds, &pinned) {
                     continue;
                 }
             }
@@ -3759,7 +3848,9 @@ pub(crate) fn resolved_parameter_type(
             .params
             .iter()
             .zip(arg_types.iter())
-            .all(|(param, arg)| unify_with_kinds(&param.ty, arg, &mut bindings, false, kinds))
+            .all(|(param, arg)| {
+                unify_with_kinds(&param.ty, arg, &mut bindings, false, kinds, &pinned)
+            })
         {
             continue;
         }
@@ -3780,6 +3871,25 @@ pub(crate) fn resolved_parameter_type(
         }
     }
     agreed
+}
+
+/// Whether `type_` still has an unresolved (`Unknown`) part anywhere.
+fn contains_unknown(type_: &ParameterType) -> bool {
+    match type_ {
+        ParameterType::Unknown => true,
+        ParameterType::ListOf(inner)
+        | ParameterType::SetOf(inner)
+        | ParameterType::ResultOf(inner)
+        | ParameterType::Res(inner) => contains_unknown(inner),
+        ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+            contains_unknown(key) || contains_unknown(value)
+        }
+        ParameterType::UserOf(_, args) => args.iter().any(contains_unknown),
+        ParameterType::Func(params, ret, _) => {
+            params.iter().any(contains_unknown) || contains_unknown(ret)
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
@@ -6140,8 +6250,8 @@ mod tests {
             ),
             None,
         );
-        // (b) A `List OF V` VALUE at the nested `List OF T` stays rejected: no
-        // conversion turns its untagged records into union elements.
+        // (b) bug-989: a `List OF V` VALUE at `append`'s `List OF T` is accepted
+        // too, with the union's list as its expected type, so lowering converts it.
         assert_eq!(
             resolved_parameter_type(
                 "collections.append",
@@ -6150,7 +6260,7 @@ mod tests {
                 Some(&union_list),
                 &UnionUOverV,
             ),
-            None,
+            Some(union_list.clone()),
         );
         assert_eq!(
             resolve_call_typed_with_kinds(
@@ -6159,7 +6269,7 @@ mod tests {
                 true,
                 &UnionUOverV,
             ),
-            None,
+            Some(union_list.clone()),
         );
         // (c) A type that is not a variant of `U` stays rejected.
         assert_eq!(
@@ -6183,8 +6293,8 @@ mod tests {
             ),
             Some(draw_items),
         );
-        // No least upper bound: a variable bound to the VARIANT does not widen to a
-        // union that arrives later (`reduce`'s variant-first order stays rejected).
+        // One direction only: a variable bound to the VARIANT does not accept the
+        // union.
         assert_eq!(
             resolve_call_typed_with_kinds(
                 "collections.append",

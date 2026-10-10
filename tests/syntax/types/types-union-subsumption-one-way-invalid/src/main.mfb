@@ -1,0 +1,71 @@
+IMPORT collections
+
+' bug-989: union-variant subsumption goes ONE way. A variant (or a collection
+' of variants) is accepted where its union (or the union's collection) is
+' expected. The reverse is never accepted: a `Shape` is not a `Square`, and a
+' `List OF Shape` is not a `List OF Square`. A union value becomes a variant
+' only through MATCH. A sibling variant is not accepted either.
+
+TYPE Square
+  side AS Float
+END TYPE
+
+TYPE Circle
+  radius AS Float
+END TYPE
+
+UNION Shape
+  Square
+  Circle
+END UNION
+
+TYPE Tile
+  q AS Square
+  qs AS List OF Square
+END TYPE
+
+FUNC area(q AS Square) AS Float
+  RETURN q.side * q.side
+END FUNC
+
+FUNC total(qs AS List OF Square) AS Integer
+  RETURN len(qs)
+END FUNC
+
+FUNC narrowed(s AS Shape) AS Square
+  RETURN s
+END FUNC
+
+FUNC narrowedList(shapes AS List OF Shape) AS List OF Square
+  RETURN shapes
+END FUNC
+
+FUNC main AS Integer
+  LET s AS Shape = Circle[radius := 1.0]
+  LET shapes AS List OF Shape = [Square[side := 1.0], Circle[radius := 2.0]]
+  LET shapeMap AS Map OF String TO Shape = Map OF String TO Shape { "a" := Square[side := 1.0] }
+  LET nested AS List OF List OF Shape = [shapes]
+  LET circles AS List OF Circle = [Circle[radius := 3.0]]
+
+  ' A union where its variant is expected.
+  LET a AS Float = area(s)
+  LET q AS Square = s
+  MUT m AS Square = Square[side := 1.0]
+  m = s
+  LET t AS Tile = Tile[s, [Square[side := 1.0]]]
+
+  ' A collection of the union where the variant's collection is expected.
+  LET n AS Integer = total(shapes)
+  LET qs AS List OF Square = shapes
+  LET qm AS Map OF String TO Square = shapeMap
+  LET qn AS List OF List OF Square = nested
+  LET t2 AS Tile = Tile[Square[side := 1.0], shapes]
+  MUT squares AS List OF Square = [Square[side := 1.0]]
+  squares = shapes
+
+  ' A sibling variant, single and in a collection.
+  LET c AS Float = area(Circle[radius := 1.0])
+  LET cs AS List OF Square = circles
+  LET cn AS Integer = total(circles)
+  RETURN n
+END FUNC

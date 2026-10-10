@@ -56,6 +56,20 @@ result are wrapped exactly as an identifier or a variant constructor is. The wra
 is applied once, by `lower_expression_with_expected` itself (architecture `ir`,
 "Implicit union auto-wrap"). [[src/ir/lower.rs:lower_expression_with_expected]]
 
+The same step converts a **collection** of variants: a `List` whose element type,
+or a `Map` whose value type, is a variant of the expected element (value) type,
+at any nesting depth, is replaced by a call that builds the union form — a
+`collections::transform` over a lifted converter for a list, a lifted
+set-each-key loop for a map (`union_conversion`). It is one O(n) copy per
+position; the call's result is a statement temporary like any other. A value
+that already has the expected type gets no call. A list literal is lowered
+against the expected element type directly and a map literal against its own
+annotation, so neither is converted twice. The conversion is one-directional: a
+union form at a variant position is not converted, and the verifier rejects it.
+A collection of `RES` elements is not converted (its copy would have no owner to
+free it), and is the one container form the verifier still accepts unconverted.
+[[src/ir/lower.rs:union_conversion]] [[src/ir/lower.rs:union_converter]]
+
 These positions are **synthesized bottom-up only** (expected is never consulted):
 
 - **Binary and unary operands.** The `Binary`/`Unary` arms type each operand
@@ -96,30 +110,33 @@ Rule 3 is what gives an empty `[]` written at a generic parameter an element
 type. Without it the literal lowers as `List OF Unknown` and the collections
 lowering has no element type to check the item against.
 
-Rule 3 also carries union-variant subsumption into a generic call. A type
-variable that is a **whole** parameter (`append`'s item `T`), once bound to a
-union, accepts a value of one of that union's variants and stays bound to the
-union: `collections::append(shapes, Square[2.0])` with `shapes AS List OF Shape`
-resolves `T = Shape`, so the item's expected type is `Shape` and it lowers
-wrapped. The registry asks the caller's declared-type oracle
-(`TypeKinds::union_accepts`) for the membership, the same membership lowering
-wraps by. A variable **nested** in a parameter (`List OF T`, `FUNC(T) AS U`) never
-accepts a variant: a `List OF Square` value at `append`'s second `List OF T` stays
-a `TYPE_CALL_ARGUMENT_MISMATCH`, because nothing converts its untagged elements.
-There is no least upper bound either: a variable first bound to a variant does
-not widen to a union that a later argument brings.
-[[src/codegen/registry/mod.rs:unify_with_kinds]] [[src/codegen/builtins/mod.rs:TypeKinds]]
+Rule 3 also carries union-variant subsumption into a generic call, in the one
+direction it goes (variant to union). The registry's unifier knows, for each
+position of a parameter, whether lowering can convert a value there
+(`VarPosition`): a whole argument, a `List` element and a `Map` value are
+`Subsuming`; a `Set` element, a `Map` key, a callable's parameters and result, a
+`Result`, a user generic's argument and a thread slot are `Invariant`. It asks the
+caller's declared-type oracle (`TypeKinds::union_accepts`) for union membership,
+the same membership lowering wraps by.
+[[src/codegen/registry/mod.rs:unify_with_kinds]] [[src/codegen/registry/mod.rs:VarPosition]] [[src/codegen/builtins/mod.rs:TypeKinds]]
 
-A non-empty list **literal** at a generic `List OF T` parameter types bottom-up
-from its first element (`[Square[2.0]]` is `List OF Square`). When that alone
-keeps the call from resolving, the literal is retyped `List OF Unknown` so the
-other arguments decide `T`, and the call is accepted when every element is the
-element type the call then gives that position, or one of its variants:
-`collections::append(shapes, [Square[2.0], Circle[3.0]])` lowers the literal as a
-`List OF Shape` with each element wrapped. The shape pass, the return-type oracle
-and rule 3 all apply the same relaxation, and so does monomorphization's typing
-of a built-in call, so a template argument can be inferred from such a call.
-[[src/codegen/builtins/mod.rs:union_literal_relaxed_arg_types]] [[src/ir/lower.rs:union_literal_call_types]]
+- A variable bound to a union form accepts its variant form at a `Subsuming`
+  position and stays bound to the union. `collections::append(shapes, Square[2.0])`
+  and `collections::append(shapes, squares)` (`squares AS List OF Square`) both
+  resolve `T = Shape` with `shapes AS List OF Shape`, so the argument's expected
+  type is `Shape` (it is wrapped) or `List OF Shape` (it is converted).
+- Never the reverse: a variable bound to a variant does not accept its union,
+  and a union never satisfies a variant.
+
+`resolved_parameter_type` lets the ARGUMENTS decide first, as the call's own type
+is decided, and consults the call's expected type only to break a tie or fill an
+unresolved variable. Seeding first would let a declared union form re-type an
+argument that the call's type still describes by its variant form.
+[[src/codegen/registry/mod.rs:resolved_parameter_type]]
+
+A list **literal** needs no rule of its own: `[Square[2.0], Circle[3.0]]` types
+bottom-up as `List OF Square`, is accepted at `append`'s `List OF T` by the first
+bullet, and is then lowered against `List OF Shape`, element by element.
 
 ### Overload resolution
 
@@ -232,7 +249,11 @@ The **IR verifier** applies these rules in order:
 
 1. Accept exact equality after peeling `RES`.
 2. Compare `ListOf` and `ResultOf` elements recursively; compare `MapOf` keys
-   and values recursively.
+   and values recursively. The recursion uses rules 1, 3 and 4 only: rule 5 is
+   not applied to an element, because lowering converts a collection of variants
+   to its union form before the verifier sees it, and an unconverted one holds
+   untagged elements. (An element marked `RES` keeps rule 5: resource
+   collections are not converted.)
 3. Accept function types with equal arity, isolation flag, and return type when
    corresponding parameter types are equal after peeling their `RES` markers.
 4. Compare rendered identities, allowing removal of a **built-in** package
@@ -240,7 +261,8 @@ The **IR verifier** applies these rules in order:
    when they share a leaf name (`tcp.Socket` and `udp.Socket`). User-package
    qualifiers are not erased.
 5. Accept an actual variant of the expected union, using its qualified identity
-   or built-in bare leaf. Otherwise reject.
+   or built-in bare leaf — for the whole value only (see rule 2). Otherwise
+   reject.
 
 Other composites, including `SetOf` and thread handles, therefore require exact
 structural equality at this seam unless a later identity rule matches them.
@@ -255,7 +277,9 @@ peeling `RES`) and return is expected. The reverse, an ordinary callable in an
 isolated slot, still mismatches.
 [[src/ir/verify/compat.rs:compatible]] [[src/ir/verify/compat.rs:assignable]]
 
-The **HIR shape predicate** additionally peels a top-level `STATE` clause,
+The **HIR shape predicate** is the source-level relation, so it does accept a
+variant inside a `List` or `Map` value position (the conversion above makes it
+true). It additionally peels a top-level `STATE` clause,
 recurses through sets and thread-handle components, and compares callable
 parameters contravariantly and returns covariantly. It permits an isolated
 callable in a non-isolated expected slot. Its nominal branch uses built-in-only

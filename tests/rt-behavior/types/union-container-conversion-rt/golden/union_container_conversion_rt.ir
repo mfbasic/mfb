@@ -1,0 +1,405 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "union_container_conversion_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "globalSquares", "line": 73, "visibility": "public", "mutable": false, "type": "List OF Square", "value": { "kind": "list", "type": "List OF Square", "values": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "70.0" }] }] } },
+  { "name": "globalShapes", "line": 74, "visibility": "public", "mutable": false, "type": "List OF Shape", "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "global", "name": "globalSquares" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } },
+  { "name": "globalMut", "line": 75, "visibility": "public", "mutable": true, "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 10,
+    "visibility": "public",
+    "name": "Circle",
+    "fields": [
+    { "visibility": null, "line": 11, "name": "r", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "Square",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "side", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 18,
+    "visibility": "public",
+    "name": "Shape",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Circle",
+      "line": 19,
+      "fields": [
+      { "visibility": null, "line": 11, "name": "r", "type": "Float" }
+      ]
+    },
+    {
+      "name": "Square",
+      "line": 20,
+      "fields": [
+      { "visibility": null, "line": 15, "name": "side", "type": "Float" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 23,
+    "visibility": "public",
+    "name": "Holder",
+    "fields": [
+    { "visibility": null, "line": 24, "name": "items", "type": "List OF Shape" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "describe",
+    "line": 27,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 27, "type": "Shape", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 28, "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "line": 28,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 29,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 29, "mutable": false, "name": "c", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 30, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "circle " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "c" }, "member": "r" }] } } }
+        ]
+      },
+      {
+        "line": 31,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Square" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 31, "mutable": false, "name": "q", "type": "Square", "value": { "kind": "unionExtract", "type": "Square", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 32, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "square " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "q" }, "member": "side" }] } } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "showAll",
+    "line": 36,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 36, "type": "String", "default": null },
+    { "name": "xs", "line": 36, "type": "List OF Shape", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 37, "mutable": true, "name": "line", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": ":" } } },
+    {
+      "op": "forEach",
+      "line": 38,
+      "name": "s",
+      "type": "Shape",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 39, "name": "line", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "line" }, "right": { "kind": "const", "type": "String", "value": " [" } }, "right": { "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "s" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } } }
+      ]
+    },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } }
+    ]
+  },
+  {
+    "name": "showMap",
+    "line": 44,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 44, "type": "String", "default": null },
+    { "name": "m", "line": 44, "type": "Map OF String TO Shape", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 45, "mutable": true, "name": "line", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": ":" } } },
+    {
+      "op": "forEach",
+      "line": 46,
+      "name": "k",
+      "type": "String",
+      "iterable": { "kind": "call", "type": "List OF String", "target": "collections.keys", "args": [{ "kind": "local", "name": "m" }] },
+      "body": [
+      { "op": "assign", "line": 47, "name": "line", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "line" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "local", "name": "k" } }, "right": { "kind": "const", "type": "String", "value": "=[" } }, "right": { "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "call", "type": "Shape", "target": "collections.get", "args": [{ "kind": "local", "name": "m" }, { "kind": "local", "name": "k" }] }] } }, "right": { "kind": "const", "type": "String", "value": "]" } } }
+      ]
+    },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } }
+    ]
+  },
+  {
+    "name": "showNested",
+    "line": 52,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 52, "type": "String", "default": null },
+    { "name": "rows", "line": 52, "type": "List OF List OF Shape", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 53, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 54,
+      "name": "row",
+      "type": "List OF Shape",
+      "iterable": { "kind": "local", "name": "rows" },
+      "body": [
+      { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": " row " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "n" }] } }, { "kind": "local", "name": "row" }] } },
+      { "op": "assign", "line": 56, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "squares",
+    "line": 60,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "first", "line": 60, "type": "Float", "default": null }
+    ],
+    "returns": "List OF Square",
+    "body": [
+    { "op": "return", "line": 61, "value": { "kind": "list", "type": "List OF Square", "values": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "local", "name": "first" }] }, { "kind": "constructor", "type": "Square", "args": [{ "kind": "binary", "type": "Float", "op": "+", "left": { "kind": "local", "name": "first" }, "right": { "kind": "const", "type": "Float", "value": "1.0" } }] }] } }
+    ]
+  },
+  {
+    "name": "returned",
+    "line": 64,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Shape",
+    "body": [
+    { "op": "bind", "line": 65, "mutable": false, "name": "sq", "type": "List OF Square", "value": { "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "40.0" }] } },
+    { "op": "return", "line": 66, "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } }
+    ]
+  },
+  {
+    "name": "returnedCall",
+    "line": 69,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Shape",
+    "body": [
+    { "op": "return", "line": 70, "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "42.0" }] }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 77,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 78, "mutable": false, "name": "sq", "type": "List OF Square", "value": { "kind": "list", "type": "List OF Square", "values": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }, { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "3.0" }] }] } },
+    { "op": "bind", "line": 80, "mutable": false, "name": "bound", "type": "List OF Shape", "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } },
+    { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "let" }, { "kind": "local", "name": "bound" }] } },
+    { "op": "bind", "line": 83, "mutable": true, "name": "assigned", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] } },
+    { "op": "assign", "line": 84, "name": "assigned", "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } },
+    { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "assign" }, { "kind": "local", "name": "assigned" }] } },
+    { "op": "eval", "line": 87, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "argument" }, { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }] } },
+    { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "argument call" }, { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "10.0" }] }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }] } },
+    { "op": "eval", "line": 89, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "return" }, { "kind": "call", "type": "List OF Shape", "target": "returned", "args": [] }] } },
+    { "op": "eval", "line": 90, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "return call" }, { "kind": "call", "type": "List OF Shape", "target": "returnedCall", "args": [] }] } },
+    { "op": "bind", "line": 92, "mutable": false, "name": "h", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "args": [{ "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }] } },
+    { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "constructor" }, { "kind": "memberAccess", "type": "List OF Shape", "target": { "kind": "local", "name": "h" }, "member": "items" }] } },
+    { "op": "bind", "line": 94, "mutable": false, "name": "h1", "type": "Holder", "value": { "kind": "constructor", "type": "Holder", "args": [{ "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "20.0" }] }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }] } },
+    { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "constructor named" }, { "kind": "memberAccess", "type": "List OF Shape", "target": { "kind": "local", "name": "h1" }, "member": "items" }] } },
+    { "op": "bind", "line": 96, "mutable": false, "name": "h2", "type": "Holder", "value": { "kind": "with", "type": "Holder", "target": { "kind": "local", "name": "h" }, "updates": [{ "field": "items", "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "30.0" }] }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } }] } },
+    { "op": "eval", "line": 97, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "with" }, { "kind": "memberAccess", "type": "List OF Shape", "target": { "kind": "local", "name": "h2" }, "member": "items" }] } },
+    { "op": "eval", "line": 99, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "global initializer" }, { "kind": "global", "name": "globalShapes" }] } },
+    { "op": "assignGlobal", "line": 100, "name": "globalMut", "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } },
+    { "op": "eval", "line": 101, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "global assign" }, { "kind": "global", "name": "globalMut" }] } },
+    { "op": "bind", "line": 103, "mutable": false, "name": "rows", "type": "List OF List OF Shape", "value": { "kind": "list", "type": "List OF List OF Shape", "values": [{ "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }, { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "50.0" }] }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }] } },
+    { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "showNested", "args": [{ "kind": "const", "type": "String", "value": "element" }, { "kind": "local", "name": "rows" }] } },
+    { "op": "bind", "line": 106, "mutable": false, "name": "sq2", "type": "List OF List OF Square", "value": { "kind": "list", "type": "List OF List OF Square", "values": [{ "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "60.0" }] }, { "kind": "list", "type": "List OF Square", "values": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "62.0" }] }] }] } },
+    { "op": "bind", "line": 107, "mutable": false, "name": "nested", "type": "List OF List OF Shape", "value": { "kind": "call", "type": "List OF List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq2" }, { "kind": "functionRef", "name": "$lambda1", "type": "FUNC(List OF Square) AS List OF Shape" }] } },
+    { "op": "eval", "line": 108, "value": { "kind": "call", "type": "Nothing", "target": "showNested", "args": [{ "kind": "const", "type": "String", "value": "nested" }, { "kind": "local", "name": "nested" }] } },
+    { "op": "bind", "line": 110, "mutable": false, "name": "ms", "type": "Map OF String TO Square", "value": { "kind": "map", "type": "Map OF String TO Square", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "80.0" }] } }, { "key": { "kind": "const", "type": "String", "value": "b" }, "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "81.0" }] } }] } },
+    { "op": "bind", "line": 111, "mutable": false, "name": "mapped", "type": "Map OF String TO Shape", "value": { "kind": "call", "type": "Map OF String TO Shape", "target": "$lambda2", "args": [{ "kind": "local", "name": "ms" }] } },
+    { "op": "eval", "line": 112, "value": { "kind": "call", "type": "Nothing", "target": "showMap", "args": [{ "kind": "const", "type": "String", "value": "map" }, { "kind": "local", "name": "mapped" }] } },
+    { "op": "eval", "line": 113, "value": { "kind": "call", "type": "Nothing", "target": "showMap", "args": [{ "kind": "const", "type": "String", "value": "map argument" }, { "kind": "call", "type": "Map OF String TO Shape", "target": "$lambda2", "args": [{ "kind": "local", "name": "ms" }] }] } },
+    { "op": "bind", "line": 115, "mutable": false, "name": "ml", "type": "Map OF String TO List OF Square", "value": { "kind": "map", "type": "Map OF String TO List OF Square", "entries": [{ "key": { "kind": "const", "type": "String", "value": "k" }, "value": { "kind": "call", "type": "List OF Square", "target": "squares", "args": [{ "kind": "const", "type": "Float", "value": "90.0" }] } }] } },
+    { "op": "bind", "line": 116, "mutable": false, "name": "mapOfLists", "type": "Map OF String TO List OF Shape", "value": { "kind": "call", "type": "Map OF String TO List OF Shape", "target": "$lambda3", "args": [{ "kind": "local", "name": "ml" }] } },
+    { "op": "eval", "line": 117, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "map of lists" }, { "kind": "call", "type": "List OF Shape", "target": "collections.get", "args": [{ "kind": "local", "name": "mapOfLists" }, { "kind": "const", "type": "String", "value": "k" }] }] } },
+    { "op": "bind", "line": 119, "mutable": true, "name": "shapes", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] } },
+    { "op": "assign", "line": 120, "name": "shapes", "value": { "kind": "call", "type": "List OF Shape", "target": "collections.append", "args": [{ "kind": "local", "name": "shapes" }, { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "sq" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }] } },
+    { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "append list" }, { "kind": "local", "name": "shapes" }] } },
+    { "op": "bind", "line": 123, "mutable": false, "name": "first", "type": "Shape", "value": { "kind": "call", "type": "Shape", "target": "collections.get", "args": [{ "kind": "local", "name": "bound" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 124, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "get: " }, "right": { "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "first" }] } }] } },
+    { "op": "eval", "line": 127, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "source: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "sq" }] }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sq" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "member": "side" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "ms" }, { "kind": "const", "type": "String", "value": "b" }] }, "member": "side" }] } }] } },
+    { "op": "return", "line": 128, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 74,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 74, "type": "Square", "default": null }
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "return", "line": 74, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "value" } } }
+    ]
+  },
+  {
+    "name": "$lambda1",
+    "line": 107,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 107, "type": "List OF Square", "default": null }
+    ],
+    "returns": "List OF Shape",
+    "body": [
+    { "op": "return", "line": 107, "value": { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] } }
+    ]
+  },
+  {
+    "name": "$lambda2",
+    "line": 111,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 111, "type": "Map OF String TO Square", "default": null }
+    ],
+    "returns": "Map OF String TO Shape",
+    "body": [
+    { "op": "bind", "line": 111, "mutable": true, "name": "converted", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [] } },
+    {
+      "op": "forEach",
+      "line": 111,
+      "name": "entry",
+      "type": "MapEntry OF String TO Square",
+      "iterable": { "kind": "local", "name": "value" },
+      "body": [
+      { "op": "assign", "line": 111, "name": "converted", "value": { "kind": "call", "type": "Map OF String TO Shape", "target": "collections.set", "args": [{ "kind": "local", "name": "converted" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "entry" }, "member": "key" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "entry" }, "member": "value" } }] } }
+      ]
+    },
+    { "op": "return", "line": 111, "value": { "kind": "local", "name": "converted" } }
+    ]
+  },
+  {
+    "name": "$lambda3",
+    "line": 116,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 116, "type": "Map OF String TO List OF Square", "default": null }
+    ],
+    "returns": "Map OF String TO List OF Shape",
+    "body": [
+    { "op": "bind", "line": 116, "mutable": true, "name": "converted", "type": "Map OF String TO List OF Shape", "value": { "kind": "map", "type": "Map OF String TO List OF Shape", "entries": [] } },
+    {
+      "op": "forEach",
+      "line": 116,
+      "name": "entry",
+      "type": "MapEntry OF String TO List OF Square",
+      "iterable": { "kind": "local", "name": "value" },
+      "body": [
+      { "op": "assign", "line": 116, "name": "converted", "value": { "kind": "call", "type": "Map OF String TO List OF Shape", "target": "collections.set", "args": [{ "kind": "local", "name": "converted" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "entry" }, "member": "key" }, { "kind": "call", "type": "List OF Shape", "target": "collections.transform", "args": [{ "kind": "memberAccess", "type": "List OF Square", "target": { "kind": "local", "name": "entry" }, "member": "value" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Square) AS Shape" }] }] } }
+      ]
+    },
+    { "op": "return", "line": 116, "value": { "kind": "local", "name": "converted" } }
+    ]
+  }
+  ]
+}

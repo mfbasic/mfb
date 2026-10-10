@@ -2580,40 +2580,16 @@ impl<'a> Monomorphizer<'a> {
         // argument types nor the resolved return crosses a string.
         crate::codegen::builtins::resolve_call_return_type_typed(callee, &arg_types, false).or_else(
             || {
-                // bug-988: a call that only resolves with a union variant at a
-                // top-level `T`, or with a union-variant list literal, types as
-                // lowering types it, so a template argument can still be inferred
-                // from it. A general built-in keeps the kind-less answer.
+                // bug-988 / bug-989: a call that only resolves by union-variant
+                // subsumption types as lowering types it, so a template argument
+                // can still be inferred from it. A general built-in keeps the
+                // kind-less answer.
                 if crate::codegen::builtins::general::is_general_call(callee) {
                     return None;
                 }
                 crate::codegen::builtins::resolve_call_return_type_with_kinds(
                     callee, &arg_types, false, self,
                 )
-                .or_else(|| {
-                    let literal_elements: Vec<Option<Vec<Option<ParameterType>>>> = arguments
-                        .iter()
-                        .map(|argument| match call_arg_value(argument) {
-                            HirExpression::ListLiteral(values) if !values.is_empty() => Some(
-                                values
-                                    .iter()
-                                    .map(|value| self.expression_type(value, context))
-                                    .collect(),
-                            ),
-                            _ => None,
-                        })
-                        .collect();
-                    let relaxed = crate::codegen::builtins::union_literal_relaxed_arg_types(
-                        callee,
-                        &arg_types,
-                        &literal_elements,
-                        false,
-                        self,
-                    )?;
-                    crate::codegen::builtins::resolve_call_return_type_with_kinds(
-                        callee, &relaxed, false, self,
-                    )
-                })
             },
         )
     }

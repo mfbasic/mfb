@@ -2439,11 +2439,6 @@ impl<'a> Walker<'a> {
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
                 return;
             }
-            // bug-988: a union-variant list literal at a `List OF T` position
-            // (`append(shapes, [Square[2.0]])`) is accepted as the union's list when
-            // only typing it bottom-up stood in the way. Lowering relaxes the same
-            // literal the same way, so it lowers that literal against the union's
-            // list and wraps each element.
             if builtins::resolve_call_return_type_with_kinds(
                 canonical,
                 &arg_types,
@@ -2451,15 +2446,6 @@ impl<'a> Walker<'a> {
                 &ShapeKinds(&self.types),
             )
             .is_none()
-                && lower::union_literal_call_types(
-                    canonical,
-                    normalized,
-                    &arg_types,
-                    true,
-                    locals,
-                    &self.context,
-                )
-                .is_none()
             {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);

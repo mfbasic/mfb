@@ -1,0 +1,92 @@
+$ mfb build -ast -ir tests/syntax/types/types-union-subsumption-one-way-invalid
+  49 | 
+  50 |   ' A union where its variant is expected.
+  51 |   LET a AS Float = area(s)
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:51 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `area` has type Shape, expected Square.
+  56 | 
+  57 |   ' A collection of the union where the variant's collection is expected.
+  58 |   LET n AS Integer = total(shapes)
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:58 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `total` has type List OF Shape, expected List OF Square.
+  65 | 
+  66 |   ' A sibling variant, single and in a collection.
+  67 |   LET c AS Float = area(Circle[radius := 1.0])
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:67 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `area` has type Circle, expected Square.
+  67 |   LET c AS Float = area(Circle[radius := 1.0])
+  68 |   LET cs AS List OF Square = circles
+  69 |   LET cn AS Integer = total(circles)
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:69 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `total` has type List OF Circle, expected List OF Square.
+  34 | 
+  35 | FUNC narrowed(s AS Shape) AS Square
+  36 |   RETURN s
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:36 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type Shape, expected Square.
+  38 | 
+  39 | FUNC narrowedList(shapes AS List OF Shape) AS List OF Square
+  40 |   RETURN shapes
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:40 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type List OF Shape, expected List OF Square.
+  50 |   ' A union where its variant is expected.
+  51 |   LET a AS Float = area(s)
+  52 |   LET q AS Square = s
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:52 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `q` has initializer type Shape, expected Square.
+  52 |   LET q AS Square = s
+  53 |   MUT m AS Square = Square[side := 1.0]
+  54 |   m = s
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:54 error[2-203-0008 TYPE_ASSIGNMENT_MISMATCH]: assignment value type does not match binding type
+               Assignment to `m` has type Shape, expected Square.
+  53 |   MUT m AS Square = Square[side := 1.0]
+  54 |   m = s
+  55 |   LET t AS Tile = Tile[s, [Square[side := 1.0]]]
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:55 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Tile` has type Shape, expected Square for field `q`.
+  57 |   ' A collection of the union where the variant's collection is expected.
+  58 |   LET n AS Integer = total(shapes)
+  59 |   LET qs AS List OF Square = shapes
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:59 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `qs` has initializer type List OF Shape, expected List OF Square.
+  58 |   LET n AS Integer = total(shapes)
+  59 |   LET qs AS List OF Square = shapes
+  60 |   LET qm AS Map OF String TO Square = shapeMap
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:60 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `qm` has initializer type Map OF String TO Shape, expected Map OF String TO Square.
+  59 |   LET qs AS List OF Square = shapes
+  60 |   LET qm AS Map OF String TO Square = shapeMap
+  61 |   LET qn AS List OF List OF Square = nested
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:61 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `qn` has initializer type List OF List OF Shape, expected List OF List OF Square.
+  60 |   LET qm AS Map OF String TO Square = shapeMap
+  61 |   LET qn AS List OF List OF Square = nested
+  62 |   LET t2 AS Tile = Tile[Square[side := 1.0], shapes]
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:62 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 2 for `Tile` has type List OF Shape, expected List OF Square for field `qs`.
+  62 |   LET t2 AS Tile = Tile[Square[side := 1.0], shapes]
+  63 |   MUT squares AS List OF Square = [Square[side := 1.0]]
+  64 |   squares = shapes
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:64 error[2-203-0008 TYPE_ASSIGNMENT_MISMATCH]: assignment value type does not match binding type
+               Assignment to `squares` has type List OF Shape, expected List OF Square.
+  66 |   ' A sibling variant, single and in a collection.
+  67 |   LET c AS Float = area(Circle[radius := 1.0])
+  68 |   LET cs AS List OF Square = circles
+     | ^
+tests/syntax/types/types-union-subsumption-one-way-invalid/src/main.mfb:68 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `cs` has initializer type List OF Circle, expected List OF Square.
+[exit 1]

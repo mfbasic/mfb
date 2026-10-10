@@ -831,64 +831,6 @@ pub(crate) fn resolved_argument_type(
     )
 }
 
-/// bug-988: a generic built-in call's argument types with every list-literal
-/// argument relaxed to `List OF Unknown`, when that is what lets the call resolve
-/// and each relaxed literal's elements are the element type the call gives its
-/// position, or members of it (`TypeKinds::union_accepts`).
-///
-/// A list literal types bottom-up from its first element, so `[Square[2.0]]` is
-/// `List OF Square`, and `append(List OF Shape, List OF Square)` binds `T` twice,
-/// to two different types. The literal's elements are lowered one by one against
-/// the expected element type, though, exactly as `LET xs AS List OF Shape =
-/// [Square[2.0]]` lowers them, so the literal can BE a `List OF Shape`. Relaxing
-/// only the literal lets the other arguments decide `T`. A list VALUE is never
-/// relaxed: a `List OF Square` variable has no conversion (bug-989).
-///
-/// `literal_elements[i]` is `Some(element types)` when argument `i` is a non-empty
-/// list literal (an element whose type is unknown is `None`), else `None`. The
-/// answer is `None` when no argument is such a literal, when the call does not
-/// resolve even relaxed, or when an element is neither the element type nor a
-/// member of it — every case where relaxing would change nothing or accept a
-/// literal its position cannot hold.
-pub(crate) fn union_literal_relaxed_arg_types(
-    callee: &str,
-    arg_types: &[crate::types::ParameterType],
-    literal_elements: &[Option<Vec<Option<crate::types::ParameterType>>>],
-    strict: bool,
-    kinds: &dyn TypeKinds,
-) -> Option<Vec<crate::types::ParameterType>> {
-    use crate::types::ParameterType;
-    let literal = |index: usize| literal_elements.get(index).and_then(Option::as_ref);
-    let relaxed: Vec<ParameterType> = arg_types
-        .iter()
-        .enumerate()
-        .map(|(index, type_)| match literal(index) {
-            Some(_) => ParameterType::list_of(ParameterType::Unknown),
-            None => type_.clone(),
-        })
-        .collect();
-    if relaxed == arg_types {
-        return None;
-    }
-    resolve_call_return_type_with_kinds(callee, &relaxed, strict, kinds)?;
-    for (index, elements) in (0..arg_types.len()).filter_map(|i| Some((i, literal(i)?))) {
-        let Some(ParameterType::ListOf(element)) =
-            resolved_argument_type(callee, index, &relaxed, None, kinds)
-        else {
-            return None;
-        };
-        let fits = elements.iter().all(|value_type| {
-            value_type.as_ref().is_some_and(|value_type| {
-                value_type == element.as_ref() || kinds.union_accepts(&element, value_type)
-            })
-        });
-        if !fits {
-            return None;
-        }
-    }
-    Some(relaxed)
-}
-
 /// Whether parameter `index` of the built-in `callee` is a compiler-known
 /// *non-escaping* callback position: the callee is
 /// guaranteed to invoke the callback only synchronously during the call, never

@@ -54,7 +54,15 @@ functions such as `collections::get`.
 ## What a list holds
 
 A list holds its items directly, as part of the list value: numbers, strings,
-records, unions and nested collections alike. A list of `RES` handles holds
+records, unions and nested collections alike.
+
+A list of a union's member type can be used wherever a list of the union is
+expected: with `squares AS List OF Square` and `UNION Shape` containing `Square`,
+`LET shapes AS List OF Shape = squares` and passing `squares` to a `List OF
+Shape` parameter both work. The position receives a copy whose items are
+`Shape` values; `squares` itself is unchanged. It does not work the other way: a
+`List OF Shape` is not a `List OF Square`, because any of its items may be
+another member. Use `MATCH` on each item to pick the members you want. A list of `RES` handles holds
 aliases of those open handles (see `mfb man variable`).
 
 ## Copying
