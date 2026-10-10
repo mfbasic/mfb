@@ -49,7 +49,15 @@ callee-saved, and glibc's `start_thread` reads its thread descriptor from `s0`
 right after the start routine returns. So the riscv64 trampoline parks `s0` in
 the last free slot of its 80-byte frame and restores it before `ret`. On AArch64
 (`x13`) and x86-64 (`r9`) that scratch is caller-saved, so nothing extra is parked
-there. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
+there.
+
+The same contract covers what the WORKER leaves changed. Compiled MFB code
+preserves only the callee-saved registers the register allocator hands out; the
+internal calling convention passes an 8th argument in `rbp` on x86-64, and `rbp`
+is callee-saved to libc. The x86-64 trampoline therefore parks `rbp` in that same
+free slot (offset 72; the frame stays 88 bytes) and restores it before `ret`.
+AArch64 and riscv64 pass the 8th argument in a caller-saved register and park
+nothing for it. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
 The trampoline restores the worker arena state, calls the worker function,
 stores the returned result in the control block through `_mfb_rt_thread_finish`,
@@ -69,7 +77,11 @@ The Windows backend starts a worker with
 The returned `HANDLE` is stored in the control block; zero reports
 `ErrInterrupted`. The trampoline uses the Windows calling convention and returns
 zero after the same worker initialization, result publication, and arena teardown
-as the POSIX targets.
+as the POSIX targets. Win64 makes `rdi` and `rsi` callee-saved, and the internal
+calling convention passes the 5th and 6th arguments there (the 8th in `rbp`), so
+the Windows trampoline parks all three for `BaseThreadInitThunk` and restores them
+before `ret`; its frame grows to 104 bytes, keeping the `rsp % 16 == 8` parity the
+x86-64 realign needs.
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 

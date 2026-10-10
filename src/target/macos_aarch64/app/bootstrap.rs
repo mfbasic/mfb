@@ -943,6 +943,12 @@ pub(super) fn emit_canvas_blit_helper() -> CodeFunction {
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    // bug-993: every LOCAL the body writes is saved, `LOCAL[3]`/`LOCAL[4]`
+    // (`x22`/`x23`) included. They were once reloaded at the exit from slots
+    // nothing had written, so each `blitSurface` returned stack garbage in two
+    // registers the allocator lets a caller keep a value in across the call.
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 32));
+    asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
     asm.push(abi::store_u64(abi::LOCAL[5], abi::stack_pointer(), 48));
     // Park the three arguments before any call clobbers them.
     asm.push(abi::move_register(abi::LOCAL[3], abi::mfb_arg(0))); // pixels

@@ -362,6 +362,10 @@ name = "codegen_canvas_thread_entry_saves_rbp"
 path = "tests/codegen/codegen_canvas_thread_entry_saves_rbp.rs"
 
 [[test]]
+name = "codegen_win64_fp_callee_saved"
+path = "tests/codegen/codegen_win64_fp_callee_saved.rs"
+
+[[test]]
 name = "codegen_crypto_ec_c_return_x86_64"
 path = "tests/codegen/codegen_crypto_ec_c_return_x86_64.rs"
 
@@ -1089,6 +1093,10 @@ path = "tests/runtime/rt_compress_bounds.rs"
 [[test]]
 name = "rt_runtime_helper_callee_saved"
 path = "tests/runtime/rt_runtime_helper_callee_saved.rs"
+
+[[test]]
+name = "rt_foreign_entry_callee_saved"
+path = "tests/runtime/rt_foreign_entry_callee_saved.rs"
 
 [[test]]
 name = "rt_compress_throughput"

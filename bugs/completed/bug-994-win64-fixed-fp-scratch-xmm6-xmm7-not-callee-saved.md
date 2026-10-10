@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: planned `tests/codegen/codegen_win64_fp_callee_saved.rs` (new; `-ncode` frame audit on `windows-x86_64`)
+Status: Fixed (2026-10-10, bs18-agent-i)
+Regression Test: `tests/codegen/codegen_win64_fp_callee_saved.rs`; Win64 xmm rows in `tests/runtime/rt_runtime_helper_callee_saved.rs` and `rt_foreign_entry_callee_saved.rs`
 
 On `windows-x86_64`, a function can overwrite `xmm6` or `xmm7` without saving and restoring
 them. Win64 makes `xmm6`–`xmm15` callee-saved, and the register allocator relies on that: it
@@ -345,3 +345,46 @@ Commit: —
 The risk is in the fix's realization lookup (tokens reach the allocator realized for
 builder bodies but raw for hand-built helpers) and in confirming the Win64-only golden
 delta. The kernels, the allocator's coloring, and every non-Win64 target are untouched.
+
+## Resolution
+
+`linear_scan::run` (FP class only) now adds to `extra_callee_saved` every callee-saved
+register the INPUT stream writes by fixed name (`fixed_callee_saved_writes`), and the
+bug-54/bug-550 assertion covers that set. Two spellings are resolved: a selected builder
+body's concrete name (`xmm7`), asked of the target model directly; and a hand-built
+helper's unrealized `%fscratchN`/`%vscratchN` token, mapped through its occupancy index to
+the target's allocatable register. `finalize_frame` already saved an `xmm` entry with a
+16-byte slot, so nothing else moved.
+
+Correction to the Fix Design: mapping EVERY physical def by index (the first cut) was
+wrong on RISC-V. The artifact gate showed `audio`/`vector` `linux-riscv64` sums moving:
+13 frames gained `fs0`–`fs4` saves although the final stream names none of them. The
+RISC-V pre-allocation stream still carries AArch64-numbered `vN` lane names its
+scalarizer rewrites later, so an index is not a register there. Only tokens are mapped
+by index now; a concrete name must be the target's own. After that the gate's new diffs
+are Windows only.
+
+`xmm15` stays unsaved (Open Decision, as recommended). Open Decision "scope": FP only.
+
+Other ABIs audited: `sysv_frames_save_no_xmm` (no SysV frame saves an xmm), and the
+artifact gate shows no AArch64/RISC-V/SysV byte change, so no AArch64 `d8`–`d15` or
+RISC-V `fs*` register is written by fixed name without a save in the covered corpus.
+
+### Proof
+
+- RED (ee9d31beb): `cargo test --release --test codegen_win64_fp_callee_saved` failed 2 of
+  3 (`_mfb_fn_viaSin`/`_mfb_fn_viaFixed`: `xmm7`; `_mfb_rt_canvas_canvas_vulkan{Present,Draw}Scene`:
+  `xmm6`,`xmm7`). After the fix: 3 passed.
+- Box 206 (Windows 11), the reduced repro, exit code read through `$LASTEXITCODE`:
+  main f6b4099c9 printed `1: 10.00 -0.09 30.00 40.00` / `2: 10.00 20.00 30.00 40.00` /
+  `3: 10.00 4294967296.00 30.00 40.00`, exit 0; the fix prints `N: 10.00 20.00 30.00 40.00`
+  for N = 1..3, exit 0. Same output on the macOS host.
+- Not run: `examples/canvas-demo` `svg/xcirc.svg` on 206.
+
+## Golden impact
+
+`scripts/artifact-gate.sh target/release/mfb all`: beyond the bug-982/983 diffs, exactly
+`byte-identity/{audio,general,vector}` `.windows-x86_64.ncodesum` (frames that inline a
+math kernel or a Fixed/Money→Float conversion gain an `xmm7`, sometimes `xmm6`, save).
+`syntax/app/app-mouse-surface` `.windows-x86_64.app.ncodesum` (already moved by bug-982)
+also gains the Vulkan helpers' saves.

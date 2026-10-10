@@ -17,7 +17,14 @@ r#"' bug-862: TRUE if the slash-separated relative path `rel` (already
 ' many real segments have been descended into; a `..` at depth 0 escapes, one
 ' at depth > 0 just cancels a prior descent. `.` and empty segments (a
 ' leading/trailing/doubled `/`) are no-ops.
+' bug-983: an ABSOLUTE `rel` escapes too. It is what is left of a `//`-prefixed
+' capture after the one-slash strip, and fs::pathJoin restarts at an absolute
+' component, discarding `root`; checking only `..` let such a request reach the
+' filesystem probe and answer 404 for a missing target, the bug-862 oracle.
 FUNC __http_pathEscapesRoot(rel AS String) AS Boolean
+  IF strings::startsWith(rel, "/") THEN
+    RETURN TRUE
+  END IF
   LET segs AS List OF String = strings::split(rel, "/")
   MUT depth AS Integer = 0
   FOR EACH seg IN segs

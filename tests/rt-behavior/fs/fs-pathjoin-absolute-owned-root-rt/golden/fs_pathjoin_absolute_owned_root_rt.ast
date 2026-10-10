@@ -1,0 +1,123 @@
+{
+  "project": "fs_pathjoin_absolute_owned_root_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 9 },
+    { "module": "io", "line": 10 },
+    { "module": "strings", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "check",
+      "line": 13,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 13 },
+      { "name": "root", "type": "String", "default": null, "line": 13 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "rel", "type": "String", "value": { "kind": "string", "value": "" }, "line": 14 },
+      { "kind": "assignment", "name": "rel", "value": { "kind": "identifier", "value": "s" }, "line": 15 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "rel" }, { "kind": "string", "value": "/" }] },
+        "line": 16,
+        "then": [
+        { "kind": "assignment", "name": "rel", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "rel" }, { "kind": "number", "value": "1" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "rel" }] }, "right": { "kind": "number", "value": "1" } }] }, "line": 17 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "candidate", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "root" }, { "kind": "identifier", "value": "rel" }] }] }, "line": 19 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "candidate" }] }, "right": { "kind": "boolean", "value": false } },
+        "line": 20,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "404" }, "line": 21 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "within", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 23 },
+      { "kind": "assignment", "name": "within", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 24,
+        "expression": { "kind": "call", "callee": "fs.isWithin", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "identifier", "value": "candidate" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "boolean", "value": false }, "line": 25 }
+        ]
+      }, "line": 24 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "within" }, "right": { "kind": "boolean", "value": false } },
+        "line": 27,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "403" }, "line": 28 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "200" }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "joined",
+      "line": 37,
+      "params": [
+      { "name": "root", "type": "String", "default": null, "line": 37 },
+      { "name": "tail", "type": "String", "default": null, "line": 37 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "rel", "type": "String", "value": { "kind": "identifier", "value": "tail" }, "line": 38 },
+      { "kind": "assignment", "name": "rel", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "rel" }, { "kind": "number", "value": "1" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "rel" }] }, "right": { "kind": "number", "value": "1" } }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "out", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "sub" }, { "kind": "identifier", "value": "rel" }, { "kind": "string", "value": "leaf" }] }] }, "line": 40 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "identifier", "value": "root" }] },
+        "line": 41,
+        "then": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "<root>" }, "right": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "root" }] }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "out" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "root" }] } }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "identifier", "value": "rel" } }, "line": 42 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "identifier", "value": "rel" } }, "line": 44 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 47,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "root", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }, { "kind": "string", "value": "bug983" }, { "kind": "string", "value": "a-long-root-component" }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "//etc/hosts" }, { "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }] }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "//etc/nonexistent_bug983" }, { "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }] }] }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "//etc/nonexistent_bug983" }, { "kind": "identifier", "value": "root" }] }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "/missing_bug983.txt" }, { "kind": "identifier", "value": "root" }] }] }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "joined", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "//abs/x" }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "joined", "arguments": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "xrel" }] }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "/" }, { "kind": "string", "value": "b" }] }] }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "root" }, { "kind": "string", "value": "/a" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "/b/" }, { "kind": "string", "value": "c" }] }] }] }, "line": 56 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 57 }
+      ]
+    }
+    ]
+  }
+  ]
+}

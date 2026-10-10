@@ -8,6 +8,11 @@ Class: Correctness
 Status: Open
 Regression Test: (proposed) the bug-982 GTK app-mode row in `scripts/test-appimage.sh`, run again with a program that calls `app::setMode(app::Mode.Console)` first, asserting one `event` line per mouse action
 
+**bug-982 is fixed** (bugs/completed). Its proof found that `term::pollMouse` only drains the
+ring: the decoder runs on the stdin read path, so the repro must read stdin (e.g. one
+`io::readKey(0)` per loop, as bug-758's does) or it logs no `event` line even when the
+controllers are attached. The original note follows.
+
 **Fix bug-982 first.** Attaching the controllers before bug-982 is fixed turns "no events"
 into bug-982's SIGSEGV.
 

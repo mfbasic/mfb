@@ -76,5 +76,18 @@ TESTING
       LET resp = http::respondPath(mkReq("../../../../../../../../nonexistent_mfbhttp_probe"), root())
       expectInteger(resp.status, 403)
     END TCASE
+    TCASE "a `//` capture to an existing file is 403, and the process survives (bug-983)"
+      ' The one-slash slice leaves `/etc/hosts`, an absolute path. fs::pathJoin
+      ' used to copy the root into a buffer sized for the absolute tail alone,
+      ' overrunning the heap, and the server died in the string drop.
+      setup()
+      LET resp = http::respondPath(mkReq("//etc/hosts"), root())
+      expectInteger(resp.status, 403)
+    END TCASE
+    TCASE "a `//` capture to a missing file is 403, not 404 (bug-983, bug-862)"
+      setup()
+      LET resp = http::respondPath(mkReq("//etc/nonexistent_mfbhttp_bug983"), root())
+      expectInteger(resp.status, 403)
+    END TCASE
   END TGROUP
 END TESTING
