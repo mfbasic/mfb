@@ -412,8 +412,20 @@ programs are not in the tree).
 
 ## Golden impact
 
-`.ncode`/`.ncodesum` move for the fixtures that call `strings::graphemesCount`, a
-copying `strings::graphemeAt`, `strings::fromScalars` whose result is unbound, or a
-non-constant `strings::normalizeNfc`. `strings::graphemes` call sites are
-byte-identical. The rendered `mfb man strings graphemesCount` loses its Errors
-section. The fixtures the artifact gate reports are listed in the commit message.
+Measured with `scripts/artifact-gate.sh <mfb> all` on this branch and on its base
+commit `821806278` (built in a detached worktree): the base already reports 33
+diffs it inherited (goldens not regenerated in this batch), and this branch
+reports 39. The per-function comparison below is `mfb build -ncode` from the two
+compilers.
+
+Five goldens, new diffs on this branch:
+
+- `tests/byte-identity/strings`: `strings_codegen_cover_rt.{linux-aarch64,
+  linux-riscv64,linux-x86_64,macos-aarch64,windows-x86_64}.ncode`. Two functions
+  differ from the base commit's: `_mfb_fn_main` (macOS 10,706 → 9,575 instructions;
+  the `graphemesCount` and `graphemeAt` call sites no longer build the list, and
+  `normalizeNfc` gains its free) and `_mfb_ifn_strings_5FfromScalars` (234 → 188:
+  marked fresh, its result is returned as it is instead of being copied).
+
+`strings::graphemes` call sites are byte-identical. The rendered
+`mfb man strings graphemesCount` loses its Errors section.
