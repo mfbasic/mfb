@@ -453,6 +453,15 @@ Scope the coordinator takes this to imply (flag any case that cannot follow it, 
 - A collection that is already of the union type is passed as-is, with no copy.
 - The diagnostic-wording question below is moot: nothing is rejected.
 
+**One direction only (owner, 2026-10-10): a `Shape` is NOT a `Square`.** The conversion goes from a
+variant to its union, never back. A `Shape` where a `Square` is expected, and a `List OF Shape`
+(or `Set`/`Map`/nested) where a `List OF Square` is expected, stay compile errors; a union value
+becomes a variant only through `MATCH`. Measured on main and on bs18-agent-j before this fix:
+`area(s)` and `total(shapes)` give `TYPE_CALL_ARGUMENT_MISMATCH`, and `LET q AS Square = s` and
+`LET qs AS List OF Square = shapes` give `TYPE_BINDING_MISMATCH`. The fix must keep all four, and
+must add a syntax fixture that pins them. A sibling variant is not accepted either: a `List OF
+Circle` is not a `List OF Square`.
+
 ## Open Decisions (superseded by the owner decision above)
 
 - **Reject vs. convert.** Recommended: reject (above). Alternative: an implicit element-wise rewrap.
