@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Fixed (bs18-agent-j), except `reduce`/`reduceRight` (Open Decision, unchanged — needs the owner's call)
+Status: Open — fixed (bs18-agent-j) except `reduce`/`reduceRight`, now decided by the owner (see below)
 Regression Test: tests/rt-behavior/collections/union-variant-element-insert-rt, tests/syntax/collections/func_collection_append_union_list_var_invalid, `codegen::registry::tests::a_top_level_variable_bound_to_a_union_accepts_its_variant`
 
 A generic collections member whose element slot is a bare type variable `T` rejects a value of a
@@ -359,7 +359,13 @@ Commit: —
   (and siblings') man prose.
 - Full suite: the repo's full gate per `.ai/testing-gates.md`.
 
-## Open Decisions
+## Owner decision (2026-10-10): `reduce`/`reduceRight` with a variant initial value works
+
+It follows from the bug-989 decision (a variant is accepted wherever its union is expected): when
+the initial value is a variant and the callback's accumulator is the union, the accumulator type is
+the union and the initial value is wrapped. Implement the "in scope" option below.
+
+## Open Decisions (the `reduce` item is settled above)
 
 - **`reduce`/`reduceRight` with a variant initial value** (`U` bound to `Square` first, then `Shape`
   from the callback). Recommended: in scope. When the bound value is a variant reached at a

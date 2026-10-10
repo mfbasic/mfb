@@ -432,7 +432,28 @@ Commit: —
   `src/docs/spec/language/12_collections.md` list-literal paragraph.
 - Full suite: the repo's full gate per `.ai/testing-gates.md`.
 
-## Open Decisions
+## Owner decision (2026-10-10): convert, never reject
+
+A `List OF Square` given where a `List OF Shape` is expected **works**: the compiler makes a
+converted copy in which every element is wrapped (tagged) as a `Shape`. It is the same rule as
+passing a single `Square` where a `Shape` is expected, applied to a list. A compile error is the
+wrong answer here. This supersedes the "Recommended: reject" text and the Fix Design built on it.
+
+Scope the coordinator takes this to imply (flag any case that cannot follow it, with evidence):
+- It applies at every position where a single variant value is wrapped today (bug-990's matrix):
+  a call argument, a `LET`/`MUT` binding or assignment with a declared type, `RETURN`, a record or
+  constructor field, a `WITH` field, a collection element, a global initializer.
+- It applies to every collection shape whose element (or value) type is the variant and whose
+  expected element type is a union accepting it: `List`, `Set`, `Map` values, and nested forms
+  (`List OF List OF Square` → `List OF List OF Shape`), converting at each level.
+- The source value is unchanged; the converted value is a new collection (lists are values, so
+  this has the same meaning as the original). It is a real O(n) copy: do it once per conversion
+  position, never per element access, and free it like any other temporary (`--debug` alloc ==
+  free).
+- A collection that is already of the union type is passed as-is, with no copy.
+- The diagnostic-wording question below is moot: nothing is rejected.
+
+## Open Decisions (superseded by the owner decision above)
 
 - **Reject vs. convert.** Recommended: reject (above). Alternative: an implicit element-wise rewrap.
   Rejected in Fix Design, but it is the user-visible language decision, so it is recorded here for
