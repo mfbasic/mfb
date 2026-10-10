@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-10
 Effort: large (3h–1d)
-Depends on: plan-172-N
+Depends on: plan-172-A
 
 Every canvas coordinate pair becomes a `vector::Float2`, and `canvas::Point` is removed.
 `vector::Float2` is a value record of two `Float`s named `x` and `y`, the same field
@@ -28,7 +28,6 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-172-A complete and archived | `ls planning/plan-172-A-*` → no matches | NOT MET |
-| plan-172-N complete and archived | `ls planning/plan-172-N-*` → no matches | NOT MET |
 | Premise P3 has a verdict | `grep -c 'P3.*\(CONFIRMED\|FALSIFIED\)' planning/completed/plan-172-A-*.md` → ≥ 1 | NOT MET |
 
 If plan-172-A is not complete, this letter cannot start, full stop.

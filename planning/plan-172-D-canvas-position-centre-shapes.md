@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-10
 Effort: large (3h–1d)
-Depends on: plan-172-C
+Depends on: plan-172-C, plan-172-N
 
 The four shapes placed by a single point trade `x` and `y` for
 `position AS vector::Float2`, and the transform pivots about that point. `Text.size`
@@ -31,6 +31,7 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 |---|---|---|
 | plan-172-C complete and archived | `ls planning/plan-172-C-*` → no matches | NOT MET |
 | Every shape carries its own `transform` | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 10 | NOT MET |
+| plan-172-N complete and archived (an `ENUM` has a default) | `ls planning/plan-172-N-*` → no matches | NOT MET |
 | Open Decision 1 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
 
 If plan-172-C is not complete, this letter cannot start, full stop.

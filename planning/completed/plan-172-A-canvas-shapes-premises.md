@@ -17,7 +17,7 @@ Behavioral outcome of the whole plan: every type in `planning/new_canvas.md` abo
 Vulkan) draws it, and every canvas program in the tree is ported to it.
 
 The letters are in implementation order, except N, which the alphabet appended and the
-dependency graph places second (A → N → B → C → … → M):
+dependency graph places beside B and C (A → B → C → D → … → M, and A → N → D):
 
 | Letter | Delivers | Effort |
 |---|---|---|
@@ -34,7 +34,7 @@ dependency graph places second (A → N → B → C → … → M):
 | K | The `Shape` / `AutoShape` / `DrawItem` unions and `AutoPaint` | large |
 | L | `Picture` clipped to a shape; `PictureClip`, `PictureFit` | large |
 | M | Closeout: `.ai/canvas-threading.md`, cross-platform proof, the full gates | large |
-| **N** | An `ENUM` defaults to its first variant, so every shape record is defaultable and is built with `MUT` + `WITH` (Open Decision 1). Appended during execution; runs after A, before B | medium |
+| **N** | An `ENUM` defaults to its first variant, so every shape record is defaultable and is built with `MUT` + `WITH` (Open Decision 1). Appended during execution; needs only A, and is needed by D | medium |
 
 This letter builds nothing. It runs the six cheapest experiments that could reshape the
 design, records what they found, and corrects the later letters where a premise fails.
@@ -470,7 +470,10 @@ Commit: a6b83735c
   measurement.** The owner chose neither "helpers" nor "name every field": the idiom is
   a defaulted record refined with `WITH`. That works today only for records with no
   `ENUM` field (measured, see the ANSWER). No letter covered the gap, so **172-N** is
-  appended (the alphabet is append-only) with the edge A → N → B.
+  appended (the alphabet is append-only) with the edges A → N and N → D. (First
+  written as A → N → B; corrected, because nothing in B or C uses a defaulted record —
+  D's examples are the first thing that does — and the tighter edge lets B start while
+  N's full-suite run is still going.)
 - **Open Decision 3 took the alternative.** The plan said polygon intersection was
   something "this plan does not build"; it now builds it, in 172-L.
 - **Phase 3's check counted itself.** `grep -c 'ANSWER:'` matches the check's own line
