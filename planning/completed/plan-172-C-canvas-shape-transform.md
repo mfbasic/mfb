@@ -166,7 +166,7 @@ commit shows the per-pixel delta.
 
 Acceptance: the compiler builds and the registry tests pass.
   Check: `cargo test --bin mfb canvas` → pass (est. 4 min).
-Commit: —
+Commit: 23c119ade
 
 ### Phase 2 — Port every site but the ellipses
 
@@ -183,7 +183,7 @@ Acceptance: every canvas suite except the ellipse cases passes with no PNG regen
   Check: `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser --test
   rt_canvas_metal --test rt_canvas_damage` → pass apart from tests naming `ellipse`
   (est. 12 min); `git status --porcelain tests/golden/canvas` → empty.
-Commit: —
+Commit: 23c119ade
 
 ### Phase 3 — The ellipses
 
@@ -199,7 +199,7 @@ Commit: —
 Acceptance: `ellipses.png` matches unregenerated, or §3's four-question procedure was
 followed and the commit carries the per-pixel proof.
   Check: `cargo test --test rt_canvas_golden ellipses` → pass (est. 3 min).
-Commit: —
+Commit: 23c119ade
 
 ## Validation Plan
 
@@ -274,6 +274,13 @@ None.
   diffs). New test: `identical_presents_are_skipped_whatever_the_id_length`. The same
   weakness was latent before this plan for any item with a string ahead of its paint
   (`canvas::Text`).
+- **`tests/cli/cli_canvas_package.rs` read `filled.transform.a`** to prove a paint's
+  zero transform; the check is removed with the field (found after the main commit, by
+  running the seven non-`tests/canvas` targets that embed canvas programs — all pass).
+- **One unit test is red and is not this letter's:**
+  `the_syntax_corpus_reproduces_its_goldens_in_process` fails on `resource-state-invalid`
+  alone, which is bug-1013 (172-N Corrections). The full `cargo test --bin mfb` run was
+  cut off by a 30-minute limit after that one failure; the `canvas` subset is 113 passed.
 - **`canvas::Ellipse`'s man example gained a `turnAbout` helper.** A transform pivots
   about the surface origin until 172-D, so tilting an ellipse in place needs a
   translation; written inline it was unreadable.

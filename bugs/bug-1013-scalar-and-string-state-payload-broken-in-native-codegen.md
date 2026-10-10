@@ -83,6 +83,11 @@ Two existing fixtures are red until this is fixed, and need no edit when it is:
 illegal `STATE` type and expects `TYPE_STATE_INVALID`; since plan-172-N that type passes
 the check (`scripts/test-accept.sh` at `fc530a22e`: both `build.log` mismatches).
 
+The same fixture also fails one unit test until this is fixed:
+`cargo test --bin mfb the_syntax_corpus_reproduces_its_goldens_in_process` →
+`resource-state-invalid: … produced no diagnostic at all, but its golden records
+["TYPE_STATE_INVALID"] — the program is now accepted`.
+
 ## Root Cause
 
 A resource record has one `STATE` word at `RESOURCE_OFFSET_STATE`

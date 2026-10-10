@@ -128,9 +128,6 @@ const PAINT_DEFAULTS_SOURCE: &str = "IMPORT app\n\
     \x20 IF filled.blend <> canvas::BlendMode.Normal THEN\n\
     \x20   RETURN 3\n\
     \x20 END IF\n\
-    \x20 IF filled.transform.a <> 0.0 THEN\n\
-    \x20   RETURN 4\n\
-    \x20 END IF\n\
     \x20 IF len(filled.clip) <> 0 THEN\n\
     \x20   RETURN 5\n\
     \x20 END IF\n\
