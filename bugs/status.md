@@ -76,17 +76,17 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 ## New bugs filed since the plan
 
 **P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; in progress)
-Round 1: agent I on 982+993 and 983 (done in its branch, not yet reviewed), 994 in progress; agent J on 989 and 988's reduce part. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
-[ ] 982 + 993: mouse callbacks overwrite callee-saved `x19` (GTK aarch64 / macOS app); same mistake, fix together
-[ ] 994: Win64 functions overwrite `xmm6`/`xmm7` without saving them (silent wrong Float); prove on 206
+Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 and 988's reduce part. Round 2: agent K on the leaks; then 856 and 1012. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
+[~] 982 + 993: mouse callbacks (and the graphics-thread entry, thread trampoline, OpenSSL verify callback) keep callee-saved registers; reviewed, merged into staging (2226: click/move/scroll rc 139 → 0)
+[~] 994: Win64 frames save the callee-saved xmm registers they write; reviewed, merged into staging (206: `20.00` no longer becomes `-0.09` / `4294967296.00`)
 [~] 990: fixed, reviewed, merged into staging (a variant from a call/field/get/WITH is now wrapped everywhere)
 [~] 988: `append`/`insert`/`set`/… accept a variant (merged into staging); `reduce` with a variant initial value: owner decided it works → agent J
 [ ] 989: owner decided CONVERT (a `List OF Square` given as `List OF Shape` is copied and each element tagged; same for Set/Map values/nested) → agent J
 [~] 1013: a user `TYPE Circle`/`Rectangle` broke the canvas helpers; found and fixed by agent J, merged into staging
-[ ] 983: string freed wrongly after an absolute `fs::pathJoin` (`http::respondPath("//etc/hosts")` crashes)
-[ ] 992, 984, 1000, 1001: leaks (`graphemesCount` list; macOS TLS listener 2.8 KB; owned-list drain I/O buffer; union drop leaks read and write buffers, up to 16 KiB per drop)
-[ ] 999: an inline aggregate of resources is never closed (`len(mkList())`)
-[ ] 1012: a resource-union box has no owner outside a binding (record-field use-after-free, 16 B leak); found by agent J, not yet reproduced by the coordinator
+[~] 983: `fs::pathJoin` heap overrun after an absolute component; reviewed, merged into staging (rc 138 → `403` at -O0..-O3)
+[ ] (agent K, in progress) 992, 984, 1000, 1001: leaks (`graphemesCount` list; macOS TLS listener 2.8 KB; owned-list drain I/O buffer; union drop leaks read and write buffers, up to 16 KiB per drop)
+[ ] (agent K, in progress) 999: an inline aggregate of resources is never closed (`len(mkList())`)
+[ ] 1012 (HIGH): a resource-union box has no owner outside a binding (record-field use-after-free, exit 139; 16 B leak); found by agent J, crash reproduced by the coordinator
 [ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
 
 Into existing phases:
