@@ -80,7 +80,7 @@ Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 an
 [~] 982 + 993: mouse callbacks (and the graphics-thread entry, thread trampoline, OpenSSL verify callback) keep callee-saved registers; reviewed, merged into staging (2226: click/move/scroll rc 139 → 0)
 [~] 994: Win64 frames save the callee-saved xmm registers they write; reviewed, merged into staging (206: `20.00` no longer becomes `-0.09` / `4294967296.00`)
 [~] 990: fixed, reviewed, merged into staging (a variant from a call/field/get/WITH is now wrapped everywhere)
-[~] 988: `append`/`insert`/`set`/… and `reduce`/`reduceRight` accept a variant; reviewed, merged into staging
+[~] 988: `append`/`insert`/`set`/… and `reduce`/`reduceRight` accept a variant; reviewed, merged into staging. Follow-up with agent J (owner decision): the collection fixes `T`, so `append(squares, aShape)` is a compile error again and the result never widens to `List OF Shape`
 [~] 989: a `List OF Square` given as `List OF Shape` is converted (also Map values, nested lists); one direction only, the reverse stays a compile error; reviewed, merged into staging. `Set OF <union>` cannot be declared, so there is nothing to convert. The `RES`-element form is bug-1018.
 [~] 1020: `reduce` returned the caller's initial-value block (double free); found and fixed by agent J, merged into staging
 [~] 1016 (was 1013): a user `TYPE Circle`/`Rectangle` broke the canvas helpers; found and fixed by agent J, merged into staging
@@ -103,7 +103,7 @@ Into existing phases:
 [ ] P8: 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
 
 Numbering note: other sessions file bugs too (the plan-172 session used 1013 and 1014 the same day the coordinator did). The coordinator renumbers its own unmerged docs on a collision; check `ls bugs` in every worktree before taking a number.
