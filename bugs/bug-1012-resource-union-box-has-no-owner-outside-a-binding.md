@@ -193,3 +193,73 @@ that each resource still closes exactly once.
 - `rk` and the leak programs above, as an rt fixture plus a `--debug` balance test.
 - `tests/rt-behavior/resources/**`, `rt_resource_temporary_close`,
   `rt_inline_trap_union_bind`, and `artifact-gate all`.
+
+## More shapes of the same defect (bs18-agent-k, 2026-10-10)
+
+Found while fixing bug-1000 and bug-999, on the base compiler
+(`/tmp/main-dbg-target/release/mfb`, `mfb build -q --debug`). Both return a
+`List OF RES <Union>` from a function. They are this bug: the list's element is the
+box pointer, and nothing but the wrapping binding owns the box.
+
+Common prelude:
+
+```
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+FUNC openData() AS RES fs::File
+  RETURN fs::openFile("/tmp/g933/data.txt")
+END FUNC
+FUNC main() AS Integer
+  MUT t AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+  RETURN 0
+END FUNC
+```
+
+1. **Double free of the box.** The callee's binding frees the box as it returns;
+   the caller's owning drain frees it again.
+
+   ```
+   FUNC mkStreams() AS List OF RES Stream
+     RES s AS Stream = openData()
+     RETURN [s]
+   END FUNC
+   FUNC once() AS Integer
+     LET xs = mkStreams()
+     RETURN len(xs)
+   END FUNC
+   ```
+
+   `N=10`: `alloc_calls 52 free_calls 62 live_bytes 0 double_free_skips 9`.
+   `N=20`: `102 / 122 / 0`, `double_free_skips 19`.
+
+2. **SIGSEGV.** The same `once`, with the element floated in the callee:
+
+   ```
+   FUNC mkStreams() AS List OF RES Stream
+     MUT xs AS List OF RES Stream = []
+     IF len("x") = 1 THEN
+       RES s AS Stream = openData()
+       xs = collections::append(xs, s)
+     END IF
+     RETURN xs
+   END FUNC
+   ```
+
+   `N=10`: exit 139. (`N=1` at `-O0` exits 0.)
+
+Because of 1, bug-1000 and bug-999 deliberately do not widen ownership for a
+collection that reaches a resource-union box
+(`record_ownership.rs:block_held_elsewhere_strict`,
+`builder_values.rs:adopt_exclusive_temp`). Once a box has an owner outside a
+binding, both exclusions can go.
