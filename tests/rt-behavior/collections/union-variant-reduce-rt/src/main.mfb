@@ -1,0 +1,78 @@
+IMPORT collections
+IMPORT io
+
+' bug-988: `reduce`/`reduceRight` with a union VARIANT as the initial value
+' and a callback whose accumulator is the union. The accumulator type is the
+' union, and the initial value is wrapped as it.
+
+TYPE Circle
+  r AS Float
+END TYPE
+
+TYPE Square
+  side AS Float
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+FUNC describe(s AS Shape) AS String
+  MATCH s
+    CASE Circle(c)
+      RETURN "circle " & toString(c.r)
+    CASE Square(q)
+      RETURN "square " & toString(q.side)
+  END MATCH
+END FUNC
+
+FUNC size(s AS Shape) AS Float
+  MATCH s
+    CASE Circle(c)
+      RETURN c.r
+    CASE Square(q)
+      RETURN q.side
+  END MATCH
+END FUNC
+
+FUNC larger(acc AS Shape, s AS Shape) AS Shape
+  IF size(s) > size(acc) THEN
+    RETURN s
+  END IF
+  RETURN acc
+END FUNC
+
+FUNC keep(acc AS Shape, s AS Shape) AS Shape
+  RETURN acc
+END FUNC
+
+FUNC last(acc AS Shape, s AS Shape) AS Shape
+  RETURN s
+END FUNC
+
+FUNC seed AS Square
+  RETURN Square[4.0]
+END FUNC
+
+FUNC main AS Integer
+  LET shapes AS List OF Shape = [Circle[1.0], Square[2.0], Circle[3.0]]
+  LET none AS List OF Shape = []
+
+  ' The initial value survives when the list is empty or never beats it.
+  io::print("empty: " & describe(collections::reduce(none, Square[9.0], larger)))
+  io::print("kept: " & describe(collections::reduce(shapes, Square[9.0], keep)))
+  io::print("largest: " & describe(collections::reduce(shapes, Square[0.5], larger)))
+  io::print("call initial: " & describe(collections::reduce(shapes, seed(), keep)))
+  io::print("lambda: " & describe(collections::reduce(shapes, Square[9.0], LAMBDA(acc AS Shape, s AS Shape) -> acc)))
+
+  LET bound AS Shape = collections::reduce(shapes, Square[0.5], last)
+  io::print("bound: " & describe(bound))
+  LET inferred = collections::reduce(none, Square[7.0], keep)
+  io::print("inferred: " & describe(inferred))
+
+  io::print("right empty: " & describe(collections::reduceRight(none, Square[9.0], larger)))
+  io::print("right kept: " & describe(collections::reduceRight(shapes, Square[9.0], keep)))
+  io::print("right last: " & describe(collections::reduceRight(shapes, Square[0.5], last)))
+  RETURN 0
+END FUNC
