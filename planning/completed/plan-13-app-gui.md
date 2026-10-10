@@ -1,5 +1,7 @@
 # plan-13: the `app::` native GUI package
 
+UPDATE: 2026-10-08 - old plan, not going to work on it.
+
 Last updated: 2026-10-04 (13-B satisfied by the landed plan-89 `AttributedString`)
 Overall Effort: huge (>3d) — language amendment + package surface + emitted layout solver
 + two native backends + TextArea + Table
