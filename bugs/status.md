@@ -91,6 +91,7 @@ Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 an
 
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
+[ ] P3: 1014 (Windows `respondPath`: `..\` traversal still 403-vs-404 by existence; reproduced on 206)
 [ ] Flakes: 1003 (http::pump example hangs on a stalled remote), 1004 (cli_dbg threaded-arena test timing)
 [ ] P5: 1002 (TYPE_COLLECTION_OWNERSHIP_VIOLATION reported twice)
 [ ] P5: 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
