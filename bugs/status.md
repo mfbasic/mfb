@@ -76,15 +76,18 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 ## New bugs filed since the plan
 
 **P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; in progress)
-Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 and 988's reduce part. Round 2: agent K on the leaks. Round 3 (next free slots): 1013 + 998 (the two STATE rules, one agent), 1012, 856. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
+Round 1: agent I done (982+993, 994, 983 merged into staging); agent J on 989 and 988's reduce part. Round 2: agent K on the leaks. Round 3: agent L on 1013 + 998 (the two STATE rules; census of non-record STATE users comes to the owner first). Then 1012 and 856. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
 [~] 982 + 993: mouse callbacks (and the graphics-thread entry, thread trampoline, OpenSSL verify callback) keep callee-saved registers; reviewed, merged into staging (2226: click/move/scroll rc 139 → 0)
 [~] 994: Win64 frames save the callee-saved xmm registers they write; reviewed, merged into staging (206: `20.00` no longer becomes `-0.09` / `4294967296.00`)
 [~] 990: fixed, reviewed, merged into staging (a variant from a call/field/get/WITH is now wrapped everywhere)
-[~] 988: `append`/`insert`/`set`/… accept a variant (merged into staging); `reduce` with a variant initial value: owner decided it works → agent J
-[ ] 989: owner decided CONVERT (a `List OF Square` given as `List OF Shape` is copied and each element tagged; same for Set/Map values/nested) → agent J
+[~] 988: `append`/`insert`/`set`/… and `reduce`/`reduceRight` accept a variant; reviewed, merged into staging. Follow-up with agent J (owner decision): the collection fixes `T`, so `append(squares, aShape)` is a compile error again and the result never widens to `List OF Shape`
+[~] 989: a `List OF Square` given as `List OF Shape` is converted (also Map values, nested lists); one direction only, the reverse stays a compile error; reviewed, merged into staging. `Set OF <union>` cannot be declared, so there is nothing to convert. The `RES`-element form is bug-1018.
+[~] 1020: `reduce` returned the caller's initial-value block (double free); found and fixed by agent J, merged into staging
 [~] 1016 (was 1013): a user `TYPE Circle`/`Rectangle` broke the canvas helpers; found and fixed by agent J, merged into staging
 [~] 983: `fs::pathJoin` heap overrun after an absolute component; reviewed, merged into staging (rc 138 → `403` at -O0..-O3)
 [ ] (agent K, in progress) 992, 984, 1000, 1001: leaks (`graphemesCount` list; macOS TLS listener 2.8 KB; owned-list drain I/O buffer; union drop leaks read and write buffers, up to 16 KiB per drop)
+[ ] 1018: a `List OF RES fs::File` given as `List OF RES Handle` is not converted (`MATCH` takes no arm); blocked on 999 and 1012
+[ ] 1019: a collection temporary passed through a generic function (`idOf(squares(20.0))`) leaks 144 B
 [ ] (agent K, in progress) 999: an inline aggregate of resources is never closed (`len(mkList())`)
 [ ] 1013 (HIGH, filed by the plan-172 session; doc cherry-picked to main as bf619ab10; taken over by the coordinator at the owner's request; repros confirmed: `Integer` → internal build error, `String` → rc 138, `List` works today): a `STATE` type that is not a record is accepted, then fails to build (scalar) or crashes (`String`). Owner ruling: **a STATE must always be a record**; anything else is a compile error (`TYPE_STATE_INVALID`) at every position a `STATE` clause can appear. Pairs with 998 (STATE on a non-resource parameter → `TYPE_STATE_REQUIRES_RESOURCE`).
 [ ] 1012 (HIGH): a resource-union box has no owner outside a binding (record-field use-after-free, exit 139; 16 B leak); found by agent J, crash reproduced by the coordinator
@@ -95,12 +98,12 @@ Into existing phases:
 [ ] P3: 1017 (was 1014) (Windows `respondPath`: `..\` traversal still 403-vs-404 by existence; reproduced on 206)
 [ ] Flakes: 1003 (http::pump example hangs on a stalled remote), 1004 (cli_dbg threaded-arena test timing)
 [ ] P5: 1002 (TYPE_COLLECTION_OWNERSHIP_VIOLATION reported twice)
-[ ] P5: 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
+[ ] (moved to P2b, agent L, with 1013) 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
 [ ] P8: 1015 (GTK `pollMouse` sees nothing without a stdin read; owner decided: events come from the window like macOS/Windows) → then 985 (setMode window has no mouse controllers)
 [ ] P8: 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
 
 Numbering note: other sessions file bugs too (the plan-172 session used 1013 and 1014 the same day the coordinator did). The coordinator renumbers its own unmerged docs on a collision; check `ls bugs` in every worktree before taking a number.
