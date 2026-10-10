@@ -208,7 +208,7 @@ every canvas pixel test passes with no PNG regenerated.
   (est. 10 min), and `git status --porcelain tests/golden/canvas` → empty.
   → grep → 0; all sixteen `rt_canvas_*` suites pass (golden 22, rasteriser 86, metal 45,
     picture 33, font 17, and eleven more; 0 failed); `tests/golden/canvas` unchanged.
-Commit: —
+Commit: 7c4bc48c5
 
 ## Validation Plan
 
