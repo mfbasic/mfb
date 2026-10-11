@@ -247,7 +247,10 @@ value" cascade, the `TESTING` assertion builtins' argument rules (lowering
 expands the assertion into comparisons + `FAIL`), a `Money` scaled by a bare
 decimal literal (the literal's spelling), the `Error`/`ErrorLoc` constructor
 form (lowering synthesizes `Constructor{Error}` itself), a native `CONST` pin
-that does not fold and a `FREE` block's deallocator signature, and the
+that does not fold and a `FREE` block's deallocator signature, the `STATE`
+type of a top-level binding or a lambda parameter (`TYPE_STATE_INVALID` —
+lowering carries neither clause into the IR; see
+`./mfb spec language resource-management`), and the
 imported-package metadata validation (`PACKAGE_INVALID`). It walks the
 concrete (post-monomorph) HIR with lowering's own typing oracle
 (`ir::lower::expression_type`) and tracks scopes exactly as lowering binds them,
