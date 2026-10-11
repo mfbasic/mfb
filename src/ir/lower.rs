@@ -4069,10 +4069,16 @@ fn function_types(hir: &HirProject) -> HashMap<String, ParameterType> {
     for file in &hir.files {
         for item in &file.items {
             if let HirItem::Function(function) = item {
+                // A first-class reference's parameters carry their `STATE T` clause,
+                // as the declared FUNC's own parameters do (`lower_param`) and as a
+                // lambda's callable type does (`lambda_param_type`). A function
+                // value is called through this type alone, so without the clause
+                // `LET j = p` then `j(bareFile)` handed a resource with no state
+                // payload to a body that reads `x.state` (bug-1054).
                 let params = function
                     .params
                     .iter()
-                    .map(|param| param.type_.clone())
+                    .map(lambda_param_type)
                     .collect::<Vec<_>>();
                 // A first-class reference's return carries the STATE for the same
                 // reason a direct call's does: without it `LET g = openTagged` would
