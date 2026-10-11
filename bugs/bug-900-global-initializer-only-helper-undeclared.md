@@ -90,3 +90,12 @@ finds no matching declaration, and returns the hard error.
   `src/codegen/engine/builder/mod.rs:lower_module_for_platform`, stdin/term/mouse
   usage gates) may miss uses in global initializers in the same way. Grep each
   `program_uses_*` helper.
+
+## Partly fixed in batch 21 (2026-10-11)
+
+bug-1030's fix made `required_helpers` walk `ir.bindings` (its own reproduction needed it). Measured
+on 2026-10-11 with the batch 21 compiler: the program above builds and prints `$HOME`, and the
+`fs::exists("/tmp")` form prints `TRUE`; main's compiler (dcf790e9a) still fails both with
+`requires undeclared helper`. Not checked, so still open: merged package IR, and the other IR walks
+listed under "Blast Radius".
+

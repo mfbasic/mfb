@@ -16,28 +16,15 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
-## Running phase: batch 21 (`bug-staging-21`)
-
-The list is fixed: the seven open documents in "Resources and STATE" whose `Severity:` line
-is MEDIUM. Nothing is added to it; a bug found while it runs gets a row in its area table
-and waits.
-
-999, 1018, 1025, 1027, 1028, 1030, 1037 (999 before 1018). 999 is worked only as far as its
-document settles without a language decision: a call to a function taking only plain scalars,
-written straight into an argument of a call that keeps nothing of it (`len(mkList())`, the
-document's reproduction). The positions that need the owner's decision (a bind, assignment,
-global store, `RETURN` or `FOR EACH` whose value contains such a call) are not in this phase.
-
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1045   | HIGH     | a loop-scoped record's resource moved into a list declared outside the loop is closed when the loop body ends, so reading it afterwards fails with `Resource handle is already closed.` |
 | [ ]  | 1046   | HIGH     | a loop-scoped concrete `RES fs::File` appended to a `List OF RES Handle` builds and then crashes with SIGSEGV (near 1018, 1027) |
-| [ ]  | 999    | MED      | a `List OF RES` (or record of resources) returned by a call nested in an expression is never closed — `len(mkList())` leaks every resource it holds (NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first) |
-| [ ]  | 1018   | MED      | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm (after 999) |
-| [ ]  | 1027   | MED      | a concrete `fs::File` binding appended to a module-level `List OF RES Handle` fails to build |
-| [ ]  | 1030   | MED      | the `STATE` clause of a top-level `RES` binding and of a `LAMBDA` parameter is dropped, so `.state` on it does not type |
+| [ ]  | 1054   | HIGH     | a first-class reference to a FUNC with a `STATE` parameter (`LET j = p`) loses the clause from its callable type: a bare call builds and crashes with SIGSEGV, a stateful call fails to build |
+| [ ]  | 999    | MED      | a `List OF RES` (or record of resources) returned by a call and taken unbound by a constructor argument, a member read, a `FOR EACH` or a call that answers with more than a plain scalar is never closed (`len(mkList())` is fixed; the owner's rule is settled: the aggregate takes the scope of whatever takes it) |
+| [ ]  | 1018   | MED      | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm, and one form crashes; the conversion is written and right but keeps 272 bytes per conversion (needs `transform` to free a resource-union box, and the rest of 999) |
 | [ ]  | 1043   | MED      | a single resource returned by a call and used unbound (`len(fs::readAll(openOne()))`) is closed but keeps its 112-byte record on every call |
 | [ ]  | 1044   | MED      | a record built from a call that returns a `List OF RES` (`Box[items := mkList()]`) closes its descriptors but keeps 384 bytes per call |
 | [ ]  | 1047   | MED      | `collections::get` on a `List OF RES fs::File` under an inline `TRAP` written into an argument keeps 96 bytes per call |
@@ -47,6 +34,9 @@ global store, `RETURN` or `FOR EACH` whose value contains such a call) are not i
 | [ ]  | 1051   | MED      | a trapped call that returns its own argument (`RES v AS fs::File = sameF(a) TRAP`) keeps the 112-byte default record |
 | [ ]  | 1052   | MED      | a callee that returns an unfolded copy of a record holding a resource keeps 112 bytes per call (only at `-O0` once 1025 is fixed) |
 | [ ]  | 1053   | MED      | a record holding a resource that has a second holder (own `RES f = k.h`, returned copy, `LAMBDA` capture, `MATCH` binding stored in a list, copy appended to a list) is closed but its record is kept |
+| [ ]  | 1055   | MED      | a bare top-level `RES g AS fs::File = openTagged()` whose initializer carries `STATE` is accepted (the local form is refused) |
+| [ ]  | 1056   | MED      | a `List OF List OF RES fs::File` returned by a call and bound (`LET t = mkNested()`) keeps the inner list blocks, 240 bytes per call |
+| [ ]  | 1057   | MED      | `hs = files` on a `MUT hs AS List OF RES Handle` keeps 48 bytes per assignment (near 1018) |
 | [ ]  | 1029   | LOW      | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ]  | 1031   | LOW      | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
 
@@ -233,6 +223,7 @@ global store, `RETURN` or `FOR EACH` whose value contains such a call) are not i
 | [ ]  | 936    | LOW      | wrong-arity `collections::merge`/`partition` diagnostics print the internal monomorph name `#collections_merge$String$Integer` |
 | [ ]  | 937    | LOW      | one unknown record field produces cascading `TYPE_CALL_ARGUMENT_MISMATCH` (overloaded builtin) and a duplicated `TYPE_UNKNOWN_VALUE` |
 | [ ]  | 1041   | LOW      | a no-match call on a file's `PRIVATE`+`PUBLIC` overload set prints `#<hash>$r`, and `PRIVATE_SHADOWS_PUBLIC` fires on that legal overload (item 2 NEEDS AN OWNER DECISION; with 836 and 881) |
+| [ ]  | 1058   | LOW      | `wantsCur(1)` (an Integer to an `fs::File STATE Cur` parameter) reports a second, misleading `TYPE_STATE_MISMATCH` after the argument mismatch |
 
 ## Codegen internals
 

@@ -86,3 +86,86 @@ module-level `List OF RES Handle` fails to build). The append here is local to a
 builds, then crashes. Whether the same append outside a loop crashes was not measured.
 
 Found during batch 21.
+
+## Additional reproduction (2026-10-11)
+
+`i1` is the same crash with no loop. `once` calls `mkHandles`, which declares the concrete
+`RES f AS fs::File = openOne()`, appends it to a `MUT xs AS List OF RES Handle` and returns
+the list. `countH`, the callee, iterates the list with `FOR EACH` and `MATCH`.
+
+`N=10 /tmp/bs21/bin/probe.sh /tmp/main-dbg-target/release/mfb i1` (main at dcf790e9a, macOS
+aarch64, `mfb build -q --debug`): the build succeeds, `Segmentation fault: 11`, exit 139, empty
+stdout.
+
+Control `j1` is the same program with the binding declared `RES f AS Handle = openOne()`
+(the only difference). `N=10 /tmp/bs21/bin/probe.sh /tmp/main-dbg-target/release/mfb j1`:
+exit 0, stdout `60`, `alloc_calls 72`, `free_calls 52`, `live_bytes 3520`. (`j1` keeps
+memory; that is a separate defect and is not what this section shows.)
+
+This shows that the loop is not needed: the crash comes from appending a concrete
+`fs::File` binding to a `List OF RES Handle` and reading the list as union elements, so the
+title's "loop-scoped" is narrower than the defect. `/tmp/g933/data.txt` is a 6-byte file
+("hello\n").
+
+```
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE HB
+  h AS RES fs::File
+  n AS Integer
+END TYPE
+
+FUNC openOne AS RES fs::File
+  RETURN fs::openFile("/tmp/g933/data.txt")
+END FUNC
+
+FUNC mkHandles() AS List OF RES Handle
+  MUT xs AS List OF RES Handle = []
+  RES f AS fs::File = openOne()
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC mkHB() AS HB
+  RETURN HB[openOne(), 4]
+END FUNC
+
+FUNC countH(hs AS List OF RES Handle) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN hs
+    MATCH h
+      CASE fs::File(f)
+        t = t + len(fs::readAll(f))
+      CASE tcp::Socket(s)
+        t = t + 100
+    END MATCH
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC rdHB(k AS HB) AS Integer
+  RETURN len(fs::readAll(k.h)) + k.n
+END FUNC
+
+FUNC main AS Integer
+  MUT t AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+  RETURN 0
+END FUNC
+
+FUNC once() AS Integer
+  RETURN countH(mkHandles())
+END FUNC
+```

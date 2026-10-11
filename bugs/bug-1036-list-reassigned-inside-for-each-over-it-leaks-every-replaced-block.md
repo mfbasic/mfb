@@ -99,3 +99,73 @@ leaks, but the pattern is rare." `try_inplace_set_assign` has the mirror guard.
 ### Non-goals
 
 - Freeing the block while the iterator still reads it (that is a use-after-free).
+
+## Additional reproduction (2026-10-11)
+
+`c13` is the same leak with a `List OF RES fs::File` in place of a resource union list: `once`
+iterates `hs` with `FOR EACH h IN hs` and reassigns `hs = collections::append(hs, c)` inside
+the body. Measured with main's compiler (`/tmp/main-dbg-target/release/mfb`, main at
+dcf790e9a, macOS aarch64, `mfb build -q --debug`, harness `/tmp/bs21-agent-a/bin/probe.sh`,
+`arena.0` counters alloc / free / live):
+`N=10 /tmp/bs21-agent-a/bin/probe.sh /tmp/main-dbg-target/release/mfb c13`: exit 0, stdout
+`10`, 132 / 122 / 960. `N=20`: stdout `20`, 262 / 242 / 1920. The live bytes grow by 96 per call.
+`/tmp/g933/data.txt` is a 6-byte file ("hello\n").
+
+```
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE HB
+  h AS RES Handle
+END TYPE
+
+FUNC openOne AS RES fs::File
+  RETURN fs::openFile("/tmp/g933/data.txt")
+END FUNC
+
+FUNC which(label AS String, h AS Handle) AS Integer
+  MATCH h
+    CASE fs::File(f)
+      LET text AS String = fs::readAll(f)
+      RETURN 1
+    CASE tcp::Socket(s)
+      RETURN 2
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  MUT t AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+  RETURN 0
+END FUNC
+FUNC whichF(label AS String, f AS fs::File) AS Integer
+  LET text AS String = fs::readAll(f)
+  RETURN 1
+END FUNC
+FUNC once() AS Integer
+  RES a AS fs::File = openOne()
+  RES c AS fs::File = openOne()
+  MUT hs AS List OF RES fs::File = [a]
+  MUT t AS Integer = 0
+  FOR EACH h IN hs
+    hs = collections::append(hs, c)
+    t = t + whichF("e", h)
+  NEXT
+  FOR j = 1 TO 20
+    hs = collections::append(hs, c)
+  NEXT
+  RETURN t + whichF("z", collections::get(hs, 20)) - 1
+END FUNC
+```
