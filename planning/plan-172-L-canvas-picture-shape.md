@@ -59,8 +59,8 @@ If plan-172-K is not complete, this letter cannot start, full stop.
 - When the shape is an `AutoPaint`, the state paint replaces the tint and outline.
 - A `Picture` is hit as its shape is. It keeps its own `id`, which goes in front of its
   shape's in `overID` (172-I's id path): a picture `"avatar"` on a shape `"frame"`,
-  inside a group `"card"`, reports `card`, `avatar`, `frame`, joined by the separator,
-  with any empty part left out.
+  inside a group `"card"`, reports `"card::avatar::frame"`, with any empty part left
+  out. When the shape is an `AutoPaint`, the part is the wrapped shape's `id`.
 
 ### Non-goals (explicit constraints)
 

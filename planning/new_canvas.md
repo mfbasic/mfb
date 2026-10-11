@@ -159,7 +159,12 @@ END TYPE
 * `overID` is a **path of ids**, outermost first (owner's decision, 2026-10-10, replacing
   "the item's `id` string and nothing more"). A `Group` node has an `id`, and so does a
   `Picture`; each contributes its own in front of what it holds, and the shape's `id` comes
-  last. The parts are joined by one separator character (plan-172-I Open Decision 1).
+  last. The parts are joined by `::` — the language's own namespace separator (owner's
+  answer to plan-172-I Open Decision 1) — so a shape `"label"` in a group `"save"` reports
+  `"save::label"`.
+  * An `AutoPaint` has no `id` and adds nothing to the path. It is a decorated shape, not
+    something that uses a shape (as a `Picture` does) or holds items (as a `Group` does):
+    it reports its shape's `id`, exactly as the bare shape would.
   * A part that is empty is left out. A group or picture with no `id` adds nothing, so a
     scene that names only its shapes reports exactly those names.
   * A shape with no `id` inside a named group or picture reports the container's path

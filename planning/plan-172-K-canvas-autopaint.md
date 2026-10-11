@@ -326,6 +326,10 @@ Commit: —
 
 ## Corrections
 
+- **`AutoPaint` has no `id` (owner's decision, 2026-10-10).** "Auto paint is a decorated
+  version of a shape, it's not 'using' a shape like Picture or containing a shape like
+  groups." It adds nothing to the id path: an `AutoPaint` reports its shape's `id`, as
+  the bare shape would, and the record stays as `planning/new_canvas.md` lists it.
 - **From 172-I's id path (owner's decision, 2026-10-10):** the instance key is the id
   path, not the item's own `id`, and Open Decision 2 is added for two instances whose
   paths are equal. The original wording — "the item's `id` when it is non-empty … two

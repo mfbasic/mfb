@@ -58,11 +58,11 @@ If plan-172-H is not complete, this letter cannot start, full stop.
 - `canvas::MouseEvent` has `overID AS String`, last.
 - `overID` is the **id path** of the topmost item under `position` in the scene the
   program last presented: the `id` of every group that holds it, outermost first, then
-  its own, joined by the separator (Open Decision 1), with empty parts left out. So:
+  its own, joined by `::` (Open Decision 1), with empty parts left out. So:
   - a named shape in the scene itself reports its `id`, as a scene with no named group
     always has;
-  - a named shape inside a group with `id` `"save"` reports `"save"`, the separator,
-    then its own `id`; nested groups chain;
+  - a shape `"label"` inside a group with `id` `"save"` reports `"save::label"`; nested
+    groups chain, `"toolbar::save::label"`;
   - an unnamed shape inside a named group reports the group's path alone;
   - with no `id` anywhere on the path, or no item under the point, it is `""`.
 - A `Picture` contributes its `id` as the last part today. 172-L gives it a shape, whose
@@ -77,7 +77,8 @@ If plan-172-H is not complete, this letter cannot start, full stop.
   `pollMouse` returns the event.
 - **A `Picture`'s shape is 172-L.** Here a picture is one named item.
 - **The path is not parsed back.** `overID` is one string; no function splits it, and a
-  program that puts the separator inside an `id` gets what it wrote.
+  program that puts `::` inside an `id` gets what it wrote.
+- **`AutoPaint` gets no `id`** (172-K): it is a decorated shape and reports its shape's.
 - **No path of indices.** Two uses of one group with the same `id`, or with none, report
   the same string for the same item, as they did before groups had one.
 - **`term::pollMouse` and `term::MouseEvent` are untouched.**
@@ -221,8 +222,8 @@ Commit: —
 - [ ] `helper_render.rs:__canvas_appendDraw`: take the id path as a parameter, join a
       group node's `id` onto it for its children, and append each entry's path joined
       with the item's own `id` to `__CANVAS_DRAW_IDS`; reset it wherever the offset
-      arrays are reset. One `__canvas_joinId(path, id)` does the joining and leaves an
-      empty part out.
+      arrays are reset. One `__canvas_joinId(path, id)` does the joining, with `::`,
+      and leaves an empty part out.
 - [ ] `helper_hit.rs`: `__canvas_hitAt(x, y) AS Integer`, last entry first.
 - [ ] Runtime cases in new `tests/canvas/rt_canvas_hit.rs`, driven through a
       debug-build probe function the way `MFB_CANVAS_STATS` reads are: two overlapping
@@ -270,7 +271,7 @@ Commit: —
       `.ai/testing-gates.md` and port its source to read `overID`.
 - [ ] Port the 23 `pollMouse` mentions where they construct or destructure the record.
 - [ ] `src/docs/spec/app/06_canvas.md`: a "Hit-testing" section stating the region
-      rules, the id path (its order, the separator, the empty-part rule) and when
+      rules, the id path (its order, the `::` separator, the empty-part rule) and when
       `overID` is resolved, cited to `helper_hit.rs` and `__canvas_appendDraw`; "Named
       groups" gains the node's `id`;
       `src/docs/spec/language/18_builtin-functions.md` where it lists `MouseEvent`.
@@ -319,7 +320,10 @@ Commit: —
    keep `-`. Nothing else in the letter depends on which: it is one character in
    `__canvas_joinId`, the spec and the tests.
 
-   **Unanswered. Phase 2's id-path cases and Phase 3 cannot start until it is.**
+   **ANSWER: `::`** (owner, 2026-10-10) — neither of the two above: "it's the
+   'namespace' already for the language." A path reads as a qualified name,
+   `"toolbar::save::label"`, and a single `:` or a `-` inside an `id` cannot be mistaken
+   for it.
 
 ## Corrections
 
