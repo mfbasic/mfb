@@ -1132,6 +1132,7 @@ pub(crate) fn lower_function(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        store_floats: Default::default(),
         reassign_free_collections: HashSet::new(),
         inner_owning_collections: HashSet::new(),
         inner_block_slots: HashSet::new(),
@@ -1412,6 +1413,13 @@ pub(crate) fn lower_function(
     builder.reassign_free_collections = ownership.reassign_free_collections;
     builder.inner_owning_collections = ownership.inner_owning_collections;
     builder.exclusive_temps.calls = ownership.exclusive_temps;
+    // bug-1045: a container that a store raises an inner scope's value into lists
+    // what the store hands it, so it needs its owned-lists from its bind, like a
+    // float target.
+    builder
+        .owner_containers
+        .extend(ownership.store_floats.containers.iter().cloned());
+    builder.store_floats = ownership.store_floats;
     // bug-805: a container local later ASSIGNED a call result adopts what the call
     // hands out, so it needs its owned-lists from its bind, like a float target.
     let call_assigned = builder.call_assigned_owner_containers(&function.body);
@@ -1801,6 +1809,7 @@ pub(crate) fn lower_abi_function_helper(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        store_floats: Default::default(),
         reassign_free_collections: HashSet::new(),
         inner_owning_collections: HashSet::new(),
         inner_block_slots: HashSet::new(),
@@ -2058,6 +2067,7 @@ pub(crate) fn helper_code_builder<'a>(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        store_floats: Default::default(),
         reassign_free_collections: HashSet::new(),
         inner_owning_collections: HashSet::new(),
         inner_block_slots: HashSet::new(),

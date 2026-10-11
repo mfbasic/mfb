@@ -47,7 +47,12 @@ impl CodeBuilder<'_> {
             .iter()
             .map(|leaf| Ok((leaf.clone(), self.resource_leaf_drop(leaf)?)))
             .collect::<Result<Vec<_>, String>>()?;
-        let owns_elements = self.owned_list_owning_collections.contains(name);
+        let owns_block = self.owned_list_owning_collections.contains(name);
+        // bug-1045: a container that took a record from an inner scope's binding
+        // frees it only when that binding is proved to leave no other holder
+        // (`record_ownership::store_float_close_only`); its own block is its own
+        // either way.
+        let owns_elements = owns_block && !self.store_floats.close_only.contains(name);
         // bug-645: the collection BLOCK itself. A `List OF RES X` is not
         // `is_freeable_flat_value` — `collection_payload_types` strips the `RES`
         // marker, so the walk sees a bare resource nominal and answers "not flat"
@@ -74,7 +79,7 @@ impl CodeBuilder<'_> {
         // this whole file guards against.
         // A collection of function values owns its block through its own drop, like
         // any graph-owning value; the RES-collection block free is not for it.
-        if owns_elements
+        if owns_block
             && typed_is_collection_type(type_)
             && !self.is_freeable_flat_value(type_)
             && !dynamic
@@ -501,6 +506,45 @@ impl CodeBuilder<'_> {
         }
         if let Some(listed) = &listed {
             self.emit(abi::label(listed));
+        }
+        Ok(())
+    }
+
+    /// bug-1045: raise what an assignment to container `name` stores from an inner
+    /// scope up to the container's scope (`record_ownership::StoreFloats`). Each
+    /// operand the analysis marked is lowered (a local, or a field chain over one:
+    /// no side effect), every resource it reaches is pushed, adopting, onto
+    /// `name`'s owned-list, and the push floats a record this scope or a scope
+    /// inside the container's owns to the container's scope. Emitted before the
+    /// store, as the module-level raise is (bug-806): a store that then fails
+    /// leaves the resources owned by the container's scope, which closes them.
+    pub(crate) fn emit_store_float(&mut self, name: &str, value: &NirValue) -> Result<(), String> {
+        if !self.store_floats.containers.contains(name)
+            || !(self.owned_list_heads.keys().any(|(list, _)| list == name)
+                || self.dynamic_owned_list(name).is_some())
+        {
+            return Ok(());
+        }
+        let mut operands = Vec::new();
+        crate::codegen::resource::cleanup::record_ownership::store_operands(value, &mut operands);
+        for operand in operands {
+            let marked = self
+                .store_floats
+                .operands
+                .get(&(operand as *const NirValue as usize))
+                .is_some_and(|container| container == name);
+            if !marked {
+                continue;
+            }
+            let result = self.lower_value(operand)?;
+            if !self.type_carries_resources(&result.type_) {
+                continue;
+            }
+            let slot = self.spill_to_slot("store_float_operand", &result.location);
+            let container = name.to_string();
+            self.emit_for_each_resource(slot, &result.type_, &mut |builder, leaf_slot, leaf| {
+                builder.emit_owned_list_push_as(&container, leaf_slot, leaf, true)
+            })?;
         }
         Ok(())
     }

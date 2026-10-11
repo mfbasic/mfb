@@ -3443,6 +3443,10 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::Assign { name, value } => {
+                        // bug-1045: a value from an inner scope stored into a
+                        // container declared further out takes that container's
+                        // scope (15.6): raise what it reaches before the store.
+                        self.emit_store_float(name, value)?;
                         // bug-689: an element-bound binding's update, its write-back
                         // (the element already holds the value it writes), and the
                         // single-expression update. None changes the list's length, so
