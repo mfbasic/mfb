@@ -1271,18 +1271,9 @@ impl<'a> Walker<'a> {
         for item in &file.items {
             match item {
                 HirItem::Binding(binding) => {
-                    if let Some(state) = &binding.state_type {
-                        let subject = format!("binding `{}`", binding.name);
-                        // One clause reports one rule: the host first
-                        // (bug-998), then the STATE type (bug-1013).
-                        if !matches!(binding.type_, ParameterType::Unknown)
-                            && !self.is_resource_type(&binding.type_)
-                        {
-                            self.check_stray_state(&subject, &binding.type_, state, binding.line);
-                        } else {
-                            self.check_erased_state_type(&subject, state, binding.line);
-                        }
-                    }
+                    // A top-level binding's `STATE` clause rides in its lowered
+                    // type (bug-1030), so both clause rules are `ir::verify`'s
+                    // (`check_state_clauses`), as for a local binding.
                     if let Some(value) = &binding.value {
                         let locals = HashMap::new();
                         self.current_line = binding.line;
@@ -1314,7 +1305,7 @@ impl<'a> Walker<'a> {
     }
 
     /// TYPE_STATE_REQUIRES_RESOURCE (bug-998): a `STATE` clause written on a
-    /// parameter, a return or a top-level binding whose type is not a resource.
+    /// parameter or a return whose type is not a resource.
     ///
     /// Erased fact: the clause itself. `hir::resource_params` takes it off a
     /// parameter or a return before lowering (`HirParam::stray_state`,
@@ -1322,11 +1313,11 @@ impl<'a> Walker<'a> {
     /// rides into the type (`Integer STATE Cur`) and makes every use of the
     /// parameter untypable — the author used to see `TYPE_UNKNOWN_VALUE` at each
     /// use and `TYPE_STATE_MISMATCH` at each call, and nothing at the clause.
-    /// A top-level binding's clause is never lowered at all. So the IR
-    /// `ir::verify` reads does not carry it, and this is the one place that can
-    /// still name it. (`ir::verify` keeps the same rule for the positions
-    /// lowering does not erase — a local binding, a field, an element, a thread
-    /// plane, a native declaration — and for decoded package IR.)
+    /// So the IR `ir::verify` reads does not carry it, and this is the one place
+    /// that can still name it. (`ir::verify` keeps the same rule for the
+    /// positions lowering does not erase — a binding, local or top-level, a
+    /// field, an element, a thread plane, a native declaration — and for
+    /// decoded package IR.)
     ///
     /// The clause's own type is not examined (`TYPE_STATE_INVALID`): with no
     /// resource to attach to, there is no payload to be the wrong kind of.
@@ -1352,50 +1343,6 @@ impl<'a> Walker<'a> {
                 &format!("Parameter `{}`", param.name),
                 &param.type_,
                 state,
-                line,
-            );
-        }
-    }
-
-    /// TYPE_STATE_INVALID (bug-1013), for the two `STATE` clauses lowering does
-    /// not carry into the IR: a TOP-LEVEL `RES` binding's and a LAMBDA
-    /// parameter's. A `STATE` type is a record `TYPE`.
-    ///
-    /// Erased fact: the clause. `lower_binding` lowers a top-level binding by its
-    /// declared type alone and never reads `HirTopLevelBinding::state_type`, and
-    /// a lambda's parameter is lowered by its `type_` alone, so the IR
-    /// `ir::verify` checks carries no clause to judge — which is how
-    /// `RES g AS fs::File STATE Integer` at the top level was accepted while the
-    /// identical local binding was refused.
-    ///
-    /// The kind is decided from what is positively known, as `ir::verify`'s
-    /// `state_type_fault` decides it: the walker's declared and imported types,
-    /// the resource registry and the built-in package registry. Whether a RECORD
-    /// has a default is not asked here — that is a property of its fields, which
-    /// only the verifier's tables hold.
-    fn check_erased_state_type(&mut self, subject: &str, state: &ParameterType, line: usize) {
-        let not_a_record = match state {
-            ParameterType::Unknown | ParameterType::Var(_) | ParameterType::Arg(_) => false,
-            ParameterType::Named(_) | ParameterType::UserOf(..) => {
-                use crate::codegen::registry::{registry, ResolvedType};
-                state.is_named("AttributedString")
-                    || self.is_resource_type(state)
-                    || match self.types.get(state) {
-                        Some(shape) => !shape.is_record,
-                        None => !matches!(
-                            registry().resolve_type(&state.name()),
-                            Some(ResolvedType::Record(_)) | None
-                        ),
-                    }
-            }
-            _ => true,
-        };
-        if not_a_record {
-            self.emit(
-                "TYPE_STATE_INVALID",
-                format!(
-                    "{subject} STATE type `{state}` is not a record; declare a record TYPE that holds the value and name it instead."
-                ),
                 line,
             );
         }
@@ -2204,17 +2151,7 @@ impl<'a> Walker<'a> {
                 let mut nested = locals.clone();
                 for param in params {
                     self.check_stray_param_state(param, self.current_line);
-                    // TYPE_STATE_INVALID (bug-1013): a lambda parameter's
-                    // `STATE` clause is not lowered, see
-                    // `check_erased_state_type`.
-                    if let Some(state) = &param.state_type {
-                        self.check_erased_state_type(
-                            &format!("Parameter `{}`", param.name),
-                            state,
-                            self.current_line,
-                        );
-                    }
-                    nested.insert(param.name.clone(), param.type_.clone());
+                    nested.insert(param.name.clone(), lower::lambda_param_type(param));
                 }
                 // TYPE_UNKNOWN_VALUE, the assignment-bodied lambda's target form.
                 if let Some(target) = assign_target {
@@ -2974,8 +2911,16 @@ impl<'a> Walker<'a> {
                     && expected_params
                         .iter()
                         .zip(actual_params.iter())
-                        // Parameters are contravariant (bug-173 A).
-                        .all(|(expected, actual)| self.compatible(actual, expected))
+                        // Parameters are contravariant (bug-173 A). A
+                        // lambda's `STATE T` parameter is part of its callable
+                        // type (bug-1030) and is not an annotation to compare
+                        // without here: a `FUNC(File STATE Cur)` reads its
+                        // argument's state, so it is not a `FUNC(File)`, whose
+                        // callers may pass any state or none.
+                        .all(|(expected, actual)| {
+                            strip_res(expected).state() == strip_res(actual).state()
+                                && self.compatible(actual, expected)
+                        })
                     && self.compatible(expected_return, actual_return)
             }
             (ParameterType::Named(_), ParameterType::Named(_)) => {
@@ -3181,6 +3126,11 @@ impl<'a> Walker<'a> {
                         continue;
                     };
                     let actual = self.type_of(value, locals).without_state();
+                    // A lambda's `STATE T` parameter rides in its callable type
+                    // (bug-1030). Whether the argument's state agrees is
+                    // `ir::verify`'s `check_argument_state_agreement`, as for
+                    // a declared FUNC; the resource itself is compared here.
+                    let expected = &expected.without_state();
                     if !self.expression_compatible(expected, &actual, value) {
                         self.emit(
                             "TYPE_CALL_ARGUMENT_MISMATCH",

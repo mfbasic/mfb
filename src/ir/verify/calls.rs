@@ -177,7 +177,17 @@ impl TypeEnv {
                     let Some(actual) = self.infer_type(arg, locals) else {
                         continue;
                     };
-                    if !self.assignable(expected, &actual, arg) {
+                    // A lambda's `STATE T` parameter rides in its callable
+                    // type (bug-1030), and binds the argument as a declared
+                    // FUNC's does: the same state, never a re-typing. A bare
+                    // parameter of a callable type is compared as written.
+                    let (expected, actual) = if expected.state().is_some() {
+                        self.check_argument_state_agreement(target, index, expected, &actual);
+                        (resource_base_type(expected), resource_base_type(&actual))
+                    } else {
+                        (expected.clone(), actual)
+                    };
+                    if !self.assignable(&expected, &actual, arg) {
                         let (actual, expected) = (actual.name(), expected.name());
                         self.emit_argument_mismatch(format!(
                             "Argument {} for `{target}` has type {actual}, expected {expected}.",
