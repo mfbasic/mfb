@@ -22,6 +22,6 @@ END FUNC
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET e AS canvas::DrawItem = canvas::Polygon[id := "", contours := [star(301, 97, 450.0, 320.0, 180.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(250, 250, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET e AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [star(301, 97, 450.0, 320.0, 180.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(250, 250, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([e])
 END FUNC

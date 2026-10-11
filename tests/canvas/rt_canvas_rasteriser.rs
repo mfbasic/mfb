@@ -337,7 +337,7 @@ fn polygon_fills_its_interior() {
              pts = collections::append(pts, vector::Float2[x := 100.0, y := 100.0])\n  \
              pts = collections::append(pts, vector::Float2[x := 300.0, y := 100.0])\n  \
              pts = collections::append(pts, vector::Float2[x := 200.0, y := 300.0])\n  \
-             LET tri AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([tri])\n",
+             LET tri AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([tri])\n",
         ),
     );
 
@@ -442,7 +442,7 @@ fn cache_hit_skips_geometry_generation() {
              pts = collections::append(pts, vector::Float2[x := x, y := 20.0])\n  \
              pts = collections::append(pts, vector::Float2[x := x + 60.0, y := 20.0])\n  \
              pts = collections::append(pts, vector::Float2[x := x + 30.0, y := 90.0])\n  \
-             RETURN canvas::Polygon[id := \"\", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 30, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+             RETURN canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 30, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
              END FUNC\n"),
     );
 
@@ -485,8 +485,8 @@ fn polygons_sharing_a_header_keep_their_own_points() {
              up = collections::append(up, vector::Float2[x := 100.0, y := 300.0])\n  \
              up = collections::append(up, vector::Float2[x := 300.0, y := 300.0])\n  \
              up = collections::append(up, vector::Float2[x := 200.0, y := 100.0])\n  \
-             LET a AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [down], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET b AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [up], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [down], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [up], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([a, b])\n",
         ),
     );
@@ -553,15 +553,15 @@ fn a_polygon_draws_each_of_its_rings() {
     let (frame, _) = render(
         "canvas_polygon_rings",
         &(scene(
-            "  LET donut AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(100.0, 100.0, 200.0), \
+            "  LET donut AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(100.0, 100.0, 200.0), \
              sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET pair AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(400.0, 100.0, 50.0), \
+             LET pair AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(400.0, 100.0, 50.0), \
              sq(500.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET lone AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 700.0, y := 500.0]], \
+             LET lone AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 700.0, y := 500.0]], \
              sq(600.0, 400.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 0, 0), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET flat AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 100.0, y := 560.0], \
+             LET flat AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 100.0, y := 560.0], \
              vector::Float2[x := 300.0, y := 560.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 255, 0), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET empty AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 0, 255), color::rgb(255, 0, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET empty AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 0, 255), color::rgb(255, 0, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([donut, pair, lone, flat, empty])\n",
         ) + RING_HELPERS),
     );
@@ -628,9 +628,9 @@ fn a_polygon_hash_covers_its_rings_and_rule() {
         &(scene(
             "  LET outer AS List OF vector::Float2 = sq(100.0, 100.0, 200.0)\n  \
              LET inner AS List OF vector::Float2 = sq(150.0, 150.0, 100.0)\n  \
-             canvas::present([canvas::Polygon[id := \"\", contours := [outer, inner], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
-             canvas::present([canvas::Polygon[id := \"\", contours := [outer, inner], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
-             canvas::present([canvas::Polygon[id := \"\", contours := [collections::flatten([outer, inner])], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n",
+             canvas::present([canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [outer, inner], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
+             canvas::present([canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [outer, inner], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n  \
+             canvas::present([canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [collections::flatten([outer, inner])], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n",
         ) + RING_HELPERS),
     );
     let generations: Vec<i64> = stats
@@ -688,12 +688,12 @@ fn non_zero_fills_by_winding_and_even_odd_by_parity() {
         "canvas_polygon_nonzero",
         &(scene(
             "  LET blue AS canvas::Paint = canvas::fill(color::rgb(0, 0, 255))\n  \
-             LET same AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(50.0, 50.0, 150.0), sq(100.0, 100.0, 50.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET sameEo AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(250.0, 50.0, 150.0), sq(300.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET opposite AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(450.0, 50.0, 150.0), sqCcw(500.0, 100.0, 50.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET oppositeEo AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(650.0, 50.0, 150.0), sqCcw(700.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET starNz AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [star(225.0, 420.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET starEo AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [star(575.0, 420.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET same AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(50.0, 50.0, 150.0), sq(100.0, 100.0, 50.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET sameEo AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(250.0, 50.0, 150.0), sq(300.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET opposite AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(450.0, 50.0, 150.0), sqCcw(500.0, 100.0, 50.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET oppositeEo AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(650.0, 50.0, 150.0), sqCcw(700.0, 100.0, 50.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET starNz AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [star(225.0, 420.0)], rule := canvas::FillRule.NonZero, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET starEo AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [star(575.0, 420.0)], rule := canvas::FillRule.EvenOdd, paint := blue, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([same, sameEo, opposite, oppositeEo, starNz, starEo])\n",
         ) + RING_HELPERS
             + PENTAGRAM),
@@ -769,7 +769,7 @@ fn non_zero_fills_by_winding_and_even_odd_by_parity() {
 fn a_convex_ring_draws_the_same_under_both_rules() {
     let program = |rule: &str| {
         scene(&format!(
-            "  LET tri AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 100.3, y := 120.7], \
+            "  LET tri AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 100.3, y := 120.7], \
              vector::Float2[x := 610.9, y := 140.2], vector::Float2[x := 330.5, y := 560.1]]], rule := canvas::FillRule.{rule}, paint := canvas::fillStroke(color::rgba(30, 140, 250, 200), color::rgb(250, 250, 120), 3.5), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([tri])\n"
         ))
@@ -831,11 +831,11 @@ fn a_square_cap_extends_the_stroke_square_past_each_end() {
         "canvas_square_caps",
         &scene(
             "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Square }\n  \
-             LET flat AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 200.0, y1 := 300.0, x2 := 400.0, y2 := 300.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET slant AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 300.0, y1 := 100.0, x2 := 400.0, y2 := 200.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET dot AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 500.0, y1 := 500.0, x2 := 500.0, y2 := 500.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET flat AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 200.0, y := 300.0], endAt := vector::Float2[x := 400.0, y := 300.0], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET slant AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 300.0, y := 100.0], endAt := vector::Float2[x := 400.0, y := 200.0], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET dot AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 500.0, y := 500.0], endAt := vector::Float2[x := 500.0, y := 500.0], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET bow AS canvas::DrawItem = canvas::Arc[id := \"\", position := vector::Float2[x := 650.0, y := 300.0], radius := 100.0, startAngle := 0.0, endAngle := 3.141592653589793, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET bend AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := [vector::Float2[x := 100.0, y := 500.0], \
+             LET bend AS canvas::DrawItem = canvas::PolyLine[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 100.0, y := 500.0], \
              vector::Float2[x := 200.0, y := 500.0], vector::Float2[x := 200.0, y := 600.0]], colors := [], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([flat, slant, dot, bow, bend])\n",
         ),
@@ -967,14 +967,14 @@ fn a_join_shapes_every_corner_of_a_stroke() {
         "  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 255, 255), 20.0)\n  \
          LET miter AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Miter }}\n  \
          LET bevel AS canvas::Paint = WITH ink {{ join := canvas::JoinStyle.Bevel }}\n  \
-         LET r1 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET r2 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET r3 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET s4 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET s10 AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := {}, rule := canvas::FillRule.EvenOdd, paint := WITH miter {{ miterLimit := 10.0 }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET b1 AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := {}, colors := [], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET b2 AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := {}, colors := [], paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-         LET b3 AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := {}, colors := [], paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET r1 AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := {}, rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET r2 AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET r3 AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := {}, rule := canvas::FillRule.EvenOdd, paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET s4 AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := {}, rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET s10 AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := {}, rule := canvas::FillRule.EvenOdd, paint := WITH miter {{ miterLimit := 10.0 }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b1 AS canvas::DrawItem = canvas::PolyLine[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], points := {}, colors := [], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b2 AS canvas::DrawItem = canvas::PolyLine[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], points := {}, colors := [], paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET b3 AS canvas::DrawItem = canvas::PolyLine[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], points := {}, colors := [], paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          LET q1 AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 700.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          LET q2 AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 700.0, y := 300.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([r1, r2, r3, s4, s10, b1, b2, b3, q1, q2])\n",
@@ -1101,9 +1101,9 @@ fn a_dash_crossing_a_corner_stays_one_dash() {
         "canvas_dash_corners",
         &(scene(
             "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { dashes := [150.0, 30.0] }\n  \
-             LET butt AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(100.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET round AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(300.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET square AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(500.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET butt AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(100.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET round AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(300.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET square AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(500.0, 100.0, 120.0)], rule := canvas::FillRule.EvenOdd, paint := WITH ink { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([butt, round, square])\n",
         ) + RING_HELPERS),
     );
@@ -1312,7 +1312,7 @@ fn a_dashed_line_draws_its_pattern() {
     let mut names = Vec::new();
     for (i, ((dashes, y), offset)) in rows.iter().zip(offsets).enumerate() {
         body.push_str(&format!(
-            "  LET l{i} AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := {y}.5, x2 := 300.0, y2 := {y}.5, paint := WITH ink {{ dashes := {dashes}, dashOffset := {offset} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n"
+            "  LET l{i} AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 100.0, y := {y}.5], endAt := vector::Float2[x := 300.0, y := {y}.5], paint := WITH ink {{ dashes := {dashes}, dashOffset := {offset} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n"
         ));
         names.push(format!("l{i}"));
     }
@@ -1359,9 +1359,9 @@ fn a_dash_end_takes_the_cap() {
         "canvas_dash_caps",
         &scene(
             "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { dashes := [10.0, 10.0] }\n  \
-             LET butt AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 50.0, x2 := 300.0, y2 := 50.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET round AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 100.0, x2 := 300.0, y2 := 100.0, paint := WITH ink { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET square AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 150.0, x2 := 300.0, y2 := 150.0, paint := WITH ink { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET butt AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 100.0, y := 50.0], endAt := vector::Float2[x := 300.0, y := 50.0], paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET round AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 100.0, y := 100.0], endAt := vector::Float2[x := 300.0, y := 100.0], paint := WITH ink { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET square AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 100.0, y := 150.0], endAt := vector::Float2[x := 300.0, y := 150.0], paint := WITH ink { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([butt, round, square])\n",
         ),
     );
@@ -1417,7 +1417,7 @@ fn each_ring_restarts_the_pattern_and_a_circle_starts_at_plus_x() {
             "{}{RING_HELPERS}",
             scene(
                 "  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 4.0) { dashes := [10.0, 10.0] }\n  \
-                 LET rings AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [sq(100.0, 300.0, 27.5), sq(200.0, 300.0, 27.5)], rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+                 LET rings AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(100.0, 300.0, 27.5), sq(200.0, 300.0, 27.5)], rule := canvas::FillRule.EvenOdd, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
                  LET disc AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 600.0, y := 300.0], radius := 50.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 6.0) { dashes := [20.0, 300.0] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
                  canvas::present([rings, disc])\n",
             )
@@ -2362,7 +2362,7 @@ fn a_rotated_shape_is_not_clipped_to_its_untransformed_bounds() {
 fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
     let line = |cap: &str| {
         format!(
-            "  LET l AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 200.0, y1 := 300.0, x2 := 400.0, y2 := 300.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+            "  LET l AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 200.0, y := 300.0], endAt := vector::Float2[x := 400.0, y := 300.0], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([l])\n"
         )
     };
@@ -2418,7 +2418,7 @@ fn a_butt_cap_stops_at_the_endpoint_and_a_round_cap_does_not() {
 fn a_zero_length_line_is_a_dot_only_when_round_capped() {
     let dot = |cap: &str| {
         format!(
-            "  LET l AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 300.0, y1 := 300.0, x2 := 300.0, y2 := 300.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+            "  LET l AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 300.0, y := 300.0], endAt := vector::Float2[x := 300.0, y := 300.0], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([l])\n"
         )
     };
@@ -3619,6 +3619,250 @@ fn placement_a_transform_with_no_area_leaves_the_shape_at_its_position() {
     );
 }
 
+// ---- plan-172-F: placement of the point-list shapes ----------------------------------
+//
+// `Line`, `Polygon` and `PolyLine` hold offsets from `position`. The rule is
+// plan-172-D's, applied to every point: no transform in effect, each point is drawn at
+// `position + point`; a transform in effect turns the points about `position`.
+
+const NO_TRANSFORM: &str = "canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]";
+
+/// The pivot is `position`. A triangle whose points sit around (0, 0) — apex 60 px
+/// ABOVE the origin, base 40 px below it — at `position` (400, 300), turned half a
+/// turn: the apex is now 60 px BELOW (400, 300) and the base 40 px above.
+///
+/// A half turn about the surface origin instead would carry the whole triangle to
+/// around (-400, -300), off the surface; a turn about the triangle's first vertex
+/// would put its base somewhere else again. The probes pin all three.
+///
+/// A line is the same rule with two points: 200 px long through its `position`, turned
+/// a quarter turn, it is vertical through (400, 300).
+#[test]
+fn path_placement_points_turn_about_the_position() {
+    let (frame, _) = render(
+        "canvas_path_placement_pivot",
+        &scene(
+            "  LET half AS canvas::Transform = canvas::Transform[a := 0.0 - 1.0, b := 0.0, c := 0.0, d := 0.0 - 1.0, tx := 0.0, ty := 0.0]\n  \
+             LET wedge AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 400.0, y := 300.0], contours := [[vector::Float2[x := 0.0, y := 0.0 - 60.0], vector::Float2[x := 50.0, y := 40.0], vector::Float2[x := 0.0 - 50.0, y := 40.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(255, 255, 255)), transform := half]\n  \
+             canvas::present([wedge])\n",
+        ),
+    );
+    let white = (255, 255, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(
+        pixel(&frame, 400, 300),
+        white,
+        "`position` is inside it still"
+    );
+    assert_eq!(
+        pixel(&frame, 400, 350),
+        white,
+        "10 px short of the apex, which is now BELOW the position"
+    );
+    assert_eq!(
+        pixel(&frame, 400, 250),
+        black,
+        "where the apex was before the turn: above the turned base"
+    );
+    assert_eq!(
+        pixel(&frame, 440, 265),
+        white,
+        "the base's right end, now above the position"
+    );
+    assert_eq!(
+        pixel(&frame, 440, 335),
+        black,
+        "where the base's right end was before the turn"
+    );
+
+    let (frame, _) = render(
+        "canvas_path_placement_line",
+        &scene(
+            "  LET quarter AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 0.0, ty := 0.0]\n  \
+             LET bar AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 400.0, y := 300.0], startAt := vector::Float2[x := 0.0 - 100.0, y := 0.0], endAt := vector::Float2[x := 100.0, y := 0.0], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Butt }, transform := quarter]\n  \
+             canvas::present([bar])\n",
+        ),
+    );
+    assert_eq!(
+        pixel(&frame, 400, 300),
+        white,
+        "the line's middle is its position"
+    );
+    assert_eq!(pixel(&frame, 400, 220), white, "80 px up the turned line");
+    assert_eq!(pixel(&frame, 400, 380), white, "80 px down the turned line");
+    assert_eq!(
+        pixel(&frame, 320, 300),
+        black,
+        "80 px left: the unturned line only"
+    );
+    assert_eq!(
+        pixel(&frame, 480, 300),
+        black,
+        "80 px right: the unturned line only"
+    );
+}
+
+/// A polygon moves WHOLE when only `position` changes, and what it draws at a position
+/// is what the same polygon draws with the position folded into its points.
+///
+/// A pentagon with a stroke, a dash pattern and a clip that cuts off its right side,
+/// at `position` (250, 300) and at (350, 300): every pixel of the second frame equals
+/// the pixel 100 px to its left in the first. Then the second frame against a third
+/// scene — `position` at the origin and (350, 300) added to every point, to the clip
+/// and to the gradient by hand: the two frames are identical, whole.
+///
+/// Run twice, because the two builders are separate code: a flat fill is built by the
+/// native builder (`func_geo_build.rs`), a gradient fill by the MFBASIC one
+/// (`helper_geometry.rs`). Positions and the shift are whole numbers, so the frames are
+/// the same arithmetic one column over — an exact comparison, not a tolerance.
+#[test]
+fn path_placement_a_clipped_polygon_moves_whole_with_its_position() {
+    let ring = [
+        (0.0, -80.0),
+        (76.0, -25.0),
+        (47.0, 65.0),
+        (-47.0, 65.0),
+        (-76.0, -25.0),
+    ];
+    let cut = [(-90.0, -90.0), (30.0, -90.0), (30.0, 90.0), (-90.0, 90.0)];
+    let points = |list: &[(f64, f64)], dx: f64, dy: f64| -> String {
+        list.iter()
+            .map(|(x, y)| {
+                let (x, y) = (x + dx, y + dy);
+                let lit = |v: f64| {
+                    if v < 0.0 {
+                        format!("0.0 - {:?}", -v)
+                    } else {
+                        format!("{v:?}")
+                    }
+                };
+                format!("vector::Float2[x := {}, y := {}]", lit(x), lit(y))
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    // `at` is the item's position; `fold` is added to every local coordinate by hand.
+    let body = |at: (f64, f64), fold: (f64, f64), gradient: bool| {
+        let fill = if gradient {
+            format!(
+                "WITH canvas::fillStroke(color::rgb(0, 0, 0), color::rgb(255, 255, 255), 6.0) {{ gradient := canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := {:?}, y := {:?}], endPoint := vector::Float2[x := {:?}, y := {:?}], stops := [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]], spread := canvas::GradientSpread.Pad, transform := {NO_TRANSFORM}, focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly], dashes := [14.0, 6.0], clip := [[{}]] }}",
+                fold.0 - 80.0,
+                fold.1,
+                fold.0 + 80.0,
+                fold.1,
+                points(&cut, fold.0, fold.1)
+            )
+        } else {
+            format!(
+                "WITH canvas::fillStroke(color::rgb(255, 160, 0), color::rgb(255, 255, 255), 6.0) {{ dashes := [14.0, 6.0], clip := [[{}]] }}",
+                points(&cut, fold.0, fold.1)
+            )
+        };
+        scene(&format!(
+            "  LET shape AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := {:?}, y := {:?}], contours := [[{}]], rule := canvas::FillRule.EvenOdd, paint := {fill}, transform := {NO_TRANSFORM}]\n  \
+             canvas::present([shape])\n",
+            at.0,
+            at.1,
+            points(&ring, fold.0, fold.1)
+        ))
+    };
+    for (tag, gradient) in [("flat", false), ("ramp", true)] {
+        let (first, _) = render(
+            &format!("canvas_path_move_{tag}_a"),
+            &body((250.0, 300.0), (0.0, 0.0), gradient),
+        );
+        let (second, _) = render(
+            &format!("canvas_path_move_{tag}_b"),
+            &body((350.0, 300.0), (0.0, 0.0), gradient),
+        );
+        let (folded, _) = render(
+            &format!("canvas_path_move_{tag}_c"),
+            &body((0.0, 0.0), (350.0, 300.0), gradient),
+        );
+        // The scene is what it claims: filled left of the cut, nothing right of it.
+        assert_ne!(
+            pixel(&first, 230, 300),
+            (0, 0, 0, 255),
+            "{tag}: inside the pentagon, left of the cut"
+        );
+        assert_eq!(
+            pixel(&first, 300, 300),
+            (0, 0, 0, 255),
+            "{tag}: inside the pentagon, right of the cut"
+        );
+        let mut compared = 0usize;
+        for y in 200..400usize {
+            for x in 250..450usize {
+                assert_eq!(
+                    pixel(&second, x, y),
+                    pixel(&first, x - 100, y),
+                    "{tag}: ({x}, {y}) of the moved polygon differs from ({}, {y})",
+                    x - 100
+                );
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, 40_000);
+        assert_eq!(
+            pixel(&second, 180, 300),
+            (0, 0, 0, 255),
+            "{tag}: the polygon left its old place"
+        );
+        assert!(
+            second == folded,
+            "{tag}: a polygon at a position must draw exactly what the same polygon draws \
+             with the position added to its points, its clip and its gradient"
+        );
+    }
+}
+
+/// A `PolyLine` with a colour per point at a non-zero `position` draws exactly what the
+/// same path draws with the offset folded into its points.
+///
+/// The position is fractional — (120.5, 80.25) — and every sum is exact in binary, so
+/// the two records are the same numbers and the frames are compared whole. The colours
+/// ride the path parameter, not the coordinates, so a path moved by its position keeps
+/// each point's colour; a round join and a butt cap are in the scene because both are
+/// computed from the placed segments.
+#[test]
+fn path_placement_a_coloured_polyline_at_a_position_equals_its_points_moved() {
+    let body = |position: &str, pts: &str| {
+        scene(&format!(
+            "  LET trail AS canvas::DrawItem = canvas::PolyLine[id := \"\", position := {position}, points := [{pts}], colors := [color::rgb(255, 0, 0), color::rgb(0, 255, 0), color::rgb(0, 0, 255), color::rgb(255, 255, 255)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 12.0) {{ cap := canvas::CapStyle.Butt, join := canvas::JoinStyle.Round }}, transform := {NO_TRANSFORM}]\n  \
+             canvas::present([trail])\n"
+        ))
+    };
+    let (placed, _) = render(
+        "canvas_path_polyline_placed",
+        &body(
+            "vector::Float2[x := 120.5, y := 80.25]",
+            "vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 100.0, y := 50.0], vector::Float2[x := 200.0, y := 0.0], vector::Float2[x := 260.0, y := 120.0]",
+        ),
+    );
+    let (folded, _) = render(
+        "canvas_path_polyline_folded",
+        &body(
+            "vector::Float2[x := 0.0, y := 0.0]",
+            "vector::Float2[x := 120.5, y := 80.25], vector::Float2[x := 220.5, y := 130.25], vector::Float2[x := 320.5, y := 80.25], vector::Float2[x := 380.5, y := 200.25]",
+        ),
+    );
+    let painted = placed
+        .chunks_exact(4)
+        .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+        .count();
+    assert!(painted > 3_000, "the path drew {painted} pixels");
+    let start = pixel(&placed, 125, 82);
+    assert!(
+        start.0 > 200 && start.1 < 80 && start.2 < 80,
+        "the path starts red at its position: {start:?}"
+    );
+    assert!(
+        placed == folded,
+        "a path at a position must draw exactly what the same path draws with the \
+         position added to its points"
+    );
+}
+
 /// A degenerate radius draws nothing, the same rule `Circle` follows.
 #[test]
 fn an_ellipse_with_a_zero_radius_draws_nothing() {
@@ -4105,7 +4349,7 @@ fn a_gradients_stroke_stays_a_flat_colour() {
 /// collide over — either way the frame must equal the no-gradient one.
 #[test]
 fn a_gradient_on_a_stroke_only_kind_is_ignored() {
-    const PLAIN: &str = "  LET a AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 40.0, y1 := 60.0, x2 := 360.0, y2 := 60.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+    const PLAIN: &str = "  LET a AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 40.0, y := 60.0], endAt := vector::Float2[x := 360.0, y := 60.0], paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          LET b AS canvas::DrawItem = canvas::Arc[id := \"\", position := vector::Float2[x := 200.0, y := 260.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([a, b])\n";
 
@@ -4124,7 +4368,7 @@ fn a_gradient_on_a_stroke_only_kind_is_ignored() {
          LET g2 AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
          startPoint := vector::Float2[x := 40.0, y := 0.0], \
          endPoint := vector::Float2[x := 360.0, y := 0.0], stops := s2, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-         LET a AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 40.0, y1 := 60.0, x2 := 360.0, y2 := 60.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { gradient := g1, cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET a AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 40.0, y := 60.0], endAt := vector::Float2[x := 360.0, y := 60.0], paint := WITH canvas::stroke(color::rgb(255, 240, 120), 9.0) { gradient := g1, cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          LET b AS canvas::DrawItem = canvas::Arc[id := \"\", position := vector::Float2[x := 200.0, y := 260.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 9.0) { gradient := g2, cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([a, b])\n";
 
@@ -4957,8 +5201,8 @@ fn a_polygon_inside_a_translated_group_draws_at_the_offset() {
     let (frame, stats) = render(
         "canvas_group_polygon",
         &scene(
-            "  LET up AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 100.0, y := 0.0], vector::Float2[x := 50.0, y := 100.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET down AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [[vector::Float2[x := 0.0, y := 100.0], vector::Float2[x := 100.0, y := 100.0], vector::Float2[x := 50.0, y := 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+            "  LET up AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 100.0, y := 0.0], vector::Float2[x := 50.0, y := 100.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET down AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 0.0, y := 100.0], vector::Float2[x := 100.0, y := 100.0], vector::Float2[x := 50.0, y := 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"tri\", [up])\n  \
              canvas::setGroup(\"tri2\", [down])\n  \
              canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := \"tri\"], canvas::Group[dx := 500.0, dy := 200.0, name := \"tri2\"]])\n",
@@ -5672,7 +5916,7 @@ fn fill_and_stroke_paints_the_outline_with_the_tinted_ramp() {
     let (frame, _) = render(
         "canvas_gradient_stroke_apply",
         &scene(&format!(
-            "{}{}{}  LET line AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 100.0, y1 := 620.0, x2 := 500.0, y2 := 620.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ gradient := {} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+            "{}{}{}  LET line AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 100.0, y := 620.0], endAt := vector::Float2[x := 500.0, y := 620.0], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ gradient := {} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([white, clear, red, line])\n",
             item("white", 30.0, "color::rgb(255, 255, 255)"),
             item("clear", 230.0, "color::rgba(255, 255, 255, 0)"),

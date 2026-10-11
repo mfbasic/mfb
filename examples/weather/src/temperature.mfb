@@ -88,7 +88,7 @@ FUNC temperatureKey(face AS canvas::Font, size AS Float, left AS Float, top AS F
 
   MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := left, y := top], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := size * 0.7, radiusTR := size * 0.7, radiusBL := size * 0.7, radiusBR := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   LET heading AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8], text := title, font := face, fontSize := titleSize, paint := canvas::fill(KEY_TITLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET divider AS canvas::DrawItem = canvas::Line[id := "", x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET divider AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := left, y := dividerY], endAt := vector::Float2[x := left + width, y := dividerY], paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, [heading, divider])
 
   LET barLeft AS Float = left + pad

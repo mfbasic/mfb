@@ -142,7 +142,7 @@ FUNC bar(t AS Track, fromX AS Float, toX AS Float, tint AS color::Color) AS canv
 END FUNC
 
 FUNC tick(x AS Float, y AS Float, reach AS Float, tint AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Line[id := "", x1 := x, y1 := y - reach, x2 := x, y2 := y + reach, paint := WITH canvas::stroke(tint, 1.2) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Line[id := "", position := vector::Float2[x := x, y := y], startAt := vector::Float2[x := 0.0, y := -reach], endAt := vector::Float2[x := 0.0, y := reach], paint := WITH canvas::stroke(tint, 1.2) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' Text centred on x, with its baseline at y.
@@ -172,7 +172,7 @@ FUNC buttonItems(t AS Track, p AS Playback) AS List OF canvas::DrawItem
   ELSE
     ' Nudged right of centre, where a triangle's own centre of mass sits.
     LET points AS List OF vector::Float2 = [vector::Float2[x := cx - r * 0.28, y := cy - r * 0.42], vector::Float2[x := cx - r * 0.28, y := cy + r * 0.42], vector::Float2[x := cx + r * 0.44, y := cy]]
-    LET play AS canvas::DrawItem = canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(white(iconAlpha)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET play AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(white(iconAlpha)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, play)
   END IF
   RETURN items

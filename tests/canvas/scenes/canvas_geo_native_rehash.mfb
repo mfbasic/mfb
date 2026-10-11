@@ -17,7 +17,7 @@ FUNC scene(frame AS Integer, grown AS Boolean) AS List OF canvas::DrawItem
       pts = collections::append(pts, vector::Float2[x := x + 5.0, y := 9.0])
       pts = collections::append(pts, vector::Float2[x := x, y := 12.0])
     END IF
-    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(i, 100, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(i, 100, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     LET box AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := x, y := 40.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 5.0, height := 5.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fillStroke(color::rgb(1, 2, 3), color::rgb(4, 5, 6), 1.5), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, poly)
     items = collections::append(items, box)

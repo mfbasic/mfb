@@ -615,7 +615,7 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       LET below AS Float = TRIANGLE_BELOW * s.scale
       LET above AS Float = TRIANGLE_ABOVE * s.scale
       LET points AS List OF vector::Float2 = [turnedPoint(s, -half, below), turnedPoint(s, half, below), turnedPoint(s, 0.0, -above)]
-      RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     CASE ShapeKind.Circle
       RETURN canvas::Circle[id := "", position := vector::Float2[x := s.x, y := s.y], radius := CIRCLE_RADIUS * s.scale, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     CASE ShapeKind.Ellipse
@@ -625,7 +625,7 @@ FUNC shapeItem(s AS Shape, selected AS Boolean) AS canvas::DrawItem
       FOR k = 0 TO STAR_POINTS * 2 - 1
         points = collections::append(points, turnedPoint(s, starCornerX(k) * s.scale, starCornerY(k) * s.scale))
       NEXT
-      RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   END MATCH
 END FUNC
 

@@ -121,20 +121,27 @@ changing item type.
 
 ### Placement
 
-`Circle`, `Ellipse`, `Arc`, `Text`, `Rectangle` and `Picture` are placed by `position`:
-the centre for the first three, the left end of the baseline for text, the top-left
-corner for a picture, and for a rectangle the point its `bind` names — its top-left
-corner (`BindTo.TopLeft`, the zero value) or its centre (`BindTo.Center`). Their
-geometry is **local** — it has its origin at that reference point — and a local point
-`p` reaches the surface at
+Every shape is placed by `position`: the centre for a `Circle`, an `Ellipse` and an
+`Arc`, the left end of the baseline for a `Text`, the top-left corner for a `Picture`,
+for a `Rectangle` the point its `bind` names — its top-left corner (`BindTo.TopLeft`,
+the zero value) or its centre (`BindTo.Center`) — and for a `Line`, a `Polygon` and a
+`PolyLine` the point their points are measured from. Their geometry is **local** — it
+has its origin at that reference point — and a local point `p` reaches the surface at
 
     position + transform(p)
 
 before any enclosing group's translation. So the transform **pivots about the reference
 point**: a rotation turns a circle, an ellipse or an arc about its centre, a text about
 the start of its baseline, a `Center` rectangle in place and a `TopLeft` one about that
-corner; and `transform.tx` / `ty` add to `position`. (`Line`, `Polygon` and `PolyLine`
-are not yet placed this way and are still transformed about the surface origin.)
+corner; and `transform.tx` / `ty` add to `position`.
+
+**The point-list shapes hold offsets.** A `Line`'s `startAt` and `endAt`, every vertex
+of a `Polygon`'s `contours` and every point of a `PolyLine`'s `points` is an offset from
+the item's `position`. `position` is a reference point of the program's choosing and
+need not be a vertex: a polygon whose points surround `(0, 0)` turns about its middle,
+and one whose `position` is the surface origin has its points in surface pixels. A
+`Line` names three points for that reason — its `position` is the pivot, and it can be
+anywhere along the line or off it.
 
 `paint.clip` rings and a gradient's `startPoint` and `endPoint` are in the same local
 space, so a shape moves whole when only its `position` changes — its clip and its ramp
@@ -156,10 +163,23 @@ The builders do not apply that formula uniformly, and the difference is not obse
 
 Building every positioned shape the second way would send each one down the transformed
 path to draw the same pixels. The native builder takes only items whose transform is
-all-zero, so for it the offset is always `position`; it adds that to every clip point,
-as the MFBASIC builder does, including when it is zero.
+all-zero, so for it the offset is always `position`; it adds that to every clip point
+and to every point of a `Line`, `Polygon` or `PolyLine` as it reads it, as the MFBASIC
+builder does, including when it is zero.
 [[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:clip_point]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:placed_point]]
+
+For a point-list shape built at its position, the record is the one the same shape has
+with `position` at the origin and the position added to each point: each point is moved
+first, and the edge vectors, the bounds, the joins and the dashes are computed from the
+moved points. `PolyLine`'s test for a segment with length is made on the moved points
+too. So moving such a shape by its `position` and moving it by rewriting its points
+draw the same frame, byte for byte, when the sums are exact.
+[[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_TAIL]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_polyline_scan]]
+[[tests/canvas/rt_canvas_rasteriser.rs:path_placement_a_clipped_polygon_moves_whole_with_its_position]]
 
 ### A rectangle's corners
 
@@ -522,7 +542,7 @@ outline starts, taken modulo the pattern's length (and may be negative).
   length, and a stroke that draws nothing all draw solid — SVG treats a negative entry as
   an error and draws solid, and so does this, on purpose.
 * **Where `s = 0` is.** Every point of the outline has a perimeter position `s`: a `Line`
-  from `(x1, y1)`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
+  from `startAt`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
   `Polygon` ring from its own first point (each ring restarts the pattern, as SVG
   restarts it per subpath); a `Rectangle` or `Picture` from its top-left corner,
   clockwise (towards +X under Y-down); a rounded `Rectangle` from the left end of its top
@@ -584,7 +604,8 @@ outline's position rather than its coordinates'.
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dashedStroke]]
 
 **A `Polygon` is one or more closed rings filled under its `rule`.** `contours` is a
-`List OF List OF vector::Float2`; each ring closes from its own last point back to its own first.
+`List OF List OF vector::Float2`, each point an offset from `position` (Placement,
+above); each ring closes from its own last point back to its own first.
 A ring of fewer than 2 points contributes no edge and no bounds; a 2-point ring
 contributes its two coincident edges, so it has no area and draws only its stroke; an
 item none of whose rings contributes builds the empty header and draws nothing. Every
@@ -613,7 +634,8 @@ so glyph outlines are always filled even-odd.
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
 [[src/target/macos_aarch64/app/metal.rs:edgeCrossing32]]
 
-**A `PolyLine` is the union of its segments' round-capped bands.** For `n` points it
+**A `PolyLine` is the union of its segments' round-capped bands.** Its `points` are
+offsets from `position` (Placement, above). For `n` points it
 strokes the `n − 1` segments `P[i] → P[i+1]`, and its distance is the minimum of the
 segments' distances. A minimum of round-capped bands is what makes every interior corner
 round, so the round join needs no code of its own. Each segment is measured with

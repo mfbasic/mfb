@@ -43,7 +43,7 @@ FUNC main() AS Nothing
     MUT polys AS List OF canvas::DrawItem = []
     k = 0
     WHILE k < n
-      LET it AS canvas::DrawItem = canvas::Polygon[id := "", contours := [quad], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      LET it AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [quad], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       polys = collections::append(polys, it)
       k = k + 1
     END WHILE

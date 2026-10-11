@@ -51,7 +51,7 @@ FUNC main() AS Nothing
       ' local to their `position`.
       clHere = [[vector::Float2[x := 0.0 - 17.3, y := 0.0 - 21.7], vector::Float2[x := 0.0 - 17.3 + 31.1, y := 0.0 - 21.7], vector::Float2[x := 0.0 - 17.3 + 31.1, y := 0.0 - 21.7 + 38.9], vector::Float2[x := 0.0 - 17.3, y := 0.0 - 21.7 + 38.9]]]
     END IF
-    MUT d AS canvas::DrawItem = canvas::Line[id := "", x1 := x - r, y1 := y - r * 0.7, x2 := x + r, y2 := y + r * 0.9, paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Butt }, transform := tf]
+    MUT d AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := x - r, y := y - r * 0.7], endAt := vector::Float2[x := x + r, y := y + r * 0.9], paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Butt }, transform := tf]
     IF k MOD 6 = 1 THEN
       d = canvas::Arc[id := "", position := vector::Float2[x := x, y := y], radius := r, startAngle := 0.3 + fx * 0.01, endAngle := 4.1 + fx * 0.02, paint := WITH canvas::stroke(c2, w) { clip := clHere, cap := canvas::CapStyle.Round }, transform := tfHere]
     ELSEIF k MOD 6 = 2 THEN
@@ -72,7 +72,7 @@ FUNC main() AS Nothing
       LET tfRect AS canvas::Transform = WITH tf { tx := r - ta * r - tc * (r * 0.6), ty := r * 0.6 - tb * r - td * (r * 0.6) }
       d = canvas::Rectangle[id := "", position := vector::Float2[x := x - r, y := y - r * 0.6], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := r * 1.9, height := r * 1.3], radiusTL := r * 0.3, radiusTR := r * 0.3, radiusBL := r * 0.3, radiusBR := r * 0.3, paint := WITH canvas::fillStroke(c, c2, w) { clip := cl }, transform := tfRect]
     ELSEIF k MOD 6 = 5 THEN
-      d = canvas::PolyLine[id := "", points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Butt }, transform := tf]
+      d = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := ring(40, x, y, r), colors := [], paint := WITH canvas::stroke(c2, w) { clip := cl, cap := canvas::CapStyle.Butt }, transform := tf]
     END IF
     scene = collections::append(scene, d)
     k = k + 1

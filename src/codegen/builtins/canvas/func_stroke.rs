@@ -65,7 +65,7 @@ FUNC main() AS Nothing
     colors = collections::append(colors, color::rgba(255, 140, 40, 255 - (k * 255) / 7))
     k = k + 1
   END WHILE
-  LET trail AS canvas::DrawItem = canvas::PolyLine[id := "", points := points, colors := colors, paint := WITH canvas::stroke(color::rgb(255, 140, 40), 12.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := points, colors := colors, paint := WITH canvas::stroke(color::rgb(255, 140, 40), 12.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([trail])
 END FUNC
 ```"#;

@@ -161,6 +161,7 @@ IMPORT canvas
 IMPORT collections
 IMPORT color
 IMPORT os
+IMPORT vector
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
@@ -169,7 +170,7 @@ FUNC main AS Integer
     LET x AS Float = toFloat((i * 37) MOD 800) + 0.013
     LET y AS Float = toFloat((i * 13) MOD 600) + toFloat(i) * 0.0007
     LET p AS canvas::Paint = WITH canvas::stroke(color::withAlpha(color::rgb(120 + (i MOD 100), 170, 215), 40 + (i MOD 195)), 1.35) { cap := canvas::CapStyle.Round }
-    LET item AS canvas::DrawItem = canvas::Line[id := \"\", x1 := x, y1 := y, x2 := x + 5.0, y2 := y + 3.0, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET item AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := x, y := y], endAt := vector::Float2[x := x + 5.0, y := y + 3.0], paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     all = collections::append(all, item)
   NEXT
   FOR frame = 1 TO 300

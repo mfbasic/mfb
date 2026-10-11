@@ -110,7 +110,7 @@ fn animating() -> String {
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
          LET t AS Float = toFloat(frame * {ITEMS} + i)\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", x1 := t, y1 := toFloat(i), x2 := t + 10.0, y2 := toFloat(i) + 10.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := t, y := toFloat(i)], endAt := vector::Float2[x := t + 10.0, y := toFloat(i) + 10.0], paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \
@@ -191,7 +191,7 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", x1 := toFloat(i), y1 := 0.0, x2 := toFloat(i), y2 := 100.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := toFloat(i), y := 0.0], endAt := vector::Float2[x := toFloat(i), y := 100.0], paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \

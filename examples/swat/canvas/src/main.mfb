@@ -272,11 +272,11 @@ FUNC oval(px AS Float, py AS Float, rx AS Float, ry AS Float, turn AS Float, c A
 END FUNC
 
 FUNC seg(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, w AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Line[id := "", x1 := x1, y1 := y1, x2 := x2, y2 := y2, paint := WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := x1, y := y1], endAt := vector::Float2[x := x2, y := y2], paint := WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC poly(points AS List OF vector::Float2, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A radius of a pixel or less would read as a fraction of the half size, so
@@ -295,9 +295,10 @@ FUNC star(cx AS Float, cy AS Float, outer AS Float, inner AS Float, points AS In
     LET a AS Float = turn + toFloat(i) * math::pi / toFloat(points)
     MUT r AS Float = outer
     IF i MOD 2 = 1 THEN r = inner
-    corners = collections::append(corners, pt(cx + r * math::cos(a), cy + r * math::sin(a)))
+    corners = collections::append(corners, pt(r * math::cos(a), r * math::sin(a)))
   NEXT
-  RETURN poly(corners, c)
+  ' The corners are measured from the star's centre, and `position` puts it there.
+  RETURN canvas::Polygon[id := "", position := pt(cx, cy), contours := [corners], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' Three pairs of legs out of a body centred at (cx, cy), wiggling with `t`.
@@ -392,7 +393,9 @@ FUNC drawPlant(kind AS Integer, cx AS Float, cy AS Float, s AS Float) AS List OF
     FOR i = 0 TO 2
       LET top AS Float = cy - 0.85 * s + toFloat(i) * 0.36 * s
       LET half AS Float = 0.3 * s + toFloat(i) * 0.13 * s
-      out = collections::append(out, poly([pt(cx, top), pt(cx + half, top + 0.58 * s), pt(cx - half, top + 0.58 * s)], color::rgb(34, 110, 62)))
+      ' Each tier hangs from its tip, so the tip is its position.
+      LET tier AS canvas::DrawItem = canvas::Polygon[id := "", position := pt(cx, top), contours := [[pt(0.0, 0.0), pt(half, 0.58 * s), pt(-half, 0.58 * s)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(34, 110, 62)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      out = collections::append(out, tier)
     NEXT
     RETURN out
   END IF

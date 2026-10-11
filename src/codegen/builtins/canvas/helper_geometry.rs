@@ -661,11 +661,11 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
     CASE Circle(c)
       RETURN __canvas_placedClip(c.paint.clip, __canvas_buildX(c.position, c.transform), __canvas_buildY(c.position, c.transform))
     CASE Line(l)
-      RETURN __canvas_placedClip(l.paint.clip, 0.0, 0.0)
+      RETURN __canvas_placedClip(l.paint.clip, __canvas_buildX(l.position, l.transform), __canvas_buildY(l.position, l.transform))
     CASE Arc(a)
       RETURN __canvas_placedClip(a.paint.clip, __canvas_buildX(a.position, a.transform), __canvas_buildY(a.position, a.transform))
     CASE Polygon(p)
-      RETURN __canvas_placedClip(p.paint.clip, 0.0, 0.0)
+      RETURN __canvas_placedClip(p.paint.clip, __canvas_buildX(p.position, p.transform), __canvas_buildY(p.position, p.transform))
     CASE Picture(pic)
       RETURN __canvas_placedClip(pic.paint.clip, __canvas_buildX(pic.position, pic.transform), __canvas_buildY(pic.position, pic.transform))
     CASE Ellipse(e)
@@ -673,7 +673,7 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
     CASE Text(t)
       RETURN __canvas_placedClip(t.paint.clip, __canvas_buildX(t.position, t.transform), __canvas_buildY(t.position, t.transform))
     CASE PolyLine(pl)
-      RETURN __canvas_placedClip(pl.paint.clip, 0.0, 0.0)
+      RETURN __canvas_placedClip(pl.paint.clip, __canvas_buildX(pl.position, pl.transform), __canvas_buildY(pl.position, pl.transform))
     CASE Group(g)
       RETURN []
   END MATCH
@@ -947,7 +947,7 @@ FUNC __canvas_ellipseHeader(e AS Ellipse) AS List OF Float
   RETURN __canvas_boundsHeader(out, bx - hx, by - hy, bx + hx, by + hy)
 END FUNC
 
-FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, cap AS Integer, paint AS Paint, transform AS Transform) AS List OF Float
+FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, cap AS Integer, paint AS Paint, transform AS Transform, ox AS Float, oy AS Float) AS List OF Float
   LET half AS Float = __canvas_strokeHalf(paint)
   IF half <= 0.0 THEN
     RETURN __canvas_emptyHeader()
@@ -961,10 +961,20 @@ FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, 
   out = collections::set(out, 5, y2)
   out = collections::set(out, 6, half)
   out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
-  out = __canvas_paintHeader(out, paint, transform, 0.0, 0.0)
+  out = __canvas_paintHeader(out, paint, transform, ox, oy)
   out = __canvas_strokeAsFill(out)
   LET pad AS Float = __canvas_capReach(half, cap) + 1.0
   RETURN __canvas_boundsHeader(out, __canvas_minF(x1, x2) - pad, __canvas_minF(y1, y2) - pad, __canvas_maxF(x1, x2) + pad, __canvas_maxF(y1, y2) + pad)
+END FUNC
+
+' plan-172-F: a line's header. `startAt` and `endAt` are offsets from `position`, so
+' each end is the build origin plus its offset -- `position` when no transform is in
+' effect, the local origin when one is. `__canvas_lineDashes` reads the two ends back
+' from the header, so the dashes follow without an edit.
+FUNC __canvas_lineHeader(l AS Line) AS List OF Float
+  LET bx AS Float = __canvas_buildX(l.position, l.transform)
+  LET by AS Float = __canvas_buildY(l.position, l.transform)
+  RETURN __canvas_segmentHeader(l.startAt.x + bx, l.startAt.y + by, l.endAt.x + bx, l.endAt.y + by, __canvas_capTag(l.paint.cap), l.paint, __canvas_placement(l.position, l.transform), bx, by)
 END FUNC
 
 FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
@@ -1085,6 +1095,8 @@ END FUNC
 ' zero-length Line with its cap draws: a dot for Round (segment 0, which the walk then
 ' measures as a point), nothing for Butt (`__canvas_segmentDistanceButt` answers "far
 ' outside" for a zero-length segment, so the empty header is the same picture).
+' plan-172-F: `p` arrives through `__canvas_polylinePlaced`, so `p.points` are already
+' in the coordinates the record is built in.
 FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   LET count AS Integer = len(p.points)
   IF count < 2 THEN
@@ -1136,7 +1148,7 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_POLYLINE))
   out = collections::set(out, 6, half)
   out = collections::set(out, __CANVAS_GEO_CAP, toFloat(cap))
-  out = __canvas_paintHeader(out, p.paint, p.transform, 0.0, 0.0)
+  out = __canvas_paintHeader(out, p.paint, __canvas_placement(p.position, p.transform), __canvas_buildX(p.position, p.transform), __canvas_buildY(p.position, p.transform))
   out = __canvas_strokeAsFill(out)
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + (count - 1) * 5 + stops * 5))
   out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, toFloat(stops))
@@ -1220,6 +1232,23 @@ END FUNC
 ' The dash tail a polyline's tail holds (`__canvas_polylineTail`).
 FUNC __canvas_polylineDashes(p AS PolyLine) AS List OF Float
   RETURN __canvas_dashTail(__canvas_dashPattern(p.paint, __canvas_polylineHalf(p)), __canvas_dashEdgeData(__canvas_polylineSegments(p), [0], FALSE))
+END FUNC
+
+' plan-172-F: a path with its points in the coordinates its record is built in. They
+' are offsets from `position`; built at its position (no transform in effect) each is
+' `position + point`, added whatever the position, for the reason
+' `__canvas_placedRings` gives. Every polyline builder below reads `p.points`, so the
+' path is moved once here and they are unchanged. A turned path is built at the local
+' origin and returned as it is.
+FUNC __canvas_polylinePlaced(p AS PolyLine) AS PolyLine
+  IF __canvas_transformActive(p.transform) THEN
+    RETURN p
+  END IF
+  MUT moved AS List OF vector::Float2 = []
+  FOR EACH q IN p.points
+    moved = collections::append(moved, vector::Float2[x := q.x + p.position.x, y := q.y + p.position.y])
+  NEXT
+  RETURN WITH p { points := moved }
 END FUNC
 
 FUNC __canvas_polylineSegments(p AS PolyLine) AS List OF Float
@@ -1566,7 +1595,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       tail = __canvas_appendGradientTail(dashes, c.paint)
       header = __canvas_withDashes(header, dashes, c.paint)
     CASE Line(l)
-      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint, l.transform)
+      header = __canvas_lineHeader(l)
       LET dashes AS List OF Float = __canvas_lineDashes(header, l)
       tail = __canvas_strokeRampTail(dashes, l.paint)
       header = __canvas_withDashes(header, dashes, l.paint)
@@ -1576,10 +1605,13 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
       tail = __canvas_strokeRampTail(dashes, a.paint)
       header = __canvas_withDashes(header, dashes, a.paint)
     CASE Polygon(p)
-      LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
-      LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
-      header = __canvas_polygonHeader(p.contours, p.rule, p.paint, p.transform, 0.0, 0.0)
-      LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(p.contours), TRUE)
+      ' plan-172-F: the points are offsets from `position`. The joins and the dashes are
+      ' computed from `edges`, never from the item's points, so they follow.
+      LET placed AS List OF List OF vector::Float2 = __canvas_placedRings(p.contours, p.position, p.transform)
+      LET edges AS List OF Float = __canvas_polygonEdges(placed)
+      LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(placed), TRUE, __canvas_strokeHalf(p.paint), p.paint)
+      header = __canvas_polygonHeader(placed, p.rule, p.paint, __canvas_placement(p.position, p.transform), __canvas_buildX(p.position, p.transform), __canvas_buildY(p.position, p.transform))
+      LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(placed), TRUE)
       IF len(edges) > 0 THEN
         tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), p.paint)
       END IF
@@ -1618,10 +1650,11 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     ' declares a 51-float record, and a tail appended behind it would be floats the
     ' record does not own.
     CASE PolyLine(pl)
-      header = __canvas_polylineHeader(pl)
+      LET moved AS PolyLine = __canvas_polylinePlaced(pl)
+      header = __canvas_polylineHeader(moved)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
-        tail = __canvas_polylineTail(pl)
-        header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint)), __canvas_polylineDashes(pl), pl.paint)
+        tail = __canvas_polylineTail(moved)
+        header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(moved), __canvas_joinReach(__canvas_polylineHalf(moved), moved.paint)), __canvas_polylineDashes(moved), moved.paint)
       END IF
   END MATCH
   ' plan-163-C: a path clip's edges, right before the stops.
@@ -1851,7 +1884,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       RETURN __canvas_hashPaint(h, c.paint, c.transform)
     CASE Line(l)
       MUT h AS Integer = __canvas_hashStart(3)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, l.x1), l.y1), l.x2), l.y2)
+      h = __canvas_hashPoint(__canvas_hashPoint(__canvas_hashPoint(h, l.position), l.startAt), l.endAt)
       RETURN __canvas_hashPaint(h, l.paint, l.transform)
     CASE Arc(a)
       MUT h AS Integer = __canvas_hashStart(4)
@@ -1860,6 +1893,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       RETURN __canvas_hashPaint(h, a.paint, a.transform)
     CASE Polygon(p)
       MUT h AS Integer = __canvas_hashStart(5)
+      h = __canvas_hashPoint(h, p.position)
       h = __canvas_hashStep(h, len(p.contours))
       FOR EACH ring IN p.contours
         h = __canvas_hashStep(h, len(ring))
@@ -1906,6 +1940,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     ' MATCH exhaustive; it folds the same fields in case that ever changes.
     CASE PolyLine(pl)
       MUT h AS Integer = __canvas_hashStart(10)
+      h = __canvas_hashPoint(h, pl.position)
       h = __canvas_hashStep(h, len(pl.points))
       FOR EACH q IN pl.points
         h = __canvas_hashPoint(h, q)
@@ -1992,15 +2027,18 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       tail = __canvas_appendGradientTail(dashes, c.paint)
       header = __canvas_withDashes(header, dashes, c.paint)
     CASE Line(l)
-      header = __canvas_segmentHeader(l.x1, l.y1, l.x2, l.y2, __canvas_capTag(l.paint.cap), l.paint, l.transform)
+      header = __canvas_lineHeader(l)
       LET dashes AS List OF Float = __canvas_lineDashes(header, l)
       tail = __canvas_strokeRampTail(dashes, l.paint)
       header = __canvas_withDashes(header, dashes, l.paint)
     CASE Polygon(p)
-      LET edges AS List OF Float = __canvas_polygonEdges(p.contours)
-      LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(p.contours), TRUE, __canvas_strokeHalf(p.paint), p.paint)
-      header = __canvas_polygonHeader(p.contours, p.rule, p.paint, p.transform, 0.0, 0.0)
-      LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(p.contours), TRUE)
+      ' plan-172-F: the points are offsets from `position`. The joins and the dashes are
+      ' computed from `edges`, never from the item's points, so they follow.
+      LET placed AS List OF List OF vector::Float2 = __canvas_placedRings(p.contours, p.position, p.transform)
+      LET edges AS List OF Float = __canvas_polygonEdges(placed)
+      LET joins AS List OF Float = __canvas_joinTail(edges, __canvas_ringStarts(placed), TRUE, __canvas_strokeHalf(p.paint), p.paint)
+      header = __canvas_polygonHeader(placed, p.rule, p.paint, __canvas_placement(p.position, p.transform), __canvas_buildX(p.position, p.transform), __canvas_buildY(p.position, p.transform))
+      LET dashes AS List OF Float = __canvas_edgeDashes(header, p.paint, __canvas_strokeHalf(p.paint), edges, __canvas_ringStarts(placed), TRUE)
       IF len(edges) > 0 THEN
         tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), p.paint)
       END IF
@@ -2036,10 +2074,11 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
     CASE Group(g)
       header = __canvas_emptyHeader()
     CASE PolyLine(pl)
-      header = __canvas_polylineHeader(pl)
+      LET moved AS PolyLine = __canvas_polylinePlaced(pl)
+      header = __canvas_polylineHeader(moved)
       IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_GEO_POLYLINE THEN
-        tail = __canvas_polylineTail(pl)
-        header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(pl), __canvas_joinReach(__canvas_polylineHalf(pl), pl.paint)), __canvas_polylineDashes(pl), pl.paint)
+        tail = __canvas_polylineTail(moved)
+        header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(moved), __canvas_joinReach(__canvas_polylineHalf(moved), moved.paint)), __canvas_polylineDashes(moved), moved.paint)
       END IF
   END MATCH
   LET clipped AS List OF List OF Float = __canvas_withClipEdges(header, tail, item)

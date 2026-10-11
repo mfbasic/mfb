@@ -253,6 +253,20 @@ FUNC __canvas_placedPaint(paint AS Paint, ox AS Float, oy AS Float) AS Paint
   RETURN WITH paint { clip := __canvas_placedClip(paint.clip, ox, oy), gradient := g }
 END FUNC
 
+' plan-172-F: a polygon's rings in the coordinates its record is built in. Its points
+' are offsets from `position`; built at its position (no transform in effect) each is
+' `position + point`, added whatever the position -- the native builder adds it to
+' every point it reads, and `-0.0 + 0.0` is `+0.0`, so skipping the add for a zero
+' position would differ from it in a sign bit. A turned polygon is built at the local
+' origin, where the points are already what the record wants, and is never built
+' natively, so they are returned as they are.
+FUNC __canvas_placedRings(rings AS List OF List OF vector::Float2, position AS vector::Float2, t AS Transform) AS List OF List OF vector::Float2
+  IF __canvas_transformActive(t) THEN
+    RETURN rings
+  END IF
+  RETURN __canvas_placedClip(rings, position.x, position.y)
+END FUNC
+
 FUNC __canvas_buildX(position AS vector::Float2, t AS Transform) AS Float
   IF __canvas_transformActive(t) THEN
     RETURN 0.0

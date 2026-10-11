@@ -1134,30 +1134,36 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Line",
         export: true,
-        description: "A straight segment from one point to another. A line has no \
-                      interior, so it is drawn from `paint.stroke`/`paint.strokeWidth` \
-                      and ignores `paint.fill`; `paint.cap` shapes its two ends.",
+        description: "A straight segment from one point to another. Its two ends, \
+                      `startAt` and `endAt`, are measured from `position`, so moving \
+                      the line is changing `position` alone, and its `transform` turns \
+                      it about `position` — put `position` at the middle and the line \
+                      spins in place. A line has no interior, so it is drawn from \
+                      `paint.stroke`/`paint.strokeWidth` and ignores `paint.fill`; \
+                      `paint.cap` shapes its two ends. Every field has a usable \
+                      default, so the short way to make one is to declare it and set \
+                      what you need: `MUT rule AS canvas::Line`, then `WITH rule { \
+                      startAt := vector::Float2[x := 20.0, y := 40.0], endAt := \
+                      vector::Float2[x := 220.0, y := 40.0], paint := \
+                      canvas::stroke(ink, 2.0) }` — `position` stays at the surface's \
+                      top-left corner, so the two ends are surface pixels.",
         props: vec![
             id_prop(),
             RecordProp {
-                name: "x1",
-                ty: ParameterType::Float,
-                description: "The starting point's X coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point the two ends are measured from, in pixels. \
+                              The transform turns the line about it.",
             },
             RecordProp {
-                name: "y1",
-                ty: ParameterType::Float,
-                description: "The starting point's Y coordinate in pixels.",
+                name: "startAt",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the line starts, as an offset from `position`.",
             },
             RecordProp {
-                name: "x2",
-                ty: ParameterType::Float,
-                description: "The ending point's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y2",
-                ty: ParameterType::Float,
-                description: "The ending point's Y coordinate in pixels.",
+                name: "endAt",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the line ends, as an offset from `position`.",
             },
             paint_prop(),
             transform_prop(),
@@ -1172,15 +1178,31 @@ pub(crate) fn register(r: &mut Registry) {
                       can be a hole (an \"O\", a donut) or more of the fill, as \
                       `rule` decides. The stroke outlines every ring. A ring of \
                       fewer than three points has no area and adds only its \
-                      stroke; a ring of fewer than two adds nothing.",
+                      stroke; a ring of fewer than two adds nothing. Every point is \
+                      measured from `position`, so moving the shape is changing \
+                      `position` alone, and its `transform` turns it about \
+                      `position`. Every field has a usable default, so the short way \
+                      to make one is to declare it and set what you need: `MUT wedge \
+                      AS canvas::Polygon`, then `WITH wedge { position := \
+                      vector::Float2[x := 120.0, y := 80.0], contours := [[ \
+                      vector::Float2[x := 0.0, y := 0.0 - 40.0], vector::Float2[x := \
+                      40.0, y := 40.0], vector::Float2[x := 0.0 - 40.0, y := 40.0]]], \
+                      paint := canvas::fill(ink) }` — a triangle around 120, 80.",
         props: vec![
             id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point every vertex is measured from, in pixels. \
+                              The transform turns the shape about it.",
+            },
             RecordProp {
                 name: "contours",
                 ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
                     crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
                 ))),
-                description: "The rings, each a list of vertices in order. Every \
+                description: "The rings, each a list of vertices in order, each \
+                              vertex an offset from `position`. Every \
                               ring closes from its own last point back to its own \
                               first point automatically. The direction a ring runs \
                               in matters only under `FillRule.NonZero`.",
@@ -1485,15 +1507,30 @@ pub(crate) fn register(r: &mut Registry) {
                       segment. Colours mix in linear light, as a `canvas::Gradient`'s \
                       do. A path has no interior, so it is drawn from \
                       `paint.strokeWidth` and ignores `paint.fill` and \
-                      `paint.gradient`. Fewer than two points draws nothing.",
+                      `paint.gradient`. Fewer than two points draws nothing. Every \
+                      point is measured from `position`, so moving the path is \
+                      changing `position` alone, and its `transform` turns it about \
+                      `position`. Every field has a usable default, so the short way \
+                      to make one is to declare it and set what you need: `MUT trail \
+                      AS canvas::PolyLine`, then `WITH trail { points := \
+                      [vector::Float2[x := 20.0, y := 20.0], vector::Float2[x := \
+                      120.0, y := 60.0], vector::Float2[x := 220.0, y := 20.0]], \
+                      paint := canvas::stroke(ink, 3.0) }`.",
         props: vec![
             id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point every point of the path is measured from, in \
+                              pixels. The transform turns the path about it.",
+            },
             RecordProp {
                 name: "points",
                 ty: ParameterType::list_of(ParameterType::named(
                     crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
                 )),
-                description: "The points in order. The path does not close — use \
+                description: "The points in order, each an offset from \
+                              `position`. The path does not close — use \
                               `canvas::Polygon` for a closed shape. A point repeated \
                               in place adds nothing; if every point is the same one, \
                               the path draws what a zero-length `canvas::Line` with \

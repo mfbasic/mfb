@@ -291,7 +291,7 @@ FUNC rrect(x AS Float, y AS Float, w AS Float, h AS Float, r AS Float, p AS canv
       ring = collections::append(ring, pt(cx + q * math::cos(a), cy + q * math::sin(a)))
     NEXT
   NEXT
-  RETURN canvas::Polygon[id := "", contours := [ring], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [ring], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC circle(x AS Float, y AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem
@@ -303,7 +303,7 @@ FUNC ellipse(x AS Float, y AS Float, rx AS Float, ry AS Float, angle AS Float, p
 END FUNC
 
 FUNC line(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Line[id := "", x1 := x1, y1 := y1, x2 := x2, y2 := y2, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := x1, y := y1], endAt := vector::Float2[x := x2, y := y2], paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC arc(x AS Float, y AS Float, r AS Float, a0 AS Float, a1 AS Float, p AS canvas::Paint) AS canvas::DrawItem
@@ -311,19 +311,26 @@ FUNC arc(x AS Float, y AS Float, r AS Float, a0 AS Float, a1 AS Float, p AS canv
 END FUNC
 
 FUNC poly(points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Polygon[id := "", contours := [points], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+' A polygon whose points are measured from (x, y): the shape is drawn around that
+' point, and moving it is changing the point alone. The paint's clip and gradient,
+' if it has any, are measured from it too.
+FUNC polyAt(x AS Float, y AS Float, points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "", position := pt(x, y), contours := [points], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC shape(rings AS List OF List OF vector::Float2, rule AS canvas::FillRule, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Polygon[id := "", contours := rings, rule := rule, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := rings, rule := rule, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC path(points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::PolyLine[id := "", points := points, colors := [], paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := points, colors := [], paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC trail(points AS List OF vector::Float2, colors AS List OF color::Color, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::PolyLine[id := "", points := points, colors := colors, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := points, colors := colors, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC label(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem

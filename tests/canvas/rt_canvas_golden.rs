@@ -399,8 +399,8 @@ FUNC main() AS Nothing
   ' A 30 degree shear in x.
   LET shearT AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.5773502691896258, d := 1.0, tx := 660.0, ty := 480.0]
   LET tri AS List OF vector::Float2 = [vector::Float2[x := 0.0 - 60.0, y := 50.0], vector::Float2[x := 60.0, y := 50.0], vector::Float2[x := 0.0, y := 0.0 - 50.0]]
-  LET plainPoly AS canvas::DrawItem = canvas::Polygon[id := "", contours := [[vector::Float2[x := 200.0, y := 590.0], vector::Float2[x := 320.0, y := 590.0], vector::Float2[x := 260.0, y := 490.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(220, 120, 220)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET shearPoly AS canvas::DrawItem = canvas::Polygon[id := "", contours := [tri], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(220, 120, 220)), transform := shearT]
+  LET plainPoly AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 200.0, y := 590.0], vector::Float2[x := 320.0, y := 590.0], vector::Float2[x := 260.0, y := 490.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(220, 120, 220)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET shearPoly AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [tri], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(220, 120, 220)), transform := shearT]
 
   ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
@@ -527,14 +527,14 @@ FUNC main() AS Nothing
 
   ' Row 1 -- lines. Butt left, round right, same geometry and paint otherwise.
   LET ink AS color::Color = color::rgb(255, 214, 92)
-  LET buttLine AS canvas::DrawItem = canvas::Line[id := "", x1 := 120.0, y1 := 120.0, x2 := 340.0, y2 := 120.0, paint := WITH canvas::stroke(ink, 28.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET roundLine AS canvas::DrawItem = canvas::Line[id := "", x1 := 540.0, y1 := 120.0, x2 := 760.0, y2 := 120.0, paint := WITH canvas::stroke(ink, 28.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET buttLine AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 120.0, y := 120.0], endAt := vector::Float2[x := 340.0, y := 120.0], paint := WITH canvas::stroke(ink, 28.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET roundLine AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 540.0, y := 120.0], endAt := vector::Float2[x := 760.0, y := 120.0], paint := WITH canvas::stroke(ink, 28.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' The endpoints, marked. A butt cap's claim is that the stroke stops HERE, which is
   ' only readable against something that says where "here" is.
   LET mark AS color::Color = color::rgb(255, 255, 255)
-  LET markA AS canvas::DrawItem = canvas::Line[id := "", x1 := 340.0, y1 := 88.0, x2 := 340.0, y2 := 152.0, paint := WITH canvas::stroke(mark, 2.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET markB AS canvas::DrawItem = canvas::Line[id := "", x1 := 760.0, y1 := 88.0, x2 := 760.0, y2 := 152.0, paint := WITH canvas::stroke(mark, 2.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET markA AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 340.0, y := 88.0], endAt := vector::Float2[x := 340.0, y := 152.0], paint := WITH canvas::stroke(mark, 2.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET markB AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 760.0, y := 88.0], endAt := vector::Float2[x := 760.0, y := 152.0], paint := WITH canvas::stroke(mark, 2.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' Row 2 -- arcs, swept 0..0.6*PI so both ends are in view. Butt left, round right.
   LET arcInk AS color::Color = color::rgb(120, 226, 255)
@@ -543,14 +543,14 @@ FUNC main() AS Nothing
 
   ' Row 3 -- a diagonal pair, so a cap is checked on an axis the two rows above miss.
   LET diagInk AS color::Color = color::rgb(228, 148, 255)
-  LET buttDiag AS canvas::DrawItem = canvas::Line[id := "", x1 := 140.0, y1 := 470.0, x2 := 320.0, y2 := 560.0, paint := WITH canvas::stroke(diagInk, 28.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET roundDiag AS canvas::DrawItem = canvas::Line[id := "", x1 := 560.0, y1 := 470.0, x2 := 740.0, y2 := 560.0, paint := WITH canvas::stroke(diagInk, 28.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET buttDiag AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 140.0, y := 470.0], endAt := vector::Float2[x := 320.0, y := 560.0], paint := WITH canvas::stroke(diagInk, 28.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET roundDiag AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 560.0, y := 470.0], endAt := vector::Float2[x := 740.0, y := 560.0], paint := WITH canvas::stroke(diagInk, 28.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' Row 4 -- the degenerate pair. The butt one draws nothing, and its absence is part
   ' of the reference.
   LET dotInk AS color::Color = color::rgb(160, 255, 170)
-  LET buttDot AS canvas::DrawItem = canvas::Line[id := "", x1 := 230.0, y1 := 610.0, x2 := 230.0, y2 := 610.0, paint := WITH canvas::stroke(dotInk, 28.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET roundDot AS canvas::DrawItem = canvas::Line[id := "", x1 := 650.0, y1 := 610.0, x2 := 650.0, y2 := 610.0, paint := WITH canvas::stroke(dotInk, 28.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET buttDot AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 230.0, y := 610.0], endAt := vector::Float2[x := 230.0, y := 610.0], paint := WITH canvas::stroke(dotInk, 28.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET roundDot AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 650.0, y := 610.0], endAt := vector::Float2[x := 650.0, y := 610.0], paint := WITH canvas::stroke(dotInk, 28.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([ground, buttLine, roundLine, markA, markB, buttArc, roundArc, buttDiag, roundDiag, buttDot, roundDot])
   io::print("rendered")
@@ -864,7 +864,7 @@ FUNC main() AS Nothing
   ' directly after the header, where a base computed either way agrees — so a polygon
   ' is the only shape that can tell a correct base from a lucky one.
   LET gTri AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 330.0, y := 240.0], endPoint := vector::Float2[x := 330.0, y := 400.0], stops := warm, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET triBar AS canvas::DrawItem = canvas::Polygon[id := "", contours := [[vector::Float2[x := 330.0, y := 240.0], vector::Float2[x := 450.0, y := 240.0], vector::Float2[x := 390.0, y := 400.0]]], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := gTri }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET triBar AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 330.0, y := 240.0], vector::Float2[x := 450.0, y := 240.0], vector::Float2[x := 390.0, y := 400.0]]], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := gTri }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' Row 3 -- four stops, the third given OUT OF ORDER at 0.4 after 0.75. It clamps up
   ' to 0.75 rather than sorting, so the picture has a hard edge there and no fourth
@@ -1325,30 +1325,30 @@ FUNC main() AS Nothing
 
   ' Row 1 -- one zig-zag, round caps left and butt caps right.
   LET ink AS color::Color = color::rgb(255, 214, 92)
-  LET zigRound AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 60.0, y := 150.0], vector::Float2[x := 140.0, y := 50.0], vector::Float2[x := 220.0, y := 150.0], vector::Float2[x := 300.0, y := 50.0], vector::Float2[x := 380.0, y := 150.0]], colors := [], paint := WITH canvas::stroke(ink, 22.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET zigButt AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 500.0, y := 150.0], vector::Float2[x := 580.0, y := 50.0], vector::Float2[x := 660.0, y := 150.0], vector::Float2[x := 740.0, y := 50.0], vector::Float2[x := 820.0, y := 150.0]], colors := [], paint := WITH canvas::stroke(ink, 22.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET zigRound AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 60.0, y := 150.0], vector::Float2[x := 140.0, y := 50.0], vector::Float2[x := 220.0, y := 150.0], vector::Float2[x := 300.0, y := 50.0], vector::Float2[x := 380.0, y := 150.0]], colors := [], paint := WITH canvas::stroke(ink, 22.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET zigButt AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 500.0, y := 150.0], vector::Float2[x := 580.0, y := 50.0], vector::Float2[x := 660.0, y := 150.0], vector::Float2[x := 740.0, y := 50.0], vector::Float2[x := 820.0, y := 150.0]], colors := [], paint := WITH canvas::stroke(ink, 22.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET markA AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 500.0, y := 150.0], radius := 2.0, paint := canvas::fill(mark), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET markB AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 820.0, y := 150.0], radius := 2.0, paint := canvas::fill(mark), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' Row 2 -- a switch-back, and a butt path with repeated end points and a zero-length
   ' middle segment.
   LET cool AS color::Color = color::rgb(120, 214, 255)
-  LET switchBack AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 60.0, y := 250.0], vector::Float2[x := 380.0, y := 250.0], vector::Float2[x := 120.0, y := 280.0]], colors := [], paint := WITH canvas::stroke(cool, 18.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET repeated AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 500.0, y := 230.0], vector::Float2[x := 500.0, y := 230.0], vector::Float2[x := 660.0, y := 230.0], vector::Float2[x := 660.0, y := 230.0], vector::Float2[x := 820.0, y := 300.0], vector::Float2[x := 820.0, y := 300.0]], colors := [], paint := WITH canvas::stroke(cool, 18.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET switchBack AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 60.0, y := 250.0], vector::Float2[x := 380.0, y := 250.0], vector::Float2[x := 120.0, y := 280.0]], colors := [], paint := WITH canvas::stroke(cool, 18.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET repeated AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 500.0, y := 230.0], vector::Float2[x := 500.0, y := 230.0], vector::Float2[x := 660.0, y := 230.0], vector::Float2[x := 660.0, y := 230.0], vector::Float2[x := 820.0, y := 300.0], vector::Float2[x := 820.0, y := 300.0]], colors := [], paint := WITH canvas::stroke(cool, 18.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET markC AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 500.0, y := 230.0], radius := 2.0, paint := canvas::fill(mark), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET markD AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 820.0, y := 300.0], radius := 2.0, paint := canvas::fill(mark), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' Row 3 -- per-point colours.
-  LET trail AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 60.0, y := 420.0], vector::Float2[x := 110.0, y := 370.0], vector::Float2[x := 170.0, y := 350.0], vector::Float2[x := 230.0, y := 360.0], vector::Float2[x := 290.0, y := 400.0], vector::Float2[x := 340.0, y := 440.0], vector::Float2[x := 390.0, y := 450.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(255, 140, 40, 212), color::rgba(255, 140, 40, 170), color::rgba(255, 140, 40, 128), color::rgba(255, 140, 40, 85), color::rgba(255, 140, 40, 42), color::rgba(255, 140, 40, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 16.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET rainbow AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 500.0, y := 440.0], vector::Float2[x := 660.0, y := 350.0], vector::Float2[x := 820.0, y := 440.0]], colors := [color::rgb(255, 0, 0), color::rgb(0, 255, 0), color::rgb(0, 0, 255)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 60.0, y := 420.0], vector::Float2[x := 110.0, y := 370.0], vector::Float2[x := 170.0, y := 350.0], vector::Float2[x := 230.0, y := 360.0], vector::Float2[x := 290.0, y := 400.0], vector::Float2[x := 340.0, y := 440.0], vector::Float2[x := 390.0, y := 450.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(255, 140, 40, 212), color::rgba(255, 140, 40, 170), color::rgba(255, 140, 40, 128), color::rgba(255, 140, 40, 85), color::rgba(255, 140, 40, 42), color::rgba(255, 140, 40, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 16.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET rainbow AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 500.0, y := 440.0], vector::Float2[x := 660.0, y := 350.0], vector::Float2[x := 820.0, y := 440.0]], colors := [color::rgb(255, 0, 0), color::rgb(0, 255, 0), color::rgb(0, 0, 255)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' Row 4 -- fewer colours than points, a two-point path, the coincident pair, and a
   ' one-point path.
-  LET partial AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 60.0, y := 590.0], vector::Float2[x := 110.0, y := 540.0], vector::Float2[x := 160.0, y := 590.0], vector::Float2[x := 210.0, y := 540.0], vector::Float2[x := 260.0, y := 590.0], vector::Float2[x := 310.0, y := 540.0]], colors := [color::rgb(228, 148, 255), color::rgb(228, 148, 255), color::rgb(80, 40, 200)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET twoPoint AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 380.5, y := 530.25], vector::Float2[x := 520.75, y := 600.5]], colors := [], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET dotRound AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 620.0, y := 570.0], vector::Float2[x := 620.0, y := 570.0], vector::Float2[x := 620.0, y := 570.0]], colors := [], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 24.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET dotButt AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 720.0, y := 570.0], vector::Float2[x := 720.0, y := 570.0]], colors := [], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 24.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET single AS canvas::DrawItem = canvas::PolyLine[id := "", points := [vector::Float2[x := 820.0, y := 570.0]], colors := [color::rgb(255, 0, 0)], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 24.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET partial AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 60.0, y := 590.0], vector::Float2[x := 110.0, y := 540.0], vector::Float2[x := 160.0, y := 590.0], vector::Float2[x := 210.0, y := 540.0], vector::Float2[x := 260.0, y := 590.0], vector::Float2[x := 310.0, y := 540.0]], colors := [color::rgb(228, 148, 255), color::rgb(228, 148, 255), color::rgb(80, 40, 200)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET twoPoint AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 380.5, y := 530.25], vector::Float2[x := 520.75, y := 600.5]], colors := [], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dotRound AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 620.0, y := 570.0], vector::Float2[x := 620.0, y := 570.0], vector::Float2[x := 620.0, y := 570.0]], colors := [], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 24.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dotButt AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 720.0, y := 570.0], vector::Float2[x := 720.0, y := 570.0]], colors := [], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 24.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET single AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 820.0, y := 570.0]], colors := [color::rgb(255, 0, 0)], paint := WITH canvas::stroke(color::rgb(160, 255, 170), 24.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([ground, zigRound, zigButt, markA, markB, switchBack, repeated, markC, markD, trail, rainbow, partial, twoPoint, dotRound, dotButt, single])
   io::print("rendered")
@@ -1404,10 +1404,10 @@ fn a_two_point_polyline_draws_the_line_between_its_points() {
         let draw = |x1: f64, y1: f64, x2: f64, y2: f64, cap: &str, width: f64| {
             match item {
             "line" => format!(
-                "canvas::Line[id := \"\", x1 := {x1:?}, y1 := {y1:?}, x2 := {x2:?}, y2 := {y2:?}, paint := WITH canvas::stroke(color::rgb(250, 200, 90), {width:?}) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := {x1:?}, y := {y1:?}], endAt := vector::Float2[x := {x2:?}, y := {y2:?}], paint := WITH canvas::stroke(color::rgb(250, 200, 90), {width:?}) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             ),
             _ => format!(
-                "canvas::PolyLine[id := \"\", points := [vector::Float2[x := {x1:?}, y := {y1:?}], vector::Float2[x := {x2:?}, y := {y2:?}]], colors := [], paint := WITH canvas::stroke(color::rgb(250, 200, 90), {width:?}) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::PolyLine[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := {x1:?}, y := {y1:?}], vector::Float2[x := {x2:?}, y := {y2:?}]], colors := [], paint := WITH canvas::stroke(color::rgb(250, 200, 90), {width:?}) {{ cap := canvas::CapStyle.{cap} }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             ),
         }
         };

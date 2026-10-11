@@ -71,8 +71,8 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20 LET a AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 1.0, y := 2.0], radius := 3.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 LET b AS canvas::DrawItem = canvas::Arc[id := \"\", position := vector::Float2[x := 1.0, y := 2.0], radius := 3.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 4.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 LET c AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 10.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
-    \x20 LET d AS canvas::DrawItem = canvas::Line[id := \"\", x1 := 0.0, y1 := 0.0, x2 := 5.0, y2 := 5.0, paint := WITH canvas::stroke(green, 1.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
-    \x20 LET e AS canvas::DrawItem = canvas::Polygon[id := \"\", contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET d AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 0.0, y := 0.0], endAt := vector::Float2[x := 5.0, y := 5.0], paint := WITH canvas::stroke(green, 1.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET e AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 LET f AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 2.0, radiusTR := 2.0, radiusBL := 2.0, radiusBR := 2.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 LET g AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], text := \"hi\", font := fnt, fontSize := 12.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 LET h AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 8.0, height := 8.0], image := img, paint := canvas::fillStroke(yellow, green, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
@@ -89,7 +89,7 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20   RETURN 8\n\
     \x20 END IF\n\
     \x20 LET j AS canvas::DrawItem = grp\n\
-    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[id := \"\", points := pts, colors := [yellow, green], paint := WITH canvas::stroke(green, 2.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET k AS canvas::DrawItem = canvas::PolyLine[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], points := pts, colors := [yellow, green], paint := WITH canvas::stroke(green, 2.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 canvas::removeGroup(\"panel\")\n\
     \x20 canvas::removeGroup(\"never-installed\")\n\
     \x20 LET scene AS List OF canvas::DrawItem = [a, b, c, d, e, f, g, h, i, j, k]\n\
