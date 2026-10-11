@@ -1,0 +1,334 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug1027_member_into_module_union_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "handles", "line": 37, "visibility": "public", "mutable": true, "type": "List OF RES Handle", "value": { "kind": "list", "type": "List OF RES Handle", "values": [] } },
+  { "name": "byKey", "line": 38, "visibility": "public", "mutable": true, "type": "Map OF Integer TO RES Handle", "value": { "kind": "map", "type": "Map OF Integer TO RES Handle", "entries": [] } },
+  { "name": "boxes", "line": 39, "visibility": "public", "mutable": true, "type": "List OF Box", "value": { "kind": "list", "type": "List OF Box", "values": [] } },
+  { "name": "reversed", "line": 40, "visibility": "public", "mutable": true, "type": "List OF RES Reversed", "value": { "kind": "list", "type": "List OF RES Reversed", "values": [] } }
+  ],
+  "types": [
+  {
+    "kind": "union",
+    "line": 23,
+    "visibility": "public",
+    "name": "Handle",
+    "includes": [],
+    "variants": [
+    {
+      "name": "fs.File",
+      "line": 24,
+      "fields": [
+      ]
+    },
+    {
+      "name": "tcp.Socket",
+      "line": 25,
+      "fields": [
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 28,
+    "visibility": "public",
+    "name": "Reversed",
+    "includes": [],
+    "variants": [
+    {
+      "name": "tcp.Socket",
+      "line": 29,
+      "fields": [
+      ]
+    },
+    {
+      "name": "fs.File",
+      "line": 30,
+      "fields": [
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 33,
+    "visibility": "public",
+    "name": "Box",
+    "fields": [
+    { "visibility": null, "line": 34, "name": "h", "type": "RES Handle" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "touch",
+    "line": 42,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 42, "type": "Handle", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 43, "mutable": false, "name": "$match0", "type": "Handle", "value": { "kind": "local", "name": "h" } },
+    {
+      "op": "match",
+      "line": 43,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 44,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "fs.File" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 44, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "unionExtract", "type": "fs.File", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "still open" }] } },
+        { "op": "return", "line": 46, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ]
+      },
+      {
+        "line": 47,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tcp.Socket" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 47, "mutable": false, "name": "s", "type": "tcp.Socket", "value": { "kind": "unionExtract", "type": "tcp.Socket", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 48, "value": { "kind": "const", "type": "Integer", "value": "100" } }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 50, "value": { "kind": "const", "type": "Integer", "value": "1000" } }
+    ]
+  },
+  {
+    "name": "touchReversed",
+    "line": 53,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 53, "type": "Reversed", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 54, "mutable": false, "name": "$match1", "type": "Reversed", "value": { "kind": "local", "name": "h" } },
+    {
+      "op": "match",
+      "line": 54,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 55,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "fs.File" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 55, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "unionExtract", "type": "fs.File", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "still open" }] } },
+        { "op": "return", "line": 57, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ]
+      },
+      {
+        "line": 58,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "tcp.Socket" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 58, "mutable": false, "name": "s", "type": "tcp.Socket", "value": { "kind": "unionExtract", "type": "tcp.Socket", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 59, "value": { "kind": "const", "type": "Integer", "value": "100" } }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 61, "value": { "kind": "const", "type": "Integer", "value": "1000" } }
+    ]
+  },
+  {
+    "name": "store",
+    "line": 64,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "i", "line": 64, "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 65, "mutable": false, "name": "a", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "assignGlobal", "line": 66, "name": "handles", "value": { "kind": "call", "type": "List OF RES Handle", "target": "collections.append", "args": [{ "kind": "global", "name": "handles" }, { "kind": "unionWrap", "union": "Handle", "member": "fs.File", "value": { "kind": "local", "name": "a" } }] } },
+    { "op": "bind", "line": 67, "mutable": false, "name": "b", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "assignGlobal", "line": 68, "name": "byKey", "value": { "kind": "call", "type": "Map OF Integer TO RES Handle", "target": "collections.set", "args": [{ "kind": "global", "name": "byKey" }, { "kind": "local", "name": "i" }, { "kind": "unionWrap", "union": "Handle", "member": "fs.File", "value": { "kind": "local", "name": "b" } }] } },
+    { "op": "bind", "line": 69, "mutable": false, "name": "c", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "assignGlobal", "line": 70, "name": "boxes", "value": { "kind": "call", "type": "List OF Box", "target": "collections.append", "args": [{ "kind": "global", "name": "boxes" }, { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Handle", "member": "fs.File", "value": { "kind": "local", "name": "c" } }] }] } },
+    {
+      "op": "if",
+      "line": 71,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 72, "value": null }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 74, "mutable": false, "name": "d", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "assignGlobal", "line": 75, "name": "reversed", "value": { "kind": "call", "type": "List OF RES Reversed", "target": "collections.append", "args": [{ "kind": "global", "name": "reversed" }, { "kind": "unionWrap", "union": "Reversed", "member": "fs.File", "value": { "kind": "local", "name": "d" } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 78,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 79, "mutable": false, "name": "$for_end3", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
+    { "op": "bind", "line": 79, "mutable": false, "name": "$for_step4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 79,
+      "name": "$for_iter2",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end3" },
+      "step": { "kind": "local", "name": "$for_step4" },
+      "body": [
+      { "op": "bind", "line": 79, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter2" } },
+      { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "store", "args": [{ "kind": "local", "name": "i" }] } }
+      ]
+    },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stored " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "global", "name": "handles" }] }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "global", "name": "byKey" }] }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "global", "name": "boxes" }] }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "global", "name": "reversed" }] }] } }] } },
+    { "op": "bind", "line": 84, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 85, "mutable": false, "name": "$for_end6", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "global", "name": "handles" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 85, "mutable": false, "name": "$for_step7", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 85,
+      "name": "$for_iter5",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end6" },
+      "step": { "kind": "local", "name": "$for_step7" },
+      "body": [
+      { "op": "bind", "line": 85, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter5" } },
+      { "op": "assign", "line": 86, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "touch", "args": [{ "kind": "call", "type": "Handle", "target": "collections.get", "args": [{ "kind": "global", "name": "handles" }, { "kind": "local", "name": "i" }] }] } } }
+      ]
+    },
+    { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "list " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "assign", "line": 90, "name": "total", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 91, "mutable": false, "name": "$for_end9", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "4" } },
+    { "op": "bind", "line": 91, "mutable": false, "name": "$for_step10", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 91,
+      "name": "$for_iter8",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end9" },
+      "step": { "kind": "local", "name": "$for_step10" },
+      "body": [
+      { "op": "bind", "line": 91, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter8" } },
+      { "op": "assign", "line": 92, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "touch", "args": [{ "kind": "call", "type": "Handle", "target": "collections.get", "args": [{ "kind": "global", "name": "byKey" }, { "kind": "local", "name": "i" }] }] } } }
+      ]
+    },
+    { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "map " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "assign", "line": 96, "name": "total", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 97,
+      "name": "box",
+      "type": "Box",
+      "iterable": { "kind": "global", "name": "boxes" },
+      "body": [
+      { "op": "assign", "line": 98, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "touch", "args": [{ "kind": "memberAccess", "type": "Handle", "target": { "kind": "local", "name": "box" }, "member": "h" }] } } }
+      ]
+    },
+    { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "field " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "assign", "line": 102, "name": "total", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 103, "mutable": false, "name": "$for_end12", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "global", "name": "reversed" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 103, "mutable": false, "name": "$for_step13", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 103,
+      "name": "$for_iter11",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "0" },
+      "end": { "kind": "local", "name": "$for_end12" },
+      "step": { "kind": "local", "name": "$for_step13" },
+      "body": [
+      { "op": "bind", "line": 103, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter11" } },
+      { "op": "assign", "line": 104, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "touchReversed", "args": [{ "kind": "call", "type": "Reversed", "target": "collections.get", "args": [{ "kind": "global", "name": "reversed" }, { "kind": "local", "name": "i" }] }] } } }
+      ]
+    },
+    { "op": "eval", "line": 106, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "reversed " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "return", "line": 107, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
