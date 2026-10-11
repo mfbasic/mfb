@@ -561,11 +561,12 @@ impl CodeBuilder<'_> {
     /// of the ORIGINAL node, so each one in the tree is carried to the node that
     /// corresponds to it in the copy (a clone has the same shape, so the two
     /// pre-order walks meet the same nodes in the same order). Costs nothing in a
-    /// function with no such temporary.
-    fn carry_exclusive_temps(&mut self, original: &NirValue, copy: &NirValue) {
+    /// function with no such temporary. Answers with the copies' addresses it
+    /// entered, for the caller to withdraw once the copy has been lowered.
+    fn carry_exclusive_temps(&mut self, original: &NirValue, copy: &NirValue) -> Vec<usize> {
         use crate::target::shared::nir::visit::{walk_value, NirVisitor};
         if self.exclusive_temps.calls.is_empty() {
-            return;
+            return Vec::new();
         }
         struct Nodes(Vec<usize>);
         impl NirVisitor for Nodes {
@@ -578,14 +579,17 @@ impl CodeBuilder<'_> {
         originals.visit_value(original);
         let mut copies = Nodes(Vec::new());
         copies.visit_value(copy);
+        let mut carried = Vec::new();
         if originals.0.len() != copies.0.len() {
-            return;
+            return carried;
         }
         for (original, copy) in originals.0.into_iter().zip(copies.0) {
             if let Some(fresh_block) = self.exclusive_temps.calls.get(&original).copied() {
                 self.exclusive_temps.calls.insert(copy, fresh_block);
+                carried.push(copy);
             }
         }
+        carried
     }
 
     /// bug-999: adopt, for the statement, what the exclusive aggregate temporary in
@@ -4268,12 +4272,33 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         raw: bool,
     ) -> Result<ValueResult, String> {
-        let mut helper_args = args.to_vec();
+        let helper_args = args.to_vec();
         // bug-999: the exclusive aggregate temporaries are known by node address,
-        // and these are copies of the nodes the ownership pre-pass read.
+        // and these are copies of the nodes the ownership pre-pass read. The
+        // copies die with this call, so their entries are withdrawn when it has
+        // been lowered: an address the allocator hands to a later copy must not
+        // answer for a node that was never read as exclusive.
+        let mut carried = Vec::new();
         for (original, copy) in args.iter().zip(&helper_args) {
-            self.carry_exclusive_temps(original, copy);
+            carried.extend(self.carry_exclusive_temps(original, copy));
         }
+        let result = self.lower_runtime_helper_call_copied(helper, target, args, helper_args, raw);
+        for copy in carried {
+            self.exclusive_temps.calls.remove(&copy);
+        }
+        result
+    }
+
+    /// [`Self::lower_runtime_helper_call`] over `helper_args`, its own copy of
+    /// `args`.
+    fn lower_runtime_helper_call_copied(
+        &mut self,
+        helper: runtime::RuntimeHelper,
+        target: &str,
+        args: &[NirValue],
+        mut helper_args: Vec<NirValue>,
+        raw: bool,
+    ) -> Result<ValueResult, String> {
         // plan-89-A: `io::print`/`io::write` accept an `AttributedString` and emit
         // its visible text. Rewrite the argument to `toString(a)` — the `toString`
         // overload deep-copies the inlined text into an owned String — so the rest
