@@ -98,6 +98,18 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] 1022: template calls (`collections::merge`, user `FUNC f OF T`) reject a variant for their union; make them follow the builtin rules
 [ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
 
+**Filed during P2c (batch 19), not started; each waits for a later phase**
+P2e (resource-union and record ownership follow-ups):
+[ ] 1026 (HIGH): `RES v AS Handle = collections::get(hs, 0)` binds a view into the list block; after the list grows, `MATCH v` matches nothing (use after free, silent wrong value)
+[ ] 1025: a closed resource record (and its read buffer) is kept when a callee returns a record holding a resource its caller's callee produced
+[ ] 1027: a concrete `fs::File` binding appended to a module-level `List OF RES Handle` fails to build (bug-806 internal error)
+[ ] 1028: a `List`/`Map` of resource unions that is iterated or read through `collections::get` keeps its block and records (`block_held_elsewhere_strict`)
+[ ] 1029: a call through a function value that returns a resource union leaks its 16 B box
+[ ] 1030: the `STATE` clause of a top-level `RES` binding and of a `LAMBDA` parameter is dropped in lowering, so `.state` does not type
+[ ] P5 (diagnostics): 1031 (`RES` on a non-resource is not refused at the top level, on a return, or on a record field that also carries `STATE`)
+[ ] P4 (templates): 1032 (generic `T STATE Cur` called with a `fs::File STATE Cur` is rejected, the clause is carried twice; NEEDS AN OWNER DECISION on whether `T STATE S` is legal at all)
+[ ] P11 (docs): 1033 (man example `variable::guide#2` does not build; an intentional error example the runner does not recognise)
+
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
 [ ] P3: 1017 (was 1014) (Windows `respondPath`: `..\` traversal still 403-vs-404 by existence; reproduced on 206)
