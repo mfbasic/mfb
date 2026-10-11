@@ -1,0 +1,10 @@
+{
+  "name": "bug1013_state_requires_record_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1013: a STATE type that is not a record TYPE is TYPE_STATE_INVALID at every position a STATE clause can appear.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -869,6 +869,7 @@ mod tests {
             returns: ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
+            return_stray_state: None,
             body,
             trap: None,
             line: 1,
@@ -1208,6 +1209,7 @@ mod tests {
             type_: ParameterType::parse("fs.File"),
             resource: true,
             state_type: None,
+            stray_state: None,
             default: None,
             line: 1,
         }];
@@ -1563,6 +1565,7 @@ mod tests {
                 type_: ParameterType::String,
                 resource: false,
                 state_type: None,
+                stray_state: None,
                 default: None,
                 line: 1,
             }],
@@ -1749,6 +1752,7 @@ mod tests {
             type_: ParameterType::parse("fs.File"),
             resource: true,
             state_type: None,
+            stray_state: None,
             default: None,
             line: 1,
         });

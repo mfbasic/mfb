@@ -1,0 +1,24 @@
+EXPORT TYPE Cursor
+  pos AS Integer
+END TYPE
+
+EXPORT ENUM Mode
+  Fast, Slow
+END ENUM
+
+EXPORT TYPE Dot
+  x AS Integer
+END TYPE
+
+EXPORT TYPE Line
+  len AS Integer
+END TYPE
+
+EXPORT UNION Shape
+  Dot
+  Line
+END UNION
+
+EXPORT FUNC origin() AS Cursor
+  RETURN Cursor[0]
+END FUNC

@@ -227,7 +227,8 @@ impl TypeEnv {
                             );
                         }
                     }
-                    // A STATE payload type must be defaultable. plan-74 lifted the
+                    // A STATE clause names a copyable, defaultable record TYPE
+                    // (bug-1013). plan-74 lifted the
                     // former `TYPE_UNION_STATE_FORBIDDEN` ban: a resource union may
                     // now carry a uniform STATE, checked exactly like a concrete
                     // resource's (the STATE type is the use-site declaration,
@@ -241,16 +242,7 @@ impl TypeEnv {
                     // can only be *written*, so an inferred binding has nothing
                     // new for them to check.
                     if *explicit_type && !name.starts_with('$') {
-                        if let Some(state_type) = type_.state() {
-                            if !self.is_defaultable(&state_type, &mut HashSet::new()) {
-                                self.emit(
-                                    "TYPE_STATE_INVALID",
-                                    format!(
-                                        "binding `{name}` STATE type `{state_type}` must be a copyable, defaultable data type."
-                                    ),
-                                );
-                            }
-                        }
+                        self.check_state_clauses(type_, &format!("binding `{name}`"));
                         if is_resource {
                             self.check_binding_state_agreement(name, type_, value, locals);
                         }

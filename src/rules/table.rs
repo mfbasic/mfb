@@ -833,6 +833,15 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "no overload has the expected callable type",
     },
+    // bug-998: a `STATE` clause written on a type that is not a resource. Its
+    // own rule, not `TYPE_STATE_INVALID`, which is about the STATE TYPE: this
+    // clause has nothing to attach to, whatever type it names.
+    Rule {
+        code: "2-203-0145",
+        name: "TYPE_STATE_REQUIRES_RESOURCE",
+        severity: Severity::Error,
+        message: "STATE can only be attached to a resource",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for
@@ -1105,7 +1114,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0085",
         name: "TYPE_STATE_INVALID",
         severity: Severity::Error,
-        message: "STATE must be a copyable, defaultable data type",
+        message: "a STATE type must be a record TYPE that is copyable and defaultable",
     },
     // RETIRED by plan-59-E, not emitted. Ownership moved from the binding to the
     // outermost scope that touches the resource: any holder of the pointer may

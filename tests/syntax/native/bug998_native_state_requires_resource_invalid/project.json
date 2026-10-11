@@ -1,0 +1,14 @@
+{
+  "name": "bug998_native_state_requires_resource_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-998 at the native boundary: a LINK declaration's STATE clause must sit on a resource (TYPE_STATE_REQUIRES_RESOURCE).",
+  "libraries": {
+    "sqlite3": [
+      { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },
+      { "os": "linux", "type": "system", "source": "libsqlite3.so.0" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

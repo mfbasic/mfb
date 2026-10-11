@@ -1,0 +1,19 @@
+{
+  "name": "bug1013_state_import_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1013: an imported ENUM or UNION is refused as a STATE type (TYPE_STATE_INVALID); an imported record is accepted.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "state_kinds_pkg",
+      "version": "=0.1.0",
+      "source": "file:packages/state_kinds_pkg",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

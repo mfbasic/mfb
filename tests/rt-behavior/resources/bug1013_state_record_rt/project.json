@@ -1,0 +1,10 @@
+{
+  "name": "bug1013_state_record_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1013: the payloads a bare STATE type can no longer be (a scalar, a String, an ENUM, a collection) held as fields of a STATE record, default-initialized, assigned whole and updated in place.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

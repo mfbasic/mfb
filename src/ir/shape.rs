@@ -1271,6 +1271,18 @@ impl<'a> Walker<'a> {
         for item in &file.items {
             match item {
                 HirItem::Binding(binding) => {
+                    if let Some(state) = &binding.state_type {
+                        let subject = format!("binding `{}`", binding.name);
+                        // One clause reports one rule: the host first
+                        // (bug-998), then the STATE type (bug-1013).
+                        if !matches!(binding.type_, ParameterType::Unknown)
+                            && !self.is_resource_type(&binding.type_)
+                        {
+                            self.check_stray_state(&subject, &binding.type_, state, binding.line);
+                        } else {
+                            self.check_erased_state_type(&subject, state, binding.line);
+                        }
+                    }
                     if let Some(value) = &binding.value {
                         let locals = HashMap::new();
                         self.current_line = binding.line;
@@ -1301,11 +1313,110 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// TYPE_STATE_REQUIRES_RESOURCE (bug-998): a `STATE` clause written on a
+    /// parameter, a return or a top-level binding whose type is not a resource.
+    ///
+    /// Erased fact: the clause itself. `hir::resource_params` takes it off a
+    /// parameter or a return before lowering (`HirParam::stray_state`,
+    /// `HirFunction::return_stray_state`), because a clause left on a data type
+    /// rides into the type (`Integer STATE Cur`) and makes every use of the
+    /// parameter untypable — the author used to see `TYPE_UNKNOWN_VALUE` at each
+    /// use and `TYPE_STATE_MISMATCH` at each call, and nothing at the clause.
+    /// A top-level binding's clause is never lowered at all. So the IR
+    /// `ir::verify` reads does not carry it, and this is the one place that can
+    /// still name it. (`ir::verify` keeps the same rule for the positions
+    /// lowering does not erase — a local binding, a field, an element, a thread
+    /// plane, a native declaration — and for decoded package IR.)
+    ///
+    /// The clause's own type is not examined (`TYPE_STATE_INVALID`): with no
+    /// resource to attach to, there is no payload to be the wrong kind of.
+    fn check_stray_state(
+        &mut self,
+        subject: &str,
+        host: &ParameterType,
+        state: &ParameterType,
+        line: usize,
+    ) {
+        self.emit(
+            "TYPE_STATE_REQUIRES_RESOURCE",
+            format!(
+                "{subject} attaches `STATE {state}` to `{host}`, which is not a resource; remove the STATE clause."
+            ),
+            line,
+        );
+    }
+
+    fn check_stray_param_state(&mut self, param: &crate::hir::HirParam, line: usize) {
+        if let Some(state) = &param.stray_state {
+            self.check_stray_state(
+                &format!("Parameter `{}`", param.name),
+                &param.type_,
+                state,
+                line,
+            );
+        }
+    }
+
+    /// TYPE_STATE_INVALID (bug-1013), for the two `STATE` clauses lowering does
+    /// not carry into the IR: a TOP-LEVEL `RES` binding's and a LAMBDA
+    /// parameter's. A `STATE` type is a record `TYPE`.
+    ///
+    /// Erased fact: the clause. `lower_binding` lowers a top-level binding by its
+    /// declared type alone and never reads `HirTopLevelBinding::state_type`, and
+    /// a lambda's parameter is lowered by its `type_` alone, so the IR
+    /// `ir::verify` checks carries no clause to judge — which is how
+    /// `RES g AS fs::File STATE Integer` at the top level was accepted while the
+    /// identical local binding was refused.
+    ///
+    /// The kind is decided from what is positively known, as `ir::verify`'s
+    /// `state_type_fault` decides it: the walker's declared and imported types,
+    /// the resource registry and the built-in package registry. Whether a RECORD
+    /// has a default is not asked here — that is a property of its fields, which
+    /// only the verifier's tables hold.
+    fn check_erased_state_type(&mut self, subject: &str, state: &ParameterType, line: usize) {
+        let not_a_record = match state {
+            ParameterType::Unknown | ParameterType::Var(_) | ParameterType::Arg(_) => false,
+            ParameterType::Named(_) | ParameterType::UserOf(..) => {
+                use crate::codegen::registry::{registry, ResolvedType};
+                state.is_named("AttributedString")
+                    || self.is_resource_type(state)
+                    || match self.types.get(state) {
+                        Some(shape) => !shape.is_record,
+                        None => !matches!(
+                            registry().resolve_type(&state.name()),
+                            Some(ResolvedType::Record(_)) | None
+                        ),
+                    }
+            }
+            _ => true,
+        };
+        if not_a_record {
+            self.emit(
+                "TYPE_STATE_INVALID",
+                format!(
+                    "{subject} STATE type `{state}` is not a record; declare a record TYPE that holds the value and name it instead."
+                ),
+                line,
+            );
+        }
+    }
+
     fn walk_function(&mut self, function: &HirFunction) {
         // Parameter locals as `lower_function` seeds them: a resource parameter's
         // `STATE T` rides in its type.
         let mut locals = HashMap::new();
+        // TYPE_STATE_REQUIRES_RESOURCE, the return and parameter forms (see
+        // `check_stray_state`).
+        if let Some(state) = &function.return_stray_state {
+            self.check_stray_state(
+                &format!("FUNC `{}` return", function.name),
+                &function.returns,
+                state,
+                function.line,
+            );
+        }
         for param in &function.params {
+            self.check_stray_param_state(param, param.line);
             let type_ = match &param.state_type {
                 Some(state) => param.type_.with_state(state),
                 None => param.type_.clone(),
@@ -2092,6 +2203,17 @@ impl<'a> Walker<'a> {
                 // (`expression_type`'s Lambda arm).
                 let mut nested = locals.clone();
                 for param in params {
+                    self.check_stray_param_state(param, self.current_line);
+                    // TYPE_STATE_INVALID (bug-1013): a lambda parameter's
+                    // `STATE` clause is not lowered, see
+                    // `check_erased_state_type`.
+                    if let Some(state) = &param.state_type {
+                        self.check_erased_state_type(
+                            &format!("Parameter `{}`", param.name),
+                            state,
+                            self.current_line,
+                        );
+                    }
                     nested.insert(param.name.clone(), param.type_.clone());
                 }
                 // TYPE_UNKNOWN_VALUE, the assignment-bodied lambda's target form.

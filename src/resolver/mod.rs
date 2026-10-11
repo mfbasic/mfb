@@ -802,6 +802,7 @@ mod tests {
             type_: type_name.map_or(ParameterType::Unknown, ParameterType::parse),
             resource: false,
             state_type: None,
+            stray_state: None,
             default: None,
             line: 1,
         }
@@ -817,6 +818,7 @@ mod tests {
             returns: ParameterType::Unknown,
             return_resource: false,
             return_state_type: None,
+            return_stray_state: None,
             body: Vec::new(),
             trap: None,
             line: 1,

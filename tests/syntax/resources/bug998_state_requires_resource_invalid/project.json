@@ -1,0 +1,10 @@
+{
+  "name": "bug998_state_requires_resource_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-998: a STATE clause on a type that is not a resource is TYPE_STATE_REQUIRES_RESOURCE at every position a clause can be written, once per declaration.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

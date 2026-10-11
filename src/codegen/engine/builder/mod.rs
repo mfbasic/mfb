@@ -2392,9 +2392,14 @@ pub(crate) fn lower_module_for_platform(
     // byte-identical.
     {
         let mut emitted: HashSet<(String, u64)> = HashSet::new();
-        let mut pending: Vec<(String, u64)> = variant_demand(module, &functions, &type_model)
-            .into_iter()
-            .collect();
+        let mut pending: Vec<(String, u64)> = variant_demand(
+            module,
+            &functions,
+            &type_model,
+            &callback_referenced_functions,
+        )
+        .into_iter()
+        .collect();
         pending.sort();
         while let Some((name, mask)) = pending.pop() {
             if !emitted.insert((name.clone(), mask)) {
@@ -4834,6 +4839,7 @@ fn variant_demand(
     module: &NirModule,
     functions: &HashMap<String, &NirFunction>,
     type_model: &TypeModel,
+    callback_referenced: &HashSet<String>,
 ) -> HashSet<(String, u64)> {
     // A FIXPOINT over `(function, mask)`: a variant's body owns parameters the base
     // does not, so it can approve hand-overs the base cannot and ask for further
@@ -4846,7 +4852,11 @@ fn variant_demand(
     let mut pending: Vec<(String, u64)> = Vec::new();
     for function in &module.functions {
         for (name, mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
-            function, type_model, functions, &empty,
+            function,
+            type_model,
+            functions,
+            &empty,
+            callback_referenced,
         )
         .demanded_variants()
         {
@@ -4867,7 +4877,11 @@ fn variant_demand(
             .map(|(_, param)| param.name.clone())
             .collect();
         for (next, next_mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
-            function, type_model, functions, &owned,
+            function,
+            type_model,
+            functions,
+            &owned,
+            callback_referenced,
         )
         .demanded_variants()
         {

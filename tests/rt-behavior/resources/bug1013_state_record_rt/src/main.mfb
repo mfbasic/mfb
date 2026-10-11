@@ -1,0 +1,64 @@
+' bug-1013: a STATE type is a record TYPE. This is the half of the rule that
+' must keep working: every payload refused as a bare STATE type
+' (`tests/syntax/resources/bug1013_state_requires_record_invalid`) is legal as a
+' FIELD of a STATE record, which is how a program holds one.
+'
+' The three reproductions in `bugs/repro/bug-1013/` each become one resource
+' here, with the scalar, the String and the list wrapped in a one-field record:
+'
+'   STATE Integer          failed the build with an internal lowering error
+'   STATE String           built, then died with a bus error on `g.state = ...`
+'   STATE List OF Integer  worked, and is refused by the same rule
+'
+' Each is read at its default, assigned, and read back. `Cursor` is the
+' contrast: an ordinary record payload, unchanged.
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE Count
+  value AS Integer
+END TYPE
+
+TYPE Label
+  text AS String
+END TYPE
+
+TYPE Marks
+  items AS List OF Integer
+END TYPE
+
+TYPE Cursor
+  pos AS Integer
+  line AS Integer
+END TYPE
+
+FUNC main() AS Integer
+  RES a AS fs::File STATE Count = fs::createTempFile()
+  io::print("count " & toString(a.state.value))
+  a.state.value = 5
+  io::print("count set " & toString(a.state.value))
+  a.state = Count[9]
+  io::print("count whole " & toString(a.state.value))
+
+  RES b AS fs::File STATE Label = fs::createTempFile()
+  io::print("label [" & b.state.text & "]")
+  b.state.text = "five"
+  io::print("label set [" & b.state.text & "]")
+  b.state = Label["nine"]
+  io::print("label whole [" & b.state.text & "]")
+
+  RES c AS fs::File STATE Marks = fs::createTempFile()
+  io::print("marks " & toString(len(c.state.items)))
+  c.state.items = [1, 2, 3]
+  io::print("marks set " & toString(len(c.state.items)))
+  c.state.items = collections::append(c.state.items, 4)
+  io::print("marks appended " & toString(len(c.state.items)))
+
+  RES d AS fs::File STATE Cursor = fs::createTempFile()
+  io::print("cursor pos=" & toString(d.state.pos) & " line=" & toString(d.state.line))
+  d.state = Cursor[7, 2]
+  d.state.line = d.state.line + 1
+  io::print("cursor set pos=" & toString(d.state.pos) & " line=" & toString(d.state.line))
+  RETURN 0
+END FUNC

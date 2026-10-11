@@ -1,0 +1,76 @@
+' bug-998: a STATE clause can only be attached to a resource.
+'
+' Every line marked BAD is refused with TYPE_STATE_REQUIRES_RESOURCE, once per
+' clause, at the declaration.
+'
+' - No cascade. A parameter's body and its callers type as if the clause were
+'   not there (`plain` is used arithmetically and called with an Integer).
+' - TYPE_RES_REQUIRES_RESOURCE is the `RES` marker's own rule and is unchanged:
+'   the local `RES bound AS Integer STATE Cur` still reports it for the marker,
+'   beside this rule for the clause.
+' - Not TYPE_STATE_INVALID as well. `both` names a STATE type that is not a
+'   record (bug-1013) on a host that is not a resource. With nothing to attach
+'   to there is no payload to be the wrong kind of, so only the host is reported.
+'
+' The lines marked OK are the contrast: the same clause on a resource.
+IMPORT fs
+IMPORT io
+IMPORT thread
+
+TYPE Cur
+  n AS Integer
+END TYPE
+
+ENUM Mode
+  Fast, Slow
+END ENUM
+
+TYPE Holder
+  ok AS RES fs::File STATE Cur                  ' OK
+  field AS RES Integer STATE Cur                ' BAD: a record field
+  many AS List OF RES String STATE Cur          ' BAD: an element inside a field
+END TYPE
+
+RES top AS Integer STATE Cur = 1                ' BAD: a top-level binding
+
+FUNC ok(f AS fs::File STATE Cur) AS Integer     ' OK
+  RETURN f.state.n
+END FUNC
+
+FUNC plain(x AS Integer STATE Cur) AS Integer   ' BAD: a parameter
+  RETURN x + 1
+END FUNC
+
+FUNC record(c AS Cur STATE Cur) AS Integer      ' BAD: a record is not a resource
+  RETURN c.n
+END FUNC
+
+FUNC text(s AS String STATE Cur, n AS Integer) AS String   ' BAD
+  RETURN s & toString(n)
+END FUNC
+
+FUNC both(x AS Integer STATE Mode) AS Integer   ' BAD: and only this rule
+  RETURN x
+END FUNC
+
+FUNC element(xs AS List OF RES Integer STATE Cur) AS Integer   ' BAD: a parameter's element
+  RETURN 0
+END FUNC
+
+FUNC make() AS RES Integer STATE Cur            ' BAD: a return
+  RETURN 1
+END FUNC
+
+ISOLATED FUNC planeWorker(w AS ThreadWorker OF Integer RES Integer STATE Cur TO Integer, n AS Integer) AS Integer   ' BAD: a thread's resource plane
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  RES f AS fs::File STATE Cur = fs::createTempFile()            ' OK
+  RES bound AS Integer STATE Cur = 1                            ' BAD: a RES binding
+  MUT slots AS List OF RES Integer STATE Cur = []               ' BAD: a collection element
+  LET bump = LAMBDA(x AS Integer STATE Cur) -> x + 1            ' BAD: a lambda parameter
+  io::print(toString(plain(41) + record(Cur[1]) + both(2) + bump(3) + ok(f)))
+  io::print(text("n=", 4))
+  RETURN 0
+END FUNC

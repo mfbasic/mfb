@@ -1,0 +1,26 @@
+' bug-1013 at the native boundary. A LINK declaration is a position a STATE
+' clause can be written like any other, and its clause is held to the same
+' rule: it names a record TYPE (TYPE_STATE_INVALID). `open` and `close` declare
+' `STATE Integer`, the payload the back end could never hold.
+'
+' The two faults agree on `Db`'s STATE (`Integer` both times), so
+' TYPE_STATE_MISMATCH stays silent and each declaration reports its own.
+EXPORT RESOURCE Db CLOSE BY sql::close
+
+EXPORT TYPE Info
+  opens AS Integer
+END TYPE
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db STATE Integer
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(db AS Db STATE Integer) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
