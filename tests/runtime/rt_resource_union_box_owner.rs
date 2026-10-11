@@ -156,10 +156,9 @@ fn check(case: &str, body: &str, per_iteration: u64, slope: u64) {
 /// Shape (a): a record whose `RES Handle` field was built from a callee's
 /// parameter, returned past the binding that wrapped the box.
 ///
-/// These two may keep the closed file record (112 B) per iteration: a record a
-/// callee hands back inside a record is closed by the caller's binding and not
-/// freed, with a concrete `RES fs::File` field as well. That is the record, not a
-/// box, and the box rule is what is held here.
+/// Both are balanced: the caller's binding adopts the file record the callee
+/// hands back inside the record, closes it and frees it (bug-1025; these two
+/// allowed the 112 B record per iteration before).
 #[test]
 fn a_record_field_outlives_the_binding_that_wrapped_its_box() {
     check(
@@ -178,7 +177,7 @@ fn a_record_field_outlives_the_binding_that_wrapped_its_box() {
          \x20 RETURN which(\"kept\", k.h)\n\
          END FUNC\n",
         1,
-        TOMBSTONE,
+        0,
     );
     check(
         "kept_two_frames",
@@ -198,7 +197,7 @@ fn a_record_field_outlives_the_binding_that_wrapped_its_box() {
          \x20 RETURN which(\"kept\", k.h)\n\
          END FUNC\n",
         1,
-        TOMBSTONE,
+        0,
     );
 }
 
@@ -504,8 +503,9 @@ fn a_returned_box_is_freed_by_its_caller() {
 /// (`which` returned 0 because no case matched the fill pattern).
 ///
 /// The slope each case allows is the collection's own final block and nothing
-/// else. A `List OF RES <Union>` read through `collections::get` keeps its block
-/// (`record_ownership.rs:block_held_elsewhere_strict`, a documented bounded leak
+/// else. A collection whose element is BOUND from `collections::get` keeps its block
+/// (`record_ownership.rs:block_held_elsewhere`: a bound read is a second holder, for
+/// a `List OF RES fs::File` too; a documented bounded leak
 /// this bug does not touch): 6,192 B for the 41-element list and 5,168 B for the
 /// 41-entry map, the same figures the compiler without this fix reports for these
 /// programs. A leaked box would add 16 B per iteration to them.
@@ -622,10 +622,9 @@ fn a_binding_of_a_getor_default_outlives_the_statement_that_wrapped_it() {
 /// trapped call's `resultValue`, and an aliasing `RECOVER` as a plain store; both
 /// lend the temp a record and must hand it a copy of the box.
 ///
-/// Each slope is the collection's kept block plus 128 B: the closed default the
-/// temp's bind materializes (a 16 B box and its 112 B record), which no store into
-/// a resource-union temp releases. `RES v AS Handle = mkH() TRAP …`, with no
-/// collection in it, keeps the same 128 B per evaluation.
+/// Each slope is the collection's kept block and nothing else. The closed default
+/// the temp's bind materializes (a 16 B box and its 112 B record) is released by
+/// the store that replaces it (bug-1037); these slopes allowed 128 B more before.
 #[test]
 fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
     check(
@@ -646,7 +645,7 @@ fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        6192 + 128,
+        6192,
     );
     check(
         "trap_map_get_grow",
@@ -665,7 +664,7 @@ fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        5168 + 128,
+        5168,
     );
     check(
         "trap_getor_default",
@@ -681,7 +680,7 @@ fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        240 + 128,
+        240,
     );
 }
 
@@ -706,7 +705,7 @@ fn a_trapped_binding_recovered_with_an_alias_owns_its_box() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        48 + 128,
+        48,
     );
     check(
         "trap_recover_local",
@@ -719,6 +718,6 @@ fn a_trapped_binding_recovered_with_an_alias_owns_its_box() {
          \x20 RETURN which(\"v\", v) + which(\"a\", a) - 1\n\
          END FUNC\n",
         1,
-        48 + 128,
+        48,
     );
 }
