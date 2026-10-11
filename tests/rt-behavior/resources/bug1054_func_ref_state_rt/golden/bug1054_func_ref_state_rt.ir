@@ -1,0 +1,178 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug1054_func_ref_state_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 8,
+    "visibility": "public",
+    "name": "Cur",
+    "fields": [
+    { "visibility": null, "line": 9, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "p",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 12, "type": "fs.File STATE Cur", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "stateAssign", "line": 13, "resource": "x", "value": { "kind": "with", "type": "Cur", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }] } },
+    { "op": "return", "line": 14, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" } }
+    ]
+  },
+  {
+    "name": "twice",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 17, "type": "fs.File STATE Cur", "default": null },
+    { "name": "by", "line": 17, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "stateAssign", "line": 18, "resource": "x", "value": { "kind": "with", "type": "Cur", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" }, "right": { "kind": "local", "name": "by" } }, "right": { "kind": "local", "name": "by" } } }] } },
+    { "op": "return", "line": 19, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" } }
+    ]
+  },
+  {
+    "name": "openTagged",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "fs.File STATE Cur",
+    "body": [
+    { "op": "bind", "line": 23, "mutable": false, "name": "f", "type": "fs.File STATE Cur", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "stateAssign", "line": 24, "resource": "f", "value": { "kind": "with", "type": "Cur", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "40" } }] } },
+    { "op": "return", "line": 25, "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 30, "mutable": false, "name": "j", "type": "FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "functionRef", "name": "p", "type": "FUNC(fs.File STATE Cur) AS Integer" } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "f", "type": "fs.File STATE Cur", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "j", "args": [{ "kind": "local", "name": "f" }] }] }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "p", "args": [{ "kind": "local", "name": "f" }] }] }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }] }] } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "t", "type": "FUNC(fs.File STATE Cur, Integer) AS Integer", "value": { "kind": "functionRef", "name": "twice", "type": "FUNC(fs.File STATE Cur, Integer) AS Integer" } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "twice " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "t", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } }, "right": { "kind": "const", "type": "String", "value": " owner " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "mk", "type": "FUNC() AS fs.File STATE Cur", "value": { "kind": "functionRef", "name": "openTagged", "type": "FUNC() AS fs.File STATE Cur" } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "g", "type": "fs.File STATE Cur", "value": { "kind": "call", "type": "fs.File STATE Cur", "target": "mk", "args": [] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "made " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "j", "args": [{ "kind": "local", "name": "g" }] }] } }, "right": { "kind": "const", "type": "String", "value": " owner " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "g" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "bind", "line": 47, "mutable": false, "name": "fns", "type": "List OF FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "list", "type": "List OF FUNC(fs.File STATE Cur) AS Integer", "values": [{ "kind": "functionRef", "name": "p", "type": "FUNC(fs.File STATE Cur) AS Integer" }, { "kind": "local", "name": "j" }] } },
+    {
+      "op": "forEach",
+      "line": 48,
+      "name": "fn",
+      "type": "FUNC(fs.File STATE Cur) AS Integer",
+      "iterable": { "kind": "local", "name": "fns" },
+      "body": [
+      { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "list " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fn", "args": [{ "kind": "local", "name": "g" }] }] } }] } }
+      ]
+    },
+    { "op": "bind", "line": 51, "mutable": false, "name": "again", "type": "FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "local", "name": "j" } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "again " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "again", "args": [{ "kind": "local", "name": "g" }] }] } }, "right": { "kind": "const", "type": "String", "value": " owner " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "g" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "bind", "line": 55, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 55, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 55,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 55, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loop " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "j", "args": [{ "kind": "local", "name": "f" }] }] } }] } }
+      ]
+    },
+    { "op": "return", "line": 58, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

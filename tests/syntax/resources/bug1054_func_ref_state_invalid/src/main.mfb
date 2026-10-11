@@ -1,0 +1,58 @@
+' bug-1054: a first-class reference to a declared FUNC whose parameter is
+' `fs::File STATE Cur` has that clause in its callable type. A resource's state
+' carries no runtime tag, so a bare file handed to `p` through a reference
+' would have the body read a state block that is not there.
+'
+' Every line marked BAD is refused; the lines marked OK are the contrast.
+IMPORT fs
+
+TYPE Cur
+  n AS Integer
+END TYPE
+
+TYPE Other
+  k AS Integer
+END TYPE
+
+TYPE Holder
+  fn AS FUNC(fs::File) AS Integer
+END TYPE
+
+FUNC p(x AS fs::File STATE Cur) AS Integer
+  x.state.n = x.state.n + 1
+  RETURN x.state.n
+END FUNC
+
+FUNC opaque(x AS fs::File) AS Integer
+  RETURN 1
+END FUNC
+
+FUNC apply(fn AS FUNC(fs::File) AS Integer, f AS fs::File) AS Integer
+  RETURN fn(f)
+END FUNC
+
+FUNC give() AS FUNC(fs::File) AS Integer
+  RETURN p                                                  ' BAD: not a FUNC(fs::File)
+END FUNC
+
+FUNC giveOk() AS FUNC(fs::File) AS Integer
+  RETURN opaque                                             ' OK
+END FUNC
+
+FUNC main AS Integer
+  RES cur AS fs::File STATE Cur = fs::createTempFile()
+  RES bare AS fs::File = fs::createTempFile()
+  RES other AS fs::File STATE Other = fs::createTempFile()
+  LET j = p
+  LET a = j(cur)                                            ' OK
+  LET b = j(bare)                                           ' BAD: carries no STATE
+  LET c = j(other)                                          ' BAD: carries another STATE
+  LET d = apply(p, bare)                                    ' BAD: `apply` may pass any state or none
+  LET e = apply(j, bare)                                    ' BAD: the same, through the binding
+  LET g = apply(opaque, cur)                                ' OK: a bare parameter is opaque
+  LET k AS FUNC(fs::File) AS Integer = p                    ' BAD: the same, at a binding
+  LET h = Holder[p]                                         ' BAD: the same, in a record field
+  LET l AS List OF FUNC(fs::File) AS Integer = [opaque, p]  ' BAD: the same, in a list
+  LET m = [opaque, p]                                       ' BAD: two callable types in one list
+  RETURN 0
+END FUNC

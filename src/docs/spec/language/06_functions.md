@@ -115,6 +115,8 @@ A callable type records ordered parameter types, a result type, and whether it
 is isolated. Parameter names and default expressions are not part of that type.
 A reference to a single ordinary function uses its declared callable type.
 [[src/types.rs:ParameterType]] [[src/ir/lower.rs:function_types]]
+A resource parameter's `STATE T` clause and a resource return's `STATE T` clause
+are part of that type (`./mfb spec language resource-management`, §15.5).
 
 **Overloaded functions as values.** Naming an overloaded user function as a
 value selects the one declaration whose callable type — ordered parameter types,

@@ -1,0 +1,10 @@
+{
+  "name": "bug1054_func_ref_state_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1054: a first-class reference to a FUNC whose parameter carries STATE keeps the clause in its callable type, so a call through the reference updates the caller's state: bound, in an inferred list, and beside a reference whose return carries STATE.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

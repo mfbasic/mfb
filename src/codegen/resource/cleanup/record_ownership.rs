@@ -67,6 +67,283 @@ pub(crate) struct RecordOwnership {
     /// their own statement can hold, mapped to whether the result's block is one
     /// the callee built — see [`CollectionUses::exclusive_temps`].
     pub(crate) exclusive_temps: HashMap<usize, bool>,
+    /// bug-1045: the stores that put a value from an inner scope into a container
+    /// declared further out — see [`StoreFloats`].
+    pub(crate) store_floats: StoreFloats,
+}
+
+/// bug-1045: the stores that carry a resource from an inner scope into a container
+/// declared in an enclosing one.
+///
+/// `mfb spec language resource-management` 15.6: adding a reference to a resource to
+/// a collection raises the resource's owning scope to the collection's when that
+/// scope outlives the current owner. The escape analysis decides that for a `RES`
+/// binding named as the element (`ResOwner::Float`). It has no answer for a value
+/// that only REACHES a resource: a record with a `RES` field bound in a loop body
+/// and appended to a list declared before the loop, or that record's field
+/// appended to a `List OF RES T`. The record's binding adopted the resource for the
+/// loop body's scope, which closed it at the end of every iteration while the outer
+/// list still held it.
+///
+/// So the raise is done where the store is: every named operand of an assignment
+/// to a container that is bound in a scope INSIDE the container's is walked, and
+/// each resource it reaches is pushed, adopting, onto the container's owned-list
+/// (`CodeBuilder::emit_store_float`). The push takes a record only when it is
+/// unowned or owned by a scope inside the container's, so a handle owned further
+/// out is left alone; the inner scope's drain then finds the record owned by
+/// another scope and skips it.
+#[derive(Default, Clone)]
+pub(crate) struct StoreFloats {
+    /// The operand nodes (by address) the store raises, mapped to the container
+    /// they are stored into.
+    pub(crate) operands: HashMap<usize, String>,
+    /// The containers such a store assigns: each needs its owned-lists from its
+    /// bind, like a float target.
+    pub(crate) containers: HashSet<String>,
+    /// Per container, the root locals of its raised operands.
+    sources: HashMap<String, Vec<StoreSource>>,
+    /// The raised roots that are records: an assignment of one is a copy by value,
+    /// so the block it installs is fresh.
+    record_roots: HashSet<String>,
+    /// The operand nodes the ownership walk sets aside as the hand-over itself:
+    /// those rooted at a record (copied by value where it is stored) or at a `RES`
+    /// binding. An operand rooted at a COLLECTION is not one of them: a collection
+    /// is stored by pointer, so the store really is a second holder of its block.
+    handed_over: HashSet<usize>,
+    /// The containers whose drain may only CLOSE what such a store handed it — see
+    /// [`StoreFloatProof`].
+    pub(crate) close_only: HashSet<String>,
+}
+
+/// One root local a [`StoreFloats`] store raises out of.
+#[derive(Clone, PartialEq)]
+struct StoreSource {
+    name: String,
+    /// The address of the op that declares it (a name may be bound again in a
+    /// sibling scope, and that is another binding).
+    declared_at: usize,
+    /// For a `FOR EACH` variable, the local it iterates: the variable is a
+    /// reference to an element of that local, which owns what the element reaches.
+    iterates: Option<String>,
+}
+
+/// The named, side-effect-free operands of a stored value that can carry a
+/// resource into the store's target: a local, a field chain or union extract over
+/// a local, through the constructors, literals, `WITH` and `collections`
+/// insertions that place them. The NIR-only twin of
+/// `CodeBuilder::named_store_operands` (the module-level store, bug-806).
+pub(crate) fn store_operands<'v>(value: &'v NirValue, out: &mut Vec<&'v NirValue>) {
+    match value {
+        NirValue::Local(_) => out.push(value),
+        NirValue::MemberAccess { .. } | NirValue::UnionExtract { .. } => {
+            if store_operand_root(value).is_some() {
+                out.push(value);
+            }
+        }
+        NirValue::Constructor { args, .. } => {
+            for arg in args {
+                store_operands(arg, out);
+            }
+        }
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
+            for item in values {
+                store_operands(item, out);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (_, entry) in entries {
+                store_operands(entry, out);
+            }
+        }
+        NirValue::UnionWrap { value, .. } => store_operands(value, out),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            store_operands(target, out);
+            for update in updates {
+                store_operands(&update.value, out);
+            }
+        }
+        NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. }
+            if target.starts_with("collections.")
+                && matches!(
+                    crate::codegen::builtins::native_builtin_target(target),
+                    Some("append" | "prepend" | "insert" | "set")
+                ) =>
+        {
+            for arg in args {
+                store_operands(arg, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The local a store operand reads through: the local itself, or the root of a
+/// field chain or union extract over one.
+pub(crate) fn store_operand_root(value: &NirValue) -> Option<&str> {
+    match value {
+        NirValue::Local(name) => Some(name),
+        NirValue::MemberAccess { target, .. } => store_operand_root(target),
+        NirValue::UnionExtract { value, .. } => store_operand_root(value),
+        _ => None,
+    }
+}
+
+/// bug-1045: find the stores [`StoreFloats`] describes. `container` answers whether
+/// a binding of that type reaches a resource without being one (a collection or a
+/// record); a `RES` binding is recognised by its entry in `resource_owners`.
+fn collect_store_floats(
+    function: &NirFunction,
+    container: &dyn Fn(&ParameterType) -> bool,
+    record_container: &dyn Fn(&ParameterType) -> bool,
+) -> StoreFloats {
+    struct Scan<'p> {
+        function: &'p NirFunction,
+        container: &'p dyn Fn(&ParameterType) -> bool,
+        record_container: &'p dyn Fn(&ParameterType) -> bool,
+        depth: usize,
+        /// The bindings in scope: the depth of the scope that owns what each
+        /// reaches (for a `FOR EACH` variable, its iterable's), its type, the
+        /// address of the op that declares it, and a `FOR EACH` variable's iterable.
+        bound: HashMap<String, (usize, ParameterType, usize, Option<String>)>,
+        scopes: Vec<Vec<String>>,
+        out: StoreFloats,
+    }
+    impl NirVisitor for Scan<'_> {
+        fn visit_ops(&mut self, ops: &[NirOp]) {
+            self.depth += 1;
+            self.scopes.push(Vec::new());
+            for op in ops {
+                self.visit_op(op);
+            }
+            for name in self.scopes.pop().unwrap_or_default() {
+                self.bound.remove(&name);
+            }
+            self.depth -= 1;
+        }
+
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { name, type_, .. } => {
+                    self.bound.insert(
+                        name.clone(),
+                        (self.depth, type_.clone(), op as *const NirOp as usize, None),
+                    );
+                    if let Some(scope) = self.scopes.last_mut() {
+                        scope.push(name.clone());
+                    }
+                }
+                NirOp::Assign { name, value } => {
+                    let target = self
+                        .bound
+                        .get(name)
+                        .filter(|(_, type_, _, _)| (self.container)(type_))
+                        .map(|(depth, _, _, _)| *depth);
+                    if let Some(target_depth) = target {
+                        let mut operands = Vec::new();
+                        store_operands(value, &mut operands);
+                        for operand in operands {
+                            let Some(root) = store_operand_root(operand) else {
+                                continue;
+                            };
+                            let Some((depth, type_, declared_at, iterates)) = self.bound.get(root)
+                            else {
+                                continue;
+                            };
+                            let source = StoreSource {
+                                name: root.to_string(),
+                                declared_at: *declared_at,
+                                iterates: iterates.clone(),
+                            };
+                            // The same scope, or the target itself: ownership is
+                            // unchanged (15.6).
+                            if root == name || *depth <= target_depth {
+                                continue;
+                            }
+                            // An element of a container that reaches a resource
+                            // reaches one too, whatever the variable's own type.
+                            let element = source.iterates.is_some();
+                            let res_binding =
+                                !element && self.function.resource_owners.contains_key(root);
+                            if !element {
+                                match self.function.resource_owners.get(root) {
+                                    // The escape analysis already floated it, at its bind.
+                                    Some(crate::ir::resource_escape::ResOwner::Float(_)) => {
+                                        continue
+                                    }
+                                    Some(_) => {}
+                                    None if (self.container)(type_) => {}
+                                    None => continue,
+                                }
+                            }
+                            let address = operand as *const NirValue as usize;
+                            if (self.record_container)(type_) {
+                                self.out.record_roots.insert(root.to_string());
+                                self.out.handed_over.insert(address);
+                            } else if res_binding
+                                || (element
+                                    && !crate::codegen::engine::types::typed_is_collection_type(
+                                        type_,
+                                    ))
+                            {
+                                self.out.handed_over.insert(address);
+                            }
+                            self.out.operands.insert(address, name.clone());
+                            self.out.containers.insert(name.clone());
+                            let sources = self.out.sources.entry(name.clone()).or_default();
+                            if !sources.contains(&source) {
+                                sources.push(source);
+                            }
+                        }
+                    }
+                }
+                // A `FOR EACH` variable is a reference to an element of its
+                // iterable: what it reaches is owned by the iterable's scope or
+                // further out (anything stored into the iterable from deeper was
+                // raised to it), so that is the scope a store out of it raises
+                // from. An iterable that is no local of this body (a parameter, a
+                // call) is the caller's or the statement's: nothing to raise.
+                NirOp::ForEach {
+                    name,
+                    type_,
+                    iterable,
+                    body,
+                } => {
+                    self.visit_value(iterable);
+                    let owner = store_operand_root(iterable)
+                        .and_then(|root| self.bound.get(root).map(|b| (b.0, root.to_string())));
+                    if let Some((depth, root)) = owner {
+                        self.bound.insert(
+                            name.clone(),
+                            (
+                                depth,
+                                type_.clone(),
+                                op as *const NirOp as usize,
+                                Some(root),
+                            ),
+                        );
+                    }
+                    self.visit_ops(body);
+                    self.bound.remove(name);
+                    return;
+                }
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+    }
+    let mut scan = Scan {
+        function,
+        container,
+        record_container,
+        depth: 0,
+        bound: HashMap::new(),
+        scopes: Vec::new(),
+        out: StoreFloats::default(),
+    };
+    scan.visit_ops(&function.body);
+    scan.out
 }
 
 /// Where one store into a local comes from, as far as record ownership is concerned.
@@ -400,14 +677,17 @@ pub(crate) fn record_ownership(
         res_collection_type(type_)
             && !crate::codegen::engine::types::typed_is_collection_type(type_)
     };
+    // bug-1045: the stores that raise an inner scope's value into an outer container.
+    let container_type = |type_: &ParameterType| res_collection_type(type_) && !record_type(type_);
+    let mut store_floats = collect_store_floats(function, &container_type, &record_container);
     let (owning_collections, exclusive_temps) = owning_collections(
         function,
         functions,
         record_type,
         res_collection_type,
-        &record_container,
         &stores,
         &params,
+        &mut store_floats,
     );
     let (reassign_free_collections, inner_owning_collections) = block_collections(
         function,
@@ -415,6 +695,7 @@ pub(crate) fn record_ownership(
         &stores,
         &owning_collections,
         &record_container,
+        &store_floats,
     );
     RecordOwnership {
         owning_locals,
@@ -423,6 +704,7 @@ pub(crate) fn record_ownership(
         reassign_free_collections,
         inner_owning_collections,
         exclusive_temps,
+        store_floats,
     }
 }
 
@@ -446,12 +728,13 @@ fn block_collections(
     stores: &Stores,
     owning: &HashSet<String>,
     record_container: &dyn Fn(&ParameterType) -> bool,
+    store_floats: &StoreFloats,
 ) -> (HashSet<String>, HashSet<String>) {
     let mut callees = CalleeParamUses {
         record_container: Some(record_container),
         ..CalleeParamUses::default()
     };
-    let uses = CollectionUses::of(function, functions, &mut callees);
+    let uses = CollectionUses::of_with(function, functions, &mut callees, store_floats);
     let mut reassign_free = HashSet::new();
     let mut inner_owning = HashSet::new();
     for (name, type_) in &stores.types {
@@ -530,10 +813,16 @@ fn owning_collections(
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
-    record_container: &dyn Fn(&ParameterType) -> bool,
     stores: &Stores,
     params: &HashSet<String>,
+    store_floats: &mut StoreFloats,
 ) -> (HashSet<String>, HashMap<usize, bool>) {
+    // bug-1025: a record that reaches a resource, as opposed to a collection that
+    // does (`record_ownership`'s own `record_container`).
+    let record_container = &|type_: &ParameterType| {
+        res_collection_type(type_)
+            && !crate::codegen::engine::types::typed_is_collection_type(type_)
+    };
     let mut floats: HashMap<String, Vec<String>> = HashMap::new();
     for (name, owner) in &function.resource_owners {
         if let crate::ir::resource_escape::ResOwner::Float(collection) = owner {
@@ -547,7 +836,7 @@ fn owning_collections(
         record_container: Some(record_container),
         ..CalleeParamUses::default()
     };
-    let mut uses = CollectionUses::of(function, functions, &mut callees);
+    let mut uses = CollectionUses::of_with(function, functions, &mut callees, store_floats);
     let exclusive_temps = std::mem::take(&mut uses.exclusive_temps);
     let all_floated: HashSet<String> = floats.values().flatten().cloned().collect();
     let mut owning = HashSet::new();
@@ -573,9 +862,6 @@ fn owning_collections(
             continue;
         }
         owning.insert(name.clone());
-    }
-    if floats.is_empty() {
-        return (owning, exclusive_temps);
     }
     for (collection, elements) in &floats {
         // A float target with no bind in this body (a parameter) takes the strict
@@ -617,7 +903,129 @@ fn owning_collections(
             owning.insert(collection.clone());
         }
     }
+    store_floats.close_only = StoreFloatProof {
+        function,
+        record_container,
+        stores,
+        params,
+        store_floats,
+        uses: &uses,
+        owning: &owning,
+        resolver: Resolver {
+            functions,
+            record_type,
+            floats: vec![all_floated],
+            memo: HashMap::new(),
+            visiting_functions: HashSet::new(),
+        },
+        memo: HashMap::new(),
+        visiting: HashSet::new(),
+    }
+    .close_only();
     (owning, exclusive_temps)
+}
+
+/// bug-1045: the containers whose drain may only CLOSE the records a
+/// [`StoreFloats`] store handed them, never free them.
+///
+/// A container's drain frees what it closes when it is the one owner of
+/// everything it lists ([`owning_collections`]). A record a store raised into it
+/// came out of another binding, so that binding must be shown to leave no other
+/// holder behind, with the raising stores themselves set aside (they are the
+/// hand-over, and [`CollectionUses`] skips them):
+///
+/// * a record that reaches the resource (`LET k AS HB = mk()`) must itself be an
+///   owning container by [`owning_collections`]' rules: a fresh block, named
+///   nowhere that keeps it. Its own drain then frees whatever it still owns at its
+///   scope's end (a store that did not run) and skips what was raised;
+/// * a `RES` binding the escape analysis left in its own scope must be a fresh
+///   producer record that does not escape, by the floated element's rule;
+/// * a `FOR EACH` variable is a reference to an element of its iterable, so the
+///   iterable must be an owning container, and proved in turn when it is itself a
+///   container such a store raised into;
+/// * a collection is held by pointer where it is stored, so nothing is proved for
+///   it.
+///
+/// A source stored into several containers needs no rule of its own. Each store
+/// raises the record to its container's scope when that scope is further out, so
+/// the record ends owned by the outermost of them, and a drain closes and frees
+/// only a record its own scope still owns: one list frees it, and every other
+/// container that holds the reference is in that scope or inside it.
+///
+/// Anything else answers close-only: the records are closed by the container's
+/// scope, as the language requires, and their blocks are kept, never freed twice.
+/// [`StoreFloatProof::close_only`] is the answer.
+struct StoreFloatProof<'a, 'm, 'f, 'p, 'u> {
+    function: &'a NirFunction,
+    record_container: &'a dyn Fn(&ParameterType) -> bool,
+    stores: &'a Stores,
+    params: &'a HashSet<String>,
+    store_floats: &'a StoreFloats,
+    uses: &'a CollectionUses<'u, 'f, 'p>,
+    owning: &'a HashSet<String>,
+    resolver: Resolver<'m, 'f, 'a>,
+    memo: HashMap<String, bool>,
+    visiting: HashSet<String>,
+}
+
+impl StoreFloatProof<'_, '_, '_, '_, '_> {
+    fn close_only(mut self) -> HashSet<String> {
+        let store_floats = self.store_floats;
+        store_floats
+            .sources
+            .keys()
+            .filter(|container| !self.proved(container))
+            .cloned()
+            .collect()
+    }
+
+    /// Whether everything raised into `container` came out of a binding that
+    /// leaves no other holder behind. A `FOR EACH` variable answers for its
+    /// iterable, which may itself be such a container, so the answer is computed
+    /// on demand; a cycle answers "not proved".
+    fn proved(&mut self, container: &str) -> bool {
+        if let Some(known) = self.memo.get(container) {
+            return *known;
+        }
+        let store_floats = self.store_floats;
+        let Some(sources) = store_floats.sources.get(container) else {
+            return true;
+        };
+        if !self.visiting.insert(container.to_string()) {
+            return false;
+        }
+        let proved = sources.iter().all(|source| self.source_proved(source));
+        self.visiting.remove(container);
+        self.memo.insert(container.to_string(), proved);
+        proved
+    }
+
+    fn source_proved(&mut self, source: &StoreSource) -> bool {
+        let name = &source.name;
+        let unheld = !self.uses.escaping.contains(name)
+            && !self.uses.kept.contains(name)
+            && !self.uses.kept_by_unread_code.contains(name);
+        let record = self
+            .stores
+            .types
+            .get(name)
+            .is_some_and(self.record_container);
+        if let Some(iterable) = &source.iterates {
+            return unheld && self.owning.contains(iterable) && self.proved(iterable);
+        }
+        if self.function.resource_owners.contains_key(name) && !record {
+            return unheld
+                && !self
+                    .stores
+                    .stores
+                    .get(name)
+                    .is_some_and(|s| s.iter().any(|s| matches!(s, Source::WrapLocal(_))))
+                && self
+                    .resolver
+                    .local_fresh(name, self.stores, self.params, &mut HashSet::new());
+        }
+        record && self.owning.contains(name)
+    }
 }
 
 /// Where each local is NAMED, for [`owning_collections`]: the positions that can create
@@ -711,6 +1119,14 @@ struct CollectionUses<'m, 'f, 'p> {
     /// value — a call through one, or a call handed one, runs code this walk
     /// cannot read.
     function_values: HashSet<String>,
+    /// bug-1045: the operand nodes (by address) a [`StoreFloats`] store raises into
+    /// its container out of a record or a `RES` binding (`StoreFloats::handed_over`).
+    /// Such an operand is the hand-over itself, not a second holder:
+    /// the store floats every resource it reaches to the container's scope, and the
+    /// source's own drain skips what it no longer owns. The walk sets it aside.
+    store_operands: HashSet<usize>,
+    /// bug-1045: the raised roots that are records (copied by value where stored).
+    store_record_roots: HashSet<String>,
 }
 
 /// Per callee, per parameter position: whether the callee keeps that argument's block
@@ -737,6 +1153,16 @@ impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
         functions: &'f HashMap<String, &'f NirFunction>,
         callees: &'m mut CalleeParamUses<'p>,
     ) -> Self {
+        Self::of_with(function, functions, callees, &StoreFloats::default())
+    }
+
+    /// [`Self::of`] for the function whose [`StoreFloats`] are known.
+    fn of_with(
+        function: &NirFunction,
+        functions: &'f HashMap<String, &'f NirFunction>,
+        callees: &'m mut CalleeParamUses<'p>,
+        store_floats: &StoreFloats,
+    ) -> Self {
         let mut collector = CollectionUses {
             functions,
             callees,
@@ -761,9 +1187,16 @@ impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
                 .filter(|param| matches!(param.type_, ParameterType::Func(..)))
                 .map(|param| param.name.clone())
                 .collect(),
+            store_operands: store_floats.handed_over.clone(),
+            store_record_roots: store_floats.record_roots.clone(),
         };
         collector.visit_ops(&function.body);
         collector
+    }
+
+    fn is_store_operand(&self, value: &NirValue) -> bool {
+        self.store_operands
+            .contains(&(value as *const NirValue as usize))
     }
 
     /// Which of `target`'s arguments it keeps, when its body is in the program. `None`
@@ -954,7 +1387,16 @@ impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
 
     fn note_store(&mut self, name: &str, value: Option<&NirValue>) {
         let fresh = collection_store_is_fresh(name, value)
-            || value.is_some_and(|value| self.user_call_returns_fresh_block(value));
+            || value.is_some_and(|value| self.user_call_returns_fresh_block(value))
+            // bug-1045: a record raised into `name` by assignment is copied by
+            // value, so the block installed is `name`'s own.
+            || matches!(value, Some(value @ NirValue::Local(source))
+                if self.is_store_operand(value) && self.store_record_roots.contains(source))
+            // And a `WITH` over `name` itself that such a store raises a field
+            // into builds `name`'s own block, as a self-receiving mutator does.
+            || matches!(value, Some(NirValue::WithUpdate { target, updates, .. })
+                if matches!(target.as_ref(), NirValue::Local(target) if target == name)
+                    && updates.iter().any(|update| self.is_store_operand(&update.value)));
         let entry = self.fresh_block.entry(name.to_string()).or_insert(true);
         *entry &= fresh;
         let chunks = matches!(
@@ -1210,6 +1652,26 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
                 }
                 self.note_store(name, value.as_ref());
             }
+            // bug-1045: `r = WITH r { h := k.h }` where the store raises `k.h` into
+            // `r`: the target names the binding being assigned, which the
+            // statement replaces, so it is no second holder of `r`'s block.
+            NirOp::Assign {
+                name,
+                value:
+                    value @ NirValue::WithUpdate {
+                        target, updates, ..
+                    },
+            } if matches!(target.as_ref(), NirValue::Local(target) if target == name)
+                && updates
+                    .iter()
+                    .any(|update| self.is_store_operand(&update.value)) =>
+            {
+                self.note_store(name, Some(value));
+                for update in updates {
+                    self.visit_value(&update.value);
+                }
+                return;
+            }
             NirOp::Assign { name, value } => self.note_store(name, Some(value)),
             // bug-1000: the iterable still lands in `escaping` (every other verdict
             // keeps reading it), but not in `escaping_beyond_iteration`.
@@ -1258,6 +1720,10 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
     }
 
     fn visit_value(&mut self, value: &NirValue) {
+        // bug-1045: the operand a store raises into its container (see the field).
+        if self.is_store_operand(value) {
+            return;
+        }
         match value {
             // Any other position that names a local can leave a second holder behind,
             // so the default is "escapes" and only the argument arm below narrows it —
@@ -1316,6 +1782,25 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
                         || callee
                             .as_ref()
                             .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true));
+                    // bug-1046: a local wrapped for a union-typed position
+                    // (`append(hs, s)` with `s` a `fs::File` and `hs` a `List OF RES
+                    // Handle`) names the local in that argument position exactly as
+                    // the bare local would: the wrap builds a statement's box around
+                    // the same record and is no holder of its own. Walked as an
+                    // ordinary value it made every floated member "escape", so the
+                    // list that owns it closed its records and freed none of them.
+                    let arg = match arg {
+                        NirValue::UnionWrap { value, .. }
+                            if matches!(value.as_ref(), NirValue::Local(_)) =>
+                        {
+                            value.as_ref()
+                        }
+                        other => other,
+                    };
+                    // bug-1045: the operand a store raises into its container.
+                    if self.is_store_operand(arg) {
+                        continue;
+                    }
                     let NirValue::Local(name) = arg else {
                         // bug-1025: a field read written straight into an argument
                         // position is a use of the record it reads through, exactly

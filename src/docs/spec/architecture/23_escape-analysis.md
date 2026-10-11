@@ -353,6 +353,7 @@ float to a later same-depth container merely because that container is returned.
 | outer `ys`; inner `{ RES f; xs=[f]; ys=xs }` | `f → Float(ys)` | membership reaches `ys`, the outermost (Phase 2) |
 | global `saved`; `RES f; saved=append(saved,Holder[f])` | `f → Float(saved)` | `saved` is at depth `-1`, outside the function (Phase 2) |
 | global `saved`; resource parameter `p`; `saved=append(saved,p)` | `p → Local` | a parameter is raised at the store, not floated |
+| `MUT xs=[]; FOR { LET k AS HB = mk(); xs=append(xs,k) }` (`HB` a record with a `RES` field) | no entry for `k` | `k` is no `RES` binding; codegen raises what it reaches at the store (`./mfb spec memory arenas`, the store-time raise) |
 
 [[src/ir/resource_escape.rs:tests]]
 

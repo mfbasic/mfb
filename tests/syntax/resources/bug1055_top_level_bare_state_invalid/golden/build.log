@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/resources/bug1055_top_level_bare_state_invalid
+  43 | 
+  44 | FUNC main AS Integer
+  45 |   RES l AS fs::File = openTagged()                          ' BAD: the local form, the contrast
+     | ^
+tests/syntax/resources/bug1055_top_level_bare_state_invalid/src/main.mfb:45 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               binding `l` is bare but its initializer carries STATE `Cur`; a bare binding asserts the resource has no state — declare `STATE Cur`.
+  35 | END FUNC
+  36 | 
+  37 | RES g AS fs::File = openTagged()                            ' BAD: bare, the initializer carries a Cur
+     | ^
+tests/syntax/resources/bug1055_top_level_bare_state_invalid/src/main.mfb:37 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               binding `g` is bare but its initializer carries STATE `Cur`; a bare binding asserts the resource has no state — declare `STATE Cur`.
+  36 | 
+  37 | RES g AS fs::File = openTagged()                            ' BAD: bare, the initializer carries a Cur
+  38 | RES gu AS Handle = openHandle()                             ' BAD: the same, a resource union
+     | ^
+tests/syntax/resources/bug1055_top_level_bare_state_invalid/src/main.mfb:38 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               binding `gu` is bare but its initializer carries STATE `Cur`; a bare binding asserts the resource has no state — declare `STATE Cur`.
+[exit 1]
