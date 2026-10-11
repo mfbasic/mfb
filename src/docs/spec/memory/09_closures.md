@@ -179,7 +179,8 @@ by-value `String`, flat composite, or graph-owning value) and **plain** otherwis
 a scalar, a resource or thread handle, the parent-slot address of a by-reference
 capture, and every auxiliary word (the addresses of slots in the creating frame).
 A captured **resource union** is a third kind: the union value is a 16-byte
-`{tag@0, record@8}` box that the wrapping binding frees at its scope exit, so the
+`{tag@0, record@8}` box that its owning binding or statement frees (`./mfb spec
+memory heap-values`, "Union"), so the
 environment holds its own copy of the box — copied at capture and with the
 environment, freed with it, and never closed through. A `LAMBDA` created at
 several sites must have one layout at all of them; the compiler reports an

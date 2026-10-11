@@ -1088,8 +1088,9 @@ pub(super) const RULES: &[Rule] = &[
     // element is — `2-203-0082 TYPE_RESOURCE_REQUIRES_RES` for a bare resource
     // field, `2-203-0083 TYPE_RES_REQUIRES_RESOURCE` for `RES` on a non-resource.
     // The ban's original justification (that such a field would mislead the
-    // layout and drop lowering) was retired by plan-114-B, which lays a resource
-    // field out as an ordinary 8-byte handle slot.
+    // layout and drop lowering) was retired by plan-114-B, which lays a concrete
+    // resource field out as an ordinary 8-byte handle slot (a resource-union
+    // field holds the union's 16-byte box inline, bug-1012).
     //
     // Kept rather than deleted so the code is never recycled for a different
     // meaning — the convention `2-203-0086` and `RESOURCE_SHADOWS_BUILTIN`

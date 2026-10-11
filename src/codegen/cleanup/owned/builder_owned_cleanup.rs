@@ -9,6 +9,12 @@ use crate::target::shared::abi;
 use crate::target::shared::nir::visit::{walk_value, NirVisitor};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
+/// bug-1012: bytes in an owned-list node of a resource-union leaf,
+/// `{tag@0, record@8, next@16}` — a copy of the leaf's box, then the link.
+const OWNED_LIST_UNION_NODE_SIZE: usize = 24;
+/// Where such a node keeps its link.
+const OWNED_LIST_UNION_NODE_NEXT_OFFSET: usize = 16;
+
 impl CodeBuilder<'_> {
     /// Allocate and register the runtime owned-lists for an owner container binding
     /// (§15.6): one head-pointer stack slot (initialized empty) plus one
@@ -18,8 +24,9 @@ impl CodeBuilder<'_> {
     /// bug-805: the container is any value that reaches a resource — a
     /// `List OF RES File`, a record with a `RES` field, but equally a
     /// `List OF List OF Holder` or a record holding a `Map OF K TO Holder`. A
-    /// pushed node is always a resource leaf (a record, or a resource-union box),
-    /// never an aggregate, so the drop is chosen by the leaf, not by the
+    /// pushed node is always a resource leaf (a record, or a copy of a
+    /// resource-union box's tag and record), never an aggregate, so the drop is
+    /// chosen by the leaf, not by the
     /// container's immediate payload. A container reaching two kinds (a record with
     /// a `File` field and a `Stream` field) gets two lists, one drop each.
     pub(crate) fn setup_owned_list(
@@ -213,8 +220,9 @@ impl CodeBuilder<'_> {
         !self.is_resource_leaf(type_) && self.type_carries_resources(type_)
     }
 
-    /// Push the resource record (or resource-union box) at `resource_slot` onto
-    /// `collection`'s owned-list for `leaf` as a fresh `{value, next}` node (§15.6).
+    /// Push the resource record (or the tag and record of the resource-union box)
+    /// at `resource_slot` onto `collection`'s owned-list for `leaf` as a fresh node
+    /// (§15.6).
     ///
     /// `leaf` is the pushed value's own resource type. A container with one list
     /// takes every push on it, as before bug-805; one with several lists picks the
@@ -321,16 +329,29 @@ impl CodeBuilder<'_> {
                 }
                 _ => None,
             });
-        self.emit_owned_list_push_node(head_slot, list, resource_slot, adopting)
+        let union_leaf = self.resource_union_cleanup(&kind).is_some();
+        self.emit_owned_list_push_node(head_slot, list, union_leaf, resource_slot, adopting)
     }
 
     /// The push itself: float (or, `adopting`, take) the record for the list's
-    /// scope and link a fresh 16-byte `{value, next}` node at `head_slot`. `list` is
-    /// the list's `(scope depth, holds resource-union boxes)`.
+    /// scope and link a fresh node at `head_slot`. `list` is the list's
+    /// `(scope depth, holds resource-union leaves)` while its drain is registered.
+    ///
+    /// A concrete leaf's node is `{record@0, next@8}`. A resource-union leaf's node
+    /// is `{tag@0, record@8, next@16}` ([`OWNED_LIST_UNION_NODE_SIZE`]): it COPIES
+    /// the two words of the box in `resource_slot` and never keeps the box's
+    /// address (bug-1012). The box is a binding's, a statement's, or a span of the
+    /// collection that holds the element inline — each with its own lifetime, none
+    /// of them the list's: a node that pointed at a binding's box was read after
+    /// that binding freed it, and one that pointed into an adopted collection's
+    /// block had the drain free 16 bytes out of the middle of that block. The first
+    /// two words of the node are laid out as a box, so the drain hands the node's
+    /// own address to the tag-dispatched close.
     pub(crate) fn emit_owned_list_push_node(
         &mut self,
         head_slot: usize,
         list: Option<(usize, bool)>,
+        union_leaf: bool,
         resource_slot: usize,
         adopting: bool,
     ) -> Result<(), String> {
@@ -367,30 +388,70 @@ impl CodeBuilder<'_> {
             }
             self.emit_resource_float(&abi::Reg::from(record), depth)?;
         }
-        // Allocate a 16-byte node (record ptr at 0, next at 8).
-        let alloc_ok = self.label("owned_list_alloc_ok");
-        let scratch9 = self.temporary_vreg();
-        let scratch10 = self.temporary_vreg();
-        self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-        self.emit_arena_alloc_call();
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.raise_error_bare("ErrOutOfMemory")?;
-        self.emit(abi::label(&alloc_ok));
-        // x1 = node pointer.
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            resource_slot,
-        ));
-        self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), head_slot));
-        self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), 8));
-        self.emit(abi::store_u64(
-            abi::mfb_return(1),
-            abi::stack_pointer(),
-            head_slot,
-        ));
+        if union_leaf {
+            // A `{tag@0, record@8, next@16}` node holding a copy of the box's words.
+            let alloc_ok = self.label("owned_list_alloc_ok");
+            self.emit(abi::move_immediate(
+                abi::return_register(),
+                "Integer",
+                &OWNED_LIST_UNION_NODE_SIZE.to_string(),
+            ));
+            self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+            self.emit_arena_alloc_call();
+            self.emit(abi::branch_eq(&alloc_ok));
+            self.raise_error_bare("ErrOutOfMemory")?;
+            self.emit(abi::label(&alloc_ok));
+            let node = self.allocate_register();
+            self.emit(abi::move_register(node, abi::mfb_return(1)));
+            // A null box lists a null record, which the drain skips.
+            let copied = self.label("owned_list_union_node_copied");
+            let tag = self.allocate_register();
+            let record = self.allocate_register();
+            self.emit(abi::move_immediate(tag, "Integer", "0"));
+            self.emit(abi::move_immediate(record, "Integer", "0"));
+            let source = self.allocate_register();
+            self.emit(abi::load_u64(source, abi::stack_pointer(), resource_slot));
+            self.emit(abi::compare_immediate(source, "0"));
+            self.emit(abi::branch_eq(&copied));
+            self.emit(abi::load_u64(tag, source, 0));
+            self.emit(abi::load_u64(record, source, 8));
+            self.emit(abi::label(&copied));
+            self.emit(abi::store_u64(tag, node, 0));
+            self.emit(abi::store_u64(record, node, 8));
+            let head = self.allocate_register();
+            self.emit(abi::load_u64(head, abi::stack_pointer(), head_slot));
+            self.emit(abi::store_u64(
+                head,
+                node,
+                OWNED_LIST_UNION_NODE_NEXT_OFFSET,
+            ));
+            self.emit(abi::store_u64(node, abi::stack_pointer(), head_slot));
+        } else {
+            // Allocate a 16-byte node (record ptr at 0, next at 8).
+            let alloc_ok = self.label("owned_list_alloc_ok");
+            let scratch9 = self.temporary_vreg();
+            let scratch10 = self.temporary_vreg();
+            self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+            self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+            self.emit_arena_alloc_call();
+            self.emit(abi::branch_eq(&alloc_ok));
+            self.raise_error_bare("ErrOutOfMemory")?;
+            self.emit(abi::label(&alloc_ok));
+            // x1 = node pointer.
+            self.emit(abi::load_u64(
+                &scratch9,
+                abi::stack_pointer(),
+                resource_slot,
+            ));
+            self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 0));
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), head_slot));
+            self.emit(abi::store_u64(&scratch10, abi::mfb_return(1), 8));
+            self.emit(abi::store_u64(
+                abi::mfb_return(1),
+                abi::stack_pointer(),
+                head_slot,
+            ));
+        }
         if let Some(listed) = &listed {
             self.emit(abi::label(listed));
         }
@@ -482,15 +543,19 @@ impl CodeBuilder<'_> {
     /// via the shared `emit_union_tag_dispatch_drop`.
     ///
     /// **bug-645: the drain reclaims, it does not only close.** Every node it visits
-    /// is a 16-byte `{record, next}` block `emit_owned_list_push` allocated and this
-    /// loop is the only reader of — nothing else can name it — so that block is freed
+    /// is a block `emit_owned_list_push` allocated (`{record, next}`, or
+    /// `{tag, record, next}` for a resource-union leaf) and this loop is the only
+    /// reader of — nothing else can name it — so that block is freed
     /// unconditionally. The blocks the node POINTS at are a different question, and
     /// answered by `cleanup.owns_elements` (`record_ownership::owning_collections`):
     /// with the collection proved the one owner, the concrete arm runs the same
     /// `emit_resource_block_reclaim` an `ActiveCleanup::Resource` drop runs, and the
-    /// union arm passes its real `record_free_tags` and frees the `{tag, record}` box
-    /// the wrap allocated. Unproved, both fall back to close-only — the leak this fix
-    /// narrows, never a double free.
+    /// union arm passes its real `record_free_tags`. Unproved, both fall back to
+    /// close-only — the leak this fix narrows, never a double free.
+    ///
+    /// bug-1012: the drain frees no resource-union box. A node holds a copy of the
+    /// box's two words, so the box stays with whoever made it (a binding, a
+    /// statement, or the collection holding the element inline).
     pub(crate) fn emit_owned_list_drain(
         &mut self,
         cleanup: &OwnedListCleanup,
@@ -518,9 +583,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&done_label));
         self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), node_slot));
         // Advance the head past this node before the call(s) below, which clobber
-        // caller-saved registers; the loop reloads the head from memory. Node
-        // field 0 is the value to close — the record pointer for a concrete
-        // element, the union block pointer (`{tag@0, record-ptr@8}`) for a union.
+        // caller-saved registers; the loop reloads the head from memory. A
+        // concrete node's field 0 is the record pointer to close; a union node
+        // begins with its own `{tag@0, record-ptr@8}` copy of the box.
         match &cleanup.drop {
             OwnedListDrop::Dynamic => {
                 return Err(format!(
@@ -595,26 +660,23 @@ impl CodeBuilder<'_> {
                 let state_type = state_type.clone();
                 let io_buffer_tags = io_buffer_tags.clone();
                 let record_free_tags = record_free_tags.clone();
+                // bug-1012: the node's first two words ARE the box (`{tag@0,
+                // record@8}`, copied when the node was pushed), so the node's own
+                // address is the union pointer the dispatch reads.
                 let union_ptr = self.allocate_register();
-                self.emit(abi::load_u64(&union_ptr, &scratch9, 0));
-                self.emit(abi::store_u64(
-                    &union_ptr,
-                    abi::stack_pointer(),
-                    payload_slot,
+                self.emit(abi::move_register(&union_ptr, &scratch9));
+                self.emit(abi::load_u64(
+                    &scratch10,
+                    &scratch9,
+                    OWNED_LIST_UNION_NODE_NEXT_OFFSET,
                 ));
-                self.emit(abi::load_u64(&scratch10, &scratch9, 8));
                 self.emit(abi::store_u64(
                     &scratch10,
                     abi::stack_pointer(),
                     cleanup.head_slot,
                 ));
-                // Defensive null-skip: a well-formed floated union node is
-                // non-null, but guard like the single-binding path so a null can
-                // never fault the tag load at `union_ptr+0` (bug-246).
                 let node_done = self.label("owned_list_union_node_done");
                 let dropped = self.label("owned_list_union_drop_box");
-                self.emit(abi::compare_immediate(&union_ptr, "0"));
-                self.emit(abi::branch_eq(&node_done));
                 // bug-755: as the concrete arm — the active variant's record must be
                 // owned by this list's scope.
                 let record = self.allocate_register();
@@ -644,28 +706,30 @@ impl CodeBuilder<'_> {
                     &dropped,
                 )?;
                 // Both a matched variant (which branches here) and an unrecognised tag
-                // (which falls out of the dispatch) converge on the box free, mirroring
-                // `emit_resource_union_cleanup_call`'s `dropped` label.
+                // (which falls out of the dispatch) converge here. No box is freed:
+                // the list never held one (bug-1012), only the copy in its node,
+                // which goes with the node below.
                 self.emit(abi::label(&dropped));
-                if cleanup.owns_elements {
-                    let box_ptr = self.allocate_register();
-                    self.emit(abi::load_u64(&box_ptr, abi::stack_pointer(), payload_slot));
-                    self.emit(abi::move_register(abi::c_arg(0), &box_ptr));
-                    self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
-                    self.emit_arena_free_call();
-                }
                 self.emit(abi::label(&node_done));
             }
         }
         // The node block itself: allocated by `emit_owned_list_push`, reachable only
         // through the chain this loop has already advanced past, so this free is
         // unaliased and once-only regardless of what the element turned out to own.
+        let node_size = match &cleanup.drop {
+            OwnedListDrop::Union { .. } => OWNED_LIST_UNION_NODE_SIZE,
+            OwnedListDrop::Concrete { .. } | OwnedListDrop::Dynamic => 16,
+        };
         self.emit(abi::load_u64(
             abi::c_arg(0),
             abi::stack_pointer(),
             node_slot,
         ));
-        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            &node_size.to_string(),
+        ));
         self.emit_arena_free_call();
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));

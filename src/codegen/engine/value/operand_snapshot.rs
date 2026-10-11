@@ -230,6 +230,7 @@ impl CodeBuilder<'_> {
             location: location.clone(),
             shallow: false,
             resource: false,
+            union_box: false,
         });
         Ok(ValueResult {
             origin: result.origin,

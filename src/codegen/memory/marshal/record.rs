@@ -354,6 +354,13 @@ fn emit_inlined_block_size(
             abi::store_u64(r1, abi::stack_pointer(), out_slot),
         ]);
         Ok(())
+    } else if field_is_inlined_union_box(type_model, field_type) {
+        // bug-1012: a `RES <resource union>` field's box is two words.
+        instructions.extend([
+            abi::move_immediate(r1, "Integer", &RESOURCE_UNION_BOX_SIZE.to_string()),
+            abi::store_u64(r1, abi::stack_pointer(), out_slot),
+        ]);
+        Ok(())
     } else if typed_is_collection_type(field_type) {
         instructions.push(abi::load_u64(r0, abi::stack_pointer(), ptr_slot));
         emit_collection_flat_size(field_type, r0, r1, r2, instructions);

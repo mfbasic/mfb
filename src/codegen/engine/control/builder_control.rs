@@ -2959,11 +2959,46 @@ impl CodeBuilder<'_> {
                             && !aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some());
+                        // bug-1012: a resource-union binding that owns its box and
+                        // nothing else. Two shapes:
+                        //
+                        // * a read of a record field (`RES v AS Handle = b.h`). The
+                        //   record holds the box inline, so the field read is an
+                        //   address inside the record's block, which a later
+                        //   reassignment of the record frees. The binding takes its
+                        //   own copy of the two words. A `MATCH` scrutinee temporary
+                        //   is the exception: its only reads are the tag test and the
+                        //   case binds at the head of each case, before any statement
+                        //   that could replace the record.
+                        // * a binding whose resource floated to an outer container.
+                        //   The container's owned-list keeps its own copy of the box
+                        //   (`emit_owned_list_push_node`), so the box this bind's
+                        //   initializer made is still the binding's to free.
+                        //
+                        // Either way the drop frees the 16 bytes and closes nothing:
+                        // the record belongs to the field's record's owner, or to
+                        // the container.
+                        let is_union_binding = self.resource_union_cleanup(type_).is_some()
+                            && !aliases_union_variant
+                            && !aliases_capture;
+                        let copies_field_box = is_union_binding
+                            && matches!(value, Some(NirValue::MemberAccess { .. }))
+                            && !name.starts_with("$match");
+                        let owns_box_only = copies_field_box
+                            || (is_union_binding
+                                && floats_to_collection
+                                && value.as_ref().is_some_and(|value| {
+                                    self.value_yields_fresh_union_box(value, type_)
+                                }));
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
                         // stays null and the scope-drop free/close skips it instead of
                         // touching an uninitialized pointer.
-                        if owns_freeable_value || result_wrapper.is_some() || owns_resource_slot {
+                        if owns_freeable_value
+                            || result_wrapper.is_some()
+                            || owns_resource_slot
+                            || owns_box_only
+                        {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
                             self.emit(abi::store_u64(
                                 &zero_slot,
@@ -2978,7 +3013,7 @@ impl CodeBuilder<'_> {
                         // is consumed only as the entry-zeroing list. A `Thread` view's
                         // slot is one of them: a `thread::start` that raises on a bad
                         // queue limit leaves it unwritten too (bug-469).
-                        if owns_resource_slot {
+                        if owns_resource_slot || owns_box_only {
                             self.owned_value_slots.push(stack_offset);
                         }
                         // bug-648: an inline-`TRAP` temp has no initializer to classify,
@@ -3083,6 +3118,17 @@ impl CodeBuilder<'_> {
                                 r?
                             } else {
                                 self.lower_value_owned(value)?
+                            };
+                            // bug-1012: the binding's own copy of a field's box.
+                            let result = if copies_field_box {
+                                let copied = self
+                                    .materialize_inline_value_in_arena(type_, &result.location)?;
+                                ValueResult {
+                                    location: Operand::from(copied),
+                                    ..result
+                                }
+                            } else {
+                                result
                             };
                             self.raw_result_discard_error = false;
                             // Observation boundary: a `Float` becoming a named
@@ -3201,8 +3247,13 @@ impl CodeBuilder<'_> {
                             // each loop iteration (a floated handle would otherwise be
                             // closed while the collection still held it).
                             if let Some(NirValue::Local(src)) = value {
-                                self.deactivate_resource_cleanup(src);
+                                self.release_floated_source_cleanup(src);
                             }
+                            if owns_box_only {
+                                self.register_union_box_cleanup(name, type_);
+                            }
+                        } else if copies_field_box {
+                            self.register_union_box_cleanup(name, type_);
                         } else if aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some())

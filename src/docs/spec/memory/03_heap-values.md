@@ -70,11 +70,21 @@ stores, by field type:
   flat records `Error`/`ErrorLoc`: inlined recursively as a `U64` block-relative
   offset into the data region, exactly like a `String`. The field read recovers
   `recordBase + offset`. Each nested block preserves its own internal relative
-  addressing, so a whole-block `memcpy` relocates the inlined tree. A field is inlined into the data region iff it is a `String` or a flat composite. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
+  addressing, so a whole-block `memcpy` relocates the inlined tree. A field is inlined into the data region iff it is a `String`, a flat composite, or a `RES` resource union. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
+- **resource** (`RES T`, `T` a concrete resource): an 8-byte pointer to the
+  resource record, copied with the record. The record does not own the resource
+  record.
+- **resource union** (`RES U`, `U` a resource union): a `U64` block-relative
+  offset into the data region, where the union's 16-byte
+  `{tag@0, record-ptr@8}` box is embedded inline. The field read recovers the
+  box's address as `recordBase + offset`. The record holds its own copy of the two
+  words, so a whole-block `memcpy` copies the field and the record's one block
+  free releases it; the record never holds the address of a box something else
+  frees. [[src/codegen/collection/layout/builder_collection_layout.rs:field_is_inlined_union_box]]
 - **function value** — an 8-byte pointer to the closure object the record owns
   (`./mfb spec memory closures`): copying the record copies the closure, dropping
   it frees the closure, so a record with a `FUNC` field is not flat. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]]
-- **non-flat composite** — a **resource** `Union`, a non-flat `List`/`Map`/`Set`,
+- **non-flat composite** — a non-flat `List`/`Map`/`Set`,
   a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
   separate allocation. For a value whose type reaches a type cycle, that separate
@@ -186,6 +196,30 @@ all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION`) is
 **not** reshaped [[src/rules/table.rs:TYPE_MIXED_RESOURCE_UNION]] — it keeps the fixed
 `{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
 (never deep-copied) so the resource is closed exactly once.
+
+A resource union value is the address of such a 16-byte **box**. A box has exactly
+one owner, which frees it exactly once:
+
+- A **binding** owns the box its initializer made — a wrap of a variant, the box a
+  called function returned, the closed default of a trapped bind — and frees it at
+  its scope exit. A binding initialized from a record field takes its own copy of
+  the field's box and frees that. A binding that names another local shares that
+  local's box and frees nothing. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_union_cleanup_call]] [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:register_union_box_cleanup]]
+- A box made inside a **statement** that no binding takes — a variant passed to a
+  union parameter, a variant written as a collection element or a record field, an
+  unbound call that returns a resource union — is the statement's, and is freed
+  at its end, on its error and early-exit paths as well. [[src/codegen/engine/value/builder_values.rs:register_union_box_temp]]
+- A **`RETURN`** hands the caller a box nothing else holds: it moves out the box a
+  local binding owns, and copies the value otherwise (a parameter, a field, an
+  element). [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:returned_resource_union_owns_box]]
+
+Everything that keeps a resource union past the statement that produced it holds a
+**copy of the two words**, never the box's address: a record field and a
+collection element hold them inline, an owned-list node (`./mfb spec memory
+arenas`), a closure environment (`./mfb spec memory closures`) and the module
+instance's list each keep their own. Freeing a box closes nothing; the record it
+names is closed by the scope that owns it (`./mfb spec language
+resource-management` §15.6).
 
 ## Resource Record
 
@@ -355,7 +389,8 @@ in the per-arena globals region, so each instance — the main program and every
 worker — has its own list. `kind` indexes the resource leaf types the program's
 globals can reach, in global order; `tag` is a resource union's active variant,
 read from the union box when the record is listed, because the box belongs to the
-binding that wrapped it and is freed at that binding's scope exit. The teardown
+binding or statement that made it, or to the value that holds it inline (see
+"Union" above), and not to the instance. The teardown
 `_mfb_module_resource_drain` pops each node and closes its record when the owner
 word is still the module token (a re-close of a closed or moved handle is the
 defined no-op); it reclaims no record or buffer, which go with the instance's

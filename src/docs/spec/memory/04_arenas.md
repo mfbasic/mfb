@@ -439,10 +439,14 @@ close/reclamation distinction.
 A resource that **floats** into an owner collection (`./mfb spec language
 resource-management` §15.6) has no binding of its own left to drop, so its memory is
 reclaimed by that collection's owned-list drain instead. The drain always frees the
-16-byte `{record, next}` node it allocated for the element, which nothing but the drain
-can name. Everything the node POINTS at — the element's `STATE` block, its per-`File`
-I/O buffers, its record for the record-freeing kinds above, a union element's
-`{tag, record-ptr}` box, and the collection block itself — is freed only for a
+node it allocated for the element, which nothing but the drain can name: a 16-byte
+`{record, next}` node, or for a resource-union element a 24-byte
+`{tag, record, next}` node holding a copy of the element's box. The drain frees no
+union box: a box is its binding's or its statement's, or a span of the collection
+block that holds the element inline (`./mfb spec memory heap-values`, "Union").
+Everything the node POINTS at — the element's `STATE` block, its per-`File`
+I/O buffers, its record for the record-freeing kinds above, and the collection
+block itself — is freed only for a
 collection proved to be their one owner: every store into it is a collection
 literal, a self-receiving `collections::` mutator, a call audited to return a block
 nothing else holds — `collections::take`/`drop`/`chunks`/`window` (source bodies over

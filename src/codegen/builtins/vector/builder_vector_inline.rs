@@ -294,6 +294,7 @@ impl CodeBuilder<'_> {
             location: block.location.clone(),
             shallow: false,
             resource: false,
+            union_box: false,
         });
         Ok(block)
     }

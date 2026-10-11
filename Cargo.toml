@@ -1059,6 +1059,10 @@ name = "rt_resource_temporary_close"
 path = "tests/runtime/rt_resource_temporary_close.rs"
 
 [[test]]
+name = "rt_resource_union_box_owner"
+path = "tests/runtime/rt_resource_union_box_owner.rs"
+
+[[test]]
 name = "rt_thread_transfer_trap_fail_drop"
 path = "tests/runtime/rt_thread_transfer_trap_fail_drop.rs"
 

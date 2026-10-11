@@ -29,7 +29,8 @@
 //! one owned-list whose nodes record their own kind: `{record@0, next@8, kind@16,
 //! tag@24}`, `kind` indexing [`CodeBuilder::closure_resource_kinds`] and `tag` the
 //! active variant of a resource-union leaf (a node holds the variant's RECORD, never
-//! the union box, which its wrapping binding frees — the module list's rule). The
+//! the union box, which is its maker's to free or a span of the value's holder —
+//! the module list's rule). The
 //! drain closes each node's record when the scope still owns it and reclaims its
 //! buffers and `STATE`; it never frees the record itself (the tombstone every view
 //! reads), so a record listed twice is closed and reclaimed idempotently.

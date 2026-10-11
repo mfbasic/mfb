@@ -526,8 +526,8 @@ fn owning_collections(
     }
     let mut callees = CalleeParamUses::default();
     let uses = CollectionUses::of(function, functions, &mut callees);
-    // bug-1000's wider rule, except for a collection of resource-union boxes
-    // (`block_held_elsewhere_strict`).
+    // bug-1000's wider rule, except for a collection that reaches a resource
+    // union (`block_held_elsewhere_strict`).
     let held_elsewhere = |name: &str, type_: &ParameterType| {
         if union_collection_type(type_) {
             uses.block_held_elsewhere_strict(name)
@@ -829,12 +829,17 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
 
     /// [`Self::block_held_elsewhere`] without bug-1000's two readings: named
     /// anywhere outside an argument position, a `FOR EACH` included, or read
-    /// through a borrowed-element call at all. For a collection whose elements are
-    /// resource-union boxes, whose drain cannot yet be widened: a box a callee's
-    /// binding wrapped is freed by that binding as the callee returns (bug-1012),
-    /// so an adopted list's drain that frees boxes frees them twice. The rule
-    /// before bug-1000 already had that defect for a list that is only measured;
-    /// this keeps it from reaching the lists that are read or iterated as well.
+    /// through a borrowed-element call at all. For a collection that reaches a
+    /// resource union.
+    ///
+    /// It was written around a defect bug-1012 has since removed: an adopted
+    /// list's drain freed 16 bytes at the address of each element's box, which is
+    /// a span of the list's own block. A drain now frees no box at all — an
+    /// owned-list node holds a copy of the box's two words — so the wider rule
+    /// would no longer free anything twice. It stays strict because the wider
+    /// rule has not been measured for these collections: a `List OF RES <Union>`
+    /// that is iterated or read through `collections::get` keeps its block and
+    /// its records (a bounded leak, the direction this module fails in).
     fn block_held_elsewhere_strict(&self, name: &str) -> bool {
         self.escaping.contains(name)
             || self.kept.contains(name)
