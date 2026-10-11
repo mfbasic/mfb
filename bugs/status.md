@@ -41,6 +41,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 **P6: Language changes (owner-confirmed)**
 [ ] 977 → 878, then 978 + 839, then 945 (large; `Result`/`Ok` reserved in user code)
+[ ] 1021: a by-field record constructor may omit fields (`Ck[name := "a"]`); omitted fields take their defaults (owner decision 2026-10-10)
 
 **P7: Standard library correctness**
 [ ] Collections: 1006 (`collections::window` overflows its next-window bound for a valid large stride), 1007 (fixed-width `chunks` fast path overallocates short chunks), 1009 (fixed-width `toSet` reserves by input length), 1010 (native `merge` reserves for overlapping input keys), 1011 (reserved collection results retain source-sized capacity when outputs are smaller)
@@ -104,7 +105,7 @@ Into existing phases:
 [ ] P8: 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing), 1021 (partial by-field record constructor uses defaults).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
 
 Numbering note: other sessions file bugs too (the plan-172 session used 1013 and 1014 the same day the coordinator did). The coordinator renumbers its own unmerged docs on a collision; check `ls bugs` in every worktree before taking a number.
