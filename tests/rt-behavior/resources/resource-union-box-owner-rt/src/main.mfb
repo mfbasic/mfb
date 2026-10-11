@@ -1,0 +1,43 @@
+IMPORT io
+IMPORT fs
+IMPORT tcp
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE HB
+  h AS RES Handle
+END TYPE
+
+FUNC openOne AS RES fs::File
+  RES f AS fs::File = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC keep(h AS Handle) AS HB
+  RETURN HB[h]
+END FUNC
+
+FUNC mkKept AS HB
+  RES u AS Handle = openOne()
+  RETURN keep(u)
+END FUNC
+
+FUNC touch(label AS String, h AS Handle) AS Nothing
+  MATCH h
+    CASE fs::File(f)
+      io::print(label & ": file")
+    CASE tcp::Socket(s)
+      io::print(label & ": socket")
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  LET k AS HB = mkKept()
+  LET junk1 AS List OF Integer = [7, 7]
+  LET junk2 AS List OF Integer = [9, 9]
+  touch("kept", k.h)
+  RETURN 0
+END FUNC
