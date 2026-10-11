@@ -501,3 +501,151 @@ fn a_trapped_resource_union_binding_in_a_loop_releases_its_default() {
         1,
     );
 }
+
+/// The declarations the returned-record cases share: a record holding a file, a
+/// function that builds one around its parameter, and one that opens the file
+/// and returns that record.
+const HOLDERS: &str = "TYPE HB2\n\
+     \x20 h AS RES fs::File\n\
+     END TYPE\n\
+     FUNC keep2(h AS fs::File) AS HB2\n\
+     \x20 RETURN HB2[h]\n\
+     END FUNC\n\
+     FUNC mk2 AS HB2\n\
+     \x20 RES u AS fs::File = openOne()\n\
+     \x20 RETURN keep2(u)\n\
+     END FUNC\n\
+     FUNC rd(f AS fs::File) AS Integer\n\
+     \x20 RETURN len(fs::readAll(f)) - 5\n\
+     END FUNC\n";
+
+fn check_holder(case: &str, body: &str, per_iteration: u64, expect: Expect) {
+    check(case, &format!("{HOLDERS}{body}"), per_iteration, expect);
+}
+
+/// bug-1025: a record a callee built around a resource its caller's callee opened
+/// is adopted by the binding of the call's result, which closes the file and
+/// frees its record. The record was closed and never freed: a record binding was
+/// never the proven owner of what it adopted.
+#[test]
+fn a_record_binding_frees_the_resource_record_it_adopted() {
+    check_holder(
+        "read_through_field",
+        "FUNC once() AS Integer\n\
+         \x20 LET k AS HB2 = mk2()\n\
+         \x20 RETURN len(fs::readAll(k.h)) - 5\n\
+         END FUNC\n",
+        1,
+        Expect::Balanced,
+    );
+    // Left early by `RETURN`, with a copy of the record bound after it.
+    check_holder(
+        "early_return_and_copy",
+        "FUNC once() AS Integer\n\
+         \x20 LET k AS HB2 = mk2()\n\
+         \x20 IF rd(k.h) = 7 THEN\n\
+         \x20   RETURN 7\n\
+         \x20 END IF\n\
+         \x20 LET k2 AS HB2 = k\n\
+         \x20 RETURN rd(k2.h) + 1\n\
+         END FUNC\n",
+        1,
+        Expect::Balanced,
+    );
+    // Bound in a loop body that one pass leaves by `CONTINUE FOR`.
+    check_holder(
+        "loop_body",
+        "FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   LET k AS HB2 = mk2()\n\
+         \x20   IF j = 2 THEN\n\
+         \x20     CONTINUE FOR\n\
+         \x20   END IF\n\
+         \x20   t = t + rd(k.h)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 1\n\
+         END FUNC\n",
+        1,
+        Expect::Balanced,
+    );
+}
+
+/// bug-1025, the second reproduction: a four-field record, read with
+/// `fs::readLine` (so the file owns a 16 KiB read buffer), copied with `WITH` and
+/// by a plain bind, and compared field by field. The copies hold the same handle
+/// and stay in the scope of the record they were made from.
+#[test]
+fn a_copied_record_binding_frees_the_record_and_its_read_buffer() {
+    check(
+        "copies_and_comparisons",
+        "TYPE HB\n\
+         \x20 name AS String\n\
+         \x20 h AS RES fs::File\n\
+         \x20 n AS Integer\n\
+         \x20 tail AS String\n\
+         END TYPE\n\
+         FUNC keep(nm AS String, h AS fs::File, n AS Integer) AS HB\n\
+         \x20 RETURN HB[nm, h, n, \"tail\" & toString(n)]\n\
+         END FUNC\n\
+         FUNC mk(n AS Integer) AS HB\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN keep(\"name\" & toString(n), u, n)\n\
+         END FUNC\n\
+         FUNC readOne(f AS fs::File) AS Integer\n\
+         \x20 RETURN len(fs::readLine(f))\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET k AS HB = mk(3)\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7]\n\
+         \x20 LET k2 AS HB = WITH k { n := 9 }\n\
+         \x20 LET junk2 AS String = \"abcdefghijklmnopqrstuvwxyz\" & toString(k2.n)\n\
+         \x20 LET k3 AS HB = k2\n\
+         \x20 MUT r AS Integer = 0\n\
+         \x20 IF k.name = \"name3\" AND k.tail = \"tail3\" AND k.n = 3 AND k3.n = 9 AND k3.tail = \"tail3\" AND k2.name = \"name3\" THEN\n\
+         \x20   r = 1\n\
+         \x20 END IF\n\
+         \x20 RETURN r * 100 + readOne(k3.h)\n\
+         END FUNC\n",
+        105,
+        Expect::Balanced,
+    );
+}
+
+/// bug-1025's other direction: a handle that leaves the record binding is a
+/// second holder, so the binding must not free the record. In the first case the
+/// record is handed on to a binding in an outer scope, which reads the file after
+/// the inner scope has ended and two fresh blocks have been allocated; in the
+/// second the handle is bound on its own.
+#[test]
+fn a_record_binding_whose_handle_leaves_does_not_free_the_record() {
+    check_holder(
+        "record_handed_outward",
+        "FUNC stash(b AS HB2) AS HB2\n\
+         \x20 RETURN b\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES z AS fs::File = openOne()\n\
+         \x20 MUT outer AS HB2 = keep2(z)\n\
+         \x20 IF len(\"x\") = 1 THEN\n\
+         \x20   LET k AS HB2 = mk2()\n\
+         \x20   outer = stash(k)\n\
+         \x20 END IF\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]\n\
+         \x20 RETURN rd(outer.h)\n\
+         END FUNC\n",
+        1,
+        Expect::HeldElsewhere,
+    );
+    check_holder(
+        "handle_bound",
+        "FUNC once() AS Integer\n\
+         \x20 LET k AS HB2 = mk2()\n\
+         \x20 RES f AS fs::File = k.h\n\
+         \x20 RETURN rd(f)\n\
+         END FUNC\n",
+        1,
+        Expect::HeldElsewhere,
+    );
+}
