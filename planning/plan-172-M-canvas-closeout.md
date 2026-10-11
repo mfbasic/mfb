@@ -78,6 +78,7 @@ All are re-measured on entry; the expected values are what a complete plan leave
 |---|---|---|
 | Removed names left in the tree | 0 outside removed-type fixtures | `grep -rlE 'canvas::(Point\|RoundedRect)\b\|cornerRadius\|paint\.transform' src tests examples tools scripts \| grep -vc '_removed_invalid'` → 0 |
 | `Group` sites still setting `dx` | 0 | `grep -rhoE 'canvas::Group\[[^]]*' src tests examples tools scripts \| grep -c 'dx *:='` → 0 |
+| `Group` constructors that name their fields and have no `id` | 0 | `grep -rhoE 'canvas::Group\[[^]]*' src tests examples tools scripts \| grep 'position *:=' \| grep -vc 'id *:='` → 0 (172-I adds the field) |
 | Canvas PNG goldens | 11 (8 + `corners`, `group_affine`, `picture_shapes`) | `ls tests/golden/canvas/*.png \| wc -l` → 11 |
 | Canvas registry unions | 3 | `grep -c 'pkg.add_union(' src/codegen/builtins/canvas/mod.rs` → 3 |
 | Example source files that import canvas | 35 today | `grep -rl 'IMPORT canvas' examples --include='*.mfb' \| wc -l` → 35; each example they belong to is built and run in Phase 2 |
@@ -178,7 +179,9 @@ Commit: —
       2228`. Emulated and slow; it is the only place the x86_64 emitters run.
 - [ ] Windows, `test@192.168.1.206`: the canvas suites, the pointer and `AutoPaint`
       cases, and `overID` through a real window — `MFB_MOUSE_INJECT` does not exist
-      there, so this is the first Windows proof of 172-I.
+      there, so this is the first Windows proof of 172-I. The proof scene has one group
+      drawn twice under two `id`s and a named picture, so the id path is read off a real
+      click, not only the item's own `id`.
 - [ ] `scripts/test-appimage.sh --libc both` for the Linux app mode.
 - [ ] Record each row's command and result in Corrections.
 
@@ -227,7 +230,9 @@ None.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-I's id path (owner's decision, 2026-10-10):** one more closeout count (no
+  field-naming `Group` constructor without an `id`), and the Windows `overID` proof
+  covers a group path and a picture.
 
 ## Summary
 

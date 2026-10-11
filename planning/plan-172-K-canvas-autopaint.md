@@ -121,9 +121,13 @@ per instance: the entry for the wrapped shape with its own paint — which is wh
 hit test reads — and a record in a per-frame list of `AutoPaint` instances (entry index,
 instance key, the four flags and paints).
 
-**Instance key.** The item's `id` when it is non-empty; otherwise a hash of its path —
-the chain of group slots and item indices that reached it. Two uses of one group
-therefore get two keys.
+**Instance key.** The entry's id path (172-I: the `id`s of the groups that hold it,
+outermost first, then its own) when it is non-empty; otherwise a hash of its structural
+path — the chain of group slots and item indices that reached it. Two uses of one group
+under two group `id`s therefore get two keys by name, and two uses with no `id`
+anywhere get two keys by structure. Two instances whose id paths are EQUAL — one group
+drawn twice under the same `id`, or with none, holding a named `AutoPaint` — is Open
+Decision 2.
 
 **Resolving a frame.** After the walk, once, on the graphics thread:
 
@@ -249,7 +253,8 @@ Commit: —
       hover paint shows after entry; the enter paint shows first and gives way with the
       pointer still; exit shows then default; pressed wins over hover; only the upper of
       two overlapping `AutoPaint`s changes; an id-less shape on top blocks the one
-      beneath; two uses of one group change independently; a hover paint with a wider
+      beneath; two uses of one group change independently — under two group `id`s,
+      and (per Open Decision 2) under none; a hover paint with a wider
       stroke does not widen the hit region; state survives a re-`present` of a moved
       shape.
 - [ ] A frame-count case: a scene with no `AutoPaint` and a moving scripted pointer
@@ -305,13 +310,27 @@ Commit: —
 
 ## Open Decisions
 
-- **Which buttons count as pressed.** `planning/new_canvas.md` says any button.
-  Recommended: keep that. The alternative is the left button only, which is what most
-  toolkits mean by "pressed".
+1. **Which buttons count as pressed.** `planning/new_canvas.md` says any button.
+   Recommended: keep that. The alternative is the left button only, which is what most
+   toolkits mean by "pressed".
+2. **Two `AutoPaint` instances with the same id path in one frame.** The design says
+   each use of a group gets its own state, and the instance key is the id path when
+   there is one — so a named `AutoPaint` inside a group drawn twice under the same
+   group `id` (or none) would share one key, and hovering one would light both. This
+   was already true of the key as first written (the item's own `id`); 172-I's group
+   `id` gives the program the way to tell the uses apart, and this decides what happens
+   when it does not. Recommended: when an id path occurs more than once in a frame,
+   every instance with that path is keyed by its structural path instead, so the uses
+   stay independent and only lose their state across a reordering. The alternative is
+   to let them share, and document that independent uses need distinct group `id`s.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **From 172-I's id path (owner's decision, 2026-10-10):** the instance key is the id
+  path, not the item's own `id`, and Open Decision 2 is added for two instances whose
+  paths are equal. The original wording — "the item's `id` when it is non-empty … two
+  uses of one group therefore get two keys" — did not hold for a named item, whose `id`
+  is the same in every use.
 
 ## Summary
 

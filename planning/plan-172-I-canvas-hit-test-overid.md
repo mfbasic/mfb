@@ -5,17 +5,20 @@ Effort: large (3h–1d)
 Depends on: plan-172-H
 
 The canvas gains one hit test — "which drawn item is topmost under this point" — and
-its first user: `canvas::MouseEvent.overID`, the `id` of that item. 172-K reuses the
-same function on the graphics thread for `AutoPaint`.
+its first user: `canvas::MouseEvent.overID`, the id path of that item. `canvas::Group`
+gains an `id`, so each use of a group names what it draws. 172-K reuses the same
+function on the graphics thread for `AutoPaint`.
 
 Behavioral outcome: a program gives a shape an `id`, enables the mouse, and each event
 from `canvas::pollMouse` names the shape under the pointer, tested against the shape
-itself — after every transform — not its bounding box.
+itself — after every transform — not its bounding box. A group drawn twice under two
+`id`s reports which of the two was hit.
 
 References:
 
-- `planning/new_canvas.md` — "Hit-testing", "Groups and identity", and the `MouseEvent`
-  listing with its two `overID` rules.
+- `planning/new_canvas.md` — "Hit-testing", "Groups and identity" (the id path, as
+  rewritten on 2026-10-10), the `Group` listing and the `MouseEvent` listing with its
+  two `overID` rules.
 - `planning/plan-172-A-canvas-shapes-premises.md` §4 P4 and P5, Open Decision 5.
 - `src/codegen/builtins/canvas/helper_draw.rs:__canvas_geoDistance` — the distance
   function the test is built on.
@@ -51,9 +54,19 @@ If plan-172-H is not complete, this letter cannot start, full stop.
   - `Text` is hit on its layout box;
   - the shape's own `paint.clip` cuts the region;
   - every shape and group transform is applied before the test.
+- `canvas::Group` is `id`, `position`, `transform`, `name`.
 - `canvas::MouseEvent` has `overID AS String`, last.
-- `overID` is the `id` of the topmost item under `position` in the scene the program
-  last presented, or `""` when there is none or its `id` is empty.
+- `overID` is the **id path** of the topmost item under `position` in the scene the
+  program last presented: the `id` of every group that holds it, outermost first, then
+  its own, joined by the separator (Open Decision 1), with empty parts left out. So:
+  - a named shape in the scene itself reports its `id`, as a scene with no named group
+    always has;
+  - a named shape inside a group with `id` `"save"` reports `"save"`, the separator,
+    then its own `id`; nested groups chain;
+  - an unnamed shape inside a named group reports the group's path alone;
+  - with no `id` anywhere on the path, or no item under the point, it is `""`.
+- A `Picture` contributes its `id` as the last part today. 172-L gives it a shape, whose
+  `id` then follows the picture's.
 - A program in which no item has an `id` pays nothing for any of this.
 
 ### Non-goals (explicit constraints)
@@ -62,7 +75,11 @@ If plan-172-H is not complete, this letter cannot start, full stop.
   Those are 172-J and 172-K.
 - **`overID` is not resolved at the moment the event happened.** It is resolved when
   `pollMouse` returns the event.
-- **A group used twice reports the same `id` for the same item.** No path is reported.
+- **A `Picture`'s shape is 172-L.** Here a picture is one named item.
+- **The path is not parsed back.** `overID` is one string; no function splits it, and a
+  program that puts the separator inside an `id` gets what it wrote.
+- **No path of indices.** Two uses of one group with the same `id`, or with none, report
+  the same string for the same item, as they did before groups had one.
 - **`term::pollMouse` and `term::MouseEvent` are untouched.**
 - **Hit-testing is not exposed as a public function** in this plan.
 
@@ -88,6 +105,7 @@ The worker reads its last-presented scene through `canvas::installedItems()` or
 | `canvas::pollMouse` mentions | 23 in 13 files | `grep -rho 'canvas::pollMouse' src tests examples tools scripts benchmark \| wc -l` → 23 |
 | Canvas runtime tests that poll the mouse | 0 | `grep -rl 'canvas::pollMouse' tests/canvas \| wc -l` → 0 |
 | `MouseEvent` block size | 64 bytes | `grep -n 'const MOUSE_EVENT_BLOCK_BYTES' src/codegen/builtins/canvas/func_poll_mouse.rs` → `= 64` |
+| `canvas::Group[` sites this letter ports (`id` added, empty) | 118 in 23 files | `grep -rhoE 'canvas::Group\[' src tests examples tools scripts benchmark \| wc -l` → 118, measured 2026-10-10 after 172-H |
 | Geometry kinds a hit test must handle | 10 (0–4, 6, 7, 9, 10; `NONE` and `GROUP` never reach a draw entry) | `grep -n '__CANVAS_GEO_[A-Z]* AS Integer\|__CANVAS_KIND_[A-Z]* AS Integer' src/codegen/builtins/canvas/helper_geometry.rs src/codegen/builtins/canvas/helper_draw.rs` |
 | Cost of a hit test on 1,000 and 10,000 items | UNMEASURED | Phase 4 measures it; no cap or cache is designed against a guess |
 
@@ -112,14 +130,28 @@ draw list from the last entry to the first. For each entry it:
 4. tests the shape: `distance ≤ strokeHalf` for a closed kind; `|distance| ≤
    max(strokeHalf, 3 / scale)` for an open kind; point-in-box for text.
 
-The first entry that passes is the answer. The walk appends each entry's `id` to a
+The first entry that passes is the answer. The walk appends each entry's id path to a
 parallel global, `__CANVAS_DRAW_IDS`, so the index maps to a string.
+
+**The id path is built by the walk.** `__canvas_appendDraw` already carries a group's
+composed translation and matrix down to its children (172-G); it carries the path the
+same way. The group arm passes `path` joined with the node's `id`, and a leaf records
+`path` joined with its own. Joining leaves an empty part out, so a scene with no named
+group records exactly each item's `id`. The path is a property of the draw ENTRY, like
+the offset: the group's stored items are not copied or renamed, and one item reached
+through two nodes has two entries with two paths.
+
+A group's `id` does not enter the draw hash or the geometry: it changes no pixel.
+`present` compares the scene's bytes, which include it, so a node whose `id` changes is
+republished and the worker's draw list is rebuilt.
 
 **The worker's draw list.** The worker builds its own, with the same
 `__canvas_appendDraw` walk over its installed scene, into its own thread-local geometry
 cache. It is built lazily: only when a real event is being returned, only when the
 scene revision has changed since the last build, and only when the published scene has
-at least one non-empty `id`. `present` records that last fact as it hashes the scene.
+at least one non-empty `id` — on an item or on a group node, at any depth, the items of
+the groups it names included. `present` records that last fact as it hashes the scene
+and takes the group signature.
 
 If P4 was FALSIFIED, the worker's walk builds each geometry record into a list it owns
 and the distance readers take that list as an argument; the test itself is unchanged.
@@ -148,7 +180,10 @@ closes, and the id-less fast path keeps every existing program at zero.
 
 ## Compatibility / Format Impact
 
-- **Added:** `MouseEvent.overID`.
+- **Added:** `MouseEvent.overID`; `Group.id`.
+- **Changed:** `canvas::Group`'s fields — `id` is first, as on every other item. Every
+  `canvas::Group[` constructor that names its fields gains `id := ""`; one that uses
+  `MUT` + `WITH` needs no edit.
 - **Changed:** `canvas::pollMouse` is MFBASIC over a native raw poll; the `MouseEvent`
   block is laid out by the type model rather than by hand.
 - **Unchanged:** the mouse ring, the SGR producers on all three platforms, every pixel.
@@ -176,17 +211,35 @@ Commit: —
 
 ### Phase 2 — The draw-list walk
 
-- [ ] `helper_render.rs:__canvas_appendDraw`: append each entry's `id` to
-      `__CANVAS_DRAW_IDS`; reset it wherever the offset arrays are reset.
+- [ ] `mod.rs`: `Group` gains `id` first (`id_prop()`), and its description says what
+      the `id` is for; `helper_render.rs:__canvas_noItem` and the second stand-in node
+      in `__canvas_hashLayers` take the field.
+- [ ] Port the `canvas::Group[` sites: `id := ""` first. Re-measure the count first
+      (118 on 2026-10-10) and record it.
+- [ ] `FIELD_KIND_TABLE` and the `canvas::Group` row of `field_kinds.tsv` (its check
+      column follows the generator); the IR-embedding goldens.
+- [ ] `helper_render.rs:__canvas_appendDraw`: take the id path as a parameter, join a
+      group node's `id` onto it for its children, and append each entry's path joined
+      with the item's own `id` to `__CANVAS_DRAW_IDS`; reset it wherever the offset
+      arrays are reset. One `__canvas_joinId(path, id)` does the joining and leaves an
+      empty part out.
 - [ ] `helper_hit.rs`: `__canvas_hitAt(x, y) AS Integer`, last entry first.
 - [ ] Runtime cases in new `tests/canvas/rt_canvas_hit.rs`, driven through a
       debug-build probe function the way `MFB_CANVAS_STATS` reads are: two overlapping
       shapes report the upper; an item inside a rotated, scaled group is hit at its
       transformed place and missed at its untransformed one; an item in a layer above
       wins over one in a layer below.
+- [ ] Id-path cases in the same file, read through the same probe: one group drawn
+      through two nodes with different `id`s reports two different paths for the same
+      item; an unnamed item inside a named group reports the group's `id` alone; a named
+      item inside an unnamed group reports its own `id` alone; a group inside a group
+      reports both, outermost first; nothing named on the path reports `""`.
 
-Acceptance: the three cases pass.
-  Check: `cargo test --test rt_canvas_hit` → pass (est. 4 min).
+Acceptance: the three hit cases and the five id-path cases pass, and every group test
+passes with no PNG regenerated.
+  Check: `cargo test --test rt_canvas_hit --test rt_canvas_group_ownership --test
+  rt_canvas_golden groups` → pass (est. 8 min); `git status --porcelain
+  tests/golden/canvas` → empty.
 Commit: —
 
 ### Phase 3 — `overID`
@@ -204,16 +257,22 @@ Commit: —
       Check: an empty canvas program's executable is the same size before and after
       this phase.
 - [ ] `func_present.rs` / `func_present_layers.rs`: record whether the published scene
-      has any non-empty `id`.
+      has any non-empty `id` — an item's or a group node's, the items of the groups it
+      names included (the walk `__canvas_groupSignature` already makes).
 - [ ] Runtime cases in `tests/canvas/rt_canvas_hit.rs` under `MFB_MOUSE_INJECT`: a
       press over a shape with an `id` reports it; over empty canvas reports `""`; over
       an id-less shape lying on an id-bearing one reports `""`; after a `present` that
-      moves the shape, the same position reports the new answer.
+      moves the shape, the same position reports the new answer; a press over each of
+      two uses of one group reports that use's `id` in front of the item's; and a scene
+      whose only `id` is on a group node still resolves `overID` (the fast path must not
+      skip it).
 - [ ] Regenerate `tests/syntax/app/app-mouse-surface` goldens per
       `.ai/testing-gates.md` and port its source to read `overID`.
 - [ ] Port the 23 `pollMouse` mentions where they construct or destructure the record.
 - [ ] `src/docs/spec/app/06_canvas.md`: a "Hit-testing" section stating the region
-      rules and when `overID` is resolved, cited to `helper_hit.rs`;
+      rules, the id path (its order, the separator, the empty-part rule) and when
+      `overID` is resolved, cited to `helper_hit.rs` and `__canvas_appendDraw`; "Named
+      groups" gains the node's `id`;
       `src/docs/spec/language/18_builtin-functions.md` where it lists `MouseEvent`.
 
 Acceptance: the four injected-event cases pass.
@@ -243,17 +302,37 @@ Commit: —
   `scripts/coverage-check.sh`; a new file absent from it makes a green gate vacuous.
 - Runtime proof: `examples/canvas-demo` with one button given an `id`, run with an
   injected click at its centre, printing `overID`.
-- Doc sync: `src/docs/spec/app/06_canvas.md`; `mfb man canvas pollMouse` and
-  `mfb man canvas types` rendered.
+- Doc sync: `src/docs/spec/app/06_canvas.md`; `mfb man canvas pollMouse`,
+  `mfb man canvas setGroup` and `mfb man canvas types` rendered. `setGroup`'s page gains
+  an example of one group drawn twice under two `id`s.
 - Final gate: none in this letter; 172-M. `MFB_MOUSE_INJECT` is POSIX-only, so the
   Windows proof of `overID` is in 172-M on `test@192.168.1.206`.
 
 ## Open Decisions
 
-None beyond 172-A's Open Decision 5.
+172-A's Open Decision 5, answered there; and:
+
+1. **The separator between the parts of an id path.** Recommended: `/`. An `id` commonly
+   contains a hyphen (`"save-button"`), so with `-` the path `"save-button-label"` does
+   not say where the group's `id` ends; `/` reads as a path and is unlikely inside an
+   `id`. The owner's first wording was a `"<groupid>-"` prefix; the alternative is to
+   keep `-`. Nothing else in the letter depends on which: it is one character in
+   `__canvas_joinId`, the spec and the tests.
+
+   **Unanswered. Phase 2's id-path cases and Phase 3 cannot start until it is.**
 
 ## Corrections
 
+- **Owner's decision, 2026-10-10: `overID` is an id path, and `Group` has an `id`.**
+  Put to the owner while this letter was pending: should a group and a picture carry an
+  `id` that prefixes what they hold? Answer: yes, both — "more than one picture/group can
+  use the same shape". §1's goal and non-goals, §3 (the path is built by the walk),
+  Compatibility, Phase 2 (the record, the port, the walk, five id-path cases), Phase 3
+  (two more injected-event cases, the fast path's condition, the spec) and the
+  Validation Plan are rewritten; the non-goal "a group used twice reports the same `id`
+  … no path is reported" is withdrawn. `planning/new_canvas.md` is updated to match.
+  The picture half lands in 172-L, where a picture gets a shape. The separator is Open
+  Decision 1.
 - **From 172-A:** P4 and P5 are both CONFIRMED, so §3 stands as written. The P5 probe
   found three things the design did not name — six per-target tables spell
   `canvas.pollMouse`; mouse state is reserved by a `_pollMouse` symbol suffix; and an

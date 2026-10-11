@@ -156,8 +156,20 @@ END TYPE
 ### Groups and identity
 
 * group interaction. A group saves the DrawItem list. Each use of the group gets its own identity. This means if a group is used twice, AutoPaint applies separately to each DrawItem instance.
-* `overID` is the item's `id` string and nothing more. Two uses of one group report the
-  same `id` for the same item; the program tells them apart by `position`.
+* `overID` is a **path of ids**, outermost first (owner's decision, 2026-10-10, replacing
+  "the item's `id` string and nothing more"). A `Group` node has an `id`, and so does a
+  `Picture`; each contributes its own in front of what it holds, and the shape's `id` comes
+  last. The parts are joined by one separator character (plan-172-I Open Decision 1).
+  * A part that is empty is left out. A group or picture with no `id` adds nothing, so a
+    scene that names only its shapes reports exactly those names.
+  * A shape with no `id` inside a named group or picture reports the container's path
+    alone: a program usually wants to know which button, not which part of the button.
+  * With no `id` anywhere on the path, `overID` is `""`, and the item still blocks what
+    is beneath it.
+  * This is why containers have their own: a group's items are stored once and a shape is
+    a value a program reuses, so two uses of one group, or two pictures built on one
+    shape, would otherwise report the same string — and since a group can turn and scale
+    its contents, telling the uses apart by `position` would mean redoing the hit test.
 
 ### Hit-testing
 
@@ -204,9 +216,11 @@ TYPE MouseEvent
     overID   AS String
 END TYPE
 
-* `overID` is the `id` of the topmost item under `position`, or `""` when there is none or
-  that item's `id` is empty. An item with an empty `id` is still hit-tested: it still
-  blocks what is beneath it and still drives its own `AutoPaint`.
+* `overID` is the id path of the topmost item under `position` — the `id`s of the groups
+  and the picture that hold it, outermost first, then its own, empty ones left out
+  ("Groups and identity", above) — or `""` when there is no item there or nothing on its
+  path has an `id`. An item with an empty `id` is still hit-tested: it still blocks what
+  is beneath it and still drives its own `AutoPaint`.
 * It is resolved on the worker when `canvas::pollMouse` returns the event, against the
   scene the program last presented. It is not resolved when the event happened, so it can
   name an item that was not there at that moment.
@@ -315,6 +329,7 @@ TYPE PolyLine
 END TYPE
 
 TYPE Picture
+    id        AS String                 ' The picture's own; it goes in front of its shape's in overID
     shape     AS canvas::AutoShape      ' This is the shape/position/etc the picture clipped to
     clip      AS canvas::PictureClip
     fit       AS canvas::PictureFit
@@ -325,7 +340,9 @@ END TYPE
   `fill` tints the image, `transparency` fades it, `stroke` outlines the shape on top,
   `blend` and `clip` apply, and a fill gradient is ignored. The shape's interior is not
   filled separately behind the image.
-* A `Picture`'s `id` is its shape's `id`.
+* A `Picture` has its own `id`, and it goes in front of its shape's in `overID` (owner's
+  decision, 2026-10-10, replacing "a `Picture`'s `id` is its shape's `id`"): more than one
+  picture can be built on the same shape value.
 * When the shape is an `AutoPaint`, the state paints change the tint and outline the same
   way.
 * The shape must enclose an area. A `Picture` whose shape is a `Line`, `Arc`, `PolyLine`
@@ -339,6 +356,7 @@ END TYPE
 * Scaling still picks the nearest image pixel.
 
 TYPE Group
+    id        AS String           ' This use of the group; it goes in front of its items' ids in overID
     position  AS vector::Float2   ' Where the group's local origin lands
     transform AS canvas::Transform
     name      AS String

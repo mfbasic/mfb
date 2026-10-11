@@ -44,8 +44,8 @@ If plan-172-K is not complete, this letter cannot start, full stop.
 
 ## 1. Goal
 
-- `canvas::Picture` is `shape AS canvas::AutoShape`, `clip AS canvas::PictureClip`,
-  `fit AS canvas::PictureFit`, `image AS RES canvas::Image`.
+- `canvas::Picture` is `id AS String`, `shape AS canvas::AutoShape`, `clip AS
+  canvas::PictureClip`, `fit AS canvas::PictureFit`, `image AS RES canvas::Image`.
 - `PictureClip` is `ClipOnly` (zero value), `ClipAndTransform`. `PictureFit` is
   `Stretch` (zero value), `Contain`, `Cover`.
 - The image is visible only inside the shape. The shape's `paint` means what a
@@ -57,7 +57,10 @@ If plan-172-K is not complete, this letter cannot start, full stop.
   shape and draws the image upright.
 - A `Picture` whose shape is a `Line`, `Arc`, `PolyLine` or `Text` draws nothing.
 - When the shape is an `AutoPaint`, the state paint replaces the tint and outline.
-- A `Picture` is hit as its shape is, and its `id` is its shape's.
+- A `Picture` is hit as its shape is. It keeps its own `id`, which goes in front of its
+  shape's in `overID` (172-I's id path): a picture `"avatar"` on a shape `"frame"`,
+  inside a group `"card"`, reports `card`, `avatar`, `frame`, joined by the separator,
+  with any empty part left out.
 
 ### Non-goals (explicit constraints)
 
@@ -227,8 +230,8 @@ Commit: —
 
 ### Phase 2 — The record and the port, plain rectangles only
 
-- [ ] `mod.rs`: the two enums; `Picture` becomes the four fields; its description
-      rewritten around the six bullets in `planning/new_canvas.md`.
+- [ ] `mod.rs`: the two enums; `Picture` becomes `id` and the four fields; its
+      description rewritten around the bullets in `planning/new_canvas.md`.
 - [ ] `__canvas_appendDraw`: the picture arm, taking the plain-rectangle path for a
       plain rectangle and the two-entry path otherwise; `__canvas_pictureHeader` takes a
       destination rectangle, a paint and optional clip rings.
@@ -236,12 +239,20 @@ Commit: —
       `canvas::setBytes`'s live-scene check read `Picture.image` as before; confirm with
       the ownership suite.
 - [ ] `helper_hit.rs`: a picture is hit as its shape.
+- [ ] `__canvas_appendDraw`'s picture arm joins the picture's `id` onto the path before
+      its shape's, for both of a shaped picture's entries. Cases in
+      `tests/canvas/rt_canvas_hit.rs`: two pictures built on one shape value report two
+      paths; a named picture on an unnamed shape reports the picture's `id`; an unnamed
+      picture on a named shape reports the shape's; a picture inside a named group
+      reports group, picture, shape in that order.
 - [x] ~~Add `canvas::picture(shape, image)` with a man example.~~ — moot: Open
       Decision 1 of 172-A was answered "no constructor functions"
       (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
       → 1). A `Picture` holds a `UNION` and a `RES`, so it has no default and is built
-      with its four-field constructor.
-- [ ] Port the 71 sites to a `Rectangle` shape with `ClipOnly` and `Stretch`.
+      with its five-field constructor.
+- [ ] Port the 71 sites to a `Rectangle` shape with `ClipOnly` and `Stretch`. Each
+      site's `id` stays on the `Picture`; the new `Rectangle`'s `id` is empty, so every
+      site reports the `overID` it reported before.
 - [ ] `FIELD_KIND_TABLE` and its `.tsv`; the IR-embedding goldens.
 
 Acceptance: every picture test passes with no golden regenerated.
@@ -320,6 +331,11 @@ None beyond 172-A's Open Decision 3.
   Validation Plan are rewritten. `src/docs/spec/diagnostics/02_error-codes.md` is no
   longer touched by this letter.
 - **From 172-A, Open Decision 1:** no `canvas::picture` constructor function.
+- **Owner's decision, 2026-10-10: a `Picture` keeps its own `id`.** "Picture's id should
+  prefix too… more than one picture/group can use the same shape." §1 (five fields; the
+  id path in place of "its `id` is its shape's"), Phase 2 (the record, the walk and four
+  hit cases, the port's rule) are rewritten, and `planning/new_canvas.md` with them. The
+  path itself and its separator are 172-I's.
 
 ## Summary
 
