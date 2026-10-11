@@ -496,3 +496,229 @@ fn a_returned_box_is_freed_by_its_caller() {
         TOMBSTONE,
     );
 }
+
+/// bug-1026: a binding initialized from `collections::get`/`getOr` owns a copy of
+/// the box it was handed. The call yields the address of the element's two words
+/// inside the collection's block, and the block is freed when the collection
+/// grows; `v` used to keep that address, and `MATCH v` then read a freed block
+/// (`which` returned 0 because no case matched the fill pattern).
+///
+/// The slope each case allows is the collection's own final block and nothing
+/// else. A `List OF RES <Union>` read through `collections::get` keeps its block
+/// (`record_ownership.rs:block_held_elsewhere_strict`, a documented bounded leak
+/// this bug does not touch): 6,192 B for the 41-element list and 5,168 B for the
+/// 41-entry map, the same figures the compiler without this fix reports for these
+/// programs. A leaked box would add 16 B per iteration to them.
+#[test]
+fn a_binding_of_a_list_element_outlives_the_block_it_was_read_from() {
+    check(
+        "list_get_grow",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES c AS Handle = openOne()\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 hs = collections::append(hs, a)\n\
+         \x20 RES v AS Handle = collections::get(hs, 0)\n\
+         \x20 FOR j = 1 TO 40\n\
+         \x20   hs = collections::append(hs, c)\n\
+         \x20 NEXT\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7, 7, 7, 7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9, 9, 9, 9, 9, 9, 9]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        6192,
+    );
+    check(
+        "list_getor_grow",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES c AS Handle = openOne()\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 hs = collections::append(hs, a)\n\
+         \x20 RES v AS Handle = collections::getOr(hs, 0, c)\n\
+         \x20 FOR j = 1 TO 40\n\
+         \x20   hs = collections::append(hs, c)\n\
+         \x20 NEXT\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7, 7, 7, 7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9, 9, 9, 9, 9, 9, 9]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        6192,
+    );
+}
+
+/// bug-1026, a `Map` value: the same read, one container kind over.
+#[test]
+fn a_binding_of_a_map_value_outlives_the_block_it_was_read_from() {
+    check(
+        "map_get_grow",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES c AS Handle = openOne()\n\
+         \x20 MUT m AS Map OF Integer TO RES Handle = Map OF Integer TO RES Handle { 0 := a }\n\
+         \x20 RES v AS Handle = collections::get(m, 0)\n\
+         \x20 FOR j = 1 TO 40\n\
+         \x20   m = collections::set(m, j, c)\n\
+         \x20 NEXT\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7, 7, 7, 7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9, 9, 9, 9, 9, 9, 9]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        5168,
+    );
+}
+
+/// bug-1026, the default of `getOr`: a variant written as the default is wrapped
+/// in a box the statement owns and frees at its end, so the binding that received
+/// it kept the address of a freed box (exit 139 inside `fs::readAll`). The slope is
+/// the one-element list's block, 240 B.
+#[test]
+fn a_binding_of_a_getor_default_outlives_the_statement_that_wrapped_it() {
+    check(
+        "list_getor_default",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES f AS fs::File = openOne()\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 hs = collections::append(hs, a)\n\
+         \x20 RES v AS Handle = collections::getOr(hs, 7, f)\n\
+         \x20 LET junk0 AS List OF Integer = [5, 5]\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        240,
+    );
+    // The same default as a `MATCH` scrutinee: the temporary the scrutinee is
+    // bound to is read after the statement that wrapped the default has ended.
+    check(
+        "match_getor_default",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES f AS fs::File = openOne()\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 hs = collections::append(hs, a)\n\
+         \x20 MATCH collections::getOr(hs, 7, f)\n\
+         \x20   CASE fs::File(g)\n\
+         \x20     LET junk0 AS List OF Integer = [5, 5]\n\
+         \x20     LET text AS String = fs::readAll(g)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n",
+        1,
+        240,
+    );
+}
+
+/// bug-1026 through the inline-`TRAP` desugar, which delivers the value through a
+/// temp the user binding aliases. A borrowed element reaches the temp as the
+/// trapped call's `resultValue`, and an aliasing `RECOVER` as a plain store; both
+/// lend the temp a record and must hand it a copy of the box.
+///
+/// Each slope is the collection's kept block plus 128 B: the closed default the
+/// temp's bind materializes (a 16 B box and its 112 B record), which no store into
+/// a resource-union temp releases. `RES v AS Handle = mkH() TRAP …`, with no
+/// collection in it, keeps the same 128 B per evaluation.
+#[test]
+fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
+    check(
+        "trap_list_get_grow",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES c AS Handle = openOne()\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 hs = collections::append(hs, a)\n\
+         \x20 RES v AS Handle = collections::get(hs, 0) TRAP(e)\n\
+         \x20   RETURN 5\n\
+         \x20 END TRAP\n\
+         \x20 FOR j = 1 TO 40\n\
+         \x20   hs = collections::append(hs, c)\n\
+         \x20 NEXT\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7, 7, 7, 7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9, 9, 9, 9, 9, 9, 9]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        6192 + 128,
+    );
+    check(
+        "trap_map_get_grow",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES c AS Handle = openOne()\n\
+         \x20 MUT m AS Map OF Integer TO RES Handle = Map OF Integer TO RES Handle { 0 := a }\n\
+         \x20 RES v AS Handle = collections::get(m, 0) TRAP(e)\n\
+         \x20   RETURN 5\n\
+         \x20 END TRAP\n\
+         \x20 FOR j = 1 TO 40\n\
+         \x20   m = collections::set(m, j, c)\n\
+         \x20 NEXT\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7, 7, 7, 7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9, 9, 9, 9, 9, 9, 9]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        5168 + 128,
+    );
+    check(
+        "trap_getor_default",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES f AS fs::File = openOne()\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 hs = collections::append(hs, a)\n\
+         \x20 RES v AS Handle = collections::getOr(hs, 7, f) TRAP(e)\n\
+         \x20   RETURN 5\n\
+         \x20 END TRAP\n\
+         \x20 LET junk0 AS List OF Integer = [5, 5]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        240 + 128,
+    );
+}
+
+/// bug-1026: the value an inline `TRAP` recovers with is lent the same way. A
+/// field read names an address inside the record's block, which replacing the
+/// record frees; a bare local names another binding's box.
+#[test]
+fn a_trapped_binding_recovered_with_an_alias_owns_its_box() {
+    check(
+        "trap_recover_field",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 MUT b AS HB = HB[a]\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 RES v AS Handle = collections::get(hs, 3) TRAP(e)\n\
+         \x20   RECOVER b.h\n\
+         \x20 END TRAP\n\
+         \x20 b = HB[c]\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7]\n\
+         \x20 LET junk2 AS List OF Integer = [9, 9]\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+        48 + 128,
+    );
+    check(
+        "trap_recover_local",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 RES v AS Handle = collections::get(hs, 3) TRAP(e)\n\
+         \x20   RECOVER a\n\
+         \x20 END TRAP\n\
+         \x20 RETURN which(\"v\", v) + which(\"a\", a) - 1\n\
+         END FUNC\n",
+        1,
+        48 + 128,
+    );
+}
