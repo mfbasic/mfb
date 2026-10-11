@@ -109,6 +109,10 @@ TYPE AutoPaint
     pressed    AS canvas::Paint
 END TYPE
 
+> As built (plan-172-K, 2026-10-11): the four paint fields are `enterPaint`, `exitPaint`,
+> `hoverPaint` and `pressedPaint`. `EXIT` is a keyword, so a field cannot be named `exit`,
+> and all four took the suffix rather than one. Awaiting the owner's word on the names.
+
 ### AutoPaint states
 
 * Priority, highest first: `pressed`, `enter`, `hover`, `exit`, default.
