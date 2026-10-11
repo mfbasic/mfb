@@ -75,17 +75,17 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 ## New bugs filed since the plan
 
-**P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; scope FROZEN 2026-10-10; all merged into staging, golden proofs and the full gate in progress)
-[~] 982 + 993: OS-entered callbacks keep callee-saved registers (mouse handlers, graphics-thread entry, thread trampoline, OpenSSL verify callback)
-[~] 994: Win64 frames save the callee-saved xmm registers they write
-[~] 983: `fs::pathJoin` heap overrun after an absolute component
-[~] 990: a variant from a call/field/get/WITH is wrapped at every union position
-[~] 988: collection members and `reduce` accept a variant; the collection fixes `T` (`append(squares, aShape)` is a compile error)
-[~] 989: a `List OF Square` given as `List OF Shape` is converted (Map values, nested lists); one direction only
-[~] 1001, 1000, 992, 984: leaks (union-drop I/O buffers; owned-list drain; `graphemesCount`/`graphemeAt`/`fromScalars`/`normalizeNfc`; macOS TLS listener)
-[~] 1016 (canvas name collision), 1020 (`reduce` returned the seed block): found and fixed during the batch
+**P2b: Memory safety, ABI and silent wrong values** (batch 18; in main at 34ae6f130, 2026-10-10; full gate green first time)
+[x] 982 + 993: OS-entered callbacks keep callee-saved registers (mouse handlers, graphics-thread entry, thread trampoline, OpenSSL verify callback)
+[x] 994: Win64 frames save the callee-saved xmm registers they write
+[x] 983: `fs::pathJoin` heap overrun after an absolute component
+[x] 990: a variant from a call/field/get/WITH is wrapped at every union position
+[x] 988: collection members and `reduce` accept a variant; the collection fixes `T` (`append(squares, aShape)` is a compile error)
+[x] 989: a `List OF Square` given as `List OF Shape` is converted (Map values, nested lists); one direction only
+[x] 1001, 1000, 992, 984: leaks (union-drop I/O buffers; owned-list drain; `graphemesCount`/`graphemeAt`/`fromScalars`/`normalizeNfc`; macOS TLS listener)
+[x] 1016 (canvas name collision), 1020 (`reduce` returned the seed block): found and fixed during the batch
 
-**P2c: next batch (nothing started; bs18-agent-l's partial 1013/998 work is parked in its worktree)**
+**P2c: next batch (NOT started; waiting for the owner's go. bs18-agent-l's partial 1013/998 work is parked, uncommitted, in `.claude/worktrees/bs18-agent-l`)**
 [ ] 1013 (HIGH) + 998: the two STATE rules (a STATE must be a record → `TYPE_STATE_INVALID`; STATE only on a resource → `TYPE_STATE_REQUIRES_RESOURCE`). Census done: nothing that works today uses a non-record STATE.
 [ ] 1012 (HIGH): a resource-union box has no owner outside a binding (use-after-free exit 139; double free of a returned `List OF RES Union`)
 [ ] 999: an inline aggregate of resources is never closed. A first fix was reverted out of batch 18 (it closed resources a bound record still named; SIGSEGV in `rt_canvas_geo_native`). Needs an ownership decision: adopt at every bind/assign/store/RETURN, or require the call to be bound first.
