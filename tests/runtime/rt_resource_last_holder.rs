@@ -1287,3 +1287,297 @@ fn a_trapped_element_read_does_not_keep_the_list_block() {
         1,
     );
 }
+
+/// bug-1048: `FOR EACH e IN m` over a `Map OF String TO RES fs::File`, read through
+/// `e.value`. As filed (the value written straight into an argument) it is balanced
+/// since a field read in an argument position became a use of what it reads
+/// through; the first seven cases pin that: the map literal, a map built by a
+/// call, one built by `collections::set` in a loop, one iterated in a callee,
+/// `e.key` alone, an inline `TRAP` in the loop body, and an early `RETURN` out of a
+/// nested loop. The last two are the same shape with the value bound first (`RES f
+/// = e.value`) and with a `collections::get` binding after the loop: there the map
+/// kept its block (192 bytes a call) until its block was judged on its own.
+#[test]
+fn a_map_of_resources_iterated_through_its_values_frees_its_block() {
+    check_at_both_levels(
+        "literal",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"x\" := a, \"y\" := c }\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   t = t + whichL(\"m\", e.value)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "built_by_call",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC mkMap() AS Map OF String TO RES fs::File\n\
+         \x20 MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 m = collections::set(m, \"x\", a)\n\
+         \x20 m = collections::set(m, \"y\", c)\n\
+         \x20 RETURN m\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET m AS Map OF String TO RES fs::File = mkMap()\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   t = t + whichL(\"m\", e.value)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "built_by_set",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   RES a AS fs::File = openOne()\n\
+         \x20   m = collections::set(m, \"k\" & toString(j), a)\n\
+         \x20 NEXT\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   t = t + whichL(\"m\", e.value)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 2\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "iterated_in_callee",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC sumM(m AS Map OF String TO RES fs::File) AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   t = t + whichL(\"m\", e.value)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"x\" := a, \"y\" := c }\n\
+         \x20 RETURN sumM(m) - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "key_only",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"x\" := a, \"y\" := c }\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   t = t + len(e.key)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "inline_trap",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC whichT(label AS String, f AS fs::File, n AS Integer) AS Integer\n\
+         \x20 IF n > 1 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"x\" := a, \"y\" := c }\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 MUT n AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   n = n + 1\n\
+         \x20   t = t + whichT(\"m\", e.value, n) TRAP(err)\n\
+         \x20     RECOVER 10\n\
+         \x20   END TRAP\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 10\n\
+         END FUNC\n",
+        0,
+    );
+    check_at_both_levels(
+        "nested_return",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES a AS fs::File = openOne()\n\
+         \x20   RES c AS fs::File = openOne()\n\
+         \x20   LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"x\" := a, \"y\" := c }\n\
+         \x20   FOR EACH e IN m\n\
+         \x20     t = t + whichL(\"m\", e.value)\n\
+         \x20     IF t = 3 THEN\n\
+         \x20       RETURN t - 2\n\
+         \x20     END IF\n\
+         \x20   NEXT\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "value_bound",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"x\" := a, \"y\" := c }\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   RES f AS fs::File = e.value\n\
+         \x20   t = t + whichL(\"m\", f)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "get_after_loop",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"x\" := a, \"y\" := c }\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   t = t + whichL(\"m\", e.value)\n\
+         \x20 NEXT\n\
+         \x20 RES g AS fs::File = collections::get(m, \"y\")\n\
+         \x20 RETURN t - 2 + whichL(\"g\", g)\n\
+         END FUNC\n",
+        1,
+    );
+}
