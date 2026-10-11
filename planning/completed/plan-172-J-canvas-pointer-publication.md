@@ -201,7 +201,7 @@ no reader.
   → `rt_canvas_pointer`: `2 passed; 0 failed`; `rt_canvas_debug_hooks`: `2 passed`;
   `cargo test --bin mfb -- the_normal_source_has_no_reporting_hook` green in the
   round's `--bin mfb canvas` (`118 passed; 0 failed`).
-Commit: —
+Commit: eab6f908f
 
 ### Phase 2 — macOS
 
@@ -233,7 +233,7 @@ and a move out reports outside.
   and the machine was in use (Corrections). By hand, the same window: `pointer=300,200,0,1`,
   `310,210,0,1`, `310,210,1,1`, `320,220,1,1`, `1050,220,1,0`, `330,230,1,1`,
   `330,230,0,1`, `0,0,0,0`.
-Commit: —
+Commit: eab6f908f
 
 ### Phase 3 — GTK and Windows
 
@@ -288,7 +288,7 @@ position.
   - Windows, box 206: `300,200,0,1` → `310,210,0,1` → `310,210,1,1` → `320,220,1,1` →
     `320,220,0,1` → `320,220,4,1` → `320,220,0,1` → `320,220,2,1` → `320,220,0,1` →
     `0,0,0,0` (`WM_MOUSELEAVE`).
-Commit: —
+Commit: eab6f908f
 
 ## Validation Plan
 
