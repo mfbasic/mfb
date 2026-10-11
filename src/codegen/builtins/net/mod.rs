@@ -94,10 +94,15 @@ mod func_ping;
 mod func_to_url;
 
 mod helper_authority_end;
+mod helper_byte_at;
 mod helper_decode_query_component;
 mod helper_default_port;
+mod helper_host;
 mod helper_index_of;
+mod helper_ipv4_host;
+mod helper_ipv4_number;
 mod helper_is_hex_digit_char;
+mod helper_is_ipv6;
 mod helper_last_index_of;
 mod helper_parse_port;
 mod helper_percent_decode_impl;
@@ -349,6 +354,13 @@ pub(crate) fn register(r: &mut Registry) {
     helper_is_hex_digit_char::register(&mut pkg);
     helper_percent_decode_impl::register(&mut pkg);
     helper_decode_query_component::register(&mut pkg);
+    // bug-979: the host validators `__net_toUrl` runs. Registered after the older
+    // helpers so those keep their source lines.
+    helper_byte_at::register(&mut pkg);
+    helper_ipv4_number::register(&mut pkg);
+    helper_ipv4_host::register(&mut pkg);
+    helper_is_ipv6::register(&mut pkg);
+    helper_host::register(&mut pkg);
 
     func_lookup::register(&mut pkg);
     func_ping::register(&mut pkg);

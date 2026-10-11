@@ -2229,6 +2229,11 @@ const UNREACHABLE_QUALIFIED_CALL: &[(&str, &str, &str)] = &[
     ("__crypto_uuid4", "crypto::randomBytes", "ErrInvalidArgument"),
     ("__crypto_randomIntBig", "collections::get", "ErrIndexOutOfRange"),
     ("__crypto_randomIntBig", "collections::set", "ErrIndexOutOfRange"),
+    // --- net: toUrl's path backslash rewrite (bug-979) ---
+    // The one `strings::replace` call is `replace(path, "\\", "/")`: its `old`
+    // argument is a one-character literal, and replace raises ErrInvalidArgument
+    // only for an empty `old`.
+    ("__net_toUrl", "strings::replace", "ErrInvalidArgument"),
 ];
 
 /// The mirror image of [`UNREACHABLE_VIA_CALLEE`]: a code this sweep's model
