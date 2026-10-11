@@ -128,13 +128,45 @@ fn measure(case: &str, exe: &Path, n: u64, per_iteration: u64) -> (u64, u64, u64
 /// to the rule: the total printed, every allocation freed, nothing freed twice,
 /// and no descriptor left open.
 fn check(case: &str, body: &str, per_iteration: u64) {
+    check_built(case, body, per_iteration, None);
+}
+
+/// [`check`] at both the default optimization level and `-O0`. A copy the default
+/// level folds away (`LET k3 = k`) is a real second binding at `-O0`, and the two
+/// builds take different roads through the ownership analysis (bug-1052).
+fn check_at_both_levels(case: &str, body: &str, per_iteration: u64) {
+    check_built(case, body, per_iteration, None);
+    check_built(&format!("{case}_o0"), body, per_iteration, Some("-O0"));
+}
+
+fn check_built(case: &str, body: &str, per_iteration: u64, level: Option<&str>) {
     let nonce = common::unique_nonce();
     let dir = std::env::temp_dir().join(format!("mfb_last_holder_{case}_{nonce}"));
     fs::create_dir_all(&dir).expect("create data dir");
     let data: PathBuf = dir.join("data.txt");
     fs::write(&data, "hello\n").expect("write data");
     let source = format!("{}{}", prelude(&data), body);
-    let exe = common::debug_report::build_debug(&format!("last_holder_{case}"), &source);
+    let exe = match level {
+        None => common::debug_report::build_debug(&format!("last_holder_{case}"), &source),
+        Some(level) => {
+            let name = format!("last_holder_{case}");
+            let project = common::temp_project(&name, &source);
+            let output = Command::new(common::mfb_exe())
+                .arg("build")
+                .arg("--debug")
+                .arg(level)
+                .arg(&project)
+                .output()
+                .expect("run mfb build --debug");
+            assert!(
+                output.status.success(),
+                "{case} failed to build at {level}:\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            project.join("build").join(format!("{name}.out"))
+        }
+    };
     for n in [10, 20] {
         let (live, skips, allocs, frees) = measure(case, &exe, n, per_iteration);
         assert_eq!(skips, 0, "{case} N={n}: a block was freed twice");
@@ -666,5 +698,196 @@ fn a_list_read_through_get_or_copied_by_a_callee_is_freed() {
          \x20 RETURN t\n\
          END FUNC\n",
         7,
+    );
+}
+
+/// bug-1052: a callee that copies a record holding a resource and returns the copy
+/// (`LET k3 AS HB2 = k` / `RETURN k3`). At `-O0` the copy is a binding of its own,
+/// so the returning function's record is named outside an argument position and the
+/// caller's binding is not bound from a provably fresh block: the caller's drain
+/// closed the file and kept its 112-byte record on every call. The same over a
+/// `WITH` copy of an enclosing record, a chain of copies on both sides of the call,
+/// a copy returned out of a loop body and after it, a resource-union field, and a
+/// callee that fails on some calls under an inline `TRAP`.
+#[test]
+fn a_copy_of_a_record_returned_by_a_callee_is_freed_at_every_level() {
+    check_at_both_levels(
+        "unfolded_copy",
+        "TYPE HB2\n\
+         \x20 h AS RES fs::File\n\
+         END TYPE\n\
+         TYPE Outer2\n\
+         \x20 n AS Integer\n\
+         \x20 inner AS HB2\n\
+         END TYPE\n\
+         FUNC keep2(h AS fs::File) AS HB2\n\
+         \x20 RETURN HB2[h]\n\
+         END FUNC\n\
+         FUNC mk2 AS HB2\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN keep2(u)\n\
+         END FUNC\n\
+         \n\
+         FUNC mid AS HB2\n\
+         \x20 LET k AS HB2 = mk2()\n\
+         \x20 LET k3 AS HB2 = k\n\
+         \x20 RETURN k3\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET q AS HB2 = mid()\n\
+         \x20 LET junk1 AS List OF Integer = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7]\n\
+         \x20 RETURN rd(q.h) - 5\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "with_copy",
+        "TYPE HB2\n\
+         \x20 h AS RES fs::File\n\
+         END TYPE\n\
+         TYPE Outer2\n\
+         \x20 n AS Integer\n\
+         \x20 inner AS HB2\n\
+         END TYPE\n\
+         FUNC keep2(h AS fs::File) AS HB2\n\
+         \x20 RETURN HB2[h]\n\
+         END FUNC\n\
+         FUNC mk2 AS HB2\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN keep2(u)\n\
+         END FUNC\n\
+         \n\
+         FUNC mid AS Outer2\n\
+         \x20 LET k AS HB2 = mk2()\n\
+         \x20 LET o AS Outer2 = Outer2[1, k]\n\
+         \x20 LET o2 AS Outer2 = WITH o { n := 2 }\n\
+         \x20 RETURN o2\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET q AS Outer2 = mid()\n\
+         \x20 RETURN rd(q.inner.h) + q.n\n\
+         END FUNC\n",
+        8,
+    );
+    check_at_both_levels(
+        "copy_chain",
+        "TYPE HB2\n\
+         \x20 h AS RES fs::File\n\
+         END TYPE\n\
+         TYPE Outer2\n\
+         \x20 n AS Integer\n\
+         \x20 inner AS HB2\n\
+         END TYPE\n\
+         FUNC keep2(h AS fs::File) AS HB2\n\
+         \x20 RETURN HB2[h]\n\
+         END FUNC\n\
+         FUNC mk2 AS HB2\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN keep2(u)\n\
+         END FUNC\n\
+         \n\
+         FUNC mid AS HB2\n\
+         \x20 LET k AS HB2 = mk2()\n\
+         \x20 LET a AS HB2 = k\n\
+         \x20 LET b AS HB2 = a\n\
+         \x20 RETURN b\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET q AS HB2 = mid()\n\
+         \x20 LET q2 AS HB2 = q\n\
+         \x20 RETURN rd(q2.h) + rd(q.h) + 1\n\
+         END FUNC\n",
+        7,
+    );
+    check_at_both_levels(
+        "copy_from_loop",
+        "TYPE HB2\n\
+         \x20 h AS RES fs::File\n\
+         END TYPE\n\
+         TYPE Outer2\n\
+         \x20 n AS Integer\n\
+         \x20 inner AS HB2\n\
+         END TYPE\n\
+         FUNC keep2(h AS fs::File) AS HB2\n\
+         \x20 RETURN HB2[h]\n\
+         END FUNC\n\
+         FUNC mk2 AS HB2\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN keep2(u)\n\
+         END FUNC\n\
+         \n\
+         FUNC mid(n AS Integer) AS HB2\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   LET k AS HB2 = mk2()\n\
+         \x20   LET k3 AS HB2 = k\n\
+         \x20   IF j = n THEN\n\
+         \x20     RETURN k3\n\
+         \x20   END IF\n\
+         \x20 NEXT\n\
+         \x20 LET z AS HB2 = mk2()\n\
+         \x20 LET z2 AS HB2 = z\n\
+         \x20 RETURN z2\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET q AS HB2 = mid(2)\n\
+         \x20 LET r AS HB2 = mid(9)\n\
+         \x20 RETURN rd(q.h) + rd(r.h) + 1\n\
+         END FUNC\n",
+        13,
+    );
+    check_at_both_levels(
+        "union_field_copy",
+        "FUNC mkU() AS HU\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN HU[u]\n\
+         END FUNC\n\
+         FUNC mid AS HU\n\
+         \x20 LET k AS HU = mkU()\n\
+         \x20 LET k3 AS HU = k\n\
+         \x20 RETURN k3\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET q AS HU = mid()\n\
+         \x20 RETURN which(q.h) + 1\n\
+         END FUNC\n",
+        7,
+    );
+    check_at_both_levels(
+        "copy_under_inline_trap",
+        "TYPE HB2\n\
+         \x20 h AS RES fs::File\n\
+         END TYPE\n\
+         TYPE Outer2\n\
+         \x20 n AS Integer\n\
+         \x20 inner AS HB2\n\
+         END TYPE\n\
+         FUNC keep2(h AS fs::File) AS HB2\n\
+         \x20 RETURN HB2[h]\n\
+         END FUNC\n\
+         FUNC mk2 AS HB2\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN keep2(u)\n\
+         END FUNC\n\
+         \n\
+         FUNC mid(n AS Integer) AS HB2\n\
+         \x20 LET k AS HB2 = mk2()\n\
+         \x20 LET k3 AS HB2 = k\n\
+         \x20 IF n > 1 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN k3\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   LET q AS HB2 = mid(j) TRAP(e)\n\
+         \x20     t = t + 100\n\
+         \x20     CONTINUE FOR\n\
+         \x20   END TRAP\n\
+         \x20   t = t + rd(q.h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        107,
     );
 }
