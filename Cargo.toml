@@ -1063,6 +1063,10 @@ name = "rt_resource_aggregate_temporary"
 path = "tests/runtime/rt_resource_aggregate_temporary.rs"
 
 [[test]]
+name = "rt_resource_store_float"
+path = "tests/runtime/rt_resource_store_float.rs"
+
+[[test]]
 name = "rt_resource_temporary_close"
 path = "tests/runtime/rt_resource_temporary_close.rs"
 
