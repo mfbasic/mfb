@@ -3437,8 +3437,8 @@ impl CodeBuilder<'_> {
                         if let Some(state_type) = declared.state() {
                             let address = self.load_global_address(name)?;
                             let stored = self.allocate_register();
-                            self.emit(abi::load_u64(&stored, &address, 0));
-                            let slot = self.spill_to_slot("module_state_init", &stored);
+                            self.emit(abi::load_u64(stored, address, 0));
+                            let slot = self.spill_to_slot("module_state_init", stored);
                             self.emit_resource_state_init(slot, &state_type, &declared)?;
                         }
                     }
