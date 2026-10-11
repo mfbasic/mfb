@@ -69,7 +69,9 @@ export MFB_HOME
 # The INT/TERM traps were untouched by the clobber, which is why a killed run
 # released correctly and only the SUCCESS path leaked.
 # `tests/gate_release_on_normal_exit.rs` pins both scripts against this.
-trap 'rm -rf "$MFB_HOME"; gate_lock_release' EXIT
+# It also removes the compiler snapshot taken below (`mfb_snapshot_take`), which
+# does not exist yet when this trap is installed — hence the guard.
+trap 'rm -rf "$MFB_HOME"; [ -n "${MFB_SNAPSHOT_DIR:-}" ] && rm -rf "$MFB_SNAPSHOT_DIR"; gate_lock_release' EXIT
 
 # `run_with_watchdog` is built on perl, matching test-macapp.sh/test-appimage.sh.
 # perl ships with macOS, where this suite runs, and `timeout(1)` does not — but a
@@ -414,6 +416,14 @@ rm -rf "$ACTUAL_ROOT"
 mkdir -p "$ACTUAL_ROOT"
 
 cd "$ROOT" || exit 2
+
+# Run every fixture below from a private copy of the compiler, so a rebuild of
+# `$1` part-way through cannot split this run across two binaries. Taken after
+# the `cd`, because that is where a relative `<mfb-exe>` has always resolved.
+# shellcheck source=mfb-snapshot.sh
+. "$ROOT/scripts/mfb-snapshot.sh"
+mfb_snapshot_take "$MFB_EXE" || exit $?
+MFB_EXE=$MFB_SNAPSHOT_EXE
 
 # Every directory holding a project.json is a test, at any depth. Tests are
 # organized under five top-level trees: tests/acceptance (the single TESTING
