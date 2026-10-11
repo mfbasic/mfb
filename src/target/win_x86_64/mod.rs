@@ -146,6 +146,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.pointerSnapshot",
     "canvas.publishPointer",
     "canvas.autoPublish",
+    "canvas.autoWindowMs",
     "canvas.awaitPickup",
     "canvas.requireCanvasMode",
     "canvas.setGpuMode",

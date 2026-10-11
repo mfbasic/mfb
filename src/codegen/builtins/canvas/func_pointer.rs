@@ -27,7 +27,7 @@ use crate::codegen::registry::{
 };
 use crate::codegen::runtime::canvas::{
     emit_publish_pointer, state_base, PointerRegs, GRAPHICS_OFFSET_AUTOPAINT_LIVE,
-    GRAPHICS_OFFSET_POINTER_SEQ, GRAPHICS_POINTER_WORDS,
+    GRAPHICS_OFFSET_AUTO_WINDOW_MS, GRAPHICS_OFFSET_POINTER_SEQ, GRAPHICS_POINTER_WORDS,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -196,7 +196,47 @@ pub(crate) fn lower_auto_publish(
     Ok(ok_return(builder, "canvas.autoPublish"))
 }
 
+/// `canvas::autoWindowMs() AS Integer` — the project's `options.canvasAutoPaintMS`,
+/// read from the word the build baked into the graphics state
+/// (`GRAPHICS_OFFSET_AUTO_WINDOW_MS`).
+pub(crate) fn lower_auto_window_ms(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let base = builder.temporary_vreg();
+    state_base(
+        &symbol,
+        &base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    let value = builder.allocate_register();
+    builder.emit(abi::load_u64(&value, &base, GRAPHICS_OFFSET_AUTO_WINDOW_MS));
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Integer,
+        location: Operand::from(value),
+        text: "canvas.autoWindowMs".to_string(),
+    })
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "autoWindowMs",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_auto_window_ms),
+        }],
+    });
     pkg.add_function(RegistryFunction {
         name: "autoPublish",
         intro: "",

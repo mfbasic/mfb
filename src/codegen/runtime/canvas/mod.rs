@@ -466,8 +466,17 @@ pub(crate) const GRAPHICS_OFFSET_AUTOPAINT_LIVE: usize = GRAPHICS_OFFSET_POINTER
 /// drawn. Folding the two together would either draw a frame for every pointer move
 /// over nothing, or let a pointer move swallow a `present`.
 pub(crate) const GRAPHICS_OFFSET_AUTO_WAKE: usize = GRAPHICS_OFFSET_AUTOPAINT_LIVE + 8;
+/// plan-172-K: how long a `canvas::AutoPaint` holds its enter and exit paints, in
+/// milliseconds — the project's `options.canvasAutoPaintMS`. The one word of the block
+/// that does not start as zero: [`graphics_state_data_object`] writes it into the
+/// executable, nothing writes it afterwards, and `canvas::autoWindowMs` reads it.
+///
+/// In the block because it is the one piece of canvas data every thread can already
+/// find, and a constant baked into the data is a value the companion source can read
+/// without the build having to rewrite that source per project.
+pub(crate) const GRAPHICS_OFFSET_AUTO_WINDOW_MS: usize = GRAPHICS_OFFSET_AUTO_WAKE + 8;
 /// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_AUTO_WAKE + 8;
+pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_AUTO_WINDOW_MS + 8;
 
 /// What `canvas::waitForRedraw` answers: the loop is stopping; a redraw is owed; or
 /// (plan-172-K) nothing is owed but the pointer changed or an `AutoPaint` window ended.
@@ -1650,8 +1659,13 @@ pub(crate) fn graphics_trampoline_saved(_arch: &str, windows: bool) -> Vec<abi::
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
 
-/// The graphics thread's shared-state data object.
-pub(crate) fn graphics_state_data_object() -> CodeDataObject {
+/// The graphics thread's shared-state data object: all zero but
+/// [`GRAPHICS_OFFSET_AUTO_WINDOW_MS`], which holds `auto_paint_ms` little-endian.
+pub(crate) fn graphics_state_data_object(auto_paint_ms: u64) -> CodeDataObject {
+    let mut bytes = vec![0u8; GRAPHICS_STATE_SIZE];
+    bytes[GRAPHICS_OFFSET_AUTO_WINDOW_MS..GRAPHICS_OFFSET_AUTO_WINDOW_MS + 8]
+        .copy_from_slice(&auto_paint_ms.to_le_bytes());
+    let value: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
     CodeDataObject {
         symbol: GRAPHICS_STATE_SYMBOL.to_string(),
         kind: "raw".to_string(),
@@ -1660,7 +1674,7 @@ pub(crate) fn graphics_state_data_object() -> CodeDataObject {
             .to_string(),
         align: 8,
         size: GRAPHICS_STATE_SIZE,
-        value: "00".repeat(GRAPHICS_STATE_SIZE),
+        value,
     }
 }
 

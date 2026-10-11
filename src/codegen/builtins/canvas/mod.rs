@@ -1519,7 +1519,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "enterPaint",
                 ty: ParameterType::named("Paint"),
-                description: "Shown for 50 milliseconds from the moment the mouse \
+                description: "Shown for a tenth of a second (or your project.json options.canvasAutoPaintMS) from the moment the mouse \
                               arrives, then the hover paint takes over — with the mouse still, \
                               too. It is a flash, not a fade: nothing is blended. If \
                               the mouse leaves first, the exit paint starts at once.",
@@ -1527,7 +1527,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "exitPaint",
                 ty: ParameterType::named("Paint"),
-                description: "Shown for 50 milliseconds from the moment the mouse \
+                description: "Shown for a tenth of a second (or your project.json options.canvasAutoPaintMS) from the moment the mouse \
                               leaves, then the shape's own paint returns. If the mouse \
                               comes back first, the enter paint starts at once.",
             },

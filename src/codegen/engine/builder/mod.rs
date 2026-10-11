@@ -1622,7 +1622,9 @@ pub(crate) fn lower_module_for_platform(
     // documentation and `.ai/canvas-threading.md` §2. Emitted only for a module that
     // uses `canvas::`, so every other program keeps its exact data-object set.
     if module_uses_canvas(module) {
-        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object());
+        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object(
+            module.canvas_auto_paint_ms,
+        ));
         data_objects.push(CodeDataObject {
             symbol: CANVAS_SCENE_SYMBOL.to_string(),
             kind: "raw".to_string(),

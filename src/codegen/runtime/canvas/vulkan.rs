@@ -9063,7 +9063,21 @@ mod tests {
             GRAPHICS_OFFSET_AUTO_WAKE,
             GRAPHICS_OFFSET_AUTOPAINT_LIVE + 8
         );
-        assert_eq!(GRAPHICS_STATE_SIZE, GRAPHICS_OFFSET_AUTO_WAKE + 8);
+        // And the baked `options.canvasAutoPaintMS`, the block's last word and the only
+        // one that does not start as zero.
+        use crate::codegen::runtime::canvas::{
+            graphics_state_data_object, GRAPHICS_OFFSET_AUTO_WINDOW_MS,
+        };
+        assert_eq!(
+            GRAPHICS_OFFSET_AUTO_WINDOW_MS,
+            GRAPHICS_OFFSET_AUTO_WAKE + 8
+        );
+        assert_eq!(GRAPHICS_STATE_SIZE, GRAPHICS_OFFSET_AUTO_WINDOW_MS + 8);
+        let block = graphics_state_data_object(0x0102);
+        assert_eq!(block.value.len(), GRAPHICS_STATE_SIZE * 2);
+        let at = GRAPHICS_OFFSET_AUTO_WINDOW_MS * 2;
+        assert_eq!(&block.value[at..at + 16], "0201000000000000");
+        assert!(block.value[..at].bytes().all(|digit| digit == b'0'));
         for (index, offset) in GRAPHICS_POINTER_WORDS.into_iter().enumerate() {
             assert_eq!(offset, GRAPHICS_OFFSET_POINTER_SEQ + 8 * (index + 1));
         }

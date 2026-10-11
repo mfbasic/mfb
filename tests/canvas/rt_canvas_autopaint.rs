@@ -10,10 +10,10 @@
 //! **Reading a state.** The stats line's `auto=` field is the paint each `AutoPaint` of
 //! the frame shows, one digit each in scene order: 0 the shape's own, 1 enter, 2 exit,
 //! 3 hover, 4 pressed. A state that is still showing when the program ends is also read
-//! off the frame, as pixels of that paint's colour. The 50 ms enter and exit paints are
-//! over long before a `--debug` software frame could be compared, so the tests that
-//! photograph one stretch the window with `MFB_CANVAS_AUTO_WINDOW_MS`; the tests that
-//! prove it ENDS use the real 50 ms.
+//! off the frame, as pixels of that paint's colour. The enter and exit paints last a
+//! tenth of a second by default and are over long before a `--debug` software frame
+//! could be compared, so the tests that photograph one stretch the window with
+//! `MFB_CANVAS_AUTO_WINDOW_MS`; the tests that prove it ENDS use the real one.
 //!
 //! **Timing.** A script entry is applied at the first frame at or after its time, and
 //! the render loop wakes for it. What a test asserts between two entries needs the
@@ -452,7 +452,7 @@ fn the_hover_paint_shows_after_entry() {
     assert_eq!(ran.count(BASE), 0);
 }
 
-/// The enter paint shows first, and gives way to hover after 50 ms with the pointer
+/// The enter paint shows first, and gives way to hover a tenth of a second later with the pointer
 /// where it was: one script entry, two frames, the second one asked for by the clock.
 #[test]
 fn the_enter_paint_shows_first_and_gives_way_with_the_pointer_still() {
@@ -467,7 +467,7 @@ fn the_enter_paint_shows_first_and_gives_way_with_the_pointer_still() {
     assert_eq!(flash.count(ENTER_RGB), BUTTON);
 }
 
-/// The pointer leaves: the exit paint, then the shape's own paint 50 ms later, with
+/// The pointer leaves: the exit paint, then the shape's own paint a moment later, with
 /// nothing further from the pointer.
 #[test]
 fn the_exit_paint_shows_then_the_default() {
@@ -709,4 +709,51 @@ fn the_debug_geometry_check_agrees_with_an_autopaint_scene() {
             ran.stats.join("\n")
         );
     }
+}
+
+/// `options.canvasAutoPaintMS` in project.json is how long the enter and exit paints are
+/// held, and it is baked into the program: the same source built with the option at ten
+/// seconds is still showing its enter paint when it ends, where built without it — 100
+/// ms — it has gone on to hover. Nothing in the environment says how long; that is the
+/// difference between this and every test above that stretches the window.
+#[test]
+fn the_project_option_sets_how_long_a_flash_lasts() {
+    let source = STATES;
+    let stretched = {
+        let project = common::temp_project("canvas_autopaint_option", source);
+        let manifest = project.join("project.json");
+        let text = std::fs::read_to_string(&manifest).expect("read project.json");
+        let with_option = text.replacen(
+            "\"targets\":[\"native\"]",
+            "\"targets\":[\"native\"],\"options\":{\"canvasAutoPaintMS\":10000}",
+            1,
+        );
+        assert_ne!(
+            text, with_option,
+            "the scaffold's project.json changed shape"
+        );
+        std::fs::write(&manifest, with_option).expect("write project.json");
+        std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
+            .expect("write the font fixture");
+        let binary = common::build_app_debug(&project, "canvas_autopaint_option");
+        Built {
+            name: "canvas_autopaint_option",
+            project,
+            binary,
+        }
+    };
+    let envs = [
+        ("SCENE", "one"),
+        ("FLAGS", "15"),
+        ("MFB_CANVAS_POINTER", "0,150,120,0,1"),
+        ("SLEEP", "1500"),
+    ];
+    let held = run(&stretched, true, &envs);
+    assert_eq!(held.autos(), vec!["1"]);
+    assert_eq!(held.count(ENTER_RGB), BUTTON);
+
+    // The default: the flash is over well inside the same second and a half.
+    let default = run(states(), true, &envs);
+    assert_eq!(default.autos(), vec!["1", "3"]);
+    assert_eq!(default.count(HOVER_RGB), BUTTON);
 }

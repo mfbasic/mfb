@@ -85,7 +85,8 @@ by `mfb init` but are not consulted by selection or build stages.
 [[src/manifest/mod.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
 ⁴ `options` holds runtime tunables baked into the compiled executable.
-Two keys are read: `stdinLogCap`, the stdin broadcast-log
+Three keys are read: `canvasAutoPaintMS`, how long a `canvas::AutoPaint` holds its
+enter and exit paints (below); `stdinLogCap`, the stdin broadcast-log
 backpressure high-water mark in bytes — the runtime reader blocks a
 producer rather than growing the log past `base + stdinLogCap`. It is read lazily
 on the executable codegen path and defaults to `STDIN_LOG_CAP_DEFAULT` (4 MiB) when
@@ -109,6 +110,32 @@ most 4096 bytes; an empty string is accepted. A package that omits it emits
 `PACKAGE_META` payload; see `./mfb spec package package-meta-section`.
 [[src/manifest/mod.rs:MAX_DESCRIPTION_BYTES]]
 [[src/manifest/mod.rs:validate_description]]
+
+## AutoPaint flash length (`options.canvasAutoPaintMS`)
+
+A `canvas::AutoPaint` shows its `enterPaint` for a fixed time after the pointer arrives
+on it and its `exitPaint` for the same time after the pointer leaves
+(`./mfb spec app canvas`, "AutoPaint"). `options.canvasAutoPaintMS` is that time, in
+milliseconds:
+
+```json
+{ "options": { "canvasAutoPaintMS": 100 } }
+```
+
+- Whole number, 1 to 10000. Anything else — a string, a fraction, zero, out of range —
+  is `PROJECT_JSON_FIELD_TYPE`. [[src/manifest/mod.rs:validate_canvas_auto_paint_ms]]
+- Omitted, it defaults to **100**. `mfb init` and `mfb init-pkg` write the default out.
+  [[src/manifest/mod.rs:DEFAULT_CANVAS_AUTO_PAINT_MS]]
+- It is the **consuming executable's** setting, like `maxBuffer`: a package that draws
+  an `AutoPaint` gets the timing of the program that imports it, and a package's own
+  value is not encoded into its `.mfp`. [[src/manifest/mod.rs:canvas_auto_paint_ms]]
+- It is one value for the whole program. An `AutoPaint` has no field for it.
+
+The build bakes the value into the last word of the canvas graphics-state block, the one
+word of that block that does not start as zero
+([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_AUTO_WINDOW_MS]]), and the canvas
+companion reads it with `canvas::autoWindowMs`. A program that does not use `canvas` has
+no such block and the key has no effect.
 
 ## Native buffer ceiling (`options.maxBuffer`)
 

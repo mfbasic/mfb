@@ -175,7 +175,7 @@ between frames produce one frame. A test that needs one frame per present must s
 
 Exactly seven, and a static scene costs zero frames. **Time is among them in one
 bounded case and no other**: trigger 7, which exists only while a `canvas::AutoPaint` is
-inside its 50 ms enter or exit window and ends with it. Nothing else ever wakes the
+inside its enter or exit window (`options.canvasAutoPaintMS`, 100 ms by default) and ends with it. Nothing else ever wakes the
 render loop on a clock.
 
 | # | Trigger | Signalled by | Notes |
@@ -684,7 +684,8 @@ Six environment variables (two of them a pair), all off by default and none on t
 production path:
 
 * `MFB_CANVAS_AUTO_WINDOW_MS` — **a `--debug` build only**: the length of an
-  `AutoPaint`'s enter and exit windows, in place of 50 ms (1 to 3,600,000). A 50 ms
+  `AutoPaint`'s enter and exit windows, in place of the project's
+  `options.canvasAutoPaintMS` (1 to 3,600,000). A 100 ms
   flash is over before a `--debug` software frame can be compared, so a test that has
   to photograph one stretches it; a test that proves the window ENDS uses the real one
   and reads the sequence off the stats lines' `auto=` field — the paint each instance

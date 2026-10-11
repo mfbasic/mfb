@@ -759,6 +759,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // an EXECUTABLE links — so the ceiling that applies is this project's,
             // and an imported binding cannot raise it on the app's behalf.
             ir.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
+            // plan-172-K: how long a `canvas::AutoPaint` flash lasts — this project's
+            // setting, baked into the executable's graphics state.
+            ir.canvas_auto_paint_ms = crate::manifest::canvas_auto_paint_ms(&manifest);
             // plan-167-B: the config `os::getConfigOr` calls fold from. Like the
             // ceiling above it is this project's, and applies to package code.
             ir.selected_config = selected_config.clone();
@@ -1119,6 +1122,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // Without it a dump baked the 64 MiB default whatever `options.maxBuffer`
             // said, so `--ncode` disagreed with the program it claims to show.
             lowered.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
+            lowered.canvas_auto_paint_ms = crate::manifest::canvas_auto_paint_ms(&manifest);
             // plan-167-B: fold `os::getConfigOr` exactly as the executable does,
             // so a native dump shows the values the program will carry.
             lowered.selected_config = selected_config.clone();

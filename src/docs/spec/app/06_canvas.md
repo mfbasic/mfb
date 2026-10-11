@@ -1465,9 +1465,14 @@ A phase is never one its flag forbids, which is the whole of "an unused state fa
 through": an unused flash starts no window and so asks for no frame when it would have
 ended.
 
-The window is 50 ms ([[src/codegen/builtins/canvas/helper_render.rs:POINTER_SCRIPT]]'s
-`__canvas_autoWindow`), on `canvas::frameNanos`' monotonic clock. It is a constant, not
-a field. Nothing is interpolated: each paint is drawn whole.
+The window is the project's `options.canvasAutoPaintMS`, 100 ms unless project.json
+says otherwise (`./mfb spec tooling project-manifest`), on `canvas::frameNanos`'
+monotonic clock. It is one value for the program, not a field of the record: the build
+bakes it into the graphics-state block
+([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_AUTO_WINDOW_MS]]) and
+`__canvas_autoWindow` reads it through `canvas::autoWindowMs`
+([[src/codegen/builtins/canvas/func_pointer.rs:lower_auto_window_ms]]). Nothing is
+interpolated: each paint is drawn whole.
 
 **The pointer is sampled, not replayed.** A frame reads the pointer words once. Two
 changes between two frames are one change to it, so a press and release that both land
@@ -1614,7 +1619,7 @@ source because they alone were another 24,744.
 thread, so no handler signals for it. With an `AutoPaint` live, `__canvas_autoTimeout`
 also waits no longer than the script's next entry (`__canvas_pointerNextDue`), and the
 entry is applied by the frame that wakes. `MFB_CANVAS_AUTO_WINDOW_MS` replaces the
-50 ms window (1 to 3,600,000; anything else is 50). The stats line gains
+project's window for one run (1 to 3,600,000; anything else leaves it). The stats line gains
 `auto=`: the paint each instance of the frame shows, one digit each in walk order — 0 the
 shape's own, 1 enter, 2 exit, 3 hover, 4 pressed — or `-` when the frame had none. A
 normal build has none of the three.

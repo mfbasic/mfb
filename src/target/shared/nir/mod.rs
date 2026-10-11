@@ -58,6 +58,10 @@ pub(crate) struct NirModule {
     /// The `OUT CBuffer` allocation ceiling in bytes (project.json `options.maxBuffer`,
     /// in MiB). See `IrProject::max_buffer_bytes`.
     pub(crate) max_buffer_bytes: u64,
+    /// How long a `canvas::AutoPaint` holds its enter and exit paints, in milliseconds,
+    /// from the project.json `options.canvasAutoPaintMS` field. Like `max_buffer_bytes`
+    /// it is the CONSUMING executable's setting and is not encoded into a `.mfp`.
+    pub(crate) canvas_auto_paint_ms: u64,
 }
 
 /// The internal text symbol of the per-program native `LINK` load-time

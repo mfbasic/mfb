@@ -488,6 +488,19 @@ a press drew pressed and its release hover, and a move inside the shape drew not
 
 ## Corrections
 
+- **The flash is 100 ms by default and a project option, by the owner's decision after
+  using it (2026-10-11).** "50ms is to short to see anythin from enter and leave", then,
+  having tried 100 in a real window: "use 100ms as the default / add a project.json
+  options.canvasAutoPaintMS / update mfb init(s) to output and default
+  canvasAutoPaintMS to 100". This reverses §1's "`enter` and `exit` last 50 ms" and the
+  non-goal "the 50 ms duration is a constant, not a field" in one respect: it is still
+  not a field of the record, but it is no longer a constant. `options.canvasAutoPaintMS`
+  is a whole number of milliseconds from 1 through 10000, defaults to 100, is the
+  consuming executable's setting (carried like `options.maxBuffer`), and is baked into
+  the last word of the graphics-state block, which `canvas::autoWindowMs` reads. `mfb
+  init` and `mfb init-pkg` write it out. Landed after the letter was archived, in its
+  own commit.
+
 - **The runtime proof is not `examples/canvas-demo`, and the worker sleeps rather than
   reads a key (2026-10-11).** The Validation Plan asks for the demo's menu buttons
   wrapped in `AutoPaint`. The demo's rewrite was never given a go-ahead, so the proof

@@ -45,7 +45,7 @@ pub(super) const CONSTRUCTED: &[&str] = &["AutoPaint"];
 /// enter, hover, exit, the shape's own paint — and a state whose `use…` flag is off is
 /// never entered, which is what "falls through" means: with `useEnter` off an arrival
 /// goes straight to `IN`, with `useExit` off a departure goes straight to `OUT`, and
-/// neither starts a window, so neither asks for a frame 50 ms later.
+/// neither starts a window, so neither asks for a frame when it would have ended.
 ///
 /// The answer is packed, because a function returns one value and a list would be an
 /// allocation an instance a frame: the phase, the ownership, the paint shown, and

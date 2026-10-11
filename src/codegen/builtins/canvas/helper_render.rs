@@ -1552,7 +1552,7 @@ END FUNC"#
 ///
 /// It never returns. The wait is a real condition wait, so a static scene costs
 /// nothing — no timer, no poll, no spin. Time is a redraw trigger in exactly one case
-/// (`.ai/canvas-threading.md` §4): a `canvas::AutoPaint` inside its 50 ms enter or exit
+/// (`.ai/canvas-threading.md` §4): a `canvas::AutoPaint` inside its enter or exit
 /// window, whose end `__canvas_autoTimeout` hands the wait.
 ///
 /// It renders the *installed* scene rather than being handed one, which is what lets
@@ -1603,9 +1603,10 @@ FUNC __canvas_pointerNextDue() AS Integer
   RETURN 0
 END FUNC
 
-' plan-172-K: how long an `AutoPaint`'s enter and exit paints are held, in nanoseconds.
+' plan-172-K: how long an `AutoPaint`'s enter and exit paints are held, in nanoseconds:
+' the project's `options.canvasAutoPaintMS`, 100 unless it says otherwise.
 FUNC __canvas_autoWindow() AS Integer
-  RETURN 50000000
+  RETURN canvas::autoWindowMs() * 1000000
 END FUNC"#;
 
 /// The `--debug` build's scripted pointer: `MFB_CANVAS_POINTER` holds
@@ -1699,18 +1700,20 @@ FUNC __canvas_pointerNextDue() AS Integer
 END FUNC
 
 ' plan-172-K: how long an `AutoPaint`'s enter and exit paints are held, in nanoseconds
-' -- 50 ms, unless `MFB_CANVAS_AUTO_WINDOW_MS` says otherwise. The override is a test
-' affordance, off by default: a flash that lasts 50 ms cannot be photographed by a test
-' whose software frame takes longer than that to draw.
+' -- the project's `options.canvasAutoPaintMS`, unless `MFB_CANVAS_AUTO_WINDOW_MS` says
+' otherwise. The override is a test affordance, off by default: a flash that lasts a
+' tenth of a second cannot be photographed by a test whose software frame takes longer
+' than that to draw.
 MUT __CANVAS_AUTO_WINDOW_NS AS Integer = 0
 
 FUNC __canvas_autoWindow() AS Integer
   IF __CANVAS_AUTO_WINDOW_NS = 0 THEN
-    MUT ms AS Integer = toInt(os::getEnvOr("MFB_CANVAS_AUTO_WINDOW_MS", "50")) TRAP(e)
-      RECOVER 50
+    LET built AS Integer = canvas::autoWindowMs()
+    MUT ms AS Integer = toInt(os::getEnvOr("MFB_CANVAS_AUTO_WINDOW_MS", "0")) TRAP(e)
+      RECOVER 0
     END TRAP
     IF ms < 1 OR ms > 3600000 THEN
-      ms = 50
+      ms = built
     END IF
     __CANVAS_AUTO_WINDOW_NS = ms * 1000000
   END IF
