@@ -1391,10 +1391,12 @@ pub(crate) fn lower_function(
         // bug-805: a collection whose elements reach a resource at any depth (a
         // `List OF Holder`, a `List OF List OF Holder`) owns its adopted resources
         // exactly as a `List OF RES` does.
+        // bug-1025: and so does a record that reaches one (a record with a `RES`
+        // field, or one nesting such a record), which adopts the resources a call
+        // hands back inside it.
         let res_collection_type = |type_: &ParameterType| {
             CodeBuilder::is_res_collection_block(type_)
-                || (crate::codegen::engine::types::typed_is_collection_type(type_)
-                    && builder.is_resource_owning_container(type_))
+                || builder.is_resource_owning_container(type_)
         };
         crate::codegen::resource::cleanup::record_ownership::record_ownership(
             function,

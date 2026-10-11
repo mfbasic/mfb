@@ -156,10 +156,9 @@ fn check(case: &str, body: &str, per_iteration: u64, slope: u64) {
 /// Shape (a): a record whose `RES Handle` field was built from a callee's
 /// parameter, returned past the binding that wrapped the box.
 ///
-/// These two may keep the closed file record (112 B) per iteration: a record a
-/// callee hands back inside a record is closed by the caller's binding and not
-/// freed, with a concrete `RES fs::File` field as well. That is the record, not a
-/// box, and the box rule is what is held here.
+/// Both are balanced: the caller's binding adopts the file record the callee
+/// hands back inside the record, closes it and frees it (bug-1025; these two
+/// allowed the 112 B record per iteration before).
 #[test]
 fn a_record_field_outlives_the_binding_that_wrapped_its_box() {
     check(
@@ -178,7 +177,7 @@ fn a_record_field_outlives_the_binding_that_wrapped_its_box() {
          \x20 RETURN which(\"kept\", k.h)\n\
          END FUNC\n",
         1,
-        TOMBSTONE,
+        0,
     );
     check(
         "kept_two_frames",
@@ -198,7 +197,7 @@ fn a_record_field_outlives_the_binding_that_wrapped_its_box() {
          \x20 RETURN which(\"kept\", k.h)\n\
          END FUNC\n",
         1,
-        TOMBSTONE,
+        0,
     );
 }
 

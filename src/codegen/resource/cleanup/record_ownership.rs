@@ -390,16 +390,28 @@ pub(crate) fn record_ownership(
             _ => None,
         })
         .collect();
+    // bug-1025: a record that reaches a resource, as opposed to a collection that
+    // does. Both are owner containers; only a record is copied by value.
+    let record_container = |type_: &ParameterType| {
+        res_collection_type(type_)
+            && !crate::codegen::engine::types::typed_is_collection_type(type_)
+    };
     let owning_collections = owning_collections(
         function,
         functions,
         record_type,
         res_collection_type,
+        &record_container,
         &stores,
         &params,
     );
-    let (reassign_free_collections, inner_owning_collections) =
-        block_collections(function, functions, &stores, &owning_collections);
+    let (reassign_free_collections, inner_owning_collections) = block_collections(
+        function,
+        functions,
+        &stores,
+        &owning_collections,
+        &record_container,
+    );
     RecordOwnership {
         owning_locals,
         alias_sources,
@@ -428,8 +440,12 @@ fn block_collections(
     functions: &HashMap<String, &NirFunction>,
     stores: &Stores,
     owning: &HashSet<String>,
+    record_container: &dyn Fn(&ParameterType) -> bool,
 ) -> (HashSet<String>, HashSet<String>) {
-    let mut callees = CalleeParamUses::default();
+    let mut callees = CalleeParamUses {
+        record_container: Some(record_container),
+        ..CalleeParamUses::default()
+    };
     let uses = CollectionUses::of(function, functions, &mut callees);
     let mut reassign_free = HashSet::new();
     let mut inner_owning = HashSet::new();
@@ -509,6 +525,7 @@ fn owning_collections(
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
+    record_container: &dyn Fn(&ParameterType) -> bool,
     stores: &Stores,
     params: &HashSet<String>,
 ) -> HashSet<String> {
@@ -521,7 +538,10 @@ fn owning_collections(
                 .push(name.clone());
         }
     }
-    let mut callees = CalleeParamUses::default();
+    let mut callees = CalleeParamUses {
+        record_container: Some(record_container),
+        ..CalleeParamUses::default()
+    };
     let uses = CollectionUses::of(function, functions, &mut callees);
     let all_floated: HashSet<String> = floats.values().flatten().cloned().collect();
     let mut owning = HashSet::new();
@@ -597,11 +617,11 @@ fn owning_collections(
 /// Where each local is NAMED, for [`owning_collections`]: the positions that can create
 /// a second holder of a block, and the calls that hand a resource pointer back out of a
 /// collection.
-struct CollectionUses<'m, 'f> {
+struct CollectionUses<'m, 'f, 'p> {
     /// Every function in the program, to ask what a callee does with an argument.
     functions: &'f HashMap<String, &'f NirFunction>,
     /// What each callee's parameters are known to do, shared across the walk.
-    callees: &'m mut CalleeParamUses,
+    callees: &'m mut CalleeParamUses<'p>,
     /// Locals named as a bare `Local` somewhere other than a call's argument list.
     escaping: HashSet<String>,
     /// bug-801: locals whose BLOCK a call keeps — a `collections` member's non-receiver
@@ -668,7 +688,11 @@ struct CollectionUses<'m, 'f> {
 /// past the call (bug-801). Memoized; a function still being resolved answers
 /// fail-safe.
 #[derive(Default)]
-struct CalleeParamUses {
+struct CalleeParamUses<'p> {
+    /// bug-1025: whether a binding of that type is a record that reaches a
+    /// resource (see [`CollectionUses::visit_op`], the copy arm). `None` knows no
+    /// such type, which answers "held" for every copy.
+    record_container: Option<&'p dyn Fn(&ParameterType) -> bool>,
     known: HashMap<String, Vec<bool>>,
     visiting: HashSet<String>,
     /// bug-753: per function, whether every `RETURN` hands back a block it built.
@@ -678,11 +702,11 @@ struct CalleeParamUses {
     builtins: HashMap<String, bool>,
 }
 
-impl<'m, 'f> CollectionUses<'m, 'f> {
+impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
     fn of(
         function: &NirFunction,
         functions: &'f HashMap<String, &'f NirFunction>,
-        callees: &'m mut CalleeParamUses,
+        callees: &'m mut CalleeParamUses<'p>,
     ) -> Self {
         let mut collector = CollectionUses {
             functions,
@@ -875,7 +899,7 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
     }
 }
 
-impl CollectionUses<'_, '_> {
+impl CollectionUses<'_, '_, '_> {
     /// bug-753: whether `value` calls a function whose every `RETURN` hands back a
     /// block that function built — so the caller's binding is the block's one
     /// holder. A `RETURN` qualifies when its value is a collection literal, a call
@@ -903,7 +927,9 @@ impl CollectionUses<'_, '_> {
             && returns.iter().all(|returned| match returned {
                 NirValue::ListLiteral { .. }
                 | NirValue::SetLiteral { .. }
-                | NirValue::MapLiteral { .. } => true,
+                | NirValue::MapLiteral { .. }
+                // bug-1025: a record the function built is a block of its own.
+                | NirValue::Constructor { .. } => true,
                 NirValue::Local(name) => {
                     inner.block_is_fresh(name)
                         && !inner.kept.contains(name)
@@ -920,10 +946,17 @@ impl CollectionUses<'_, '_> {
     }
 }
 
-impl CollectionUses<'_, '_> {
-    /// Walk the one local a `FOR EACH` variable or a `MATCH` reference is derived
-    /// from: it lands in `escaping` (every strict verdict keeps reading it) but
-    /// not in `escaping_beyond_iteration`.
+impl CollectionUses<'_, '_, '_> {
+    /// bug-1025: whether a binding of `type_` is a record that reaches a resource.
+    fn is_record_container(&self, type_: &ParameterType) -> bool {
+        self.callees
+            .record_container
+            .is_some_and(|record_container| record_container(type_))
+    }
+
+    /// Walk the one local a `FOR EACH` variable, a `MATCH` reference, a record
+    /// copy or a field read is derived from: it lands in `escaping` (every strict
+    /// verdict keeps reading it) but not in `escaping_beyond_iteration`.
     fn visit_derived_from(&mut self, source: &NirValue) {
         let previous = self.in_iterable;
         self.in_iterable = true;
@@ -956,7 +989,7 @@ fn is_match_view(name: &str) -> bool {
     name.starts_with("$match")
 }
 
-impl NirVisitor for CollectionUses<'_, '_> {
+impl NirVisitor for CollectionUses<'_, '_, '_> {
     fn visit_op(&mut self, op: &NirOp) {
         match op {
             NirOp::Return { value: Some(value) } => {
@@ -1046,6 +1079,61 @@ impl NirVisitor for CollectionUses<'_, '_> {
                 }
                 return;
             }
+            // bug-1025: a record that reaches a resource is copied by value, and the
+            // copy holds the same handles. Bound from another such record (`LET k3 =
+            // k2`, `LET k2 = WITH k { n := 9 }`), the copy lives inside the scope of
+            // the record it was made from, so it is a holder only if it goes
+            // somewhere itself: the `FOR EACH` variable's rule again. A collection
+            // is not copied by a bind (the two names share one block), so this is
+            // asked of records only; and only of a bind, never an assignment, whose
+            // target can outlive the source.
+            NirOp::Bind {
+                name,
+                type_,
+                value: Some(value),
+                ..
+            } if match value {
+                NirValue::Local(_) => true,
+                NirValue::WithUpdate { target, .. } => {
+                    matches!(target.as_ref(), NirValue::Local(_))
+                }
+                _ => false,
+            } && self.is_record_container(type_) =>
+            {
+                self.note_store(name, Some(value));
+                match value {
+                    NirValue::WithUpdate {
+                        target, updates, ..
+                    } => {
+                        if let NirValue::Local(source) = target.as_ref() {
+                            self.iterations.push((source.clone(), name.clone()));
+                        }
+                        self.visit_derived_from(target);
+                        for update in updates {
+                            self.visit_value(&update.value);
+                        }
+                    }
+                    source => {
+                        if let NirValue::Local(source) = source {
+                            self.iterations.push((source.clone(), name.clone()));
+                        }
+                        self.visit_derived_from(source);
+                    }
+                }
+                return;
+            }
+            // bug-1025: a field read bound to a plain scalar (`LET n = k.n`) copies
+            // a value that holds nothing.
+            NirOp::Bind {
+                name,
+                type_,
+                value: Some(value @ NirValue::MemberAccess { .. }),
+                ..
+            } if is_plain_scalar(type_) && field_read_root(value).is_some() => {
+                self.note_store(name, Some(value));
+                self.visit_derived_from(value);
+                return;
+            }
             NirOp::Bind {
                 name, type_, value, ..
             } => {
@@ -1129,8 +1217,9 @@ impl NirVisitor for CollectionUses<'_, '_> {
                         &mut self.element_readers
                     };
                     for arg in args {
-                        if let NirValue::Local(name) = arg {
-                            readers.insert(name.clone());
+                        // bug-1025: a field read names the record it reads through.
+                        if let Some(name) = field_read_root(arg) {
+                            readers.insert(name.to_string());
                         }
                     }
                 }
@@ -1160,6 +1249,23 @@ impl NirVisitor for CollectionUses<'_, '_> {
                             .as_ref()
                             .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true));
                     let NirValue::Local(name) = arg else {
+                        // bug-1025: a field read written straight into an argument
+                        // position is a use of the record it reads through, exactly
+                        // as naming the record there is: kept when the call keeps or
+                        // consumes the argument, a use that ends with the call
+                        // otherwise.
+                        if let (NirValue::MemberAccess { .. }, Some(root)) =
+                            (arg, field_read_root(arg))
+                        {
+                            if keeps || consumes == Some(index) {
+                                self.kept.insert(root.to_string());
+                            }
+                            if unread {
+                                self.kept_by_unread_code.insert(root.to_string());
+                            }
+                            self.visit_derived_from(arg);
+                            continue;
+                        }
                         // bug-1000: a borrowed-element read written straight into an
                         // argument position is a use of the element exactly as naming
                         // a floated element local there is — provided this call does
@@ -1191,9 +1297,37 @@ impl NirVisitor for CollectionUses<'_, '_> {
                 }
                 return;
             }
+            // bug-1025: a comparison yields a `Boolean`, which holds nothing, so a
+            // field read as its operand is a use that ends with the comparison
+            // (`IF k.name = "x" AND k.n = 3`). Any other operand walks normally.
+            NirValue::Binary {
+                op, left, right, ..
+            } if op.is_comparison() => {
+                for operand in [left.as_ref(), right.as_ref()] {
+                    if matches!(operand, NirValue::MemberAccess { .. })
+                        && field_read_root(operand).is_some()
+                    {
+                        self.visit_derived_from(operand);
+                    } else {
+                        self.visit_value(operand);
+                    }
+                }
+                return;
+            }
             _ => {}
         }
         walk_value(self, value);
+    }
+}
+
+/// bug-1025: the local a pure field read `x.a.b` reads through (`x` itself for a
+/// bare local). `None` for anything else: a read through a call, an index or an
+/// extract is not recognized and walks as an ordinary value.
+fn field_read_root(value: &NirValue) -> Option<&str> {
+    match value {
+        NirValue::Local(name) => Some(name),
+        NirValue::MemberAccess { target, .. } => field_read_root(target),
+        _ => None,
     }
 }
 
@@ -2033,6 +2167,176 @@ mod owned_list_ownership_tests {
             &HashMap::new(),
             &mut CalleeParamUses::default(),
             |uses| assert!(uses.block_held_elsewhere("iterated")),
+        );
+    }
+
+    fn field(root: &str, member: &str) -> NirValue {
+        NirValue::MemberAccess {
+            target: Box::new(local(root)),
+            member: member.to_string(),
+        }
+    }
+
+    fn bind(name: &str, type_: &str, value: NirValue) -> NirOp {
+        NirOp::Bind {
+            mutable: false,
+            name: name.to_string(),
+            type_: ParameterType::parse(type_),
+            value: Some(value),
+        }
+    }
+
+    /// [`uses_of`] with `Holder` known as a record that reaches a resource.
+    fn record_uses_of<'f>(
+        body: Vec<NirOp>,
+        functions: &'f HashMap<String, &'f NirFunction>,
+        check: impl FnOnce(&CollectionUses),
+    ) {
+        let holder = |type_: &ParameterType| *type_ == ParameterType::parse("Holder");
+        let mut callees = CalleeParamUses {
+            record_container: Some(&holder),
+            ..CalleeParamUses::default()
+        };
+        uses_of(body, functions, &mut callees, check);
+    }
+
+    /// bug-1025: reading a record's field is a use of the record, not a second
+    /// holder of the handle it carries, when the read is written into an argument
+    /// of a call that does not keep it, is an operand of a comparison, or is bound
+    /// to a plain scalar. A copy of the record that stays put holds nothing either.
+    #[test]
+    fn a_record_read_through_its_fields_and_copies_is_not_held() {
+        let no_functions = HashMap::new();
+        record_uses_of(
+            vec![
+                eval(call("fs.readAll", vec![field("k", "h")])),
+                NirOp::If {
+                    condition: NirValue::Binary {
+                        op: crate::operators::BinaryOp::Equal,
+                        left: Box::new(field("k", "n")),
+                        right: Box::new(local("limit")),
+                        loc: NirSourceLoc::default(),
+                    },
+                    then_body: Vec::new(),
+                    else_body: Vec::new(),
+                },
+                bind("n", "Integer", field("k", "n")),
+                bind("k2", "Holder", local("k")),
+                bind(
+                    "k3",
+                    "Holder",
+                    NirValue::WithUpdate {
+                        type_: ParameterType::parse("Holder"),
+                        target: Box::new(local("k2")),
+                        updates: Vec::new(),
+                    },
+                ),
+                eval(call("fs.readAll", vec![field("k3", "h")])),
+            ],
+            &no_functions,
+            |uses| {
+                assert!(!uses.block_held_elsewhere("k"));
+                assert!(
+                    uses.escaping.contains("k"),
+                    "the strict verdicts still see every reading"
+                );
+            },
+        );
+    }
+
+    /// The guard on that: the handle bound on its own, the field stored as an
+    /// element, the field handed to a callee that keeps it, a copy that is
+    /// returned, and a copy made by assignment (whose target can outlive the
+    /// record) are each a second holder. So is any copy when the type is not known
+    /// to be a record.
+    #[test]
+    fn a_record_whose_handle_or_copy_leaves_is_held() {
+        let keeper = function(
+            &["f"],
+            vec![NirOp::Return {
+                value: Some(local("f")),
+            }],
+        );
+        let functions: HashMap<String, &NirFunction> =
+            HashMap::from([("keeper".to_string(), &keeper)]);
+        let leaving: [Vec<NirOp>; 5] = [
+            vec![bind("f", "fs.File", field("k", "h"))],
+            vec![NirOp::Assign {
+                name: "out".to_string(),
+                value: call("collections.append", vec![local("out"), field("k", "h")]),
+            }],
+            vec![eval(call("keeper", vec![field("k", "h")]))],
+            vec![
+                bind("k2", "Holder", local("k")),
+                NirOp::Return {
+                    value: Some(local("k2")),
+                },
+            ],
+            vec![NirOp::Assign {
+                name: "outer".to_string(),
+                value: local("k"),
+            }],
+        ];
+        for body in leaving {
+            record_uses_of(body, &functions, |uses| {
+                assert!(uses.block_held_elsewhere("k"));
+            });
+        }
+        // The same copy that stays put, with no record type known.
+        uses_of(
+            vec![bind("k2", "Holder", local("k"))],
+            &functions,
+            &mut CalleeParamUses::default(),
+            |uses| assert!(uses.block_held_elsewhere("k")),
+        );
+        // A collection bound to a second name shares its block; it is no copy.
+        record_uses_of(
+            vec![bind("same", "List OF RES fs.File", local("files"))],
+            &functions,
+            |uses| assert!(uses.block_held_elsewhere("files")),
+        );
+    }
+
+    /// bug-1025: a function that returns a record it built hands back a block of
+    /// its own, directly or through another such function.
+    #[test]
+    fn a_function_returning_a_record_it_built_returns_a_fresh_block() {
+        let keep = function(
+            &["h"],
+            vec![NirOp::Return {
+                value: Some(NirValue::Constructor {
+                    type_: ParameterType::parse("Holder"),
+                    args: vec![local("h")],
+                }),
+            }],
+        );
+        let make = function(
+            &[],
+            vec![NirOp::Return {
+                value: Some(call("keep", vec![local("u")])),
+            }],
+        );
+        let same = function(
+            &["b"],
+            vec![NirOp::Return {
+                value: Some(local("b")),
+            }],
+        );
+        let functions: HashMap<String, &NirFunction> = HashMap::from([
+            ("keep".to_string(), &keep),
+            ("make".to_string(), &make),
+            ("same".to_string(), &same),
+        ]);
+        record_uses_of(
+            vec![
+                bind("k", "Holder", call("make", vec![])),
+                bind("other", "Holder", call("same", vec![local("k")])),
+            ],
+            &functions,
+            |uses| {
+                assert!(uses.block_is_fresh("k"));
+                assert!(!uses.block_is_fresh("other"));
+            },
         );
     }
 }

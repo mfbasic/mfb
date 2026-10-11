@@ -480,6 +480,20 @@ element's singleton, `set`'s removed copy) are freed the same shallow way.
 [[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]] A collection that fails any of those keeps a close-only drain, which leaks
 those blocks rather than risking a double free.
 A collection that reaches a resource union is held to the same proof as any other.
+
+A **record** that reaches a resource — a record with a `RES` field, or one nesting
+such a record — is an owner container too: bound to a call's result, it adopts the
+records the call hands back inside it, and its drain frees them under the same
+proof. A function that returns a record it constructed returns a fresh block. A
+record is read through its fields and is copied by value, so three readings of it
+leave no holder behind: a field read written straight into an argument of a call
+that neither keeps nor consumes it (`fs::readAll(k.h)`), a field read that is an
+operand of a comparison or is bound to a plain scalar, and a copy bound from it
+(`LET k2 = k`, `LET k2 = WITH k { … }`) that itself stays inside the scope, by the
+loop variable's rule. A handle bound on its own (`RES f = k.h`), a field stored as an
+element, a copy made by assignment, and a record returned or handed to a callee that
+keeps it are holders, and the record's drain then closes without freeing.
+[[src/codegen/resource/cleanup/record_ownership.rs:field_read_root]]
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/resource/cleanup/record_ownership.rs:is_match_view]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]

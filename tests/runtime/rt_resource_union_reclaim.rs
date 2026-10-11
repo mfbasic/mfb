@@ -538,7 +538,8 @@ fn a_record_binding_frees_the_resource_record_it_adopted() {
         1,
         Expect::Balanced,
     );
-    // Left early by `RETURN`, with a copy of the record bound after it.
+    // A `RETURN` the record's scope can be left by, and a copy of the record bound
+    // after it. The second read is at the end of the file, so `rd` gives -5.
     check_holder(
         "early_return_and_copy",
         "FUNC once() AS Integer\n\
@@ -547,7 +548,7 @@ fn a_record_binding_frees_the_resource_record_it_adopted() {
          \x20   RETURN 7\n\
          \x20 END IF\n\
          \x20 LET k2 AS HB2 = k\n\
-         \x20 RETURN rd(k2.h) + 1\n\
+         \x20 RETURN rd(k2.h) + 6\n\
          END FUNC\n",
         1,
         Expect::Balanced,
