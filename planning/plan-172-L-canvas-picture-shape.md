@@ -324,6 +324,34 @@ None beyond 172-A's Open Decision 3.
 
 ## Corrections
 
+- **From 172-K as built (2026-10-11): what a `Picture` that holds an `AutoShape` has to
+  fit into.** Read `.ai/canvas-threading.md` section 16 and `mfb spec app canvas`,
+  "AutoPaint", first. The parts this letter touches:
+  - **An `AutoPaint` is found by the WALK, and only by the walk.** Its geometry is never
+    cached under the item's own hash, so the native first pass always leaves it for
+    `__canvas_appendDraw`, whose `AutoPaint` arm (`__canvas_autoAppend`) notes the
+    instance. An `AutoPaint` reached through a `Picture`'s `shape` is an instance only
+    if the picture's walk calls that same hook, with a `path` and `index` that name its
+    place (`__canvas_autoPath`) — and the GPU walk (`__canvas_memoGroup`,
+    `__canvas_autoBlock`) must derive the same key.
+  - **A state paint is a different RECORD, swapped in after the hit test.** For a
+    picture whose shape is an `AutoPaint`, "the state paints change the tint and
+    outline" means the picture's record is rebuilt under the state's paint and cached
+    under a stepped hash, as `__canvas_autoGeometry` does for a shape.
+  - **The item hash and the shape converter are behind a gate.** `__canvas_autoItem`,
+    `__canvas_autoHash` and ten more names exist twice — the real chunk, compiled into a
+    program that constructs an `AutoPaint`, and `ABSENT` for every other. A new hook
+    goes into BOTH, with one signature
+    (`canvas_auto_hooks_are_declared_alike_in_both_chunks`). They are there because an
+    always-compiled arm that copies a record costs kilobytes in every canvas program:
+    measure `__text` (`otool -l`) before leaving one unconditional.
+  - **`canvas::AutoPaint`'s paint fields are `enterPaint`, `exitPaint`, `hoverPaint`,
+    `pressedPaint`** (`EXIT` is a keyword), pending the owner's word on the names.
+  - **The `--debug` geometry check is handed the ITEM.** `__canvas_geoReference` needs
+    an arm for whatever a `Picture` becomes, and only the remote rows
+    (`scripts/test-canvas-gpu-rows.sh`) set `MFB_CANVAS_GEO_VERIFY`.
+  - **Damage is off by default** and a test must never time anything from a headless
+    program's first frame — both in section 11 and section 4 of the threading notes.
 - **From 172-I as built (2026-10-11): the id path is not carried by
   `__canvas_appendDraw`.** Phase tasks that say "`__canvas_appendDraw`'s picture arm
   joins the picture's `id` onto the path" mean `helper_hit.rs:__canvas_hitAppend`, the

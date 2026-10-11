@@ -435,7 +435,7 @@ software frame of a hovered scene within `Tolerance::GPU_DEFAULT`.
   "Deterministically": the four race rows were run in the round with every other test
   of their binary in parallel, which is the condition that broke two of them as first
   written.
-Commit: —
+Commit: ac806ae1c
 
 **Real windows (the Validation Plan's runtime proof), 2026-10-11.** A program that
 presents once and then only sleeps, the real pointer moved by `tools/pointer-probe`,
