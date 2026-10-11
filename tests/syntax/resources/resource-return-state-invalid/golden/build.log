@@ -3,8 +3,8 @@ $ mfb build -ast -ir tests/syntax/resources/resource-return-state-invalid
   14 | ' return type string never contained it.
   15 | FUNC make() AS RES fs::File STATE Color
      | ^
-tests/syntax/resources/resource-return-state-invalid/src/main.mfb:15 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
-               FUNC `make` return STATE type `Color` must be a copyable, defaultable data type.
+tests/syntax/resources/resource-return-state-invalid/src/main.mfb:15 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               FUNC `make` return STATE type `Color` is not a record; declare a record TYPE that holds the value and name it instead.
   15 | FUNC make() AS RES fs::File STATE Color
   16 |   RES f AS fs::File = fs::openFile("tests/syntax/resources/resource-return-state-invalid/src/main.mfb")
   17 |   RETURN f

@@ -3,6 +3,6 @@ $ mfb build -ast -ir tests/syntax/resources/resource-param-state-invalid
   12 | 
   13 | FUNC g(h AS fs::File STATE P) AS Nothing
      | ^
-tests/syntax/resources/resource-param-state-invalid/src/main.mfb:13 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
-               Parameter `h` STATE type `P` must be a copyable, defaultable data type.
+tests/syntax/resources/resource-param-state-invalid/src/main.mfb:13 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `h` STATE type `P` must be a copyable, defaultable record TYPE.
 [exit 1]

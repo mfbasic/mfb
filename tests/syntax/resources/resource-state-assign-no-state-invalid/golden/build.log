@@ -3,6 +3,6 @@ $ mfb build -ast -ir tests/syntax/resources/resource-state-assign-no-state-inval
    8 |   RES f AS fs::File = fs::createTempFile()
    9 |   f.state = WITH f.state { pos := 1 }
      | ^
-tests/syntax/resources/resource-state-assign-no-state-invalid/src/main.mfb:9 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+tests/syntax/resources/resource-state-assign-no-state-invalid/src/main.mfb:9 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
                `f` has no STATE to assign; declare the resource with `STATE T`.
 [exit 1]

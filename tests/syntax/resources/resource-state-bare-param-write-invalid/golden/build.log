@@ -3,6 +3,6 @@ $ mfb build -ast -ir tests/syntax/resources/resource-state-bare-param-write-inva
   11 | FUNC touch(p AS fs::File) AS Nothing
   12 |   p.state.pos = 1
      | ^
-tests/syntax/resources/resource-state-bare-param-write-invalid/src/main.mfb:12 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+tests/syntax/resources/resource-state-bare-param-write-invalid/src/main.mfb:12 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
                `p` has no STATE to assign; declare the resource with `STATE T`.
 [exit 1]

@@ -9,6 +9,6 @@ tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb:16 er
   15 | FUNC show(p AS fs::File) AS Nothing
   16 |   io::print(toString(p.state.pos))
      | ^
-tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb:16 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+tests/syntax/resources/resource-state-bare-param-read-invalid/src/main.mfb:16 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
                `fs.File` here has no STATE to read; declare the resource with `STATE T`. Bare means "no state" on an owner, and "opaque" on a resource parameter — a bare parameter cannot read the state its caller attached.
 [exit 1]
